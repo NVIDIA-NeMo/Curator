@@ -6,12 +6,10 @@ Based on NeMo Curator's VideoReader pattern.
 import base64
 import io
 import json
-import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Generic, Type, TypeVar
 
-import pyarrow.parquet as pq
 from loguru import logger
 from PIL import Image
 
@@ -528,125 +526,6 @@ def merge_output_shards(output_path: Path, *, delete_shards: bool = True) -> Pat
     return merged
 
 
-class ImageWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTask[T_TaskData]], Generic[T_TaskData]):
-    """Stage for writing images to disk alongside results.
-
-    Images are organized in subfolders based on parquet file name to avoid
-    having too many files in a single directory.
-
-    Folder structure: output_dir/parquet_stem/image_id.{ext}
-    """
-
-    name: str = "image_writer"
-    resources = Resources(cpus=1.0)
-
-    def __init__(self, output_dir: str, valid_only: bool = True) -> None:
-        """Initialize the image writer stage.
-
-        Args:
-            output_dir: Base directory for output images.
-            valid_only: If True, only write images for valid records.
-        """
-        self.output_dir = Path(output_dir)
-        self.valid_only = valid_only
-        self._saved_count: int = 0
-        self._skipped_count: int = 0
-        self._worker_id: str = ""
-
-    def setup(self, worker_metadata: WorkerMetadata) -> None:
-        """Set up the image writer."""
-        self._worker_id = str(worker_metadata.worker_id)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self._saved_count = 0
-        self._skipped_count = 0
-        logger.info(f"ImageWriter: writing images to {self.output_dir}")
-
-    def _get_subfolder(self, task: SingleDataTask[T_TaskData]) -> str:
-        """Get subfolder name based on parquet file or other source.
-
-        Args:
-            task: The image caption task.
-
-        Returns:
-            Subfolder name string.
-        """
-        if task.data.image_path.parent.name.endswith(".parquet"):
-            # Use parquet file stem (e.g., "train-00000-of-00314.parquet")
-            if m := re.match(r"^.*-(\d+)-of-\d+\.parquet$", task.data.image_path.parent.name):
-                return m.group(1)
-            return task.data.image_path.parent.stem
-        if (tar_slice := _parse_tar_slice_path(task.data.image_path)) is not None:
-            tar_path, _, _, _ = tar_slice
-            return tar_path.stem or "images"
-        elif task.data.image_path is not None:
-            # For tar files, use tar stem; for images, use parent dir name
-            return task.data.image_path.parent.name or "images"
-        else:
-            return "images"
-
-    @staticmethod
-    def _get_output_stem(image_path: Path) -> str:
-        if (tar_slice := _parse_tar_slice_path(image_path)) is not None:
-            _, _, _, internal_name = tar_slice
-            return Path(internal_name).stem or image_path.stem
-        return image_path.stem
-
-    def process(self, task: SingleDataTask[T_TaskData]) -> SingleDataTask[T_TaskData]:
-        """Write image to disk.
-
-        Args:
-            task: ImageCaptionTask containing image data.
-
-        Returns:
-            The same task (pass-through).
-        """
-        if self.valid_only and not task.data.is_valid:
-            self._skipped_count += 1
-            return task
-
-        try:
-            # Load image
-            image = load_image_from_task(task)
-
-            # Determine output path with subfolder
-            subfolder = self._get_subfolder(task)
-            output_subdir = self.output_dir / subfolder
-            output_subdir.mkdir(parents=True, exist_ok=True)
-
-            # Determine file extension based on image format
-            fmt = image.format or "PNG"
-            ext = fmt.lower()
-            if ext == "jpeg":
-                ext = "jpg"
-
-            output_stem = self._get_output_stem(task.data.image_path)
-            output_path = output_subdir / f"{output_stem}.{ext}"
-            image.save(output_path)
-
-            self._saved_count += 1
-            logger.debug(f"ImageWriter: saved {output_path}")
-
-            task.data.image_path = output_path
-
-        except Exception as e:
-            logger.error(f"ImageWriter: failed to save image {task.data.image_path}: {e}")
-            self._skipped_count += 1
-
-        return task
-
-    def teardown(self) -> None:
-        """Log final statistics."""
-        logger.info(f"ImageWriter: wrote {self._saved_count} images, skipped {self._skipped_count}")
-
-    @property
-    def stats(self) -> dict[str, int]:
-        """Return write statistics."""
-        return {
-            "saved": self._saved_count,
-            "skipped": self._skipped_count,
-        }
-
-
 class FileReader(ABC):
     """Abstract base class for reading files from various sources."""
 
@@ -737,132 +616,16 @@ class RegularFileReader(FileReader):
         return path.read_bytes()
 
 
-class TarFileReader(FileReader):
-    """Reader for tar slice paths.
-
-    Tar slice paths have the format: /path/to/file.tar/<offset>:<length>:<name>
-    """
-
-    def can_read(self, path: Path) -> bool:
-        """Check if path is a tar slice path."""
-        return ".tar/" in str(path)
-
-    def read_bytes(self, path: Path) -> bytes:
-        """Read bytes from a tar slice."""
-        parsed = self._parse_tar_slice_path(path)
-        if parsed is None:
-            raise ValueError(f"Invalid tar slice path: {path}")
-
-        tar_path, byte_offset, byte_length, _ = parsed
-        if not tar_path.exists():
-            raise FileNotFoundError(f"Tar file not found: {tar_path}")
-
-        with tar_path.open("rb") as tar_file:
-            tar_file.seek(byte_offset)
-            image_bytes = tar_file.read(byte_length)
-
-        if len(image_bytes) != byte_length:
-            msg = f"Short read from tar slice: expected {byte_length}, got {len(image_bytes)}"
-            raise ValueError(msg)
-
-        return image_bytes
-
-    @staticmethod
-    def _parse_tar_slice_path(image_path: Path) -> tuple[Path, int, int, str] | None:
-        """Parse tar slice path into components."""
-        marker = ".tar/"
-        path_str = str(image_path)
-        marker_index = path_str.find(marker)
-        if marker_index == -1:
-            return None
-
-        tar_path_str = path_str[: marker_index + len(".tar")]
-        slice_spec = path_str[marker_index + len(marker) :]
-        parts = slice_spec.split(":", 2)
-        if len(parts) != 3:
-            msg = f"Invalid tar slice format: {image_path}"
-            raise ValueError(msg)
-
-        byte_offset = int(parts[0])
-        byte_length = int(parts[1])
-        internal_name = parts[2]
-        return Path(tar_path_str), byte_offset, byte_length, internal_name
-
-
-class ParquetFileReader(FileReader):
-    """Reader for parquet file references.
-
-    Parquet paths have the format: /path/to/file.parquet/<index>
-    """
-
-    _cache: dict[Path, pq.ParquetFile] = {}
-    _cache_size: int = 10
-
-    def can_read(self, path: Path) -> bool:
-        """Check if path is a parquet reference."""
-        return path.parent.name.endswith(".parquet")
-
-    def read_bytes(self, path: Path) -> bytes:
-        """Read bytes from a parquet file."""
-        parquet_path = path.parent
-        parquet_file = self._cache.get(parquet_path)
-
-        if parquet_file is None:
-            parquet_file = pq.ParquetFile(parquet_path)
-            self._cache[parquet_path] = parquet_file
-            if len(self._cache) > self._cache_size:
-                self._cache.pop(next(iter(self._cache))).close()
-
-        table = parquet_file.read(columns=["image"])
-        image_data = table["image"][int(path.stem)].as_py()
-        return image_data["bytes"]
-
-
-_file_readers: list[FileReader] = [
-    ParquetFileReader(),
-    TarFileReader(),
-    RegularFileReader(),
-]
-
-
-def _get_reader_for_path(path: Path) -> FileReader:
-    """Get the appropriate reader for the given path.
-
-    Args:
-        path: Path to find a reader for.
-
-    Returns:
-        FileReader that can handle the path.
-
-    Raises:
-        ValueError: If no reader can handle the path.
-    """
-    for reader in _file_readers:
-        if reader.can_read(path):
-            return reader
-    raise ValueError(f"No reader found for path: {path}")
-
-
-def _parse_tar_slice_path(image_path: Path) -> tuple[Path, int, int, str] | None:
-    """Parse tar slice path into components.
-
-    Deprecated: Use TarFileReader._parse_tar_slice_path instead.
-    """
-    return TarFileReader._parse_tar_slice_path(image_path)
+_file_reader = RegularFileReader()
 
 
 def load_image_from_task(task: SingleDataTask[ImageTaskData]) -> Image.Image:
-    """Load PIL Image from an ImageCaptionTask.
-
-    Handles parquet references, in-memory bytes, direct file paths, and tar-embedded paths.
+    """Load PIL Image from an ``ImageTaskData`` task.
 
     Args:
-        task: ImageCaptionTask containing image source (parquet ref, bytes, or path).
+        task: Task whose ``data.image_path`` points to a regular image file on disk.
 
     Returns:
         PIL Image object.
     """
-    reader = _get_reader_for_path(task.data.image_path)
-    return reader.open_image(task.data.image_path)
-
-
+    return _file_reader.open_image(task.data.image_path)
