@@ -16,11 +16,11 @@
 
 Wraps PANNs (Pretrained Audio Neural Networks) CNN14 variants as a Curator
 ProcessingStage.  Each audio file is processed through the CNN model and the
-per-frame class probabilities (T x 527 AudioSet classes) are saved as a
-compressed NPZ sidecar file.  Downstream stages (e.g. SEDPostprocessingStage)
-read these NPZ files to extract clean-speech timestamps.
+per-frame class probabilities (T x 527 AudioSet classes) are passed to the
+next stage via task data.  Optionally, results can also be saved as compressed
+NPZ sidecar files (``save_npz=True``).
 
-Requires: ``pip install torchlibrosa librosa``
+Requires: ``pip install torchlibrosa`` (``librosa`` only needed if input sample rate differs from model target)
 """
 
 from __future__ import annotations
@@ -43,33 +43,40 @@ if TYPE_CHECKING:
 
 @dataclass
 class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
-    """Run Sound Event Detection on each audio file and save framewise NPZ output.
+    """Run Sound Event Detection on each audio task.
 
     The model produces a ``(T, classes_num)`` probability matrix for each audio
-    file (default 527 AudioSet classes at ~50 fps for 16 kHz / hop_size 320).
-    Results are saved as compressed NPZ files under ``output_dir/framewise/``
-    and the ``npz_filepath`` key is added to the output task data.
+    (default 527 AudioSet classes at ~50 fps for 16 kHz / hop_size 320).
+
+    Expects each ``AudioTask.data`` to carry:
+
+    - ``waveform``: 1-D mono numpy float32 array (any sample rate)
+    - ``sample_rate``: int
+
+    These are produced by ``NemoTarShardReaderStage`` which decodes audio
+    in memory.  The stage resamples to the target sample rate internally.
+
+    By default, results are passed to the next stage in-memory via task data
+    keys (``_sed_framewise``, ``sed_fps``, ``sed_valid_frames``).  Set
+    ``save_npz=True`` to also write compressed NPZ sidecar files.
 
     Args:
         checkpoint_path: Path to the PANNs ``.pth`` checkpoint file.
         model_type: CNN14 variant name (see ``sed_models.MODEL_REGISTRY``).
-        sample_rate: Audio resampling rate. Defaults to 16000.
+        sample_rate: Model target sample rate. Defaults to 16000.
         window_size: STFT window size. Defaults to 1024.
         hop_size: STFT hop size. Defaults to 320.
         mel_bins: Number of mel filter banks. Defaults to 64.
         fmin: Minimum frequency for mel filters. Defaults to 50.
         fmax: Maximum frequency for mel filters. Defaults to 14000.
         classes_num: Number of AudioSet classes. Defaults to 527.
-        output_dir: Directory to write NPZ sidecar files. Defaults to ``"sed_output"``.
-        framewise_dtype: NPZ float dtype. Defaults to ``"float16"``.
+        save_npz: Write NPZ sidecar files to ``output_dir``. Defaults to False.
+        output_dir: Directory to write NPZ sidecar files (only used when ``save_npz=True``).
+        framewise_dtype: Float dtype for framewise output. Defaults to ``"float16"``.
         pad_short_segments: Zero-pad audio shorter than minimum model input. Defaults to True.
-        filepath_key: Key in task data for the audio path. Defaults to ``"audio_filepath"``.
-        save_npz: Write framewise probabilities to per-utterance NPZ sidecars under
-            ``output_dir/framewise/``.  Defaults to ``True`` to preserve the existing
-            dev-branch behaviour.  Set to ``False`` to skip disk I/O and pass the
-            framewise tensor in-memory to ``SEDPostprocessingStage`` (under the
-            ``sed_framewise`` key) — useful for streaming AIS pipelines where the
-            framewise array isn't needed after postprocessing.
+        waveform_key: Key in task data for the waveform array. Defaults to ``"waveform"``.
+        sample_rate_key: Key in task data for the sample rate. Defaults to ``"sample_rate"``.
+        filepath_key: Key in task data for the audio path (used for NPZ naming). Defaults to ``"audio_filepath"``.
     """
 
     checkpoint_path: str = ""
@@ -81,14 +88,17 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     fmin: int = 50
     fmax: int = 14000
     classes_num: int = 527
+    save_npz: bool = False
     output_dir: str = "sed_output"
     framewise_dtype: str = "float16"
     pad_short_segments: bool = True
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
     filepath_key: str = "audio_filepath"
-    save_npz: bool = True
+    skip_me_key: str = "_skip_me"
 
     name: str = "SEDInference"
-    batch_size: int = 1
+    batch_size: int = 32
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
 
     def setup(self, _worker_metadata: Any = None) -> None:
@@ -118,7 +128,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
             classes_num=self.classes_num,
         )
         # Always load to CPU first, then move — avoids CUDA conflicts with vLLM
-        checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)
+        checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
         self._model.load_state_dict(checkpoint["model"])
         self._model.to(self._device)
         self._model.eval()
@@ -133,125 +143,108 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        keys = [self.filepath_key, "sed_valid_frames", "sed_fps"]
+        out_keys = [self.filepath_key, "_sed_framewise", "sed_valid_frames", "sed_fps"]
         if self.save_npz:
-            keys.append("npz_filepath")
-        else:
-            keys.append("sed_framewise")
-        return ["data"], keys
+            out_keys.append("npz_filepath")
+        return ["data"], out_keys
 
-    def process(self, task):
-        """Run SED on one audio file, save NPZ, return enriched task.
+    def process(self, task: AudioTask) -> AudioTask:
+        """Run SED on a single task (delegates to process_batch)."""
+        return self.process_batch([task])[0]
 
-        Handles both AudioTask (dict) and DocumentBatch (DataFrame) inputs.
-        """
-        import numpy as np
-        import pandas as pd
-        import torch
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Run batched SED inference on the GPU for all tasks at once."""
+        if not tasks:
+            return []
 
-        from nemo_curator.tasks import DocumentBatch
-
-        # --- Handle DocumentBatch (from JsonlReader) ---
-        if isinstance(task, DocumentBatch):
-            df = task.to_pandas() if hasattr(task, "to_pandas") else task.data
-            results = []
-            for _, row in df.iterrows():
-                audio_path = str(row.get(self.filepath_key, ""))
-                if not audio_path:
-                    results.append(row.to_dict())
-                    continue
-                framewise, valid_frames, fps, npz_path = self._run_sed_on_file(audio_path)
-                r = row.to_dict()
-                if self.save_npz:
-                    r["npz_filepath"] = npz_path
-                else:
-                    r["sed_framewise"] = framewise
-                r["sed_valid_frames"] = valid_frames
-                r["sed_fps"] = fps
-                results.append(r)
-            out_df = pd.DataFrame(results)
-            return DocumentBatch(data=out_df, dataset_name=task.dataset_name, task_id=task.task_id)
-
-        # --- Handle AudioTask ---
-        # Prefer in-memory waveform (AIS-streamed pipeline) so we never
-        # need a shared filesystem.  Falls back to audio_filepath for the
-        # legacy file-based path.
-        from nemo_curator.stages.audio.utils.audio_io import ensure_waveform
-
-        if "waveform" in task.data:
-            waveform = ensure_waveform(task, target_sr=self.sample_rate)
-            audio_path = str(task.data.get(self.filepath_key, "") or task.task_id)
-        else:
-            audio_path = str(task.data.get(self.filepath_key, ""))
-            if not audio_path:
-                msg = f"Missing {self.filepath_key} in task data"
-                raise ValueError(msg)
-            waveform = None  # _run_sed_on_audio will load from path
-
-        framewise, valid_frames, fps, npz_path = self._run_sed_on_audio(
-            audio_path=audio_path, preloaded_waveform=waveform
-        )
-        output_data = dict(task.data)
-        if self.save_npz:
-            output_data["npz_filepath"] = npz_path
-        else:
-            output_data["sed_framewise"] = framewise
-        output_data["sed_valid_frames"] = int(valid_frames)
-        output_data["sed_fps"] = float(fps)
-
-        return AudioTask(
-            task_id=f"{task.task_id}_sed",
-            dataset_name=task.dataset_name,
-            filepath_key=task.filepath_key or self.filepath_key,
-            data=output_data,
-            _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
-        )
-
-    def _run_sed_on_file(self, audio_path: str) -> "tuple[np.ndarray, int, float, str]":
-        """Backwards-compatible wrapper that loads from ``audio_path``."""
-        return self._run_sed_on_audio(audio_path=audio_path, preloaded_waveform=None)
-
-    def _run_sed_on_audio(
-        self,
-        audio_path: str,
-        preloaded_waveform: "np.ndarray | None",
-    ) -> "tuple[np.ndarray, int, float, str]":
-        """Core SED logic: get audio (preloaded or via librosa), run model, save NPZ.
-
-        Returns ``(framewise, valid_frames, fps, npz_path)``.  ``npz_path``
-        is ``""`` when ``save_npz=False``.
-        """
         import numpy as np
         import torch
 
-        if preloaded_waveform is not None:
-            waveform = preloaded_waveform
-        else:
-            import librosa
+        valid_indices, waveforms, original_samples_list, audio_paths = self._preprocess_waveforms(tasks)
 
-            waveform, _ = librosa.core.load(audio_path, sr=self.sample_rate, mono=True)
-        original_samples = waveform.shape[0]
+        if not valid_indices:
+            logger.info(f"SED batch: all {len(tasks)} tasks skipped (no valid waveforms)")
+            return tasks
 
         min_input = max(self.window_size, self.hop_size * 32)
-        was_padded = False
-        if self.pad_short_segments and original_samples < min_input:
-            waveform = np.pad(waveform, (0, min_input - original_samples), mode="constant")
-            was_padded = True
+        for i, wav in enumerate(waveforms):
+            if self.pad_short_segments and wav.shape[0] < min_input:
+                waveforms[i] = np.pad(wav, (0, min_input - wav.shape[0]), mode="constant")
 
-        x = torch.from_numpy(waveform[None, :]).float().to(self._device)
+        max_len = max(w.shape[0] for w in waveforms)
+        padded = np.zeros((len(waveforms), max_len), dtype=np.float32)
+        for i, w in enumerate(waveforms):
+            padded[i, : w.shape[0]] = w
+
+        x = torch.from_numpy(padded).to(self._device)
         with torch.no_grad():
             out = self._model(x, None)
 
-        framewise: np.ndarray = out["framewise_output"].cpu().numpy()[0]
+        all_framewise: np.ndarray = out["framewise_output"].cpu().numpy()
         fps = float(self.sample_rate) / self.hop_size
-        valid_frames = min(int(np.ceil(original_samples / self.hop_size)), framewise.shape[0])
+        use_fp16 = self.framewise_dtype == "float16"
 
-        fw = framewise.astype(np.float16 if self.framewise_dtype == "float16" else np.float32)
-        npz_path = ""
-        if self.save_npz:
-            npz_path = self._save_npz(fw, fps, audio_path, original_samples, valid_frames, was_padded)
-        return fw, int(valid_frames), fps, npz_path
+        for vi, task_idx in enumerate(valid_indices):
+            task = tasks[task_idx]
+            orig_samples = original_samples_list[vi]
+            framewise_i = all_framewise[vi]
+            valid_frames = min(int(np.ceil(orig_samples / self.hop_size)), framewise_i.shape[0])
+            fw = framewise_i.astype(np.float16 if use_fp16 else np.float32)
+
+            task.data["_sed_framewise"] = fw
+            task.data["sed_valid_frames"] = int(valid_frames)
+            task.data["sed_fps"] = fps
+
+            if self.save_npz and audio_paths[vi]:
+                task.data["npz_filepath"] = self._save_npz(fw, fps, audio_paths[vi], orig_samples, valid_frames)
+
+        n_skipped = len(tasks) - len(valid_indices)
+        if n_skipped:
+            logger.info(f"SED batch: skipped {n_skipped}/{len(tasks)} tasks (already flagged or missing waveform)")
+        logger.info(f"SED batch: processed {len(valid_indices)} samples (max_len={max_len}, fps={fps:.1f})")
+        return tasks
+
+    def _preprocess_waveforms(
+        self, tasks: list[AudioTask]
+    ) -> tuple[list[int], list[np.ndarray], list[int], list[str]]:
+        """Extract, mono-mix, and resample waveforms from valid (non-skipped) tasks.
+
+        Returns:
+            ``(valid_indices, waveforms, original_samples, audio_paths)`` where
+            *valid_indices* maps each waveform back to its position in *tasks*.
+        """
+        import numpy as np
+
+        valid_indices: list[int] = []
+        waveforms: list[np.ndarray] = []
+        original_samples: list[int] = []
+        audio_paths: list[str] = []
+
+        for i, task in enumerate(tasks):
+            if task.data.get(self.skip_me_key):
+                continue
+
+            wav = task.data.get(self.waveform_key)
+            if wav is None:
+                logger.warning(f"Missing {self.waveform_key!r} in task {task.task_id}, skipping SED")
+                continue
+
+            src_sr = int(task.data.get(self.sample_rate_key, self.sample_rate))
+            wav = np.asarray(wav, dtype=np.float32)
+            if wav.ndim > 1:
+                wav = wav.mean(axis=1)
+
+            if src_sr != self.sample_rate:
+                import librosa
+
+                wav = librosa.resample(wav, orig_sr=src_sr, target_sr=self.sample_rate)
+
+            valid_indices.append(i)
+            waveforms.append(wav)
+            original_samples.append(wav.shape[0])
+            audio_paths.append(task.data.get(self.filepath_key, ""))
+
+        return valid_indices, waveforms, original_samples, audio_paths
 
     def _save_npz(
         self,
@@ -260,7 +253,6 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         audio_path: str,
         original_samples: int,
         valid_frames: int,
-        was_padded: bool,
     ) -> str:
         import numpy as np
 
@@ -278,6 +270,5 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
             audio_filepath=str(audio_path),
             original_num_samples=np.int32(original_samples),
             valid_frames=np.int32(valid_frames),
-            was_padded=np.bool_(was_padded),
         )
         return npz_path

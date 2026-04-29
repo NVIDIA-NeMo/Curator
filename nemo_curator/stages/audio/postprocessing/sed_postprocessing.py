@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""SED Postprocessing stage: extract clean-speech events from SED NPZ output.
+"""SED Postprocessing stage: label audio entries with detected sound events.
 
-Reads the per-frame probability matrix saved by ``SEDInferenceStage``,
-aggregates speech-class probabilities (noisy-or by default), applies
-threshold/hysteresis/smoothing/merging to detect speech events, and
-optionally classifies each candidate through a GBT model.
+Reads the per-frame probability matrix from task data (in-memory, preferred)
+or from an NPZ sidecar file (fallback), then detects events for each
+sound class group (speech, music, noise, etc.) using thresholding.
+The detected events are added as labels to the task data — no filtering
+or segmentation is performed.
 
 Requires: ``pip install numpy`` (scipy optional for smoothing)
 """
@@ -26,15 +27,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from loguru import logger
 
-from nemo_curator.stages.audio.postprocessing.sed_utils import (
-    SPEECH_CLASS_INDICES,
-    aggregate_speech_probs,
-    framewise_to_events,
-)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -42,131 +38,123 @@ from nemo_curator.tasks import AudioTask
 
 @dataclass
 class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
-    """Extract clean-speech timestamps from SED framewise NPZ output.
+    """Label audio entries with detected sound events from SED framewise output.
 
-    Reads ``npz_filepath`` from the input task (produced by ``SEDInferenceStage``),
-    aggregates speech probabilities across AudioSet speech classes, converts the
-    probability curve to events using thresholding, and stores the detected events
-    as ``predicted_events`` on the output task.
+    Reads framewise data from task data (in-memory ``_sed_framewise`` key,
+    preferred) or falls back to reading from NPZ file (``npz_filepath`` key).
+    For each sound class group in ``SUPERCLASS_GROUPS`` (speech, music, noise,
+    etc.), aggregates probabilities, converts to events via thresholding, and
+    stores all detected events as ``sed_events`` on the output task.
+
+    This is a **labeling** stage — the task passes through with event labels
+    attached, no filtering or fan-out is performed.
 
     Args:
-        speech_agg_mode: Aggregation mode for speech classes. Default ``"noisy_or"``.
-        speech_threshold: Simple threshold for event detection. Default 0.5.
+        agg_mode: Aggregation mode for class groups. Default ``"noisy_or"``.
+        threshold: Probability threshold for event detection. Default 0.5.
         min_duration_sec: Minimum event duration. Default 0.3.
         smoothing_window_sec: Median filter window in seconds (0 = disabled).
         hysteresis_low: Low threshold for hysteresis (None = simple threshold).
         hysteresis_high: High threshold for hysteresis (None = simple threshold).
         merge_gap_sec: Merge events with gaps smaller than this (0 = disabled).
-        classifier_model_path: Optional path to a GBT ``.joblib`` classifier.
-        classifier_threshold: Minimum classifier probability to keep an event.
-        npz_filepath_key: Key in task data for NPZ path. Default ``"npz_filepath"``.
-        events_key: Key for output events list. Default ``"predicted_events"``.
+        emit_subcategories: If True, detect events per individual AudioSet class
+            instead of aggregating per superclass group.  Each event carries
+            ``label`` (subcategory name, e.g. ``"electric_guitar"``) and
+            ``superclass`` (parent group, e.g. ``"music"``). Default False.
+        framewise_key: Key in task data for in-memory framewise array. Default ``"_sed_framewise"``.
+        npz_filepath_key: Key in task data for NPZ path (fallback). Default ``"npz_filepath"``.
+        events_key: Key for output events list. Default ``"sed_events"``.
     """
 
-    speech_agg_mode: str = "noisy_or"
-    speech_threshold: float = 0.5
+    agg_mode: str = "noisy_or"
+    threshold: float = 0.5
     min_duration_sec: float = 0.3
     smoothing_window_sec: float = 0.0
     hysteresis_low: float | None = None
     hysteresis_high: float | None = None
     merge_gap_sec: float = 0.0
-    classifier_model_path: str = ""
-    classifier_threshold: float = 0.5
+    emit_subcategories: bool = False
+    framewise_key: str = "_sed_framewise"
     npz_filepath_key: str = "npz_filepath"
-    events_key: str = "predicted_events"
+    events_key: str = "sed_events"
 
     name: str = "SEDPostprocessing"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
-    def setup(self, _worker_metadata: Any = None) -> None:
-        self._classifier = None
-        if self.classifier_model_path:
-            try:
-                import joblib
-
-                self._classifier = joblib.load(self.classifier_model_path)
-                logger.info(f"Loaded GBT classifier from {self.classifier_model_path}")
-            except Exception as e:
-                logger.warning(f"Failed to load classifier: {e}")
-
-    def teardown(self) -> None:
-        self._classifier = None
-
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.npz_filepath_key, self.events_key]
+        return ["data"], [self.events_key]
 
-    def process(self, task):
+    def process(self, task: AudioTask) -> AudioTask:
+        task.data[self.events_key] = self._detect_all_events(task.data)
+        task.data.pop(self.framewise_key, None)
+        return task
+
+    def _detect_all_events(self, data: dict) -> list[dict]:
+        """Detect events for all SUPERCLASS_GROUPS and return a merged, sorted list."""
         import numpy as np
-        import pandas as pd
 
-        from nemo_curator.tasks import DocumentBatch
-
-        if isinstance(task, DocumentBatch):
-            df = task.to_pandas() if hasattr(task, "to_pandas") else task.data
-            results = []
-            for _, row in df.iterrows():
-                r = row.to_dict()
-                events = self._detect_events_from_row(r)
-                r[self.events_key] = events
-                results.append(r)
-            return DocumentBatch(data=pd.DataFrame(results), dataset_name=task.dataset_name, task_id=task.task_id)
-
-        # AudioTask path
-        events = self._detect_events_from_row(task.data)
-        output_data = dict(task.data)
-        output_data[self.events_key] = events
-        # Drop the in-memory framewise tensor before downstream serialisation —
-        # it's a large numpy array and not JSON-encodable.
-        output_data.pop("sed_framewise", None)
-        return AudioTask(
-            task_id=f"{task.task_id}_sed_post",
-            dataset_name=task.dataset_name,
-            filepath_key=task.filepath_key,
-            data=output_data,
-            _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
+        from nemo_curator.stages.audio.postprocessing.sed_utils import (
+            AUDIOSET_CLASS_NAMES,
+            SUPERCLASS_GROUPS,
+            aggregate_speech_probs,
+            framewise_to_events,
         )
 
-    def _detect_events_from_row(self, row: dict) -> list[dict]:
-        """Run event detection from either an in-memory framewise tensor
-        (``sed_framewise``, preferred) or an NPZ file (``npz_filepath``,
-        fallback).  Returns ``[]`` if neither is present."""
-        import numpy as np
+        framewise_raw = data.get(self.framewise_key)
+        if framewise_raw is not None:
+            framewise = np.asarray(framewise_raw, dtype=np.float32)
+            fps = float(data.get("sed_fps", self._default_fps()))
+            valid_frames = int(data.get("sed_valid_frames", framewise.shape[0]))
+        else:
+            npz_path = str(data.get(self.npz_filepath_key, ""))
+            if not npz_path or not os.path.exists(npz_path):
+                logger.warning("No in-memory framewise data or NPZ file found; skipping.")
+                return []
+            with np.load(npz_path) as npz:
+                framewise = npz["framewise"].astype(np.float32)
+                fps = float(npz["fps"])
+                valid_frames = int(npz.get("valid_frames", framewise.shape[0]))
 
-        framewise = row.get("sed_framewise", None)
-        if framewise is not None:
-            fps = float(row.get("sed_fps", 50.0))
-            valid_frames = int(row.get("sed_valid_frames", np.asarray(framewise).shape[0]))
-            return self._detect_events(np.asarray(framewise, dtype=np.float32), fps, valid_frames)
-
-        npz_path = str(row.get(self.npz_filepath_key, ""))
-        if not npz_path or not os.path.exists(npz_path):
-            return []
-        with np.load(npz_path) as data:
-            framewise = data["framewise"].astype(np.float32)
-            fps = float(data["fps"])
-            valid_frames = int(data.get("valid_frames", framewise.shape[0]))
-        return self._detect_events(framewise, fps, valid_frames)
-
-    def _detect_events(self, framewise: "np.ndarray", fps: float, valid_frames: int) -> list[dict]:
         framewise = framewise[:valid_frames]
-        speech_probs = aggregate_speech_probs(framewise, SPEECH_CLASS_INDICES, mode=self.speech_agg_mode)
-
         smoothing_frames = int(self.smoothing_window_sec * fps) if self.smoothing_window_sec > 0 else 0
-        events = framewise_to_events(
-            probs=speech_probs,
-            fps=fps,
-            threshold=self.speech_threshold,
-            min_duration_sec=self.min_duration_sec,
-            smoothing_window_frames=smoothing_frames,
-            hysteresis_low=self.hysteresis_low,
-            hysteresis_high=self.hysteresis_high,
-            merge_gap_sec=self.merge_gap_sec,
-        )
-        for evt in events:
-            evt["label"] = "speech"
-        return events
+
+        common_kwargs = {
+            "fps": fps,
+            "threshold": self.threshold,
+            "min_duration_sec": self.min_duration_sec,
+            "smoothing_window_frames": smoothing_frames,
+            "hysteresis_low": self.hysteresis_low,
+            "hysteresis_high": self.hysteresis_high,
+            "merge_gap_sec": self.merge_gap_sec,
+        }
+
+        all_events: list[dict] = []
+
+        if self.emit_subcategories:
+            for superclass, class_indices in SUPERCLASS_GROUPS.items():
+                for idx in class_indices:
+                    probs = framewise[:, idx]
+                    events = framewise_to_events(probs=probs, **common_kwargs)
+                    subcategory_name = AUDIOSET_CLASS_NAMES.get(idx, f"class_{idx}")
+                    for evt in events:
+                        evt["label"] = subcategory_name
+                        evt["superclass"] = superclass
+                    all_events.extend(events)
+        else:
+            for label, class_indices in SUPERCLASS_GROUPS.items():
+                probs = aggregate_speech_probs(framewise, class_indices, mode=self.agg_mode)
+                events = framewise_to_events(probs=probs, **common_kwargs)
+                for evt in events:
+                    evt["label"] = label
+                all_events.extend(events)
+
+        all_events.sort(key=lambda e: e["start_time"])
+        return all_events
+
+    @staticmethod
+    def _default_fps() -> float:
+        return 16000.0 / 320
