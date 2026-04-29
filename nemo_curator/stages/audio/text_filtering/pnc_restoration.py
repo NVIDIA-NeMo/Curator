@@ -89,6 +89,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     )
     pnc_prompt: str | None = None
     pnc_prompt_file: str | None = None
+    source_lang_key: str = "source_lang"
     system_prompt: str | None = None
     max_model_len: int = 4096
     max_num_seqs: int = 16
@@ -189,6 +190,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
 
         eligible_indices: list[int] = []
         eligible_texts: list[str] = []
+        eligible_langs: list[str] = []
 
         for i, task in enumerate(tasks):
             skip = task.data.get(self.skip_me_key, "")
@@ -202,12 +204,13 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             else:
                 eligible_indices.append(i)
                 eligible_texts.append(text)
+                eligible_langs.append(task.data.get(self.source_lang_key, ""))
 
         if not eligible_indices:
             logger.info("PnCRestoration: all {} tasks skipped (flagged or empty)", len(tasks))
             return tasks
 
-        is_complete, pnc_texts = self._model.generate(eligible_texts)
+        is_complete, pnc_texts = self._model.generate(eligible_texts, languages=eligible_langs)
 
         for ei, (idx, complete, pnc_text) in enumerate(zip(eligible_indices, is_complete, pnc_texts, strict=False)):
             tasks[idx].data[self.output_text_key] = pnc_text
