@@ -118,6 +118,7 @@ audio_cuda12 = [
     "vllm",
     "qwen-omni-utils",
     "qwen-asr",
+    "fasttext==0.9.3",
 ]
 
 image_cpu = [
