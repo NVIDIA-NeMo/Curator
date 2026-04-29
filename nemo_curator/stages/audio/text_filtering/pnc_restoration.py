@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 from nemo_curator.models.qwen_text_llm import QwenTextLLM
+from nemo_curator.stages.audio.pipeline_utils import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -77,6 +78,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     text_key: str = "cleaned_text"
     output_text_key: str = "pnc_text"
     skip_me_key: str = "_skip_me"
+    notes_key: str = "additional_notes"
     completeness_prompt: str = (
         "The following text is a transcript segment from an audio recording. "
         "It may be a complete, self-contained utterance or thought, "
@@ -98,6 +100,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     top_k: int = 1
     prep_workers: int = 8
     batch_size: int = 64
+    num_workers: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     def _resolve_pnc_prompt(self) -> str:
@@ -112,6 +115,12 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         tp = self.tensor_parallel_size
         if tp and tp > 0:
             self.resources = Resources(gpus=float(tp))
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {}
+        if self.num_workers is not None:
+            spec["num_workers"] = self.num_workers
+        return spec
 
     def _create_model(self) -> QwenTextLLM:
         pnc_prompt = self._resolve_pnc_prompt()
@@ -188,8 +197,10 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             text = task.data.get(self.text_key, "")
             if skip:
                 task.data[self.output_text_key] = ""
+                set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
             elif not text.strip():
                 task.data[self.output_text_key] = text
+                set_note(task.data, self.name, "skipped (empty)", self.notes_key)
             else:
                 eligible_indices.append(i)
                 eligible_texts.append(text)
@@ -201,8 +212,15 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
 
         is_complete, pnc_texts = self._model.generate(eligible_texts, languages=eligible_langs)
 
-        for idx, _complete, pnc_text in zip(eligible_indices, is_complete, pnc_texts, strict=False):
+        for ei, (idx, complete, pnc_text) in enumerate(zip(eligible_indices, is_complete, pnc_texts, strict=False)):
             tasks[idx].data[self.output_text_key] = pnc_text
+            if not complete:
+                note = "kept as-is (incomplete)"
+            elif pnc_text != eligible_texts[ei]:
+                note = "applied (modified)"
+            else:
+                note = "applied (unchanged)"
+            set_note(tasks[idx].data, self.name, note, self.notes_key)
 
         n_restored = sum(is_complete)
         logger.info(

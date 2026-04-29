@@ -114,6 +114,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap.add_argument(
         "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
     )
+    ap.add_argument(
+        "--autoscale_interval_s", type=int, default=180,
+        help="Seconds between Xenna streaming autoscaler checks. Lower values ramp up GPU actors faster on multi-node."
+    )
 
     tf = ap.add_argument_group("text filtering")
     tf.add_argument("--hall_phrases", type=str, required=True, help="Path to hallucination phrases text file.")
@@ -190,7 +194,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     itn.add_argument("--itn_batch_size", type=int, default=64, help="Batch size for ITN inference.")
     itn.add_argument("--itn_tensor_parallel_size", type=int, default=None,
                      help="TP size for ITN model (None = auto-detect).")
-    itn.add_argument("--itn_max_output_tokens", type=int, default=4096,
+    itn.add_argument("--itn_max_output_tokens", type=int, default=512,
                      help="Max tokens to generate per ITN sample.")
     itn.add_argument("--itn_max_model_len", type=int, default=4096,
                      help="Max context length for ITN vLLM engine.")
@@ -224,6 +228,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     asr.add_argument("--asr_batch_size", type=int, default=128)
     asr.add_argument("--asr_gpu_memory_utilization", type=float, default=0.95)
     asr.add_argument("--asr_max_new_tokens", type=int, default=4096)
+
+    scaling = ap.add_argument_group("multi-node scaling")
+    scaling.add_argument("--omni_num_workers", type=int, default=None,
+                         help="Fixed actor count for QwenOmni stage. Default: autoscaler decides.")
+    scaling.add_argument("--asr_num_workers", type=int, default=None,
+                         help="Fixed actor count for QwenASR stage.")
+    scaling.add_argument("--pnc_num_workers", type=int, default=None,
+                         help="Fixed actor count for PnC stage.")
+    scaling.add_argument("--itn_num_workers", type=int, default=None,
+                         help="Fixed actor count for ITN stage.")
     return ap
 
 
@@ -338,6 +352,7 @@ def main() -> None:  # noqa: C901
                 batch_size=args.asr_batch_size,
                 gpu_memory_utilization=args.asr_gpu_memory_utilization,
                 max_new_tokens=args.asr_max_new_tokens,
+                num_workers=args.asr_num_workers,
             ),
             WhisperHallucinationStage(
                 name="WhisperHallucination_asr",
@@ -388,6 +403,7 @@ def main() -> None:  # noqa: C901
                 max_num_seqs=args.pnc_max_num_seqs,
                 gpu_memory_utilization=args.pnc_gpu_memory_utilization,
                 prep_workers=args.pnc_prep_workers,
+                num_workers=args.pnc_num_workers,
                 **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
                 **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
                 source_lang_key=args.pnc_source_lang_key,
@@ -412,6 +428,7 @@ def main() -> None:  # noqa: C901
             gpu_memory_utilization=args.itn_gpu_memory_utilization,
             batch_size=args.itn_batch_size,
             enable_validation=not args.itn_no_validation,
+            num_workers=args.itn_num_workers,
         ))
 
     stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
@@ -426,6 +443,7 @@ def main() -> None:  # noqa: C901
     executor = XennaExecutor(
         config={
             "execution_mode": args.execution_mode,
+            "autoscale_interval_s": args.autoscale_interval_s,
         }
     )
 

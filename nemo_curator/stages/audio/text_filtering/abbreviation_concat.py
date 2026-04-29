@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 
 from loguru import logger
 
+from nemo_curator.stages.audio.pipeline_utils import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -221,8 +222,8 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
 
     text_key: str = "text"
     output_text_key: str = "abbreviated_text"
-    abbreviations_key: str = "abbreviations"
     skip_me_key: str = "_skip_me"
+    notes_key: str = "additional_notes"
     source_lang_key: str = "source_lang"
     name: str = "AbbreviationConcat"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
@@ -231,26 +232,25 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.text_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.output_text_key, self.abbreviations_key]
+        return [], [self.output_text_key]
 
     def _process_single(self, task: AudioTask) -> AudioTask:
         skip = task.data.get(self.skip_me_key, "")
         if skip:
             task.data.setdefault(self.output_text_key, "")
-            task.data.setdefault(self.abbreviations_key, [])
             return task
 
         text = task.data.get(self.text_key, "")
         if not isinstance(text, str) or not text.strip():
             task.data.setdefault(self.output_text_key, text if isinstance(text, str) else "")
-            task.data.setdefault(self.abbreviations_key, [])
             return task
 
         result, found = concat_abbreviations(text, language=task.data[self.source_lang_key])
         if result != text:
-            logger.trace("AbbreviationConcat: {!r} → {!r}  abbrevs={}", text, result, found)
+            logger.trace("AbbreviationConcat: {!r} -> {!r}  abbrevs={}", text, result, found)
+            changes = ", ".join(f"{' '.join(a)} -> {a}" for a in found)
+            set_note(task.data, self.name, f"applied ({changes})", self.notes_key)
         task.data[self.output_text_key] = result
-        task.data[self.abbreviations_key] = found
         return task
 
     def process(self, task: AudioTask) -> AudioTask:

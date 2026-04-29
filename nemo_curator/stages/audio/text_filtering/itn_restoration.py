@@ -33,6 +33,7 @@ from loguru import logger
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
+from nemo_curator.stages.audio.pipeline_utils import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -114,14 +115,16 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     text_key: str = "pnc_text"
     output_text_key: str = "itn_text"
     skip_me_key: str = "_skip_me"
+    notes_key: str = "additional_notes"
     itn_filtered_key: str = "itn_filtered"
     enable_validation: bool = True
     tensor_parallel_size: int | None = None
     max_output_tokens: int = 512
-    max_model_len: int = 4096
-    max_num_seqs: int = 16
+    max_model_len: int = 2048
+    max_num_seqs: int = 64
     gpu_memory_utilization: float = 0.95
     kv_cache_dtype: str = "fp8"
+    num_workers: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 64
 
@@ -136,6 +139,12 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         tp = self.tensor_parallel_size
         if tp and tp > 0:
             self.resources = Resources(gpus=float(tp))
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {}
+        if self.num_workers is not None:
+            spec["num_workers"] = self.num_workers
+        return spec
 
     # ------------------------------------------------------------------
     # Prompt resolution
@@ -277,9 +286,11 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             skip = task.data.get(self.skip_me_key, "")
             if skip:
                 task.data[self.output_text_key] = ""
+                set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
                 continue
             if not text or not text.strip():
                 task.data[self.output_text_key] = text
+                set_note(task.data, self.name, "skipped (empty)", self.notes_key)
                 continue
             valid_indices.append(i)
             prompts.append(self._format_prompt(text))
@@ -300,12 +311,17 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
                     ok, reason = _validate_itn_output(input_text, itn_text)
                     if ok:
                         task.data[self.output_text_key] = itn_text
+                        note = "applied (modified)" if itn_text != input_text else "applied (unchanged)"
+                        set_note(task.data, self.name, note, self.notes_key)
                     else:
                         task.data[self.output_text_key] = input_text
                         task.data[self.itn_filtered_key] = reason
                         self._n_filtered += 1
+                        set_note(task.data, self.name, f"fallback ({reason})", self.notes_key)
                 else:
                     task.data[self.output_text_key] = itn_text
+                    note = "applied (modified)" if itn_text != input_text else "applied (unchanged)"
+                    set_note(task.data, self.name, note, self.notes_key)
 
                 self._n_processed += 1
 
