@@ -84,9 +84,9 @@ COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
-# MAX_JOBS caps ninja parallelism for flash-attn's NVCC build; default of nproc OOMs at ~2 GB/job.
-ENV MAX_JOBS=4
-RUN if [ -n "${CURATOR_EXTRA}" ]; then \
+# Cap ninja parallelism for flash-attn's NVCC build at min(nproc, 16); default of nproc OOMs at ~2 GB/job.
+RUN export MAX_JOBS=$(( $(nproc) > 16 ? 16 : $(nproc) )) && \
+    if [ -n "${CURATOR_EXTRA}" ]; then \
         uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
     else \
         uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
