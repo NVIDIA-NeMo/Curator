@@ -60,19 +60,6 @@ make -C "${BUILD_DIR}" TARGET=linux-glibc \
 make -C "${BUILD_DIR}" install SBINDIR=/usr/local/bin
 rm -rf "${BUILD_DIR}"
 
-# Drop build-only ``-dev`` deps so they don't bloat the image. Do NOT pass
-# ``--auto-remove`` here — it would also reap the runtime libs (libpcre3,
-# libssl3, zlib1g, libc6) that HAProxy linked against, breaking ``haproxy -v``
-# with ``libpcre.so.3: cannot open shared object file``.
-apt-get purge -y \
-    build-essential \
-    libc6-dev \
-    liblua5.3-dev \
-    libpcre3-dev \
-    libssl-dev \
-    zlib1g-dev
-rm -rf /var/lib/apt/lists/*
-
 mkdir -p /etc/haproxy /run/haproxy /var/log/haproxy
 
 haproxy -v
