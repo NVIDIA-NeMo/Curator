@@ -97,7 +97,8 @@ deduplication_cuda12 = [
 ]
 
 audio_common = [
-    "nemo_toolkit[asr]>=2.7.2",
+    # ASR/diarization stack pulls x86_64-only transitives (kaldialign cp313, torchcodec) — gate to x86_64 Linux
+    "nemo_toolkit[asr]>=2.7.2; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "soundfile>=0.12.0",
     "torchaudio",
     "onnx>=1.19.0",
@@ -115,7 +116,7 @@ audio_cuda12 = [
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
     "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
-    "torchcodec",
+    "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 
 image_cpu = [
@@ -288,6 +289,7 @@ override-dependencies = [
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "protobuf>=5.29.5,<7.0",  # Override nemo-toolkits constraint of ~=5.29.5; <7.0 due to ray serve FieldDescriptor API breakage
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
+    "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'", #gated since aarch64 lacks wheels
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
@@ -309,16 +311,16 @@ explicit = true
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchaudio = [
-    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchvision = [
-    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 nixl = { index = "pypi" }
 nixl-cu12 = { index = "pypi" }
