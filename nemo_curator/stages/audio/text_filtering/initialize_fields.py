@@ -46,6 +46,7 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     skip_me_key: str = "_skip_me"
+    notes_key: str = "additional_notes"
     original_text_key: str = "text"
     granary_v1_key: str = "granary_v1_prediction"
     source_lang_key: str = "source_lang"
@@ -65,6 +66,7 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         task.data[self.skip_me_key] = ""
+        task.data[self.notes_key] = {}
         if self.source_lang_key and self.source_lang_key not in task.data:
             task.data[self.source_lang_key] = self.default_source_lang
         if self.original_text_key and self.original_text_key in task.data:
@@ -76,6 +78,7 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         for task in tasks:
             task.data[self.skip_me_key] = ""
+            task.data[self.notes_key] = {}
             if self.source_lang_key and self.source_lang_key not in task.data:
                 task.data[self.source_lang_key] = self.default_source_lang
             if self.original_text_key and self.original_text_key in task.data:

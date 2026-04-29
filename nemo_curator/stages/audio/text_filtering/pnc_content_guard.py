@@ -17,6 +17,7 @@ from __future__ import annotations
 import string
 from dataclasses import dataclass, field
 
+from nemo_curator.stages.audio.pipeline_utils import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -50,6 +51,7 @@ class PnCContentGuardStage(ProcessingStage[AudioTask, AudioTask]):
     pnc_text_key: str = "pnc_text"
     rejected_text_key: str = "rejected_pnc_text"
     skip_me_key: str = "_skip_me"
+    notes_key: str = "additional_notes"
     name: str = "PnCContentGuard"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -63,6 +65,7 @@ class PnCContentGuardStage(ProcessingStage[AudioTask, AudioTask]):
         if task.data.get(self.skip_me_key, ""):
             task.data.setdefault(self.pnc_text_key, "")
             task.data.setdefault(self.rejected_text_key, "")
+            set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
             return task
         original = task.data.get(self.text_key, "")
         pnc = task.data.get(self.pnc_text_key, "")
@@ -70,8 +73,10 @@ class PnCContentGuardStage(ProcessingStage[AudioTask, AudioTask]):
         if original and pnc and not _words_match(original, pnc):
             task.data[self.rejected_text_key] = pnc
             task.data[self.pnc_text_key] = original
+            set_note(task.data, self.name, "reverted", self.notes_key)
         else:
             task.data[self.rejected_text_key] = ""
+            set_note(task.data, self.name, "accepted", self.notes_key)
 
         return task
 
