@@ -81,9 +81,7 @@ inference_server = [
     "nemo_curator[vllm]",
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "ray[serve,llm]>=2.55.1",
-    # Pinned: Dynamo's CLI surface tracks a specific vLLM release. Pinning here
-    # lets the Dynamo actor venv inherit 1.0.2 from the cloned image env, so
-    # DYNAMO_VLLM_RUNTIME_ENV can specify ``ai-dynamo[vllm]`` without a version.
+    # Pin: Dynamo's CLI surface tracks a specific vLLM release.
     "ai-dynamo==1.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
@@ -293,24 +291,13 @@ override-dependencies = [
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
-    # Override nemo-toolkit's ``~=5.29.5`` (which would lock us to 5.29.x) and
-    # ray[serve]'s lack of an upper bound. Lower bound 5.29.6 carries the CVE
-    # GHSA-8qvm-5x2c-j2w7 floor; ``<7.0`` is required because Ray Serve still
-    # accesses ``FieldDescriptor.label`` (ray/serve/_private/config.py:85) which
-    # protobuf 7.x removed.
-    "protobuf>=5.29.6,<7.0",
+    "protobuf>=5.29.6,<7.0", # Override nemo-toolkit's ~=5.29.5; <7.0 because Ray Serve still uses FieldDescriptor.label (removed in protobuf 7)
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "torch==2.10.0", # Override whisperx's <2.9 cap to match vllm 0.19.x
     "torchaudio==2.10.0", # Override whisperx's <2.9 cap to match vllm 0.19.x
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
-    # Break nemo-toolkit[asr] 2.7.x's ``transformers~=4.57.0`` pin so vllm 0.19+
-    # and data-designer-engine (which requires huggingface-hub>=1.0.1) can resolve
-    # together. ``>=5.5.1`` stays inside vllm 0.19's allowed range — vllm 0.19's
-    # METADATA excludes transformers 5.0.* through 5.5.0 explicitly.
-    "transformers>=5.5.1",
-    # Override whisperx's ``huggingface-hub<1.0`` pin so it can coexist with
-    # data-designer-engine (>=1.0.1) and transformers 5.x (which needs >=1.0).
-    "huggingface-hub>=1.0.1,<2",
+    "transformers>=5.5.1", # Override nemo-toolkit's ~=4.57.0; vllm 0.19 excludes 5.0.0–5.5.0
+    "huggingface-hub>=1.0.1,<2", # Override whisperx's <1.0 pin; transformers 5 + data-designer-engine need >=1.0
 ]
 
 

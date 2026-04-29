@@ -46,25 +46,11 @@ if TYPE_CHECKING:
     from nemo_curator.core.serve.placement import ReplicaBundleSpec
 
 
-# Dynamo actors run in their own uv venv, cloned from Curator's base image env.
-# Curator pins ``ai-dynamo==1.0.2`` in pyproject.toml, so the cloned env already
-# carries the right Dynamo + vLLM combo — we list ``ai-dynamo[vllm]`` here
-# without a version to keep the source of truth in pyproject.
-#
-# Three other pins are essential because they would otherwise float to whatever
-# the base image happened to install:
-#
-# * ``flash-attn`` — listed so uv installs it. ``--reinstall-package flash-attn``
-#   forces a rebuild against the actor-local torch/CUDA stack (flash-attn's ABI
-#   is tied to the exact torch build); ``--no-build-isolation-package
-#   flash-attn`` lets the build see torch in the env (build isolation hides it).
-# * ``flashinfer-cubin==0.6.3`` — Dynamo-1.0.2's bundled vLLM pins
-#   ``flashinfer-python==0.6.3`` but does not pin the cubin package, so without
-#   this pin the cubin floats to whatever the base image (vLLM 0.19) installed
-#   (0.6.6 today) and FlashInfer's runtime version check fails.
-# * ``uvloop<0.22`` — uvloop 0.22 breaks Ray Data MapWorker UDF init under our
-#   Ray version (see ``reference_uvloop_ray_incompat`` memory). Forcing a
-#   downgrade in the actor venv avoids the "no current event loop" crash.
+# flash-attn must be rebuilt per actor venv (ABI tied to actor-local torch);
+# --no-build-isolation-package lets the build see torch in the env.
+# flashinfer-cubin: Dynamo-1.0.2's vLLM pins flashinfer-python==0.6.3 but not
+# the cubin package, so it otherwise floats and the runtime version check fails.
+# uvloop<0.22: 0.22 breaks Ray Data MapWorker UDF init ("no current event loop").
 DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
     "uv": {
         "packages": [
@@ -74,10 +60,6 @@ DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
             "flashinfer-cubin==0.6.3",
         ],
         "uv_pip_install_options": [
-            # ``--reinstall-package flash-attn`` forces a fresh build per actor venv
-            # (its ABI is tied to the actor's torch). Other packages (ai-dynamo,
-            # uvloop, flashinfer-cubin) are cache-friendly, so we deliberately omit
-            # ``--no-cache`` to let uv reuse downloaded wheels across actors.
             "--reinstall-package",
             "flash-attn",
             "--no-build-isolation-package",
@@ -110,14 +92,8 @@ def merge_model_runtime_envs(models: list[DynamoVLLMModelConfig]) -> dict[str, A
 
 
 def _worker_subprocess_env(base_env: dict[str, str], runtime_dir: str) -> dict[str, str]:
-    """Worker subprocess env for vLLM — pins FlashInfer's workspace to the run-scoped dir.
-
-    Without this, FlashInfer caches compiled cubin artifacts under its default
-    workspace path, which can pick up stale artifacts from a prior Ray session
-    whose actor venv has since been replaced. Anchoring the workspace to the
-    Dynamo runtime dir (which lives under Ray's session dir, see
-    ``DynamoBackend.start``) makes each run's workspace independent.
-    """
+    # FlashInfer's default workspace can keep cubins from a prior session whose
+    # actor venv has since been replaced; anchor it per-run instead.
     return {**base_env, "FLASHINFER_WORKSPACE_BASE": f"{runtime_dir}/flashinfer"}
 
 
