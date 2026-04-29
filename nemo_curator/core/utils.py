@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import shutil
 import socket
 import subprocess
 import time
@@ -28,6 +29,7 @@ from nemo_curator.core.constants import (
     DEFAULT_RAY_DASHBOARD_METRIC_PORT,
     DEFAULT_RAY_MAX_WORKER_PORT,
     DEFAULT_RAY_MIN_WORKER_PORT,
+    DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT,
     RAY_CLUSTER_START_VERIFICATION_TIMEOUT,
 )
 
@@ -185,6 +187,23 @@ def init_cluster(  # noqa: PLR0913
 
     # We set some env vars for Xenna here. This is only used for Xenna clusters.
     os.environ["XENNA_RAY_METRICS_PORT"] = str(ray_metrics_port)
+
+    # Opportunistically enable Ray Serve's HAProxy ingress (Ray 2.55+) when both the haproxy
+    # and socat binaries are available on $PATH. The C proxy gives higher throughput / lower
+    # tail latency than the Python proxy, but Ray Serve relies on subprocesses for both:
+    # ``haproxy`` to run the proxy itself (ray/serve/_private/haproxy.py:_start_and_wait_for_haproxy)
+    # and ``socat`` to talk to the HAProxy admin socket from is_running()/stats checks
+    # (_send_socket_command). If either is missing, the controller's healthcheck silently
+    # returns False and trips a 5s timeout — so we only opt in when both resolve.
+    # Must be set on os.environ before this Popen because Ray Serve reads
+    # ``RAY_SERVE_ENABLE_HA_PROXY`` at module import time on the raylet/worker processes.
+    # We also pin a free metrics port (default 9101) so multiple clusters on the same host
+    # don't fight over HAProxy's prometheus frontend bind.
+    if shutil.which("haproxy") is not None and shutil.which("socat") is not None:
+        os.environ["RAY_SERVE_ENABLE_HA_PROXY"] = "1"
+        os.environ["RAY_SERVE_HAPROXY_METRICS_PORT"] = str(get_free_port(DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT))
+    else:
+        logger.debug("haproxy and/or socat not found on PATH; Ray Serve will use the default Python proxy.")
     if stdouterr_capture_file:
         with open(stdouterr_capture_file, "w") as f:
             proc = subprocess.Popen(  # noqa: S603
