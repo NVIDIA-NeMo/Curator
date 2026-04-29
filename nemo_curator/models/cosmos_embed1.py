@@ -18,12 +18,33 @@ from typing import Final, Literal, cast
 import numpy as np
 import numpy.typing as npt
 import torch
+import transformers.pytorch_utils as _hf_pytorch_utils
 from loguru import logger
 from transformers import AutoModel, AutoProcessor
 
 from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 from .base import ModelInterface
+
+# nvidia/Cosmos-Embed1-* trust_remote_code QFormer imports
+# ``find_pruneable_heads_and_indices`` from ``transformers.pytorch_utils``;
+# transformers 5 removed that symbol. Re-install a vendored implementation
+# (matches transformers 4.51's behaviour) so the remote module imports.
+if not hasattr(_hf_pytorch_utils, "find_pruneable_heads_and_indices"):
+
+    def find_pruneable_heads_and_indices(
+        heads: list[int], n_heads: int, head_size: int, already_pruned_heads: set[int]
+    ) -> tuple[set[int], torch.LongTensor]:
+        mask = torch.ones(n_heads, head_size)
+        heads = set(heads) - already_pruned_heads
+        for head in heads:
+            shifted = head - sum(1 if h < head else 0 for h in already_pruned_heads)
+            mask[shifted] = 0
+        mask = mask.view(-1).contiguous().eq(1)
+        index: torch.LongTensor = torch.arange(len(mask))[mask].long()
+        return heads, index
+
+    _hf_pytorch_utils.find_pruneable_heads_and_indices = find_pruneable_heads_and_indices
 
 _COSMOS_EMBED1_VARIANTS_INFO: Final = {
     "224p": "nvidia/Cosmos-Embed1-224p",

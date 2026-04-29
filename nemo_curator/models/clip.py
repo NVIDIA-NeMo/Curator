@@ -101,9 +101,11 @@ class CLIPImageEmbeddings(ModelInterface):
             inputs = self.processor(images=images, return_tensors="pt")["pixel_values"]
             inputs = inputs.to(self.device)
 
+        # transformers 5 wraps the result in BaseModelOutputWithPooling; unwrap to a Tensor.
         embed = self.clip.get_image_features(pixel_values=inputs)
+        if hasattr(embed, "image_embeds"):
+            embed = embed.image_embeds
 
-        # Normalize embeddings
         return embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)  # type: ignore[no-any-return]
 
     @torch.no_grad()
