@@ -77,7 +77,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     model_id: str = "Qwen/Qwen3.5-35B-A3B-FP8"
     text_key: str = "cleaned_text"
     output_text_key: str = "pnc_text"
-    skip_me_key: str = "_skip_me"
+    skip_me_key: str = "_skipme"
     notes_key: str = "additional_notes"
     completeness_prompt: str = (
         "The following text is a transcript segment from an audio recording. "

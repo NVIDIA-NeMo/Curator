@@ -55,7 +55,7 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     asr_text_key: str = "qwen3_asr_prediction"
     output_key: str = "best_prediction"
     notes_key: str = "additional_notes"
-    skip_me_key: str = "_skip_me"
+    skip_me_key: str = "_skipme"
     min_agreement_pct: float = 80.0
     agreement_wer_key: str = "omni_asr_agreement_wer"
     name: str = "SelectBestPrediction"

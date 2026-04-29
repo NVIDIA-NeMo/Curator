@@ -33,7 +33,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     - High char rate: word-chars / duration > max_char_rate (impossible speech rate; short audio
       with dense confabulated text, e.g. Whisper generating a full sentence over 0.1 s).
 
-    When flagged, ``_skip_me`` is set to ``"Hallucination:{name}"`` to track
+    When flagged, ``_skipme`` is set to ``"Hallucination:{name}"`` to track
     which stage instance produced the flag.  By default an already non-empty
     value is preserved; set ``overwrite=True`` to allow overwriting (used by
     the ASR recovery hallucination re-check).
@@ -46,7 +46,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     max_char_rate: float = 40.0
     duration_key: str = "duration"
     text_key: str = "pred_text"
-    skip_me_key: str = "_skip_me"
+    skip_me_key: str = "_skipme"
     notes_key: str = "additional_notes"
     overwrite: bool = False
     recovery_value: str = ""

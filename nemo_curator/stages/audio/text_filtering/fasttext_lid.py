@@ -55,14 +55,14 @@ _ISO639_3_TO_1: dict[str, str] = {
 class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
     """Language identification using FastText; flags non-target-language entries.
 
-    When an entry is flagged, ``skip_me`` is set to a descriptive string:
+    When an entry is flagged, ``_skipme`` is set to a descriptive string:
 
     - ``"Wrong language"`` — detected language differs from per-sample ``source_lang``.
     - ``"Low probability of language"`` — correct language but confidence
       below ``min_lang_prob``.
     - ``"Empty text"`` — text is blank after stripping.
 
-    An already non-empty ``skip_me`` value is never overwritten.
+    An already non-empty ``_skipme`` value is never overwritten.
 
     Texts with fewer than ``min_word_count`` words are passed through
     without LID filtering because FastText confidence is unreliable on
@@ -82,7 +82,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
     min_lang_prob: float = 0.8
     min_word_count: int = 2
     text_key: str = "pred_text"
-    skip_me_key: str = "_skip_me"
+    skip_me_key: str = "_skipme"
     notes_key: str = "additional_notes"
     name: str = "FastTextLID"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))

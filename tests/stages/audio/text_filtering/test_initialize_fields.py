@@ -16,20 +16,36 @@ from nemo_curator.stages.audio.text_filtering.initialize_fields import Initializ
 from nemo_curator.tasks import AudioTask
 
 
-def test_renames_text_and_sets_skip_me() -> None:
+def test_renames_text_and_sets_skipme() -> None:
     stage = InitializeFieldsStage()
     task = AudioTask(data={"text": "original", "pred_text": "hello world"})
     result = stage.process(task)
     assert result.data["granary_v1_prediction"] == "original"
     assert "text" not in result.data
-    assert result.data["skip_me"] == ""
+    assert result.data["_skipme"] == ""
 
 
-def test_skip_me_always_reset_to_empty() -> None:
+def test_skipme_always_reset_to_empty() -> None:
     stage = InitializeFieldsStage()
-    task = AudioTask(data={"text": "t", "skip_me": "stale reason"})
+    task = AudioTask(data={"text": "t", "_skipme": "stale reason"})
     result = stage.process(task)
-    assert result.data["skip_me"] == ""
+    assert result.data["_skipme"] == ""
+
+
+def test_v1_skipme_preserved_in_notes() -> None:
+    stage = InitializeFieldsStage()
+    task = AudioTask(data={"text": "t", "_skipme": "v1 filter reason"})
+    result = stage.process(task)
+    assert result.data["_skipme"] == ""
+    assert result.data["additional_notes"]["v1_skipme"] == "v1 filter reason"
+
+
+def test_empty_v1_skipme_not_saved_to_notes() -> None:
+    stage = InitializeFieldsStage()
+    task = AudioTask(data={"text": "t", "_skipme": ""})
+    result = stage.process(task)
+    assert result.data["_skipme"] == ""
+    assert "v1_skipme" not in result.data["additional_notes"]
 
 
 def test_drops_default_keys() -> None:
@@ -59,7 +75,7 @@ def test_no_text_field_skips_rename() -> None:
     task = AudioTask(data={"pred_text": "hello"})
     result = stage.process(task)
     assert "granary_v1_prediction" not in result.data
-    assert result.data["skip_me"] == ""
+    assert result.data["_skipme"] == ""
 
 
 def test_custom_keys() -> None:
