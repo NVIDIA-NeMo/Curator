@@ -127,7 +127,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
             classes_num=self.classes_num,
         )
         # Always load to CPU first, then move — avoids CUDA conflicts with vLLM
-        checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=False)
+        checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
         self._model.load_state_dict(checkpoint["model"])
         self._model.to(self._device)
         self._model.eval()

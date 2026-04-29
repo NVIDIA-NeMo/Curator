@@ -295,6 +295,7 @@ def main() -> None:  # noqa: C901
     stages.append(InferenceQwenOmniStage(
         model_id=args.model_id,
         prompt_text=prompt,
+        en_prompt_text=en_prompt,
         followup_prompt=followup_prompt,
         system_prompt=system_prompt,
         tensor_parallel_size=args.tensor_parallel_size,
