@@ -157,6 +157,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     asr.add_argument("--asr_gpu_memory_utilization", type=float, default=0.7)
     asr.add_argument("--asr_max_new_tokens", type=int, default=4096)
 
+    diar = ap.add_argument_group("Sortformer speaker diarization")
+    diar.add_argument("--sortformer_model", type=str, default=None,
+                      help="Sortformer HF model id or local .nemo path. If set, enables diarization.")
+    diar.add_argument("--sortformer_cache_dir", type=str, default=None,
+                      help="Cache directory for Sortformer model weights.")
+    diar.add_argument("--sortformer_batch_size", type=int, default=8,
+                      help="Batch size for Sortformer diarization.")
+    diar.add_argument("--sortformer_gpu_memory_gb", type=float, default=8.0,
+                      help="GPU memory (GB) reserved for Sortformer.")
+
     itn = ap.add_argument_group("ITN (inverse text normalization)")
     itn.add_argument("--enable_itn", action="store_true", help="Enable ITN stage after PnC restoration.")
     itn.add_argument("--itn_model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8", help="Model for ITN inference.")
@@ -221,24 +231,35 @@ def main() -> None:  # noqa: C901
             output_dir=args.output_dir,
         ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
         InitializeFieldsStage(),
-        InferenceQwenOmniStage(
-            model_id=args.model_id,
-            prompt_text=prompt,
-            followup_prompt=followup_prompt,
-            system_prompt=system_prompt,
-            tensor_parallel_size=args.tensor_parallel_size,
-            batch_size=args.batch_size,
-            max_output_tokens=args.max_output_tokens,
-            max_model_len=args.max_model_len,
-            max_num_seqs=args.max_num_seqs,
-            gpu_memory_utilization=args.gpu_memory_utilization,
-            prep_workers=args.prep_workers,
-            source_lang_key=args.source_lang_key,
-            pred_text_key="qwen3_prediction_s1",
-            disfluency_text_key="qwen3_prediction_s2",
-            keep_waveform=bool(args.asr_model_id),
-        ),
     ]
+
+    if args.sortformer_model:
+        from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
+        stages.append(InferenceSortformerStage(
+            model_name=args.sortformer_model,
+            cache_dir=args.sortformer_cache_dir,
+            batch_size=args.sortformer_batch_size,
+            store_segments=False,
+            resources=Resources(gpu_memory_gb=args.sortformer_gpu_memory_gb),
+        ))
+
+    stages.append(InferenceQwenOmniStage(
+        model_id=args.model_id,
+        prompt_text=prompt,
+        followup_prompt=followup_prompt,
+        system_prompt=system_prompt,
+        tensor_parallel_size=args.tensor_parallel_size,
+        batch_size=args.batch_size,
+        max_output_tokens=args.max_output_tokens,
+        max_model_len=args.max_model_len,
+        max_num_seqs=args.max_num_seqs,
+        gpu_memory_utilization=args.gpu_memory_utilization,
+        prep_workers=args.prep_workers,
+        source_lang_key=args.source_lang_key,
+        pred_text_key="qwen3_prediction_s1",
+        disfluency_text_key="qwen3_prediction_s2",
+        keep_waveform=bool(args.asr_model_id),
+    ))
 
     if followup_prompt:
         stages.append(DisfluencyWerGuardStage(
