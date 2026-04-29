@@ -16,13 +16,14 @@ NeMo Curator provides a comprehensive suite of tools for processing text data as
 
 ## How it Works
 
-NeMo Curator's text processing capabilities are organized into five main categories:
+NeMo Curator's text processing capabilities are organized into six main categories:
 
 1. **Language Management**: Handle multilingual content and language-specific processing
 2. **Content Processing & Cleaning**: Clean, normalize, and transform text content
 3. **Deduplication**: Remove duplicate and near-duplicate documents efficiently
 4. **Quality Assessment & Filtering**: Score and remove low-quality content using heuristics and ML classifiers
 5. **Specialized Processing**: Domain-specific processing for code and advanced curation tasks
+6. **Interleaved Datasets**: Read, write, and filter MINT-1T-style image-text datasets
 
 Each category provides specific implementations optimized for different curation needs. The result is a cleaned and filtered dataset ready for model training.
 
@@ -134,6 +135,28 @@ Specialized filters for programming content and source code
 programming
 syntax
 comments
+</Card>
+
+</Cards>
+
+## Interleaved Datasets
+
+Read, write, and filter MINT-1T-style image-text interleaved datasets across WebDataset and Parquet formats.
+
+<Cards>
+
+<Card title="Interleaved IO" href="/curate-text/process-data/interleaved/io">
+Round-trip readers and writers between WebDataset tar shards and Parquet
+parquet
+webdataset
+schema-utilities
+</Card>
+
+<Card title="Interleaved Filters" href="/curate-text/process-data/interleaved/filters">
+Sample-level filters for image quality, QR-code detection, CLIP alignment, and image-to-text ratio
+blur
+clip
+qr-detection
 </Card>
 
 </Cards>

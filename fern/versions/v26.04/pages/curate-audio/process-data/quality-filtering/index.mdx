@@ -1,24 +1,24 @@
 ---
-description: "End-to-end audio quality filtering — VAD, band, UTMOS, SIGMOS, and speaker separation stages for cleaning raw audio into single-speaker segments"
-categories: ["audio-processing"]
+description: "Compose preprocessing, VAD, band, MOS scoring, and speaker separation stages to extract clean single-speaker training segments from raw audio"
+categories: ["workflows"]
 tags: ["audio-filtering", "vad", "utmos", "sigmos", "speaker-separation", "quality"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
-content_type: "concept"
+content_type: "workflow"
 modality: "audio-only"
 ---
 
 # Audio Quality Filtering
 
-Curate raw audio into clean, single-speaker training segments using a configurable suite of preprocessing, segmentation, and filtering stages.
+Curate raw audio into clean, single-speaker training segments using a configurable suite of preprocessing, segmentation, and filtering stages. Use these stages individually for targeted curation, or compose them through `AudioDataFilterStage` for an end-to-end pipeline driven by a single YAML config.
 
-## How It Works
+## How it Works
 
-A typical pipeline composes the stages below in this order:
+A typical pipeline composes the following stages in order:
 
 1. **Mono conversion** normalizes channels and sample rate.
 2. **Voice activity detection (VAD)** splits each file into speech segments.
-3. **Band filter** drops segments that are not full-band (or not narrow-band, depending on configuration).
+3. **Band filter** drops segments that are not full-band (or not narrow-band, depending on the configured target).
 4. **UTMOS** filters segments below a perceived-quality threshold.
 5. **SIGMOS** filters segments by per-dimension quality scores (noise, overall, signal, coloration, discontinuity, loudness, reverb).
 6. **Segment concatenation** merges surviving segments back together with configurable silence between them.
@@ -28,33 +28,113 @@ A typical pipeline composes the stages below in this order:
 
 Each stage is independently usable. Use [`AudioDataFilterStage`](/curate-audio/process-data/quality-filtering/audio-data-filter-stage) to compose all of them with a single YAML config, or assemble a custom subset stage-by-stage.
 
-## Pages
+## Pipeline Stages
 
 <Cards>
-  <Card title="Preprocessing Stages" href="/curate-audio/process-data/quality-filtering/preprocessing">
-    `MonoConversionStage`, `SegmentConcatenationStage`, and `TimestampMapperStage` — channel normalization, segment merging, and original-file position mapping.
-  </Card>
-  <Card title="VAD Segmentation" href="/curate-audio/process-data/quality-filtering/vad">
-    `VADSegmentationStage` — split audio into speech segments using Silero VAD, with configurable thresholds and padding.
-  </Card>
-  <Card title="Band Filter" href="/curate-audio/process-data/quality-filtering/band-filter">
-    `BandFilterStage` — classify and filter audio by spectral bandwidth (`full_band` vs `narrow_band`).
-  </Card>
-  <Card title="UTMOS Filter" href="/curate-audio/process-data/quality-filtering/utmos">
-    `UTMOSFilterStage` — filter by predicted Mean Opinion Score using the `utmos22_strong` model.
-  </Card>
-  <Card title="SIGMOS Filter" href="/curate-audio/process-data/quality-filtering/sigmos">
-    `SIGMOSFilterStage` — filter by seven independent perceptual-quality dimensions via an ONNX model.
-  </Card>
-  <Card title="Speaker Separation" href="/curate-audio/process-data/quality-filtering/speaker-separation">
-    `SpeakerSeparationStage` (offline SortFormer) and `InferenceSortformerStage` (streaming Sortformer) for diarization.
-  </Card>
-  <Card title="AudioDataFilterStage Composite" href="/curate-audio/process-data/quality-filtering/audio-data-filter-stage">
-    Composite pipeline that decomposes into all of the stages above; configure the entire flow from a single YAML file.
-  </Card>
+
+<Card title="Preprocessing Stages" href="/curate-audio/process-data/quality-filtering/preprocessing">
+Channel normalization, segment merging, and original-file timestamp mapping
+mono-conversion
+concatenation
+timestamp-mapper
+</Card>
+
+<Card title="VAD Segmentation" href="/curate-audio/process-data/quality-filtering/vad">
+Split audio into speech segments using Silero VAD
+silero
+fan-out
+configurable
+</Card>
+
+<Card title="Band Filter" href="/curate-audio/process-data/quality-filtering/band-filter">
+Classify and filter audio by spectral bandwidth
+full-band
+narrow-band
+sklearn
+</Card>
+
+<Card title="UTMOS Filter" href="/curate-audio/process-data/quality-filtering/utmos">
+Filter by predicted Mean Opinion Score using utmos22_strong
+mos
+torch-hub
+no-reference
+</Card>
+
+<Card title="SIGMOS Filter" href="/curate-audio/process-data/quality-filtering/sigmos">
+Filter by seven independent perceptual-quality dimensions
+onnx
+multi-dimensional
+configurable
+</Card>
+
+<Card title="Speaker Separation" href="/curate-audio/process-data/quality-filtering/speaker-separation">
+Diarize with offline or streaming SortFormer and fan out per speaker
+sortformer
+streaming
+diarization
+</Card>
+
+<Card title="AudioDataFilterStage Composite" href="/curate-audio/process-data/quality-filtering/audio-data-filter-stage">
+Single composite stage that decomposes into the full filtering pipeline from a YAML config
+composite
+yaml-config
+end-to-end
+</Card>
+
 </Cards>
+
+## Quick Example
+
+A complete VAD + UTMOS + SIGMOS + speaker separation pipeline assembled stage-by-stage:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
+from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
+from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
+from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage
+from nemo_curator.stages.audio.segmentation.speaker_separation import SpeakerSeparationStage
+from nemo_curator.stages.audio.postprocessing.timestamp_mapper import TimestampMapperStage
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+pipeline = Pipeline(name="audio_quality_filtering")
+
+# 1. Normalize channels and sample rate
+pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+
+# 2. Split into speech segments
+pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0, threshold=0.5))
+
+# 3. Filter by perceptual quality (drop segments with MOS < 3.5)
+pipeline.add_stage(UTMOSFilterStage(mos_threshold=3.5))
+
+# 4. Filter by SIGMOS noise + overall thresholds
+pipeline.add_stage(SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.5))
+
+# 5. Concatenate surviving segments
+pipeline.add_stage(SegmentConcatenationStage(silence_duration_sec=0.5))
+
+# 6. Diarize and fan out per speaker
+pipeline.add_stage(SpeakerSeparationStage())
+
+# 7. Map final boundaries back to original file timestamps
+pipeline.add_stage(TimestampMapperStage())
+
+# 8. Export
+pipeline.add_stage(AudioToDocumentStage())
+pipeline.add_stage(JsonlWriter(path="./curated_audio"))
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+For a YAML-driven equivalent, use [`AudioDataFilterStage`](/curate-audio/process-data/quality-filtering/audio-data-filter-stage) — it expands into the same pipeline from a single configuration file.
 
 ## Related Topics
 
-- [ReadSpeech Tutorial](/curate-audio/tutorials/readspeech) — end-to-end walkthrough of `AudioDataFilterStage` on the DNS Challenge ReadSpeech dataset.
-- [Quality Assessment](/curate-audio/process-data/quality-assessment/wer-filtering) — WER and duration filters for ASR-based curation.
+- **[ReadSpeech Tutorial](/curate-audio/tutorials/readspeech)** — end-to-end walkthrough of `AudioDataFilterStage` on the DNS Challenge ReadSpeech dataset.
+- **[Quality Assessment](/curate-audio/process-data/quality-assessment)** — WER and duration filters for ASR-based curation.
+- **[Audio Concepts](/about/concepts/audio)** — audio task model, manifests, and pipeline architecture.

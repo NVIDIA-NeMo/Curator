@@ -10,11 +10,21 @@ modality: "audio-only"
 
 # Preprocessing Stages
 
-Three lightweight stages handle the common audio plumbing tasks: collapsing channels, joining segments after filtering, and projecting filtered timestamps back to the original input file.
+Three lightweight stages handle the common audio plumbing tasks: **collapsing channels**, **joining segments after filtering**, and **projecting filtered timestamps back to the original input file**. Together they form the scaffolding around the heavier filtering stages — mono conversion runs first, segment concatenation re-merges surviving segments after filtering, and timestamp mapping closes the loop by projecting final boundaries back to source-file positions.
+
+## Stage Roles
+
+| Stage | When | Job |
+|-------|------|------|
+| `MonoConversionStage` | First | Normalize multi-channel input to mono and verify (or resample to) the target sample rate. |
+| `SegmentConcatenationStage` | After filters | Concatenate surviving filtered segments back into one waveform with configurable silence between them. |
+| `TimestampMapperStage` | Last | Resolve final segment positions in the concatenated waveform back to positions in the original source file. |
 
 ## `MonoConversionStage`
 
-Converts multi-channel audio to mono and verifies that the input sample rate matches `output_sample_rate`. Use it as the first stage in any quality-filtering pipeline so downstream stages can assume a consistent waveform shape.
+Converts multi-channel audio to mono and verifies that the input sample rate matches `output_sample_rate`. Place it as the **first** stage in any quality-filtering pipeline so downstream stages can assume a consistent waveform shape.
+
+### Usage
 
 ```python
 from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
@@ -24,7 +34,11 @@ mono = MonoConversionStage(
     audio_filepath_key="audio_filepath",
     strict_sample_rate=True,
 )
+
+pipeline.add_stage(mono)
 ```
+
+### Parameters
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -32,37 +46,145 @@ mono = MonoConversionStage(
 | `audio_filepath_key` | str | `"audio_filepath"` | Manifest field containing the audio file path. |
 | `strict_sample_rate` | bool | `True` | If `True`, raise on rate mismatch instead of resampling. |
 
+### Choosing `strict_sample_rate`
+
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| `strict_sample_rate=True` (default) | Raise on rate mismatch | Production pipelines with known-good input. Surfaces unexpected data formats early. |
+| `strict_sample_rate=False` | Auto-resample to `output_sample_rate` | Heterogeneous web crawls or mixed datasets where rate variation is expected. |
+
+Set `output_sample_rate=48000` for full-band audio, `16000` for narrow-band / telephony, or match your downstream model's training rate.
+
 ## `SegmentConcatenationStage`
 
-Concatenates a list of speech segments produced by an earlier VAD/filter stage back into a single waveform with configurable silence between segments. Emits a `mappings` field that records the original-file boundaries of each segment so later stages can map filtered output back to source timestamps.
+Concatenates a list of speech segments produced by an earlier VAD/filter stage back into a single waveform with configurable silence between segments. Emits a `mappings` field that records the original-file boundaries of each segment so [`TimestampMapperStage`](#timestampmapperstage) can resolve final timestamps later.
+
+### Usage
 
 ```python
 from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage
 
 concat = SegmentConcatenationStage(silence_duration_sec=0.5)
+pipeline.add_stage(concat)
 ```
+
+### Parameters
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `silence_duration_sec` | float | `0.5` | Silence inserted between concatenated segments, in seconds. |
 
-The stage writes a `mappings` list onto each output `AudioTask` containing one entry per concatenated segment with the fields `original_file`, `original_start_ms`, `original_end_ms`, `concat_start_ms`, `concat_end_ms`, and `segment_index`. `TimestampMapperStage` consumes this field.
+### Output Mappings
+
+After concatenation, each output `AudioTask` carries a `mappings` field — a list of dicts with one entry per concatenated segment:
+
+```python
+{
+    "original_file": "audio.wav",
+    "original_start_ms": 1500,        # boundaries in the source file
+    "original_end_ms": 4500,
+    "concat_start_ms": 0,             # position in the concatenated waveform
+    "concat_end_ms": 3000,
+    "segment_index": 0,
+}
+```
+
+The `mappings` list is what `TimestampMapperStage` uses to project final filtered boundaries back to the original source file.
+
+### Choosing `silence_duration_sec`
+
+| Value | Use Case |
+|-------|----------|
+| `0.0` | Tightest packing; useful when downstream consumes a contiguous waveform without segment markers. |
+| `0.5` (default) | Balanced — enough silence to separate segments cleanly without bloating the waveform. |
+| `1.0–2.0` | Useful for downstream diarization or model training where natural inter-segment silence helps the model. |
 
 ## `TimestampMapperStage`
 
-Resolves segment positions in the concatenated waveform back to positions in the original source file. Place it at the end of the pipeline so downstream consumers see timestamps relative to the input audio, not the intermediate concatenation.
+Resolves segment positions in the concatenated waveform back to positions in the **original source file**. Place it at the end of the pipeline so downstream consumers see timestamps relative to the input audio, not the intermediate concatenation.
+
+### Usage
 
 ```python
 from nemo_curator.stages.audio.postprocessing.timestamp_mapper import TimestampMapperStage
 
 mapper = TimestampMapperStage(passthrough_keys=["speaker_id", "duration_sec"])
+pipeline.add_stage(mapper)
 ```
+
+### Parameters
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `passthrough_keys` | list[str] \| None | `None` | Manifest keys to copy from input to output unchanged. Useful when later stages add fields (`speaker_id`, scores) that should travel with the mapped timestamps. |
 
+### Why Pass-Through Keys Matter
+
+After a chain like `Concat → SpeakerSep → VAD → UTMOS`, each segment carries fields added by intermediate stages (`speaker_id` from speaker separation, `utmos_mos` from UTMOS, etc.). Without `passthrough_keys`, `TimestampMapperStage` only writes the resolved timestamps and drops everything else. List the fields you need preserved:
+
+```python
+TimestampMapperStage(
+    passthrough_keys=[
+        "speaker_id",
+        "num_speakers",
+        "utmos_mos",
+        "sigmos_noise",
+        "sigmos_ovrl",
+    ]
+)
+```
+
+## Complete Preprocessing Example
+
+A pipeline that uses all three stages together with VAD + UTMOS in between:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
+from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
+from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage
+from nemo_curator.stages.audio.postprocessing.timestamp_mapper import TimestampMapperStage
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+pipeline = Pipeline(name="audio_preprocessing")
+
+# 1. Normalize channels and sample rate
+pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+
+# 2. Segment into speech chunks
+pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))
+
+# 3. Quality filter
+pipeline.add_stage(UTMOSFilterStage(mos_threshold=3.5))
+
+# 4. Concatenate surviving segments
+pipeline.add_stage(SegmentConcatenationStage(silence_duration_sec=0.5))
+
+# 5. Resolve final boundaries back to source-file timestamps
+pipeline.add_stage(
+    TimestampMapperStage(passthrough_keys=["utmos_mos"])
+)
+
+# 6. Export
+pipeline.add_stage(AudioToDocumentStage())
+pipeline.add_stage(JsonlWriter(path="./preprocessed_audio"))
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+## Best Practices
+
+- **Mono first, always**: every downstream stage assumes a consistent waveform shape. `MonoConversionStage` is mandatory at the start of any pipeline that uses VAD, UTMOS, SIGMOS, or speaker separation.
+- **Use `strict_sample_rate=True` until you have evidence it's wrong**: catching unexpected rates early is better than silently resampling and getting subtly worse results downstream.
+- **Pass through fields explicitly**: `TimestampMapperStage` is the closing stage — list everything you want preserved in `passthrough_keys`. It's easier than adding a downstream stage to merge them back.
+- **Skip concatenation if you want individual-segment manifests**: if your downstream training pipeline reads one segment at a time, you don't need to concatenate. Run VAD → quality filters → directly to writer; skip both `SegmentConcatenationStage` and `TimestampMapperStage`.
+
 ## Related Topics
 
-- [VAD Segmentation](/curate-audio/process-data/quality-filtering/vad) — produces the segments these stages consume and emit.
-- [`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage) — composes mono conversion + concatenation + timestamp mapping into the standard pipeline.
+- **[VAD Segmentation](/curate-audio/process-data/quality-filtering/vad)** — produces the segments concatenation re-merges.
+- **[Speaker Separation](/curate-audio/process-data/quality-filtering/speaker-separation)** — typical stage between concatenation and the per-speaker filters.
+- **[`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage)** — composes mono conversion + concatenation + timestamp mapping into the standard pipeline automatically.

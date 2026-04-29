@@ -1,5 +1,5 @@
 ---
-description: "Filter audio by predicted Mean Opinion Score using UTMOSFilterStage and the utmos22_strong model"
+description: "Filter audio segments by predicted Mean Opinion Score using UTMOSFilterStage and the utmos22_strong model"
 categories: ["audio-processing"]
 tags: ["audio-filtering", "utmos", "mos", "mean-opinion-score", "quality"]
 personas: ["data-scientist-focused", "mle-focused"]
@@ -10,17 +10,63 @@ modality: "audio-only"
 
 # UTMOS Filter
 
-`UTMOSFilterStage` filters audio segments based on their predicted Mean Opinion Score (MOS) using the [`utmos22_strong`](https://github.com/tarepan/SpeechMOS) model. UTMOS is a learned no-reference perceptual-quality predictor on a 1.0–5.0 scale; higher means cleaner, more natural-sounding speech.
+Filter audio segments based on their predicted Mean Opinion Score (MOS) using the [`utmos22_strong`](https://github.com/tarepan/SpeechMOS) model. UTMOS is the primary perceptual-quality predictor in the audio quality-filtering pipeline.
 
-## Usage
+## Understanding UTMOS
+
+### What MOS Measures
+
+Mean Opinion Score is a 1.0–5.0 perceptual-quality scale originally defined for human listening tests. UTMOS is a learned **no-reference predictor** that produces an MOS estimate directly from waveform input — no clean reference signal required, unlike PESQ or POLQA.
+
+| MOS Range | Quality Level | Recommended Use |
+|-----------|---------------|-----------------|
+| 4.0–5.0 | Excellent | High-quality TTS / voice cloning training data |
+| 3.5–4.0 | Good | General ASR / TTS training (default threshold range) |
+| 3.0–3.5 | Acceptable | Permissive thresholds for large web-scraped datasets |
+| 2.0–3.0 | Poor | Review required; usually filtered out |
+| < 2.0 | Bad | Strong candidate for removal |
+
+A common starting point is `mos_threshold=3.5` — drops obviously distorted, noisy, or clipped audio while keeping most usable training material.
+
+### When to Use UTMOS vs SIGMOS
+
+- **UTMOS** produces a single composite quality score. Use it as the first cheap filter to drop obviously-bad audio.
+- **SIGMOS** produces seven independent dimension scores (noise, signal, reverb, etc.). Use it after UTMOS for fine-grained control over which kinds of degradation to allow.
+
+In a typical pipeline both are stacked: UTMOS first as a coarse cut, SIGMOS second to enforce specific quality requirements.
+
+## Basic UTMOS Filtering
+
+### Step 1: Configure the Stage
 
 ```python
 from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
 
 utmos = UTMOSFilterStage(mos_threshold=3.5)
+
+pipeline.add_stage(utmos)
 ```
 
 The stage accepts either an in-memory waveform (`waveform` + `sample_rate`) or a path (`audio_filepath`). Multi-channel input is automatically converted to mono, and any sample rate is resampled to 16 kHz before scoring.
+
+### Step 2: Inspect the MOS Distribution Before Filtering
+
+For unfamiliar datasets, run UTMOS in **score-only** mode first by setting `mos_threshold=None`:
+
+```python
+# Score every segment without filtering
+pipeline.add_stage(UTMOSFilterStage(mos_threshold=None))
+```
+
+Export the resulting manifest with `AudioToDocumentStage` + `JsonlWriter`, then plot the `utmos_mos` distribution (in pandas, numpy, or your preferred tool) before choosing a real threshold. This avoids over-filtering datasets that are systematically lower-quality than UTMOS's training distribution.
+
+### Step 3: Apply the Tuned Threshold
+
+```python
+pipeline.add_stage(UTMOSFilterStage(mos_threshold=3.5))
+```
+
+Segments with predicted MOS below `mos_threshold` are dropped; segments at or above the threshold pass through unchanged.
 
 ## Parameters
 
@@ -29,21 +75,80 @@ The stage accepts either an in-memory waveform (`waveform` + `sample_rate`) or a
 | `mos_threshold` | float \| None | `3.5` | Minimum MOS to keep. Set to `None` to score without filtering (useful for distribution analysis). |
 | `sample_rate` | int | `16000` | Target sample rate for UTMOS inference. The model is trained at 16 kHz; do not change unless you have a custom checkpoint. |
 
+The default resource allocation is `Resources(cpus=1.0, gpus=0.5)`. UTMOS is small; fractional-GPU allocation lets it share a device with other inference stages.
+
 ## Behavior Notes
 
-- The model is fetched via `torch.hub` from `tarepan/SpeechMOS:v1.2.0` on first use.
-- If the model fails to load (for example, in offline environments without `torch.hub` access), the stage logs the error and passes the input through unchanged.
-- The default resource allocation is `cpus=1.0, gpus=0.5`. UTMOS is small; fractional-GPU allocation lets it share a device with other inference stages.
+- **Model fetch**: the model is downloaded via `torch.hub` from `tarepan/SpeechMOS:v1.2.0` on first use.
+- **Offline environments**: if `torch.hub` access is unavailable, the stage logs the error and passes the input through unchanged. Pre-cache the model in an air-gapped environment by setting the `TORCH_HOME` environment variable.
+- **Multi-channel handling**: stereo and multi-channel input is converted to mono internally before scoring; you do not need to insert `MonoConversionStage` solely for UTMOS.
 
-## Tuning
+## Domain-Specific Tuning
 
-A common workflow is:
+### Voice Cloning / TTS
 
-1. Run the pipeline with `mos_threshold=None` to score everything without filtering.
-2. Inspect the distribution of MOS scores in the output manifest.
-3. Pick a threshold (typical values: `3.0` for permissive, `3.5` for default, `4.0` for high-quality only) and re-run.
+TTS training quality is sensitive to background noise, breath sounds, and clipping. Use a strict threshold:
+
+```python
+UTMOSFilterStage(mos_threshold=4.0)
+```
+
+### General ASR
+
+ASR is more robust to mild quality degradation than TTS. Default works well:
+
+```python
+UTMOSFilterStage(mos_threshold=3.5)
+```
+
+### Web-Scraped Audio (Permissive)
+
+Web crawls often have systematically lower audio quality. Lowering the threshold preserves more data; pair with stricter SIGMOS thresholds for targeted dimensions:
+
+```python
+UTMOSFilterStage(mos_threshold=3.0)
+# Then SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=3.0) downstream
+```
+
+## Complete UTMOS Pipeline Example
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
+from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+pipeline = Pipeline(name="utmos_filtering")
+
+# 1. Normalize input
+pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+
+# 2. Segment into speech chunks
+pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))
+
+# 3. Filter by UTMOS (drop MOS < 3.5)
+pipeline.add_stage(UTMOSFilterStage(mos_threshold=3.5))
+
+# 4. Export filtered manifest
+pipeline.add_stage(AudioToDocumentStage())
+pipeline.add_stage(JsonlWriter(path="./utmos_filtered"))
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+## Best Practices
+
+- **Inspect before filtering**: always run with `mos_threshold=None` first on a representative sample. Pick the threshold from the actual distribution, not from the table above.
+- **Stack UTMOS before SIGMOS**: UTMOS is cheaper than SIGMOS (single score vs seven dimensions). Run UTMOS first as a coarse cut, then SIGMOS for fine-grained dimension filtering.
+- **Match threshold to downstream model**: TTS (4.0+), ASR (3.5), permissive curation (3.0). The expected use of the data dictates the threshold.
+- **Don't change `sample_rate`**: the UTMOS model is trained at 16 kHz. Override only with a custom checkpoint trained at a different rate.
 
 ## Related Topics
 
-- [SIGMOS Filter](/curate-audio/process-data/quality-filtering/sigmos) — independent perceptual-quality dimensions; commonly stacked after UTMOS.
-- [`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage) — bundles UTMOS into the standard pipeline.
+- **[SIGMOS Filter](/curate-audio/process-data/quality-filtering/sigmos)** — independent perceptual-quality dimensions; commonly stacked after UTMOS.
+- **[VAD Segmentation](/curate-audio/process-data/quality-filtering/vad)** — typical upstream stage producing the segments UTMOS scores.
+- **[`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage)** — bundles UTMOS into the standard pipeline.

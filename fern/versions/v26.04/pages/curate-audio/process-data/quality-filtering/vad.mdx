@@ -10,9 +10,46 @@ modality: "audio-only"
 
 # VAD Segmentation
 
-`VADSegmentationStage` splits an input waveform into speech segments using the [Silero VAD](https://github.com/snakers4/silero-vad) model. Each detected segment becomes its own `AudioTask` (the stage fans out one output per segment), so downstream filters score each speech window independently.
+Split a continuous audio waveform into discrete speech segments using [Silero VAD](https://github.com/snakers4/silero-vad). Voice activity detection is the first transformative step in most audio curation pipelines — every downstream filter operates on segments, not whole files.
 
-## Usage
+## Understanding Voice Activity Detection
+
+### What VAD Does
+
+A VAD model classifies short audio frames (typically 30 ms) as either **speech** or **non-speech**. `VADSegmentationStage` runs the classifier across the input waveform, groups contiguous speech frames into segments, and emits one `AudioTask` per detected segment. Each emitted task carries:
+
+- `start_ms` / `end_ms` — segment boundaries in the original file
+- `segment_num` — sequential index of the segment
+- `duration_sec` — segment length
+- `waveform` — the segment's torch tensor
+- A PyDub `AudioSegment` for visualization or export
+
+This **fan-out** behavior means downstream stages score each segment independently, and individual bad segments can be dropped without losing the rest of the file.
+
+### Threshold Guidelines
+
+Silero VAD produces a confidence score from 0.0 to 1.0 for each frame. The `threshold` parameter controls how confident the model must be before classifying a frame as speech. The following table provides starting points; tune based on your dataset:
+
+| Threshold | Speech Recall | Use Case |
+|-----------|---------------|----------|
+| 0.3 | High (lenient) | Noisy field recordings, quiet speakers, podcast audio |
+| 0.5 | Balanced (default) | General-purpose curation, clean studio audio |
+| 0.7 | Strict | High-precision curation; recall a single speaker against background chatter |
+
+Lower thresholds keep more borderline audio (potentially more false positives); higher thresholds keep only confident speech (potentially missing quieter passages).
+
+### Segment Length
+
+`min_duration_sec` and `max_duration_sec` define the acceptable segment-length window:
+
+- Segments shorter than `min_duration_sec` are dropped (typically too short to contain useful content).
+- Segments longer than `max_duration_sec` are split (downstream models often have context-length limits).
+
+Typical training-segment durations: **2–60 seconds** for ASR, **5–30 seconds** for TTS, **10–120 seconds** for ALM.
+
+## Basic VAD Segmentation
+
+### Step 1: Configure the Stage
 
 ```python
 from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
@@ -23,28 +60,121 @@ vad = VADSegmentationStage(
     threshold=0.5,
     speech_pad_ms=300,
 )
+
+pipeline.add_stage(vad)
 ```
 
-The stage reads `waveform` and `sample_rate` from the input task and emits one task per detected segment with the fields `start_ms`, `end_ms`, `segment_num`, `duration_sec`, plus both PyDub `AudioSegment` and torch waveform output. Pair with `SegmentConcatenationStage` if you want to merge surviving segments after later filters.
+The default resource allocation is `Resources(cpus=1.0, gpus=0.0)`. Silero VAD is small enough that fractional-GPU sharing works well; set `gpus=0.1` on the stage's `Resources` if you have GPU headroom.
+
+**Prerequisites**: each input `AudioTask` must carry a `waveform` and `sample_rate` field. Place a [`MonoConversionStage`](/curate-audio/process-data/quality-filtering/preprocessing) upstream to guarantee both.
+
+### Step 2: Tune the Padding
+
+`speech_pad_ms` adds padding to either side of each detected segment. Without padding, segments often clip the leading and trailing phonemes of an utterance. Defaults:
+
+```python
+VADSegmentationStage(
+    speech_pad_ms=300,  # 300 ms each side — preserves natural breathing and onsets
+)
+```
+
+For training data going to TTS, increase to **400–500 ms** to keep more natural prosody. For ASR transcription work, the default 300 ms is usually sufficient.
 
 ## Parameters
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `min_interval_ms` | int | `500` | Minimum silence interval (in ms) between distinct speech segments. |
+| `min_interval_ms` | int | `500` | Minimum silence interval (in ms) between distinct speech segments before they merge. |
 | `min_duration_sec` | float | `2.0` | Drop segments shorter than this duration. |
 | `max_duration_sec` | float | `60.0` | Cap segment duration; longer segments are split. |
-| `threshold` | float | `0.5` | Silero VAD confidence threshold (0.0–1.0). |
+| `threshold` | float | `0.5` | Silero VAD confidence threshold (0.0–1.0). See [Threshold Guidelines](#threshold-guidelines). |
 | `speech_pad_ms` | int | `300` | Padding (in ms) added to either side of each detected segment. |
 | `waveform_key` | str | `"waveform"` | Input task key containing the waveform tensor. |
 | `sample_rate_key` | str | `"sample_rate"` | Input task key containing the sample rate. |
-| `nested` | bool | `False` | When `True`, segments inherit the parent task's `mappings` field for nested re-segmentation. |
+| `nested` | bool | `False` | When `True`, segments inherit the parent task's `mappings` field for nested re-segmentation (used in per-speaker filter chains). |
 
-## Resources
+## Domain-Specific Tuning
 
-The default resource allocation is `cpus=1.0, gpus=0.0`. Set `gpus=0.1` (or higher) on the stage's `Resources` if you want Silero VAD to run on GPU; the model is small enough that fractional-GPU sharing works well.
+### Conversational Audio
+
+Conversational speech includes overlapping speakers, disfluencies, and back-channel responses ("uh-huh"). Keep more of it:
+
+```python
+VADSegmentationStage(
+    min_duration_sec=1.0,    # keep short backchannels
+    threshold=0.4,           # lenient — accept marginal speech
+    speech_pad_ms=400,       # extra padding for natural turns
+)
+```
+
+### Studio / Read-Speech Audio
+
+Studio audio has cleanly separated utterances and minimal noise. Use stricter parameters to avoid splitting on internal pauses:
+
+```python
+VADSegmentationStage(
+    min_duration_sec=2.0,
+    threshold=0.6,           # strict — only confident speech
+    min_interval_ms=800,     # don't split on short pauses inside a sentence
+)
+```
+
+### Long-Form Audio (Podcasts, Audiobooks)
+
+Long files benefit from larger `max_duration_sec` so individual sentences and paragraphs aren't fragmented:
+
+```python
+VADSegmentationStage(
+    min_duration_sec=3.0,
+    max_duration_sec=30.0,   # natural sentence-paragraph length
+    threshold=0.5,
+)
+```
+
+## Complete VAD Pipeline Example
+
+A minimum-viable pipeline that loads audio, segments it, and writes a manifest of segments:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+pipeline = Pipeline(name="vad_segmentation")
+
+# 1. Normalize input audio
+pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+
+# 2. Segment into speech chunks
+pipeline.add_stage(
+    VADSegmentationStage(
+        min_duration_sec=2.0,
+        max_duration_sec=60.0,
+        threshold=0.5,
+        speech_pad_ms=300,
+    )
+)
+
+# 3. Export the segment manifest
+pipeline.add_stage(AudioToDocumentStage())
+pipeline.add_stage(JsonlWriter(path="./segments"))
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+## Best Practices
+
+- **Start with defaults**: `threshold=0.5` and `min_duration_sec=2.0` cover most use cases. Tune only after inspecting a sample of output segments.
+- **Pair with quality filters**: VAD alone keeps anything that sounds like speech, including low-quality, noisy, or distorted segments. Chain a [UTMOS filter](/curate-audio/process-data/quality-filtering/utmos) and/or [SIGMOS filter](/curate-audio/process-data/quality-filtering/sigmos) after VAD to drop low-quality segments.
+- **Use `nested=True` for per-speaker pipelines**: when running VAD again on speaker-separated audio downstream of [Speaker Separation](/curate-audio/process-data/quality-filtering/speaker-separation), set `nested=True` so the inner VAD inherits the outer segment's `mappings` chain — required for correct timestamp resolution at the end.
+- **Inspect distributions before filtering aggressively**: export a sample manifest with VAD only, then plot the distribution of `duration_sec` across segments. Use that distribution to choose realistic `min_duration_sec` and `max_duration_sec` for your data.
 
 ## Related Topics
 
-- [Speaker Separation](/curate-audio/process-data/quality-filtering/speaker-separation) — typical next stage after VAD when you also need diarization.
-- [`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage) — wraps VAD plus the rest of the audio filtering pipeline.
+- **[Preprocessing Stages](/curate-audio/process-data/quality-filtering/preprocessing)** — `MonoConversionStage` (typically upstream) and `SegmentConcatenationStage` (typically downstream).
+- **[Speaker Separation](/curate-audio/process-data/quality-filtering/speaker-separation)** — typical next stage when you need diarization in addition to segmentation.
+- **[`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage)** — wraps VAD with the rest of the audio quality pipeline.
