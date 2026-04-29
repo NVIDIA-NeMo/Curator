@@ -881,15 +881,16 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
-  - name: ndd_ray_serve_dp4
+  - name: ndd_dynamo_dp4
     enabled: true
     script: ndd_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-path={dataset:ndd_gretel_symptoms,jsonl}
       --output-path={session_entry_dir}/scratch/output
-      --inference-server-type=ray-serve
+      --inference-server-type=dynamo
       --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
@@ -908,6 +909,39 @@ entries:
     requirements:
       - metric: output_row_count
         exact_value: 853
+      - metric: throughput_rows_per_sec
+        min_value: 2.9
+
+  - name: ndd_ray_serve_dp4
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:ndd_gretel_symptoms,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=ray-serve
+      --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
+      --executor=ray_data
+      --engine-kwargs='{"tensor_parallel_size": 1}'
+      --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
+    timeout_s: 700
+    ray:
+      num_cpus: 16
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - throughput_rows_per_sec
+          - serve_startup_s
+        ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
+    requirements:
+      - metric: output_row_count
+        exact_value: 853
+      - metric: throughput_rows_per_sec
+        min_value: 2.5
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings
     enabled: true
