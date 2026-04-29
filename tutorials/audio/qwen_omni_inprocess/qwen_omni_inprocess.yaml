@@ -1,0 +1,118 @@
+# Granary v2 — Qwen-Omni In-Process Pipeline (Hydra Config)
+#
+# Full ASR postprocessing pipeline:
+#   NemoTarredAudioReader -> InitializeFields -> QwenOmni inference
+#   -> WhisperHallucination -> [QwenASR recovery] -> SelectBestPrediction
+#   -> FastTextLID -> RegexSubstitution -> AbbreviationConcat
+#   -> [PnC restoration] -> [ITN] -> ShardedManifestWriter
+#
+# Invoked by NvLLMOps Kratos via:
+#   python tutorials/audio/qwen_omni_inprocess/main.py \
+#       --config-path=<path> --config-name=qwen_omni_inprocess \
+#       workspace_dir=/work input_manifest=/data/config.yaml
+#
+# The NvLLMOps run_curator() passes `input_manifest` as a Hydra override.
+# For tarred data, this should point to the Granary YAML data config.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+# ===========================================================================
+# CORE — these are overridden at runtime by NvLLMOps run_curator()
+# ===========================================================================
+input_manifest: ???
+workspace_dir: /local/qwen_omni_workspace
+final_manifest: ${workspace_dir}/output.jsonl
+language_short: en
+max_segment_length: 40
+hf_token: ""
+execution_mode: streaming
+
+# data_config defaults to input_manifest (NvLLMOps passes the Granary YAML
+# data config path as input_manifest)
+data_config: ${input_manifest}
+output_dir: ${workspace_dir}
+corpus: null
+s3_endpoint_url: null
+source_lang_key: source_lang
+
+# ===========================================================================
+# QWEN-OMNI INFERENCE
+# ===========================================================================
+model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+ml_prompt: "Transcribe the audio."
+ml_prompt_file: null
+en_prompt_file: null
+followup_prompt: null
+followup_prompt_file: null
+system_prompt: null
+tensor_parallel_size: 2
+batch_size: 32
+max_output_tokens: 256
+max_model_len: 32768
+max_num_seqs: 16
+gpu_memory_utilization: 0.95
+prep_workers: 16
+
+# ===========================================================================
+# TEXT FILTERING
+# ===========================================================================
+hall_phrases: ???
+fasttext_model: "facebook/fasttext-language-identification"
+regex_yaml: ???
+min_lang_prob: 0.8
+unique_words_threshold: 0.4
+long_word_threshold: 25
+long_word_rel_threshold: 3.0
+max_char_rate: 40.0
+
+# ===========================================================================
+# QWEN-ASR HALLUCINATION RECOVERY (optional — set asr_model_id to enable)
+# ===========================================================================
+asr_model_id: null
+asr_batch_size: 128
+asr_gpu_memory_utilization: 0.95
+asr_max_new_tokens: 4096
+
+# ===========================================================================
+# PNC RESTORATION (optional — set skip_pnc: true to disable)
+# ===========================================================================
+skip_pnc: false
+pnc_model_id: "Qwen/Qwen3.5-35B-A3B-FP8"
+pnc_prompt: null
+pnc_prompt_file: null
+completeness_prompt: null
+pnc_tensor_parallel_size: 2
+pnc_batch_size: 64
+pnc_max_model_len: 8192
+pnc_max_num_seqs: 64
+pnc_gpu_memory_utilization: 0.95
+pnc_prep_workers: 8
+
+# ===========================================================================
+# ITN (optional — set enable_itn: true to activate)
+# ===========================================================================
+enable_itn: false
+itn_model_id: "Qwen/Qwen3.5-35B-A3B-FP8"
+itn_prompt_file: null
+itn_text_key: null
+itn_output_key: "itn_text"
+itn_batch_size: 64
+itn_tensor_parallel_size: null
+itn_max_output_tokens: 4096
+itn_max_model_len: 4096
+itn_max_num_seqs: 16
+itn_gpu_memory_utilization: 0.95
+itn_no_validation: false
+
+# ===========================================================================
+# DISFLUENCY WER GUARD (active only when followup_prompt is set)
+# ===========================================================================
+max_wer_pct: 50.0
