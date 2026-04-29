@@ -188,7 +188,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     itn.add_argument("--itn_batch_size", type=int, default=64, help="Batch size for ITN inference.")
     itn.add_argument("--itn_tensor_parallel_size", type=int, default=None,
                      help="TP size for ITN model (None = auto-detect).")
-    itn.add_argument("--itn_max_output_tokens", type=int, default=4096,
+    itn.add_argument("--itn_max_output_tokens", type=int, default=512,
                      help="Max tokens to generate per ITN sample.")
     itn.add_argument("--itn_max_model_len", type=int, default=4096,
                      help="Max context length for ITN vLLM engine.")
