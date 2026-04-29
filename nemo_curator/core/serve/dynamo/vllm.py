@@ -74,6 +74,12 @@ def merge_model_runtime_envs(models: list[DynamoVLLMModelConfig]) -> dict[str, A
     return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, user_merged)
 
 
+def _worker_subprocess_env(base_env: dict[str, str], runtime_dir: str) -> dict[str, str]:
+    # FlashInfer's default workspace can keep cubins from a prior session whose
+    # actor venv has since been replaced; anchor it per-run instead.
+    return {**base_env, "FLASHINFER_WORKSPACE_BASE": f"{runtime_dir}/flashinfer"}
+
+
 def resolve_disagg_role_config(
     model_config: DynamoVLLMModelConfig, role: Literal["prefill", "decode"]
 ) -> tuple[int, dict[str, Any]]:
@@ -325,7 +331,7 @@ def _launch_vllm_worker(  # noqa: PLR0913
         python_args=python_args,
         runtime_dir=runtime_dir,
         actor_name_prefix=actor_name_prefix,
-        subprocess_env=base_env,
+        subprocess_env=_worker_subprocess_env(base_env, runtime_dir),
         runtime_env=dynamo_runtime_env(model_config),
     )
 
@@ -489,7 +495,11 @@ def _launch_disagg_role(  # noqa: PLR0913
             python_args=python_args,
             runtime_dir=runtime_dir,
             actor_name_prefix=actor_name_prefix,
-            subprocess_env={**base_env, "VLLM_NIXL_SIDE_CHANNEL_PORT": str(nixl_port), "PYTHONHASHSEED": "0"},
+            subprocess_env={
+                **_worker_subprocess_env(base_env, runtime_dir),
+                "VLLM_NIXL_SIDE_CHANNEL_PORT": str(nixl_port),
+                "PYTHONHASHSEED": "0",
+            },
             runtime_env=dynamo_runtime_env(model_config),
         )
         worker_actors.append(proc)

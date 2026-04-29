@@ -23,6 +23,7 @@ user's ``env_vars``, ``pip``, ``uv``, or ``working_dir``.
 from __future__ import annotations
 
 from nemo_curator.core.serve import DynamoVLLMModelConfig
+from nemo_curator.core.serve.base import BaseModelConfig
 from nemo_curator.core.serve.dynamo.vllm import (
     DYNAMO_VLLM_RUNTIME_ENV,
     dynamo_runtime_env,
@@ -105,3 +106,41 @@ class TestMergeModelRuntimeEnvs:
         ]
         env = merge_model_runtime_envs(models)
         assert env["env_vars"] == {"A": "1"}
+
+
+class TestMergeRuntimeEnvsDictForm:
+    """Cover ``BaseModelConfig.merge_runtime_envs`` paths where ``pip`` / ``uv``
+    arrive in Ray's structured dict form (``{"packages": [...],
+    "uv_pip_install_options": [...]}``) rather than the legacy list form."""
+
+    def test_dict_base_list_override_preserves_install_options(self) -> None:
+        base = {"uv": {"packages": ["pkg-a"], "uv_pip_install_options": ["--no-cache"]}}
+        override = {"uv": ["pkg-b"]}
+        env = BaseModelConfig.merge_runtime_envs(base, override)
+
+        assert env["uv"]["packages"] == ["pkg-a", "pkg-b"]
+        assert env["uv"]["uv_pip_install_options"] == ["--no-cache"]
+
+    def test_list_base_dict_override_carries_extra_keys(self) -> None:
+        base = {"pip": ["pkg-a"]}
+        override = {"pip": {"packages": ["pkg-b"], "pip_check": True}}
+        env = BaseModelConfig.merge_runtime_envs(base, override)
+
+        assert env["pip"]["packages"] == ["pkg-a", "pkg-b"]
+        assert env["pip"]["pip_check"] is True
+
+    def test_dict_base_dict_override_concatenates_options(self) -> None:
+        base = {"pip": {"packages": ["pkg-a"], "pip_install_options": ["--no-cache"]}}
+        override = {"pip": {"packages": ["pkg-b"], "pip_install_options": ["--prefer-binary"]}}
+        env = BaseModelConfig.merge_runtime_envs(base, override)
+
+        assert env["pip"]["packages"] == ["pkg-a", "pkg-b"]
+        assert env["pip"]["pip_install_options"] == ["--no-cache", "--prefer-binary"]
+
+    def test_dict_form_base_alone_is_returned_verbatim(self) -> None:
+        # User did not override ``uv`` — base's installer options must survive.
+        base = {"uv": {"packages": ["pkg-a"], "uv_pip_install_options": ["--no-cache"]}}
+        env = BaseModelConfig.merge_runtime_envs(base, {"env_vars": {"X": "1"}})
+
+        assert env["uv"] == base["uv"]
+        assert env["env_vars"] == {"X": "1"}
