@@ -36,7 +36,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     Expects each ``AudioTask.data`` to carry:
 
     - ``waveform``: 1-D mono numpy float32 array (any sample rate)
-    - ``sample_rate``: int
+    - ``sampling_rate``: int
 
     When ``run_only_if_key`` is set, the stage only runs inference on
     tasks where ``task.data[run_only_if_key]`` starts with
@@ -59,7 +59,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     model_id: str = "Qwen/Qwen3-ASR-0.6B"
     language: str | None = None
     waveform_key: str = "waveform"
-    sample_rate_key: str = "sample_rate"
+    sample_rate_key: str = "sampling_rate"
     pred_text_key: str = "qwen3_asr_prediction"
     language_key: str = "qwen3_asr_language"
     context_key: str | None = None

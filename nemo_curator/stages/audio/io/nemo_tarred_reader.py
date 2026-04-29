@@ -254,7 +254,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     tar streaming and ``soundfile`` for audio decoding.  No files are
     written to disk.  Each emitted ``AudioTask`` carries the waveform as
     a 1-D numpy float32 array (mono) in ``task.data["waveform"]`` and the
-    native sample rate in ``task.data["sample_rate"]``.
+    native sample rate in ``task.data["sampling_rate"]``.
 
     Args:
         filepath_key: Manifest key that identifies the audio filename
@@ -271,7 +271,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["waveform", "sample_rate", "corpus", "num_channels"]
+        return ["data"], ["waveform", "sampling_rate", "sample_rate", "corpus", "num_channels"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
         if RayStageSpecKeys is not None:
@@ -307,7 +307,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             # Decode audio in memory — no disk writes
             raw_audio = tar.extractfile(tar_info).read()
             try:
-                audio, sample_rate = sf.read(BytesIO(raw_audio), dtype="float32")
+                audio, sr = sf.read(BytesIO(raw_audio), dtype="float32")
             except Exception:  # noqa: BLE001
                 logger.warning(f"Skipping corrupt audio {tar_info.name} in {tar_path}")
                 continue
@@ -320,7 +320,8 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
             entry = dict(manifest[tar_info.name])
             entry["waveform"] = audio
-            entry["sample_rate"] = sample_rate
+            entry["sampling_rate"] = sr
+            entry["sample_rate"] = sr
             entry["num_channels"] = num_channels
             entry["corpus"] = corpus
 

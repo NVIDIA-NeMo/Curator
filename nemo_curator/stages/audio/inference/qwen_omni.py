@@ -36,7 +36,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     Expects each ``AudioTask.data`` to carry:
 
     - ``waveform``: 1-D mono numpy float32 array (any sample rate)
-    - ``sample_rate``: int
+    - ``sampling_rate``: int
 
     These are produced by ``NemoTarShardReaderStage`` which decodes audio
     in memory from NeMo tarred datasets via lhotse/soundfile.
@@ -71,8 +71,8 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     followup_prompt: str | None = None
     system_prompt: str | None = None
     waveform_key: str = "waveform"
-    sample_rate_key: str = "sample_rate"
-    source_lang_key: str = ""
+    sample_rate_key: str = "sampling_rate"
+    source_lang_key: str = "source_lang"
     pred_text_key: str = "qwen3_prediction_s1"
     disfluency_text_key: str = "qwen3_prediction_s2"
     skip_me_key: str = "_skip_me"
