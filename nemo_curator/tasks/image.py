@@ -14,13 +14,18 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import numpy as np
 
 from .tasks import Task
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -67,3 +72,37 @@ class ImageBatch(Task):
     def num_items(self) -> int:
         """Number of images in this batch."""
         return len(self.data)
+
+
+@dataclass(kw_only=True)
+class ImageTaskData:
+    """Task data for image processing."""
+
+    image_path: Path | str
+    image_id: str | None = None
+    is_valid: bool = True
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization.
+
+        Path objects are left as-is; callers should use default=str when
+        passing to json.dumps to handle Path → str conversion.
+        """
+        return dataclasses.asdict(self)
+
+
+@dataclass(kw_only=True)
+class SingleDataTask(Task[T], Generic[T]):
+    """Task that contains a single data item."""
+
+    data: T
+
+    def validate(self) -> bool:
+        """Validate the task data."""
+        return True
+
+    @property
+    def num_items(self) -> int:
+        """Number of items in the task."""
+        return 1
