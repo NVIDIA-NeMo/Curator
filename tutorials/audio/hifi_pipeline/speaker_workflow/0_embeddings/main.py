@@ -39,7 +39,7 @@ def _create_executor(backend: str) -> object:
 def main(cfg: DictConfig) -> None:
     """Run the tarred speaker-embedding workflow from Hydra YAML."""
     pipeline = create_pipeline_from_yaml(cfg)
-    pipeline.name = cfg.get("pipeline_name", "speaker_workflow")
+    pipeline.name = cfg.get("pipeline_name", "speaker_embeddings_workflow")
     pipeline.description = "Tarred diarized speaker-embedding workflow"
     pipeline.config["link_stages_via_io"] = bool(cfg.get("link_stages_via_io", False))
 

@@ -9,8 +9,8 @@ hydra:
   output_subdir: null
 
 documentation: |
-  Speaker Embedding Workflow
-  ##########################
+  Speaker Embeddings Workflow
+  ###########################
   This config runs a tarred-audio workflow that:
 
   1. Reads tarred diarized manifests from S3 or local storage
@@ -27,7 +27,7 @@ documentation: |
   * output_dir
   * upload_bucket
 
-pipeline_name: speaker_workflow
+pipeline_name: speaker_embeddings_workflow
 backend: xenna
 checkpoint_dir: null
 ignore_failed: false

@@ -14,14 +14,20 @@ The workflow performs:
 
 It is driven by Hydra YAML and uses `nemo_curator.config.run.create_pipeline_from_yaml`.
 
+## Layout
+
+This workflow lives under:
+
+- `tutorials/audio/hifi_pipeline/speaker_workflow/0_embeddings/`
+
 ## Usage
 
 From the Curator repo root:
 
 ```bash
-python tutorials/audio/hifi_pipeline/speaker_workflow/main.py \
-  --config-path tutorials/audio/hifi_pipeline/speaker_workflow \
-  --config-name speaker_workflow \
+python tutorials/audio/hifi_pipeline/speaker_workflow/0_embeddings/main.py \
+  --config-path tutorials/audio/hifi_pipeline/speaker_workflow/0_embeddings \
+  --config-name embeddings_workflow \
   manifest_paths=s3://bucket/path/to/manifest__OP_0..255_CL_.json \
   tar_paths=s3://bucket/path/to/audio__OP_0..255_CL_.tar \
   output_dir=/tmp/speaker_workflow \
@@ -33,9 +39,9 @@ python tutorials/audio/hifi_pipeline/speaker_workflow/main.py \
 To run with audio checkpointing:
 
 ```bash
-python tutorials/audio/hifi_pipeline/speaker_workflow/main.py \
-  --config-path tutorials/audio/hifi_pipeline/speaker_workflow \
-  --config-name speaker_workflow \
+python tutorials/audio/hifi_pipeline/speaker_workflow/0_embeddings/main.py \
+  --config-path tutorials/audio/hifi_pipeline/speaker_workflow/0_embeddings \
+  --config-name embeddings_workflow \
   manifest_paths=s3://bucket/path/to/manifest__OP_0..255_CL_.json \
   tar_paths=s3://bucket/path/to/audio__OP_0..255_CL_.tar \
   output_dir=/tmp/speaker_workflow \

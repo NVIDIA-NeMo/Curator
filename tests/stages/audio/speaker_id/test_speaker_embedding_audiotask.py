@@ -113,7 +113,15 @@ def test_speaker_embedding_stage_upload_pipeline_fields_work_with_upload_files_s
 
 def test_speaker_workflow_yaml_instantiates_expected_stages(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[4]
-    config_path = repo_root / "tutorials" / "audio" / "hifi_pipeline" / "speaker_workflow" / "speaker_workflow.yaml"
+    config_path = (
+        repo_root
+        / "tutorials"
+        / "audio"
+        / "hifi_pipeline"
+        / "speaker_workflow"
+        / "0_embeddings"
+        / "embeddings_workflow.yaml"
+    )
     cfg = OmegaConf.load(config_path)
     cfg.manifest_paths = "s3://bucket/manifests/manifest__OP_0..1_CL_.json"
     cfg.tar_paths = "s3://bucket/audio/audio__OP_0..1_CL_.tar"
