@@ -222,8 +222,6 @@ class SkipProcessedStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataT
     - Skipping is keyed by the serialized `image_path` string in the JSONL.
     - If `image_parent` was used when writing outputs, the same `image_parent`
       must be provided here to normalize task keys consistently.
-    - This stage returns `None` for skipped tasks, which is supported by the
-      local streaming executor (`simple_pipeline_runner.py`).
     """
 
     name: str = "skip_processed"
@@ -319,11 +317,8 @@ class SkipProcessedStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataT
                 pass
         return str(image_path)
 
-    def process(self, task: SingleDataTask[T_TaskData]) -> SingleDataTask[T_TaskData]:
-        x = self.process_batch([task])
-        if len(x) == 0:
-            return None
-        return x[0]
+    def process(self, task: SingleDataTask[T_TaskData]) -> list[SingleDataTask[T_TaskData]]:
+        return self.process_batch([task])
 
     def process_batch(self, tasks: list[SingleDataTask[T_TaskData]]) -> list[SingleDataTask[T_TaskData]]:
         results = []
