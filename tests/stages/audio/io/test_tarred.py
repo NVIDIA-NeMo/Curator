@@ -398,7 +398,7 @@ class TestTarredAudioMaterialization:
     def test_materialize_decodes_shared_member_once_for_segment_tasks(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import nemo_curator.stages.audio.io.tarred as tarred_module
+        import nemo_curator.stages.audio.io.materialize as materialize_module
 
         tar_path = tmp_path / "audio_0.tar"
         _write_tar(tar_path, {"sample.wav": _make_wav_bytes(duration_sec=1.0)})
@@ -429,14 +429,14 @@ class TestTarredAudioMaterialization:
         ]
 
         read_calls = 0
-        original_read = tarred_module.soundfile.read
+        original_read = materialize_module.soundfile.read
 
         def counting_read(*args: object, **kwargs: object) -> object:
             nonlocal read_calls
             read_calls += 1
             return original_read(*args, **kwargs)
 
-        monkeypatch.setattr(tarred_module.soundfile, "read", counting_read)
+        monkeypatch.setattr(materialize_module.soundfile, "read", counting_read)
 
         materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"))
         materialize.process_batch(tasks)
