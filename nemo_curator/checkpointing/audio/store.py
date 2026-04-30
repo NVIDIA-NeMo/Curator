@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -162,16 +164,9 @@ class StageCheckpointStore:
                 )
         records.extend(failed_records)
 
-        self._clear_jsonl_files(self.outputs_dir)
-        self._clear_jsonl_files(self.records_dir)
         output_tasks_by_shard = self._group_tasks_by_shard(output_tasks)
-        for shard_id, shard_tasks in output_tasks_by_shard.items():
-            dump_audio_task_manifest(shard_tasks, self.outputs_dir / f"{shard_id}.jsonl")
-
         records_by_shard = self._group_records_by_shard(records)
-        for shard_id, shard_records in records_by_shard.items():
-            record_payloads = [record.to_dict() for record in shard_records]
-            write_jsonl_atomic(self.records_dir / f"{shard_id}.jsonl", record_payloads)
+        self._write_shard_dirs_atomic(output_tasks_by_shard, records_by_shard)
 
         status_payload = {
             "stage_index": self.stage_index,
@@ -204,9 +199,41 @@ class StageCheckpointStore:
             grouped.setdefault(shard_id, []).append(record)
         return grouped
 
+    def _write_shard_dirs_atomic(
+        self,
+        output_tasks_by_shard: dict[str, list[AudioTask]],
+        records_by_shard: dict[str, list[SampleCheckpointRecord]],
+    ) -> None:
+        outputs_tmp_dir = self._create_temp_shard_dir("outputs")
+        records_tmp_dir = self._create_temp_shard_dir("records")
+        try:
+            for shard_id, shard_tasks in output_tasks_by_shard.items():
+                dump_audio_task_manifest(shard_tasks, outputs_tmp_dir / f"{shard_id}.jsonl")
+            for shard_id, shard_records in records_by_shard.items():
+                record_payloads = [record.to_dict() for record in shard_records]
+                write_jsonl_atomic(records_tmp_dir / f"{shard_id}.jsonl", record_payloads)
+
+            self._replace_directory(outputs_tmp_dir, self.outputs_dir)
+            outputs_tmp_dir = None
+            self._replace_directory(records_tmp_dir, self.records_dir)
+            records_tmp_dir = None
+        finally:
+            if outputs_tmp_dir is not None and outputs_tmp_dir.exists():
+                shutil.rmtree(outputs_tmp_dir, ignore_errors=True)
+            if records_tmp_dir is not None and records_tmp_dir.exists():
+                shutil.rmtree(records_tmp_dir, ignore_errors=True)
+
+    def _create_temp_shard_dir(self, name: str) -> Path:
+        self.stage_dir.mkdir(parents=True, exist_ok=True)
+        return Path(tempfile.mkdtemp(prefix=f"{name}_tmp_", dir=self.stage_dir))
+
     @staticmethod
-    def _clear_jsonl_files(directory: Path) -> None:
-        if not directory.exists():
-            return
-        for path in directory.glob("*.jsonl"):
-            path.unlink()
+    def _replace_directory(source_dir: Path, target_dir: Path) -> None:
+        backup_dir = target_dir.with_name(f"{target_dir.name}.bak")
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir, ignore_errors=True)
+        if target_dir.exists():
+            target_dir.rename(backup_dir)
+        source_dir.rename(target_dir)
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir, ignore_errors=True)

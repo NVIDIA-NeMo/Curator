@@ -285,3 +285,31 @@ def test_store_writes_one_file_per_checkpoint_shard(tmp_path: Path) -> None:
 
     assert output_files == ["shard_0.jsonl", "shard_1.jsonl"]
     assert record_files == ["shard_0.jsonl", "shard_1.jsonl"]
+
+
+def test_store_keeps_existing_shard_files_when_temp_write_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import nemo_curator.checkpointing.audio.store as store_module
+
+    store = StageCheckpointStore(
+        checkpoint_dir=tmp_path / "checkpoints",
+        stage_index=0,
+        stage_name="reader_stage",
+        config_fingerprint="fingerprint",
+    )
+    initial_tasks = [_make_audio_task("sample-a", checkpoint_shard_id="shard_0")]
+    store.write_stage_result(input_tasks=initial_tasks, output_tasks=initial_tasks)
+
+    original_output = (store.outputs_dir / "shard_0.jsonl").read_text()
+    original_records = (store.records_dir / "shard_0.jsonl").read_text()
+
+    def fail_write_jsonl_atomic(_path: Path, _payloads: list[dict[str, object]]) -> None:
+        msg = "simulated records write failure"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(store_module, "write_jsonl_atomic", fail_write_jsonl_atomic)
+
+    with pytest.raises(RuntimeError, match="simulated records write failure"):
+        store.write_stage_result(input_tasks=initial_tasks, output_tasks=initial_tasks)
+
+    assert (store.outputs_dir / "shard_0.jsonl").read_text() == original_output
+    assert (store.records_dir / "shard_0.jsonl").read_text() == original_records
