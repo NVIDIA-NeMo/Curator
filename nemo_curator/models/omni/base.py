@@ -198,7 +198,6 @@ class NVInferenceModel(VLMModel):
         """
         content: list[dict[str, Any]] = []
 
-        content.append({"type": "text", "text": prompt})
         if image is not None:
             if isinstance(image, str):
                 image_url = image
@@ -212,6 +211,7 @@ class NVInferenceModel(VLMModel):
                     "image_url": {"url": image_url},
                 }
             )
+        content.append({"type": "text", "text": prompt})
         return content
 
     def generate(

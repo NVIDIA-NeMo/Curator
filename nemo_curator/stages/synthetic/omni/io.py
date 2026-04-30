@@ -209,7 +209,7 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
 
             tasks.append(
                 SingleDataTask(
-                    task_id=f"hf_{idx}",
+                    task_id=image_id,
                     dataset_name=dataset_tag,
                     data=self.task_type(
                         image_path=image_path,

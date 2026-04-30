@@ -271,7 +271,7 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
         try:
             responses = self.model.generate(prompts, images if self.multimodal else None, self.inference_config)
 
-            for idx, response in zip(valid_indices, responses, strict=False):
+            for idx, response in zip(valid_indices, responses, strict=True):
                 self._handle_response_one(tasks, idx, response)
 
             logger.info(f"{self.name}: processed batch of {len(valid_indices)} items")

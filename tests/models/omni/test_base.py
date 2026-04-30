@@ -208,16 +208,16 @@ class TestNVInferenceModelBuildMessageContent:
         img = Image.new("RGB", (4, 4))
         content = model._build_message_content("describe", img)
         assert len(content) == 2
-        assert content[0]["type"] == "text"
-        assert content[1]["type"] == "image_url"
-        url = content[1]["image_url"]["url"]
+        assert content[0]["type"] == "image_url"
+        assert content[1]["type"] == "text"
+        url = content[0]["image_url"]["url"]
         assert url.startswith("data:image/png;base64,")
 
     def test_with_uri_string_passed_as_is(self) -> None:
         model = _make_nv_model()
         uri = "https://example.com/img.jpg"
         content = model._build_message_content("describe", uri)
-        assert content[1]["image_url"]["url"] == uri
+        assert content[0]["image_url"]["url"] == uri
 
 
 # ---------------------------------------------------------------------------
@@ -275,8 +275,8 @@ class TestNVInferenceModelGenerate:
         model.generate(["p1", "p2"], imgs, InferenceConfig())
         first_call_kwargs = mock_stream.call_args_list[0][1]
         content = first_call_kwargs["messages"][0]["content"]
-        assert len(content) == 2  # text + image
-        assert content[1]["type"] == "image_url"
+        assert len(content) == 2  # image + text
+        assert content[0]["type"] == "image_url"
 
     @patch("nemo_curator.models.client.nvinference_client.stream_chat_completion_text")
     def test_empty_response_becomes_empty_string(self, mock_stream: MagicMock) -> None:
