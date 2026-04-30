@@ -25,7 +25,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from loguru import logger
 
-from nemo_curator.tasks.audio_task import ensure_checkpoint_shard_id, ensure_sample_key
+from nemo_curator.tasks.audio_task import (
+    ensure_checkpoint_shard_id,
+    ensure_sample_key,
+    parent_sample_keys,
+)
 
 from .io_utils import normalize_for_json, write_json_atomic, write_jsonl_atomic
 from .serialization import dump_audio_task_manifest, load_audio_task_manifest, serialize_audio_task
@@ -75,8 +79,11 @@ class StageCheckpointStore:
         self.root_dir = Path(self.checkpoint_dir)
         self.stage_dir = self.root_dir / f"{self.stage_index:02d}_{self.stage_name}"
         self.stage_json_path = self.stage_dir / "stage.json"
-        self.records_dir = self.stage_dir / "records"
-        self.outputs_dir = self.stage_dir / "outputs"
+        self.payload_dir = self.stage_dir / "payload"
+        self.outputs_dir = self.payload_dir / "outputs"
+        self.records_dir = self.payload_dir / "records"
+        self.legacy_outputs_dir = self.stage_dir / "outputs"
+        self.legacy_records_dir = self.stage_dir / "records"
 
     def is_complete(self) -> bool:
         if not self.stage_json_path.exists():
@@ -89,15 +96,17 @@ class StageCheckpointStore:
 
     def load_output_tasks(self) -> list[AudioTask]:
         tasks: list[AudioTask] = []
-        for manifest_path in sorted(self.outputs_dir.glob("*.jsonl")):
+        outputs_dir = self.outputs_dir if self.outputs_dir.exists() else self.legacy_outputs_dir
+        for manifest_path in sorted(outputs_dir.glob("*.jsonl")):
             tasks.extend(load_audio_task_manifest(manifest_path))
         return tasks
 
     def load_records(self) -> list[SampleCheckpointRecord]:
-        if not self.records_dir.exists():
+        records_dir = self.records_dir if self.records_dir.exists() else self.legacy_records_dir
+        if not records_dir.exists():
             return []
         records: list[SampleCheckpointRecord] = []
-        for records_path in sorted(self.records_dir.glob("*.jsonl")):
+        for records_path in sorted(records_dir.glob("*.jsonl")):
             with records_path.open("r", encoding="utf-8") as fin:
                 for line in fin:
                     if not line.strip():
@@ -135,6 +144,9 @@ class StageCheckpointStore:
         failed_records = failed_records or []
         failed_by_key = {record.sample_key: record for record in failed_records}
         output_by_key = {task.sample_key: task for task in output_tasks}
+        produced_parent_keys = {
+            parent_key for task in output_tasks for parent_key in parent_sample_keys(task)
+        }
         if len(output_by_key) != len(output_tasks):
             logger.warning(
                 "Duplicate sample_keys detected in {} output tasks for stage checkpoint {}",
@@ -153,7 +165,11 @@ class StageCheckpointStore:
         ]
         if input_tasks is not None:
             for task in input_tasks:
-                if task.sample_key in output_by_key or task.sample_key in failed_by_key:
+                if (
+                    task.sample_key in output_by_key
+                    or task.sample_key in failed_by_key
+                    or task.sample_key in produced_parent_keys
+                ):
                     continue
                 records.append(
                     SampleCheckpointRecord(
@@ -166,7 +182,7 @@ class StageCheckpointStore:
 
         output_tasks_by_shard = self._group_tasks_by_shard(output_tasks)
         records_by_shard = self._group_records_by_shard(records)
-        self._write_shard_dirs_atomic(output_tasks_by_shard, records_by_shard)
+        self._write_payload_dir_atomic(output_tasks_by_shard, records_by_shard)
 
         status_payload = {
             "stage_index": self.stage_index,
@@ -199,13 +215,16 @@ class StageCheckpointStore:
             grouped.setdefault(shard_id, []).append(record)
         return grouped
 
-    def _write_shard_dirs_atomic(
+    def _write_payload_dir_atomic(
         self,
         output_tasks_by_shard: dict[str, list[AudioTask]],
         records_by_shard: dict[str, list[SampleCheckpointRecord]],
     ) -> None:
-        outputs_tmp_dir = self._create_temp_shard_dir("outputs")
-        records_tmp_dir = self._create_temp_shard_dir("records")
+        payload_tmp_dir = self._create_temp_payload_dir()
+        outputs_tmp_dir = payload_tmp_dir / "outputs"
+        records_tmp_dir = payload_tmp_dir / "records"
+        outputs_tmp_dir.mkdir(parents=True, exist_ok=True)
+        records_tmp_dir.mkdir(parents=True, exist_ok=True)
         try:
             for shard_id, shard_tasks in output_tasks_by_shard.items():
                 dump_audio_task_manifest(shard_tasks, outputs_tmp_dir / f"{shard_id}.jsonl")
@@ -213,19 +232,16 @@ class StageCheckpointStore:
                 record_payloads = [record.to_dict() for record in shard_records]
                 write_jsonl_atomic(records_tmp_dir / f"{shard_id}.jsonl", record_payloads)
 
-            self._replace_directory(outputs_tmp_dir, self.outputs_dir)
-            outputs_tmp_dir = None
-            self._replace_directory(records_tmp_dir, self.records_dir)
-            records_tmp_dir = None
+            self._replace_directory(payload_tmp_dir, self.payload_dir)
+            payload_tmp_dir = None
+            self._cleanup_legacy_shard_dirs()
         finally:
-            if outputs_tmp_dir is not None and outputs_tmp_dir.exists():
-                shutil.rmtree(outputs_tmp_dir, ignore_errors=True)
-            if records_tmp_dir is not None and records_tmp_dir.exists():
-                shutil.rmtree(records_tmp_dir, ignore_errors=True)
+            if payload_tmp_dir is not None and payload_tmp_dir.exists():
+                shutil.rmtree(payload_tmp_dir, ignore_errors=True)
 
-    def _create_temp_shard_dir(self, name: str) -> Path:
+    def _create_temp_payload_dir(self) -> Path:
         self.stage_dir.mkdir(parents=True, exist_ok=True)
-        return Path(tempfile.mkdtemp(prefix=f"{name}_tmp_", dir=self.stage_dir))
+        return Path(tempfile.mkdtemp(prefix="payload_tmp_", dir=self.stage_dir))
 
     @staticmethod
     def _replace_directory(source_dir: Path, target_dir: Path) -> None:
@@ -237,3 +253,8 @@ class StageCheckpointStore:
         source_dir.rename(target_dir)
         if backup_dir.exists():
             shutil.rmtree(backup_dir, ignore_errors=True)
+
+    def _cleanup_legacy_shard_dirs(self) -> None:
+        for directory in (self.legacy_outputs_dir, self.legacy_records_dir):
+            if directory.exists():
+                shutil.rmtree(directory, ignore_errors=True)

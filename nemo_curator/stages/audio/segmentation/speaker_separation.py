@@ -50,7 +50,7 @@ from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_se
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
-from nemo_curator.tasks.audio_task import derive_child_sample_key
+from nemo_curator.tasks.audio_task import attach_parent_sample_keys, derive_child_sample_key
 
 
 def _pydub_to_waveform_sr(seg: AudioSegment) -> tuple[torch.Tensor, int]:
@@ -200,6 +200,7 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
             )
             if task._metadata:
                 spk_task._metadata = dict(task._metadata)
+            attach_parent_sample_keys(spk_task, task)
             results.append(spk_task)
         return results
 

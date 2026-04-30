@@ -32,6 +32,7 @@ from nemo_curator.checkpointing.audio.store import StageCheckpointStore, fingerp
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask
+from nemo_curator.tasks.audio_task import attach_parent_sample_keys
 
 
 class LocalExecutor(BaseExecutor):
@@ -287,6 +288,30 @@ def test_store_writes_one_file_per_checkpoint_shard(tmp_path: Path) -> None:
 
     assert output_files == ["shard_0.jsonl", "shard_1.jsonl"]
     assert record_files == ["shard_0.jsonl", "shard_1.jsonl"]
+
+
+def test_store_does_not_mark_parent_as_filtered_for_fanout_outputs(tmp_path: Path) -> None:
+    store = StageCheckpointStore(
+        checkpoint_dir=tmp_path / "checkpoints",
+        stage_index=0,
+        stage_name="fanout_stage",
+        config_fingerprint="fingerprint",
+    )
+    parent = _make_audio_task("parent", checkpoint_shard_id="shard_0")
+    child_a = _make_audio_task("child-a", checkpoint_shard_id="shard_0")
+    child_b = _make_audio_task("child-b", checkpoint_shard_id="shard_0")
+    attach_parent_sample_keys(child_a, parent)
+    attach_parent_sample_keys(child_b, parent)
+
+    store.write_stage_result(input_tasks=[parent], output_tasks=[child_a, child_b])
+
+    records_path = store.records_dir / "shard_0.jsonl"
+    records = [json.loads(line) for line in records_path.read_text().splitlines() if line.strip()]
+    statuses = {record["sample_key"]: record["status"] for record in records}
+
+    assert statuses["child-a"] == "done"
+    assert statuses["child-b"] == "done"
+    assert "parent" not in statuses
 
 
 def test_store_keeps_existing_shard_files_when_temp_write_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -18,11 +18,13 @@ from pathlib import Path
 
 from nemo_curator.tasks import AudioTask
 from nemo_curator.tasks.audio_task import (
+    attach_parent_sample_keys,
     build_audio_sample_key,
     build_checkpoint_shard_id,
     carry_sample_key,
     derive_child_sample_key,
     ensure_sample_key,
+    parent_sample_keys,
 )
 
 
@@ -104,6 +106,16 @@ def test_ensure_sample_key_derives_and_caches_key() -> None:
 
     assert first == second
     assert task.sample_key == first
+
+
+def test_attach_parent_sample_keys_records_unique_parent_lineage() -> None:
+    parent = AudioTask(dataset_name="dataset", data={"audio_filepath": "/a.wav"}, sample_key="parent-a")
+    child = AudioTask(dataset_name="dataset", data={"audio_filepath": "/child.wav"}, sample_key="child-a")
+
+    attach_parent_sample_keys(child, parent)
+    attach_parent_sample_keys(child, [parent, parent])
+
+    assert parent_sample_keys(child) == ["parent-a"]
 
 
 def test_carry_sample_key_prefers_parent_key() -> None:

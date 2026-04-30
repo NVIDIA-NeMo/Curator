@@ -26,6 +26,7 @@ from .tasks import Task
 
 AUDIO_SAMPLE_KEY_FIELD = "sample_key"
 CHECKPOINT_SHARD_ID_KEY = "checkpoint_shard_id"
+PARENT_SAMPLE_KEYS_METADATA_KEY = "parent_sample_keys"
 MAX_CHECKPOINT_SHARD_ID_LEN = 80
 
 
@@ -170,6 +171,37 @@ def ensure_checkpoint_shard_id(task: "AudioTask") -> str:
     )
     task._metadata[CHECKPOINT_SHARD_ID_KEY] = shard_id
     return shard_id
+
+
+def parent_sample_keys(task: "AudioTask") -> list[str]:
+    """Return normalized parent sample keys carried in task metadata."""
+    value = task._metadata.get(PARENT_SAMPLE_KEYS_METADATA_KEY)
+    if not isinstance(value, list):
+        return []
+    normalized: list[str] = []
+    for item in value:
+        normalized_item = _normalize_sample_key_value(item)
+        if normalized_item is None:
+            continue
+        key = str(normalized_item)
+        if key not in normalized:
+            normalized.append(key)
+    return normalized
+
+
+def attach_parent_sample_keys(
+    task: "AudioTask",
+    parents: "AudioTask | list[AudioTask]",
+) -> list[str]:
+    """Attach stable parent sample keys to an output task for fan-out lineage tracking."""
+    parent_tasks = parents if isinstance(parents, list) else [parents]
+    keys = parent_sample_keys(task)
+    for parent in parent_tasks:
+        key = ensure_sample_key(parent)
+        if key not in keys:
+            keys.append(key)
+    task._metadata[PARENT_SAMPLE_KEYS_METADATA_KEY] = keys
+    return keys
 
 
 def carry_sample_key(parent_task: "AudioTask", *, data: Mapping[str, Any] | None = None) -> str:
