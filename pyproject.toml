@@ -112,6 +112,7 @@ audio_cpu = [
 audio_cuda12 = [
     "nemo_curator[audio_common]",
     "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
     "nvidia-cudnn-cu12",
     "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
     "torchcodec",
