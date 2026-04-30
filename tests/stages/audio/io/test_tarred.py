@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from nemo_curator.stages.audio.io.materialize import CleanupTemporaryAudioStage
 from nemo_curator.stages.audio.io.tarred import (
-    CleanupTemporaryAudioStage,
     MaterializeTarredAudioStage,
     TarredAudioManifestPartitionStage,
     TarredAudioManifestReader,
