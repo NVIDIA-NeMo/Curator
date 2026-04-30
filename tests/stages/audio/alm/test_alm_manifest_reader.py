@@ -61,6 +61,7 @@ class TestALMManifestReaderStage:
         assert len(result) == 2
         paths = [r.data["audio_filepath"] for r in result]
         assert paths == ["a.wav", "b.wav"]
+        assert [r.task_id for r in result] == ["test_0", "test_1"]
 
     def test_one_audio_entry_per_line(self, tmp_path: Path) -> None:
         entries = [{"audio_filepath": f"{i}.wav", "segments": []} for i in range(5)]

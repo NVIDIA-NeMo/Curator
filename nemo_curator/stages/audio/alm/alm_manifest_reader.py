@@ -55,7 +55,7 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                     if line.strip():
                         entry = json.loads(line.strip())
                         audio_task = AudioTask(
-                            task_id=f"{task.task_id}_{count}",
+                            task_id=f"{task.task_id}_{len(results)}",
                             dataset_name=task.dataset_name,
                             data=entry,
                             sample_key=build_audio_sample_key(entry, dataset_name=task.dataset_name),
