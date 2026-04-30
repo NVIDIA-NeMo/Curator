@@ -1,0 +1,102 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Speaker Embedding Workflow
+  ##########################
+  This config runs a tarred-audio workflow that:
+
+  1. Reads tarred diarized manifests from S3 or local storage
+  2. Materializes local WAV files
+  3. Computes speaker embeddings for `diarized_segments`
+  4. Writes per-task NPZ files
+  5. Uploads NPZ files to S3
+  6. Cleans up temporary audio files
+
+  Required arguments:
+
+  * manifest_paths
+  * tar_paths
+  * output_dir
+  * upload_bucket
+
+pipeline_name: speaker_workflow
+backend: xenna
+checkpoint_dir: null
+ignore_failed: false
+link_stages_via_io: false
+
+manifest_paths: ???
+tar_paths: ???
+files_per_partition: 1
+limit: null
+storage_options: {}
+transport: auto
+skip_missing_entries: false
+
+output_dir: ???
+npz_output_dir: ${output_dir}/npz
+temp_dir: /tmp
+materialization_dir: null
+
+speaker_model: nvidia/speakerverification_en_titanet_large
+speaker_cache_dir: null
+speaker_target_sample_rate: 16000
+embed_batch_size: 64
+
+upload_bucket: ???
+upload_protocol: s3
+upload_key_prefix: speaker_embeddings
+upload_storage_options: {}
+
+stages:
+  - _target_: nemo_curator.stages.audio.io.tarred.TarredAudioManifestReader
+    manifest_paths: ${manifest_paths}
+    tar_paths: ${tar_paths}
+    files_per_partition: ${files_per_partition}
+    limit: ${limit}
+    storage_options: ${storage_options}
+    transport: ${transport}
+    skip_missing_entries: ${skip_missing_entries}
+
+  - _target_: nemo_curator.stages.audio.io.tarred.MaterializeTarredAudioStage
+    temp_dir: ${temp_dir}
+    materialization_dir: ${materialization_dir}
+    transport: ${transport}
+    storage_options: ${storage_options}
+
+  - _target_: nemo_curator.stages.audio.speaker_id.SpeakerEmbeddingAudioTaskStage
+    model_name: ${speaker_model}
+    cache_dir: ${speaker_cache_dir}
+    target_sample_rate: ${speaker_target_sample_rate}
+    output_dir: ${npz_output_dir}
+    diarized_segments_key: diarized_segments
+    audio_filepath_key: audio_filepath
+    output_filepath_key: output_filepath
+    batch_size: ${embed_batch_size}
+    resources:
+      cpus: 1.0
+      gpu_memory_gb: 4.0
+
+  - _target_: nemo_curator.stages.audio.speaker_id.BuildUploadKeyStage
+    source_field: output_key
+    output_field: speaker_embedding_upload_key
+    key_prefix: ${upload_key_prefix}
+    key_suffix: .npz
+
+  - _target_: nemo_curator.stages.file_io.UploadFilesStage
+    source_field_path: output_filepath
+    output_field_path: uploaded_output_filepath
+    bucket: ${upload_bucket}
+    protocol: ${upload_protocol}
+    key_field_path: speaker_embedding_upload_key
+    storage_options: ${upload_storage_options}
+
+  - _target_: nemo_curator.stages.audio.io.materialize.CleanupTemporaryAudioStage

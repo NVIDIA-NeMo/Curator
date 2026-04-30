@@ -52,6 +52,7 @@ from nemo_curator.stages.audio.segmentation import (
     SpeakerSeparationStage,
     VADSegmentationStage,
 )
+from nemo_curator.stages.audio.speaker_id import BuildUploadKeyStage, SpeakerEmbeddingAudioTaskStage
 
 __all__ = [
     "ALMDataBuilderStage",
@@ -60,6 +61,7 @@ __all__ = [
     "AudioManifestReader",
     "AudioToDocumentStage",
     "BandFilterStage",
+    "BuildUploadKeyStage",
     "CleanupTemporaryAudioStage",
     "GetAudioDurationStage",
     "ManifestReader",
@@ -70,6 +72,7 @@ __all__ = [
     "SIGMOSFilterStage",
     "SegmentConcatenationStage",
     "SpeakerSeparationStage",
+    "SpeakerEmbeddingAudioTaskStage",
     "TarredAudioManifestReader",
     "TimestampMapperStage",
     "UTMOSFilterStage",
