@@ -493,7 +493,7 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
         }
 
 
-def merge_output_shards(output_path: Path, *, delete_shards: bool = True) -> Path:
+def merge_output_shards(output_path: Path, *, delete_shards: bool = True, append: bool = False) -> Path:
     """Merge per-worker JSONL shards from ResultWriterStage into a single file.
 
     ResultWriterStage writes one shard per worker named
@@ -504,6 +504,8 @@ def merge_output_shards(output_path: Path, *, delete_shards: bool = True) -> Pat
     Args:
         output_path: The base output path passed to ResultWriterStage.
         delete_shards: Remove shard files after a successful merge (default True).
+        append: If True, append shards to an existing merged file (resume mode).
+            Defaults to False — the merged file is overwritten on each call.
 
     Returns:
         Path to the merged file (``<stem><suffix>`` in the same directory).
@@ -519,7 +521,7 @@ def merge_output_shards(output_path: Path, *, delete_shards: bool = True) -> Pat
         return output_path
 
     merged = output_path.parent / f"{output_path.stem}{suffix}"
-    mode = "a" if merged.exists() else "w"
+    mode = "a" if append and merged.exists() else "w"
     with open(merged, mode, encoding="utf-8") as fout:
         for shard in shards:
             with open(shard, encoding="utf-8") as fin:

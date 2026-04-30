@@ -23,6 +23,7 @@ os.environ.setdefault("GRPC_ENABLE_FORK_SUPPORT", "1")
 from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.omni.io import (
     HFDatasetImageReaderStage,
@@ -305,6 +306,9 @@ def main() -> None:
 
     logger.info("\n" + pipeline.describe())
 
+    client = RayClient()
+    client.start()
+
     executor = XennaExecutor()
 
     logger.info("Starting HF OCR pipeline...")
@@ -312,10 +316,12 @@ def main() -> None:
     output_tasks = pipeline.run(executor)
     elapsed = time.perf_counter() - start
 
+    client.stop()
+
     logger.info(f"Pipeline completed in {elapsed:.1f}s ({elapsed / 60:.1f} min)")
     logger.info(f"Tasks processed: {len(output_tasks)}")
 
-    merged = merge_output_shards(Path(args.output_path))
+    merged = merge_output_shards(Path(args.output_path), append=args.resume)
     logger.info(f"Output: {merged}")
 
 
