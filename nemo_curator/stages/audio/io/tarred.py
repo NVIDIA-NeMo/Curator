@@ -165,7 +165,7 @@ class TarredAudioManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [
+        return ["sample_key"], [
             self.audio_filepath_key,
             self.tar_path_key,
             self.tar_member_key,

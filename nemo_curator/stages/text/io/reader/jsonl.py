@@ -115,7 +115,7 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
             output_fields.append(CURATOR_DEDUP_ID_STR)
-        return [], output_fields
+        return ["sample_key"], output_fields
 
     def setup(self, _: Any = None) -> None:  # noqa: ANN401
         if self._generate_ids or self._assign_ids:

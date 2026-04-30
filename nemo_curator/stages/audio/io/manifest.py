@@ -44,7 +44,7 @@ class AudioManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         if self.audio_filepath_key not in output_fields:
             output_fields.append(self.audio_filepath_key)
         output_fields.extend([self.manifest_path_key, self.source_type_key])
-        return [], output_fields
+        return ["sample_key"], output_fields
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         results: list[AudioTask] = []
