@@ -16,17 +16,21 @@ import os
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.column_utils import resolve_filename_column
 
 from .extract import DocumentExtractor
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
 class DocumentIterator(ABC):
@@ -66,8 +70,11 @@ class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch])
     def __post_init__(self):
         """Initialize the stage."""
         self.filename_col = resolve_filename_column(self.add_filename_column)
+        self.resources = self.extractor.resources if self.extractor else Resources(cpus=1.0)
         if self.extractor:
-            self.name = f"iterate_extract_{self.iterator.__class__.__name__.lower()}_{self.extractor.__class__.__name__.lower()}"
+            iterator_name = self.iterator.__class__.__name__.lower()
+            extractor_name = self.extractor.__class__.__name__.lower()
+            self.name = f"iterate_extract_{iterator_name}_{extractor_name}"
         else:
             self.name = f"iterate_{self.iterator.__class__.__name__.lower()}"
 
@@ -90,10 +97,26 @@ class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch])
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Get Ray configuration for this stage."""
-        spec = {}
+        spec = self.extractor.ray_stage_spec() if self.extractor else {}
         if self.max_calls_per_worker is not None:
             spec[RayStageSpecKeys.MAX_CALLS_PER_WORKER] = self.max_calls_per_worker
         return spec
+
+    def setup_on_node(
+        self,
+        node_info: "NodeInfo | None" = None,
+        worker_metadata: "WorkerMetadata | None" = None,
+    ) -> None:
+        if self.extractor:
+            self.extractor.setup_on_node(node_info, worker_metadata)
+
+    def setup(self, worker_metadata: "WorkerMetadata | None" = None) -> None:
+        if self.extractor:
+            self.extractor.setup(worker_metadata)
+
+    def teardown(self) -> None:
+        if self.extractor:
+            self.extractor.teardown()
 
     def process(self, task: FileGroupTask) -> DocumentBatch:
         """Iterate through files and extract structured content.
@@ -128,11 +151,14 @@ class DocumentIterateExtractStage(ProcessingStage[FileGroupTask, DocumentBatch])
                     if extracted is None:
                         continue
 
+                    extracted_records = extracted if isinstance(extracted, list) else [extracted]
+
                     # Ensure filename is preserved
                     if self.add_filename_column:
-                        extracted[self.filename_col] = record_dict[self.filename_col]
+                        for extracted_record in extracted_records:
+                            extracted_record[self.filename_col] = record_dict[self.filename_col]
 
-                    records.append(extracted)
+                    records.extend(extracted_records)
                     record_count += 1
 
             except Exception as e:  # noqa: BLE001

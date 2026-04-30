@@ -21,14 +21,26 @@ from nemo_curator.stages.text.download.base.download import DocumentDownloadStag
 from nemo_curator.stages.text.download.base.iterator import DocumentIterateExtractStage
 from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
 from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWARCDownloader
-from nemo_curator.stages.text.download.common_crawl.extract import CommonCrawlHTMLExtractor
+from nemo_curator.stages.text.download.common_crawl.extract import (
+    CommonCrawlHTMLExtractor,
+    CommonCrawlModelBasedCandidateExtractor,
+)
 from nemo_curator.stages.text.download.common_crawl.stage import CommonCrawlDownloadExtractStage
 from nemo_curator.stages.text.download.common_crawl.url_generation import (
     MainCommonCrawlUrlGenerator,
     NewsCommonCrawlUrlGenerator,
 )
 from nemo_curator.stages.text.download.common_crawl.warc_iterator import CommonCrawlWarcIterator
-from nemo_curator.stages.text.download.html_extractors import JusTextExtractor, ResiliparseExtractor
+from nemo_curator.stages.text.download.html_extractors import (
+    JusTextExtractor,
+    ModelBasedHTMLExtractionStage,
+    ResiliparseExtractor,
+)
+from nemo_curator.stages.text.download.html_extractors.model_based import (
+    AssembleModelBasedHTMLExtractionStage,
+    ModelBasedHTMLInferenceStage,
+)
+from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 
 
 class TestCommonCrawlDownloadExtractStage:
@@ -160,6 +172,27 @@ class TestCommonCrawlDownloadExtractStage:
         assert isinstance(iterate_extract_stage.extractor, CommonCrawlHTMLExtractor)
         assert isinstance(iterate_extract_stage.extractor.algorithm, ResiliparseExtractor)
         assert iterate_extract_stage.extractor._stop_lists == custom_stop_lists
+
+    def test_common_crawl_model_based_uses_multi_stage_pipeline(self, tmp_path: Path) -> None:
+        download_dir = str(tmp_path / "downloads")
+        stage = CommonCrawlDownloadExtractStage(
+            start_snapshot="2021-04",
+            end_snapshot="2021-10",
+            download_dir=download_dir,
+            html_extraction="model",
+        )
+
+        stages = stage.decompose()
+
+        assert len(stages) == 6
+        assert isinstance(stages[0], URLGenerationStage)
+        assert isinstance(stages[1], DocumentDownloadStage)
+        assert isinstance(stages[2], DocumentIterateExtractStage)
+        assert isinstance(stages[2].extractor, CommonCrawlModelBasedCandidateExtractor)
+        assert isinstance(stages[3], TokenizerStage)
+        assert isinstance(stages[4], ModelBasedHTMLInferenceStage)
+        assert isinstance(stages[5], AssembleModelBasedHTMLExtractionStage)
+        assert isinstance(stage._resolve_model_based_algorithm("model", {}), ModelBasedHTMLExtractionStage)
 
     def test_common_crawl_stage_without_extractor(self, tmp_path: Path) -> None:
         """Test stage creation without an extractor (should still have 3 stages with default extractor)."""

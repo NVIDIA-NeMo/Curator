@@ -14,12 +14,17 @@
 
 from .base import HTMLExtractorAlgorithm
 from .justext import JusTextExtractor
+from .model_based import HTMLElement, HTMLElementClassifier, HTMLElementPrediction, ModelBasedHTMLExtractionStage
 from .resiliparse import ResiliparseExtractor
 from .trafilatura import TrafilaturaExtractor
 
 __all__ = [
+    "HTMLElement",
+    "HTMLElementClassifier",
+    "HTMLElementPrediction",
     "HTMLExtractorAlgorithm",
     "JusTextExtractor",
+    "ModelBasedHTMLExtractionStage",
     "ResiliparseExtractor",
     "TrafilaturaExtractor",
 ]
