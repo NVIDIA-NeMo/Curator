@@ -221,6 +221,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="GPU memory in GB for SED inference stage.")
     sed.add_argument("--sed_subcategories", action="store_true", default=False,
                      help="Emit per-class subcategory events instead of aggregated superclass events.")
+    sed.add_argument("--sed_num_workers", type=int, default=None,
+                     help="Fixed actor count for SED stage.")
 
     asr = ap.add_argument_group("QwenASR hallucination recovery")
     asr.add_argument("--asr_model_id", type=str, default=None,
@@ -298,6 +300,7 @@ def main() -> None:  # noqa: C901
                 checkpoint_path=args.sed_checkpoint,
                 model_type=args.sed_model_type,
                 batch_size=args.sed_batch_size,
+                num_workers=args.sed_num_workers,
                 resources=Resources(cpus=1.0, gpu_memory_gb=args.sed_gpu_memory_gb),
             ),
             SEDPostprocessingStage(

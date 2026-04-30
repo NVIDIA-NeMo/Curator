@@ -99,7 +99,14 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     name: str = "SEDInference"
     batch_size: int = 32
+    num_workers: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {}
+        if self.num_workers is not None:
+            spec["num_workers"] = self.num_workers
+        return spec
 
     def setup(self, _worker_metadata: Any = None) -> None:
         """Load CNN14 model from checkpoint."""
