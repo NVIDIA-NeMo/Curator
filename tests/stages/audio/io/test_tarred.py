@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from nemo_curator.stages.audio.io.materialize import CleanupTemporaryAudioStage
 from nemo_curator.stages.audio.io.tarred import (
-    CleanupTemporaryAudioStage,
     MaterializeTarredAudioStage,
     TarredAudioManifestPartitionStage,
     TarredAudioManifestReader,
@@ -327,6 +327,28 @@ class TestTarredAudioMaterialization:
         with wave.open(temp_path.as_posix(), "rb") as wav_file:
             assert wav_file.getnframes() == 8000  # 0.5 sec at 16kHz
 
+    @pytest.mark.parametrize("duration", [0.0, -0.25])
+    def test_materialize_segment_raises_for_non_positive_duration(self, tmp_path: Path, duration: float) -> None:
+        tar_path = tmp_path / "audio_0.tar"
+        _write_tar(tar_path, {"sample.wav": _make_wav_bytes(duration_sec=1.0)})
+
+        task = AudioTask(
+            task_id="t1",
+            dataset_name="ds",
+            data={
+                "audio_filepath": "sample.wav",
+                "offset": 0.0,
+                "duration": duration,
+                "_tar_path": str(tar_path),
+                "_tar_member": "sample.wav",
+            },
+        )
+
+        materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"))
+
+        with pytest.raises(RuntimeError, match="Duration must be greater than 0"):
+            materialize.process_batch([task])
+
     def test_materialize_retry_keeps_member_mode_after_audio_filepath_mutation(self, tmp_path: Path) -> None:
         tar_path = tmp_path / "audio_0.tar"
         raw_audio = b"not-a-real-wav"
@@ -430,10 +452,73 @@ class TestTarredAudioMaterialization:
         assert temp_path.exists()
         assert temp_path.read_bytes() == b"pipe-bytes"
 
+    def test_pipe_transport_skips_missing_entries_during_materialization(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "manifest_0.json"
+        tar_path = tmp_path / "audio_0.tar"
+        manifest.write_text(
+            "\n".join(
+                [
+                    json.dumps({"audio_filepath": "sample.wav", "text": "alpha"}),
+                    json.dumps({"audio_filepath": "missing.wav", "text": "beta"}),
+                ]
+            )
+        )
+        _write_tar(tar_path, {"sample.wav": b"pipe-bytes"})
+
+        tar_cmd = (
+            f'pipe:python3 -c "from pathlib import Path; import sys; '
+            f"sys.stdout.buffer.write(Path(r'{tar_path}').read_bytes())\""
+        )
+
+        reader_stage = TarredAudioManifestReaderStage(
+            tar_paths=tar_cmd,
+            transport="auto",
+            skip_missing_entries=True,
+        )
+        audio_tasks = reader_stage.process(_make_file_group_task([str(manifest)]))
+
+        assert len(audio_tasks) == 2
+
+        materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"), transport="auto")
+        materialized = materialize.process_batch(audio_tasks)
+
+        assert len(materialized) == 1
+        assert materialized[0].data["text"] == "alpha"
+
+    def test_pipe_transport_raises_for_missing_entries_when_skip_disabled(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "manifest_0.json"
+        tar_path = tmp_path / "audio_0.tar"
+        manifest.write_text(
+            "\n".join(
+                [
+                    json.dumps({"audio_filepath": "sample.wav", "text": "alpha"}),
+                    json.dumps({"audio_filepath": "missing.wav", "text": "beta"}),
+                ]
+            )
+        )
+        _write_tar(tar_path, {"sample.wav": b"pipe-bytes"})
+
+        tar_cmd = (
+            f'pipe:python3 -c "from pathlib import Path; import sys; '
+            f"sys.stdout.buffer.write(Path(r'{tar_path}').read_bytes())\""
+        )
+
+        reader_stage = TarredAudioManifestReaderStage(
+            tar_paths=tar_cmd,
+            transport="auto",
+            skip_missing_entries=False,
+        )
+        audio_tasks = reader_stage.process(_make_file_group_task([str(manifest)]))
+
+        materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"), transport="auto")
+
+        with pytest.raises(RuntimeError, match=r"Failed to materialize tar members \['missing\.wav'\]"):
+            materialize.process_batch(audio_tasks)
+
     def test_materialize_decodes_shared_member_once_for_segment_tasks(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import nemo_curator.stages.audio.io.tarred as tarred_module
+        import nemo_curator.stages.audio.io.materialize as materialize_module
 
         tar_path = tmp_path / "audio_0.tar"
         _write_tar(tar_path, {"sample.wav": _make_wav_bytes(duration_sec=1.0)})
@@ -464,14 +549,14 @@ class TestTarredAudioMaterialization:
         ]
 
         read_calls = 0
-        original_read = tarred_module.soundfile.read
+        original_read = materialize_module.soundfile.read
 
         def counting_read(*args: object, **kwargs: object) -> object:
             nonlocal read_calls
             read_calls += 1
             return original_read(*args, **kwargs)
 
-        monkeypatch.setattr(tarred_module.soundfile, "read", counting_read)
+        monkeypatch.setattr(materialize_module.soundfile, "read", counting_read)
 
         materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"))
         materialize.process_batch(tasks)

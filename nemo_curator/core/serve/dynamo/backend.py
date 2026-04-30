@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""NVIDIA Dynamo inference backend for aggregated serving.
+"""NVIDIA Dynamo inference backend.
 
-One detached placement group per replica carries its TP bundles; a
-separate STRICT_PACK PG co-locates etcd, NATS, and the Dynamo frontend.
-``mode="disagg"`` raises ``NotImplementedError`` for now.
+Aggregated: one detached PG per replica carries its TP bundles.
+Disaggregated: one detached PG per prefill / decode worker, each single-bundle.
+A separate STRICT_PACK PG co-locates etcd, NATS, and the Dynamo frontend.
 """
 
 from __future__ import annotations
@@ -51,7 +51,13 @@ from nemo_curator.core.serve.dynamo.constants import (
     NEMO_CURATOR_DYNAMO_NAMESPACE,
 )
 from nemo_curator.core.serve.dynamo.infra import build_infra_pg, engine_kwargs_to_cli_flags
-from nemo_curator.core.serve.dynamo.vllm import launch_replicas, merge_model_runtime_envs
+from nemo_curator.core.serve.dynamo.vllm import (
+    launch_disagg_replicas,
+    launch_replicas,
+    merge_model_runtime_envs,
+    model_name_to_component,
+    resolve_disagg_role_config,
+)
 from nemo_curator.core.serve.placement import (
     _get_gpu_topology,
     get_bundle_node_ip,
@@ -71,7 +77,7 @@ from nemo_curator.core.utils import ignore_ray_head_node
 if TYPE_CHECKING:
     from ray.util.placement_group import PlacementGroup
 
-    from nemo_curator.core.serve.dynamo.config import DynamoVLLMModelConfig
+    from nemo_curator.core.serve.dynamo.config import DynamoRouterConfig, DynamoVLLMModelConfig
     from nemo_curator.core.serve.server import InferenceServer
 
 
@@ -118,15 +124,6 @@ class DynamoBackend(InferenceBackend):
         if not self._models:
             msg = "At least one DynamoVLLMModelConfig is required."
             raise ValueError(msg)
-
-        for model_config in self._models:
-            if model_config.mode == "disagg":
-                msg = (
-                    f"Disaggregated serving (mode='disagg') on model "
-                    f"'{model_config.resolved_model_name}' is not yet supported by DynamoBackend; "
-                    f"this lands in the next PR in the Inference Server stack."
-                )
-                raise NotImplementedError(msg)
 
         if not backend_cfg.etcd_endpoint:
             _check_binary("etcd")
@@ -175,8 +172,9 @@ class DynamoBackend(InferenceBackend):
 
     def _deploy_and_healthcheck(self, server: InferenceServer, backend_cfg: DynamoServerConfig) -> None:
         """Validate, create PGs, launch infra/workers/frontend, health-check."""
+        self._validate_unique_model_names(self._models)
         topology = _get_gpu_topology()
-        self._validate_gpu_requirements(self._models)
+        self._validate_gpu_requirements(self._models, topology=topology)
 
         infra_pg_name = f"{self._actor_name_prefix}_pg_infra"
         self._infra_pg = build_infra_pg(name=infra_pg_name, num_bundles=INFRA_NUM_BUNDLES)
@@ -201,27 +199,47 @@ class DynamoBackend(InferenceBackend):
 
         base_env = {"ETCD_ENDPOINTS": etcd_endpoint, "NATS_SERVER": nats_url}
 
+        effective_router_mode, effective_router_kv_events = self._resolve_effective_router(
+            self._models, backend_cfg.router
+        )
+
         expected_models: set[str] = set()
         placements: list[dict[str, Any]] = []
+        disagg_worker_offset = 0
 
         for model_config in self._models:
             model_name = model_config.resolved_model_name
             expected_models.add(model_name)
-            tp_size = model_config.engine_kwargs.get("tensor_parallel_size", 1)
-            logger.info(f"Deploying model '{model_name}' (TP={tp_size}, replicas={model_config.num_replicas})")
 
-            pgs, actors, entries = launch_replicas(
-                model_config,
-                base_env=base_env,
-                namespace=backend_cfg.namespace,
-                request_plane=backend_cfg.request_plane,
-                event_plane=backend_cfg.event_plane,
-                runtime_dir=self._runtime_dir,
-                actor_name_prefix=self._actor_name_prefix,
-                router_mode=backend_cfg.router.mode,
-                router_kv_events=backend_cfg.router.kv_events,
-                topology=topology,
-            )
+            if model_config.mode == "disagg":
+                logger.info(f"Deploying disagg model '{model_name}'")
+                pgs, actors, entries = launch_disagg_replicas(
+                    model_config,
+                    base_env=base_env,
+                    namespace=backend_cfg.namespace,
+                    request_plane=backend_cfg.request_plane,
+                    event_plane=backend_cfg.event_plane,
+                    runtime_dir=self._runtime_dir,
+                    actor_name_prefix=self._actor_name_prefix,
+                    topology=topology,
+                    worker_index_offset=disagg_worker_offset,
+                )
+                disagg_worker_offset += len(entries)
+            else:
+                tp_size = model_config.engine_kwargs.get("tensor_parallel_size", 1)
+                logger.info(f"Deploying model '{model_name}' (TP={tp_size}, replicas={model_config.num_replicas})")
+                pgs, actors, entries = launch_replicas(
+                    model_config,
+                    base_env=base_env,
+                    namespace=backend_cfg.namespace,
+                    request_plane=backend_cfg.request_plane,
+                    event_plane=backend_cfg.event_plane,
+                    runtime_dir=self._runtime_dir,
+                    actor_name_prefix=self._actor_name_prefix,
+                    router_mode=effective_router_mode,
+                    router_kv_events=effective_router_kv_events,
+                    topology=topology,
+                )
             self._replica_pgs.extend(pgs)
             self._worker_actors.extend(actors)
             placements.extend(entries)
@@ -240,6 +258,8 @@ class DynamoBackend(InferenceBackend):
             server.port,
             base_env,
             backend_cfg=backend_cfg,
+            effective_router_mode=effective_router_mode,
+            effective_router_kv_events=effective_router_kv_events,
             runtime_env=merge_model_runtime_envs(self._models),
         )
 
@@ -251,18 +271,93 @@ class DynamoBackend(InferenceBackend):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _validate_gpu_requirements(models: list[DynamoVLLMModelConfig]) -> None:
-        """Coarse fail-fast on cluster-wide GPU over-commit.
+    def _resolve_effective_router(
+        models: list[DynamoVLLMModelConfig],
+        router: DynamoRouterConfig,
+    ) -> tuple[str | None, bool]:
+        """Resolve ``(router_mode, router_kv_events)`` for the frontend.
+
+        - ``mode``: honor ``router.mode`` if set; otherwise auto-pick ``"kv"``
+          when any model uses ``mode="disagg"``, else leave unset so the
+          Dynamo frontend falls back to its own ``round_robin`` default.
+        - ``kv_events``: when we auto-pick ``mode="kv"`` we also auto-enable
+          ``kv_events`` so the router consumes what prefill workers publish
+          unconditionally in disagg. If the user set ``router.mode`` explicitly
+          (to any value) we honor their ``router.kv_events`` as-is.
+        """
+        mode = router.mode if router.mode is not None else ("kv" if any(m.mode == "disagg" for m in models) else None)
+        mode_was_auto_picked = router.mode is None and mode == "kv"
+        kv_events = True if mode_was_auto_picked else router.kv_events
+        return mode, kv_events
+
+    @staticmethod
+    def _validate_unique_model_names(models: list[DynamoVLLMModelConfig]) -> None:
+        """Reject duplicate model names and component-slug collisions.
+
+        Dynamo registers each worker under a ``dyn://namespace.component.endpoint``
+        URI; duplicate model names (or names that sanitize to the same slug)
+        would silently overwrite each other inside etcd.
+        """
+        seen_names: dict[str, int] = {}
+        seen_components: dict[str, tuple[int, str]] = {}
+        for i, m in enumerate(models):
+            name = m.resolved_model_name
+            if name in seen_names:
+                msg = (
+                    f"Duplicate model name {name!r} at index {i} "
+                    f"(first seen at index {seen_names[name]}). "
+                    f"When deploying the same model_identifier multiple times, "
+                    f"each must have a distinct model_name."
+                )
+                raise ValueError(msg)
+            seen_names[name] = i
+
+            comp = model_name_to_component(name)
+            if comp in seen_components:
+                prev_idx, prev_name = seen_components[comp]
+                msg = (
+                    f"Model names {prev_name!r} (index {prev_idx}) and "
+                    f"{name!r} (index {i}) both sanitize to component "
+                    f"{comp!r}. Use more distinct model_name values."
+                )
+                raise ValueError(msg)
+            seen_components[comp] = (i, name)
+
+    @staticmethod
+    def _validate_gpu_requirements(
+        models: list[DynamoVLLMModelConfig],
+        *,
+        topology: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Coarse fail-fast on cluster-wide GPU over-commit and disagg TP fit.
 
         Ray's per-PG ``STRICT_PACK`` / ``STRICT_SPREAD`` is the authoritative
         admission gate; this produces a better error than the admission timeout.
-        Cross-model validators (frontend-config coherence, disagg-TP-fit,
-        unique model names) land in the next PR.
+        For disagg models we also reject configurations where a single role's
+        TP group would not fit on one node — disagg does not support multi-node TP.
         """
+        max_gpus_per_node = max((n["num_gpus"] for n in topology), default=0) if topology else 0
         total_needed = 0
         for model_config in models:
-            tp_size = model_config.engine_kwargs.get("tensor_parallel_size", 1)
-            total_needed += model_config.num_replicas * tp_size
+            model_name = model_config.resolved_model_name
+            if model_config.mode == "disagg":
+                num_prefill, prefill_ek = resolve_disagg_role_config(model_config, "prefill")
+                num_decode, decode_ek = resolve_disagg_role_config(model_config, "decode")
+                prefill_tp = prefill_ek.get("tensor_parallel_size", 1)
+                decode_tp = decode_ek.get("tensor_parallel_size", 1)
+                if topology:
+                    for role, tp in [("prefill", prefill_tp), ("decode", decode_tp)]:
+                        if tp > max_gpus_per_node:
+                            msg = (
+                                f"Model '{model_name}' {role} requests TP={tp} in disaggregated mode, "
+                                f"but max GPUs per node is {max_gpus_per_node}. "
+                                f"Disaggregated mode does not support multi-node TP."
+                            )
+                            raise ValueError(msg)
+                total_needed += num_prefill * prefill_tp + num_decode * decode_tp
+            else:
+                tp_size = model_config.engine_kwargs.get("tensor_parallel_size", 1)
+                total_needed += model_config.num_replicas * tp_size
         check_total_gpu_capacity(total_needed, ignore_head_node=ignore_ray_head_node())
 
     # ------------------------------------------------------------------
@@ -334,22 +429,32 @@ class DynamoBackend(InferenceBackend):
     # Frontend
     # ------------------------------------------------------------------
 
-    def _launch_frontend(
+    def _launch_frontend(  # noqa: PLR0913
         self,
         port: int,
         base_env: dict[str, str],
         *,
         backend_cfg: DynamoServerConfig,
+        effective_router_mode: str | None = None,
+        effective_router_kv_events: bool | None = None,
         runtime_env: dict[str, Any] | None = None,
     ) -> ManagedSubprocess:
         """Launch the Dynamo frontend bound to the infra node.
 
-        Router wiring is minimal: ``--router-mode`` if set, followed by every
-        entry in ``router_kwargs`` as ``--key value``. Full per-key router
-        flag translation (kv_events, temperature, etc.) lands in the next PR.
+        Emits ``--router-mode`` and ``--[no-]router-kv-events`` from the
+        resolved values; anything else in ``router_kwargs`` (``temperature``,
+        ``ttl_secs`` …) is forwarded verbatim via snake-to-kebab CLI flag
+        translation.
+
+        ``effective_router_mode`` / ``effective_router_kv_events`` let
+        ``_deploy_and_healthcheck`` pass in auto-resolved values (e.g.
+        ``"kv"`` + ``True`` when any model is disagg). When either is
+        ``None`` the corresponding typed ``router`` field is used verbatim.
         """
         frontend_env = dict(base_env)
-        router_mode = backend_cfg.router.mode
+        router = backend_cfg.router
+        router_mode = effective_router_mode if effective_router_mode is not None else router.mode
+        router_kv_events = effective_router_kv_events if effective_router_kv_events is not None else router.kv_events
         if router_mode:
             # Dynamo KV-aware routing depends on a stable Python hash seed so
             # prefix hashes agree across processes.
@@ -371,7 +476,9 @@ class DynamoBackend(InferenceBackend):
         ]
         if router_mode:
             python_args.extend(["--router-mode", router_mode])
-        python_args.extend(engine_kwargs_to_cli_flags(backend_cfg.router.router_kwargs))
+        if router_mode == "kv":
+            python_args.append("--router-kv-events" if router_kv_events else "--no-router-kv-events")
+        python_args.extend(engine_kwargs_to_cli_flags(router.router_kwargs))
 
         logger.info(f"Starting Dynamo frontend on port {port}")
         return ManagedSubprocess.spawn(

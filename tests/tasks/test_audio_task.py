@@ -62,6 +62,12 @@ def test_audio_task_propagates_explicit_sample_key_from_data() -> None:
     assert entry.sample_key == "sample-123"
 
 
+def test_audio_task_persists_constructor_sample_key_back_to_data() -> None:
+    entry = AudioTask(data={"audio_filepath": "/x.wav"}, sample_key="sample-456")
+    assert entry.sample_key == "sample-456"
+    assert entry.data["sample_key"] == "sample-456"
+
+
 def test_build_audio_sample_key_is_stable_for_same_identity() -> None:
     entry = {
         "audio_filepath": "/a.wav",

@@ -55,6 +55,7 @@ import importlib
 import os
 import shutil
 import sys
+import time
 
 from loguru import logger
 
@@ -300,16 +301,21 @@ def main() -> None:
     executor = _create_executor(args.backend, **executor_kwargs)
 
     logger.info(f"Starting pipeline execution (backend: {args.backend})...")
+    logger.info(f"Input dataset directory: {args.raw_data_dir}")
 
+    t0 = time.monotonic()
     try:
         pipeline.run(executor)
-
-        logger.info(f"Results written to {args.output_dir}/*.jsonl")
-
     except Exception as e:  # noqa: BLE001
-        logger.exception(f"Pipeline failed: {e}")
+        elapsed = time.monotonic() - t0
+        logger.exception(f"Pipeline failed after {elapsed:.2f}s ({elapsed / 60:.2f} min): {e}")
         sys.exit(1)
-
+    elapsed = time.monotonic() - t0
+    logger.info(
+        f"Pipeline completed in {elapsed:.2f}s ({elapsed / 60:.2f} min) "
+        f"for input dataset at {args.raw_data_dir}",
+    )
+    logger.info(f"Results written to {args.output_dir}/*.jsonl")
     logger.info("Done!")
 
 

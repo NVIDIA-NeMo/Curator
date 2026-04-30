@@ -37,16 +37,16 @@ authors = [
 ]
 description = "Scalable Data Preprocessing Tool for Training Large Language Models"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.14"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -97,7 +97,8 @@ deduplication_cuda12 = [
 ]
 
 audio_common = [
-    "nemo_toolkit[asr]>=2.7.2",
+    # ASR/diarization stack pulls x86_64-only transitives (kaldialign cp313, torchcodec) — gate to x86_64 Linux
+    "nemo_toolkit[asr]>=2.7.2; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "soundfile>=0.12.0",
     "torchaudio",
     "onnx>=1.19.0",
@@ -105,17 +106,23 @@ audio_common = [
     "librosa",
     "scipy",
     "pydub>=0.25.1",
+    "transformers",
+    "accelerate",
+    "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    "whisperx>=3.8.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
     "onnxruntime>=1.20.1,<1.24",
 ]
+
 audio_cuda12 = [
+    "cuda-python>=12.3",
     "nemo_curator[audio_common]",
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
     "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
-    "torchcodec",
+    "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 
 image_cpu = [
@@ -151,7 +158,7 @@ text_cpu = [
     # Modifiers
     "ftfy",
     # Embedders
-    "sentence-transformers"
+    "sentence-transformers",
 ]
 
 text_cuda12 = [
@@ -289,6 +296,10 @@ override-dependencies = [
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
     "protobuf>=5.29.5,<7.0",  # Override nemo-toolkits constraint of ~=5.29.5; <7.0 due to ray serve FieldDescriptor API breakage
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
+    "torch>=2.8.0", # Override whisperx's torch~=2.8.0 upper bound; cap must match video_cuda12 and build groups
+    "torchaudio>=2.8.0", # Override whisperx's torchaudio~=2.8.0
+    "torchvision>=0.23.0", # Match torch>=2.8.0
+    "torchcodec>=0.9.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # Must match torch 2.9.x; override pyannote-audio's >=0.7.0 floor; gated since aarch64 lacks wheels
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
@@ -310,14 +321,18 @@ explicit = true
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchaudio = [
-    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchvision = [
+    { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
+    { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
+]
+torchcodec = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]

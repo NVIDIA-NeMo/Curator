@@ -53,9 +53,20 @@ class DynamoRouterConfig:
     kv_events: bool = False
     router_kwargs: dict[str, Any] = field(default_factory=dict)
 
+    _RESERVED_ROUTER_KWARGS: ClassVar[frozenset[str]] = frozenset({"router_mode", "router_kv_events"})
+
     def __post_init__(self) -> None:
         if self.mode is not None and self.mode != "kv" and self.kv_events:
             msg = f"kv_events=True is only meaningful when mode='kv'; got mode={self.mode!r}."
+            raise ValueError(msg)
+        reserved = self._RESERVED_ROUTER_KWARGS & set(self.router_kwargs)
+        if reserved:
+            reserved_str = ", ".join(sorted(reserved))
+            typed_fields = ", ".join(sorted(k.removeprefix("router_") for k in reserved))
+            msg = (
+                f"router_kwargs conflicts with typed field(s): {reserved_str}. "
+                f"Set these directly on DynamoRouterConfig (.{typed_fields}) instead."
+            )
             raise ValueError(msg)
 
 

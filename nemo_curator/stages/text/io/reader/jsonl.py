@@ -115,7 +115,7 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
             output_fields.append(CURATOR_DEDUP_ID_STR)
-        return [], output_fields
+        return ["sample_key"], output_fields
 
     def setup(self, _: Any = None) -> None:  # noqa: ANN401
         if self._generate_ids or self._assign_ids:
@@ -149,11 +149,24 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             return
 
         min_id, max_id = ray.get(self.id_generator.get_batch_range.remote(file_paths, None))
-        expected = max_id - min_id + 1
-        if expected != len(tasks):
-            msg = f"Assigned-ID range [{min_id}, {max_id}] ({expected} ids) does not match {len(tasks)} tasks"
-            msg += f" from {file_paths}"
+        assigned_count = max_id - min_id + 1
+        task_count = len(tasks)
+        if assigned_count < task_count:
+            msg = (
+                f"Assigned ID range for {file_paths} contains {assigned_count} IDs, but the audio JSONL reader "
+                f"produced {task_count} tasks. Ensure the batch was pre-registered with the number of non-blank "
+                "JSONL entries."
+            )
             raise RuntimeError(msg)
+        if assigned_count > task_count:
+            logger.warning(
+                "Assigned ID range for {} contains {} IDs, but the audio JSONL reader produced {} tasks "
+                "after skipping blank lines. Assigning the first {} IDs from the registered range.",
+                file_paths,
+                assigned_count,
+                task_count,
+                task_count,
+            )
         for next_id, task in zip(range(min_id, max_id + 1), tasks, strict=False):
             task.data[CURATOR_DEDUP_ID_STR] = next_id
 

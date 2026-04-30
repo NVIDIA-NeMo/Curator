@@ -31,6 +31,7 @@ Usage:
 
 import importlib
 import os
+import time
 
 import hydra
 from loguru import logger
@@ -91,7 +92,14 @@ def main(cfg: DictConfig) -> None:
     else:
         logger.info(f"Starting pipeline execution (backend: {backend})...")
     executor = _create_executor(backend, **executor_kwargs)
+    raw_data_dir = cfg.raw_data_dir
+    t0 = time.monotonic()
     pipeline.run(executor)
+    elapsed = time.monotonic() - t0
+    logger.info(
+        f"Pipeline wall time: {elapsed:.2f}s ({elapsed / 60:.2f} min) "
+        f"for input dataset at {raw_data_dir}",
+    )
 
     logger.info("\n" + "=" * 60)
     logger.info("Pipeline completed!")
