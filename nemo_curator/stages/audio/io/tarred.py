@@ -24,8 +24,8 @@ from typing import Any, Literal
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio.io.materialize import BaseAudioMaterializeStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.audio.io.materialize import BaseAudioMaterializeStage, CleanupTemporaryAudioStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 from nemo_curator.tasks.audio_task import build_audio_sample_key
 from nemo_curator.utils.file_utils import infer_dataset_name_from_path

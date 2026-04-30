@@ -62,10 +62,11 @@ class BaseAudioMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
         reference_field: str,
         output_field: str,
     ) -> None:
+        field_paths = (reference_field, output_field)
         segment_tasks: list[AudioTask] = []
         member_tasks_only: list[AudioTask] = []
         for task in tasks:
-            if self._should_segment(task, source_name, reference_field=reference_field):
+            if self._should_segment(task, source_name, reference_field=field_paths[0]):
                 segment_tasks.append(task)
             else:
                 member_tasks_only.append(task)
@@ -79,16 +80,14 @@ class BaseAudioMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
                 task,
                 raw_audio,
                 source_name,
-                reference_field=reference_field,
-                output_field=output_field,
+                field_paths=field_paths,
             )
         for task in segment_tasks:
             self._materialize_task(
                 task,
                 raw_audio,
                 source_name,
-                reference_field=reference_field,
-                output_field=output_field,
+                field_paths=field_paths,
                 decoded_audio=decoded_audio,
             )
 
@@ -98,10 +97,10 @@ class BaseAudioMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
         raw_audio: bytes,
         source_name: str,
         *,
-        reference_field: str,
-        output_field: str,
+        field_paths: tuple[str, str],
         decoded_audio: tuple[Any, int] | None = None,
     ) -> None:
+        reference_field, output_field = field_paths
         should_segment = self._should_segment(task, source_name, reference_field=reference_field)
         output_path, is_temporary = self._create_output_path(
             task,

@@ -23,9 +23,9 @@ from nemo_curator.stages.audio.io.tarred import (
 )
 
 __all__ = [
-    "AudioToDocumentStage",
     "AudioManifestReader",
     "AudioManifestReaderStage",
+    "AudioToDocumentStage",
     "CleanupTemporaryAudioStage",
     "MaterializeTarredAudioStage",
     "TarredAudioManifestPartitionStage",
