@@ -216,7 +216,7 @@ def test_runner_records_failed_samples_when_ignore_failed_enabled(tmp_path: Path
     stage_json = json.loads((tmp_path / "checkpoints" / "01_failing_stage" / "stage.json").read_text())
     assert stage_json["failed_count"] == 1
 
-    records_path = tmp_path / "checkpoints" / "01_failing_stage" / "records" / "shard_0.jsonl"
+    records_path = tmp_path / "checkpoints" / "01_failing_stage" / "payload" / "records" / "shard_0.jsonl"
     records = [json.loads(line) for line in records_path.read_text().splitlines() if line.strip()]
     statuses = {record["sample_key"]: record["status"] for record in records}
 
