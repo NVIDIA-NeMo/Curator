@@ -137,7 +137,7 @@ text_cpu = [
     # Download / Extract
     "beautifulsoup4",
     "justext",
-    "lxml",
+    "lxml>=6.1.0",
     "pycld2",
     "resiliparse",
     "s5cmd",
