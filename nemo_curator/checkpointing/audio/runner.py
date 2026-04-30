@@ -31,6 +31,8 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import BaseExecutor
     from nemo_curator.stages.base import ProcessingStage
     from nemo_curator.tasks import AudioTask
+
+
 class AudioCheckpointRunner:
     """Run an audio pipeline stage-by-stage with checkpointing."""
 
@@ -49,8 +51,8 @@ class AudioCheckpointRunner:
 
     def run(self) -> list[Any] | None:
         self.pipeline.build()
-        self._write_pipeline_metadata(self.pipeline.stages)
-        stages = self._prepare_stages(self.pipeline.stages)
+        stages = list(self.pipeline.stages)
+        self._write_pipeline_metadata(stages)
         audio_stages, tail_stages = self._split_stages(stages)
 
         current_tasks: list[AudioTask] | None = None
@@ -89,9 +91,6 @@ class AudioCheckpointRunner:
             return tail_pipeline.run(executor=self.executor, initial_tasks=current_tasks)
         return current_tasks
 
-    def _prepare_stages(self, stages: list[ProcessingStage]) -> list[ProcessingStage]:
-        return list(stages)
-
     def _split_stages(self, stages: list[ProcessingStage]) -> tuple[list[ProcessingStage], list[ProcessingStage]]:
         for index, stage in enumerate(stages):
             if isinstance(stage, AudioToDocumentStage):
@@ -101,7 +100,6 @@ class AudioCheckpointRunner:
     def _run_audio_stage(
         self, stage: ProcessingStage, input_tasks: list[AudioTask]
     ) -> tuple[list[AudioTask], list[SampleCheckpointRecord]]:
-        retry_tasks = deepcopy(input_tasks) if self.ignore_failed else None
         try:
             return self._run_single_stage(stage, input_tasks), []
         except Exception as error:
@@ -112,15 +110,14 @@ class AudioCheckpointRunner:
             logger.warning(
                 f"Stage {stage._name} failed for a batch of {len(input_tasks)} tasks, retrying one-by-one: {error}"
             )
+            retry_tasks = deepcopy(input_tasks)
             outputs: list[AudioTask] = []
             failed_records: list[SampleCheckpointRecord] = []
-            for task in retry_tasks or input_tasks:
+            for task in retry_tasks:
                 stage_outputs, failed_record = self._run_single_task_with_retry(stage, task)
                 outputs.extend(stage_outputs)
                 if failed_record is not None:
-                    failed_records.append(
-                        failed_record
-                    )
+                    failed_records.append(failed_record)
             return outputs, failed_records
 
     def _run_single_task_with_retry(

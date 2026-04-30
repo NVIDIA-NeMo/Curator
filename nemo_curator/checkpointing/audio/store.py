@@ -21,6 +21,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from loguru import logger
+
 from nemo_curator.tasks.audio_task import ensure_checkpoint_shard_id, ensure_sample_key
 
 from .io_utils import normalize_for_json, write_json_atomic, write_jsonl_atomic
@@ -34,6 +36,8 @@ RecordStatus = Literal["done", "filtered", "failed_retriable", "failed_permanent
 
 def _utcnow() -> str:
     return datetime.now(tz=UTC).isoformat()
+
+
 def fingerprint_stage(stage: Any) -> str:  # noqa: ANN401
     payload = {
         "class_name": type(stage).__name__,
@@ -129,6 +133,12 @@ class StageCheckpointStore:
         failed_records = failed_records or []
         failed_by_key = {record.sample_key: record for record in failed_records}
         output_by_key = {task.sample_key: task for task in output_tasks}
+        if len(output_by_key) != len(output_tasks):
+            logger.warning(
+                "Duplicate sample_keys detected in {} output tasks for stage checkpoint {}",
+                len(output_tasks),
+                self.stage_name,
+            )
 
         records: list[SampleCheckpointRecord] = [
             SampleCheckpointRecord(

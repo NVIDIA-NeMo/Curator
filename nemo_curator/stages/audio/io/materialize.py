@@ -127,6 +127,9 @@ class BaseAudioMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
     def _should_segment(self, task: AudioTask, source_name: str, *, reference_field: str) -> bool:
         if not self.segment_if_offset_present:
             return False
+        # Prefer the original manifest path when available so retries do not compare
+        # against a previously materialized temp path. If neither field exists, the
+        # empty-string fallback intentionally makes the comparison conservative.
         original_path = str(
             task.data.get(self.manifest_audio_filepath_key, task.data.get(reference_field, "")) or ""
         )
