@@ -36,6 +36,7 @@ from nemo_curator.stages.audio.filtering import (
 )
 from nemo_curator.stages.audio.io import (
     AudioToDocumentStage,
+    AudioManifestReader,
     CleanupTemporaryAudioStage,
     MaterializeTarredAudioStage,
     TarredAudioManifestReader,
@@ -56,6 +57,7 @@ __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
     "AudioDataFilterStage",
+    "AudioManifestReader",
     "AudioToDocumentStage",
     "BandFilterStage",
     "CleanupTemporaryAudioStage",

@@ -13,8 +13,9 @@
 # limitations under the License.
 
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.audio.io.manifest import AudioManifestReader, AudioManifestReaderStage
+from nemo_curator.stages.audio.io.materialize import CleanupTemporaryAudioStage
 from nemo_curator.stages.audio.io.tarred import (
-    CleanupTemporaryAudioStage,
     MaterializeTarredAudioStage,
     TarredAudioManifestPartitionStage,
     TarredAudioManifestReader,
@@ -23,6 +24,8 @@ from nemo_curator.stages.audio.io.tarred import (
 
 __all__ = [
     "AudioToDocumentStage",
+    "AudioManifestReader",
+    "AudioManifestReaderStage",
     "CleanupTemporaryAudioStage",
     "MaterializeTarredAudioStage",
     "TarredAudioManifestPartitionStage",
