@@ -113,7 +113,9 @@ class AudioCheckpointRunner:
             )
             outputs: list[AudioTask] = []
             failed_records: list[SampleCheckpointRecord] = []
-            assert retry_tasks is not None
+            if retry_tasks is None:
+                msg = "retry_tasks must be initialized when ignore_failed is enabled"
+                raise RuntimeError(msg)
             for task in retry_tasks:
                 stage_outputs, failed_record = self._run_single_task_with_retry(stage, task)
                 outputs.extend(stage_outputs)
