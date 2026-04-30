@@ -1,13 +1,11 @@
-from dataclasses import dataclass
 import dataclasses
-from typing import Any, Literal, Optional
+from dataclasses import dataclass
+from typing import Any, ClassVar, Literal
 
 
 @dataclass(kw_only=True, slots=True)
 class Media:
     """A media object in a conversation."""
-
-    pass
 
 
 @dataclass(kw_only=True, slots=True)
@@ -26,8 +24,8 @@ class VideoMedia(Media):
     value: str
 
     #: If set, the video needs to be trimmed to the given range in seconds.
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
+    start_time: float | None = None
+    end_time: float | None = None
 
 
 @dataclass(kw_only=True, slots=True)
@@ -56,37 +54,37 @@ class ConversationSample:
     Can include media of various types.
     """
 
-    __MEDIA_TYPES__ = {
+    __MEDIA_TYPES__: ClassVar[dict] = {
         "image": ImageMedia,
         "video": VideoMedia,
         "audio": AudioMedia,
     }
-    __MEDIA_TYPES_REVERSE__ = {v: k for k, v in __MEDIA_TYPES__.items()}
+    __MEDIA_TYPES_REVERSE__: ClassVar[dict] = {v: k for k, v in __MEDIA_TYPES__.items()}
 
     #: The messages in the conversation
     conversation: list[Message]
 
     def to_dict(self) -> dict:
-        return dict(
-            conversation=[
-                dict(
-                    sender=msg.sender,
-                    fragments=[
+        return {
+            "conversation": [
+                {
+                    "sender": msg.sender,
+                    "fragments": [
                         frag
                         if isinstance(frag, str)
-                        else dict(
-                            t=ConversationSample.__MEDIA_TYPES_REVERSE__[type(frag)],
+                        else {
+                            "t": ConversationSample.__MEDIA_TYPES_REVERSE__[type(frag)],
                             **dataclasses.asdict(frag),
-                        )
+                        }
                         for frag in msg.fragments
                     ],
-                )
+                }
                 for msg in self.conversation
             ],
-        )
+        }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ConversationSample":
+    def from_dict(cls, data: dict[str, Any]) -> "ConversationSample":  # noqa: C901
         """Parse a serialized conversation sample.
 
         Expected format (as produced by :meth:`to_dict`):
@@ -104,16 +102,19 @@ class ConversationSample:
         if raw_conversation is None:
             return cls(conversation=[])
         if not isinstance(raw_conversation, list):
-            raise TypeError(f"Expected 'conversation' to be a list, got {type(raw_conversation)}")
+            msg = f"Expected 'conversation' to be a list, got {type(raw_conversation)}"
+            raise TypeError(msg)
 
         conversation: list[Message] = []
-        for msg in raw_conversation:
-            if not isinstance(msg, dict):
-                raise TypeError(f"Expected conversation message to be a dict, got {type(msg)}")
-            sender = msg.get("sender")
-            fragments_raw = msg.get("fragments", [])
+        for raw_msg in raw_conversation:
+            if not isinstance(raw_msg, dict):
+                msg = f"Expected conversation message to be a dict, got {type(raw_msg)}"
+                raise TypeError(msg)
+            sender = raw_msg.get("sender")
+            fragments_raw = raw_msg.get("fragments", [])
             if not isinstance(fragments_raw, list):
-                raise TypeError(f"Expected message 'fragments' to be a list, got {type(fragments_raw)}")
+                msg = f"Expected message 'fragments' to be a list, got {type(fragments_raw)}"
+                raise TypeError(msg)
 
             fragments: list[Media | str] = []
             for frag in fragments_raw:
@@ -121,15 +122,18 @@ class ConversationSample:
                     fragments.append(frag)
                     continue
                 if not isinstance(frag, dict):
-                    raise TypeError(f"Expected fragment to be a str or dict, got {type(frag)}")
+                    msg = f"Expected fragment to be a str or dict, got {type(frag)}"
+                    raise TypeError(msg)
 
                 # 't' is used by to_dict(); accept 'type' as a common alias.
                 media_type = frag.get("t") or frag.get("type")
                 if not isinstance(media_type, str):
-                    raise TypeError(f"Expected media fragment to have a string 't', got {media_type!r}")
+                    msg = f"Expected media fragment to have a string 't', got {media_type!r}"
+                    raise TypeError(msg)
                 media_cls = cls.__MEDIA_TYPES__.get(media_type)
                 if media_cls is None:
-                    raise ValueError(f"Unknown media type {media_type!r}; expected one of {sorted(cls.__MEDIA_TYPES__.keys())}")
+                    msg = f"Unknown media type {media_type!r}; expected one of {sorted(cls.__MEDIA_TYPES__.keys())}"
+                    raise ValueError(msg)
 
                 media_kwargs = {k: v for k, v in frag.items() if k not in {"t", "type"}}
                 fragments.append(media_cls(**media_kwargs))

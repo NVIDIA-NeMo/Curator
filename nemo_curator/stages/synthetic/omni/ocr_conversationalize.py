@@ -5,11 +5,12 @@ from __future__ import annotations
 import dataclasses
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from nemo_curator.stages.synthetic.omni.utils.conversation import ConversationSample
+if TYPE_CHECKING:
+    from nemo_curator.stages.synthetic.omni.utils.conversation import ConversationSample
+
 from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
-
 
 # ---------------------------------------------------------------------------
 # Prompt variations (question / instruction sent to the model)
@@ -57,17 +58,22 @@ SDG_PROMPT_VARIATIONS: list[str] = [
 # Each callable takes list[OCRDenseWord] and returns (format_suffix, answer).
 # ---------------------------------------------------------------------------
 
+
 def _fmt_json_plain(items: list[OCRDenseWord]) -> tuple[str, str]:
     return (
         "Output must be a JSON list only, no markdown. Output the text and bounding box.",
         json.dumps([{"bbox_2d": list(o.bbox_2d), "text_content": o.text_content} for o in items]),
     )
 
+
 def _fmt_json_markdown(items: list[OCRDenseWord]) -> tuple[str, str]:
     return (
         "Wrap the JSON output containing each bounding box and text in a markdown code block: ```json ... ```",
-        "```json\n" + json.dumps([{"bbox_2d": list(o.bbox_2d), "text_content": o.text_content} for o in items]) + "\n```",
+        "```json\n"
+        + json.dumps([{"bbox_2d": list(o.bbox_2d), "text_content": o.text_content} for o in items])
+        + "\n```",
     )
+
 
 def _fmt_json_keys(items: list[OCRDenseWord]) -> tuple[str, str]:
     return (
@@ -75,11 +81,13 @@ def _fmt_json_keys(items: list[OCRDenseWord]) -> tuple[str, str]:
         json.dumps([{"bbox_2d": list(o.bbox_2d), "text_content": o.text_content} for o in items]),
     )
 
+
 def _fmt_json_explicit(items: list[OCRDenseWord]) -> tuple[str, str]:
     return (
         'Format each item as {"bbox_2d": [x1, y1, x2, y2], "text_content": "..."}. One JSON list.',
         json.dumps([{"bbox_2d": list(o.bbox_2d), "text_content": o.text_content} for o in items]),
     )
+
 
 def _fmt_json_no_extra(items: list[OCRDenseWord]) -> tuple[str, str]:
     return (
@@ -87,11 +95,13 @@ def _fmt_json_no_extra(items: list[OCRDenseWord]) -> tuple[str, str]:
         json.dumps([{"bbox_2d": list(o.bbox_2d), "text_content": o.text_content} for o in items]),
     )
 
+
 def _fmt_json_xyxy(items: list[OCRDenseWord]) -> tuple[str, str]:
     return (
         "Output a JSON list. Each entry: bbox_2d as [x_min, y_min, x_max, y_max] and text_content.",
         json.dumps([{"bbox_2d": list(o.bbox_2d), "text_content": o.text_content} for o in items]),
     )
+
 
 def _fmt_text_per_line(items: list[OCRDenseWord]) -> tuple[str, str]:
     return (
@@ -99,11 +109,13 @@ def _fmt_text_per_line(items: list[OCRDenseWord]) -> tuple[str, str]:
         "\n".join(f"{o.text_content} {list(o.bbox_2d)}" for o in items),
     )
 
+
 def _fmt_text_bracket(items: list[OCRDenseWord]) -> tuple[str, str]:
     return (
         'List each word on its own line as: "[x1, y1, x2, y2]: text".',
         "\n".join(f"{list(o.bbox_2d)}: {o.text_content}" for o in items),
     )
+
 
 def _fmt_text_tuple(items: list[OCRDenseWord]) -> tuple[str, str]:
     return (
@@ -111,11 +123,13 @@ def _fmt_text_tuple(items: list[OCRDenseWord]) -> tuple[str, str]:
         "\n".join(f"{o.text_content} {tuple(o.bbox_2d)}" for o in items),
     )
 
+
 def _fmt_markdown_table(items: list[OCRDenseWord]) -> tuple[str, str]:
     return (
         "Output a markdown table with columns: text | bbox.",
         "| text | bbox |\n|------|------|\n" + "\n".join(f"| {o.text_content!r} | {list(o.bbox_2d)} |" for o in items),
     )
+
 
 def _fmt_tsv(items: list[OCRDenseWord]) -> tuple[str, str]:
     return (
@@ -143,6 +157,7 @@ WORD_OUTPUT_FORMATS = [
 # Data class
 # ---------------------------------------------------------------------------
 
+
 @dataclass(kw_only=True)
 class OCRConversationData(OCRData):
     """OCRData with a conversation field added by OCRConversationalizeStage."""
@@ -154,6 +169,3 @@ class OCRConversationData(OCRData):
         if self.conversation is not None:
             d["conversation"] = self.conversation.to_dict()
         return d
-
-
-

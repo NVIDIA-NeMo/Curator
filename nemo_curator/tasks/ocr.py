@@ -18,7 +18,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 from nemo_curator.tasks.image import ImageTaskData
 
@@ -27,7 +30,7 @@ from nemo_curator.tasks.image import ImageTaskData
 class OCRDenseWord:
     """Single word (or line/block) entry in dense OCR output.
 
-    Coordinates are normalized 0–1000.
+    Coordinates are normalized 0-1000.
     """
 
     bbox_2d: list[int] | tuple[int, int, int, int]
@@ -36,14 +39,14 @@ class OCRDenseWord:
     valid: bool = True
 
     # Scoring verification fields (set by OCRScoringVerificationStage)
-    bbox_match: int | None = None    # Gemini bbox fit score 0-10
-    text_errors: int | None = None   # Gemini transcription error count
+    bbox_match: int | None = None  # Gemini bbox fit score 0-10
+    text_errors: int | None = None  # Gemini transcription error count
 
     def __post_init__(self) -> None:
         self.bbox_2d = list(self.bbox_2d)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OCRDenseWord":
+    def from_dict(cls, data: dict[str, Any]) -> OCRDenseWord:
         bbox = data.get("bbox_2d")
         if bbox is not None and not isinstance(bbox, (list, tuple)):
             bbox = list(bbox)
@@ -57,7 +60,7 @@ class OCRDenseWord:
         )
 
     @staticmethod
-    def join(words: Iterable["OCRDenseWord"], separator: str = " ") -> "OCRDenseWord":
+    def join(words: Iterable[OCRDenseWord], separator: str = " ") -> OCRDenseWord:
         """Merge multiple words into one by unioning their bboxes and joining text."""
         it = iter(words)
         try:
@@ -97,25 +100,21 @@ class OCRData(ImageTaskData):
     ocr_scoring_prompt: str | None = None
     ocr_scoring_model: str | None = None
     ocr_scoring_response_raw: str | None = None
-    ocr_scoring_mode: str | None = None          # "word" or "line" as inferred by Gemini
+    ocr_scoring_mode: str | None = None  # "word" or "line" as inferred by Gemini
     ocr_scoring_missing: list[dict] | None = None  # missing text regions with bbox_2d
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OCRData":
+    def from_dict(cls, data: dict[str, Any]) -> OCRData:
         """Deserialize from a JSONL record (produced by ResultWriterStage)."""
         qwen_raw = data.get("ocr_dense")
         if isinstance(qwen_raw, list):
             qwen_items: list[OCRDenseWord] | None = [
-                OCRDenseWord.from_dict(x) if isinstance(x, dict) else x
-                for x in qwen_raw
+                OCRDenseWord.from_dict(x) if isinstance(x, dict) else x for x in qwen_raw
             ]
         else:
             qwen_items = None
 
-        if "ocr_is_word_level" in data:
-            is_word_level = bool(data["ocr_is_word_level"])
-        else:
-            is_word_level = True
+        is_word_level = bool(data["ocr_is_word_level"]) if "ocr_is_word_level" in data else True
 
         return cls(
             image_path=Path(data["image_path"]) if data.get("image_path") else Path(""),

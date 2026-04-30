@@ -2,7 +2,6 @@
 
 from nemo_curator.models.omni.base import NVInferenceModel, NVInferenceModelConfig
 
-
 DEFAULT_MODEL_ID = "gcp/google/gemini-3-pro"
 
 

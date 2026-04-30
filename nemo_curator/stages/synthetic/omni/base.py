@@ -1,26 +1,25 @@
 """Base stage class extending NeMo Curator's ProcessingStage."""
 
-from abc import abstractmethod
 import math
 import os
-from typing import Any, Generic, Sequence, TypeVar
+from abc import abstractmethod
+from collections.abc import Sequence
+from typing import Any, Generic, TypeVar
 
 from loguru import logger
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.resources import Resources, _get_gpu_memory_gb
 from PIL import Image
 
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.omni.base import InferenceConfig, VLMModel
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources, _get_gpu_memory_gb
 from nemo_curator.tasks.image import SingleDataTask
-
 
 T = TypeVar("T")
 
 
-class SkipSample(Exception):
+class SkipSample(Exception):  # noqa: N818
     """Exception to be raised in build_prompt to skip a sample."""
-    pass
 
 
 class VLMProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]], Generic[T]):
@@ -33,11 +32,13 @@ class VLMProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]], 
     name: str = "vlm_base_stage"
     resources: Resources = Resources(cpus=1.0)
 
-    def __init__(self, *, cuda_devices: Sequence[int] | None = None, **kwargs: Any) -> None:
+    def __init__(self, *, cuda_devices: Sequence[int] | None = None, **kwargs: Any) -> None:  # noqa: ANN401
         super().__init__(**kwargs)
         self.cuda_devices = cuda_devices
         if cuda_devices is not None:
-            assert len(cuda_devices) == self.resources.gpus, f"cuda_devices length must match resources.gpus={self.resources.gpus}, got {len(cuda_devices)}"
+            if len(cuda_devices) != self.resources.gpus:
+                msg = f"cuda_devices length must match resources.gpus={self.resources.gpus}, got {len(cuda_devices)}"
+                raise ValueError(msg)
         elif self.resources.gpus > 0:
             # None means use runtime-assigned GPU(s) (e.g. Ray sets CUDA_VISIBLE_DEVICES per worker).
             pass
@@ -48,7 +49,9 @@ class VLMProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]], 
             return
         import torch
 
-        assert torch.cuda.is_available()
+        if not torch.cuda.is_available():
+            msg = "CUDA is not available"
+            raise RuntimeError(msg)
         torch.cuda.set_device(self.cuda_devices[0])
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(f"{d}" for d in self.cuda_devices)
 
@@ -58,9 +61,15 @@ class VLMProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]], 
         if self.resources.gpus > 0:
             return 0.9
         else:
-            assert self.resources.gpu_memory_gb is not None, "GPU memory GB must be set"
-            assert self.resources.gpu_memory_gb > 0, "GPU memory GB must be greater than 0"
-            assert self.resources.gpu_memory_gb <= available_memory, "GPU memory GB must be less than available memory"
+            if self.resources.gpu_memory_gb is None:
+                msg = "GPU memory GB must be set"
+                raise ValueError(msg)
+            if self.resources.gpu_memory_gb <= 0:
+                msg = "GPU memory GB must be greater than 0"
+                raise ValueError(msg)
+            if self.resources.gpu_memory_gb > available_memory:
+                msg = "GPU memory GB must be less than available memory"
+                raise ValueError(msg)
             return self.resources.gpu_memory_gb / available_memory
 
     def _get_tensor_parallel_size(self) -> int:
@@ -75,7 +84,6 @@ class VLMProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]], 
         Args:
             worker_metadata: Optional metadata from the worker.
         """
-        pass
 
     def process(self, task: SingleDataTask) -> SingleDataTask | list[SingleDataTask]:
         """Process a single task.
@@ -95,7 +103,6 @@ class VLMProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]], 
 
         Override this method to unload models, free memory, etc.
         """
-        pass
 
 
 class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
@@ -115,7 +122,7 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
         model: VLMModel,
         inference_config: InferenceConfig,
         batch_size: int = 8,
-        **kwargs: Any,
+        **kwargs: Any,  # noqa: ANN401
     ) -> None:
         """Initialize model processing stage.
 
@@ -134,11 +141,11 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
         """Initialize the model."""
         self.model.load()
 
-    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:
+    def setup_on_node(self, _node_info: NodeInfo, _worker_metadata: WorkerMetadata) -> None:
         # TODO: Add weight downloading logic
         self._initialize_model()
 
-    def setup(self, worker_metadata: dict | None = None) -> None:
+    def setup(self, _worker_metadata: dict | None = None) -> None:
         """Load the model."""
         if self.model.is_loaded:
             return
@@ -153,7 +160,7 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
 
         Returns:
             The text prompt string.
-        
+
         Raises:
             SkipSample: If the sample should be skipped (i.e. does not set the is_valid flag, just skips).
             Exception: If any other error occurs, sets the is_valid flag to False and sets the error message of the sample.
@@ -167,7 +174,7 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
         Args:
             task: The task to update.
             response: The model's generated text.
-        
+
         Raises:
             Exception: If any other error occurs, sets the is_valid flag to False and sets the error message of the sample.
         """
@@ -196,6 +203,17 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
             Processed task.
         """
         return self.process_batch([task])[0]
+
+    def _handle_response_one(self, tasks: list[SingleDataTask[T]], idx: int, response: str) -> None:
+        """Call handle_response for one task, catching and logging errors."""
+        try:
+            self.handle_response(tasks[idx], response)
+        except SkipSample:
+            logger.debug(f"{self.name}: skipping sample {idx}")
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"{self.name}: error handling response for task {idx}: {e}")
+            tasks[idx].data.error = f"{self.name}: {e}"
+            tasks[idx].data.is_valid = False
 
     def process_batch(self, tasks: list[SingleDataTask[T]]) -> list[SingleDataTask[T]]:
         """Process a batch of tasks.
@@ -230,7 +248,7 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
             except SkipSample:
                 logger.debug(f"{self.name}: skipping sample {i}")
                 continue
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"{self.name}: error preparing task {i}: {e}")
                 task.data.error = f"{self.name}: {e}"
                 task.data.is_valid = False
@@ -241,21 +259,12 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
         try:
             responses = self.model.generate(prompts, images if self.multimodal else None, self.inference_config)
 
-            for idx, response in zip(valid_indices, responses):
-                try:
-                    self.handle_response(tasks[idx], response)
-                except SkipSample:
-                    logger.debug(f"{self.name}: skipping sample {idx}")
-                    continue
-                except Exception as e:
-                    logger.error(f"{self.name}: error handling response for task {idx}: {e}")
-                    tasks[idx].data.error = f"{self.name}: {e}"
-                    tasks[idx].data.is_valid = False
-                    continue
+            for idx, response in zip(valid_indices, responses, strict=False):
+                self._handle_response_one(tasks, idx, response)
 
             logger.info(f"{self.name}: processed batch of {len(valid_indices)} items")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.error(f"{self.name}: batch processing error: {e}")
             for task in tasks:
                 task.data.error = f"{self.name}: {e}"

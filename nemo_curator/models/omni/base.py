@@ -1,14 +1,13 @@
 """Base model classes for VLM inference."""
 
-from abc import ABC, abstractmethod
 import base64
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
 
-from PIL import Image
-
 from loguru import logger
+from PIL import Image
 
 
 @dataclass(kw_only=True)
@@ -31,8 +30,12 @@ class ModelConfig:
     max_tokens: int | None = None
 
     def __post_init__(self) -> None:
-        assert self.gpu_memory_utilization >= 0.0 and self.gpu_memory_utilization <= 1.0, "GPU memory utilization must be between 0.0 and 1.0"
-        assert self.tensor_parallel_size >= 1, "Tensor parallel size must be greater than 0"
+        if self.gpu_memory_utilization < 0.0 or self.gpu_memory_utilization > 1.0:
+            msg = "GPU memory utilization must be between 0.0 and 1.0"
+            raise ValueError(msg)
+        if self.tensor_parallel_size < 1:
+            msg = "Tensor parallel size must be greater than 0"
+            raise ValueError(msg)
 
 
 class Model(ABC):
@@ -158,9 +161,7 @@ class NVInferenceModel(VLMModel):
 
         logger.info(f"Initializing NVIDIA Inference client for model {self.model_id}")
         api_key = get_nvinference_api_key(self.model_config.api_key_env_var)
-        self._client = create_openai_client(
-            api_key=api_key, base_url=self.model_config.base_url
-        )
+        self._client = create_openai_client(api_key=api_key, base_url=self.model_config.base_url)
         logger.info("NVIDIA Inference client initialized")
 
     def preload(self) -> None:
@@ -185,9 +186,7 @@ class NVInferenceModel(VLMModel):
         image.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    def _build_message_content(
-        self, prompt: str, image: Image.Image | str | None
-    ) -> list[dict[str, Any]]:
+    def _build_message_content(self, prompt: str, image: Image.Image | str | None) -> list[dict[str, Any]]:
         """Build message content for OpenAI-compatible API.
 
         Args:
@@ -232,7 +231,8 @@ class NVInferenceModel(VLMModel):
             List of generated response strings.
         """
         if not self.is_loaded:
-            raise RuntimeError("Model not loaded. Call load() first.")
+            msg = "Model not loaded. Call load() first."
+            raise RuntimeError(msg)
 
         from nemo_curator.models.client.nvinference_client import stream_chat_completion_text
 
@@ -242,7 +242,9 @@ class NVInferenceModel(VLMModel):
             content = self._build_message_content(prompt, image)
             messages = [{"role": "user", "content": content}]
 
-            extra_headers = {"X-Vertex-AI-LLM-Shared-Request-Type": "priority"} if inference_config.priority_mode else None
+            extra_headers = (
+                {"X-Vertex-AI-LLM-Shared-Request-Type": "priority"} if inference_config.priority_mode else None
+            )
 
             try:
                 response = stream_chat_completion_text(
@@ -255,7 +257,7 @@ class NVInferenceModel(VLMModel):
                     extra_headers=extra_headers,
                 )
                 results.append(response if response else "")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"Error generating response for prompt {i}: {e}")
                 results.append("")
 

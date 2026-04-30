@@ -19,18 +19,21 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from nemo_curator.tasks.image import SingleDataTask
 
 from loguru import logger
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.synthetic.omni.base import VLMProcessingStage
 from nemo_curator.stages.synthetic.omni.io import load_image_from_task
-from nemo_curator.tasks.image import SingleDataTask
 from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
 
 _HF_REPO_ID = "nvidia/nemotron-ocr-v2"
 _DEFAULT_SUBDIR = "v2_multilingual"
+
 
 def _to_ocr_dense_word(pred: dict[str, Any]) -> OCRDenseWord:
     """Convert a NemotronOCR-v2 prediction dict to OCRDenseWord (0-1000 coords).
@@ -74,7 +77,7 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
         model_dir: str | Path | None = None,
         num_workers: int | None = None,
         merge_level: str = "word",
-        **kwargs: Any,
+        **kwargs: Any,  # noqa: ANN401
     ) -> None:
         """Initialize the NemotronOCR-v2 stage.
 
@@ -107,7 +110,7 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
             spec["num_workers"] = self.num_workers
         return spec
 
-    def setup(self, worker_metadata: dict | None = None) -> None:
+    def setup(self, _worker_metadata: dict | None = None) -> None:
         """Load NemotronOCRV2 onto the GPU."""
         self._maybe_set_cuda_device()
         from nemotron_ocr.inference.pipeline_v2 import NemotronOCRV2
@@ -124,7 +127,7 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
                 continue
             try:
                 self._process_one(task)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"{self.name}: error on task {task.task_id}: {e}")
                 task.data.is_valid = False
                 task.data.error = f"{self.name}: {e}"

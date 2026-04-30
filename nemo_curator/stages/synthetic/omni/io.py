@@ -3,23 +3,27 @@
 Based on NeMo Curator's VideoReader pattern.
 """
 
+from __future__ import annotations
+
 import io
 import json
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Generic, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
+
+if TYPE_CHECKING:
+    from datasets import Dataset
+
+    from nemo_curator.backends.base import WorkerMetadata
 
 from loguru import logger
 from PIL import Image
 
-from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import _EmptyTask
-
 from nemo_curator.tasks.image import ImageTaskData, SingleDataTask
-
 
 T_TaskData = TypeVar("T_TaskData", bound=ImageTaskData)
 
@@ -33,7 +37,7 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
     when the source is a HuggingFace dataset rather than tar shards.
 
     Args:
-        dataset_name: HuggingFace Hub dataset id (e.g. ``"textvqa"``) **or** a
+        dataset_name: HuggingFace Hub dataset id (e.g. ``"lmms-lab/textvqa"``) **or** a
             local path.  Local paths are detected automatically:
 
             * Directory containing ``dataset_info.json`` — loaded with
@@ -73,7 +77,7 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
     name = "hf_dataset_image_reader"
     resources = Resources(cpus=1.0)
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         dataset_name: str,
         image_dir: str | Path,
@@ -82,7 +86,7 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
         image_column: str = "image",
         id_column: str | None = None,
         limit: int | None = None,
-        task_type: Type[T_TaskData] = ImageTaskData,
+        task_type: type[T_TaskData] = ImageTaskData,
     ) -> None:
         self.dataset_name = dataset_name
         self.image_dir = Path(image_dir)
@@ -106,7 +110,7 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
     # Dataset loading
     # ------------------------------------------------------------------
 
-    def _load_dataset(self):
+    def _load_dataset(self) -> Dataset:
         """Load a HuggingFace Dataset, handling hub, save_to_disk, and imagefolder paths."""
         from datasets import load_dataset, load_from_disk
 
@@ -120,10 +124,10 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
                 if hasattr(ds, "keys"):
                     if self.split not in ds:
                         available = list(ds.keys())
-                        raise ValueError(
-                            f"Split '{self.split}' not found in dataset at {local_path}. "
-                            f"Available splits: {available}"
+                        msg = (
+                            f"Split '{self.split}' not found in dataset at {local_path}. Available splits: {available}"
                         )
+                        raise ValueError(msg)
                     ds = ds[self.split]
                 if self.limit is not None:
                     ds = ds.select(range(min(self.limit, len(ds))))
@@ -142,7 +146,7 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _to_pil(value: Any) -> Image.Image:
+    def _to_pil(value: Any) -> Image.Image:  # noqa: ANN401
         """Convert various HF image column representations to a PIL Image."""
         if isinstance(value, Image.Image):
             return value
@@ -157,10 +161,8 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
             return Image.open(io.BytesIO(value))
         if isinstance(value, str) and Path(value).exists():
             return Image.open(value)
-        raise ValueError(
-            f"Cannot convert value of type {type(value).__name__} to PIL Image. "
-            "Expected a PIL Image, bytes, or a HF Image feature dict."
-        )
+        msg = f"Cannot convert value of type {type(value).__name__} to PIL Image. Expected a PIL Image, bytes, or a HF Image feature dict."
+        raise ValueError(msg)
 
     # ------------------------------------------------------------------
     # Stage entry point
@@ -176,10 +178,7 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
 
         for idx, example in enumerate(dataset):
             # Determine image_id
-            if self.id_column is not None:
-                image_id = str(example[self.id_column])
-            else:
-                image_id = f"{idx:06d}"
+            image_id = str(example[self.id_column]) if self.id_column is not None else f"{idx:06d}"
 
             # Deduplicate images that appear in multiple rows (e.g. VQA datasets)
             if image_id in seen_ids:
@@ -207,8 +206,7 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
 
         logger.info(
             f"hf_dataset_image_reader: {len(tasks)} unique images from "
-            f"{self.dataset_name}/{self.split}"
-            + (f" (limit={self.limit})" if self.limit else "")
+            f"{self.dataset_name}/{self.split}" + (f" (limit={self.limit})" if self.limit else "")
         )
         return tasks
 
@@ -252,7 +250,7 @@ class SkipProcessedStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataT
         self._skipped_duplicate: int = 0
         self._passed: int = 0
 
-    def setup(self, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+    def setup(self, _worker_metadata: WorkerMetadata) -> None:
         # Determine which files to read:
         #   1. Merged file exists (output_path itself) — normal completed-run case.
         #   2. Only _worker* shards exist — pipeline was killed before merge ran.
@@ -272,7 +270,8 @@ class SkipProcessedStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataT
                 )
                 files_to_read = shard_files
             elif self.require_exists:
-                raise FileNotFoundError(f"SkipProcessed: output path does not exist: {self.output_path}")
+                msg = f"SkipProcessed: output path does not exist: {self.output_path}"
+                raise FileNotFoundError(msg)
             else:
                 logger.info(f"SkipProcessed: no existing output at {self.output_path}; nothing to skip")
                 return
@@ -284,11 +283,11 @@ class SkipProcessedStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataT
         for path in files_to_read:
             with path.open("r", encoding="utf-8") as handle:
                 for line in handle:
-                    line = line.strip()
-                    if not line:
+                    stripped = line.strip()
+                    if not stripped:
                         continue
                     try:
-                        record = json.loads(line)
+                        record = json.loads(stripped)
                     except json.JSONDecodeError:
                         bad_json += 1
                         continue
@@ -319,13 +318,13 @@ class SkipProcessedStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataT
             except ValueError:
                 pass
         return str(image_path)
-    
+
     def process(self, task: SingleDataTask[T_TaskData]) -> SingleDataTask[T_TaskData]:
         x = self.process_batch([task])
         if len(x) == 0:
             return None
         return x[0]
-    
+
     def process_batch(self, tasks: list[SingleDataTask[T_TaskData]]) -> list[SingleDataTask[T_TaskData]]:
         results = []
         for task in tasks:
@@ -423,7 +422,7 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
 
         output.parent.mkdir(parents=True, exist_ok=True)
         mode = "a" if self.append else "w"
-        self._file = open(output, mode, encoding="utf-8")
+        self._file = open(output, mode, encoding="utf-8")  # noqa: SIM115
         self._saved_count = 0
         self._skipped_count = 0
         logger.info(f"ResultWriter: opened {output} for writing (mode={mode})")
@@ -453,15 +452,18 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
             data["image_path"] = self._get_image_path_str(task.data.image_path)
             # Keep empty lists/strings/False (e.g. OCR may legitimately be []).
             # Only drop fields that are explicitly None, and always omit is_valid.
-            self._file.write(json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}, default=str) + "\n")
+            self._file.write(
+                json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}, default=str) + "\n"
+            )
+        elif self.valid_only:
+            self._skipped_count += 1
+            return task
         else:
-            if self.valid_only:
-                self._skipped_count += 1
-                return task
-            else:
-                data = task.data.to_dict()
-                data["image_path"] = self._get_image_path_str(task.data.image_path)
-                self._file.write(json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}, default=str) + "\n")
+            data = task.data.to_dict()
+            data["image_path"] = self._get_image_path_str(task.data.image_path)
+            self._file.write(
+                json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}, default=str) + "\n"
+            )
         self._file.flush()  # Flush after each write for safety
         self._saved_count += 1
         return task
@@ -535,7 +537,6 @@ class FileReader(ABC):
         Returns:
             True if this reader can handle the path.
         """
-        pass
 
     @abstractmethod
     def read_bytes(self, path: Path) -> bytes:
@@ -551,7 +552,6 @@ class FileReader(ABC):
             FileNotFoundError: If the file doesn't exist.
             ValueError: If the path format is invalid.
         """
-        pass
 
     def open_image(self, path: Path) -> Image.Image:
         """Open a PIL Image from the given path.
@@ -576,14 +576,15 @@ class RegularFileReader(FileReader):
     def can_read(self, path: Path) -> bool:
         """Check if path is a regular file."""
         return path.exists() and path.is_file()
-    
+
     def open_image(self, path: Path) -> Image.Image:
         return Image.open(path)
 
     def read_bytes(self, path: Path) -> bytes:
         """Read bytes from a regular file."""
         if not path.exists():
-            raise FileNotFoundError(f"Image not found: {path}")
+            msg = f"Image not found: {path}"
+            raise FileNotFoundError(msg)
         return path.read_bytes()
 
 

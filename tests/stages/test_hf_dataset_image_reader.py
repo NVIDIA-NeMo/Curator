@@ -9,7 +9,6 @@ Covers:
 """
 
 import io
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,7 +17,7 @@ from PIL import Image
 
 from nemo_curator.stages.synthetic.omni.io import HFDatasetImageReaderStage
 from nemo_curator.tasks import _EmptyTask
-from nemo_curator.tasks.image import ImageTaskData, SingleDataTask
+from nemo_curator.tasks.image import SingleDataTask
 
 
 def _empty_task() -> _EmptyTask:
@@ -29,9 +28,9 @@ def _empty_task() -> _EmptyTask:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_rgb_image(width: int = 32, height: int = 32, color=(255, 0, 0)) -> Image.Image:
-    img = Image.new("RGB", (width, height), color)
-    return img
+
+def _make_rgb_image(width: int = 32, height: int = 32, color: tuple = (255, 0, 0)) -> Image.Image:
+    return Image.new("RGB", (width, height), color)
 
 
 def _make_rgba_image() -> Image.Image:
@@ -44,22 +43,25 @@ def _pil_to_bytes(img: Image.Image, fmt: str = "JPEG") -> bytes:
     return buf.getvalue()
 
 
-def _fake_dataset(num_images: int = 5, *, duplicate_ids: bool = False):
+def _fake_dataset(num_images: int = 5, *, duplicate_ids: bool = False) -> list:
     """Build a minimal list-of-dicts that mimics a HF Dataset."""
     rows = []
     for i in range(num_images):
         img_id = f"img_{i // 2:04d}" if duplicate_ids else f"img_{i:04d}"
-        rows.append({
-            "image": _make_rgb_image(color=(i * 40 % 256, 0, 0)),
-            "image_id": img_id,
-            "question": f"What is in image {i}?",
-        })
+        rows.append(
+            {
+                "image": _make_rgb_image(color=(i * 40 % 256, 0, 0)),
+                "image_id": img_id,
+                "question": f"What is in image {i}?",
+            }
+        )
     return rows
 
 
 # ---------------------------------------------------------------------------
 # _to_pil tests (unit — no I/O)
 # ---------------------------------------------------------------------------
+
 
 class TestToPil:
     def test_pil_image_passthrough(self):
@@ -87,7 +89,7 @@ class TestToPil:
         result = HFDatasetImageReaderStage._to_pil(bytearray(_pil_to_bytes(img)))
         assert isinstance(result, Image.Image)
 
-    def test_file_path_string(self, tmp_path):
+    def test_file_path_string(self, tmp_path: Path):
         img = _make_rgb_image()
         p = tmp_path / "test.jpg"
         img.save(p, format="JPEG")
@@ -103,8 +105,9 @@ class TestToPil:
 # process() tests (mock _load_dataset)
 # ---------------------------------------------------------------------------
 
+
 class TestProcess:
-    def _make_stage(self, image_dir, **kwargs) -> HFDatasetImageReaderStage:
+    def _make_stage(self, image_dir: Path, **kwargs) -> HFDatasetImageReaderStage:
         return HFDatasetImageReaderStage(
             dataset_name="textvqa",
             image_dir=image_dir,
@@ -113,7 +116,7 @@ class TestProcess:
             **kwargs,
         )
 
-    def test_creates_one_task_per_image(self, tmp_path):
+    def test_creates_one_task_per_image(self, tmp_path: Path):
         stage = self._make_stage(tmp_path)
         with patch.object(stage, "_load_dataset", return_value=_fake_dataset(5)):
             tasks = stage.process(_empty_task())
@@ -121,7 +124,7 @@ class TestProcess:
         assert len(tasks) == 5
         assert all(isinstance(t, SingleDataTask) for t in tasks)
 
-    def test_image_files_saved_to_disk(self, tmp_path):
+    def test_image_files_saved_to_disk(self, tmp_path: Path):
         stage = self._make_stage(tmp_path)
         with patch.object(stage, "_load_dataset", return_value=_fake_dataset(3)):
             tasks = stage.process(_empty_task())
@@ -131,7 +134,7 @@ class TestProcess:
             img = Image.open(task.data.image_path)
             assert img.mode == "RGB"
 
-    def test_image_id_set_from_column(self, tmp_path):
+    def test_image_id_set_from_column(self, tmp_path: Path):
         stage = self._make_stage(tmp_path)
         with patch.object(stage, "_load_dataset", return_value=_fake_dataset(4)):
             tasks = stage.process(_empty_task())
@@ -139,7 +142,7 @@ class TestProcess:
         ids = [t.data.image_id for t in tasks]
         assert ids == ["img_0000", "img_0001", "img_0002", "img_0003"]
 
-    def test_fallback_to_index_when_no_id_column(self, tmp_path):
+    def test_fallback_to_index_when_no_id_column(self, tmp_path: Path):
         stage = HFDatasetImageReaderStage(
             dataset_name="textvqa",
             image_dir=tmp_path,
@@ -152,7 +155,7 @@ class TestProcess:
         ids = [t.data.image_id for t in tasks]
         assert ids == ["000000", "000001", "000002"]
 
-    def test_deduplication_skips_repeated_image_ids(self, tmp_path):
+    def test_deduplication_skips_repeated_image_ids(self, tmp_path: Path):
         """10 rows but only 5 unique image_ids (duplicate_ids=True pairs them)."""
         stage = self._make_stage(tmp_path)
         with patch.object(stage, "_load_dataset", return_value=_fake_dataset(10, duplicate_ids=True)):
@@ -162,7 +165,7 @@ class TestProcess:
         ids = [t.data.image_id for t in tasks]
         assert len(ids) == len(set(ids)), "Duplicate image_ids in output"
 
-    def test_idempotent_second_run_skips_saving(self, tmp_path):
+    def test_idempotent_second_run_skips_saving(self, tmp_path: Path):
         """Second call must not re-write images that already exist."""
         stage = self._make_stage(tmp_path)
         dataset = _fake_dataset(3)
@@ -180,7 +183,7 @@ class TestProcess:
                 f"Image was re-written on second run: {task.data.image_path}"
             )
 
-    def test_rgba_converted_to_rgb(self, tmp_path):
+    def test_rgba_converted_to_rgb(self, tmp_path: Path):
         stage = self._make_stage(tmp_path)
         rows = [{"image": _make_rgba_image(), "image_id": "rgba_test"}]
         with patch.object(stage, "_load_dataset", return_value=rows):
@@ -189,7 +192,7 @@ class TestProcess:
         saved = Image.open(tasks[0].data.image_path)
         assert saved.mode == "RGB"
 
-    def test_task_type_respected(self, tmp_path):
+    def test_task_type_respected(self, tmp_path: Path):
         from nemo_curator.tasks.ocr import OCRData
 
         stage = HFDatasetImageReaderStage(
@@ -209,8 +212,9 @@ class TestProcess:
 # _load_dataset routing tests (no real network calls)
 # ---------------------------------------------------------------------------
 
+
 class TestLoadDatasetRouting:
-    def test_hub_dataset_without_limit(self, tmp_path):
+    def test_hub_dataset_without_limit(self, tmp_path: Path):
         stage = HFDatasetImageReaderStage(
             dataset_name="textvqa",
             image_dir=tmp_path,
@@ -221,7 +225,7 @@ class TestLoadDatasetRouting:
             stage.process(_empty_task())
             mock_load.assert_called_once()
 
-    def test_local_save_to_disk_path(self, tmp_path):
+    def test_local_save_to_disk_path(self, tmp_path: Path):
         """A directory with dataset_info.json triggers load_from_disk."""
         (tmp_path / "dataset_info.json").write_text("{}")
 
@@ -237,7 +241,7 @@ class TestLoadDatasetRouting:
         leaf_ds.select = MagicMock(return_value=leaf_ds)
 
         mock_dict = MagicMock()
-        mock_dict.__contains__ = MagicMock(return_value=True)   # "train" in mock_dict → True
+        mock_dict.__contains__ = MagicMock(return_value=True)  # "train" in mock_dict → True
         mock_dict.__getitem__ = MagicMock(return_value=leaf_ds)  # mock_dict["train"] → leaf_ds
 
         with patch("datasets.load_from_disk", return_value=mock_dict) as mock_lfd:
@@ -245,7 +249,7 @@ class TestLoadDatasetRouting:
             mock_lfd.assert_called_once_with(str(tmp_path))
             leaf_ds.select.assert_called_once_with(range(5))
 
-    def test_local_imagefolder_path(self, tmp_path):
+    def test_local_imagefolder_path(self, tmp_path: Path):
         """An existing directory without dataset_info.json triggers imagefolder loader."""
         stage = HFDatasetImageReaderStage(
             dataset_name=str(tmp_path),
@@ -256,11 +260,9 @@ class TestLoadDatasetRouting:
         with patch("datasets.load_dataset") as mock_ld:
             mock_ld.return_value = []
             stage._load_dataset()
-            mock_ld.assert_called_once_with(
-                "imagefolder", data_dir=str(tmp_path), split="train[:10]"
-            )
+            mock_ld.assert_called_once_with("imagefolder", data_dir=str(tmp_path), split="train[:10]")
 
-    def test_hub_limit_embedded_in_split(self, tmp_path):
+    def test_hub_limit_embedded_in_split(self, tmp_path: Path):
         """Hub path with limit passes split slice notation."""
         stage = HFDatasetImageReaderStage(
             dataset_name="textvqa",
@@ -273,7 +275,7 @@ class TestLoadDatasetRouting:
             stage._load_dataset()
             mock_ld.assert_called_once_with("textvqa", None, split="train[:50]")
 
-    def test_hub_config_name_forwarded(self, tmp_path):
+    def test_hub_config_name_forwarded(self, tmp_path: Path):
         stage = HFDatasetImageReaderStage(
             dataset_name="some_multilingual_dataset",
             image_dir=tmp_path,

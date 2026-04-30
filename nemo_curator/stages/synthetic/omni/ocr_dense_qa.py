@@ -22,7 +22,7 @@ Builds up to MAX_QA_PAIRS multi-turn QA pairs per image, balanced across
   3. text_to_bbox   — given text, locate its bbox(es)
   4. text_to_point  — given text, locate its center point(s)
 
-Types 3–4 are disabled when OCR quality is low (many invalid bboxes).
+Types 3-4 are disabled when OCR quality is low (many invalid bboxes).
 
 Public API: ``build_qa_tagged``, ``build_conversation``, ``build_dense_conversation``.
 Used by ``OCRScoringQAStage``.
@@ -34,18 +34,23 @@ import json
 import math
 import random
 from collections import defaultdict
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
 
 from nemo_curator.stages.synthetic.omni.ocr_conversationalize import (
-    OCRConversationData,
     SDG_PROMPT_VARIATIONS,
     WORD_OUTPUT_FORMATS,
 )
 from nemo_curator.stages.synthetic.omni.utils.conversation import ConversationSample, ImageMedia, Message
-from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
-
 
 MAX_QA_PAIRS = 100
+_UPPERCASE_RAW_PROB = 0.5
+_MAX_INVALIDS_FOR_TEXT_TO_BBOX = 5
+_BBOX_COORD_COUNT = 4
 
 QA_TYPE_BBOX_TO_TEXT = "bbox_to_text"
 QA_TYPE_POINT_TO_TEXT = "point_to_text"
@@ -57,6 +62,7 @@ QA_TYPE_DENSE_DUMP = "dense_dump"  # list-all-bboxes turn; only included when OC
 # ---------------------------------------------------------------------------
 # Balanced sampler
 # ---------------------------------------------------------------------------
+
 
 def _balanced_sample_qa(
     tagged: list[tuple[str, str, str]],
@@ -99,6 +105,7 @@ def _balanced_sample_qa(
 # Geometry helpers
 # ---------------------------------------------------------------------------
 
+
 def _fmt_box(bbox: list[int] | tuple[int, ...]) -> str:
     return f"[{bbox[0]}, {bbox[1]}, {bbox[2]}, {bbox[3]}]"
 
@@ -131,9 +138,10 @@ def _point_dist_from_center(p: tuple[int, int]) -> float:
 # Text escaping
 # ---------------------------------------------------------------------------
 
+
 def _escape_text_for_prompt(text: str, rng: random.Random) -> str:
     """Quote text for safe insertion into prompts."""
-    if text.isupper() and any(c.isalpha() for c in text) and rng.random() < 0.5:
+    if text.isupper() and any(c.isalpha() for c in text) and rng.random() < _UPPERCASE_RAW_PROB:
         return text
     if '"' in text:
         escaped = text.replace("\\", "\\\\").replace("'", "\\'")
@@ -167,7 +175,10 @@ _BBOX_TO_TEXT_TEMPLATES: list[str] = [
 
 _BBOX_FORMAT_TEMPLATES: list[Callable[[tuple[int, ...]], tuple[str, str]]] = [
     lambda b: ("Answer with the bounding box as [x1, y1, x2, y2].", f"[{b[0]}, {b[1]}, {b[2]}, {b[3]}]"),
-    lambda b: ("Give the bounding box coordinates as [x_min, y_min, x_max, y_max].", f"[{b[0]}, {b[1]}, {b[2]}, {b[3]}]"),
+    lambda b: (
+        "Give the bounding box coordinates as [x_min, y_min, x_max, y_max].",
+        f"[{b[0]}, {b[1]}, {b[2]}, {b[3]}]",
+    ),
     lambda b: ("Provide the box as [x0, y0, x1, y1].", f"[{b[0]}, {b[1]}, {b[2]}, {b[3]}]"),
     lambda b: ("Just write down the box coordinates.", f"{b[0]}, {b[1]}, {b[2]}, {b[3]}"),
     lambda b: ("Reply with coordinates x1, y1, x2, y2.", f"{b[0]}, {b[1]}, {b[2]}, {b[3]}"),
@@ -372,6 +383,7 @@ _POINT_SORT_GENERATORS: list[Callable[[list[tuple[int, int]]], tuple[str, list[t
 # QA generators (module-level, reused by stage and combined scoring+QA stage)
 # ---------------------------------------------------------------------------
 
+
 def _gen_bbox_to_text(rng: random.Random, bbox: list[int] | tuple[int, ...], text: str) -> tuple[str, str]:
     return (rng.choice(_BBOX_TO_TEXT_TEMPLATES).format(_fmt_box(bbox)), text)
 
@@ -437,9 +449,9 @@ def build_qa_tagged(
     valid_words = [w for w in words if w.valid]
 
     num_invalid = sum(1 for w in words if not w.valid)
-    allow_text_to_bbox = num_invalid < 5
+    allow_text_to_bbox = num_invalid < _MAX_INVALIDS_FOR_TEXT_TO_BBOX
 
-    rng = random.Random(hash(task_id))
+    rng = random.Random(hash(task_id))  # noqa: S311
     qa_tagged: list[tuple[str, str, str]] = []
 
     # ------------------------------------------------------------------
@@ -449,7 +461,7 @@ def build_qa_tagged(
     for raw in valid_words:
         bbox = raw.bbox_2d
         text = (raw.text_content or "").strip()
-        if not bbox or len(bbox) != 4 or not text:
+        if not bbox or len(bbox) != _BBOX_COORD_COUNT or not text:
             continue
         text_to_bboxes[text].append(bbox)
 
@@ -466,15 +478,19 @@ def build_qa_tagged(
             loc_type = rng.choice([QA_TYPE_TEXT_TO_BBOX, QA_TYPE_TEXT_TO_POINT])
             if len(bboxes) == 1:
                 if loc_type == QA_TYPE_TEXT_TO_BBOX:
-                    q, a = rng.choice((
-                        lambda t, b: _gen_text_to_bbox_single(rng, t, b),
-                        lambda t, b: _gen_text_to_bbox_multi(rng, t, [b]),
-                    ))(text, bboxes[0])
+                    q, a = rng.choice(
+                        (
+                            lambda t, b: _gen_text_to_bbox_single(rng, t, b),
+                            lambda t, b: _gen_text_to_bbox_multi(rng, t, [b]),
+                        )
+                    )(text, bboxes[0])
                 else:
-                    q, a = rng.choice((
-                        lambda t, b: _gen_text_to_point_single(rng, t, b),
-                        lambda t, b: _gen_text_to_point_multi(rng, t, [b]),
-                    ))(text, bboxes[0])
+                    q, a = rng.choice(
+                        (
+                            lambda t, b: _gen_text_to_point_single(rng, t, b),
+                            lambda t, b: _gen_text_to_point_multi(rng, t, [b]),
+                        )
+                    )(text, bboxes[0])
                 qa_tagged.append((loc_type, q, a))
             else:
                 if loc_type == QA_TYPE_TEXT_TO_BBOX:

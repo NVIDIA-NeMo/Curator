@@ -97,6 +97,23 @@ class RayClient:
         # register atexit handler to stop the Ray cluster when the program exits
         atexit.register(self.stop)
 
+        if self.include_dashboard:
+            # Add Ray metrics service discovery to existing Prometheus configuration
+            if is_prometheus_running(self.metrics_dir) and is_grafana_running(self.metrics_dir):
+                try:
+                    add_ray_prometheus_metrics_service_discovery(self.ray_temp_dir, self.metrics_dir)
+                except Exception as e:  # noqa: BLE001
+                    msg = f"Failed to add Ray metrics service discovery: {e}"
+                    logger.warning(msg)
+            else:
+                metrics_dir_hint = f" with --metrics_dir={self.metrics_dir}" if self.metrics_dir else ""
+                msg = (
+                    "No monitoring services are running. "
+                    "Please run the `start_prometheus_grafana.py` "
+                    f"script from nemo_curator/metrics folder{metrics_dir_hint} to setup monitoring services separately."
+                )
+                logger.warning(msg)
+
         # Use the RAY_ADDRESS environment variable to determine if Ray is already running.
         # If a Ray cluster is not running:
         #   RAY_ADDRESS will be set below when the Ray cluster is started and self.ray_process
@@ -147,45 +164,6 @@ class RayClient:
                 self.stop()  # Clean up the process we just started
                 msg = "Ray cluster did not become responsive in time. Please check the logs for more information."
                 raise RuntimeError(msg)
-
-        if self.include_dashboard:
-            # Add Ray metrics service discovery to existing Prometheus configuration.
-            # This must happen AFTER Ray is started and responsive — Ray writes
-            # prom_metrics_service_discovery.json asynchronously after GCS comes up,
-            # so we wait for the file to appear before registering it with Prometheus.
-            if is_prometheus_running(self.metrics_dir) and is_grafana_running(self.metrics_dir):
-                try:
-                    self._wait_for_ray_service_discovery_file()
-                    add_ray_prometheus_metrics_service_discovery(self.ray_temp_dir, self.metrics_dir)
-                except Exception as e:  # noqa: BLE001
-                    msg = f"Failed to add Ray metrics service discovery: {e}"
-                    logger.warning(msg)
-            else:
-                metrics_dir_hint = f" with --metrics_dir={self.metrics_dir}" if self.metrics_dir else ""
-                msg = (
-                    "No monitoring services are running. "
-                    "Please run the `start_prometheus_grafana.py` "
-                    f"script from nemo_curator/metrics folder{metrics_dir_hint} to setup monitoring services separately."
-                )
-                logger.warning(msg)
-
-    def _wait_for_ray_service_discovery_file(self, timeout: float = 30.0, poll_interval: float = 1.0) -> None:
-        """Wait until Ray writes prom_metrics_service_discovery.json to ray_temp_dir.
-
-        Ray writes this file asynchronously after GCS becomes responsive. If we register
-        the file_sd_configs entry before the file exists, Prometheus will fail to watch it
-        and never scrape Ray metrics.
-        """
-        import time
-
-        sd_file = os.path.join(self.ray_temp_dir, "prom_metrics_service_discovery.json")
-        deadline = time.monotonic() + timeout
-        while not os.path.exists(sd_file):
-            if time.monotonic() >= deadline:
-                msg = f"Ray service discovery file not found after {timeout}s: {sd_file}"
-                raise TimeoutError(msg)
-            time.sleep(poll_interval)
-        logger.info(f"Ray service discovery file ready: {sd_file}")
 
     def stop(self) -> None:
         # Remove Ray metrics service discovery entry from prometheus config

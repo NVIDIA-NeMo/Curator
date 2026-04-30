@@ -7,7 +7,7 @@ This module intentionally contains only low-level utilities:
 """
 
 import os
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -26,7 +26,8 @@ def get_nvinference_api_key(env_var: str = "NVINFERENCE_API_KEY") -> str:
     value = os.environ.get(env_var, "").strip()
     if not value:
         logger.warning(f"{env_var} is not set; OCR verification cannot run.")
-        raise RuntimeError(f"{env_var} is not set")
+        msg = f"{env_var} is not set"
+        raise RuntimeError(msg)
     return value
 
 
@@ -40,7 +41,7 @@ def create_openai_client(*, api_key: str, base_url: str = "https://inference-api
     return OpenAI(base_url=base_url, api_key=api_key)
 
 
-def stream_chat_completion_text(
+def stream_chat_completion_text(  # noqa: PLR0913
     client: OpenAI,
     *,
     model: str,
@@ -70,4 +71,3 @@ def stream_chat_completion_text(
         if delta is not None:
             parts.append(delta)
     return "".join(parts)
-

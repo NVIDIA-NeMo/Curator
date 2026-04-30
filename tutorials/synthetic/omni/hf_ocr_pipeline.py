@@ -35,7 +35,7 @@ from nemo_curator.stages.synthetic.omni.ocr_scoring_qa import OCRScoringQAStage
 from nemo_curator.tasks.ocr import OCRData
 
 
-def create_hf_ocr_pipeline(
+def create_hf_ocr_pipeline(  # noqa: PLR0913
     dataset_name: str,
     image_dir: Path,
     output_path: Path,
@@ -59,7 +59,7 @@ def create_hf_ocr_pipeline(
     """Create the OCR pipeline reading images from a HuggingFace dataset.
 
     Args:
-        dataset_name: HF Hub dataset id (e.g. ``"textvqa"``) or a local path.
+        dataset_name: HF Hub dataset id (e.g. ``"lmms-lab/textvqa"``) or a local path.
             Local paths are detected automatically:
             - Directory with ``dataset_info.json`` → ``load_from_disk()``.
             - Any other directory → ``imagefolder`` loader.
@@ -84,7 +84,7 @@ def create_hf_ocr_pipeline(
             Hub (``nvidia/nemotron-ocr-v2``) if None.
         run_scoring_qa: Run Gemini bbox scoring + QA generation after OCR.
         scoring_qa_model_id: NVIDIA Inference API model ID.
-        scoring_qa_min_bbox_match: Minimum bbox_match (0–10) to keep a bbox.
+        scoring_qa_min_bbox_match: Minimum bbox_match (0-10) to keep a bbox.
         scoring_qa_max_text_errors: Maximum text_errors count to keep a bbox.
         scoring_qa_fail_on_missing_text: Mark image invalid when Gemini reports
             missing text regions.
@@ -158,7 +158,7 @@ def parse_args() -> argparse.Namespace:
         "--hf-dataset",
         type=str,
         required=True,
-        help="HuggingFace dataset id (e.g. 'textvqa') or local path",
+        help="HuggingFace dataset id (e.g. 'lmms-lab/textvqa') or local path",
     )
     parser.add_argument(
         "--hf-image-dir",
@@ -242,10 +242,7 @@ def parse_args() -> argparse.Namespace:
         "--run-scoring-qa",
         action="store_true",
         default=False,
-        help=(
-            "Run Gemini bbox scoring + QA generation after OCR. "
-            "Requires NVINFERENCE_API_KEY to be set."
-        ),
+        help=("Run Gemini bbox scoring + QA generation after OCR. Requires NVINFERENCE_API_KEY to be set."),
     )
     parser.add_argument(
         "--scoring-qa-model-id",
