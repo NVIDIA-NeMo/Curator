@@ -344,6 +344,7 @@ source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curato
 
 [tool.ruff]
 line-length = 119
+target-version = "py311"
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
