@@ -18,6 +18,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.checkpointing.audio import AudioCheckpointRunner
 from nemo_curator.checkpointing.audio.serialization import (

@@ -18,8 +18,8 @@ from pathlib import Path
 
 from nemo_curator.tasks import AudioTask
 from nemo_curator.tasks.audio_task import (
-    build_checkpoint_shard_id,
     build_audio_sample_key,
+    build_checkpoint_shard_id,
     carry_sample_key,
     derive_child_sample_key,
     ensure_sample_key,
@@ -83,9 +83,12 @@ def test_build_audio_sample_key_is_stable_for_same_identity() -> None:
     assert first
 
 
-def test_build_checkpoint_shard_id_strips_compound_extensions() -> None:
-    assert build_checkpoint_shard_id(source_files=["/tmp/manifest_0001.jsonl.gz"]) == "manifest_0001"
-    assert build_checkpoint_shard_id(source_files=["/tmp/audio_0001.tar.gz"]) == "audio_0001"
+def test_build_checkpoint_shard_id_strips_compound_extensions(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest_0001.jsonl.gz"
+    tar_path = tmp_path / "audio_0001.tar.gz"
+
+    assert build_checkpoint_shard_id(source_files=[manifest_path.as_posix()]) == "manifest_0001"
+    assert build_checkpoint_shard_id(source_files=[tar_path.as_posix()]) == "audio_0001"
 
 
 def test_ensure_sample_key_derives_and_caches_key() -> None:
