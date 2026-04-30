@@ -149,7 +149,26 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             return
 
         min_id, max_id = ray.get(self.id_generator.get_batch_range.remote(file_paths, None))
-        for next_id, task in zip(range(min_id, max_id + 1), tasks, strict=True):
+        assigned_count = max_id - min_id + 1
+        task_count = len(tasks)
+        if assigned_count < task_count:
+            msg = (
+                f"Assigned ID range for {file_paths} contains {assigned_count} IDs, but the audio JSONL reader "
+                f"produced {task_count} tasks. Ensure the batch was pre-registered with the number of non-blank "
+                "JSONL entries."
+            )
+            raise RuntimeError(msg)
+        if assigned_count > task_count:
+            logger.warning(
+                "Assigned ID range for {} contains {} IDs, but the audio JSONL reader produced {} tasks "
+                "after skipping blank lines. Assigning the first {} IDs from the registered range.",
+                file_paths,
+                assigned_count,
+                task_count,
+                task_count,
+            )
+
+        for next_id, task in zip(range(min_id, max_id + 1), tasks, strict=False):
             task.data[CURATOR_DEDUP_ID_STR] = next_id
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:

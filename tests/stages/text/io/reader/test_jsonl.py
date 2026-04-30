@@ -270,6 +270,70 @@ class TestJsonlAudioReader:
         assigned_ids = [audio_task.data[CURATOR_DEDUP_ID_STR] for audio_task in assigned]
         assert assigned_ids == [0, 1]
 
+    def test_audio_stage_assign_ids_tolerates_extra_registered_ids_from_blank_lines(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _FakeRemoteMethod:
+            def __init__(self, return_value: tuple[int, int]) -> None:
+                self.return_value = return_value
+
+            def remote(self, *_args: object, **_kwargs: object) -> tuple[int, int]:
+                return self.return_value
+
+        class _FakeIdGenerator:
+            def __init__(self, return_value: tuple[int, int]) -> None:
+                self.get_batch_range = _FakeRemoteMethod(return_value)
+
+        manifest = tmp_path / "audio_blank_lines.jsonl"
+        manifest.write_text(
+            json.dumps({"audio_filepath": "a.wav", "text": "alpha"})
+            + "\n\n  \n"
+            + json.dumps({"audio_filepath": "b.wav", "text": "beta"})
+            + "\n"
+        )
+        task = FileGroupTask(task_id="audio_task", dataset_name="audio_dataset", data=[str(manifest)], _metadata={})
+
+        stage = JsonlAudioReaderStage(_assign_ids=True)
+        stage.id_generator = _FakeIdGenerator((10, 12))
+        monkeypatch.setattr("nemo_curator.stages.text.io.reader.jsonl.ray.get", lambda value: value)
+
+        assigned = stage.process(task)
+        assigned_ids = [audio_task.data[CURATOR_DEDUP_ID_STR] for audio_task in assigned]
+
+        assert assigned_ids == [10, 11]
+
+    def test_audio_stage_assign_ids_raises_clear_error_when_registered_range_is_too_short(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _FakeRemoteMethod:
+            def __init__(self, return_value: tuple[int, int]) -> None:
+                self.return_value = return_value
+
+            def remote(self, *_args: object, **_kwargs: object) -> tuple[int, int]:
+                return self.return_value
+
+        class _FakeIdGenerator:
+            def __init__(self, return_value: tuple[int, int]) -> None:
+                self.get_batch_range = _FakeRemoteMethod(return_value)
+
+        manifest = tmp_path / "audio_short_range.jsonl"
+        manifest.write_text(
+            "\n".join(
+                [
+                    json.dumps({"audio_filepath": "a.wav", "text": "alpha"}),
+                    json.dumps({"audio_filepath": "b.wav", "text": "beta"}),
+                ]
+            )
+        )
+        task = FileGroupTask(task_id="audio_task", dataset_name="audio_dataset", data=[str(manifest)], _metadata={})
+
+        stage = JsonlAudioReaderStage(_assign_ids=True)
+        stage.id_generator = _FakeIdGenerator((20, 20))
+        monkeypatch.setattr("nemo_curator.stages.text.io.reader.jsonl.ray.get", lambda value: value)
+
+        with pytest.raises(RuntimeError, match="contains 1 IDs, but the audio JSONL reader produced 2 tasks"):
+            stage.process(task)
+
     def test_audio_stage_generate_ids_no_actor_error(self) -> None:
         stage = JsonlAudioReaderStage(_generate_ids=True)
 
