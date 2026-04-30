@@ -117,6 +117,8 @@ class AudioTask(Task[dict]):
             existing = self.data.get(AUDIO_SAMPLE_KEY_FIELD)
             if isinstance(existing, str) and existing.strip():
                 self.sample_key = existing.strip()
+        if self.sample_key:
+            self.data.setdefault(AUDIO_SAMPLE_KEY_FIELD, self.sample_key)
 
     @property
     def num_items(self) -> int:
