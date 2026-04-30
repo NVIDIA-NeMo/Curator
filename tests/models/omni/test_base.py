@@ -85,11 +85,11 @@ class TestModelConfig:
         assert cfg.gpu_memory_utilization == pytest.approx(0.9)
 
     def test_gpu_memory_below_zero_raises(self) -> None:
-        with pytest.raises(ValueError, match="0.0 and 1.0"):
+        with pytest.raises(ValueError, match=r"0\.0 and 1\.0"):
             ModelConfig(gpu_memory_utilization=-0.1)
 
     def test_gpu_memory_above_one_raises(self) -> None:
-        with pytest.raises(ValueError, match="0.0 and 1.0"):
+        with pytest.raises(ValueError, match=r"0\.0 and 1\.0"):
             ModelConfig(gpu_memory_utilization=1.1)
 
     def test_gpu_memory_boundary_values_valid(self) -> None:
