@@ -317,6 +317,28 @@ class TestTarredAudioMaterialization:
         with wave.open(temp_path.as_posix(), "rb") as wav_file:
             assert wav_file.getnframes() == 8000  # 0.5 sec at 16kHz
 
+    @pytest.mark.parametrize("duration", [0.0, -0.25])
+    def test_materialize_segment_raises_for_non_positive_duration(self, tmp_path: Path, duration: float) -> None:
+        tar_path = tmp_path / "audio_0.tar"
+        _write_tar(tar_path, {"sample.wav": _make_wav_bytes(duration_sec=1.0)})
+
+        task = AudioTask(
+            task_id="t1",
+            dataset_name="ds",
+            data={
+                "audio_filepath": "sample.wav",
+                "offset": 0.0,
+                "duration": duration,
+                "_tar_path": str(tar_path),
+                "_tar_member": "sample.wav",
+            },
+        )
+
+        materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"))
+
+        with pytest.raises(RuntimeError, match="Duration must be greater than 0"):
+            materialize.process_batch([task])
+
     def test_materialize_segment_raises_for_offset_past_audio_end(self, tmp_path: Path) -> None:
         tar_path = tmp_path / "audio_0.tar"
         _write_tar(tar_path, {"sample.wav": _make_wav_bytes(duration_sec=0.25)})

@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 import fsspec
+import pytest
 
 from nemo_curator.stages.file_io import (
     DeleteFilesStage,
@@ -53,6 +54,40 @@ class TestFileStages:
         assert local_path.exists()
         assert local_path.read_bytes() == b"sample-bytes"
         assert materialized.data["artifacts"]["remote"]["audio_path"] == remote_path
+
+    def test_materialize_files_stage_writes_shared_durable_output_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        remote_path = f"memory://audio/{tmp_path.name}/shared.wav"
+        _write_remote_bytes(remote_path, b"shared-bytes")
+
+        tasks = [
+            AudioTask(task_id="t1", dataset_name="ds", data={"artifacts": {"remote": {"audio_path": remote_path}}}),
+            AudioTask(task_id="t2", dataset_name="ds", data={"artifacts": {"remote": {"audio_path": remote_path}}}),
+        ]
+
+        write_calls = 0
+        original_write_bytes = Path.write_bytes
+
+        def counting_write_bytes(path_obj: Path, data: bytes) -> int:
+            nonlocal write_calls
+            write_calls += 1
+            return original_write_bytes(path_obj, data)
+
+        monkeypatch.setattr(Path, "write_bytes", counting_write_bytes)
+
+        stage = MaterializeFilesStage(
+            source_field_path="artifacts.remote.audio_path",
+            output_field_path="artifacts.local.materialized_path",
+            materialization_dir=str(tmp_path / "cache"),
+        )
+        materialized = stage.process_batch(tasks)
+
+        first_path = materialized[0].data["artifacts"]["local"]["materialized_path"]
+        second_path = materialized[1].data["artifacts"]["local"]["materialized_path"]
+
+        assert first_path == second_path
+        assert write_calls == 1
 
     def test_upload_files_stage_uses_nested_paths(self, tmp_path: Path) -> None:
         local_path = tmp_path / "sample.wav"

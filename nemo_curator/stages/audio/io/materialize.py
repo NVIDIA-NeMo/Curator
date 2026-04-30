@@ -166,6 +166,9 @@ class BaseAudioMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
     ) -> None:
         offset = float(task.data.get(self.offset_key, 0.0) or 0.0)
         duration = task.data.get(self.duration_key)
+        if duration is not None and float(duration) <= 0.0:
+            msg = f"Duration must be greater than 0 for segmented audio, got {duration!r}"
+            raise RuntimeError(msg)
         if decoded_audio is None:
             waveform, sample_rate = soundfile.read(io.BytesIO(raw_audio), dtype="float32")
         else:

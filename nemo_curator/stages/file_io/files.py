@@ -179,9 +179,14 @@ class MaterializeFilesStage(ProcessingStage[DictTask, DictTask]):
                 transport=self.transport,
                 allow_sigpipe=True,
             )
+            shared_output_path: Path | None = None
+            if self.materialization_dir is not None:
+                shared_output_path = self._create_output_path(source_path)
+                shared_output_path.write_bytes(raw_bytes)
             for task in tasks_for_source:
-                output_path = self._create_output_path(source_path)
-                output_path.write_bytes(raw_bytes)
+                output_path = shared_output_path if shared_output_path is not None else self._create_output_path(source_path)
+                if shared_output_path is None:
+                    output_path.write_bytes(raw_bytes)
                 _set_field_path(_task_data_as_dict(task), self.output_field_path, output_path.as_posix())
 
         return tasks
