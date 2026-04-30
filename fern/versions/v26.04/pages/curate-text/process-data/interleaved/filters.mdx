@@ -1,0 +1,215 @@
+---
+description: "Filter interleaved image-text samples by image sharpness, QR-code area, CLIP image-text alignment, and image-to-text ratio"
+categories: ["text-curation"]
+tags: ["interleaved", "filters", "blur", "qrcode", "clip", "image-to-text-ratio"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "universal"
+---
+
+# Interleaved Filters
+
+Drop low-quality samples from an `InterleavedBatch` before downstream training or further processing. Four filter stages are available, each targeting a different quality signal.
+
+## Understanding the Filters
+
+### What Each Filter Does
+
+| Filter | Targets | Cost | Default Threshold |
+|--------|---------|------|-------------------|
+| `InterleavedBlurFilterStage` | Out-of-focus / motion-blurred images | Cheap (CPU) | `score_threshold=100.0` |
+| `InterleavedQRCodeFilterStage` | Promotional / contact-info imagery | Cheap (CPU) | `score_threshold=0.05` |
+| `InterleavedImageToTextRatioFilterStage` | Image-dump or text-dump samples | Cheap (CPU) | No filtering by default |
+| `InterleavedCLIPScoreFilterStage` | Misaligned image-text pairs | Expensive (GPU, ~20 GB) | `min_score=0.15` |
+
+### Recommended Filter Order
+
+Chain cheap filters first to reduce the number of samples expensive filters have to score. A typical order:
+
+```text
+Blur → QR-code → Image-to-Text Ratio → CLIP Score
+```
+
+The CLIP filter dominates cost. Putting it last means it only runs against samples that survived all other checks.
+
+## `InterleavedBlurFilterStage`
+
+Computes the [Laplacian variance](https://docs.opencv.org/4.x/d2/d2c/tutorial_py_canny.html) of each image (via OpenCV) and drops images below `score_threshold`. Lower variance means a flatter, blurrier image.
+
+### Threshold Guidelines
+
+| `score_threshold` | Effect |
+|---------------|--------|
+| 50 | Permissive — drops only severely blurred images |
+| 100 (default) | Balanced — typical for general curation |
+| 200 | Strict — keeps only sharp, high-detail images |
+| 500+ | Very strict — useful for studio-quality requirements |
+
+### Usage
+
+```python
+from nemo_curator.stages.interleaved.filter.blur_filter import InterleavedBlurFilterStage
+
+pipeline.add_stage(InterleavedBlurFilterStage(score_threshold=100.0))
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `score_threshold` | float | `100.0` | Minimum Laplacian variance to keep an image. Higher = sharper-only output. |
+
+## `InterleavedQRCodeFilterStage`
+
+Detects QR codes in each image (OpenCV) and drops samples whose largest QR-code bounding box exceeds `score_threshold` as a fraction of the total image area. Useful for stripping promotional or contact-info imagery from web crawls.
+
+### Threshold Guidelines
+
+| `score_threshold` | Effect |
+|---------------|--------|
+| 0.01 | Very strict — drops anything with even a small QR code |
+| 0.05 (default) | Balanced — drops images dominated by QR codes |
+| 0.1+ | Permissive — only drops near-fullscreen QR codes |
+
+### Usage
+
+```python
+from nemo_curator.stages.interleaved.filter.qrcode_filter import InterleavedQRCodeFilterStage
+
+pipeline.add_stage(InterleavedQRCodeFilterStage(score_threshold=0.05))
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `score_threshold` | float | `0.05` | Maximum allowed QR-bounding-box area as a fraction of total image area. Lower = stricter. |
+
+## `InterleavedImageToTextRatioFilterStage`
+
+Computes the per-sample ratio of image count to text word count and drops samples outside a configurable `min_ratio`/`max_ratio` window. Useful for excluding image-dump samples (no text) and text-heavy samples with few or no images.
+
+### Range Guidelines
+
+For mixed image-text pretraining data:
+
+| Use Case | `min_ratio` | `max_ratio` |
+|----------|-------------|-------------|
+| **Balanced multimodal** | 0.001 | 0.1 |
+| **Image-rich (caption-style)** | 0.01 | 0.5 |
+| **Text-rich (article-style)** | 0.0001 | 0.01 |
+
+A `min_ratio=0.001` means "at least one image per 1000 text words." A `max_ratio=0.1` means "no more than one image per 10 text words."
+
+### Usage
+
+```python
+from nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter import (
+    InterleavedImageToTextRatioFilterStage,
+)
+
+pipeline.add_stage(
+    InterleavedImageToTextRatioFilterStage(min_ratio=0.001, max_ratio=0.1)
+)
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `min_ratio` | float | `0.0` | Minimum images-per-word ratio to keep. |
+| `max_ratio` | float | `inf` | Maximum images-per-word ratio to keep. |
+
+## `InterleavedCLIPScoreFilterStage`
+
+Uses a CLIP image-text encoder to score each `(image, text)` pair by cosine similarity, and drops samples whose alignment is below `min_score`. Ensures the textual content of each sample actually describes the image.
+
+### Threshold Guidelines
+
+CLIP scores depend on the model variant; the table below assumes the default model:
+
+| `min_score` | Effect |
+|-------------|--------|
+| 0.10 | Permissive — keeps loosely aligned pairs (web crawl baseline) |
+| 0.15 (default) | Balanced — drops mostly unrelated text-image pairs |
+| 0.20 | Stricter — high-quality alignment for caption-style data |
+| 0.30+ | Very strict — for caption datasets with manual review |
+
+### Usage
+
+```python
+from nemo_curator.stages.interleaved.filter.clip_score_filter import (
+    InterleavedCLIPScoreFilterStage,
+)
+
+pipeline.add_stage(
+    InterleavedCLIPScoreFilterStage(
+        model_dir="/models/clip",
+        min_score=0.15,
+    )
+)
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_dir` | str \| None | `None` | Local CLIP model directory. When `None`, the default model is downloaded on first use. |
+| `min_score` | float | `0.15` | Minimum cosine similarity to keep a sample. |
+
+The default resource allocation reserves `gpu_memory_gb=20.0`. Tune this on the stage's `Resources` for smaller or larger CLIP variants.
+
+## Complete Filtering Pipeline
+
+A pipeline that stacks all four filters in cost order, then writes to WDS:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.interleaved.io.reader import InterleavedParquetReader
+from nemo_curator.stages.interleaved.io.writers.webdataset import (
+    InterleavedWebdatasetWriterStage,
+)
+from nemo_curator.stages.interleaved.filter.blur_filter import InterleavedBlurFilterStage
+from nemo_curator.stages.interleaved.filter.qrcode_filter import InterleavedQRCodeFilterStage
+from nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter import (
+    InterleavedImageToTextRatioFilterStage,
+)
+from nemo_curator.stages.interleaved.filter.clip_score_filter import (
+    InterleavedCLIPScoreFilterStage,
+)
+
+pipeline = Pipeline(name="interleaved_quality_filters")
+
+# 1. Read interleaved Parquet
+pipeline.add_stage(
+    InterleavedParquetReader(file_paths="s3://bucket/raw/*.parquet")
+)
+
+# 2. Cheap filters first (CPU only)
+pipeline.add_stage(InterleavedBlurFilterStage(score_threshold=100.0))
+pipeline.add_stage(InterleavedQRCodeFilterStage(score_threshold=0.05))
+pipeline.add_stage(
+    InterleavedImageToTextRatioFilterStage(min_ratio=0.001, max_ratio=0.1)
+)
+
+# 3. Expensive CLIP filter last (GPU)
+pipeline.add_stage(
+    InterleavedCLIPScoreFilterStage(
+        model_dir="/models/clip",
+        min_score=0.20,
+    )
+)
+
+# 4. Write filtered output
+pipeline.add_stage(InterleavedWebdatasetWriterStage(output_dir="./curated"))
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+## Best Practices
+
+- **Filter cheap to expensive**: blur → QR-code → image-to-text ratio → CLIP. Each early filter reduces what the next has to score.
+- **Inspect score distributions before tightening thresholds**: run each filter with permissive thresholds first, dump scores to a manifest, plot the distributions, and pick thresholds from percentiles. Defaults are starting points, not final answers.
+- **Don't use CLIP without a budget**: CLIP scoring is the most expensive filter by orders of magnitude. If your dataset is millions of samples, it's still feasible but plan compute accordingly.
+- **Avoid stacking redundant filters**: blur and CLIP-score both penalize bad images, but in different ways. Blur catches optical issues; CLIP catches semantic mismatch. Use both, but tune separately.
+- **Mind the image-to-text ratio for data composition**: this filter is the easiest one to misuse — set the wrong `max_ratio` and you'll silently drop most caption-style data. Inspect a sample of dropped vs kept first.
+
+## Related Topics
+
+- **[Interleaved IO](/curate-text/process-data/interleaved/io)** — readers and writers that produce and consume the `InterleavedBatch` format these filters operate on.
+- **[Nemotron-Parse PDF Pipeline](/curate-text/load-data/nemotron-parse-pdf)** — one source of interleaved data; pair with these filters for end-to-end PDF curation.

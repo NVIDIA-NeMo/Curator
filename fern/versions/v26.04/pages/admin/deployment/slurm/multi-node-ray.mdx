@@ -1,0 +1,235 @@
+---
+title: "Multi-Node Ray on Slurm"
+description: "Run NeMo Curator pipelines across multiple SLURM nodes using SlurmRayClient — a drop-in replacement for RayClient that handles head/worker role detection and Ray cluster bootstrap"
+categories: ["deployment"]
+tags: ["slurm", "ray", "multi-node", "cluster", "infrastructure"]
+personas: ["devops-focused", "admin-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "universal"
+---
+
+{/* Note: This documentation has been verified against NeMo Curator source code for technical accuracy */}
+
+`SlurmRayClient` is a drop-in replacement for `RayClient` that bootstraps a multi-node Ray cluster under SLURM. The head node starts `ray start --head`, writes the assigned GCS port to a shared file, and waits for workers to join. Worker nodes block on the port file and call `ray start --block`. Only the head returns from `start()`, so your pipeline code runs on the head while workers stay attached to the cluster.
+
+<Note>
+For details on container environments and SLURM-specific environment variables, refer to [Container Environments](/reference/infra/container-environments). For the image-curation specific Slurm workflow, refer to [Deploy Image Curation on Slurm](/admin/deployment/slurm-image).
+</Note>
+
+## When to Use It
+
+Use `SlurmRayClient` when:
+
+- You're submitting Ray-backed pipelines through `sbatch` and want to span more than one node.
+- You want a single-binary entry point: the same script works on a 1-node debug job and a 2-node production job without code changes.
+
+For single-node SLURM jobs, the regular `RayClient` is sufficient.
+
+## Prerequisites
+
+- **SLURM cluster**: a working SLURM cluster with at least one GPU node.
+- **Shared filesystem**: a filesystem visible from every allocated node (NFS, Lustre, GPFS) — required for the Ray port broadcast file.
+- **Pyxis + enroot** (recommended): for the container-based submit script. If unavailable, use the bare-metal `uv` script.
+- **uv** (alternative): for bare-metal execution. Install via [astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/).
+- **Source checkout**: NeMo Curator source code on a shared filesystem path readable from every node.
+
+## Drop-in Replacement
+
+Replace `RayClient` with `SlurmRayClient`. No other changes are required:
+
+```python
+from nemo_curator.core.client import SlurmRayClient
+
+client = SlurmRayClient()
+client.start()
+
+# ... pipeline code ...
+
+client.stop()
+```
+
+The head/worker split is determined automatically from `SLURM_NODEID`. Workers stay inside `SlurmRayClient.start()` for the duration of the job; the head runs your pipeline.
+
+## Required Environment
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `SLURM_NODEID` | Yes (set by SLURM) | Identifies the head node (`SLURM_NODEID=0`) vs workers. |
+| `RAY_PORT_BROADCAST_DIR` | Recommended | Directory used to broadcast the head GCS port to workers. **Must be on a shared filesystem when `/tmp` is node-local.** Defaults to `${CURATOR_DIR}/logs` in the bundled submit scripts. |
+| `RAY_TMPDIR` | Optional | Per-job Ray temp directory. The bundled scripts set this to `/tmp/ray_${SLURM_JOB_ID}` to isolate concurrent jobs on the same node. |
+
+---
+
+## Submit Scripts
+
+The repository ships two reference submit scripts at `tutorials/slurm/`:
+
+<Tabs>
+
+<Tab title="1. NGC Container (Pyxis)">
+
+`submit_container.sh` — launches the NGC NeMo Curator container via [Pyxis](https://github.com/NVIDIA/pyxis) on each allocated node. **Recommended for production** because the container ships a known-good environment.
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=curator-slurm-demo
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --gpus-per-node=2
+#SBATCH --time=00:10:00
+#SBATCH --output=logs/slurm_demo_%j.log
+
+set -euo pipefail
+
+# Path on shared filesystem, visible from every node
+CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+CONTAINER_IMAGE="nvcr.io/nvidia/nemo-curator:26.02"
+
+# Shared filesystem path for Ray's port broadcast
+export RAY_PORT_BROADCAST_DIR="${CURATOR_DIR}/logs"
+export RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}"
+
+mkdir -p logs
+
+# Run the pipeline inside the container on every node
+srun \
+    --ntasks-per-node=1 \
+    --container-image="${CONTAINER_IMAGE}" \
+    --container-mounts="${CURATOR_DIR}:${CURATOR_DIR}" \
+    bash -c "
+cd '${CURATOR_DIR}'
+export RAY_TMPDIR=/tmp/ray_\${SLURM_JOB_ID}
+export RAY_PORT_BROADCAST_DIR='${CURATOR_DIR}/logs'
+python '${CURATOR_DIR}/tutorials/slurm/pipeline.py' --slurm --num-tasks 80
+"
+```
+
+Submit:
+
+```bash
+sbatch --nodes=2 --gpus-per-node=8 tutorials/slurm/submit_container.sh
+```
+
+</Tab>
+
+<Tab title="2. Bare-metal (uv)">
+
+`submit.sh` — activates a `uv`-managed virtualenv and runs the pipeline directly on the node. Useful for development and quick iteration without rebuilding containers.
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=curator-slurm-demo
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --gpus-per-node=2
+#SBATCH --time=00:10:00
+#SBATCH --output=logs/slurm_demo_%j.log
+
+set -euo pipefail
+
+CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+
+export RAY_PORT_BROADCAST_DIR="${CURATOR_DIR}/logs"
+export RAY_TMPDIR="/tmp/ray_${SLURM_JOB_ID}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${HOME}/.cache/uv}"
+
+mkdir -p logs
+
+srun \
+    --ntasks-per-node=1 \
+    bash -c "
+cd '${CURATOR_DIR}'
+export RAY_TMPDIR=/tmp/ray_\${SLURM_JOB_ID}
+export RAY_PORT_BROADCAST_DIR='${CURATOR_DIR}/logs'
+uv run python '${CURATOR_DIR}/tutorials/slurm/pipeline.py' --slurm --num-tasks 80
+"
+```
+
+Submit:
+
+```bash
+sbatch --nodes=2 --gpus-per-node=8 tutorials/slurm/submit.sh
+```
+
+Override resources without editing the script:
+
+```bash
+sbatch --nodes=1 --gpus-per-node=2 tutorials/slurm/submit.sh
+sbatch --nodes=1 --gpus-per-node=8 tutorials/slurm/submit.sh
+sbatch --nodes=2 --gpus-per-node=2 tutorials/slurm/submit.sh
+sbatch --nodes=2 --gpus-per-node=8 tutorials/slurm/submit.sh
+```
+
+</Tab>
+
+</Tabs>
+
+<Tip>
+Both scripts default `RAY_PORT_BROADCAST_DIR` to `${CURATOR_DIR}/logs`. Change this to a shared filesystem path (NFS, Lustre, GPFS) if your cluster's `/tmp` is node-local — workers cannot read the head's port file otherwise.
+</Tip>
+
+## Verified Configurations
+
+End-to-end tested on H100 nodes using the `nvcr.io/nvidia/nemo-curator:26.02` container. The reference workload is a word-count + GPU-tagging pipeline shipped in the `tutorials/slurm/` directory.
+
+| Nodes | GPUs / node | Status | Notes |
+| --- | --- | --- | --- |
+| 1 | 2 | PASS | 1 node processed 80 tasks, 2× H100 80GB |
+| 1 | 8 | PASS | 1 node processed 80 tasks, 8× H100 80GB |
+| 2 | 2 | PASS | 2 distinct nodes each showed 2× H100 80GB |
+| 2 | 8 | PASS | 2 distinct nodes each showed 8× H100 80GB |
+
+Sample output from the 2-node, 8-GPU run:
+
+```text
+Tasks processed by 2 distinct node(s):
+  pool0-00786: 8 GPU(s): NVIDIA H100 80GB HBM3, 81559 MiB; ...
+  pool0-00795: 8 GPU(s): NVIDIA H100 80GB HBM3, 81559 MiB; ...
+```
+
+## Monitoring and Logs
+
+Check job status:
+
+```bash
+squeue -u "$USER"
+```
+
+View logs (the bundled scripts write to `logs/slurm_demo_<jobid>.log`):
+
+```bash
+tail -f logs/slurm_demo_<jobid>.log
+```
+
+The first line of each node's log identifies its role:
+
+```text
+[head-node-name] SLURM_NODEID=0 ray=2.54.0 ...
+[worker-node-name] SLURM_NODEID=1 joining head at <ip:port>
+```
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Workers hang at `ray start --block` indefinitely | Head node's port broadcast file isn't visible from worker nodes | Confirm `RAY_PORT_BROADCAST_DIR` points to a shared filesystem visible from every worker. |
+| Head node crashes with `Permission denied` writing the port file | Job UID can't write to the configured directory | Pick a `RAY_PORT_BROADCAST_DIR` your job's UID can write to (the default `${CURATOR_DIR}/logs` works once the directory exists). |
+| Pipeline runs on only one node | `--nodes=1` or the script wasn't `srun`-launched on every node | Confirm your job has `--nodes>1` and that `srun` is launched on every node. |
+| `ray start --head` crashes with port conflict | Concurrent Ray jobs on the same node share `/tmp/ray` | Set `RAY_TMPDIR=/tmp/ray_${SLURM_JOB_ID}` per job (the bundled scripts already do this). |
+| Container image pull fails on Pyxis | Pyxis can't reach NGC | Configure `~/.config/enroot/.credentials` with NGC API key, or pre-pull the image with `enroot import`. |
+
+## Performance Considerations
+
+- **GPU Memory**: ensure all nodes have homogeneous GPU memory; mixed-memory clusters cause Ray to schedule conservatively against the smallest GPU.
+- **Network**: Ray's object store and shuffle traffic flow over the cluster's primary network. Use InfiniBand or 100 GbE+ for large-scale jobs.
+- **Shared FS bandwidth**: stage worker reads/writes through the shared filesystem. For S3-backed pipelines, prefer S3 over the shared FS to reduce contention.
+- **Time limits**: SLURM kills jobs at the wall-clock limit. The bundled scripts use `--time=00:10:00` for the demo; raise it to match your real workload.
+
+## Related Topics
+
+- **[Deploy Image Curation on Slurm](/admin/deployment/slurm-image)** — full image curation pipeline using SLURM and Pyxis.
+- **[Container Environments](/reference/infra/container-environments)** — image versions and SLURM-specific environment variables.
+- **[Execution Backends](/reference/infra/execution-backends)** — Ray Data, Xenna, and Ray actor pool executor selection.

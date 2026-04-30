@@ -1,0 +1,200 @@
+---
+description: "Filter audio across seven independent perceptual quality dimensions — noise, overall, signal, coloration, discontinuity, loudness, reverb — using SIGMOSFilterStage"
+categories: ["audio-processing"]
+tags: ["audio-filtering", "sigmos", "perceptual-quality", "noise", "reverb", "onnx"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# SIGMOS Filter
+
+Filter audio segments using **SIGMOS** (Signal-based Mean Opinion Score) — a multi-dimensional perceptual-quality model that produces seven independent scores per audio clip. Unlike UTMOS (a single composite MOS), SIGMOS lets you target specific kinds of degradation independently.
+
+## Understanding SIGMOS
+
+### The Seven Quality Dimensions
+
+Each dimension is independently configurable on a 0.0–5.0 scale (higher = better). Setting any threshold to `None` disables that dimension; a segment passes only if all **active** thresholds are met.
+
+| Dimension | Field | Threshold Param | What it Measures |
+|-----------|-------|-----------------|-------------------|
+| Noise | `sigmos_noise` | `noise_threshold` | Background noise floor (higher score = quieter background). |
+| Overall | `sigmos_ovrl` | `ovrl_threshold` | Aggregate quality, similar to UTMOS but on a different scale. |
+| Signal | `sigmos_sig` | `sig_threshold` | Cleanliness of the speech signal itself. |
+| Coloration | `sigmos_col` | `col_threshold` | Spectral coloration / EQ artifacts (e.g., telephony narrowing). |
+| Discontinuity | `sigmos_disc` | `disc_threshold` | Glitches, dropouts, click and pop artifacts. |
+| Loudness | `sigmos_loud` | `loud_threshold` | Perceived loudness consistency. |
+| Reverb | `sigmos_reverb` | `reverb_threshold` | Reverberation amount (higher = drier, less echoey). |
+
+### Threshold Guidelines
+
+The table below provides starting points; tune by inspecting per-dimension distributions on your data.
+
+| Dimension | Permissive | Default | Strict |
+|-----------|------------|---------|--------|
+| `noise_threshold` | 3.5 | 4.0 | 4.5 |
+| `ovrl_threshold` | 3.0 | 3.5 | 4.0 |
+| `sig_threshold` | None | None | 3.5 |
+| `col_threshold` | None | None | 3.0 |
+| `disc_threshold` | None | None | 4.0 |
+| `loud_threshold` | None | None | 3.0 |
+| `reverb_threshold` | None | None | 3.0 |
+
+The default configuration only enables `noise_threshold=4.0` and `ovrl_threshold=3.5`. Activate additional dimensions only when targeted at a specific failure mode in your data.
+
+### When to Use SIGMOS vs UTMOS
+
+- **UTMOS** is single-score, fast, and a good first cut.
+- **SIGMOS** is multi-dimensional and lets you keep audio with one kind of acceptable degradation while rejecting another. Use SIGMOS when you need to enforce specific quality requirements (e.g., "no reverb" or "no click artifacts") that a single MOS score can't express.
+
+## Basic SIGMOS Filtering
+
+### Step 1: Score the Dataset
+
+Run SIGMOS in score-only mode by leaving every threshold at the default (`None` for the disabled ones; defaults already active are noise=4.0, ovrl=3.5). To capture all seven dimensions for analysis, disable filtering by setting active defaults to `None`:
+
+```python
+from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
+
+# Score all dimensions without filtering
+sigmos = SIGMOSFilterStage(noise_threshold=None, ovrl_threshold=None)
+pipeline.add_stage(sigmos)
+```
+
+Each output `AudioTask` will carry seven new fields (`sigmos_noise`, `sigmos_ovrl`, etc.) regardless of which thresholds are active.
+
+### Step 2: Inspect Per-Dimension Distributions
+
+Export the scored manifest and inspect distributions per dimension:
+
+```python
+import pandas as pd
+
+df = pd.read_json("./scored.jsonl", lines=True)
+
+for dim in ["sigmos_noise", "sigmos_ovrl", "sigmos_sig", "sigmos_col",
+            "sigmos_disc", "sigmos_loud", "sigmos_reverb"]:
+    print(dim, df[dim].quantile([0.1, 0.5, 0.9]).values)
+```
+
+Use the percentiles to choose thresholds — for example, set `noise_threshold` at the 25th percentile to drop the bottom quarter of the data on noise.
+
+### Step 3: Apply Tuned Thresholds
+
+```python
+sigmos = SIGMOSFilterStage(
+    noise_threshold=4.0,    # Reject noisy audio
+    ovrl_threshold=3.5,     # Aggregate quality floor
+    reverb_threshold=3.0,   # Reject heavily reverberant audio
+)
+pipeline.add_stage(sigmos)
+```
+
+A segment is dropped if **any** active threshold fails. Setting any threshold to `None` disables that dimension.
+
+## Parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_dir` | str | (cached path) | Directory used to download the SIGMOS ONNX model on first use. |
+| `model_path` | str \| None | `None` | Direct path to a local SIGMOS `.onnx` file. Overrides `model_dir` when set. |
+| `noise_threshold` | float \| None | `4.0` | Minimum noise score; `None` disables. |
+| `ovrl_threshold` | float \| None | `3.5` | Minimum overall score; `None` disables. |
+| `sig_threshold` | float \| None | `None` | Minimum signal score; `None` disables. |
+| `col_threshold` | float \| None | `None` | Minimum coloration score; `None` disables. |
+| `disc_threshold` | float \| None | `None` | Minimum discontinuity score; `None` disables. |
+| `loud_threshold` | float \| None | `None` | Minimum loudness score; `None` disables. |
+| `reverb_threshold` | float \| None | `None` | Minimum reverb score; `None` disables. |
+
+The default resource allocation is `Resources(cpus=1.0, gpus=0.5)`.
+
+## Domain-Specific Tuning
+
+### Voice Cloning / TTS
+
+TTS training is sensitive to noise, reverb, and clipping. Activate the relevant dimensions:
+
+```python
+SIGMOSFilterStage(
+    noise_threshold=4.5,
+    ovrl_threshold=4.0,
+    reverb_threshold=3.5,
+    disc_threshold=4.0,    # No clicks or dropouts
+)
+```
+
+### Far-Field / Conference Audio
+
+Far-field recordings have heavy reverb and variable noise. Loosen reverb but tighten signal cleanliness:
+
+```python
+SIGMOSFilterStage(
+    noise_threshold=3.5,    # accept some noise
+    sig_threshold=3.5,      # but the speech itself must be clean
+    reverb_threshold=2.5,   # reverb expected; only reject extreme cases
+)
+```
+
+### Web-Scraped Audio
+
+Web audio is heterogeneous. Start permissive and tighten dimensions one at a time after inspecting failure modes:
+
+```python
+SIGMOSFilterStage(
+    noise_threshold=3.5,
+    ovrl_threshold=3.0,
+)
+```
+
+## Complete SIGMOS Pipeline Example
+
+A pipeline that stacks UTMOS (cheap) and SIGMOS (fine-grained):
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
+from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
+from nemo_curator.stages.audio.filtering.sigmos import SIGMOSFilterStage
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+pipeline = Pipeline(name="sigmos_filtering")
+
+pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))
+
+# Coarse cut with UTMOS first
+pipeline.add_stage(UTMOSFilterStage(mos_threshold=3.5))
+
+# Fine-grained dimension filtering
+pipeline.add_stage(
+    SIGMOSFilterStage(
+        noise_threshold=4.0,
+        ovrl_threshold=3.5,
+        reverb_threshold=3.0,
+    )
+)
+
+pipeline.add_stage(AudioToDocumentStage())
+pipeline.add_stage(JsonlWriter(path="./curated_audio"))
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+## Best Practices
+
+- **Score before filtering**: SIGMOS is more expensive than UTMOS, so always run with all thresholds disabled first to inspect distributions before committing to thresholds.
+- **Activate one dimension at a time**: enabling all seven thresholds aggressively will leave very little data. Activate one or two relevant dimensions, then add more if specific failure modes survive.
+- **Stack UTMOS first**: run UTMOS as a cheap upstream cut to drop obviously-bad segments before paying for SIGMOS scoring.
+- **Match the dimension to the use case**: don't enforce reverb thresholds on data captured in a hall; don't enforce noise thresholds on field recordings if mild noise is acceptable.
+
+## Related Topics
+
+- **[UTMOS Filter](/curate-audio/process-data/quality-filtering/utmos)** — single-score MOS predictor; commonly stacked before SIGMOS.
+- **[VAD Segmentation](/curate-audio/process-data/quality-filtering/vad)** — produces the speech segments SIGMOS scores.
+- **[`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage)** — bundles SIGMOS with the standard defaults.

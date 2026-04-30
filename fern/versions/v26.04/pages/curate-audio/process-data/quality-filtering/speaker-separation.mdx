@@ -1,0 +1,197 @@
+---
+description: "Diarize audio with offline SortFormer or streaming Sortformer and fan out one task per speaker for downstream per-speaker filtering"
+categories: ["audio-processing"]
+tags: ["audio-filtering", "diarization", "sortformer", "speaker-separation", "streaming"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# Speaker Separation
+
+Diarize multi-speaker audio and fan out one task per detected speaker so that downstream stages can score each speaker's audio independently. NeMo Curator ships **two** diarization stages built on NVIDIA's [SortFormer](https://huggingface.co/nvidia/diar_sortformer_4spk-v1) family. Both target up to 4 speakers per file; choose based on whether your workload is offline batch curation or streaming/online.
+
+## Understanding Diarization
+
+### What Diarization Does
+
+Diarization answers "who spoke when?" — it segments an audio stream into per-speaker regions, identifying that speaker A talks 0.0–3.5s, speaker B talks 3.5–7.0s, speaker A returns at 7.0–9.0s, and so on. The output is one `AudioTask` **per speaker**, each containing only that speaker's audio.
+
+This unlocks **per-speaker filtering**: pipelines can rerun VAD, UTMOS, SIGMOS, and the band filter separately on each speaker, dropping individual low-quality speakers without losing the rest of the recording.
+
+### Choosing a Stage
+
+| Stage | Model | Best For |
+|-------|-------|----------|
+| `SpeakerSeparationStage` | `nvidia/diar_sortformer_4spk-v1` (offline) | Bulk offline curation. Used inside `AudioDataFilterStage`. Higher accuracy because it sees the whole utterance. |
+| `InferenceSortformerStage` | `nvidia/diar_streaming_sortformer_4spk-v2.1` (streaming) | Online/chunked workloads with bounded latency. Supports RTTM output for downstream tools. |
+
+For most curation pipelines, **`SpeakerSeparationStage` (offline) is the right choice**. Use the streaming variant only when you need bounded latency or RTTM output.
+
+## Offline Speaker Separation
+
+### Step 1: Configure the Stage
+
+```python
+from nemo_curator.stages.audio.segmentation.speaker_separation import SpeakerSeparationStage
+
+speaker_sep = SpeakerSeparationStage(
+    model_path="nvidia/diar_sortformer_4spk-v1",
+    exclude_overlaps=True,
+    min_duration=0.8,
+    gap_threshold=0.1,
+    buffer_time=0.5,
+)
+pipeline.add_stage(speaker_sep)
+```
+
+The stage produces a fan-out list of `AudioTask` objects, one per detected speaker, each carrying:
+
+- `speaker_id` — speaker identifier (0, 1, 2, ...)
+- `num_speakers` — total speakers found in this file
+- `duration_sec` — duration of this speaker's audio
+- `waveform` — that speaker's torch tensor with overlapping regions removed (when `exclude_overlaps=True`)
+
+GPU is required (`Resources(cpus=1.0, gpus=1.0)` by default).
+
+### Step 2: Tune Overlap and Gap Handling
+
+Speaker overlap regions (where multiple speakers talk simultaneously) and short gaps between same-speaker turns affect output quality:
+
+| Parameter | Effect |
+|-----------|--------|
+| `exclude_overlaps=True` (default) | Drops overlapping regions. Better for clean per-speaker training data. |
+| `exclude_overlaps=False` | Includes overlapping regions on each speaker's audio. Useful when you want to preserve natural conversation. |
+| `gap_threshold=0.1` (default) | Same-speaker turns separated by < 100 ms are merged. Increase to 0.3–0.5 for more aggressive merging on fragmented diarization. |
+| `min_duration=0.8` (default) | Drop speakers whose total audio is shorter than 0.8 seconds. Filters out spurious speaker detections. |
+| `buffer_time=0.5` (default) | Buffer (in seconds) added around each merged speaker segment to avoid clipping turn boundaries. |
+
+### `SpeakerSeparationStage` Parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_path` | str | `"nvidia/diar_sortformer_4spk-v1"` | Hugging Face model ID or path to a `.nemo` checkpoint. |
+| `exclude_overlaps` | bool | `True` | Drop regions where multiple speakers overlap. |
+| `min_duration` | float | `0.8` | Minimum per-speaker segment duration (seconds). |
+| `gap_threshold` | float | `0.1` | Gap threshold for merging adjacent same-speaker segments. |
+| `buffer_time` | float | `0.5` | Buffer (seconds) added around each merged speaker segment. |
+
+## Streaming Speaker Diarization
+
+### When to Use Streaming
+
+The streaming variant (`InferenceSortformerStage`) is purpose-built for two use cases:
+
+1. **Online / chunked workloads** — bounded latency requirements that can't tolerate waiting for the full utterance.
+2. **RTTM output** — downstream tooling (Kaldi, ESPnet, evaluation harnesses) consumes RTTM-format diarization output.
+
+For pure offline curation, `SpeakerSeparationStage` is faster and more accurate.
+
+### Step 1: Configure the Stage
+
+```python
+from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
+
+streaming = InferenceSortformerStage(
+    model_name="nvidia/diar_streaming_sortformer_4spk-v2.1",
+    rttm_out_dir="./rttm",
+    chunk_len=340,            # ~30.4 seconds latency in 80 ms frames
+    inference_batch_size=1,
+)
+pipeline.add_stage(streaming)
+```
+
+This stage **does not fan out per speaker** — instead it writes a `diar_segments` list onto the input `AudioTask`. Use it as a metadata-enriching stage; downstream code consumes the `diar_segments` field directly.
+
+### Step 2: Tune Latency
+
+`chunk_len` controls latency vs accuracy:
+
+| `chunk_len` | Latency | Accuracy |
+|-------------|---------|----------|
+| 100 (~8 s) | Low | Lower (less context) |
+| 340 (default, ~30.4 s) | Medium | Good |
+| 600 (~48 s) | High | Best |
+
+Streaming-mode evaluation on **CallHome-eng0** (139 files) at the default settings: **6.2% macro DER**, **6.0% weighted DER** at a 0.25-second collar.
+
+### `InferenceSortformerStage` Parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_name` | str | `"nvidia/diar_streaming_sortformer_4spk-v2.1"` | Hugging Face model ID. |
+| `model_path` | str \| None | `None` | Local `.nemo` checkpoint; overrides `model_name` when set. |
+| `cache_dir` | str \| None | `None` | Cache dir for downloaded model weights. |
+| `filepath_key` | str | `"audio_filepath"` | Manifest key with the audio path. |
+| `diar_segments_key` | str | `"diar_segments"` | Output manifest key for the diarization segment list. |
+| `rttm_out_dir` | str \| None | `None` | Optional directory to write per-file RTTM. |
+| `chunk_len` | int | `340` | Streaming chunk size in 80 ms frames. |
+| `chunk_left_context` | int | `1` | Left-context frames retained between chunks. |
+| `chunk_right_context` | int | `40` | Right-context frames retained between chunks. |
+| `fifo_len` | int | `40` | FIFO queue size in frames. |
+| `spkcache_update_period` | int | `300` | Speaker-cache update period in frames. |
+| `spkcache_len` | int | `188` | Speaker-cache size in frames. |
+| `inference_batch_size` | int | `1` | Batch size passed to `diarize()`. |
+
+Default resource allocation: `Resources(cpus=1.0, gpu_memory_gb=8.0)`.
+
+## Complete Speaker Separation Pipeline
+
+A pipeline that diarizes, then runs per-speaker quality filters:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
+from nemo_curator.stages.audio.segmentation.vad_segmentation import VADSegmentationStage
+from nemo_curator.stages.audio.preprocessing.concatenation import SegmentConcatenationStage
+from nemo_curator.stages.audio.segmentation.speaker_separation import SpeakerSeparationStage
+from nemo_curator.stages.audio.filtering.utmos import UTMOSFilterStage
+from nemo_curator.stages.audio.postprocessing.timestamp_mapper import TimestampMapperStage
+from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+pipeline = Pipeline(name="speaker_diarization")
+
+# 1. Normalize and segment
+pipeline.add_stage(MonoConversionStage(output_sample_rate=48000))
+pipeline.add_stage(VADSegmentationStage(min_duration_sec=2.0))
+
+# 2. Concatenate surviving segments per file
+pipeline.add_stage(SegmentConcatenationStage(silence_duration_sec=0.5))
+
+# 3. Diarize and fan out per speaker
+pipeline.add_stage(SpeakerSeparationStage(exclude_overlaps=True))
+
+# 4. Per-speaker quality filter
+pipeline.add_stage(UTMOSFilterStage(mos_threshold=3.5))
+
+# 5. Resolve final timestamps
+pipeline.add_stage(
+    TimestampMapperStage(
+        passthrough_keys=["speaker_id", "num_speakers", "utmos_mos"]
+    )
+)
+
+# 6. Export
+pipeline.add_stage(AudioToDocumentStage())
+pipeline.add_stage(JsonlWriter(path="./per_speaker_audio"))
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+## Best Practices
+
+- **Use offline mode unless you specifically need streaming**: `SpeakerSeparationStage` is faster and more accurate than `InferenceSortformerStage` for batch curation.
+- **Run VAD + concat before diarization**: feeding diarization a clean concatenated speech-only waveform (no long silences) is cheaper and more reliable than feeding raw audio.
+- **Pair with per-speaker quality filters**: place the filtering chain (VAD → Band → UTMOS → SIGMOS) **after** speaker separation so each speaker's audio is scored independently. Bad speakers get dropped; good speakers from the same file are kept.
+- **Mind the 4-speaker model limit**: both stages target up to 4 speakers per file. Files with more speakers will likely produce degraded diarization.
+- **Don't enable `exclude_overlaps=False` for training data**: overlapping speech is hard for downstream models; only disable when explicitly preserving natural conversation.
+
+## Related Topics
+
+- **[Preprocessing Stages](/curate-audio/process-data/quality-filtering/preprocessing)** — `SegmentConcatenationStage` and `TimestampMapperStage` are typically paired with speaker separation.
+- **[VAD Segmentation](/curate-audio/process-data/quality-filtering/vad)** — typical upstream stage producing the segments fed into diarization.
+- **[`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage)** — bundles offline speaker separation with per-speaker filters into the standard pipeline.

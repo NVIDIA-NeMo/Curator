@@ -95,6 +95,28 @@ redirects:
     destination: "/nemo/curator/about/concepts/video/data-flow"
   - source: "/nemo/curator/admin/deployment/slurm/image"
     destination: "/nemo/curator/admin/deployment/slurm-image"
+  # API reference: AudioBatch was renamed to AudioTask in v26.04 (PR #1608)
+  - source: "/nemo/curator/api/reference/api-reference/tasks/audio-batch"
+    destination: "/nemo/curator/v26.04/api/reference/api-reference/tasks/audio-task"
+  # Library reference: experimental backend was promoted to stable in v26.04 (PR #1619).
+  # RayDataExecutor moved from backends.experimental.ray_data → backends.ray_data;
+  # ray_actor_pool was likewise promoted out of experimental.
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_data"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/utils"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_data/utils"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/adapter"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/adapter"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/executor"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/executor"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/raft_adapter"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/raft_adapter"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/shuffle_adapter"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/shuffle_adapter"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/utils"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/utils"
 
 title: NeMo Curator
 

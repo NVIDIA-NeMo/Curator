@@ -1,0 +1,260 @@
+---
+description: "Tutorial for processing the DNS Challenge Read Speech dataset through AudioDataFilterStage with automatic download and configurable quality filters"
+categories: ["tutorials"]
+tags: ["readspeech", "dns-challenge", "audio-data-filter", "vad", "utmos", "sigmos", "speaker-separation"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "tutorial"
+modality: "audio-only"
+---
+
+# DNS Challenge Read Speech Tutorial
+
+Learn how to curate the DNS Challenge Read Speech dataset (14,279 WAV files at 48 kHz, 19.3 hours total) using NeMo Curator's `AudioDataFilterStage`. This tutorial walks you through automatic dataset download, end-to-end quality filtering, and segment extraction.
+
+## Overview
+
+This tutorial demonstrates an end-to-end audio curation workflow:
+
+1. **Auto-download** the DNS Challenge dataset (4.88 GB compressed, 6.3 GB extracted) and build an initial manifest.
+2. **Run `AudioDataFilterStage`** with VAD, UTMOS, SIGMOS, band, and speaker-separation sub-stages.
+3. **Write a JSONL manifest** of filtered single-speaker segments.
+4. **Optionally extract segments** as standalone WAV files using the bundled `extract_segments.py` utility (no `ffmpeg` dependency).
+
+**What you will learn:**
+
+- Wiring `CreateInitialManifestReadSpeechStage` into a pipeline.
+- Toggling individual quality filters (`--enable-vad`, `--enable-utmos`, `--enable-sigmos`, `--enable-band-filter`, `--enable-speaker-separation`).
+- Tuning UTMOS / SIGMOS thresholds and VAD windowing.
+- Choosing between Python CLI, Hydra YAML, and Jupyter notebook drivers.
+
+## Working Example Location
+
+The complete working code for this tutorial is located at:
+
+```
+<nemo_curator_repository>/tutorials/audio/readspeech/
+├── README.md                    # Tutorial documentation
+├── pipeline.py                  # argparse CLI driver
+├── pipeline.yaml                # Hydra config (full pipeline)
+├── run.py                       # Hydra runner
+├── extract_segments.py          # Post-processing utility
+└── readspeech_tutorial.ipynb    # Interactive Jupyter walkthrough
+```
+
+**Accessing the code:**
+
+```bash
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator/tutorials/audio/readspeech/
+```
+
+## Prerequisites
+
+- NeMo Curator installed with audio extras (`uv sync --extra audio_cuda12` for GPU, or `audio_cpu` for CPU-only). Refer to the [Installation Guide](/admin/installation).
+- Python 3.10 or later.
+- ~5 GB free disk for the compressed dataset; ~10 GB total during extraction.
+- Optional but recommended: a GPU with at least 8 GB of memory for VAD/UTMOS/SIGMOS/SortFormer inference.
+
+<Tip>
+The pipeline runs end-to-end on GPU in 1–2 hours for the full 14,279-file corpus on a single H100. For a fast smoke test, use `--max-samples 10` (1–2 minutes wall clock).
+</Tip>
+
+## Pipeline Flow
+
+```text
+CreateInitialManifestReadSpeechStage   (download + manifest)
+        │
+        ▼
+AudioDataFilterStage   (Mono → VAD → Band → UTMOS → SIGMOS → Concat → SpeakerSep → ... → TimestampMapper)
+        │
+        ▼
+AudioToDocumentStage → JsonlWriter   (manifest.jsonl)
+        │
+        ▼
+extract_segments.py   (optional — write segment WAVs to disk)
+```
+
+## Step-by-Step Walkthrough
+
+### Step 1: Quick Validation Run
+
+Confirm the install with a 10-sample dry run that downloads the dataset and exercises VAD + UTMOS:
+
+```bash
+python pipeline.py \
+    --raw_data_dir ./dns_data \
+    --max-samples 10 \
+    --enable-utmos \
+    --enable-vad
+```
+
+Expected wall-clock time on a single GPU: **1–2 minutes**, dominated by model loading. Results land under `./dns_data/result/` as a JSONL manifest.
+
+### Step 2: Review the Pipeline Configuration
+
+The full pipeline is defined in `pipeline.yaml` and decomposes into four stages:
+
+```yaml
+processors:
+  # Stage 0: Download dataset and create manifest
+  - _target_: nemo_curator.stages.audio.datasets.readspeech.CreateInitialManifestReadSpeechStage
+    raw_data_dir: ${raw_data_dir}
+    max_samples: ${max_samples}
+    auto_download: ${auto_download}
+
+  # Stage 1: Apply audio filtering pipeline
+  - _target_: nemo_curator.stages.audio.AudioDataFilterStage
+    config:
+      mono_conversion:
+        output_sample_rate: ${sample_rate}
+      vad:
+        enable: ${enable_vad}
+        min_duration_sec: ${vad_min_duration_sec}
+        max_duration_sec: ${vad_max_duration_sec}
+        threshold: ${vad_threshold}
+      band_filter:
+        enable: ${enable_band_filter}
+        band_value: ${band_value}
+      utmos:
+        enable: ${enable_utmos}
+        mos_threshold: ${utmos_mos_threshold}
+      sigmos:
+        enable: ${enable_sigmos}
+        noise_threshold: ${sigmos_noise_threshold}
+        ovrl_threshold: ${sigmos_ovrl_threshold}
+      speaker_separation:
+        enable: ${enable_speaker_separation}
+      timestamp_mapper: {}
+
+  # Stage 2: Convert AudioTask → DocumentBatch
+  - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
+
+  # Stage 3: Write JSONL manifest with UTF-8 preserved
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
+    path: ${output_dir}
+    write_kwargs:
+      force_ascii: false
+```
+
+### Step 3: Understand the Configuration Parameters
+
+The following table describes the key parameters defined in `pipeline.yaml`:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `raw_data_dir` | _required_ | Where to download the dataset (or where it already lives if `auto_download=false`). |
+| `output_dir` | `${raw_data_dir}/result` | Where to write the JSONL manifest. |
+| `max_samples` | `-1` | Number of files to process; `-1` processes all 14,279. |
+| `execution_mode` | `streaming` | `batch` runs stages sequentially; `streaming` runs concurrently (needs enough GPU memory for all stages at once). |
+| `sample_rate` | `48000` | Target sample rate for `MonoConversionStage`. |
+| `vad_threshold` | `0.5` | Silero VAD confidence threshold. |
+| `utmos_mos_threshold` | `3.4` | Drop segments with predicted MOS below this. |
+| `sigmos_noise_threshold` | `4.0` | Drop segments with SIGMOS noise score below this. |
+| `sigmos_ovrl_threshold` | `3.5` | Drop segments with SIGMOS overall score below this. |
+
+### Step 4: Run the Full Pipeline
+
+Default sample budget is 5,000 files. To process the full corpus:
+
+```bash
+python pipeline.py \
+    --raw_data_dir ./dns_data \
+    --max-samples -1 \
+    --enable-utmos \
+    --enable-vad \
+    --enable-sigmos \
+    --enable-band-filter \
+    --enable-speaker-separation
+```
+
+Re-run against pre-downloaded data without re-fetching:
+
+```bash
+python pipeline.py \
+    --raw_data_dir /path/to/existing/read_speech \
+    --no-auto-download \
+    --enable-utmos
+```
+
+### Step 5: Drive with Hydra YAML
+
+`run.py` uses Hydra to drive the same pipeline from `pipeline.yaml`:
+
+```bash
+# Default settings
+python run.py --config-name pipeline raw_data_dir=./dns_data
+
+# Process 1,000 samples
+python run.py --config-name pipeline raw_data_dir=./dns_data max_samples=1000
+```
+
+Override individual sub-stage parameters from the command line:
+
+```bash
+# Looser MOS threshold; disable SIGMOS
+python run.py --config-name pipeline \
+    raw_data_dir=./dns_data \
+    utmos_mos_threshold=3.0 \
+    enable_sigmos=false
+```
+
+### Step 6: Inspect the Output Manifest
+
+The pipeline writes one JSONL line per filtered segment. Each line includes the resolved timestamps, speaker ID, and the per-stage scores that survived filtering:
+
+```json
+{
+  "audio_filepath": "/data/dns_data/read_speech/book_42_reader_0.wav",
+  "start_ms": 1500,
+  "end_ms": 4500,
+  "speaker_id": 0,
+  "num_speakers": 1,
+  "duration_sec": 3.0,
+  "utmos_mos": 4.21,
+  "sigmos_noise": 4.55,
+  "sigmos_ovrl": 4.10,
+  "band_prediction": "full_band"
+}
+```
+
+Inspect distributions in pandas to validate the curation:
+
+```python
+import pandas as pd
+
+df = pd.read_json("./dns_data/result/manifest.jsonl", lines=True)
+print(df.describe())
+print(df["utmos_mos"].quantile([0.1, 0.5, 0.9]))
+```
+
+### Step 7: Extract Segments (Optional)
+
+Use the bundled `extract_segments.py` utility to slice the original WAVs into per-segment files according to the resolved `start_ms`/`end_ms` timestamps:
+
+```bash
+python extract_segments.py \
+    --manifest ./dns_data/result/manifest.jsonl \
+    --output-dir ./dns_data/segments
+```
+
+This utility uses `soundfile` directly, so no `ffmpeg` is required for `wav`, `flac`, or `ogg` outputs.
+
+## Interactive Notebook
+
+A guided notebook walkthrough is included at `tutorials/audio/readspeech/readspeech_tutorial.ipynb`. Open it in Jupyter or VS Code for a step-by-step run with inline plots of UTMOS / SIGMOS distributions.
+
+## Best Practices
+
+- **Start with a 10-sample run**: `--max-samples 10` confirms your environment in 1–2 minutes before committing to the full 1–2 hour corpus run.
+- **Use `--enable-*` flags to compose pipelines**: each filter is independently toggleable. Build up from VAD only, add UTMOS, then SIGMOS, then speaker separation as needed.
+- **Inspect distributions before tightening thresholds**: run with permissive defaults (`utmos_mos_threshold=3.0`), inspect `utmos_mos` distribution in pandas, then re-run with the threshold you actually want.
+- **Use Hydra for repeatable runs**: configure once in `pipeline.yaml`, then override individual params on the command line for sweeps. Hydra captures the resolved config under `.hydra/` for reproducibility.
+- **Pre-download for offline environments**: run once with `auto_download=true` to populate `raw_data_dir`, then use `--no-auto-download` (or `auto_download=false` in YAML) on subsequent runs in air-gapped environments.
+
+## Related Topics
+
+- **[`AudioDataFilterStage` Composite](/curate-audio/process-data/quality-filtering/audio-data-filter-stage)** — full configuration reference for the filtering pipeline used in this tutorial.
+- **[Audio Quality Filtering](/curate-audio/process-data/quality-filtering)** — index of the individual filter stages.
+- **[ALM Tutorial](/curate-audio/tutorials/alm)** — alternative audio-curation tutorial focused on audio-language model training data.
+- **[Beginner Tutorial](/curate-audio/tutorials/beginner)** — simpler audio curation walkthrough.

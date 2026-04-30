@@ -183,6 +183,9 @@ navigation:
               - page: Custom Sources
                 path: ./v26.04/pages/curate-text/load-data/custom.mdx
                 slug: custom
+              - page: Nemotron-Parse PDF Pipeline
+                path: ./v26.04/pages/curate-text/load-data/nemotron-parse-pdf.mdx
+                slug: nemotron-parse-pdf
               - page: Read Existing Data
                 path: ./v26.04/pages/curate-text/load-data/read-existing.mdx
                 slug: read-existing
@@ -267,6 +270,18 @@ navigation:
                   - page: Code Processing
                     path: ./v26.04/pages/curate-text/process-data/specialized-processing/code.mdx
                     slug: code
+              - section: Interleaved Datasets
+                slug: interleaved
+                contents:
+                  - page: Overview
+                    path: ./v26.04/pages/curate-text/process-data/interleaved/index.mdx
+                    slug: ""
+                  - page: Interleaved IO
+                    path: ./v26.04/pages/curate-text/process-data/interleaved/io.mdx
+                    slug: io
+                  - page: Interleaved Filters
+                    path: ./v26.04/pages/curate-text/process-data/interleaved/filters.mdx
+                    slug: filters
           - page: Save and Export
             path: ./v26.04/pages/curate-text/save-export.mdx
             slug: save-export
@@ -441,6 +456,9 @@ navigation:
               - page: ALM Tutorial
                 path: ./v26.04/pages/curate-audio/tutorials/alm.mdx
                 slug: alm
+              - page: ReadSpeech Tutorial
+                path: ./v26.04/pages/curate-audio/tutorials/readspeech.mdx
+                slug: readspeech
           - section: Load Data
             slug: load-data
             contents:
@@ -483,6 +501,33 @@ navigation:
                   - page: Duration Filtering
                     path: ./v26.04/pages/curate-audio/process-data/quality-assessment/duration-filtering.mdx
                     slug: duration-filtering
+              - section: Quality Filtering
+                slug: quality-filtering
+                contents:
+                  - page: Overview
+                    path: ./v26.04/pages/curate-audio/process-data/quality-filtering/index.mdx
+                    slug: ""
+                  - page: Preprocessing Stages
+                    path: ./v26.04/pages/curate-audio/process-data/quality-filtering/preprocessing.mdx
+                    slug: preprocessing
+                  - page: VAD Segmentation
+                    path: ./v26.04/pages/curate-audio/process-data/quality-filtering/vad.mdx
+                    slug: vad
+                  - page: Band Filter
+                    path: ./v26.04/pages/curate-audio/process-data/quality-filtering/band-filter.mdx
+                    slug: band-filter
+                  - page: UTMOS Filter
+                    path: ./v26.04/pages/curate-audio/process-data/quality-filtering/utmos.mdx
+                    slug: utmos
+                  - page: SIGMOS Filter
+                    path: ./v26.04/pages/curate-audio/process-data/quality-filtering/sigmos.mdx
+                    slug: sigmos
+                  - page: Speaker Separation
+                    path: ./v26.04/pages/curate-audio/process-data/quality-filtering/speaker-separation.mdx
+                    slug: speaker-separation
+                  - page: AudioDataFilterStage Composite
+                    path: ./v26.04/pages/curate-audio/process-data/quality-filtering/audio-data-filter-stage.mdx
+                    slug: audio-data-filter-stage
               - section: Audio Analysis
                 slug: audio-analysis
                 contents:
@@ -534,6 +579,9 @@ navigation:
               - page: Deploy Image Curation on Slurm
                 path: ./v26.04/pages/admin/deployment/slurm/image.mdx
                 slug: slurm-image
+              - page: Multi-Node Ray on Slurm
+                path: ./v26.04/pages/admin/deployment/slurm/multi-node-ray.mdx
+                slug: slurm-multi-node-ray
           - section: Integrations
             slug: integrations
             contents:
