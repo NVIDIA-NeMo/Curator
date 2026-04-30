@@ -12,17 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 
-import numpy as np
-import pandas as pd
-import torch
-from transformers import AutoModelForSequenceClassification
+# Heavy deps (torch, transformers, numpy) are deferred to setup() / method
+# bodies so that importing this module does not trigger them at parse time.
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    import torch
 from nemo_curator.stages.text.filters import Filter
 from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
@@ -88,6 +94,8 @@ class FineWebModelStage(ModelStage):
 
     @staticmethod
     def configure_forward(model: torch.nn.Module) -> torch.nn.Module:
+        import torch
+
         original_forward = model.forward
 
         @torch.no_grad()
@@ -100,6 +108,8 @@ class FineWebModelStage(ModelStage):
         return model
 
     def _setup(self, local_files_only: bool = True) -> None:
+        from transformers import AutoModelForSequenceClassification
+
         model = AutoModelForSequenceClassification.from_pretrained(
             self.model_identifier,
             cache_dir=self.cache_dir,

@@ -15,26 +15,31 @@
 import os
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-from .aegis import AegisClassifier, InstructionDataGuardClassifier
-from .content_type import ContentTypeClassifier
-from .domain import DomainClassifier, MultilingualDomainClassifier
-from .fineweb_edu import (
-    FineWebEduClassifier,
-    FineWebMixtralEduClassifier,
-    FineWebNemotronEduClassifier,
-)
-from .prompt_task_complexity import PromptTaskComplexityClassifier
-from .quality import QualityClassifier
 
-__all__ = [
-    "AegisClassifier",
-    "ContentTypeClassifier",
-    "DomainClassifier",
-    "FineWebEduClassifier",
-    "FineWebMixtralEduClassifier",
-    "FineWebNemotronEduClassifier",
-    "InstructionDataGuardClassifier",
-    "MultilingualDomainClassifier",
-    "PromptTaskComplexityClassifier",
-    "QualityClassifier",
-]
+# Lazy-load every classifier so that importing this package does not pull in
+# torch / transformers / numpy at module-parse time.  Each name is resolved
+# on first access via __getattr__ (PEP 562, Python 3.7+).
+_LAZY: dict[str, str] = {
+    "AegisClassifier": ".aegis",
+    "InstructionDataGuardClassifier": ".aegis",
+    "ContentTypeClassifier": ".content_type",
+    "DomainClassifier": ".domain",
+    "MultilingualDomainClassifier": ".domain",
+    "FineWebEduClassifier": ".fineweb_edu",
+    "FineWebMixtralEduClassifier": ".fineweb_edu",
+    "FineWebNemotronEduClassifier": ".fineweb_edu",
+    "PromptTaskComplexityClassifier": ".prompt_task_complexity",
+    "QualityClassifier": ".quality",
+}
+
+__all__ = list(_LAZY)
+
+
+def __getattr__(name: str) -> object:
+    if name in _LAZY:
+        import importlib
+
+        mod = importlib.import_module(_LAZY[name], package=__name__)
+        return getattr(mod, name)
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

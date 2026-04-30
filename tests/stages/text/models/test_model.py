@@ -74,7 +74,7 @@ class MockModelStage(ModelStage):
 
 
 class TestModelStage:
-    @patch("nemo_curator.stages.text.models.model.snapshot_download")
+    @patch("huggingface_hub.snapshot_download")
     def test_setup_on_node_success(self, mock_snapshot_download: Mock):
         mock_snapshot_download.return_value = "/path/to/model"
         stage = MockModelStage(
@@ -91,7 +91,7 @@ class TestModelStage:
             local_files_only=False,
         )
 
-    @patch("nemo_curator.stages.text.models.model.snapshot_download")
+    @patch("huggingface_hub.snapshot_download")
     def test_setup_on_node_failure(self, mock_snapshot_download: Mock):
         mock_snapshot_download.side_effect = Exception("Download failed")
         stage = MockModelStage(model_identifier="test/model")
@@ -249,8 +249,8 @@ class TestModelStage:
         assert INPUT_ID_FIELD in kwargs
         assert ATTENTION_MASK_FIELD in kwargs
 
-    @patch("nemo_curator.stages.text.models.model.torch.cuda.empty_cache")
-    @patch("nemo_curator.stages.text.models.model.gc.collect")
+    @patch("torch.cuda.empty_cache")
+    @patch("gc.collect")
     def test_teardown(self, mock_gc_collect: Mock, mock_cuda_empty_cache: Mock):
         stage = MockModelStage(model_identifier="test/model")
 
