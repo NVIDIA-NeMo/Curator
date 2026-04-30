@@ -64,13 +64,13 @@ class TestCreateOpenaiClient:
     def test_creates_client_with_correct_args(self, mock_openai_cls: MagicMock) -> None:
         mock_instance = MagicMock()
         mock_openai_cls.return_value = mock_instance
-        client = create_openai_client(api_key="key123", base_url="https://example.com")
-        mock_openai_cls.assert_called_once_with(base_url="https://example.com", api_key="key123")
+        client = create_openai_client(api_key="key123", base_url="https://example.com")  # pragma: allowlist secret
+        mock_openai_cls.assert_called_once_with(base_url="https://example.com", api_key="key123")  # pragma: allowlist secret
         assert client is mock_instance
 
     @patch("openai.OpenAI")
     def test_default_base_url(self, mock_openai_cls: MagicMock) -> None:
-        create_openai_client(api_key="key")
+        create_openai_client(api_key="key")  # pragma: allowlist secret
         _, kwargs = mock_openai_cls.call_args
         assert kwargs["base_url"] == "https://inference-api.nvidia.com"
 

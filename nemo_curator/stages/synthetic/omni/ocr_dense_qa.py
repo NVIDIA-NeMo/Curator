@@ -451,7 +451,7 @@ def build_qa_tagged(
     num_invalid = sum(1 for w in words if not w.valid)
     allow_text_to_bbox = num_invalid < _MAX_INVALIDS_FOR_TEXT_TO_BBOX
 
-    rng = random.Random(hash(task_id))  # noqa: S311
+    rng = random.Random(task_id)  # noqa: S311
     qa_tagged: list[tuple[str, str, str]] = []
 
     # ------------------------------------------------------------------

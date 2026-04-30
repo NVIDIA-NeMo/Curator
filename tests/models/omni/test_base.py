@@ -154,7 +154,7 @@ class TestNVInferenceModelLoad:
         model.load()
         assert model.is_loaded is True
         mock_get_key.assert_called_once()
-        mock_create.assert_called_once_with(api_key="key", base_url="https://inference-api.nvidia.com")
+        mock_create.assert_called_once_with(api_key="key", base_url="https://inference-api.nvidia.com")  # pragma: allowlist secret
 
     @patch("nemo_curator.models.client.nvinference_client.create_openai_client")
     @patch("nemo_curator.models.client.nvinference_client.get_nvinference_api_key")
