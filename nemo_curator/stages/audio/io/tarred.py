@@ -21,6 +21,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
@@ -35,11 +36,13 @@ from nemo_curator.utils.remote_io import (
     iter_tar_member_names,
     open_binary_stream,
     open_text_stream,
+    resolve_transport,
 )
 
 _MANIFEST_SHARD_PATTERN = re.compile(r"manifest[^/\s]*_(\d+)[^/\s]*\.(?:json|jsonl)(?:\.[^/\s]+)?")
 _TAR_SHARD_PATTERN = re.compile(r"audio[^/\s]*_(\d+)[^/\s]*\.tar(?:\.[^/\s]+)?")
 _OFFSET_MEMBER_PATTERN = re.compile(r"^(?P<stem>.+?)(?P<offset>-sub\d+)(?P<ext>\.[^.\\/]+)?$")
+_SKIP_MISSING_ENTRIES_METADATA_KEY = "_tarred_skip_missing_entries"
 
 _PipeStream = PipeStream
 _open_binary_stream = open_binary_stream
@@ -76,6 +79,14 @@ def _dataset_name_from_path(path: str) -> str:
         return infer_dataset_name_from_path(path)
     except Exception:  # noqa: BLE001
         return "dataset"
+
+
+def _should_validate_tar_members(path: str, transport: Literal["auto", "fsspec", "pipe"]) -> bool:
+    if resolve_transport(path, transport) == "pipe":
+        return False
+    fs, _ = url_to_fs(path)
+    protocol = fs.protocol[0] if isinstance(fs.protocol, (list, tuple)) else fs.protocol
+    return protocol in {None, "file"}
 
 
 @dataclass
@@ -136,6 +147,7 @@ class TarredAudioManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     shard_id_key: str = "_shard_id"
     manifest_path_key: str = "_manifest_path"
     source_type_key: str = "_audio_source_type"
+    skip_missing_entries_metadata_key: str = _SKIP_MISSING_ENTRIES_METADATA_KEY
     skip_missing_entries: bool = False
     name: str = "tarred_audio_manifest_reader"
 
@@ -173,13 +185,15 @@ class TarredAudioManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 msg = f"No tar shard found for manifest shard {shard_id}: {manifest_path}"
                 raise RuntimeError(msg)
             tar_path = self._shard_id_to_tar_path[shard_id]
-            tar_members = set(
-                _iter_tar_member_names(
-                    tar_path,
-                    storage_options=self.storage_options,
-                    transport=self.transport,
+            tar_members = None
+            if _should_validate_tar_members(tar_path, self.transport):
+                tar_members = set(
+                    _iter_tar_member_names(
+                        tar_path,
+                        storage_options=self.storage_options,
+                        transport=self.transport,
+                    )
                 )
-            )
             with _open_text_stream(
                 manifest_path,
                 storage_options=self.storage_options,
@@ -191,7 +205,7 @@ class TarredAudioManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                     entry = json.loads(line)
                     manifest_audio_path = entry[self.audio_filepath_key]
                     tar_member = _normalize_tar_member(manifest_audio_path)
-                    if tar_member not in tar_members:
+                    if tar_members is not None and tar_member not in tar_members:
                         msg = (
                             f"Mismatched entry between JSON manifest ('{manifest_path}') and tar file ('{tar_path}'). "
                             f"Cannot locate tar member '{tar_member}' referenced by '{manifest_audio_path}'"
@@ -213,7 +227,10 @@ class TarredAudioManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                             dataset_name=task.dataset_name,
                             data=item,
                             sample_key=build_audio_sample_key(item, dataset_name=task.dataset_name),
-                            _metadata=task._metadata,
+                            _metadata={
+                                **task._metadata,
+                                self.skip_missing_entries_metadata_key: self.skip_missing_entries,
+                            },
                             _stage_perf=list(task._stage_perf),
                         )
                     )
@@ -267,6 +284,7 @@ class MaterializeTarredAudioStage(BaseAudioMaterializeStage):
     tar_member_key: str = "_tar_member"
     transport: Literal["auto", "fsspec", "pipe"] = "auto"
     storage_options: dict[str, Any] | None = None
+    skip_missing_entries_metadata_key: str = _SKIP_MISSING_ENTRIES_METADATA_KEY
     name: str = "materialize_tarred_audio"
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -294,12 +312,13 @@ class MaterializeTarredAudioStage(BaseAudioMaterializeStage):
         for task in tasks:
             grouped_tasks[task.data[self.tar_path_key]][task.data[self.tar_member_key]].append(task)
 
+        skipped_task_ids: set[str] = set()
         for tar_path, member_tasks in grouped_tasks.items():
-            self._materialize_from_tar(tar_path, member_tasks)
+            skipped_task_ids.update(self._materialize_from_tar(tar_path, member_tasks))
 
-        return tasks
+        return [task for task in tasks if task._uuid not in skipped_task_ids]
 
-    def _materialize_from_tar(self, tar_path: str, member_tasks: dict[str, list[AudioTask]]) -> None:
+    def _materialize_from_tar(self, tar_path: str, member_tasks: dict[str, list[AudioTask]]) -> set[str]:
         remaining = set(member_tasks)
         with (
             _open_binary_stream(
@@ -328,6 +347,22 @@ class MaterializeTarredAudioStage(BaseAudioMaterializeStage):
                 if not remaining:
                     break
 
+        skipped_task_ids: set[str] = set()
         if remaining:
-            msg = f"Failed to materialize tar members {sorted(remaining)} from tar shard '{tar_path}'"
-            raise RuntimeError(msg)
+            missing_non_skippable: list[str] = []
+            for member_name in sorted(remaining):
+                tasks_for_member = member_tasks[member_name]
+                if all(bool(task._metadata.get(self.skip_missing_entries_metadata_key, False)) for task in tasks_for_member):
+                    logger.warning(
+                        "Skipping missing tar member '{}' from tar shard '{}' for {} task(s)",
+                        member_name,
+                        tar_path,
+                        len(tasks_for_member),
+                    )
+                    skipped_task_ids.update(task._uuid for task in tasks_for_member)
+                else:
+                    missing_non_skippable.append(member_name)
+            if missing_non_skippable:
+                msg = f"Failed to materialize tar members {missing_non_skippable} from tar shard '{tar_path}'"
+                raise RuntimeError(msg)
+        return skipped_task_ids

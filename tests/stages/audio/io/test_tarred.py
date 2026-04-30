@@ -395,6 +395,69 @@ class TestTarredAudioMaterialization:
         assert temp_path.exists()
         assert temp_path.read_bytes() == b"pipe-bytes"
 
+    def test_pipe_transport_skips_missing_entries_during_materialization(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "manifest_0.json"
+        tar_path = tmp_path / "audio_0.tar"
+        manifest.write_text(
+            "\n".join(
+                [
+                    json.dumps({"audio_filepath": "sample.wav", "text": "alpha"}),
+                    json.dumps({"audio_filepath": "missing.wav", "text": "beta"}),
+                ]
+            )
+        )
+        _write_tar(tar_path, {"sample.wav": b"pipe-bytes"})
+
+        tar_cmd = (
+            f'pipe:python3 -c "from pathlib import Path; import sys; '
+            f"sys.stdout.buffer.write(Path(r'{tar_path}').read_bytes())\""
+        )
+
+        reader_stage = TarredAudioManifestReaderStage(
+            tar_paths=tar_cmd,
+            transport="auto",
+            skip_missing_entries=True,
+        )
+        audio_tasks = reader_stage.process(_make_file_group_task([str(manifest)]))
+
+        assert len(audio_tasks) == 2
+
+        materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"), transport="auto")
+        materialized = materialize.process_batch(audio_tasks)
+
+        assert len(materialized) == 1
+        assert materialized[0].data["text"] == "alpha"
+
+    def test_pipe_transport_raises_for_missing_entries_when_skip_disabled(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "manifest_0.json"
+        tar_path = tmp_path / "audio_0.tar"
+        manifest.write_text(
+            "\n".join(
+                [
+                    json.dumps({"audio_filepath": "sample.wav", "text": "alpha"}),
+                    json.dumps({"audio_filepath": "missing.wav", "text": "beta"}),
+                ]
+            )
+        )
+        _write_tar(tar_path, {"sample.wav": b"pipe-bytes"})
+
+        tar_cmd = (
+            f'pipe:python3 -c "from pathlib import Path; import sys; '
+            f"sys.stdout.buffer.write(Path(r'{tar_path}').read_bytes())\""
+        )
+
+        reader_stage = TarredAudioManifestReaderStage(
+            tar_paths=tar_cmd,
+            transport="auto",
+            skip_missing_entries=False,
+        )
+        audio_tasks = reader_stage.process(_make_file_group_task([str(manifest)]))
+
+        materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"), transport="auto")
+
+        with pytest.raises(RuntimeError, match=r"Failed to materialize tar members \['missing\.wav'\]"):
+            materialize.process_batch(audio_tasks)
+
     def test_materialize_decodes_shared_member_once_for_segment_tasks(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
