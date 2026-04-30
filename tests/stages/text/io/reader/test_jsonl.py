@@ -167,8 +167,12 @@ class TestJsonlAudioReader:
         result = stage.process(task)
 
         assert len(result) == 2
-        assert result[0].data == {"audio_filepath": "a.wav", "text": "alpha"}
-        assert result[1].data == {"audio_filepath": "b.wav", "text": "beta"}
+        assert result[0].data["audio_filepath"] == "a.wav"
+        assert result[0].data["text"] == "alpha"
+        assert result[0].data["sample_key"]
+        assert result[1].data["audio_filepath"] == "b.wav"
+        assert result[1].data["text"] == "beta"
+        assert result[1].data["sample_key"]
 
     def test_audio_stage_preserves_explicit_sample_key_from_manifest(self, tmp_path: Path) -> None:
         manifest = tmp_path / "audio_sample_keys.jsonl"
