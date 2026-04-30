@@ -222,6 +222,10 @@ class QwenOmni(ModelInterface):
     ) -> tuple[dict[str, Any], np.ndarray] | None:
         from qwen_omni_utils import process_mm_info
 
+        if waveform is None or waveform.size == 0:
+            logger.warning("Skipping empty waveform")
+            return None
+
         try:
             waveform_16k = self._resample(waveform, sample_rate)
             messages = self._build_messages(waveform_16k, language)
@@ -304,7 +308,7 @@ class QwenOmni(ModelInterface):
         waveforms: list[np.ndarray],
         sample_rates: list[int],
         languages: list[str | None] | None = None,
-    ) -> tuple[list[str], list[str]]:
+    ) -> tuple[list[str], list[str], set[int]]:
         """Run batched two-turn inference on in-memory audio waveforms.
 
         Turn 1 transcribes using ``prompt_text``.  If ``followup_prompt``
@@ -323,9 +327,10 @@ class QwenOmni(ModelInterface):
                 interpolation.
 
         Returns:
-            ``(pred_texts, disfluency_texts)`` — one string per input for
-            each turn.  ``disfluency_texts`` is all empty strings when
-            ``followup_prompt`` is ``None``.
+            ``(pred_texts, disfluency_texts, skipped_indices)`` — one string
+            per input for each turn, plus a set of indices that were skipped
+            due to empty/corrupt audio.  ``disfluency_texts`` is all empty
+            strings when ``followup_prompt`` is ``None``.
         """
         if self._llm is None or self._sampling_params is None:
             msg = "Model not initialized. Call setup() first."
@@ -338,10 +343,11 @@ class QwenOmni(ModelInterface):
         valid_indices = [i for i, p in enumerate(prepared) if p is not None]
         valid_inputs = [prepared[i][0] for i in valid_indices]
         waveforms_16k: dict[int, np.ndarray] = {i: prepared[i][1] for i in valid_indices}
+        skipped_indices = set(range(n)) - set(valid_indices)
 
         if not valid_inputs:
             logger.warning(f"All {n} audio samples in batch failed preprocessing")
-            return [""] * n, [""] * n
+            return [""] * n, [""] * n, skipped_indices
 
         if len(valid_inputs) < n:
             logger.warning(f"Skipped {n - len(valid_inputs)}/{n} corrupt audio samples")
@@ -354,11 +360,11 @@ class QwenOmni(ModelInterface):
 
         # -- Turn 2 (disfluency refinement) -----------------------------------
         if not self.followup_prompt:
-            return pred_texts, [""] * n
+            return pred_texts, [""] * n, skipped_indices
 
         t2_indices = [i for i in valid_indices if pred_texts[i]]
         if not t2_indices:
-            return pred_texts, [""] * n
+            return pred_texts, [""] * n, skipped_indices
 
         langs = languages or [None] * n
         t2_prepared = self._prepare_turn2_batch(
@@ -370,7 +376,7 @@ class QwenOmni(ModelInterface):
         t2_valid = [(i, p) for i, p in zip(t2_indices, t2_prepared, strict=False) if p is not None]
         if not t2_valid:
             logger.warning("All Turn 2 samples failed preprocessing")
-            return pred_texts, [""] * n
+            return pred_texts, [""] * n, skipped_indices
 
         t2_outputs = self._llm.generate(
             [p for _, p in t2_valid], sampling_params=self._sampling_params, use_tqdm=False,
@@ -380,4 +386,4 @@ class QwenOmni(ModelInterface):
         for (idx, _), out in zip(t2_valid, t2_outputs, strict=False):
             disfluency_texts[idx] = out.outputs[0].text.strip()
 
-        return pred_texts, disfluency_texts
+        return pred_texts, disfluency_texts, skipped_indices

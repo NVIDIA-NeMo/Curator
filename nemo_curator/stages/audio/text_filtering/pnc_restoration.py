@@ -84,6 +84,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     text_key: str = "cleaned_text"
     output_text_key: str = "pnc_text"
     skip_me_key: str = "_skip_me"
+    source_lang_key: str = "source_lang"
     completeness_prompt: str = (
         "The following text is a transcript segment from an audio recording. "
         "It may be a complete, self-contained utterance or thought, "
@@ -177,10 +178,11 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         msg = "PnCRestorationStage only supports process_batch"
         raise NotImplementedError(msg)
 
-    def _partition_tasks(self, tasks: list[AudioTask]) -> tuple[list[int], list[str]]:
+    def _partition_tasks(self, tasks: list[AudioTask]) -> tuple[list[int], list[str], list[str]]:
         """Separate eligible tasks from those that are skipped or empty."""
         eligible_indices: list[int] = []
         eligible_texts: list[str] = []
+        eligible_langs: list[str] = []
         for i, task in enumerate(tasks):
             skip = task.data.get(self.skip_me_key, "")
             text = task.data.get(self.text_key, "")
@@ -191,7 +193,8 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             else:
                 eligible_indices.append(i)
                 eligible_texts.append(text)
-        return eligible_indices, eligible_texts
+                eligible_langs.append(task.data.get(self.source_lang_key, ""))
+        return eligible_indices, eligible_texts, eligible_langs
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:
@@ -205,24 +208,18 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "Model not initialized — setup() was not called"
             raise RuntimeError(msg)
 
-        eligible_indices, eligible_texts = self._partition_tasks(tasks)
+        eligible_indices, eligible_texts, eligible_langs = self._partition_tasks(tasks)
 
         if not eligible_indices:
             logger.info("PnCRestoration: all {} tasks skipped (flagged or empty)", len(tasks))
             return tasks
 
-        all_complete: list[bool] = []
-        all_pnc: list[str] = []
-        for start in range(0, len(eligible_texts), self.batch_size):
-            chunk = eligible_texts[start : start + self.batch_size]
-            is_complete, pnc_texts = self._model.generate(chunk)
-            all_complete.extend(is_complete)
-            all_pnc.extend(pnc_texts)
+        is_complete, pnc_texts = self._model.generate(eligible_texts, languages=eligible_langs)
 
-        for idx, _complete, pnc_text in zip(eligible_indices, all_complete, all_pnc, strict=False):
+        for idx, _complete, pnc_text in zip(eligible_indices, is_complete, pnc_texts, strict=False):
             tasks[idx].data[self.output_text_key] = pnc_text
 
-        n_restored = sum(all_complete)
+        n_restored = sum(is_complete)
         logger.info(
             "PnCRestoration: {}/{} restored, {}/{} kept as-is",
             n_restored, len(eligible_indices),

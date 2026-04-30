@@ -191,10 +191,10 @@ class QwenTextLLM(ModelInterface):
         except Exception:  # noqa: BLE001
             return user_text
 
-    def _prepare_single(self, text: str, prompt_template: str) -> dict[str, Any] | None:
+    def _prepare_single(self, text: str, prompt_template: str, language: str = "") -> dict[str, Any] | None:
         """Build a single vLLM input dict, returning None on failure."""
         try:
-            user_text = prompt_template.format(text=text)
+            user_text = prompt_template.format(text=text, language=language)
             return {"prompt": self._format_prompt(user_text)}
         except Exception:  # noqa: BLE001
             logger.warning("Failed to prepare prompt for text (len={}), skipping", len(text))
@@ -205,6 +205,7 @@ class QwenTextLLM(ModelInterface):
         texts: list[str],
         indices: list[int],
         prompt_template: str,
+        languages: list[str] | None = None,
     ) -> tuple[list[int], list[dict[str, Any]]]:
         """Prepare a batch, filtering out items that fail preprocessing.
 
@@ -215,13 +216,16 @@ class QwenTextLLM(ModelInterface):
             original indices and their corresponding vLLM input dicts.
         """
         batch_texts = [texts[i] for i in indices]
+        batch_langs = [languages[i] for i in indices] if languages else [""] * len(indices)
 
         if self._prep_pool is not None:
             results = list(
-                self._prep_pool.map(self._prepare_single, batch_texts, [prompt_template] * len(indices)),
+                self._prep_pool.map(
+                    self._prepare_single, batch_texts, [prompt_template] * len(indices), batch_langs,
+                ),
             )
         else:
-            results = [self._prepare_single(t, prompt_template) for t in batch_texts]
+            results = [self._prepare_single(t, prompt_template, lang) for t, lang in zip(batch_texts, batch_langs)]
 
         valid_indices: list[int] = []
         valid_inputs: list[dict[str, Any]] = []
@@ -244,6 +248,7 @@ class QwenTextLLM(ModelInterface):
     def generate(
         self,
         texts: list[str],
+        languages: list[str] | None = None,
     ) -> tuple[list[bool], list[str]]:
         """Run batched two-step PnC restoration on text inputs.
 
@@ -253,6 +258,9 @@ class QwenTextLLM(ModelInterface):
 
         Args:
             texts: List of cleaned text strings.
+            languages: Optional per-sample language names. When provided and
+                the prompt template contains ``{language}``, the placeholder
+                is resolved per sample (e.g. "Italian", "French").
 
         Returns:
             ``(is_complete, pnc_texts)`` where:
@@ -275,7 +283,7 @@ class QwenTextLLM(ModelInterface):
             return is_complete, pnc_texts
 
         s1_valid_indices, s1_valid_inputs = self._prepare_batch(
-            texts, non_empty_indices, self.completeness_prompt,
+            texts, non_empty_indices, self.completeness_prompt, languages=languages,
         )
 
         if not s1_valid_inputs:
@@ -307,7 +315,7 @@ class QwenTextLLM(ModelInterface):
             return is_complete, pnc_texts
 
         s2_valid_indices, s2_valid_inputs = self._prepare_batch(
-            texts, complete_indices, self.pnc_prompt,
+            texts, complete_indices, self.pnc_prompt, languages=languages,
         )
 
         if not s2_valid_inputs:

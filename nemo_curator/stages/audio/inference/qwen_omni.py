@@ -98,6 +98,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     source_lang_key: str = "source_lang"
     pred_text_key: str = "qwen3_prediction_s1"
     disfluency_text_key: str = "qwen3_prediction_s2"
+    skip_me_key: str = "_skipme"
     max_model_len: int = 32768
     max_num_seqs: int = 32
     gpu_memory_utilization: float = 0.95
@@ -209,14 +210,18 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
                 for code in (t.data.get(self.source_lang_key) for t in tasks)
             ]
 
-        pred_texts, disfluency_texts = self._model.generate(waveforms, sample_rates, languages)
+        pred_texts, disfluency_texts, skipped_indices = self._model.generate(waveforms, sample_rates, languages)
 
-        for task, pred, disfl in zip(tasks, pred_texts, disfluency_texts, strict=True):
+        for i, (task, pred, disfl) in enumerate(zip(tasks, pred_texts, disfluency_texts, strict=True)):
             task.data[self.pred_text_key] = pred
             if self.followup_prompt:
                 task.data[self.disfluency_text_key] = disfl
+            if i in skipped_indices:
+                task.data[self.skip_me_key] = "empty_audio"
             if not self.keep_waveform:
                 task.data.pop(self.waveform_key, None)
 
+        if skipped_indices:
+            logger.info(f"QwenOmni: marked {len(skipped_indices)}/{len(tasks)} tasks as empty_audio (_skipme)")
         logger.info(f"QwenOmni: generated {len(pred_texts)} predictions (turn2={bool(self.followup_prompt)})")
         return tasks
