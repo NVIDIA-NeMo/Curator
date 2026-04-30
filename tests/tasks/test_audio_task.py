@@ -91,6 +91,11 @@ def test_build_checkpoint_shard_id_strips_compound_extensions(tmp_path: Path) ->
     assert build_checkpoint_shard_id(source_files=[tar_path.as_posix()]) == "audio_0001"
 
 
+def test_build_checkpoint_shard_id_ignores_whitespace_only_explicit_value(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest_0002.jsonl"
+    assert build_checkpoint_shard_id(source_files=[manifest_path.as_posix()], explicit_shard_id="   ") == "manifest_0002"
+
+
 def test_ensure_sample_key_derives_and_caches_key() -> None:
     task = AudioTask(dataset_name="dataset", data={"audio_filepath": "/a.wav"})
 

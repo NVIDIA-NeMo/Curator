@@ -102,7 +102,8 @@ def build_checkpoint_shard_id(
     """Build a stable checkpoint shard identifier."""
     if explicit_shard_id is not None:
         normalized_shard = _normalize_sample_key_value(explicit_shard_id)
-        return f"shard_{normalized_shard}"
+        if normalized_shard is not None:
+            return f"shard_{normalized_shard}"
 
     normalized_files = [_sanitize_checkpoint_shard_component(_strip_known_extensions(path)) for path in source_files or []]
     if len(normalized_files) == 1:
