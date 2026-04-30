@@ -91,6 +91,45 @@ class TestCaptionGenerationStage:
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model
 
+    @patch("nemo_curator.stages.video.caption.caption_generation.Nemotron3NanoOmni")
+    def test_setup_nemotron_3_nano_omni_variant(self, mock_nemotron_omni: Mock):
+        """Test setup method routes nemotron-3-nano-omni to Nemotron3NanoOmni."""
+        mock_model = Mock()
+        mock_nemotron_omni.return_value = mock_model
+
+        stage = CaptionGenerationStage(
+            model_dir="/aot/checkpoints/nemotron_3_nano_omni",
+            model_variant="nemotron-3-nano-omni",
+            caption_batch_size=8,
+            max_output_tokens=512,
+            verbose=False,
+        )
+        stage.setup()
+
+        mock_nemotron_omni.assert_called_once_with(
+            model_dir="/aot/checkpoints/nemotron_3_nano_omni",
+            caption_batch_size=8,
+            max_output_tokens=512,
+            stage2_prompt_text=None,
+            verbose=False,
+        )
+        mock_model.setup.assert_called_once()
+        assert stage.model == mock_model
+
+    @patch("nemo_curator.stages.video.caption.caption_generation.Nemotron3NanoOmni")
+    def test_setup_on_node_nemotron_3_nano_omni_calls_download(self, mock_nemotron_omni: Mock):
+        """setup_on_node calls Nemotron3NanoOmni.download_weights_on_node for the omni variant."""
+        mock_model = Mock()
+        mock_nemotron_omni.return_value = mock_model
+
+        stage = CaptionGenerationStage(
+            model_dir="/aot/checkpoints/nemotron_3_nano_omni",
+            model_variant="nemotron-3-nano-omni",
+        )
+        stage.setup_on_node()
+
+        mock_nemotron_omni.download_weights_on_node.assert_called_once_with("/aot/checkpoints/nemotron_3_nano_omni")
+
     def test_setup_unsupported_variant(self):
         """Test setup method with unsupported model variant."""
         stage = CaptionGenerationStage(model_variant="unsupported")
