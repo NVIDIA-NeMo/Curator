@@ -35,7 +35,6 @@ import glob
 import json
 import math
 import os
-import shutil
 import time
 import uuid
 from collections import defaultdict
@@ -1042,7 +1041,19 @@ def _merge_manifest_shards(output_path: str) -> None:
     with open(output_path, "w", encoding="utf-8") as out:
         for s in shards:
             with open(s, encoding="utf-8") as f:
-                shutil.copyfileobj(f, out)
+                for raw in f:
+                    line = raw.strip()
+                    if not line:
+                        continue
+                    try:
+                        json.loads(line)
+                    except json.JSONDecodeError as e:
+                        # A worker killed mid-write (e.g. Xenna's ray.kill)
+                        # can leave a truncated final line in a shard; skip
+                        # it so we don't emit invalid JSONL.
+                        logger.warning(f"skipping malformed manifest shard line in {s}: {e}")
+                        continue
+                    out.write(line + "\n")
     for s in shards:
         try:
             os.remove(s)
