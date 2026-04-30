@@ -71,7 +71,9 @@ def _balanced_sample_qa(
 ) -> list[tuple[str, str]]:
     """Sample up to max_pairs (q, a) from tagged (type, q, a), balancing by type."""
     if len(tagged) <= max_pairs:
-        return [(q, a) for _, q, a in tagged]
+        result = [(q, a) for _, q, a in tagged]
+        rng.shuffle(result)
+        return result
     by_type: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for typ, q, a in tagged:
         by_type[typ].append((q, a))

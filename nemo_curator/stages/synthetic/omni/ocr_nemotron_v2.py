@@ -142,6 +142,8 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp_path = tmp.name
         try:
+            if image.mode != "RGB":
+                image = image.convert("RGB")
             image.save(tmp_path, format="JPEG")
             preds = self._model(tmp_path, merge_level=self.merge_level)
         finally:
