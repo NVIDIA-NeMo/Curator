@@ -99,13 +99,16 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     name: str = "SEDInference"
     batch_size: int = 32
-    num_workers: int | None = None
+    num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
+
+    def num_workers(self) -> int | None:
+        return self.num_workers_override
 
     def xenna_stage_spec(self) -> dict[str, Any]:
         spec: dict[str, Any] = {}
-        if self.num_workers is not None:
-            spec["num_workers"] = self.num_workers
+        if self.num_workers_override is not None:
+            spec["num_workers"] = self.num_workers_override
         return spec
 
     def setup(self, _worker_metadata: Any = None) -> None:
@@ -161,7 +164,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Run batched SED inference on the GPU for all tasks at once."""
-        if not tasks:
+        if len(tasks) == 0:
             return []
 
         import numpy as np

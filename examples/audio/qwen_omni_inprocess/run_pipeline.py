@@ -67,7 +67,7 @@ import time
 
 from loguru import logger
 
-from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.stages.audio.inference.qwen_asr import InferenceQwenASRStage
@@ -300,7 +300,7 @@ def main() -> None:  # noqa: C901
                 checkpoint_path=args.sed_checkpoint,
                 model_type=args.sed_model_type,
                 batch_size=args.sed_batch_size,
-                num_workers=args.sed_num_workers,
+                num_workers_override=args.sed_num_workers,
                 resources=Resources(cpus=1.0, gpu_memory_gb=args.sed_gpu_memory_gb),
             ),
             SEDPostprocessingStage(
@@ -328,7 +328,7 @@ def main() -> None:  # noqa: C901
         pred_text_key="qwen3_prediction_s1",
         disfluency_text_key="qwen3_prediction_s2",
         keep_waveform=bool(args.asr_model_id),
-        num_workers=args.omni_num_workers,
+        num_workers_override=args.omni_num_workers,
     ))
 
     if followup_prompt:
@@ -356,7 +356,7 @@ def main() -> None:  # noqa: C901
                 batch_size=args.asr_batch_size,
                 gpu_memory_utilization=args.asr_gpu_memory_utilization,
                 max_new_tokens=args.asr_max_new_tokens,
-                num_workers=args.asr_num_workers,
+                num_workers_override=args.asr_num_workers,
             ),
             WhisperHallucinationStage(
                 name="WhisperHallucination_asr",
@@ -407,7 +407,7 @@ def main() -> None:  # noqa: C901
                 max_num_seqs=args.pnc_max_num_seqs,
                 gpu_memory_utilization=args.pnc_gpu_memory_utilization,
                 prep_workers=args.pnc_prep_workers,
-                num_workers=args.pnc_num_workers,
+                num_workers_override=args.pnc_num_workers,
                 **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
                 **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
                 source_lang_key=args.pnc_source_lang_key,
@@ -432,7 +432,7 @@ def main() -> None:  # noqa: C901
             gpu_memory_utilization=args.itn_gpu_memory_utilization,
             batch_size=args.itn_batch_size,
             enable_validation=not args.itn_no_validation,
-            num_workers=args.itn_num_workers,
+            num_workers_override=args.itn_num_workers,
         ))
 
     stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
@@ -444,12 +444,7 @@ def main() -> None:  # noqa: C901
 
     logger.info(f"Pipeline: {pipeline.describe()}")
 
-    executor = XennaExecutor(
-        config={
-            "execution_mode": args.execution_mode,
-            "autoscale_interval_s": args.autoscale_interval_s,
-        }
-    )
+    executor = RayDataExecutor()
 
     t0 = time.time()
     pipeline.run(executor=executor)

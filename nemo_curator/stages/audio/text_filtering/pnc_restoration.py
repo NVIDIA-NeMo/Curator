@@ -100,7 +100,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     top_k: int = 1
     prep_workers: int = 8
     batch_size: int = 64
-    num_workers: int | None = None
+    num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     def _resolve_pnc_prompt(self) -> str:
@@ -116,10 +116,13 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         if tp and tp > 0:
             self.resources = Resources(gpus=float(tp))
 
+    def num_workers(self) -> int | None:
+        return self.num_workers_override
+
     def xenna_stage_spec(self) -> dict[str, Any]:
         spec: dict[str, Any] = {}
-        if self.num_workers is not None:
-            spec["num_workers"] = self.num_workers
+        if self.num_workers_override is not None:
+            spec["num_workers"] = self.num_workers_override
         return spec
 
     def _create_model(self) -> QwenTextLLM:
@@ -181,7 +184,7 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        if not tasks:
+        if len(tasks) == 0:
             return []
 
         if self._model is None:
