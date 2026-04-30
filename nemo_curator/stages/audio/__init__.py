@@ -27,6 +27,8 @@ from nemo_curator.stages.audio.advanced_pipelines import AudioDataFilterStage
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
+    ManifestReader,
+    ManifestWriterStage,
     PreserveByValueStage,
 )
 from nemo_curator.stages.audio.filtering import (
@@ -62,6 +64,8 @@ __all__ = [
     "BandFilterStage",
     "CleanupTemporaryAudioStage",
     "GetAudioDurationStage",
+    "ManifestReader",
+    "ManifestWriterStage",
     "MaterializeTarredAudioStage",
     "MonoConversionStage",
     "PreserveByValueStage",

@@ -42,7 +42,7 @@ To manually run all checks: `pre-commit run --all-files`
 
 ### Prerequisites
 
-- Python >=3.10, < 3.13
+- Python >=3.11, < 3.14
 - OS: Ubuntu 22.04/20.04
 - NVIDIA GPU (optional)
   - Volta™ or higher (compute capability 7.0+)

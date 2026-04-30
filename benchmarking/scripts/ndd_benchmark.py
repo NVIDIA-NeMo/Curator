@@ -17,9 +17,15 @@
 """NeMo Data Designer (NDD) benchmarking script.
 
 Key args:
-  --inference-server-type  ray-serve | nvidia-nim
+  --inference-server-type  ray-serve | dynamo | nvidia-nim
   --engine-kwargs          JSON vLLM kwargs, e.g. '{"tensor_parallel_size": 4}'
   --autoscaling-config     JSON Ray Serve autoscaling, e.g. '{"min_replicas": 1, "max_replicas": 1}'
+                           For ``dynamo``, autoscaling is unsupported: ``min_replicas`` must
+                           equal ``max_replicas`` and is used as a static ``num_replicas``.
+  --model-path             Optional absolute path to a local model snapshot dir. When set
+                           (ray-serve/dynamo only), used as ``model_identifier`` so vLLM
+                           loads weights from disk; ``--model-id`` is still used as the
+                           served model name in /v1/models. Ignored for ``nvidia-nim``.
 """
 
 import argparse
@@ -141,24 +147,69 @@ Respond with only the notes, no other text.
 # ---------------------------------------------------------------------------
 
 
-def _start_inference_server(
+def _start_ray_serve_inference_server(
     model_id: str,
     engine_kwargs: dict[str, Any] | None = None,
     autoscaling_config: dict[str, Any] | None = None,
+    model_path: str | None = None,
 ) -> "InferenceServer":
-    """Start a local InferenceServer and return it."""
+    """Start a local Ray Serve-backed InferenceServer and return it.
+
+    If ``model_path`` is set, vLLM loads weights from that local path while
+    ``model_id`` is used as the served name in ``/v1/models``.
+    """
     from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
 
     engine_kwargs = engine_kwargs or {}
     autoscaling_config = autoscaling_config or {"min_replicas": 1, "max_replicas": 1}
 
     server_config = RayServeModelConfig(
-        model_identifier=model_id,
+        model_identifier=model_path or model_id,
+        model_name=model_id if model_path else None,
         deployment_config={"autoscaling_config": autoscaling_config},
         engine_kwargs=engine_kwargs,
     )
 
     server = InferenceServer(models=[server_config])
+    server.start()
+    return server
+
+
+def _start_dynamo_inference_server(
+    model_id: str,
+    engine_kwargs: dict[str, Any] | None = None,
+    autoscaling_config: dict[str, Any] | None = None,
+    model_path: str | None = None,
+) -> "InferenceServer":
+    """Start a local Dynamo-backed InferenceServer and return it.
+
+    Dynamo has no autoscaling — ``min_replicas`` and ``max_replicas`` (when
+    supplied) must match and are used as a static ``num_replicas``.
+    If ``model_path`` is set, vLLM loads weights from that local path while
+    ``model_id`` is used as the served name in ``/v1/models``.
+    """
+    from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig, InferenceServer
+
+    engine_kwargs = engine_kwargs or {}
+    num_replicas = 1
+    if autoscaling_config:
+        min_r = autoscaling_config.get("min_replicas", 1)
+        max_r = autoscaling_config.get("max_replicas", min_r)
+        if min_r != max_r:
+            msg = (
+                f"Dynamo backend does not support autoscaling; min_replicas ({min_r}) "
+                f"must equal max_replicas ({max_r})."
+            )
+            raise ValueError(msg)
+        num_replicas = min_r
+
+    model_config = DynamoVLLMModelConfig(
+        model_identifier=model_path or model_id,
+        model_name=model_id if model_path else None,
+        engine_kwargs=engine_kwargs,
+        num_replicas=num_replicas,
+    )
+    server = InferenceServer(models=[model_config], backend=DynamoServerConfig())
     server.start()
     return server
 
@@ -177,6 +228,7 @@ def run_ndd_benchmark(  # noqa: PLR0915
     num_files: int | None,
     engine_kwargs: dict[str, Any] | None = None,
     autoscaling_config: dict[str, Any] | None = None,
+    model_path: str | None = None,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the NDD benchmark and collect metrics."""
@@ -200,10 +252,15 @@ def run_ndd_benchmark(  # noqa: PLR0915
     model_providers = None
     serve_startup_s = 0.0
 
-    if inference_server_type == "ray-serve":
-        logger.info(f"Starting local InferenceServer with engine_kwargs={engine_kwargs}")
+    if inference_server_type in ("ray-serve", "dynamo"):
+        logger.info(f"Starting local {inference_server_type} InferenceServer with engine_kwargs={engine_kwargs}")
         serve_start = time.perf_counter()
-        inference_server = _start_inference_server(model_id, engine_kwargs, autoscaling_config)
+        starter = (
+            _start_ray_serve_inference_server
+            if inference_server_type == "ray-serve"
+            else _start_dynamo_inference_server
+        )
+        inference_server = starter(model_id, engine_kwargs, autoscaling_config, model_path=model_path)
         serve_startup_s = time.perf_counter() - serve_start
         logger.info(f"InferenceServer ready at {inference_server.endpoint} (startup: {serve_startup_s:.1f}s)")
 
@@ -305,10 +362,18 @@ def main() -> int:
     parser.add_argument(
         "--inference-server-type",
         required=True,
-        choices=["ray-serve", "nvidia-nim"],
+        choices=["ray-serve", "dynamo", "nvidia-nim"],
         help="Model serving backend",
     )
     parser.add_argument("--model-id", default="openai/gpt-oss-20b", help="Model identifier")
+    parser.add_argument(
+        "--model-path",
+        default=None,
+        help=(
+            "Optional absolute path to a local model snapshot dir (vLLM/Dynamo only). "
+            "When set, vLLM loads weights from this path; --model-id remains the served name."
+        ),
+    )
     parser.add_argument("--executor", default="ray_data", choices=["ray_data", "xenna"], help="Pipeline executor")
     parser.add_argument("--num-files", type=int, default=None, help="Limit number of input files (default: all)")
     parser.add_argument(
@@ -350,6 +415,7 @@ def main() -> int:
                 num_files=args.num_files,
                 engine_kwargs=engine_kwargs,
                 autoscaling_config=autoscaling_config,
+                model_path=args.model_path,
             )
         )
         success_code = 0 if result_dict["metrics"]["is_success"] else 1

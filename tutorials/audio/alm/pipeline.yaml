@@ -35,7 +35,7 @@ documentation: |
 
   It performs the following data processing:
 
-  0. ALM Manifest Reader: Reads JSONL manifest on the worker (not the driver)
+  0. Manifest Reader: Reads JSONL manifest on the worker (not the driver)
 
   1. ALM Data Builder: Creates training windows from audio segments
      - Filters by sample rate, bandwidth, speaker count
@@ -72,10 +72,10 @@ backend: xenna
 
 # Stage chain definition
 stages:
-  # Stage 0: ALM Manifest Reader (CompositeStage)
-  # Decomposes into FilePartitioningStage + ALMManifestReaderStage
+  # Stage 0: Manifest Reader (CompositeStage)
+  # Decomposes into FilePartitioningStage + ManifestReaderStage
   # Reads JSONL line-by-line (no Pandas), produces one AudioTask per entry
-  - _target_: nemo_curator.stages.audio.alm.ALMManifestReader
+  - _target_: nemo_curator.stages.audio.ManifestReader
     manifest_path: ${manifest_path}
     files_per_partition: 1
 
@@ -111,7 +111,7 @@ stages:
     overlap_percentage: 50
     target_duration: 120.0
 
-  # Stage 3: ALM Manifest Writer
+  # Stage 3: Manifest Writer
   # Writes output entries to a JSONL manifest
-  - _target_: nemo_curator.stages.audio.alm.ALMManifestWriterStage
+  - _target_: nemo_curator.stages.audio.ManifestWriterStage
     output_path: ${output_dir}/alm_output.jsonl
