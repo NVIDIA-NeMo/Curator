@@ -399,9 +399,18 @@ class TestMergeOutputShards:
         output = tmp_path / "out.jsonl"
         _write_jsonl(output, [{"existing": True}])
         self._write_shard(tmp_path, "out", "0", [{"new": True}])
-        merge_output_shards(output)
+        merge_output_shards(output, append=True)
         lines = output.read_text().splitlines()
         assert len(lines) == 2
+
+    def test_overwrites_existing_merged_file_by_default(self, tmp_path: Path):
+        output = tmp_path / "out.jsonl"
+        _write_jsonl(output, [{"existing": True}])
+        self._write_shard(tmp_path, "out", "0", [{"new": True}])
+        merge_output_shards(output)  # append=False by default
+        lines = output.read_text().splitlines()
+        assert len(lines) == 1
+        assert '"new"' in lines[0]
 
     def test_empty_shards_produce_empty_merged(self, tmp_path: Path):
         self._write_shard(tmp_path, "out", "0", [])
