@@ -100,6 +100,7 @@ class AudioCheckpointRunner:
     def _run_audio_stage(
         self, stage: ProcessingStage, input_tasks: list[AudioTask]
     ) -> tuple[list[AudioTask], list[SampleCheckpointRecord]]:
+        retry_tasks = deepcopy(input_tasks) if self.ignore_failed else None
         try:
             return self._run_single_stage(stage, input_tasks), []
         except Exception as error:
@@ -110,9 +111,9 @@ class AudioCheckpointRunner:
             logger.warning(
                 f"Stage {stage._name} failed for a batch of {len(input_tasks)} tasks, retrying one-by-one: {error}"
             )
-            retry_tasks = deepcopy(input_tasks)
             outputs: list[AudioTask] = []
             failed_records: list[SampleCheckpointRecord] = []
+            assert retry_tasks is not None
             for task in retry_tasks:
                 stage_outputs, failed_record = self._run_single_task_with_retry(stage, task)
                 outputs.extend(stage_outputs)
