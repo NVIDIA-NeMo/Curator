@@ -64,6 +64,7 @@ dependencies = [
     "pandas>=2.1.0",
     "pyarrow",
     "ray[default,data]>=2.54",
+    "pyopenssl>=26.0.0",
     "torch",
     "transformers",
 ]
