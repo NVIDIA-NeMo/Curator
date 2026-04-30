@@ -12,31 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-ALM (Audio Language Model) data curation stages.
+"""Stages for cutting long-form diarized audio into snippets for ALM pretraining.
 
-Stages for building and filtering training windows from audio segments
-for Audio Language Model training.
+The output JSONL produced by this pipeline is a per-snippet manifest where
+each row preserves the original audio's metadata (with ``alignment``
+removed), references the cut snippet WAV/FLAC file, and carries a list of
+diarization+transcription segments with timestamps relative to the snippet.
+That shape can be reused to construct interleaved audio/text continuation
+data, ASR training data, TTS training data, and speaker-diarization
+training data without re-cutting the source audio.
 """
 
-from nemo_curator.stages.audio.alm.alm_data_builder import ALMDataBuilderStage
-from nemo_curator.stages.audio.alm.alm_data_overlap import ALMDataOverlapStage
-from nemo_curator.stages.audio.alm.pretrain import (
+from nemo_curator.stages.audio.alm.pretrain.stages import (
     OverlapFilterStage,
     PretrainMetricsAggregatorStage,
     ReadLongFormManifestStage,
     SnippetCutPlannerStage,
     SnippetExtractionStage,
     SnippetManifestWriterStage,
+    finalize_audio_pretrain_outputs,
+    prepare_audio_pretrain_outputs,
 )
 
 __all__ = [
-    "ALMDataBuilderStage",
-    "ALMDataOverlapStage",
     "OverlapFilterStage",
     "PretrainMetricsAggregatorStage",
     "ReadLongFormManifestStage",
     "SnippetCutPlannerStage",
     "SnippetExtractionStage",
     "SnippetManifestWriterStage",
+    "finalize_audio_pretrain_outputs",
+    "prepare_audio_pretrain_outputs",
 ]
