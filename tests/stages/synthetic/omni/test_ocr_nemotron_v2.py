@@ -235,6 +235,7 @@ def test_setup_loads_model():
 
     Requires nemotron_ocr installed and a GPU.
     """
+    pytest.importorskip("nemotron_ocr.inference.pipeline_v2")
     import huggingface_hub
 
     snapshot = huggingface_hub.snapshot_download("nvidia/nemotron-ocr-v2")

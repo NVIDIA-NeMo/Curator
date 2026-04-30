@@ -181,3 +181,26 @@ class OCRConversationData(OCRData):
         if self.conversation is not None:
             d["conversation"] = self.conversation.to_dict()
         return d
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> OCRConversationData:
+        """Deserialize from a JSONL record produced by :meth:`to_dict`."""
+        from nemo_curator.stages.synthetic.omni.utils.conversation import ConversationSample
+
+        base = OCRData.from_dict(data)
+        conv_raw = data.get("conversation")
+        return cls(
+            image_path=base.image_path,
+            image_id=base.image_id,
+            is_valid=base.is_valid,
+            error=base.error,
+            ocr_is_word_level=base.ocr_is_word_level,
+            ocr_dense_prompt=base.ocr_dense_prompt,
+            ocr_dense=base.ocr_dense,
+            ocr_scoring_prompt=base.ocr_scoring_prompt,
+            ocr_scoring_model=base.ocr_scoring_model,
+            ocr_scoring_response_raw=base.ocr_scoring_response_raw,
+            ocr_scoring_mode=base.ocr_scoring_mode,
+            ocr_scoring_missing=base.ocr_scoring_missing,
+            conversation=ConversationSample.from_dict(conv_raw) if conv_raw is not None else None,
+        )

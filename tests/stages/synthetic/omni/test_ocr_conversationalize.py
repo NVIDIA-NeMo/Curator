@@ -224,3 +224,79 @@ class TestOCRConversationDataToDict:
         d = data.to_dict()
         assert isinstance(d["ocr_dense"], list)
         assert d["ocr_dense"][0]["text_content"] == "HELLO"
+
+
+# ---------------------------------------------------------------------------
+# OCRConversationData.from_dict
+# ---------------------------------------------------------------------------
+
+
+class TestOCRConversationDataFromDict:
+    def _base_record(self) -> dict:
+        return {
+            "image_path": "test.jpg",
+            "image_id": "id0",
+            "is_valid": True,
+            "error": None,
+            "ocr_is_word_level": True,
+            "ocr_dense_prompt": None,
+            "ocr_dense": None,
+            "ocr_scoring_prompt": None,
+            "ocr_scoring_model": None,
+            "ocr_scoring_response_raw": None,
+            "ocr_scoring_mode": None,
+            "ocr_scoring_missing": None,
+        }
+
+    def test_no_conversation_key_gives_none(self):
+        data = OCRConversationData.from_dict(self._base_record())
+        assert data.conversation is None
+
+    def test_explicit_none_conversation_gives_none(self):
+        rec = self._base_record()
+        rec["conversation"] = None
+        data = OCRConversationData.from_dict(rec)
+        assert data.conversation is None
+
+    def test_base_fields_preserved(self):
+        data = OCRConversationData.from_dict(self._base_record())
+        assert data.image_id == "id0"
+        assert data.is_valid is True
+        assert data.ocr_is_word_level is True
+
+    def test_ocr_dense_deserialized(self):
+        rec = self._base_record()
+        rec["ocr_dense"] = [{"bbox_2d": [10, 20, 100, 50], "text_content": "HELLO"}]
+        data = OCRConversationData.from_dict(rec)
+        assert data.ocr_dense is not None
+        assert len(data.ocr_dense) == 1
+        assert data.ocr_dense[0].text_content == "HELLO"
+
+    def test_round_trip_with_conversation(self):
+        conv = ConversationSample(
+            conversation=[Message(sender="user", fragments=["Describe the image"])]
+        )
+        original = OCRConversationData(
+            image_path=Path("test.jpg"),
+            image_id="id0",
+            conversation=conv,
+        )
+        data = OCRConversationData.from_dict(original.to_dict())
+        assert data.conversation is not None
+        assert len(data.conversation.conversation) == 1
+        assert data.conversation.conversation[0].sender == "user"
+
+    def test_round_trip_preserves_image_media_discriminator(self):
+        conv = ConversationSample(
+            conversation=[Message(sender="user", fragments=[ImageMedia(value="img.jpg")])]
+        )
+        original = OCRConversationData(
+            image_path=Path("img.jpg"),
+            image_id="id1",
+            conversation=conv,
+        )
+        data = OCRConversationData.from_dict(original.to_dict())
+        assert data.conversation is not None
+        frag = data.conversation.conversation[0].fragments[0]
+        assert isinstance(frag, ImageMedia)
+        assert frag.value == "img.jpg"
