@@ -35,6 +35,16 @@ if TYPE_CHECKING:
     import loguru
 
 
+def ignore_ray_head_node() -> bool:
+    """Return True if ``CURATOR_IGNORE_RAY_HEAD_NODE`` is set to a truthy value.
+
+    Used by both the pipeline executors (to skip the head node when scheduling
+    stage actors) and the inference-server backends (to emit a worker-only
+    bundle-label selector on placement groups).
+    """
+    return os.environ.get("CURATOR_IGNORE_RAY_HEAD_NODE", "").strip().lower() in ("1", "true", "yes")
+
+
 def check_ray_responsive(timeout_s: int = RAY_CLUSTER_START_VERIFICATION_TIMEOUT) -> bool:
     # Assume the env var RAY_ADDRESS is set to the correct value by code starting the Ray cluster
     logger.debug(f"Verifying Ray cluster is responsive, using RAY_ADDRESS={os.environ.get('RAY_ADDRESS')}")

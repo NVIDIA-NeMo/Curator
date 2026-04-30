@@ -108,7 +108,7 @@ def display_simple_subprocess(
     msg = ""
     run_id_msg = f" for run ID: {run_id}" if run_id else ""
 
-    with open(stdouterr_path, "w") as outfile:
+    with open(stdouterr_path, "a") as outfile:
         start_time = time.time()
         logger.info(
             f"\tRunning command (output to stdout/err): {' '.join(cmd_list) if isinstance(cmd_list, list) else cmd_list}"
@@ -216,7 +216,7 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
 
     with (
         Live(auto_refresh=False, vertical_overflow="visible") as live,
-        open(stdouterr_path, "w") as outfile,
+        open(stdouterr_path, "a") as outfile,
     ):
         start_time = time.time()
         final_panel = None

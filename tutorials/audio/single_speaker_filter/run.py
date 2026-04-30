@@ -15,7 +15,7 @@
 """Filter an ASR manifest to keep only single-speaker audio using Streaming Sortformer.
 
 Four-stage pipeline via XennaExecutor with per-task hash-based checkpointing:
-  ALMManifestReader → InferenceSortformerStage → SingleSpeakerFilterStage → ALMManifestWriterStage
+  ManifestReader → InferenceSortformerStage → SingleSpeakerFilterStage → ManifestWriterStage
 
 Input:
   NeMo-style JSONL manifest — one JSON object per line, at minimum:
@@ -51,8 +51,7 @@ from loguru import logger
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
-from nemo_curator.stages.audio.alm.alm_manifest_writer import ALMManifestWriterStage
+from nemo_curator.stages.audio import ManifestReader, ManifestWriterStage
 from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -275,7 +274,7 @@ def main() -> None:
     print(f"Manifest: {total_entries} entries{resume_info}", flush=True)
 
     stages: list[ProcessingStage] = [
-        ALMManifestReader(manifest_path=str(args.manifest)),
+        ManifestReader(manifest_path=str(args.manifest)),
         InferenceSortformerStage(
             model_name=args.model,
             chunk_len=args.chunk_len,
@@ -286,7 +285,7 @@ def main() -> None:
             inference_batch_size=1,
         ),
         SingleSpeakerFilterStage(),
-        ALMManifestWriterStage(output_path=str(args.output_manifest)),
+        ManifestWriterStage(output_path=str(args.output_manifest)),
     ]
 
     print("Starting pipeline with inter-stage checkpointing...", flush=True)

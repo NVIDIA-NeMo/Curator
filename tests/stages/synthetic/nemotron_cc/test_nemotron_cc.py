@@ -95,6 +95,16 @@ def _build_diverseqa_response(prefix: str) -> str:
     return "\n".join(lines)
 
 
+def test_nemotron_cc_stages_expose_distinct_names() -> None:
+    assert WikipediaParaphrasingStage().name == "WikipediaParaphrasing"
+    assert DiverseQAStage().name == "DiverseQA"
+    assert DiverseQAPostProcessingStage().name == "DiverseQAPostProcessing"
+    assert DistillStage().name == "Distill"
+    assert ExtractKnowledgeStage().name == "ExtractKnowledge"
+    assert KnowledgeListStage().name == "KnowledgeList"
+    assert KnowledgeListPostProcessingStage().name == "KnowledgeListPostProcessing"
+
+
 def test_diverseqa_post_processing_basic() -> None:
     # Create batch with raw QA output and run post-processing
     pp = DiverseQAPostProcessingStage()

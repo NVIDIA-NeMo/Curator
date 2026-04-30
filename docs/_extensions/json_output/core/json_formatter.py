@@ -1,6 +1,6 @@
 """JSON data formatting and structure building."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from docutils import nodes
@@ -96,7 +96,7 @@ class JSONFormatter:
             "id": docname,
             "title": title,
             "url": get_document_url(self.app, docname),
-            "last_modified": datetime.now(timezone.utc).isoformat(),
+            "last_modified": datetime.now(UTC).isoformat(),
         }
 
         # Add metadata fields

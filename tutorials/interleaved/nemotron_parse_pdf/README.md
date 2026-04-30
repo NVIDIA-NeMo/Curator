@@ -1,4 +1,4 @@
-# Nemotron-Parse PDF Tutorial
+# PDF Extraction Pipeline using Nemotron-Parse
 
 Convert PDFs into structured, interleaved parquet — text blocks, tables, images, and captions in reading order — using **Nemotron-Parse v1.2**.
 

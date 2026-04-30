@@ -1,0 +1,329 @@
+---
+description: "Release notes and version history for NeMo Curator platform updates and new features"
+categories: ["reference"]
+tags: ["release-notes", "changelog", "updates"]
+personas: ["data-scientist-focused", "mle-focused", "admin-focused", "devops-focused"]
+difficulty: "reference"
+content_type: "reference"
+modality: "universal"
+---
+
+# NeMo Curator Release Notes: 26.04
+
+<Warning>
+**Python 3.10 support will be removed in NeMo Curator 26.06.** The 26.04 release is the last release to support Python 3.10. Plan to upgrade your environments to a newer supported Python version (3.11+) before installing 26.06. See [Deprecations](#deprecations) for details.
+</Warning>
+
+## What's New in 26.04
+
+### vLLM and Sentence Transformers Embedding Support (PR #1346)
+
+Added two new embedding backends for text curation, giving users flexibility to choose the best engine for their model size and throughput needs:
+
+- **`VLLMEmbeddingModelStage`**: A new standalone embedding stage powered by [vLLM](https://docs.vllm.ai/) for high-throughput GPU-accelerated inference. Supports optional pretokenization (`pretokenize=True`) for best per-task throughput. Ideal for large embedding models where vLLM's batching and memory management outperform Sentence Transformers.
+- **`SentenceTransformerEmbeddingModelStage`**: A new embedding stage using the `sentence-transformers` library directly, providing native support for models from the Sentence Transformers ecosystem.
+- **`EmbeddingCreatorStage` enhancements**: Added `use_sentence_transformer` flag (defaults to `True`) to select between Sentence Transformers' `SentenceTransformer` and Hugging Face's `AutoModel` classes. Added `cache_dir` parameter for controlling model download location.
+
+For usage details, see [Text Embeddings](/curate-text/process-data/embeddings) and [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder).
+
+### Inference Server (Ray Serve)
+
+Built-in LLM serving alongside curation pipelines using Ray Serve and vLLM:
+
+- **`InferenceServer` and `InferenceModelConfig`**: New APIs to deploy one or more LLMs as OpenAI-compatible endpoints directly within a Ray cluster, eliminating the need for separate inference infrastructure.
+- **Context manager support**: `InferenceServer` works as a context manager for automatic startup and cleanup of served models.
+- **GPU contention detection**: `Pipeline.run()` automatically detects when an InferenceServer is active and enforces `RayDataExecutor` usage for GPU pipeline stages to prevent resource conflicts.
+- **`GenerationConfig.extra_kwargs`**: New field for passing arbitrary parameters through to the OpenAI API `create()` call.
+- **New install extras**: `inference_server` (Ray Serve + vLLM dependencies) and `sdg_cuda12` (SDG with local inference support).
+
+Learn more in the [Inference Server](/curate-text/synthetic/inference-server) documentation.
+
+### RayDataExecutor Promoted from Experimental (PR #1619)
+
+Moved `RayDataExecutor` out of the experimental namespace to `nemo_curator.backends.ray_data`. The executor is no longer marked as experimental, and the startup warning has been removed. Import path changes:
+
+- **Before**: `from nemo_curator.backends.experimental.ray_data import RayDataExecutor`
+- **After**: `from nemo_curator.backends.ray_data import RayDataExecutor`
+
+### Shared Tokenizer Support for Multiple Classifiers (PR #1528)
+
+Text classifiers that share the same base tokenizer can now reuse tokens across a pipeline, avoiding redundant tokenization. New parameters `keep_tokens` and `use_existing_tokens` on all distributed classifiers control this behavior. DeBERTa-based classifiers (DomainClassifier, MultilingualDomainClassifier, QualityClassifier, ContentTypeClassifier, FineWeb variants, PromptTaskComplexityClassifier) and LlamaGuard-based classifiers (AegisClassifier, InstructionDataGuardClassifier) each form a compatible tokenizer group.
+
+### vLLM Default for Semantic Deduplication Embeddings (PR #1606)
+
+Switched the default embedding backend in `TextSemanticDeduplicationWorkflow` from SentenceTransformers to vLLM, with `google/embeddinggemma-300m` as the new default model:
+
+- **vLLM embedding backend**: `TextSemanticDeduplicationWorkflow` now uses `VLLMEmbeddingModelStage` for embedding generation, replacing `EmbeddingCreatorStage` (SentenceTransformers).
+- **New default model**: Changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`.
+- **New parameters**: Added `embedding_pretokenize`, `embedding_vllm_init_kwargs`, and `model_cache_dir` for vLLM configuration.
+- **Removed parameters**: The SentenceTransformers-specific parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` are no longer available.
+
+### Multi-User Metrics Isolation
+
+Improved Prometheus and Grafana monitoring support for shared clusters:
+
+- **Per-user metrics directories**: The default metrics path now includes the user ID (`/tmp/nemo_curator_metrics_{uid}`), which prevents conflicts when multiple users share a Ray cluster.
+- **`metrics_dir` parameter**: New parameter on `RayClient` and `start_prometheus_grafana.py` for explicit control of where metrics data, PID files, and configuration are stored.
+- **PID-file-based process tracking**: NeMo Curator tracks Prometheus and Grafana instances through PID files instead of process-name scanning, which enables multiple isolated monitoring instances per node.
+- **Automatic Ray dashboard generation**: The Grafana setup now auto-generates Ray default, data, serve, and serve-deployment dashboards from the built-in Ray dashboard factory.
+- **Graceful cleanup on shutdown**: `RayClient.stop()` now removes Ray service discovery entries from the Prometheus configuration automatically.
+
+Learn more in the [Monitoring](/reference/infra/monitoring) documentation.
+
+### Cosmos-Xenna 0.2.0 (PR #1571)
+
+Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and improved GPU management:
+
+- **Simplified `Resources` API**: Removed `nvdecs`, `nvencs`, and `entire_gpu` fields. GPU allocation now uses `gpu_memory_gb` (fractional single-GPU) or `gpus` (one or more full GPUs) exclusively.
+- **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
+- **Ray 2.54** (PR #1557): Updated the minimum Ray dependency from 2.50 to 2.54 for compatibility with Cosmos-Xenna 0.2.0. Added the `RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO` environment variable to the Xenna executor to prevent Ray 2.54 from overriding accelerator environment variables when `num_gpus=0`.
+
+### FastText Filter Benchmarking (PR #1452)
+
+Added nightly benchmarking coverage for FastText-based document filters:
+
+- **FastText filter benchmarks**: New `fasttext_filter_raydata` and `fasttext_filter_xenna` entries in the nightly benchmark suite, testing language identification and quality filtering pipelines.
+- **Dedicated benchmark script**: `fasttext_filter_benchmark.py` follows the same Hydra-configured pattern as existing filter benchmarks, reporting `num_kept_documents` and `throughput_docs_per_sec`.
+- **Consistent model path naming**: Renamed `--fasttext-model-path` to `--fasttext-langid-model-path` across benchmark scripts for clarity, and introduced `--fasttext-quality-model-path` for the new [FastText quality filter model](https://huggingface.co/mlfoundations/fasttext-oh-eli5). The [FastText language identification model](https://fasttext.cc/docs/en/language-identification.html) uses the renamed `--fasttext-langid-model-path` argument.
+
+### Filter and Modifier Directory Reorganization (PR #1472)
+
+Reorganized the `DocumentFilter` and `DocumentModifier` directory structures to avoid eagerly importing heavy dependencies:
+
+- **Lazy imports**: Importing `DocumentFilter` or `DocumentModifier` no longer pulls in heavyweight dependencies like HuggingFace Transformers, fastText, or histogram libraries.
+- **Grouped by dependency weight**: Filters are now organized into `heuristic/`, `token/`, `histogram/`, and `fasttext/` subdirectories.
+- **Modifiers reorganized**: Modifiers are now grouped into `string/`, `unicode/`, and `fasttext/` subdirectories.
+- **`ScoreFilter`/`Filter`/`Score` moved**: These stages moved from `stages.text.modules` to `stages.text.filters`.
+- **`Modify` moved**: Moved from `stages.text.modules` to `stages.text.modifiers`.
+
+### Fused Document Iterate and Extract Stages (PR #1458)
+
+The data acquisition pipeline now uses a three-stage architecture instead of four, fusing the iterate and extract steps into a single `DocumentIterateExtractStage`. This reduces memory overhead and improves pipeline performance:
+
+- **Fused `DocumentIterateExtractStage`**: Combines `DocumentIterateStage` and `DocumentExtractStage` into a single stage that iterates through downloaded files and extracts structured content in one pass.
+- **Improved Memory Efficiency**: The fused stage processes records inline instead of materializing intermediate DataFrames, reducing peak memory usage. With limited RAM (200 GB), the Common Crawl pipeline succeeds with 32 CPUs where the unfused pipeline ran out of memory even at 16 CPUs.
+- **Better Performance**: Benchmarks show faster runtimes across both the Ray Data and Xenna executors (e.g., ~6% faster with Ray Data, ~18% faster with Xenna).
+
+### Worker Recycling for JusText Extraction (PR #1534)
+
+Added `max_calls_per_worker` support to mitigate out-of-memory errors caused by lxml/libxml2 memory fragmentation in long-running jusText extraction jobs. `CommonCrawlDownloadExtractStage` now defaults to `extractor_max_calls_per_worker=2` for `JusTextExtractor`, automatically recycling workers to reclaim fragmented memory.
+
+### Per-Stage Runtime Environments (PR #1623)
+
+Pipeline stages can now declare isolated Python dependencies using Ray's native `runtime_env` support. Each stage can specify a different set of pip or uv packages, and Ray creates a cached virtualenv per unique dependency set so that incompatible library versions coexist in the same pipeline:
+
+- **`runtime_env` class variable**: New `ClassVar[dict | None]` on `ProcessingStage` for declaring per-stage Python packages (e.g., `{"pip": ["transformers==4.40.0"]}`).
+- **`with_()` override**: The `with_()` method now accepts a `runtime_env` parameter for per-instance overrides without modifying the stage class.
+- **All backends supported**: `XennaExecutor`, `RayDataExecutor`, and `RayActorPoolExecutor` all forward `runtime_env` to their respective Ray dispatch mechanisms.
+- **Additive isolation**: Base-environment packages (NeMo Curator, loguru, etc.) remain importable in isolated workers unless explicitly overridden.
+
+Learn more in the [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) documentation.
+
+### Audio Task Redesign (PR #1608)
+
+Redesigned the audio task model and stage hierarchy for consistency with other modalities:
+
+- **`AudioBatch` → `AudioTask`**: Single-dict task model (`Task[dict]`) replacing the list-of-dicts batch model. One manifest entry per task, matching `VideoTask` and `FileGroupTask` conventions.
+- **Direct `ProcessingStage` subclassing**: Removed the `AudioTaskStage` intermediate class. All audio stages now subclass `ProcessingStage[AudioTask, AudioTask]` directly.
+- **Configurable backend selection**: FLEURS and ALM tutorial runners support backend selection using Hydra config (`backend=ray_data` or `backend=xenna`).
+- **`cache_dir` parameter**: `InferenceAsrNemoStage` accepts an optional `cache_dir` for NeMo model checkpoint storage.
+- **Fan-out stage fix**: `CreateInitialManifestFleursStage` now declares `ray_stage_spec()` for correct Ray Data repartitioning.
+
+### Pipeline Stage Metrics (PR #1385)
+
+Pipeline stages now track document-level metrics through `StagePerfStats.num_items_processed`, so you can see how each stage affects your dataset. After calling `pipeline.run()`, the returned task objects expose per-stage document counts that you can use to monitor filtering behavior and tune thresholds.
+
+### Workflow Results API
+
+Standardized return type for all deduplication workflows:
+
+- **`WorkflowRunResult` dataclass**: All deduplication workflow `run()` methods now return `WorkflowRunResult` instead of `None` or `dict`
+- **`WorkflowBase` abstract class**: New base class that most deduplication workflows inherit from, enforcing a consistent `run()` → `WorkflowRunResult` interface. (`TextSemanticDeduplicationWorkflow` implements the same interface without formal inheritance.)
+- **Structured metadata**: Access per-stage timing (`total_time`, `identification_time`, and others), duplicate counts (`num_duplicates`, `num_duplicates_removed`), and output paths through `result.metadata`
+- **`TaskPerfUtils` compatibility**: `collect_stage_metrics()` and `aggregate_task_metrics()` now accept `WorkflowRunResult` directly
+
+### Megatron Tokenization Writer (PR #1259)
+
+Added `MegatronTokenizerWriter`, a writer stage that tokenizes text documents and produces the `.bin` and `.idx` files required by Megatron-LM for data loading during pretraining:
+
+- **Integrated tokenization**: Tokenize and export in a single pipeline step using any Hugging Face `AutoTokenizer`, replacing the need for Megatron's standalone `preprocess_data.py` script.
+- **Memory-efficient batching**: The `tokenization_batch_size` parameter controls how many documents are tokenized and written per batch, preventing out-of-memory errors on large datasets.
+- **Automatic dtype selection**: Uses 2-byte tokens (`uint16`) for vocabularies with 65,536 or fewer entries (such as GPT-2) and 4-byte tokens (`int32`) for larger vocabularies.
+- **Megatron-compatible output**: Produces `.bin` and `.idx` files directly compatible with Megatron-LM's `MMapIndexedDataset` data loader, including support for end-of-document token appending via `append_eod`.
+
+Learn more in the [Save and Export](/curate-text/save-export) documentation.
+
+### Image Reader Ray Data Support (PR #1610)
+
+`ImageReaderStage` now works with `RayDataExecutor` in addition to `XennaExecutor`. The stage declares itself as a fanout stage, enabling Ray Data to repartition the multiple `ImageBatch` objects produced from each tar file across downstream workers for parallel processing.
+
+### Actor Pool Progress Bars (PR #1457)
+
+Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into task completion during stage processing and shuffle inserts. Progress bars are enabled by default and can be configured with `show_progress` and `progress_interval` parameters. This is particularly useful for long-running deduplication jobs where progress is not otherwise apparent.
+
+### ALM Data Curation Pipeline (PR #1419)
+
+New four-stage pipeline for curating audio language model training data from diarized audio segments:
+
+- **`ALMDataBuilderStage`**: Constructs fixed-duration training windows from consecutive audio segments, filtering by sample rate, bandwidth, and speaker count. Tracks loss statistics for pipeline diagnostics.
+- **`ALMDataOverlapStage`**: Removes overlapping windows based on a configurable overlap threshold, keeping windows closest to the target duration.
+- **`ALMManifestReader`**: Streams JSONL manifests line-by-line using fsspec, avoiding the memory overhead of loading entire files with Pandas.
+- **`ALMManifestWriterStage`**: Writes filtered results as JSONL with single-writer concurrency for safe output.
+- **Hydra configuration**: YAML-driven pipeline runner with command-line parameter overrides and backend selection (Xenna or Ray Data).
+
+Learn more in the [ALM Pipeline Concepts](/about/concepts/audio/alm-pipeline) documentation and the [ALM Tutorial](/curate-audio/tutorials/alm).
+
+### Audio Stage-Wise Profiling (PR #1676)
+
+Added stage-wise profiling for FLEURS GPU and ALM CPU pipelines with benchmark scripts integrated into the nightly CI matrix:
+
+- **Per-stage timing breakdowns** on DGX A100: FLEURS pipeline completes in approximately 100 seconds with Xenna (4.01 tasks per second) and 123 seconds with Ray Data (3.27 tasks per second).
+- **Bottleneck analysis**: Identified data download (91% of FLEURS wall time) and `repeat_entries` (44% of ALM wall time) as primary bottlenecks.
+- **Nightly CI entries**: Split FLEURS and ALM benchmarks into separate Xenna and Ray Data entries for both-backend coverage.
+
+### NeMo Data Designer Integration
+
+Integrated the NeMo Data Designer (NDD) client with NeMo Curator for declarative synthetic data generation at scale:
+
+- **`DataDesignerStage`**: New processing stage that wraps NDD's `DataDesigner.preview()` to generate structured synthetic data within Curator pipelines. Accepts a `DataDesignerConfigBuilder` or YAML config file and supports sampler columns (Faker names, UUIDs, dates), expression columns (Jinja templates), and LLM text columns.
+- **NDD-backed Nemotron-CC stages**: Drop-in replacements for the five Nemotron-CC stages (`WikipediaParaphrasingStage`, `DiverseQAStage`, `DistillStage`, `ExtractKnowledgeStage`, `KnowledgeListStage`) that route generation through NDD instead of `AsyncOpenAIClient`. Import from `nemo_curator.stages.synthetic.nemotron_cc.nemo_data_designer.nemotron_cc`.
+- **Token metric collection**: `DataDesignerStage` automatically reports `input_tokens_median_per_record` and `output_tokens_median_per_record` from NDD's analysis, enabling throughput tracking without manual instrumentation.
+- **Local and remote inference**: Supports both the built-in `InferenceServer` (Ray Serve + vLLM) via custom `ModelProvider` and remote endpoints (NVIDIA NIM).
+
+Learn more in the [NeMo Data Designer](/curate-text/synthetic/nemo-data-designer) documentation.
+
+### S3 Transport for CommonCrawlWARCReader (PR #1604)
+
+Added S3 as an alternative transport for `CommonCrawlWARCReader`, which fetches individual WARC records using byte-range requests:
+
+- **S3 transport via boto3**: Activate with `use_s3=True` or the `CC_USE_S3` environment variable. Addresses latency and throttling issues when fetching WARC records at scale over HTTPS.
+- **Environment variable configuration**: `CC_USE_S3`, `CC_S3_BUCKET`, and `CC_S3_KEY_PREFIX` environment variables provide runtime configuration without code changes.
+- **Thread-safe lazy initialization**: Both the `requests.Session` and boto3 S3 client use double-checked locking for safe concurrent use with `ThreadPoolExecutor`.
+
+Learn more in the [Common Crawl](/curate-text/load-data/common-crawl) documentation.
+
+## Improvements
+
+### Batched Shuffle Insertion for Exact Deduplication (PR #1369)
+
+The exact deduplication identification stage now supports batched insertion into the shuffler, improving throughput by processing multiple file groups in a single call. This reduces actor call overhead and enables larger, more efficient GPU operations during the shuffle phase.
+
+- **New `identification_batchsize` parameter** on `ExactDeduplicationWorkflow`: Controls how many input blocks are concatenated and inserted together. For example, an `input_blocksize` of `256MiB` with `identification_batchsize=4` processes ~1 GB of data per insertion call.
+- **Batch-aware shuffle adapter**: The Ray actor pool shuffle adapter now automatically uses `read_and_insert_batch` when a stage provides it, falling back to single-task processing otherwise.
+
+### LSH Memory Configuration for Fuzzy Deduplication (PR #1603)
+
+`FuzzyDeduplicationWorkflow` now exposes three parameters for controlling GPU memory and shuffle behavior during the LSH stage:
+
+- **`lsh_num_output_partitions`**: Sets the total number of output partitions for the LSH shuffle. When `None` (default), the partition count is chosen automatically.
+- **`lsh_rmm_pool_size`**: Controls the RMM GPU memory pool size in bytes. Defaults to `"auto"` (90% of free GPU memory).
+- **`lsh_spill_memory_limit`**: Controls the device memory limit for spilling to host. Defaults to `"auto"` (80% of the RMM pool size). Set to `None` to disable spilling.
+
+These parameters were previously hardcoded in the LSH stage and are now configurable at the workflow level, enabling finer-grained GPU memory tuning for large-scale fuzzy deduplication jobs.
+
+## Security Fixes
+
+### CVE Fixes for Audio and Inference Dependencies (PR #1612)
+
+Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
+
+- **nemo-toolkit RCE (CVE-2025-33245, CVE-2025-33253)**: NeMo Toolkit versions before 2.6.1 used `torch.load()` and `pickle.load()` without `weights_only=True` when loading model checkpoints, enabling remote code execution through maliciously crafted `.nemo` or `.ckpt` files. Curator's `InferenceAsrNemoStage` calls `ASRModel.from_pretrained()`, which uses this deserialization path. The CVE was fixed in nemo-toolkit 2.6.1; bumped to `>=2.7.2` to pick up additional fixes and ensure compatibility with Curator's dependency set.
+- **xgrammar DoS (CVE-2026-25048)**: Constructing a grammar rule with deeply nested parentheses triggered a segfault via uncontrolled recursion in xgrammar's syntax parsing, which could crash applications using vLLM structured output without authentication. Fixed by overriding vLLM's `xgrammar==0.1.29` pin to `>=0.1.32`.
+- **jackson-core DoS (GHSA-72hv-8253-57qq)**: The non-blocking JSON parser in jackson-core 2.16.1, bundled inside `ray_dist.jar` in the Ray Python package, bypassed the `maxNumberLength` constraint, allowing denial of service through arbitrarily long JSON numbers. Since Curator does not use Ray's Java support, the JAR is now deleted during the Docker image build with a build-time verification guard. This fix applies only to the container image.
+
+## Dependency Updates
+
+- **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
+- **Ray** (PR #1557): Updated minimum version from 2.50 to 2.54. This supersedes the previous constraint dependency for CVE GHSA-q279-jhrf-cc6v, which required >=2.52.
+- **pynvml**: Added to the `cuda12` optional dependency group for Xenna GPU detection
+- **sentence-transformers**: Added to the `text_cpu` optional dependency group
+- **vllm**: New vllm optional dependency group
+- **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
+- **nemo-toolkit**: Bumped `nemo_toolkit[asr]` from `==2.4.0` to `>=2.7.2` to address deserialization CVEs. Only affects `audio_cpu` and `audio_cuda12` extras.
+- **xgrammar**: Moved from `constraint-dependencies` (`>=0.1.21`) to `override-dependencies` (`>=0.1.32`) to override vLLM's pinned version and address CVE-2026-25048.
+- **boto3**: Added `boto3>=1.35` to the `math_cpu` install extra for S3 range requests in `CommonCrawlWARCReader` (PR #1604)
+
+## Enhancements
+
+### Exact Deduplication Workflow Tuning Parameters (PR #1561)
+
+Exposed additional configuration parameters in `ExactDeduplicationWorkflow` for fine-grained control over large-scale cluster runs:
+
+- **`total_nparts`**: Set the total number of output partitions explicitly instead of relying on the automatic default (one-third of input task count).
+- **`rmm_pool_size`**: Configure the RMM GPU memory pool size in bytes. Supports `"auto"` (90% of free GPU memory), a specific byte value, or `None` (50% of free GPU memory with dynamic expansion).
+- **`spill_memory_limit`**: Set the device memory threshold for spilling to host in bytes. Supports `"auto"` (80% of the RMM pool size), a specific byte value, or `None` (spilling disabled).
+
+These parameters are useful when the defaults are not optimal for your hardware or dataset size:
+
+```python
+workflow = ExactDeduplicationWorkflow(
+    input_path="input_data/",
+    output_path="./results",
+    total_nparts=512,
+    rmm_pool_size=72 * 1024 * 1024 * 1024,  # 72 GiB
+    spill_memory_limit="auto",
+)
+```
+
+## Improvements
+
+### AEGIS Classifier GPU Utilization (Issue #878)
+
+Confirmed full GPU utilization for the AEGIS safety classifier when running on multi-GPU setups. The AEGIS classifier, which uses the LlamaGuard-7b generative model, properly distributes inference across all available GPUs. Added a performance note to the [classifier documentation](/curate-text/process-data/quality-assessment/distributed-classifier) to set expectations for processing times relative to encoder-based classifiers.
+
+## Bug Fixes
+
+### JusText Extraction OOM (PR #1534)
+
+Fixed out-of-memory errors during long-running jusText extraction jobs caused by lxml/libxml2 C-heap memory fragmentation. Worker recycling through `max_calls_per_worker` now prevents unbounded RSS growth by restarting worker processes periodically.
+
+### CUDA Fork Error with vLLM and RayDataExecutor (PR #1606)
+
+Fixed a `RuntimeError: Cannot re-initialize CUDA in forked subprocess` error that occurred when running vLLM stages with `RayDataExecutor`. The vLLM auto-detection for `spawn` versus `fork` multiprocessing only triggers inside Ray actors, not Ray tasks. The `RayDataExecutor.execute_setup_on_node` method dispatches `setup_on_node` as a remote task, so vLLM previously defaulted to `fork` and caused a CUDA reinitialization error. Fixed by setting `VLLM_WORKER_MULTIPROC_METHOD=spawn` in the remote task.
+
+### Video vLLM Setup Race Condition (PR #1590)
+
+Fixed a race condition in video captioning stages (`CaptionGenerationStage` and `CaptionEnhancementStage`) where multiple workers simultaneously initializing vLLM caused a `FileNotFoundError` from the shared `torch.compile` cache directory. vLLM initialization now runs inside `setup_on_node` so the cache directory is created once per node, matching the pattern that text vLLM stages already use.
+
+### Audio Stage Name Propagation (PR #1470)
+
+Fixed audio pipeline stage names not propagating in `StagePerfStats`, making benchmark output unable to identify per-stage timing. All audio stages (`GetAudioDurationStage`, `PreserveByValueStage`, `AudioToDocumentStage`, `GetPairwiseWerStage`) now correctly report their names, and stage performance history persists when stages create new task objects.
+
+### Video vLLM Setup Race Condition (PR #1590)
+
+Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage` where multiple workers simultaneously initializing vLLM would race on the shared `torch.compile` cache directory, causing `FileNotFoundError`. Model initialization now runs once per node in `setup_on_node()` instead of per-worker in `setup()`, matching the pattern used by text vLLM stages.
+
+### MathContentExtractor Serialization Crash (PR #1604)
+
+Fixed a `deepcopy`/pickle crash in `MathContentExtractor` caused by unpickleable `threading.Lock` and `magic.Magic` objects. Added `__getstate__`/`__setstate__` methods that strip these objects before serialization and reinitialize them on deserialization. This fixes failures triggered by `ProcessingStage.with_()` and Ray executors.
+
+### CommonCrawlWARCReader Serialization for Ray (PR #1604)
+
+Added `__getstate__`/`__setstate__` to `CommonCrawlWARCReader` for pickle compatibility with Ray executors. The `threading.Lock`, `requests.Session`, and boto3 S3 client are stripped during serialization and lazily reinitialized after deserialization.
+
+## Deprecations
+
+### Python 3.10 Support Will Be Removed in 26.06
+
+NeMo Curator 26.04 is the last release that supports Python 3.10. Beginning with **26.06**, Python 3.10 will no longer be a supported runtime, and install extras will target newer Python versions (3.11+).
+
+- **Action required**: Upgrade your environments to a newer supported Python version (3.11+) before installing 26.06.
+- **Affected surfaces**: PyPI install extras, the NeMo Curator container, and all Python APIs.
+- **Why**: Python 3.10 reaches end-of-life in October 2026, and several upstream dependencies (notably in the GPU and inference stacks) are dropping 3.10 support.
+
+If you are pinning a Python version in CI, Dockerfiles, or `uv` projects, update those pins now so you are ready for the 26.06 release.
+
+## Breaking Changes
+
+- **Minimum Ray version**: The minimum required Ray version increased from 2.50 to 2.54. Users on Ray 2.50–2.53 must upgrade before installing this release.
+- **`TextSemanticDeduplicationWorkflow` embedding backend**: The default embedding backend changed from SentenceTransformers to vLLM. The default model changed from `sentence-transformers/all-MiniLM-L6-v2` to `google/embeddinggemma-300m`. The parameters `embedding_model_inference_batch_size`, `embedding_pooling`, `embedding_padding_side`, and `embedding_max_seq_length` have been removed. Use `embedding_vllm_init_kwargs` to pass configuration to the vLLM backend instead.
+- **`Resources` API**: The `nvdecs`, `nvencs`, and `entire_gpu` fields have been removed from `Resources`. Stages that previously used `entire_gpu=True` should use `gpus=1` instead. Stages that used `nvdecs` or `nvencs` should use `gpus` for GPU allocation.
+- **`AudioBatch` removed**: Replaced by `AudioTask`. Update imports from `from nemo_curator.tasks import AudioBatch` to `from nemo_curator.tasks import AudioTask`. Data is now a single `dict` instead of `dict | list[dict]`.
+- **`RayDataExecutor` import path**: Moved from `nemo_curator.backends.experimental.ray_data` to `nemo_curator.backends.ray_data`. Update imports accordingly.
+- **`DocumentExtractStage` Removed**: The standalone `DocumentExtractStage` class has been removed. Use `DocumentIterateExtractStage` with an optional `extractor` parameter instead. The `DocumentExtractor` abstract base class is unchanged.
+- **`DocumentIterateStage` Renamed**: `DocumentIterateStage` has been replaced by `DocumentIterateExtractStage`. Update imports from `nemo_curator.stages.text.download.base.iterator`.
+- **Three-Stage Pipeline**: The data acquisition pipeline is now a three-step pattern (URL generation → download → iterate-extract) instead of four steps.
+- **`ExactDeduplicationWorkflow.run()` and `FuzzyDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `None`
+- **`SemanticDeduplicationWorkflow.run()` and `TextSemanticDeduplicationWorkflow.run()`** now return `WorkflowRunResult` instead of `dict`
+- **`TextDuplicatesRemovalWorkflow.run()`** now returns `WorkflowRunResult` instead of `list[FileGroupTask] | None`
+- Code that previously ignored the return value is unaffected. Code that consumed the old `dict` return from semantic workflows must migrate to `result.metadata` and `result.pipeline_tasks`.

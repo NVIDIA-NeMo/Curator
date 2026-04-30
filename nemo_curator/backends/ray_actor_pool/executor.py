@@ -371,7 +371,7 @@ class RayActorPoolExecutor(BaseExecutor):
             try:
                 ray.get(actor.teardown.remote())
                 ray.kill(actor)
-            except (ray.exceptions.RayActorError, ray.exceptions.RaySystemError) as e:  # noqa: PERF203
+            except (ray.exceptions.RayActorError, ray.exceptions.RaySystemError) as e:
                 logger.warning(f"      Warning: Error cleaning up actor {i}: {e}")
 
     def _cleanup_actor_pool(self, actor_pool: ActorPool) -> None:

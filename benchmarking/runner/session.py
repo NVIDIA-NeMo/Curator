@@ -46,6 +46,8 @@ class Session:
     object_store_size: int | float | str | None = 0.5
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
+    # Global ray settings inherited by all entries; per-entry ray sections override these values.
+    ray: dict = field(default_factory=dict)
     path_resolver: PathResolver = None
     dataset_resolver: DatasetResolver = None
 
@@ -75,6 +77,10 @@ class Session:
         for entry in self.entries:
             if entry.object_store_size is None:
                 entry.object_store_size = self.object_store_size
+
+        # Apply global ray defaults to each entry, with per-entry ray values taking precedence.
+        for entry in self.entries:
+            entry.ray = {**self.ray, **entry.ray}
 
     @classmethod
     def assert_valid_config_dict(cls, data: dict) -> None:
