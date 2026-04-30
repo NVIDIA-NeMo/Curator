@@ -325,6 +325,7 @@ def main() -> None:  # noqa: C901
         pred_text_key="qwen3_prediction_s1",
         disfluency_text_key="qwen3_prediction_s2",
         keep_waveform=bool(args.asr_model_id),
+        num_workers=args.omni_num_workers,
     ))
 
     if followup_prompt:
