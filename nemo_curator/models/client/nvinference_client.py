@@ -67,6 +67,8 @@ def stream_chat_completion_text(  # noqa: PLR0913
 
     parts: list[str] = []
     for chunk in completion:
+        if not chunk.choices:
+            continue
         delta = chunk.choices[0].delta.content
         if delta is not None:
             parts.append(delta)

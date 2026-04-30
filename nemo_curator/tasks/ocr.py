@@ -101,7 +101,10 @@ class OCRData(ImageTaskData):
     ocr_scoring_model: str | None = None
     ocr_scoring_response_raw: str | None = None
     ocr_scoring_mode: str | None = None  # "word" or "line" as inferred by Gemini
-    ocr_scoring_missing: list[dict] | None = None  # missing text regions with bbox_2d
+    # Each entry has {"text": str, "bbox_2d": [y0, x0, y1, x1]} — note y-first ordering,
+    # matching the Gemini prompt/response convention. This differs from OCRDenseWord.bbox_2d
+    # which uses the standard [x0, y0, x1, y1] convention from NemotronOCR-v2.
+    ocr_scoring_missing: list[dict] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> OCRData:

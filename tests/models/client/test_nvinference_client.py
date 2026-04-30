@@ -86,6 +86,12 @@ def _make_chunk(content: str | None) -> MagicMock:
     return chunk
 
 
+def _make_empty_choices_chunk() -> MagicMock:
+    chunk = MagicMock()
+    chunk.choices = []
+    return chunk
+
+
 class TestStreamChatCompletionText:
     def test_collects_chunks_into_string(self) -> None:
         client = MagicMock()
@@ -95,6 +101,16 @@ class TestStreamChatCompletionText:
         ]
         result = stream_chat_completion_text(client, model="m", messages=[])
         assert result == "hello world"
+
+    def test_empty_choices_chunk_skipped(self) -> None:
+        client = MagicMock()
+        client.chat.completions.create.return_value = [
+            _make_chunk("hello"),
+            _make_empty_choices_chunk(),  # final usage chunk — choices=[]
+            _make_chunk("!"),
+        ]
+        result = stream_chat_completion_text(client, model="m", messages=[])
+        assert result == "hello!"
 
     def test_none_delta_skipped(self) -> None:
         client = MagicMock()
