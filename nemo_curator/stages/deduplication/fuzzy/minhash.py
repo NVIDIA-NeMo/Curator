@@ -213,6 +213,8 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         Additional keyword arguments for reading input files
     write_kwargs : dict[str, Any] | None, default=None
         Additional keyword arguments for writing output files
+    batch_size : int, default=1
+        Number of FileGroupTasks to combine before computing minhashes
 
     Examples
     --------
@@ -238,10 +240,16 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
         pool: bool = True,
+        batch_size: int = 1,
     ):
+        if batch_size < 1:
+            msg = "batch_size must be at least 1"
+            raise ValueError(msg)
+
         # Set ProcessingStage attributes
         self.name = self.__class__.__name__
         self.resources = Resources(gpus=1.0)  # Requires 1 GPU
+        self.batch_size = batch_size
 
         self.text_field = text_field
         self.minhash_field = minhash_field
@@ -291,6 +299,35 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         """Define outputs - produces FileGroupTask with minhash files."""
         return (["data"], [])
 
+    def _ensure_initialized(self) -> None:
+        if self.minhash_processor is None or self.id_generator is None:
+            msg = "MinHash processor or ID generator not initialized. Call setup() first."
+            raise RuntimeError(msg)
+
+    def _read_input_files(self, files: list[str]) -> cudf.DataFrame:
+        read_kwargs = self.read_kwargs.copy()
+
+        dfs = []
+        for filepath in files:
+            # Read files one at a time so small reader tasks can be combined into
+            # a larger GPU minhash batch without requiring multi-file I/O support.
+            if self.read_format == "jsonl":
+                df = self.read_jsonl(filepath=filepath, columns=[self.text_field], assign_id=True, **read_kwargs)
+            elif self.read_format == "parquet":
+                df = self.read_parquet(filepath=filepath, columns=[self.text_field], assign_id=True, **read_kwargs)
+            else:
+                msg = f"Unsupported read format: {self.read_format}"
+                raise ValueError(msg)
+
+            dfs.append(df)
+
+        return cudf.concat(dfs, ignore_index=True)
+
+    def _write_minhashes(self, df: cudf.DataFrame, output_file: str) -> None:
+        result_df = df[[CURATOR_DEDUP_ID_STR]]
+        result_df[self.minhash_field] = self.minhash_processor.compute_minhashes(df[self.text_field])
+        self.write_parquet(df=result_df, filepath=output_file, **self.write_kwargs)
+
     def process(self, task: FileGroupTask) -> FileGroupTask:
         """
         Process a group of files to compute minhashes.
@@ -302,39 +339,48 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
             FileGroupTask containing paths to minhash output files
         """
 
-        if self.minhash_processor is None or self.id_generator is None:
-            msg = "MinHash processor or ID generator not initialized. Call setup() first."
-            raise RuntimeError(msg)
+        return self.process_batch([task])[0]
 
-        output_file = self.output_fs.sep.join([self.output_path, f"{task._uuid}.parquet"])
+    def process_batch(self, tasks: list[FileGroupTask]) -> list[FileGroupTask]:
+        """
+        Process multiple file groups together to compute minhashes.
 
-        read_kwargs = self.read_kwargs.copy()
+        Combining tasks lets readers use smaller blocks while the GPU minhash
+        stage sees a larger cudf batch.
+        """
+        if len(tasks) == 0:
+            return []
 
-        # Read input file based on format
-        if self.read_format == "jsonl":
-            df = self.read_jsonl(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
-        elif self.read_format == "parquet":
-            df = self.read_parquet(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
-        else:
-            msg = f"Unsupported read format: {self.read_format}"
+        self._ensure_initialized()
+
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task!s} failed validation for stage {self}"
+                raise ValueError(msg)
+
+        all_files = [filepath for task in tasks for filepath in task.data]
+        if len(all_files) == 0:
+            msg = "MinHashStage requires at least one input file"
             raise ValueError(msg)
 
-        result_df = df[[CURATOR_DEDUP_ID_STR]]
-        result_df[self.minhash_field] = self.minhash_processor.compute_minhashes(df[self.text_field])
+        first_task = tasks[0]
+        output_file = self.output_fs.sep.join([self.output_path, f"{first_task._uuid}.parquet"])
 
-        # Write output file
-        self.write_parquet(df=result_df, filepath=output_file, **self.write_kwargs)
+        df = self._read_input_files(all_files)
+        self._write_minhashes(df, output_file)
 
         # Return FileGroupTask with output file
-        return FileGroupTask(
-            task_id=f"{task.task_id}",
-            dataset_name=f"{task.dataset_name}_minhash",
-            data=[output_file],
-            _metadata={
-                **task._metadata,
-                "minhash_field": self.minhash_field,
-                "num_hashes": self.num_hashes,
-                "storage_options": self.write_kwargs.get("storage_options"),
-            },
-            _stage_perf=task._stage_perf,
-        )
+        return [
+            FileGroupTask(
+                task_id=f"{first_task.task_id}",
+                dataset_name=f"{first_task.dataset_name}_minhash",
+                data=[output_file],
+                _metadata={
+                    **first_task._metadata,
+                    "minhash_field": self.minhash_field,
+                    "num_hashes": self.num_hashes,
+                    "storage_options": self.write_kwargs.get("storage_options"),
+                },
+                _stage_perf=first_task._stage_perf,
+            )
+        ]
