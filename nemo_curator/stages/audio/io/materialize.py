@@ -26,7 +26,7 @@ import soundfile
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
-from nemo_curator.tasks.audio_task import build_audio_sample_key
+from nemo_curator.tasks.audio_task import build_audio_sample_key, ensure_checkpoint_shard_id
 from nemo_curator.utils.remote_io import basename_from_path
 
 
@@ -127,7 +127,12 @@ class BaseAudioMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
     def _should_segment(self, task: AudioTask, source_name: str, *, reference_field: str) -> bool:
         if not self.segment_if_offset_present:
             return False
-        original_path = str(task.data.get(reference_field, "") or "")
+        # Prefer the original manifest path when available so retries do not compare
+        # against a previously materialized temp path. If neither field exists, the
+        # empty-string fallback intentionally makes the comparison conservative.
+        original_path = str(
+            task.data.get(self.manifest_audio_filepath_key, task.data.get(reference_field, "")) or ""
+        )
         offset = float(task.data.get(self.offset_key, 0.0) or 0.0)
         return source_name != original_path or offset > 0.0 or task.data.get(self.duration_key) is not None
 
@@ -152,7 +157,8 @@ class BaseAudioMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
         if output_field != self.audio_filepath_key:
             sample_basis = f"{sample_basis}:{output_field}"
         sample_hash = hashlib.sha256(sample_basis.encode("utf-8")).hexdigest()
-        target_dir = Path(self.materialization_dir) / sample_hash[:2]
+        shard_id = ensure_checkpoint_shard_id(task)
+        target_dir = Path(self.materialization_dir) / shard_id / sample_hash[:2]
         target_dir.mkdir(parents=True, exist_ok=True)
         return target_dir / f"{sample_hash}{suffix}", False
 

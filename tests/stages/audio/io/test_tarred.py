@@ -111,10 +111,12 @@ class TestTarredAudioManifestReader:
         assert result[0].data["_tar_path"] == str(tar_path)
         assert result[0].data["_tar_member"] == "a.wav"
         assert result[0].sample_key
+        assert result[0]._metadata["checkpoint_shard_id"] == "shard_0"
         assert result[1].data["_tar_member"] == "b.wav"
         assert result[1].data["audio_filepath"] == "b.wav-sub1"
         assert result[1].data["_audio_source_type"] == "tarred"
         assert result[1].sample_key
+        assert result[1]._metadata["checkpoint_shard_id"] == "shard_0"
         assert result[0].sample_key != result[1].sample_key
 
     def test_reader_raises_when_manifest_entry_missing_in_tar(self, tmp_path: Path) -> None:
@@ -205,9 +207,13 @@ class TestTarredAudioMaterialization:
                 self.stdout = io.BytesIO(b"")
                 self.stderr = io.BytesIO(b"")
                 self._return_code = return_code
+                self.returncode = return_code
 
             def wait(self) -> int:
                 return self._return_code
+
+            def communicate(self) -> tuple[None, bytes]:
+                return None, self.stderr.read()
 
         pipe_stream = _PipeStream("dummy", allow_sigpipe=True)
         pipe_stream.process = _FakeProcess(return_code=141)  # type: ignore[assignment]
@@ -220,9 +226,13 @@ class TestTarredAudioMaterialization:
                 self.stdout = io.BytesIO(b"")
                 self.stderr = io.BytesIO(b"")
                 self._return_code = return_code
+                self.returncode = return_code
 
             def wait(self) -> int:
                 return self._return_code
+
+            def communicate(self) -> tuple[None, bytes]:
+                return None, self.stderr.read()
 
         pipe_stream = _PipeStream("dummy")
         pipe_stream.process = _FakeProcess(return_code=141)  # type: ignore[assignment]
@@ -339,6 +349,30 @@ class TestTarredAudioMaterialization:
         with pytest.raises(RuntimeError, match="Duration must be greater than 0"):
             materialize.process_batch([task])
 
+    def test_materialize_retry_keeps_member_mode_after_audio_filepath_mutation(self, tmp_path: Path) -> None:
+        tar_path = tmp_path / "audio_0.tar"
+        raw_audio = b"not-a-real-wav"
+        _write_tar(tar_path, {"sample.wav": raw_audio})
+
+        task = AudioTask(
+            task_id="t1",
+            dataset_name="ds",
+            data={
+                "audio_filepath": str(tmp_path / "stale_temp.wav"),
+                "_manifest_audio_filepath": "sample.wav",
+                "_tar_path": str(tar_path),
+                "_tar_member": "sample.wav",
+            },
+        )
+
+        materialize = MaterializeTarredAudioStage(temp_dir=str(tmp_path / "tmp"))
+        [materialized] = materialize.process_batch([task])
+
+        temp_path = Path(materialized.data["_temporary_audio_path"])
+        assert temp_path.exists()
+        assert temp_path.read_bytes() == raw_audio
+        assert materialized.data["_materialization_mode"] == "member"
+
     def test_materialize_segment_raises_for_offset_past_audio_end(self, tmp_path: Path) -> None:
         tar_path = tmp_path / "audio_0.tar"
         _write_tar(tar_path, {"sample.wav": _make_wav_bytes(duration_sec=0.25)})
@@ -369,6 +403,7 @@ class TestTarredAudioMaterialization:
             task_id="t1",
             dataset_name="ds",
             sample_key="sample-key-1",
+            _metadata={"checkpoint_shard_id": "shard_0"},
             data={
                 "audio_filepath": "sample.wav",
                 "_tar_path": str(tar_path),
@@ -383,7 +418,7 @@ class TestTarredAudioMaterialization:
         durable_path = Path(materialized.data["audio_filepath"])
         assert durable_path.exists()
         assert durable_path.read_bytes() == raw_audio
-        assert durable_path.is_relative_to(materialization_dir)
+        assert durable_path.is_relative_to(materialization_dir / "shard_0")
         assert "_temporary_audio_path" not in materialized.data
 
         cleanup = CleanupTemporaryAudioStage()

@@ -58,11 +58,13 @@ class PipeStream:
             return False
         if self.process.stdout is not None and not self.process.stdout.closed:
             self.process.stdout.close()
+        self.process.stdout = None
         stderr = b""
         if self.process.stderr is not None:
-            stderr = self.process.stderr.read()
-            self.process.stderr.close()
-        return_code = self.process.wait()
+            _, stderr = self.process.communicate()
+            return_code = self.process.returncode
+        else:
+            return_code = self.process.wait()
         if exc_type is None and return_code != 0 and not self._is_allowed_sigpipe_return_code(return_code):
             detail = stderr.decode("utf-8", errors="replace").strip()
             msg = f"Pipe command failed with exit code {return_code}: {self.command}"

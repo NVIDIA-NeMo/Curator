@@ -148,8 +148,9 @@ class TestJsonlAudioReader:
         assert [item.data["audio_filepath"] for item in result] == ["a.wav", "b.wav"]
         assert [item.task_id for item in result] == ["audio_task_0", "audio_task_1"]
         assert all(item.dataset_name == "audio_dataset" for item in result)
-        assert all(item._metadata == {"source": "unit-test"} for item in result)
+        assert all(item._metadata["source"] == "unit-test" for item in result)
         assert all(item.sample_key for item in result)
+        assert all(item._metadata["checkpoint_shard_id"] == "audio" for item in result)
         assert result[0].sample_key != result[1].sample_key
         assert result[0].data["segments"][0]["end"] == 1.0
 

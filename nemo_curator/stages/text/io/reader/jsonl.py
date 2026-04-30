@@ -25,7 +25,7 @@ from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, DocumentBatch, FileGroupTask, _EmptyTask
-from nemo_curator.tasks.audio_task import build_audio_sample_key
+from nemo_curator.tasks.audio_task import build_audio_sample_key, ensure_checkpoint_shard_id
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, pandas_select_columns
 
 from .base import BaseReader
@@ -167,7 +167,6 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 task_count,
                 task_count,
             )
-
         for next_id, task in zip(range(min_id, max_id + 1), tasks, strict=False):
             task.data[CURATOR_DEDUP_ID_STR] = next_id
 
@@ -191,6 +190,8 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             logger.warning(f"Ignoring unsupported read_kwargs for audio JSONL reader: {sorted(read_kwargs.keys())}")
 
         results: list[AudioTask] = []
+        task_metadata = dict(task._metadata)
+        task_metadata.setdefault("source_files", list(task.data))
         for file_path in task.data:
             fs, resolved = url_to_fs(file_path, **storage_options)
             with fs.open(resolved, "r", **open_kwargs) as f:
@@ -202,16 +203,16 @@ class JsonlAudioReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                     entry = raw_entry
                     if self.fields is not None:
                         entry = {field: entry[field] for field in self.fields if field in entry}
-                    results.append(
-                        AudioTask(
-                            task_id=f"{task.task_id}_{len(results)}",
-                            dataset_name=task.dataset_name,
-                            data=entry,
-                            sample_key=sample_key,
-                            _metadata=task._metadata,
-                            _stage_perf=list(task._stage_perf),
-                        )
+                    audio_task = AudioTask(
+                        task_id=f"{task.task_id}_{len(results)}",
+                        dataset_name=task.dataset_name,
+                        data=entry,
+                        sample_key=sample_key,
+                        _metadata=dict(task_metadata),
+                        _stage_perf=list(task._stage_perf),
                     )
+                    ensure_checkpoint_shard_id(audio_task)
+                    results.append(audio_task)
 
         if results:
             if self._generate_ids:

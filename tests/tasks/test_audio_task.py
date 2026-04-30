@@ -17,7 +17,15 @@
 from pathlib import Path
 
 from nemo_curator.tasks import AudioTask
-from nemo_curator.tasks.audio_task import build_audio_sample_key
+from nemo_curator.tasks.audio_task import (
+    attach_parent_sample_keys,
+    build_audio_sample_key,
+    build_checkpoint_shard_id,
+    carry_sample_key,
+    derive_child_sample_key,
+    ensure_sample_key,
+    parent_sample_keys,
+)
 
 
 def test_audio_task_stores_dict() -> None:
@@ -75,3 +83,65 @@ def test_build_audio_sample_key_is_stable_for_same_identity() -> None:
 
     assert first == second
     assert first
+
+
+def test_build_checkpoint_shard_id_strips_compound_extensions(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest_0001.jsonl.gz"
+    tar_path = tmp_path / "audio_0001.tar.gz"
+
+    assert build_checkpoint_shard_id(source_files=[manifest_path.as_posix()]) == "manifest_0001"
+    assert build_checkpoint_shard_id(source_files=[tar_path.as_posix()]) == "audio_0001"
+
+
+def test_build_checkpoint_shard_id_ignores_whitespace_only_explicit_value(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest_0002.jsonl"
+    assert build_checkpoint_shard_id(source_files=[manifest_path.as_posix()], explicit_shard_id="   ") == "manifest_0002"
+
+
+def test_ensure_sample_key_derives_and_caches_key() -> None:
+    task = AudioTask(dataset_name="dataset", data={"audio_filepath": "/a.wav"})
+
+    first = ensure_sample_key(task)
+    second = ensure_sample_key(task)
+
+    assert first == second
+    assert task.sample_key == first
+
+
+def test_attach_parent_sample_keys_records_unique_parent_lineage() -> None:
+    parent = AudioTask(dataset_name="dataset", data={"audio_filepath": "/a.wav"}, sample_key="parent-a")
+    child = AudioTask(dataset_name="dataset", data={"audio_filepath": "/child.wav"}, sample_key="child-a")
+
+    attach_parent_sample_keys(child, parent)
+    attach_parent_sample_keys(child, [parent, parent])
+
+    assert parent_sample_keys(child) == ["parent-a"]
+
+
+def test_carry_sample_key_prefers_parent_key() -> None:
+    task = AudioTask(data={"audio_filepath": "/a.wav"}, sample_key="parent-key")
+
+    assert carry_sample_key(task) == "parent-key"
+
+
+def test_derive_child_sample_key_is_stable_and_unique() -> None:
+    task = AudioTask(dataset_name="dataset", data={"audio_filepath": "/a.wav"})
+
+    first = derive_child_sample_key(
+        task,
+        child_kind="segment",
+        child_identity={"segment_index": 0, "offset": 0.0, "duration": 1.0},
+    )
+    second = derive_child_sample_key(
+        task,
+        child_kind="segment",
+        child_identity={"duration": 1.0, "offset": 0.0, "segment_index": 0},
+    )
+    third = derive_child_sample_key(
+        task,
+        child_kind="segment",
+        child_identity={"segment_index": 1, "offset": 1.0, "duration": 1.0},
+    )
+
+    assert first == second
+    assert first != third

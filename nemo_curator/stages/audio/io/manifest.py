@@ -21,7 +21,7 @@ from typing import Any, Literal
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
-from nemo_curator.tasks.audio_task import build_audio_sample_key
+from nemo_curator.tasks.audio_task import build_audio_sample_key, ensure_checkpoint_shard_id
 from nemo_curator.utils.remote_io import open_text_stream
 
 
@@ -48,6 +48,8 @@ class AudioManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         results: list[AudioTask] = []
+        task_metadata = dict(task._metadata)
+        task_metadata.setdefault("source_files", list(task.data))
         for manifest_index, manifest_path in enumerate(task.data):
             with open_text_stream(
                 manifest_path,
@@ -72,10 +74,11 @@ class AudioManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                             dataset_name=task.dataset_name,
                             data=entry,
                             sample_key=sample_key,
-                            _metadata=task._metadata,
+                            _metadata=dict(task_metadata),
                             _stage_perf=list(task._stage_perf),
                         )
                     )
+                    ensure_checkpoint_shard_id(results[-1])
         return results
 
 

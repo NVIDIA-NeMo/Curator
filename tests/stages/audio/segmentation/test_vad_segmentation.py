@@ -42,6 +42,7 @@ class TestVADSegmentationStage:
             data={"waveform": waveform, "sample_rate": sr},
             task_id="test",
             dataset_name="test",
+            sample_key="parent-sample",
         )
 
         stage = VADSegmentationStage(min_duration_sec=1.0, max_duration_sec=30.0)
@@ -50,6 +51,9 @@ class TestVADSegmentationStage:
 
         assert isinstance(result, list)
         assert len(result) == 2
+        assert result[0].sample_key
+        assert result[1].sample_key
+        assert result[0].sample_key != result[1].sample_key
         for seg in result:
             assert isinstance(seg, AudioTask)
             assert "waveform" in seg.data

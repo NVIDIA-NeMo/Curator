@@ -42,6 +42,7 @@ from nemo_curator.stages.audio.common import ensure_waveform_2d
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks.audio_task import carry_sample_key
 
 
 @dataclass
@@ -111,7 +112,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
         segments_sorted = sorted(segments, key=self._seg_sort_key)
         original_file = segments_sorted[0].get("original_file", "unknown")
 
-        combined = self._concatenate(original_file, segments_sorted, task.task_id, task.dataset_name)
+        combined = self._concatenate(task, original_file, segments_sorted, task.task_id, task.dataset_name)
         if combined is None:
             return []
         return combined
@@ -145,6 +146,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _concatenate(
         self,
+        parent_task: AudioTask,
         original_file: str,
         segments: list[dict[str, Any]],
         task_id: str,
@@ -229,7 +231,11 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
             data=output_data,
             task_id=task_id,
             dataset_name=dataset_name,
+            sample_key=carry_sample_key(parent_task, data=output_data),
         )
-        result_task._metadata = {"segment_mappings": mappings}
+        result_task._metadata = {
+            **parent_task._metadata,
+            "segment_mappings": mappings,
+        }
 
         return result_task

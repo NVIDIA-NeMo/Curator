@@ -28,7 +28,7 @@ from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.io.materialize import BaseAudioMaterializeStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
-from nemo_curator.tasks.audio_task import build_audio_sample_key
+from nemo_curator.tasks.audio_task import build_audio_sample_key, ensure_checkpoint_shard_id
 from nemo_curator.utils.file_utils import infer_dataset_name_from_path
 from nemo_curator.utils.remote_io import (
     PipeStream,
@@ -179,6 +179,8 @@ class TarredAudioManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         results: list[AudioTask] = []
+        task_metadata = dict(task._metadata)
+        task_metadata.setdefault("source_files", list(task.data))
         for manifest_index, manifest_path in enumerate(task.data):
             shard_id = _extract_shard_id(manifest_path, "manifest")
             if shard_id not in self._shard_id_to_tar_path:
@@ -221,19 +223,19 @@ class TarredAudioManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                     item[self.shard_id_key] = shard_id
                     item[self.manifest_path_key] = manifest_path
                     item[self.source_type_key] = "tarred"
-                    results.append(
-                        AudioTask(
-                            task_id=f"{task.task_id}_{manifest_index}_{entry_index}",
-                            dataset_name=task.dataset_name,
-                            data=item,
-                            sample_key=build_audio_sample_key(item, dataset_name=task.dataset_name),
-                            _metadata={
-                                **task._metadata,
-                                self.skip_missing_entries_metadata_key: self.skip_missing_entries,
-                            },
-                            _stage_perf=list(task._stage_perf),
-                        )
+                    audio_task = AudioTask(
+                        task_id=f"{task.task_id}_{manifest_index}_{entry_index}",
+                        dataset_name=task.dataset_name,
+                        data=item,
+                        sample_key=build_audio_sample_key(item, dataset_name=task.dataset_name),
+                        _metadata={
+                            **task_metadata,
+                            self.skip_missing_entries_metadata_key: self.skip_missing_entries,
+                        },
+                        _stage_perf=list(task._stage_perf),
                     )
+                    ensure_checkpoint_shard_id(audio_task)
+                    results.append(audio_task)
         return results
 
 

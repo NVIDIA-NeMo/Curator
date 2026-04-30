@@ -15,6 +15,7 @@
 import hashlib
 import json
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -24,6 +25,9 @@ from loguru import logger
 from .tasks import Task
 
 AUDIO_SAMPLE_KEY_FIELD = "sample_key"
+CHECKPOINT_SHARD_ID_KEY = "checkpoint_shard_id"
+PARENT_SAMPLE_KEYS_METADATA_KEY = "parent_sample_keys"
+MAX_CHECKPOINT_SHARD_ID_LEN = 80
 
 
 class _AttrDict(dict):
@@ -60,6 +64,62 @@ def _normalize_sample_key_value(value: Any) -> Any:  # noqa: ANN401
     return str(value)
 
 
+def _strip_known_extensions(path: str) -> str:
+    name = os.path.basename(path)
+    compound_suffixes = (
+        ".jsonl.gz",
+        ".jsonl.bz2",
+        ".jsonl.xz",
+        ".json.gz",
+        ".json.bz2",
+        ".json.xz",
+        ".parquet.gz",
+        ".parquet.bz2",
+        ".parquet.xz",
+        ".tar.gz",
+        ".tar.bz2",
+        ".tar.xz",
+    )
+    for suffix in compound_suffixes:
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+
+    for suffix in (".jsonl", ".json", ".parquet", ".tar", ".gz", ".bz2", ".xz"):
+        name = name.removesuffix(suffix)
+    return name
+
+
+def _sanitize_checkpoint_shard_component(value: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._")
+    return sanitized or "partition_unknown"
+
+
+def build_checkpoint_shard_id(
+    *,
+    source_files: list[str] | None = None,
+    explicit_shard_id: str | int | None = None,
+    partition_index: int | None = None,
+) -> str:
+    """Build a stable checkpoint shard identifier."""
+    if explicit_shard_id is not None:
+        normalized_shard = _normalize_sample_key_value(explicit_shard_id)
+        if normalized_shard is not None:
+            return f"shard_{normalized_shard}"
+
+    normalized_files = [_sanitize_checkpoint_shard_component(_strip_known_extensions(path)) for path in source_files or []]
+    if len(normalized_files) == 1:
+        return normalized_files[0]
+    if normalized_files:
+        joined = "__".join(normalized_files)
+        if len(joined) <= MAX_CHECKPOINT_SHARD_ID_LEN:
+            return joined
+        digest = hashlib.sha256(";".join(source_files or []).encode("utf-8")).hexdigest()[:12]
+        return f"{normalized_files[0]}__{normalized_files[-1]}__{digest}"
+    if partition_index is not None:
+        return f"partition_{partition_index}"
+    return "partition_unknown"
+
+
 def build_audio_sample_key(
     data: Mapping[str, Any],
     *,
@@ -88,6 +148,88 @@ def build_audio_sample_key(
     }
     identity_json = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(identity_json.encode("utf-8")).hexdigest()
+
+
+def ensure_sample_key(task: "AudioTask") -> str:
+    """Return the task sample key, deriving a root key when missing."""
+    if task.sample_key:
+        return task.sample_key
+    task.sample_key = build_audio_sample_key(task.data, dataset_name=task.dataset_name)
+    return task.sample_key
+
+
+def ensure_checkpoint_shard_id(task: "AudioTask") -> str:
+    """Return the checkpoint shard id, deriving it from task metadata when missing."""
+    existing = task._metadata.get(CHECKPOINT_SHARD_ID_KEY)
+    if isinstance(existing, str) and existing.strip():
+        return existing
+
+    shard_id = build_checkpoint_shard_id(
+        source_files=task._metadata.get("source_files"),
+        explicit_shard_id=task.data.get("_shard_id"),
+        partition_index=task._metadata.get("partition_index"),
+    )
+    task._metadata[CHECKPOINT_SHARD_ID_KEY] = shard_id
+    return shard_id
+
+
+def parent_sample_keys(task: "AudioTask") -> list[str]:
+    """Return normalized parent sample keys carried in task metadata."""
+    value = task._metadata.get(PARENT_SAMPLE_KEYS_METADATA_KEY)
+    if not isinstance(value, list):
+        return []
+    normalized: list[str] = []
+    for item in value:
+        normalized_item = _normalize_sample_key_value(item)
+        if normalized_item is None:
+            continue
+        key = str(normalized_item)
+        if key not in normalized:
+            normalized.append(key)
+    return normalized
+
+
+def attach_parent_sample_keys(
+    task: "AudioTask",
+    parents: "AudioTask | list[AudioTask]",
+) -> list[str]:
+    """Attach stable parent sample keys to an output task for fan-out lineage tracking."""
+    parent_tasks = parents if isinstance(parents, list) else [parents]
+    keys = parent_sample_keys(task)
+    for parent in parent_tasks:
+        key = ensure_sample_key(parent)
+        if key not in keys:
+            keys.append(key)
+    task._metadata[PARENT_SAMPLE_KEYS_METADATA_KEY] = keys
+    return keys
+
+
+def carry_sample_key(parent_task: "AudioTask", *, data: Mapping[str, Any] | None = None) -> str:
+    """Carry forward the same sample identity for a 1:1 transform."""
+    if parent_task.sample_key:
+        return parent_task.sample_key
+    if data is not None:
+        return build_audio_sample_key(data, dataset_name=parent_task.dataset_name)
+    return ensure_sample_key(parent_task)
+
+
+def derive_child_sample_key(
+    parent_task: "AudioTask",
+    *,
+    child_kind: str,
+    child_identity: Mapping[str, Any],
+) -> str:
+    """Derive a deterministic child sample key for fan-out outputs."""
+    payload = {
+        "parent_sample_key": ensure_sample_key(parent_task),
+        "child_kind": child_kind,
+        "child_identity": {
+            key: _normalize_sample_key_value(value)
+            for key, value in sorted(child_identity.items())
+        },
+    }
+    payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
 
 
 @dataclass

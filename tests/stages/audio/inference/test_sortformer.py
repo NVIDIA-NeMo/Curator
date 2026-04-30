@@ -129,6 +129,7 @@ class TestInferenceSortformerStage:
 
         task = AudioTask(
             data={"audio_filepath": "/test/audio1.wav"},
+            sample_key="sample-1",
         )
         result = stage.process(task)
 
@@ -138,6 +139,7 @@ class TestInferenceSortformerStage:
             {"start": 0.0, "end": 2.7, "speaker": "speaker_0"},
             {"start": 0.8, "end": 13.6, "speaker": "speaker_1"},
         ]
+        assert result.sample_key == "sample-1"
         assert result.task_id.endswith("_sortformer")
         mock_model.diarize.assert_called_once_with(
             audio=["/test/audio1.wav"],

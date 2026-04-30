@@ -36,6 +36,7 @@ def _make_nested_task(segments: list[dict]) -> AudioTask:
         data={"segments": segments, "original_file": "test.wav"},
         task_id="test_task",
         dataset_name="ds",
+        sample_key="parent-sample",
     )
 
 
@@ -51,6 +52,7 @@ class TestSegmentConcatenationStage:
         result = stage.process(task)
 
         assert isinstance(result, AudioTask)
+        assert result.sample_key == "parent-sample"
         out = result.data
         assert out["num_segments"] == 2
         expected_duration = (2000 + 1000 + 3000) / 1000.0
