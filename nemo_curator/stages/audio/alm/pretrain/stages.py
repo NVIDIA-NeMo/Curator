@@ -182,6 +182,12 @@ def plan_snippets(
     Returns ``(snippets, drop_counts)`` where each snippet is a dict with
     keys ``start``, ``end``, ``segments`` (the actual segment dicts) and
     drop counts keys are ``too_long``, ``too_short``, ``no_text``.
+
+    Precondition: ``segments`` must be non-overlapping (sorted by ``start``
+    with each ``end <= next.start``).  ``OverlapFilterStage`` guarantees
+    this upstream in the pipeline.  If overlapping segments are passed in,
+    ``gap`` becomes negative and the gap constraint is silently bypassed,
+    grouping content that should belong to separate snippets.
     """
     drop_counts = {"too_long": 0, "too_short": 0, "no_text": 0}
     if not segments:
@@ -279,6 +285,11 @@ def histogram_30s(durations: list[float]) -> dict[str, int]:
     Returns an ordered mapping ``{"0-30": n, "30-60": n, ...}`` covering
     every bin from 0 up to and including the bin containing the longest
     duration.  Empty input returns an empty dict.
+
+    Bins are kept contiguous from 0 by design: a leading bin may have a
+    count of 0 (e.g. a single 30.0s snippet lands in ``30-60`` and yields
+    ``{"0-30": 0, "30-60": 1}``).  Downstream consumers should treat the
+    output as a dense histogram, not a sparse one.
     """
     if not durations:
         return {}
@@ -1050,7 +1061,14 @@ def _merge_metrics_shards(metrics_path: str) -> None:
                 line = raw.strip()
                 if not line:
                     continue
-                r = json.loads(line)
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError as e:
+                    # A worker killed mid-write (e.g. Xenna's ray.kill) can
+                    # leave a truncated final line in a shard; skip it so
+                    # finalize still merges the rest.
+                    logger.warning(f"skipping malformed metrics shard line in {s}: {e}")
+                    continue
                 pid = r["id"]
                 entry = per_original.get(pid)
                 if entry is None:
