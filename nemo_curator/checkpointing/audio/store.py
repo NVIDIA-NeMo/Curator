@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -33,7 +33,7 @@ RecordStatus = Literal["done", "filtered", "failed_retriable", "failed_permanent
 
 
 def _utcnow() -> str:
-    return datetime.now(tz=timezone.utc).isoformat()
+    return datetime.now(tz=UTC).isoformat()
 def fingerprint_stage(stage: Any) -> str:  # noqa: ANN401
     payload = {
         "class_name": type(stage).__name__,
