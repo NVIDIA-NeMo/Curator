@@ -77,10 +77,11 @@ class SpeakerEmbeddingAudioTaskStage(ProcessingStage[AudioTask, AudioTask]):
     audio_filepath_key: str = "audio_filepath"
     embedding_key: str = "embedding"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
-    batch_size: int = 1
+    batch_size: int = 64
 
     _accumulated_ids: list[str] = field(default_factory=list, init=False, repr=False)
     _accumulated_embs: list[np.ndarray] = field(default_factory=list, init=False, repr=False)
+    _flush_count: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.model_name and self.speaker_model is None:
@@ -157,19 +158,41 @@ class SpeakerEmbeddingAudioTaskStage(ProcessingStage[AudioTask, AudioTask]):
             _stage_perf=task._stage_perf,
         )
 
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Process a batch of tasks, then flush accumulated embeddings to NPZ.
+
+        Flushing here (rather than in :meth:`teardown`) is what actually
+        runs across Xenna actors — teardown is unreliable in the
+        streaming executor.  Each actor's process_batch flush produces
+        an ``embeddings_<tag>_part<N>.npz`` that cluster_scotch can
+        glob with the existing ``embeddings_*.npz`` pattern.
+        """
+        results = [self.process(t) for t in tasks]
+        self._flush_npz()
+        return results
+
     def teardown(self) -> None:
+        # Backup flush in case some path hits teardown before process_batch
+        # completes (e.g. driver-side cleanup); usually no-op since
+        # process_batch already drained the buffer.
+        self._flush_npz()
+
+    def _flush_npz(self) -> None:
         if not self.output_dir or not self._accumulated_embs:
             return
         os.makedirs(self.output_dir, exist_ok=True)
-        # Tag the NPZ with something stable per actor so concurrent
-        # writes don't collide.  CUDA_VISIBLE_DEVICES + pid is unique
-        # within a job; clean log on which GPU produced what.
+        # Tag the NPZ with something stable per actor + a per-flush
+        # counter so concurrent writes never collide.  CUDA_VISIBLE_DEVICES
+        # + pid is unique within a job.
+        self._flush_count += 1
         tag = (
             os.environ.get("CUDA_VISIBLE_DEVICES", "x").split(",")[0]
             + "_"
             + str(os.getpid())
         )
-        path = os.path.join(self.output_dir, f"embeddings_{tag}.npz")
+        path = os.path.join(
+            self.output_dir, f"embeddings_{tag}_part{self._flush_count}.npz"
+        )
         np.savez(
             path,
             cut_ids=np.array(self._accumulated_ids, dtype=object),

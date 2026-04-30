@@ -61,7 +61,12 @@ from nemo_curator.tasks import AudioTask
 # tiny pass-through stage right before writing.  Stages that need the
 # waveform consume it inline (e.g. UTMOSv2 reads ``waveform`` directly);
 # anything reaching the writer no longer needs it.
-_NON_SERIALIZABLE_KEYS = ("waveform",)
+#
+# ``embedding`` is added by SpeakerEmbeddingAudioTaskStage; it's a
+# numpy ndarray, persisted out-of-band as per-actor NPZ files, so no
+# need to bloat the JSONL with it.  ``sed_framewise`` is the same case
+# when SED runs with save_npz=False.
+_NON_SERIALIZABLE_KEYS = ("waveform", "embedding", "sed_framewise")
 
 
 @dataclass
@@ -475,13 +480,15 @@ def _gather_corpus_for_beta(
             # Prefer the canonical task_id stashed by the diarize stage
             # — it survives across audio_filepath mutations and matches
             # the cut_id key written by SpeakerEmbeddingAudioTaskStage.
+            # Note: ``or`` chaining doesn't work here because dict.get
+            # returns numpy arrays whose truth value is ambiguous.
             tid = row.get("_task_id", "")
             afp = row.get(audio_filepath_key, "")
-            emb = (
-                cid_to_emb.get(tid)
-                or cid_to_emb.get(afp)
-                or cid_to_emb.get(_os.path.basename(afp))
-            )
+            emb = cid_to_emb.get(tid)
+            if emb is None:
+                emb = cid_to_emb.get(afp)
+            if emb is None:
+                emb = cid_to_emb.get(_os.path.basename(afp))
             if emb is None:
                 missing += 1
                 continue
