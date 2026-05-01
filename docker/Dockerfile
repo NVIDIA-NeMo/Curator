@@ -93,10 +93,12 @@ RUN export MAX_JOBS=$(( $(nproc) > 16 ? 16 : $(nproc) )) && \
         echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
     fi
 
-# Patch wandb-core: bump google.golang.org/grpc from 1.79.2 to 1.79.3 (CVE fix)
+# Patch wandb-core CVE
 ARG TARGETARCH
 RUN if python3 -c "import wandb" 2>/dev/null; then \
         GRPC_VERSION=1.79.3 && \
+        OTEL_VERSION=1.43.0 && \
+        GO_JOSE_VERSION=4.1.4 && \
         GO_VERSION=1.26.1 && \
         WANDB_VERSION=$(python3 -c "import wandb; print(wandb.__version__)") && \
         WANDB_CORE_BIN=/opt/venv/lib/python3.12/site-packages/wandb/bin/wandb-core && \
@@ -106,6 +108,8 @@ RUN if python3 -c "import wandb" 2>/dev/null; then \
         git clone --depth 1 --branch "v${WANDB_VERSION}" https://github.com/wandb/wandb.git /tmp/wandb-src && \
         cd /tmp/wandb-src/core && \
         go get google.golang.org/grpc@v${GRPC_VERSION} && \
+        go get go.opentelemetry.io/otel/sdk@v${OTEL_VERSION} && \
+        go get github.com/go-jose/go-jose/v4@v${GO_JOSE_VERSION} && \
         go mod tidy && \
         go mod vendor && \
         CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" \
