@@ -316,6 +316,17 @@ def main(cfg: DictConfig) -> None:
     output_dir = cfg.get("output_dir") or cfg.get("workspace_dir", "./output")
     logger.info(f"Pipeline finished in {elapsed / 60:.1f} min. Output: {output_dir}")
 
+    perf_summary_path = os.path.join(output_dir, "perf_summary.json")
+    if os.path.isfile(perf_summary_path):
+        import json as _json
+
+        with open(perf_summary_path) as _f:
+            perf_data = _json.load(_f)
+        perf_data["pipeline_duration_s"] = elapsed
+        with open(perf_summary_path, "w") as _f:
+            _json.dump(perf_data, _f, indent=2, ensure_ascii=False)
+        logger.info(f"Performance summary ({perf_summary_path}):\n{_json.dumps(perf_data, indent=2)}")
+
 
 if __name__ == "__main__":
     main()

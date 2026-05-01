@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -212,14 +213,28 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
 
         if not eligible_indices:
             logger.info("PnCRestoration: all {} tasks skipped (flagged or empty)", len(tasks))
+            self._log_metrics({
+                "utterances_eligible": 0.0,
+                "utterances_restored": 0.0,
+                "utterances_kept_as_is": 0.0,
+                "inference_time": 0.0,
+            })
             return tasks
 
+        t0 = time.perf_counter()
         is_complete, pnc_texts = self._model.generate(eligible_texts, languages=eligible_langs)
+        inference_elapsed = time.perf_counter() - t0
 
         for idx, _complete, pnc_text in zip(eligible_indices, is_complete, pnc_texts, strict=False):
             tasks[idx].data[self.output_text_key] = pnc_text
 
         n_restored = sum(is_complete)
+        self._log_metrics({
+            "utterances_eligible": float(len(eligible_indices)),
+            "utterances_restored": float(n_restored),
+            "utterances_kept_as_is": float(len(eligible_indices) - n_restored),
+            "inference_time": inference_elapsed,
+        })
         logger.info(
             "PnCRestoration: {}/{} restored, {}/{} kept as-is",
             n_restored, len(eligible_indices),

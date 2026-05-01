@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -210,7 +211,9 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
                 for code in (t.data.get(self.source_lang_key) for t in tasks)
             ]
 
+        t0 = time.perf_counter()
         pred_texts, disfluency_texts, skipped_indices = self._model.generate(waveforms, sample_rates, languages)
+        inference_elapsed = time.perf_counter() - t0
 
         for i, (task, pred, disfl) in enumerate(zip(tasks, pred_texts, disfluency_texts, strict=True)):
             task.data[self.pred_text_key] = pred
@@ -220,6 +223,12 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data[self.skip_me_key] = "empty_audio"
             if not self.keep_waveform:
                 task.data.pop(self.waveform_key, None)
+
+        self._log_metrics({
+            "utterances_processed": float(len(pred_texts)),
+            "utterances_skipped": float(len(skipped_indices)),
+            "inference_time": inference_elapsed,
+        })
 
         if skipped_indices:
             logger.info(f"QwenOmni: marked {len(skipped_indices)}/{len(tasks)} tasks as empty_audio (_skipme)")
