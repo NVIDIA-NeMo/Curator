@@ -71,6 +71,7 @@ class NMTTranslationBackend(TranslationBackend):
         self._batch_size = batch_size
         self._timeout = timeout
         self._session = None  # aiohttp.ClientSession, lazily created
+        self._session_loop = None
 
     # --------------------------------------------------------------------- #
     #  Lifecycle
@@ -125,6 +126,7 @@ class NMTTranslationBackend(TranslationBackend):
                 # No running event loop -- actually await the close.
                 asyncio.run(self._session.close())
             self._session = None
+            self._session_loop = None
             logger.debug("NMT aiohttp session closed")
 
     # --------------------------------------------------------------------- #
@@ -176,9 +178,21 @@ class NMTTranslationBackend(TranslationBackend):
                 "(for example, `uv sync --extra translation_nmt`)"
             )
 
+        current_loop = asyncio.get_running_loop()
+        if (
+            self._session is not None
+            and not self._session.closed
+            and self._session_loop is not None
+            and self._session_loop is not current_loop
+        ):
+            await self._session.close()
+            self._session = None
+            self._session_loop = None
+
         if self._session is None or self._session.closed:
             timeout = aiohttp.ClientTimeout(total=self._timeout)
             self._session = aiohttp.ClientSession(timeout=timeout)
+            self._session_loop = current_loop
         return self._session
 
     async def _translate_sub_batch(

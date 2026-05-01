@@ -303,6 +303,33 @@ class TestNMTTranslationBackend:
         assert result == ["Hola mundo"]
         backend.translate_batch_async.assert_awaited_once_with(["Hello world"], "en", "es")
 
+    def test_nmt_recreates_session_when_event_loop_changes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Cached aiohttp sessions must not be reused across event loops."""
+        aiohttp = pytest.importorskip("aiohttp")
+        created_sessions = []
+
+        class FakeSession:
+            closed = False
+
+            async def close(self) -> None:
+                self.closed = True
+
+        def client_session(*, timeout: object) -> FakeSession:
+            assert timeout is not None
+            session = FakeSession()
+            created_sessions.append(session)
+            return session
+
+        monkeypatch.setattr(aiohttp, "ClientSession", client_session)
+
+        backend = NMTTranslationBackend(server_url="http://localhost:8000")
+        first_session = asyncio.run(backend._get_session())
+        second_session = asyncio.run(backend._get_session())
+
+        assert first_session is not second_session
+        assert first_session.closed
+        assert not second_session.closed
+
 
 # ---------------------------------------------------------------------------
 # Retry / exponential backoff tests
