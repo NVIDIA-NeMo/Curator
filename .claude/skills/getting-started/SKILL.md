@@ -232,6 +232,8 @@ To use gated models like Llama tokenizers, you'll need a HuggingFace token.
 
 Run verification with user permission. Execute the verifications that apply based on the user's selections from Step 1.
 
+**Note:** All verification commands below use paths relative to the repository root. Run them from the Curator repo root, or prefix the script paths with `$(git rev-parse --show-toplevel)/`.
+
 ### 9.1 Basic Import Check (ALWAYS run)
 ```bash
 python3 -c "import nemo_curator; print(f'NeMo Curator {nemo_curator.__version__} installed')"
@@ -333,7 +335,10 @@ Based on modality selection, recommend the most relevant tutorial from https://g
 - `exact_deduplication_pipeline.yaml`
 - `semantic_deduplication_pipeline.yaml`
 - `fuzzy_deduplication_pipeline.yaml`
-- `heuristic_filter_pipeline.yaml`
+- `heuristic_filter_english_pipeline.yaml`
+- `heuristic_filter_non_english_pipeline.yaml`
+- `fasttext_filter_pipeline.yaml`
+- `code_filter_pipeline.yaml`
 
 ## Step 14: Summary Output
 

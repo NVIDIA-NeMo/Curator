@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify CPU-only pipeline execution works (no GPU required)."""
 import pandas as pd
-from dataclasses import field
+from dataclasses import dataclass, field
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
@@ -11,6 +11,7 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task, _EmptyTask
 
 
+@dataclass
 class SampleTask(Task[pd.DataFrame]):
     data: pd.DataFrame = field(default_factory=pd.DataFrame)
 
@@ -35,7 +36,7 @@ class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
         return [
             SampleTask(
                 data=pd.DataFrame({"text": ["Hello world", "Test sentence"]}),
-                task_id=1,
+                task_id="1",
                 dataset_name="test",
             )
         ]
@@ -61,13 +62,14 @@ if __name__ == "__main__":
     rc = RayClient()
     rc.start()
 
-    pipeline = Pipeline(name="verify_cpu")
-    pipeline.add_stage(TaskCreationStage())
-    pipeline.add_stage(WordCountStage())
+    try:
+        pipeline = Pipeline(name="verify_cpu")
+        pipeline.add_stage(TaskCreationStage())
+        pipeline.add_stage(WordCountStage())
 
-    results = pipeline.run(XennaExecutor())
+        results = pipeline.run(XennaExecutor())
 
-    print("✓ CPU pipeline executed successfully")
-    print(f"  Output: {len(results)} task(s) processed")
-
-    rc.stop()
+        print("✓ CPU pipeline executed successfully")
+        print(f"  Output: {len(results)} task(s) processed")
+    finally:
+        rc.stop()
