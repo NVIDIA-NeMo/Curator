@@ -237,7 +237,7 @@ all = [
 ]
 
 [dependency-groups]
-build = ["setuptools", "torch<=2.9.1", "Cython", "packaging"]
+build = ["setuptools", "torch", "Cython", "packaging"]
 dev = ["jupyter"]
 linting = ["pre-commit", "ruff==0.14.10"]
 test = [
@@ -276,12 +276,13 @@ constraint-dependencies = [
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
-    "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
+    "transformers>=4.56.0", # removed <5.0 cap to allow qwen3_5_moe support
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
-    "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
+    "huggingface-hub>=0.34", # removed <1.0 cap — vllm 0.17+ / transformers 5.x need hf_hub>=1.0
+    "transformers>=4.56.0", # Override nemo-toolkit's <4.58 pin — qwen3_5_moe needs newer transformers
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
@@ -289,6 +290,7 @@ override-dependencies = [
     "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
+    "torch>=2.9.1", # Override video_cuda12's <=2.9.1 pin — vllm 0.17+ needs torch 2.10+
 ]
 
 
@@ -321,6 +323,9 @@ torchvision = [
 ]
 nixl = { index = "pypi" }
 nixl-cu12 = { index = "pypi" }
+transformers = { index = "pypi" }
+huggingface-hub = { index = "pypi" }
+vllm = { index = "pypi" }
 
 [tool.coverage.paths]
 source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curator/Curator/nemo_curator"]
