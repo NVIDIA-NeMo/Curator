@@ -14,7 +14,7 @@ modality: "text-only"
 
 Handle multilingual content and language-specific processing requirements using NeMo Curator's tools and utilities.
 
-NeMo Curator provides robust tools for managing multilingual text datasets through language detection, stop word management, translation, and specialized handling for non-spaced languages. These tools are essential for creating high-quality monolingual datasets and applying language-specific processing.
+NeMo Curator provides robust tools for managing multilingual text datasets through language detection, stop word management, experimental translation, and specialized handling for non-spaced languages. These tools are essential for creating high-quality monolingual datasets and applying language-specific processing.
 
 ## Before You Start
 
@@ -61,7 +61,7 @@ results = pipeline.run()
 
 - **Language detection** using FastText (176 languages) and CLD2 (used in HTML extraction pipelines)
 - **Stop word management** with built-in lists and customizable thresholds
-- **Translation pipelines** for flat and structured fields, including wildcard paths such as `messages.*.content`
+- **Experimental translation pipelines** for flat and structured fields, including wildcard paths such as `messages.*.content`
 - **Special handling** for non-spaced languages (Chinese, Japanese, Thai, Korean)
 - **Language-specific** text processing and quality filtering
 
@@ -92,12 +92,13 @@ Manage high-frequency words to enhance text extraction and content detection
 {bdg-secondary}`nlp`
 :::
 
-:::{grid-item-card} {octicon}`comment-discussion;1.5em;sd-mr-1` Translation
+:::{grid-item-card} {octicon}`comment-discussion;1.5em;sd-mr-1` Translation (Experimental)
 :link: translation
 :link-type: doc
 Translate flat or structured text fields with optional FAITH and round-trip evaluation
 +++
 {bdg-secondary}`translation`
+{bdg-secondary}`experimental`
 {bdg-secondary}`wildcard-fields`
 {bdg-secondary}`faith`
 {bdg-secondary}`round-trip-metrics`
@@ -112,5 +113,5 @@ Translate flat or structured text fields with optional FAITH and round-trip eval
 
 Language Identification <language>
 Stop Words <stopwords>
-Translation <translation>
+Translation (Experimental) <translation>
 ```

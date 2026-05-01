@@ -27,8 +27,8 @@ from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConf
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch
 
-from nemo_curator.stages.text.translation.utils.async_utils import run_async_safe
-from nemo_curator.stages.text.translation.utils.prompt_loader import (
+from nemo_curator.stages.text.experimental.translation.utils.async_utils import run_async_safe
+from nemo_curator.stages.text.experimental.translation.utils.prompt_loader import (
     load_prompt_template,
 )
 from nemo_curator.stages.text.utils.text_utils import get_language_name
@@ -105,7 +105,7 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             self._system_prompt, self._user_template = load_prompt_template("translate.yaml")
 
             if self.backend_type != "llm":
-                from nemo_curator.stages.text.translation.backends import get_backend
+                from nemo_curator.stages.text.experimental.translation.backends import get_backend
 
                 self._backend = get_backend(self.backend_type, self.backend_config)
 

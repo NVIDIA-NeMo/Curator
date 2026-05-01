@@ -23,7 +23,7 @@ import pandas as pd
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.text.translation.utils.metadata import (
+from nemo_curator.stages.text.experimental.translation.utils.metadata import (
     merge_faith_scores_into_metadata,
 )
 from nemo_curator.tasks import DocumentBatch

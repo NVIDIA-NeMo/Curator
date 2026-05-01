@@ -22,22 +22,22 @@ import pandas as pd
 import pytest
 
 from nemo_curator.models.client.llm_client import GenerationConfig
-from nemo_curator.stages.text.translation.evaluation.faith import (
+from nemo_curator.stages.text.experimental.translation.evaluation.faith import (
     FAITH_KEYS,
     FaithEvalFilter,
     FaithThresholdFilterStage,
     _SCORE_COLUMNS,
 )
-from nemo_curator.stages.text.translation.pipeline import TranslationStage
-from nemo_curator.stages.text.translation.stages import (
+from nemo_curator.stages.text.experimental.translation.pipeline import TranslationStage
+from nemo_curator.stages.text.experimental.translation.stages import (
     FormatTranslationOutputStage,
     MergeFaithScoresStage,
     RestoreSkippedRowsStage,
     SkipExistingTranslationsStage,
 )
-from nemo_curator.stages.text.translation.stages.reassembly import ReassemblyStage
-from nemo_curator.stages.text.translation.stages.segmentation import SegmentationStage
-from nemo_curator.stages.text.translation.stages.translate import (
+from nemo_curator.stages.text.experimental.translation.stages.reassembly import ReassemblyStage
+from nemo_curator.stages.text.experimental.translation.stages.segmentation import SegmentationStage
+from nemo_curator.stages.text.experimental.translation.stages.translate import (
     SegmentTranslationStage,
 )
 from nemo_curator.tasks import DocumentBatch

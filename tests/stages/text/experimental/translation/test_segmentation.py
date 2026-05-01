@@ -23,9 +23,9 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from nemo_curator.stages.text.translation.stages import segmentation as segmentation_module
-from nemo_curator.stages.text.translation.stages.segmentation import SegmentationStage
-from nemo_curator.stages.text.translation.stages.translate import (
+from nemo_curator.stages.text.experimental.translation.stages import segmentation as segmentation_module
+from nemo_curator.stages.text.experimental.translation.stages.segmentation import SegmentationStage
+from nemo_curator.stages.text.experimental.translation.stages.translate import (
     SegmentTranslationStage,
 )
 from nemo_curator.tasks import DocumentBatch

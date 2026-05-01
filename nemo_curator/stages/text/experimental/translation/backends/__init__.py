@@ -16,7 +16,7 @@
 
 from loguru import logger
 
-from nemo_curator.stages.text.translation.backends.base import TranslationBackend
+from nemo_curator.stages.text.experimental.translation.backends.base import TranslationBackend
 
 __all__ = [
     "TranslationBackend",

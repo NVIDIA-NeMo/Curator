@@ -21,16 +21,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nemo_curator.stages.text.translation.backends import get_backend
-from nemo_curator.stages.text.translation.backends.aws import (
+from nemo_curator.stages.text.experimental.translation.backends import get_backend
+from nemo_curator.stages.text.experimental.translation.backends.aws import (
     AWS_MAX_BYTES_PER_REQUEST,
     AWSTranslationBackend,
 )
-from nemo_curator.stages.text.translation.backends.base import TranslationBackend
-from nemo_curator.stages.text.translation.backends.google import (
+from nemo_curator.stages.text.experimental.translation.backends.base import TranslationBackend
+from nemo_curator.stages.text.experimental.translation.backends.google import (
     GoogleTranslationBackend,
 )
-from nemo_curator.stages.text.translation.backends.nmt import NMTTranslationBackend
+from nemo_curator.stages.text.experimental.translation.backends.nmt import NMTTranslationBackend
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@ class TestGetBackendFactory:
     """Tests for the get_backend() factory function."""
 
     @patch(
-        "nemo_curator.stages.text.translation.backends.google.GoogleTranslationBackend.__init__",
+        "nemo_curator.stages.text.experimental.translation.backends.google.GoogleTranslationBackend.__init__",
         return_value=None,
     )
     def test_get_backend_google(self, mock_init: MagicMock) -> None:
@@ -65,7 +65,7 @@ class TestGetBackendFactory:
         assert isinstance(backend, GoogleTranslationBackend)
 
     @patch(
-        "nemo_curator.stages.text.translation.backends.aws.AWSTranslationBackend.__init__",
+        "nemo_curator.stages.text.experimental.translation.backends.aws.AWSTranslationBackend.__init__",
         return_value=None,
     )
     def test_get_backend_aws(self, mock_init: MagicMock) -> None:

@@ -55,12 +55,13 @@ Manage high-frequency words to enhance text extraction and content detection
 {bdg-secondary}`language-specific`
 :::
 
-:::{grid-item-card} {octicon}`comment-discussion;1.5em;sd-mr-1` Translation
+:::{grid-item-card} {octicon}`comment-discussion;1.5em;sd-mr-1` Translation (Experimental)
 :link: language-management/translation
 :link-type: doc
 Translate flat or structured fields with optional FAITH and round-trip evaluation
 +++
 {bdg-secondary}`translation`
+{bdg-secondary}`experimental`
 {bdg-secondary}`wildcard-fields`
 {bdg-secondary}`faith`
 :::

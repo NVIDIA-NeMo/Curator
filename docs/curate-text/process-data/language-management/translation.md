@@ -1,7 +1,7 @@
 ---
-description: "Translate flat and structured text fields with Curator's translation pipeline, quality scoring, and backend integrations"
+description: "Translate flat and structured text fields with Curator's experimental translation pipeline, quality scoring, and backend integrations"
 categories: ["how-to-guides"]
-tags: ["translation", "multilingual", "faith", "text-quality", "llm", "nmt"]
+tags: ["translation", "experimental", "multilingual", "faith", "text-quality", "llm", "nmt"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -14,7 +14,11 @@ modality: "text-only"
 
 Use NeMo Curator's translation package to translate flat text fields or structured records, such as chat conversations stored under `messages.*.content`.
 
-The translation package is centered on `TranslationStage`, which composes segmentation, translation, reassembly, output formatting, and optional evaluation into a reusable text-processing stage.
+```{warning}
+Translation is currently an experimental text stage. Import it from `nemo_curator.stages.text.experimental.translation`; APIs and output details may change while the workflow is being validated.
+```
+
+The experimental translation package is centered on `TranslationStage`, which composes segmentation, translation, reassembly, output formatting, and optional evaluation into a reusable text-processing stage.
 
 ## Capabilities
 
@@ -50,7 +54,7 @@ from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.translation import TranslationStage
+from nemo_curator.stages.text.experimental.translation import TranslationStage
 
 client = AsyncOpenAIClient(
     api_key=os.environ["NVIDIA_API_KEY"],
@@ -321,7 +325,7 @@ FAITH scores are merged into the output when `output_mode="raw"` or `output_mode
 Backtranslation uses a second translation pass with reversed languages, followed by `TextQualityMetricStage`:
 
 ```python
-from nemo_curator.stages.text.translation import TextQualityMetricStage, TranslationStage
+from nemo_curator.stages.text.experimental.translation import TextQualityMetricStage, TranslationStage
 
 pipeline.add_stage(
     TranslationStage(

@@ -21,11 +21,11 @@ import json
 import pandas as pd
 import pytest
 
-from nemo_curator.stages.text.translation.stages.reassembly import (
+from nemo_curator.stages.text.experimental.translation.stages.reassembly import (
     _INTERNAL_COLUMNS,
     ReassemblyStage,
 )
-from nemo_curator.stages.text.translation.stages.segmentation import SegmentationStage
+from nemo_curator.stages.text.experimental.translation.stages.segmentation import SegmentationStage
 from nemo_curator.tasks import DocumentBatch
 
 

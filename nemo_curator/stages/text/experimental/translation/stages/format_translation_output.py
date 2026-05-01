@@ -23,7 +23,7 @@ from typing import Any
 import pandas as pd
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.text.translation.utils.metadata import (
+from nemo_curator.stages.text.experimental.translation.utils.metadata import (
     build_translation_metadata,
     reconstruct_messages_with_translation,
 )

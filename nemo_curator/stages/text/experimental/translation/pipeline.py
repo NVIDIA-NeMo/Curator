@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Translation pipeline composition."""
+"""Experimental translation pipeline composition."""
 
 from __future__ import annotations
 
@@ -22,11 +22,11 @@ from loguru import logger
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.text.translation.evaluation.faith import (
+from nemo_curator.stages.text.experimental.translation.evaluation.faith import (
     FaithEvalFilter,
     FaithThresholdFilterStage,
 )
-from nemo_curator.stages.text.translation.stages import (
+from nemo_curator.stages.text.experimental.translation.stages import (
     FormatTranslationOutputStage,
     MergeFaithScoresStage,
     SegmentTranslationStage,
@@ -49,7 +49,7 @@ def _needs_structured_faith_helpers(text_field: str | list[str]) -> bool:
 
 @dataclass(kw_only=True)
 class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
-    """Composite stage for document translation and optional quality scoring."""
+    """Experimental composite stage for translation and optional quality scoring."""
 
     name: str = "TranslationStage"
 
