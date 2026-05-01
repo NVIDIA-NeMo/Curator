@@ -40,13 +40,6 @@ from nemo_curator.tasks import DocumentBatch
 _VALID_OUTPUT_MODES = {"replaced", "raw", "both"}
 
 
-def _needs_structured_faith_helpers(text_field: str | list[str]) -> bool:
-    """Return whether FAITH needs flattened helper columns."""
-    if isinstance(text_field, list):
-        return True
-    return "*" in text_field or "." in text_field
-
-
 @dataclass(kw_only=True)
 class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
     """Experimental composite stage for translation and optional quality scoring."""
@@ -70,7 +63,6 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
     enable_faith_eval: bool = False
     faith_threshold: float = 2.5
     faith_model_name: str = ""
-    segment_level: bool = False
     filter_enabled: bool = True
 
     output_mode: str = "replaced"
@@ -148,13 +140,6 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
     def _build_stages(self) -> list[ProcessingStage]:
         """Construct the ordered list of sub-stages."""
         stages: list[ProcessingStage] = []
-        faith_helper_needed = (
-            self.enable_faith_eval
-            and not self.segment_level
-            and _needs_structured_faith_helpers(self.text_field)
-        )
-        use_segment_level_faith = self.enable_faith_eval and self.segment_level
-        use_document_level_faith = self.enable_faith_eval and not self.segment_level
 
         if self.skip_translated:
             stages.append(
@@ -183,7 +168,7 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
             )
         )
 
-        if use_segment_level_faith:
+        if self.enable_faith_eval:
             faith_model = self.faith_model_name or self.model_name
             stages.append(
                 FaithEvalFilter(
@@ -204,43 +189,19 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
                 output_field=self.output_field,
                 replace_source_fields=self.output_mode in ("replaced", "both"),
                 emit_metadata_helpers=self.output_mode in ("raw", "both"),
-                emit_faith_helpers=faith_helper_needed,
-                aggregate_faith_scores=use_segment_level_faith,
+                aggregate_faith_scores=self.enable_faith_eval,
             )
         )
 
-        if use_segment_level_faith and self.filter_enabled:
+        if self.enable_faith_eval and self.filter_enabled:
             stages.append(FaithThresholdFilterStage(threshold=self.faith_threshold))
 
         if self.skip_translated:
             stages.append(RestoreSkippedRowsStage())
 
-        if use_document_level_faith:
-            faith_model = self.faith_model_name or self.model_name
-            faith_source_field = (
-                "_faith_source_text" if faith_helper_needed else self.text_field
-            )
-            faith_translated_field = (
-                "_faith_translated_text" if faith_helper_needed else self.output_field
-            )
-
-            stages.append(
-                FaithEvalFilter(
-                    client=self.client,
-                    model_name=faith_model,
-                    source_lang=self.source_lang,
-                    target_lang=self.target_lang,
-                    source_text_field=faith_source_field,
-                    translated_text_field=faith_translated_field,
-                    threshold=self.faith_threshold,
-                    filter_enabled=self.filter_enabled,
-                ),
-            )
-
         needs_formatting = (
             self.output_mode != "replaced"
             or self.reconstruct_messages
-            or faith_helper_needed
         )
         if needs_formatting:
             stages.append(

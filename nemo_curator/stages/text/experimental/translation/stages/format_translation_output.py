@@ -82,8 +82,6 @@ class FormatTranslationOutputStage(ProcessingStage[DocumentBatch, DocumentBatch]
             for col in (
                 "_translation_map",
                 "_segmented_translation_map",
-                "_faith_source_text",
-                "_faith_translated_text",
             )
             if col in df.columns
         ]

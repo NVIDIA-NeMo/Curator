@@ -331,15 +331,12 @@ class TestEdgeCases:
             text_field="messages.*.content",
             replace_source_fields=True,
             emit_metadata_helpers=True,
-            emit_faith_helpers=True,
         ).process(translated_batch)
         result_df = result.to_pandas()
 
         assert result_df.iloc[0]["messages"][0]["content"] == "Hola"
         assert result_df.iloc[0]["messages"][1]["content"] == "Que tal"
         assert result_df.iloc[0]["translated_text"][0]["content"] == "Hola"
-        assert '"field_path": "messages.*.content"' in result_df.iloc[0]["_faith_source_text"]
-        assert '"text": "Hola"' in result_df.iloc[0]["_faith_translated_text"]
 
         translation_map = json.loads(result_df.iloc[0]["_translation_map"])
         segmented_map = json.loads(result_df.iloc[0]["_segmented_translation_map"])

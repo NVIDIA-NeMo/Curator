@@ -58,7 +58,6 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     output_field: str = "translated_text"
     replace_source_fields: bool = False
     emit_metadata_helpers: bool = False
-    emit_faith_helpers: bool = False
     aggregate_faith_scores: bool = False
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -68,8 +67,6 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         out_cols = [self.output_field, "translation_time", "translation_errors"]
         if self.emit_metadata_helpers:
             out_cols.extend(["_translation_map", "_segmented_translation_map"])
-        if self.emit_faith_helpers:
-            out_cols.extend(["_faith_source_text", "_faith_translated_text"])
         if self.aggregate_faith_scores:
             out_cols.extend(
                 [
@@ -127,7 +124,7 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 continue
 
             if "field_metadatas" in metadata:
-                translation_map, segmented_map, faith_source_text, faith_translated_text = self._reassemble_multi_field(
+                translation_map, segmented_map = self._reassemble_multi_field(
                     metadata,
                     translated_segments,
                     out_row,
@@ -145,21 +142,12 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 segmented_map = {
                     field_key: self._build_segment_pairs(metadata, translated_segments)
                 }
-                faith_source_text = self._serialize_faith_entries(
-                    [{"field_path": field_path, "text": self._reassemble_original_text(metadata)}]
-                )
-                faith_translated_text = self._serialize_faith_entries(
-                    [{"field_path": field_path, "text": reassembled}]
-                )
                 if self.replace_source_fields and not (is_wildcard_path(field_path) or "." in field_path):
                     out_row[field_path] = reassembled
 
             if self.emit_metadata_helpers:
                 out_row["_translation_map"] = json.dumps(translation_map, ensure_ascii=False)
                 out_row["_segmented_translation_map"] = json.dumps(segmented_map, ensure_ascii=False)
-            if self.emit_faith_helpers:
-                out_row["_faith_source_text"] = faith_source_text
-                out_row["_faith_translated_text"] = faith_translated_text
             if self.aggregate_faith_scores:
                 self._write_aggregated_faith_scores(out_row, group)
 
@@ -181,7 +169,7 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         metadata: dict[str, Any],
         translated_segments: list[str],
         out_row: dict[str, Any],
-    ) -> tuple[dict[str, Any], dict[str, Any], str, str]:
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Reassemble one or more translated field paths."""
         field_metadatas: list[dict[str, Any]] = metadata["field_metadatas"]
 
@@ -189,8 +177,6 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         reassembled_by_path: dict[str, list[str]] = {}
         translation_map: dict[str, Any] = {}
         segmented_map: dict[str, Any] = {}
-        faith_source_entries: list[dict[str, str]] = []
-        faith_translated_entries: list[dict[str, str]] = []
 
         for fm in field_metadatas:
             mode = fm.get("mode", "coarse")
@@ -210,13 +196,6 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 reassembled = self._reassemble_coarse(fm, entry_segments)
             else:
                 reassembled = " ".join(entry_segments)
-
-            faith_source_entries.append(
-                {"field_path": field_path, "text": self._reassemble_original_text(fm)}
-            )
-            faith_translated_entries.append(
-                {"field_path": field_path, "text": reassembled}
-            )
 
             reassembled_by_path.setdefault(field_path, []).append(reassembled)
             current_pairs = self._build_segment_pairs(fm, entry_segments)
@@ -265,12 +244,7 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         else:
             out_row[self.output_field] = translation_map
 
-        return (
-            translation_map,
-            segmented_map,
-            self._serialize_faith_entries(faith_source_entries),
-            self._serialize_faith_entries(faith_translated_entries),
-        )
+        return translation_map, segmented_map
 
     @staticmethod
     def _count_segments_in_meta(fm: dict[str, Any]) -> int:
@@ -375,36 +349,6 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 trans_idx += 1
             return pairs
         return []
-
-    @classmethod
-    def _reassemble_original_text(cls, metadata: dict[str, Any]) -> str:
-        """Reconstruct the original source text for one field entry."""
-        mode = metadata.get("mode", "coarse")
-        if mode == "passthrough":
-            return str(metadata.get("original_text", ""))
-        if mode == "coarse":
-            return cls._reassemble_coarse(
-                metadata,
-                [str(text) for text in metadata.get("original_stripped_lines", [])],
-            )
-        if mode == "fine":
-            units = metadata.get("units", [])
-            original_segments = [
-                str(unit.get("original", ""))
-                for unit in units
-                if unit.get("translatable", False)
-            ]
-            return cls._reassemble_fine(metadata, original_segments)
-        return ""
-
-    @staticmethod
-    def _serialize_faith_entries(entries: list[dict[str, str]]) -> str:
-        """Serialize reassembled field texts into a FAITH-friendly string."""
-        if not entries:
-            return ""
-        if len(entries) == 1:
-            return entries[0]["text"]
-        return json.dumps(entries, ensure_ascii=False)
 
     @staticmethod
     def _reassemble_coarse(metadata: dict[str, Any], translated_segments: list[str]) -> str:

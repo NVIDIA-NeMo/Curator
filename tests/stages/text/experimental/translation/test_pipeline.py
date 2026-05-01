@@ -148,11 +148,11 @@ class TestTranslationStageDecompose:
                 faith_model_name="",
             )
 
-    def test_decompose_structured_faith_uses_helper_columns(
+    def test_decompose_structured_faith_scores_segments(
         self,
         mock_client: MockAsyncLLMClient,
     ) -> None:
-        """Structured paths should route FAITH through reassembly helper columns."""
+        """Structured paths should still score FAITH on exploded segment rows."""
         pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
@@ -164,14 +164,15 @@ class TestTranslationStageDecompose:
         stages = pipeline.decompose()
 
         assert len(stages) == 5
-        assert isinstance(stages[2], ReassemblyStage)
-        assert stages[2].emit_faith_helpers is True
-        assert isinstance(stages[3], FaithEvalFilter)
-        assert stages[3].source_text_field == "_faith_source_text"
-        assert stages[3].translated_text_field == "_faith_translated_text"
-        assert isinstance(stages[4], FormatTranslationOutputStage)
+        assert isinstance(stages[2], FaithEvalFilter)
+        assert stages[2].source_text_field == "_seg_segments"
+        assert stages[2].translated_text_field == "_translated"
+        assert stages[2].filter_enabled is False
+        assert isinstance(stages[3], ReassemblyStage)
+        assert stages[3].aggregate_faith_scores is True
+        assert isinstance(stages[4], FaithThresholdFilterStage)
 
-    def test_decompose_segment_level_faith_scores_before_reassembly(
+    def test_decompose_faith_scores_segments_before_reassembly(
         self,
         mock_client: MockAsyncLLMClient,
     ) -> None:
@@ -182,7 +183,6 @@ class TestTranslationStageDecompose:
             client=mock_client,
             model_name="translate-model",
             enable_faith_eval=True,
-            segment_level=True,
             filter_enabled=True,
         )
 
@@ -1191,28 +1191,6 @@ class TestFormatTranslationOutputStage:
         assert meta["segmented_translation"]["question"][0]["tgt"] == "Hallo"
         assert "_translation_map" not in result_df.columns
         assert "_segmented_translation_map" not in result_df.columns
-
-    def test_replaced_mode_drops_faith_helper_columns(self) -> None:
-        """Formatting should clean up FAITH helper columns when present."""
-        stage = FormatTranslationOutputStage(
-            output_mode="replaced",
-            target_lang="de",
-            output_field="translated_text",
-        )
-
-        df = pd.DataFrame(
-            {
-                "translated_text": ["Hallo."],
-                "_faith_source_text": ["Hello."],
-                "_faith_translated_text": ["Hallo."],
-            }
-        )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
-        result = stage.process(batch)
-        result_df = result.to_pandas()
-
-        assert "_faith_source_text" not in result_df.columns
-        assert "_faith_translated_text" not in result_df.columns
 
     def test_replaced_mode_no_metadata(self) -> None:
         """In 'replaced' mode, no translation_metadata column is added."""

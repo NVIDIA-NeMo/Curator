@@ -103,7 +103,7 @@ This makes the pipeline suitable for chat-style records where natural-language t
 - `segmentation_mode="coarse"` keeps line-level splitting with code-block awareness
 - `segmentation_mode="fine"` uses sentence-level segmentation with structure preservation
 - `min_segment_chars` lets you explicitly bypass segmentation for short text rather than relying on an implicit cutoff
-- `segment_level=True` runs FAITH on exploded segment rows before reassembly, which avoids long-context scoring requests
+- `enable_faith_eval=True` runs FAITH on exploded segment rows before reassembly, which avoids long-context scoring requests
 - `reconstruct_messages=True` rebuilds translated message lists for structured chat-style inputs
 
 ## DocumentBatch Walkthrough
@@ -130,7 +130,6 @@ TranslationStage(
     target_lang="hi",
     segmentation_mode="coarse",
     enable_faith_eval=True,
-    segment_level=True,
     output_mode="raw",
     merge_scores=True,
 )
@@ -194,7 +193,7 @@ id | _seg_segments                    | _translated
 
 ### 3. FaithEvalFilter
 
-When `enable_faith_eval=True` and `segment_level=True`, FAITH runs on the exploded segment rows before reassembly.
+When `enable_faith_eval=True`, FAITH runs on the exploded segment rows before reassembly.
 
 New columns:
 
@@ -228,8 +227,8 @@ Added document-level columns:
 - `translation_errors`
 - `_translation_map`
 - `_segmented_translation_map`
-- `faith_segment_scores` when segment-level FAITH is enabled
-- aggregated `faith_*` columns when segment-level FAITH is enabled
+- `faith_segment_scores` when FAITH is enabled
+- aggregated `faith_*` columns when FAITH is enabled
 
 Example output:
 
@@ -248,12 +247,12 @@ Important details:
 - `translation_time` is the sum of the segment-level translation times.
 - `translation_errors` joins any non-empty segment errors.
 - `_translation_map` and `_segmented_translation_map` are helper columns used later to build `translation_metadata`.
-- When segment-level FAITH is enabled, reassembly also averages the per-segment FAITH scores into document-level `faith_*` columns and writes the raw per-segment list to `faith_segment_scores`.
+- When FAITH is enabled, reassembly averages the per-segment FAITH scores into document-level `faith_*` columns and writes the raw per-segment list to `faith_segment_scores`.
 - For structured fields such as `messages.*.content`, reassembly writes translations back into the nested structure instead of only returning a flat string.
 
 ### 5. FaithThresholdFilterStage
 
-When `segment_level=True` and filtering is enabled, the threshold filter runs after reassembly on aggregated document-level FAITH scores.
+When FAITH filtering is enabled, the threshold filter runs after reassembly on the aggregated FAITH score.
 
 Rows with `faith_avg < faith_threshold` are dropped here, while rows with parse failures or rows with no scored segments are preserved.
 
@@ -275,8 +274,6 @@ This stage also drops internal helper columns such as:
 
 - `_translation_map`
 - `_segmented_translation_map`
-- `_faith_source_text`
-- `_faith_translated_text`
 
 ### 7. MergeFaithScoresStage
 

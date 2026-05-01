@@ -278,9 +278,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         scored as ``0.0`` are excluded from the average.  If every
         dimension is zero, returns ``0.0``.
 
-        Single source of truth for both doc-level and segment-level paths
-        so the semantics stay in lockstep.
-
         Parameters
         ----------
         scores : dict
