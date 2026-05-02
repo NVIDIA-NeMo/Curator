@@ -14,7 +14,7 @@
 
 """CLI runner for the long-form-audio ALM pretraining pipeline.
 
-An example to do dry-run: 
+An example to do dry-run:
 
 
 # Export the two workarounds for this session
@@ -169,9 +169,15 @@ def main() -> None:
     logger.info(f"Running on backend={args.backend}")
     prepare_audio_pretrain_outputs(args.output_manifest, args.metrics_path)
     t0 = time.monotonic()
-    pipeline.run(executor)
-    elapsed = time.monotonic() - t0
-    finalize_audio_pretrain_outputs(args.output_manifest, args.metrics_path)
+    try:
+        pipeline.run(executor)
+    finally:
+        # Always merge whatever shards the writer + aggregator managed to produce,
+        # even on pipeline failure (OOM, network partition, Ctrl+C, stage exception).
+        # Without this, partial shards would be silently deleted by the next
+        # prepare_audio_pretrain_outputs call and any partial output is lost.
+        elapsed = time.monotonic() - t0
+        finalize_audio_pretrain_outputs(args.output_manifest, args.metrics_path)
     logger.info(
         f"Pipeline finished in {elapsed:.2f}s ({elapsed / 60:.2f} min). "
         f"Snippets in {args.output_dir}, manifest at {args.output_manifest}, "
