@@ -44,7 +44,7 @@ import time
 
 from loguru import logger
 
-from tutorials.audio.audio_pretrain.pipeline import (
+from nemo_curator.stages.audio.alm.pretrain import (
     build_audio_pretrain_pipeline,
     finalize_audio_pretrain_outputs,
     prepare_audio_pretrain_outputs,

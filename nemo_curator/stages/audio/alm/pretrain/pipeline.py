@@ -34,7 +34,8 @@ the source audio.
 from __future__ import annotations
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.alm.pretrain import (
+
+from .stages import (
     OverlapFilterStage,
     PretrainMetricsAggregatorStage,
     ReadLongFormManifestStage,

@@ -23,6 +23,9 @@ data, ASR training data, TTS training data, and speaker-diarization
 training data without re-cutting the source audio.
 """
 
+from nemo_curator.stages.audio.alm.pretrain.pipeline import (
+    build_audio_pretrain_pipeline,
+)
 from nemo_curator.stages.audio.alm.pretrain.stages import (
     OverlapFilterStage,
     PretrainMetricsAggregatorStage,
@@ -41,6 +44,7 @@ __all__ = [
     "SnippetCutPlannerStage",
     "SnippetExtractionStage",
     "SnippetManifestWriterStage",
+    "build_audio_pretrain_pipeline",
     "finalize_audio_pretrain_outputs",
     "prepare_audio_pretrain_outputs",
 ]
