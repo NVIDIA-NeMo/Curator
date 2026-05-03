@@ -270,12 +270,23 @@ def relativize_segments(
 
 
 def make_snippet_id(original_id: str, start_sec: float, end_sec: float) -> str:
-    """Snippet id format: ``<id>_{st:.3f}_{en:.3f}``.
+    """Snippet id format: ``<id>-<st_int>_<st_ms>-<en_int>_<en_ms>``.
 
     Millisecond precision avoids id collisions between adjacent short
     snippets that would round to the same value at 2-decimal precision.
+
+    The id is intentionally free of any ``.`` character so that the
+    resulting filename ``<snippet_id>.<ext>`` (e.g. ``.flac``) survives
+    WebDataset-style grouping, which uses the first ``.`` after the
+    sample basename as the boundary between sample key and extensions.
+    A snippet id like ``X_11.708_13.970`` would otherwise be parsed by
+    WebDataset as a multi-piece compound key with extensions ``708``,
+    ``970``, ``flac``. Using ``-`` as the field separator and ``_`` as
+    the decimal mark keeps both human readability and tar-friendliness.
     """
-    return f"{original_id}_{start_sec:.3f}_{end_sec:.3f}"
+    start_str = f"{start_sec:.3f}".replace(".", "_")
+    end_str = f"{end_sec:.3f}".replace(".", "_")
+    return f"{original_id}-{start_str}-{end_str}"
 
 
 def histogram_30s(durations: list[float]) -> dict[str, int]:

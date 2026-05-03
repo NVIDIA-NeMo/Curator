@@ -301,14 +301,23 @@ class TestRelativizeSegments:
 
 class TestMakeSnippetId:
     def test_three_decimal_format(self) -> None:
-        assert make_snippet_id("XYZ", 11.708468, 13.969718) == "XYZ_11.708_13.970"
+        assert make_snippet_id("XYZ", 11.708468, 13.969718) == "XYZ-11_708-13_970"
 
     def test_zero_padded_decimals(self) -> None:
-        assert make_snippet_id("X", 1.0, 2.5) == "X_1.000_2.500"
+        assert make_snippet_id("X", 1.0, 2.5) == "X-1_000-2_500"
 
     def test_distinct_for_close_timestamps(self) -> None:
         # Two snippets that would collide at .2f precision are distinct at .3f
         assert make_snippet_id("X", 12.123, 13.0) != make_snippet_id("X", 12.127, 13.0)
+
+    def test_no_dot_in_id_for_webdataset(self) -> None:
+        # Filenames are derived as `{snippet_id}.<ext>`. WebDataset uses the
+        # first `.` after the sample basename as the boundary between key
+        # and extension(s); any `.` inside the snippet_id would cause it to
+        # be misparsed as a multi-piece compound key. Guard the contract here.
+        sid = make_snippet_id("source-id_with-dashes", 3101.250, 3109.940)
+        assert "." not in sid
+        assert sid == "source-id_with-dashes-3101_250-3109_940"
 
 
 # ----------------------------------------------------------------------
