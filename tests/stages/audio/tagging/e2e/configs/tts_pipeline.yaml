@@ -33,11 +33,11 @@ stages:
   # 2. Speaker diarization (PyAnnote)
   - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
     name: "PyAnnoteDiarization"
+    model_name: None
     hf_token: ${hf_token}
     max_length: ${max_segment_length}
     segmentation_batch_size: 2
     embedding_batch_size: 2
-    xenna_num_workers: 1
     resources:
       gpus: 1
 

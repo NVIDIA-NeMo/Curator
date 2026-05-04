@@ -87,6 +87,7 @@ language_short: en
 hf_token: ""
 sample_rate: 16000
 max_segment_length: 40
+execution_mode: streaming
 batch_size: 4
 text_key1: text
 text_key2: text_2

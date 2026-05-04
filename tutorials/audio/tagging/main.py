@@ -66,10 +66,10 @@ _EXECUTOR_FACTORIES = {
 }
 
 
-def _create_executor(backend: str) -> object:
+def _create_executor(backend: str, config: dict) -> object:
     module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
     mod = importlib.import_module(module_path)
-    return getattr(mod, class_name)()
+    return getattr(mod, class_name)(config=config)
 
 
 @hydra.main(version_base=None)
@@ -85,7 +85,9 @@ def main(cfg: DictConfig) -> None:
         msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
         raise ValueError(msg)
     logger.info(f"Using backend: {backend}")
-    executor = _create_executor(backend)
+    mode = cfg.get("execution_mode", "streaming")
+    config = {"execution_mode": mode}
+    executor = _create_executor(backend, config=config)
 
     logger.info("Starting audio tagging pipeline...")
     results = pipeline.run(executor)
