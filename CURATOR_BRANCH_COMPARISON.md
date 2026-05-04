@@ -1,7 +1,7 @@
 # Curator Branch Comparison
 
 **Our branch**: `aaftabv/standardize-audio-stages` (on `mohammadaaftabv/Curator`)
-**Reference branch**: `nkoluguri/integration-test` (on `nithinraok/Curator`)
+**Reference branch**: `nkoluguri/integration-test`
 **Common ancestor**: `1cbb4a62` (28 commits in ref since, 15 in ours since)
 
 **Diff summary**: 72 files changed, +5668 / -2124 lines
