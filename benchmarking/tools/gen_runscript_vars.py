@@ -17,21 +17,21 @@ import os
 import sys
 from pathlib import Path
 
-import yaml
-
 this_script_path = Path(__file__).parent.absolute()
 # Add the parent directory to PYTHONPATH to import the runner modules
 sys.path.insert(0, str(this_script_path.parent))
 
 # ruff: noqa: E402
 from runner.path_resolver import (
-    CONTAINER_CONFIG_DIR_ROOT,
     CONTAINER_CURATOR_DIR,
-    CONTAINER_DATASETS_DIR_ROOT,
-    CONTAINER_MODEL_WEIGHTS_DIR_ROOT,
-    CONTAINER_RESULTS_DIR_ROOT,
+    DEFAULT_CONTAINER_PATH_PREFIX,
+    PathResolver,
 )
-from runner.utils import get_total_memory_bytes
+from runner.utils import (
+    assert_valid_config_dict,
+    get_total_memory_bytes,
+    merge_config_files,
+)
 
 _KB = 1024
 _MB = 1024 * _KB
@@ -77,7 +77,7 @@ def combine_dir_paths(patha: str | Path, pathb: str | Path) -> Path:
     return Path(f"{patha}/{pathb}").absolute().expanduser().resolve()
 
 
-def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0915
+def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0915
     """
     Parse CLI args and output env variables for bash integration.
     argv is a list of strings to be treated like sys.argv, where argv[0] is the name of this script.
@@ -132,43 +132,24 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
     else:
         entrypoint_args.extend(unknown_args)
 
-    # Parse config files and set volume mounts for results and datasets.
+    # Parse config files and set volume mounts for all mapped directories
     if args.config:
-        # consolidate all config files passed in into a single dict - last one wins.
-        config_data = {}
-        for config_file in args.config:
-            if not config_file.exists():
-                msg = f"Config file not found: {config_file}."
-                raise FileNotFoundError(msg)
-            with open(config_file) as f:
-                new_config = yaml.safe_load(f)
-            if not isinstance(new_config, dict):
-                continue
-            config_data.update(new_config)
+        config_dict = merge_config_files(args.config)
+        assert_valid_config_dict(config_dict)
+        path_resolver = PathResolver(config_dict)
 
-        # process the final path settings into the list of volume mounts.
-        for path_type, container_dir in [
-            ("results_path", CONTAINER_RESULTS_DIR_ROOT),
-            ("datasets_path", CONTAINER_DATASETS_DIR_ROOT),
-            ("model_weights_path", CONTAINER_MODEL_WEIGHTS_DIR_ROOT),
-        ]:
-            if path_type in config_data:
-                path_value = config_data[path_type]
-                if path_value.startswith("/"):
-                    container_dir_path = combine_dir_paths(container_dir, path_value)
-                    volume_mounts.append(f"--volume {path_value}:{container_dir_path}")
-                else:
-                    msg = f"Path value {path_value} for {path_type} must be an absolute path."
-                    raise ValueError(msg)
-            else:
-                msg = f"Path value {path_type} not found in config file(s)."
+        # Add a volume mount for each configured path.
+        for host_path, container_path in path_resolver.volume_mount_pairs():
+            if not host_path.is_absolute():
+                msg = f"Path '{host_path}' must be an absolute path."
                 raise ValueError(msg)
+            volume_mounts.append(f"--volume {host_path}:{container_path}")
 
     # Add volume mounts for each config file so the script in the container can read each one
     # and add each to ENTRYPOINT_ARGS.
     for config_file in args.config:
         config_file_host = config_file.absolute().expanduser().resolve()
-        container_dir_path = combine_dir_paths(CONTAINER_CONFIG_DIR_ROOT, config_file_host)
+        container_dir_path = combine_dir_paths(DEFAULT_CONTAINER_PATH_PREFIX, config_file_host)
         volume_mounts.append(f"--volume {config_file_host}:{container_dir_path}")
         # Only add modified --config args if running the benchmark tool entrypoint, not the
         # bash shell entrypoint.
