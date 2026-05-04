@@ -294,6 +294,8 @@ def main() -> None:  # noqa: C901
                 batch_size=args.asr_batch_size,
                 gpu_memory_utilization=args.asr_gpu_memory_utilization,
                 max_new_tokens=args.asr_max_new_tokens,
+                run_only_if_key="_skip_me",
+                run_only_if_prefix="Hallucination",
             ),
             WhisperHallucinationStage(
                 name="WhisperHallucination_asr",

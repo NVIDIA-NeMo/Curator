@@ -175,7 +175,27 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
                 "Calling setup() now — check that your executor invokes setup() on each worker."
             )
             self.setup()
-        return [self._process_single(task) for task in tasks]
+        pre_skipped = 0
+        newly_flagged = 0
+        recovered = 0
+        for task in tasks:
+            before = str(task.data.get(self.skip_me_key, ""))
+            if before and not self.overwrite:
+                pre_skipped += 1
+            self._process_single(task)
+            after = str(task.data.get(self.skip_me_key, ""))
+            if not before and after.startswith("Hallucination"):
+                newly_flagged += 1
+            if before.startswith("Hallucination") and not after:
+                recovered += 1
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "utterances_pre_skipped": float(pre_skipped),
+            "utterances_newly_flagged": float(newly_flagged),
+            "utterances_recovered": float(recovered),
+            "phrases_loaded": float(len(self._phrases)),
+        })
+        return tasks
 
     def teardown(self) -> None:
         logger.info(

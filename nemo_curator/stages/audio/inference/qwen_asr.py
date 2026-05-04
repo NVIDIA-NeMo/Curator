@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -106,8 +107,14 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         """
         try:
             from huggingface_hub import snapshot_download
+
+            prefetch_t0 = time.perf_counter()
             snapshot_download(self.model_id)
-            logger.info("QwenASR weights cached on node for %s", self.model_id)
+            logger.info(
+                "QwenASR weights cached on node for {} in {:.3f}s",
+                self.model_id,
+                time.perf_counter() - prefetch_t0,
+            )
         except Exception:  # noqa: BLE001
             logger.warning("QwenASR: snapshot_download failed; setup() will download")
 
@@ -177,8 +184,32 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         run_indices = self._select_run_indices(tasks)
 
         if not run_indices:
+            skipped_audio_seconds = sum(
+                float(task.data[self.waveform_key].shape[0]) / float(task.data[self.sample_rate_key])
+                for task in tasks
+                if task.data.get(self.sample_rate_key)
+                and task.data.get(self.waveform_key) is not None
+                and getattr(task.data.get(self.waveform_key), "size", 0) > 0
+            )
+            skipped_waveform_bytes = sum(
+                float(getattr(task.data.get(self.waveform_key), "nbytes", 0))
+                for task in tasks
+                if task.data.get(self.waveform_key) is not None
+            )
             for task in tasks:
                 task.data.pop(self.waveform_key, None)
+            self._log_metrics({
+                "utterances_input": float(len(tasks)),
+                "utterances_selected": 0.0,
+                "utterances_skipped": float(len(tasks)),
+                "audio_duration_s": 0.0,
+                "skipped_audio_duration_s": skipped_audio_seconds,
+                "waveform_bytes": 0.0,
+                "skipped_waveform_bytes": skipped_waveform_bytes,
+                "output_chars": 0.0,
+                "inference_time_s": 0.0,
+                "inference_time": 0.0,
+            })
             logger.info(f"QwenASR: skipped entire batch of {len(tasks)} (none matched run_only_if_key)")
             return tasks
 
@@ -190,15 +221,43 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         )
         languages = self._resolve_languages(tasks, run_indices)
 
+        inference_t0 = time.perf_counter()
         pred_texts, detected_langs = self._model.generate(waveforms, sample_rates, contexts, languages)
+        inference_elapsed = time.perf_counter() - inference_t0
 
         for idx, pred, lang in zip(run_indices, pred_texts, detected_langs, strict=True):
             tasks[idx].data[self.pred_text_key] = pred
             tasks[idx].data[self.language_key] = lang
 
+        skipped = len(tasks) - len(run_indices)
+        skipped_indices = set(range(len(tasks))) - set(run_indices)
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "utterances_selected": float(len(run_indices)),
+            "utterances_skipped": float(skipped),
+            "audio_duration_s": sum(
+                float(w.shape[0]) / float(sr)
+                for w, sr in zip(waveforms, sample_rates, strict=False)
+                if sr and w is not None and getattr(w, "size", 0) > 0
+            ),
+            "skipped_audio_duration_s": sum(
+                float(tasks[i].data[self.waveform_key].shape[0]) / float(tasks[i].data[self.sample_rate_key])
+                for i in skipped_indices
+                if tasks[i].data.get(self.sample_rate_key)
+                and tasks[i].data.get(self.waveform_key) is not None
+                and getattr(tasks[i].data.get(self.waveform_key), "size", 0) > 0
+            ),
+            "waveform_bytes": sum(float(getattr(w, "nbytes", 0)) for w in waveforms if w is not None),
+            "skipped_waveform_bytes": sum(
+                float(getattr(tasks[i].data.get(self.waveform_key), "nbytes", 0))
+                for i in skipped_indices
+                if tasks[i].data.get(self.waveform_key) is not None
+            ),
+            "output_chars": float(sum(len(text) for text in pred_texts)),
+            "inference_time_s": inference_elapsed,
+            "inference_time": inference_elapsed,
+        })
         for task in tasks:
             task.data.pop(self.waveform_key, None)
-
-        skipped = len(tasks) - len(run_indices)
         logger.info(f"QwenASR: generated {len(run_indices)} predictions, skipped {skipped}")
         return tasks

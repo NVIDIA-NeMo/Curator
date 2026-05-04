@@ -19,6 +19,7 @@ import pytest
 
 from nemo_curator.stages.audio.io.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 def test_requires_output_dir() -> None:
@@ -95,3 +96,46 @@ def test_inputs_outputs(tmp_path: Path) -> None:
     stage = ShardedManifestWriterStage(output_dir=str(tmp_path))
     assert stage.inputs() == ([], [])
     assert stage.outputs() == ([], [])
+
+
+def test_perf_summary_deduplicates_batch_stage_metrics(tmp_path: Path) -> None:
+    stage = ShardedManifestWriterStage(output_dir=str(tmp_path))
+    perf = StagePerfStats(
+        stage_name="QwenOmni_inference",
+        process_time=2.0,
+        num_items_processed=2,
+        custom_metrics={
+            "audio_duration_s": 10.0,
+            "inference_time_s": 1.0,
+            "output_tokens": 50.0,
+        },
+        invocation_id="same-batch",
+    )
+    tasks = [
+        AudioTask(
+            task_id="t1",
+            data={"text": "a", "duration": 4.0},
+            _metadata={"_shard_key": "s/0", "_shard_total": 0},
+            _stage_perf=[perf],
+        ),
+        AudioTask(
+            task_id="t2",
+            data={"text": "b", "duration": 6.0},
+            _metadata={"_shard_key": "s/0", "_shard_total": 0},
+            _stage_perf=[perf],
+        ),
+    ]
+
+    stage.process_batch(tasks)
+    stage.teardown()
+
+    summary = json.loads((tmp_path / "perf_summary.json").read_text())
+    omni_summary = summary["stages"]["QwenOmni_inference"]
+    assert summary["total_utterances"] == 2
+    assert summary["total_audio_seconds"] == 10.0
+    assert summary["perf_invocations_counted"] == 1
+    assert omni_summary["invocation_count"] == 1
+    assert omni_summary["total_items_processed"] == 2
+    assert omni_summary["custom_metrics_sum"]["audio_duration_s"] == 10.0
+    assert omni_summary["throughput_audio_s_per_inference_s"] == 10.0
+    assert omni_summary["throughput_output_tokens_per_process_s"] == 25.0

@@ -88,4 +88,17 @@ class PnCContentGuardStage(ProcessingStage[AudioTask, AudioTask]):
         return self._process_single(task)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        return [self._process_single(task) for task in tasks]
+        pre_skipped = 0
+        rejected = 0
+        for task in tasks:
+            if task.data.get(self.skip_me_key, ""):
+                pre_skipped += 1
+            self._process_single(task)
+            if task.data.get(self.rejected_text_key, ""):
+                rejected += 1
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "utterances_pre_skipped": float(pre_skipped),
+            "pnc_rejected": float(rejected),
+        })
+        return tasks

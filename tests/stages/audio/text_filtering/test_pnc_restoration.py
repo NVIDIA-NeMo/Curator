@@ -23,6 +23,7 @@ from nemo_curator.tasks import AudioTask
 def _make_stage_with_mock_model(batch_size: int = 64) -> tuple[PnCRestorationStage, MagicMock]:
     stage = PnCRestorationStage(model_id="mock/model", batch_size=batch_size)
     mock_model = MagicMock()
+    mock_model.last_metrics = {}
     stage._model = mock_model
     return stage, mock_model
 
@@ -71,19 +72,16 @@ def test_eligible_texts_sent_to_model() -> None:
     mock_model.generate.assert_called_once()
 
 
-def test_batching_respects_batch_size() -> None:
+def test_process_batch_uses_backend_supplied_batch() -> None:
     stage, mock_model = _make_stage_with_mock_model(batch_size=2)
-    mock_model.generate.side_effect = [
-        ([True, True], ["Hello.", "World."]),
-        ([True], ["Foo."]),
-    ]
+    mock_model.generate.return_value = ([True, True, True], ["Hello.", "World.", "Foo."])
     tasks = [
         AudioTask(data={"cleaned_text": "hello", "_skip_me": ""}),
         AudioTask(data={"cleaned_text": "world", "_skip_me": ""}),
         AudioTask(data={"cleaned_text": "foo", "_skip_me": ""}),
     ]
     results = stage.process_batch(tasks)
-    assert mock_model.generate.call_count == 2
+    assert mock_model.generate.call_count == 1
     assert results[0].data["pnc_text"] == "Hello."
     assert results[1].data["pnc_text"] == "World."
     assert results[2].data["pnc_text"] == "Foo."

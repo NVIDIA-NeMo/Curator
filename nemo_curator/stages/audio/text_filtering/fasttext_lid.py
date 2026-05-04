@@ -187,4 +187,36 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
                 "Calling setup() now — check that your executor invokes setup() on each worker."
             )
             self.setup()
-        return [self._process_single(task) for task in tasks]
+        pre_skipped = 0
+        newly_flagged = 0
+        wrong_language = 0
+        low_probability = 0
+        empty_text = 0
+        short_text = 0
+        for task in tasks:
+            before = str(task.data.get(self.skip_me_key, ""))
+            text = task.data.get(self.text_key, "")
+            if before:
+                pre_skipped += 1
+            elif isinstance(text, str) and text.strip() and len(text.strip().split()) < self.min_word_count:
+                short_text += 1
+            self._process_single(task)
+            after = str(task.data.get(self.skip_me_key, ""))
+            if not before and after:
+                newly_flagged += 1
+                if after.startswith("Wrong language"):
+                    wrong_language += 1
+                elif after.startswith("Low probability"):
+                    low_probability += 1
+                elif after.startswith("Empty text"):
+                    empty_text += 1
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "utterances_pre_skipped": float(pre_skipped),
+            "utterances_short_text": float(short_text),
+            "utterances_newly_flagged": float(newly_flagged),
+            "wrong_language": float(wrong_language),
+            "low_probability": float(low_probability),
+            "empty_text": float(empty_text),
+        })
+        return tasks

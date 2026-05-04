@@ -150,6 +150,8 @@ def build_granary_v2_pipeline(cfg: DictConfig) -> Pipeline:  # noqa: C901, PLR09
                 batch_size=cfg.get("asr_batch_size", 128),
                 gpu_memory_utilization=cfg.get("asr_gpu_memory_utilization", 0.95),
                 max_new_tokens=cfg.get("asr_max_new_tokens", 4096),
+                run_only_if_key="_skip_me",
+                run_only_if_prefix="Hallucination",
             ),
             WhisperHallucinationStage(
                 name="WhisperHallucination_asr",

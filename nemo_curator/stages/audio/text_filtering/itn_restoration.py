@@ -24,6 +24,7 @@ or unfaithful outputs and falls back to the original text.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -65,6 +66,18 @@ def _validate_itn_output(input_text: str, output_text: str) -> tuple[bool, str]:
         return False, f"excessive_deletion ({len(in_words)}->{len(out_words)})"
 
     return True, "ok"
+
+
+def _count_output_tokens(outputs: list[Any]) -> float:
+    total = 0.0
+    for output in outputs:
+        sequences = getattr(output, "outputs", None) or []
+        if not sequences:
+            continue
+        token_ids = getattr(sequences[0], "token_ids", None)
+        if token_ids is not None:
+            total += float(len(token_ids))
+    return total
 
 
 @dataclass
@@ -168,6 +181,7 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "vLLM is required for ITNRestorationStage. pip install vllm"
             raise ImportError(msg)
 
+        setup_t0 = time.perf_counter()
         self._system_prompt = self._resolve_prompt()
 
         from nemo_curator.utils.gpu_utils import get_gpu_count
@@ -205,8 +219,9 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         )
 
         logger.info(
-            "ITN: model ready (prefix_caching=True, prompt=%d chars)",
+            "ITN: model ready (prefix_caching=True, prompt={} chars, setup_time_s={:.3f})",
             len(self._system_prompt),
+            time.perf_counter() - setup_t0,
         )
 
     # ------------------------------------------------------------------
@@ -218,7 +233,24 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        self._init_model()
+        """Pre-download model weights and validate prompts once per node.
+
+        GPU/vLLM engine creation belongs in setup(), where the executor has
+        assigned this stage replica's resources.
+        """
+        try:
+            from huggingface_hub import snapshot_download
+
+            prefetch_t0 = time.perf_counter()
+            snapshot_download(self.model_id)
+            self._resolve_prompt()
+            logger.info(
+                "ITN: weights cached on node for {} in {:.3f}s",
+                self.model_id,
+                time.perf_counter() - prefetch_t0,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("ITN: setup_on_node prefetch failed; setup() will retry")
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         if self._llm is None:
@@ -316,16 +348,38 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             raise RuntimeError(msg)
 
         valid_indices, prompts = self._collect_prompts(tasks)
+        valid_texts = [tasks[i].data.get(self.text_key, "") for i in valid_indices]
 
         if prompts:
+            inference_t0 = time.perf_counter()
+            filtered_before = self._n_filtered
             outputs = self._llm.generate(
                 prompts,
                 sampling_params=self._sampling_params,
                 use_tqdm=False,
             )
+            inference_elapsed = time.perf_counter() - inference_t0
+            output_tokens = _count_output_tokens(outputs)
             for seq_idx, task_idx in enumerate(valid_indices):
                 itn_text = outputs[seq_idx].outputs[0].text.strip()
                 self._apply_output(tasks[task_idx], itn_text)
+            filtered_batch = self._n_filtered - filtered_before
+        else:
+            inference_elapsed = 0.0
+            filtered_batch = 0
+            output_tokens = 0.0
 
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "utterances_inferred": float(len(prompts)),
+            "utterances_skipped": float(len(tasks) - len(valid_indices)),
+            "utterances_filtered": float(filtered_batch),
+            "input_chars": float(sum(len(str(text)) for text in valid_texts)),
+            "input_words": float(sum(len(str(text).split()) for text in valid_texts)),
+            "output_chars": float(sum(len(str(tasks[i].data.get(self.output_text_key, ""))) for i in valid_indices)),
+            "output_tokens": output_tokens,
+            "inference_time_s": inference_elapsed,
+            "inference_time": inference_elapsed,
+        })
         logger.debug("ITN: batch of %d tasks (%d inferred)", len(tasks), len(prompts))
         return tasks

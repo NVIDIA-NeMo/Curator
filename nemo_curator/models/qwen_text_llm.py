@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import gc
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -38,6 +39,7 @@ except ImportError:
 
 
 _QWEN_TEXT_MODEL_ID = "Qwen/Qwen3.5-35B-A3B-FP8"
+
 
 class QwenTextLLM(ModelInterface):
     """Text-only Qwen LLM via vLLM for two-step PnC restoration.
@@ -93,6 +95,7 @@ class QwenTextLLM(ModelInterface):
         self._sampling_params: SamplingParams | None = None
         self._short_sampling_params: SamplingParams | None = None
         self._prep_pool: ThreadPoolExecutor | None = None
+        self.last_metrics: dict[str, float] = {}
 
     @property
     def model_id_names(self) -> list[str]:
@@ -107,6 +110,7 @@ class QwenTextLLM(ModelInterface):
             msg = "vLLM is required for QwenTextLLM. Install it: pip install vllm"
             raise ImportError(msg)
 
+        setup_t0 = time.perf_counter()
         tp_size = self.tensor_parallel_size or get_gpu_count()
 
         logger.info(
@@ -140,7 +144,7 @@ class QwenTextLLM(ModelInterface):
 
         self._prep_pool = ThreadPoolExecutor(max_workers=self.prep_workers)
 
-        logger.info("QwenTextLLM model loaded")
+        logger.info("QwenTextLLM model loaded in {:.3f}s", time.perf_counter() - setup_t0)
 
     def teardown(self) -> None:
         if self._prep_pool is not None:
@@ -172,6 +176,18 @@ class QwenTextLLM(ModelInterface):
     @staticmethod
     def _is_yes(answer: str) -> bool:
         return answer.strip().lower().startswith("yes")
+
+    @staticmethod
+    def _count_output_tokens(outputs: list[Any]) -> float:
+        total = 0.0
+        for output in outputs:
+            sequences = getattr(output, "outputs", None) or []
+            if not sequences:
+                continue
+            token_ids = getattr(sequences[0], "token_ids", None)
+            if token_ids is not None:
+                total += float(len(token_ids))
+        return total
 
     # ------------------------------------------------------------------
     # Input preparation
@@ -273,26 +289,55 @@ class QwenTextLLM(ModelInterface):
             raise RuntimeError(msg)
 
         n = len(texts)
+        metrics: dict[str, float] = {
+            "texts_input": float(n),
+            "input_chars": float(sum(len(text) for text in texts)),
+            "input_words": float(sum(len(text.split()) for text in texts)),
+            "empty_texts": 0.0,
+            "non_empty_texts": 0.0,
+            "step1_prep_time_s": 0.0,
+            "step1_generation_time_s": 0.0,
+            "step1_valid_inputs": 0.0,
+            "step1_output_tokens": 0.0,
+            "complete_texts": 0.0,
+            "incomplete_texts": 0.0,
+            "step2_prep_time_s": 0.0,
+            "step2_generation_time_s": 0.0,
+            "step2_valid_inputs": 0.0,
+            "step2_output_tokens": 0.0,
+            "restored_texts": 0.0,
+            "output_tokens": 0.0,
+        }
+        self.last_metrics = metrics
         is_complete: list[bool] = [False] * n
         pnc_texts: list[str] = list(texts)
 
         # -- Step 1: completeness check ------------------------------------
         non_empty_indices = [i for i, t in enumerate(texts) if t.strip()]
+        metrics["non_empty_texts"] = float(len(non_empty_indices))
+        metrics["empty_texts"] = float(n - len(non_empty_indices))
         if not non_empty_indices:
             logger.warning("All {} texts in batch are empty", n)
             return is_complete, pnc_texts
 
+        step1_prep_t0 = time.perf_counter()
         s1_valid_indices, s1_valid_inputs = self._prepare_batch(
             texts, non_empty_indices, self.completeness_prompt, languages=languages,
         )
+        metrics["step1_prep_time_s"] = time.perf_counter() - step1_prep_t0
+        metrics["step1_valid_inputs"] = float(len(s1_valid_inputs))
 
         if not s1_valid_inputs:
             logger.warning("All {} texts in batch failed Step 1 preprocessing", n)
             return is_complete, pnc_texts
 
+        step1_t0 = time.perf_counter()
         step1_outputs = self._llm.generate(
             s1_valid_inputs, sampling_params=self._short_sampling_params, use_tqdm=False,
         )
+        metrics["step1_generation_time_s"] = time.perf_counter() - step1_t0
+        metrics["step1_output_tokens"] = self._count_output_tokens(step1_outputs)
+        metrics["output_tokens"] += metrics["step1_output_tokens"]
 
         complete_indices: list[int] = []
         for idx, out in zip(s1_valid_indices, step1_outputs, strict=False):
@@ -300,6 +345,8 @@ class QwenTextLLM(ModelInterface):
             if self._is_yes(answer):
                 is_complete[idx] = True
                 complete_indices.append(idx)
+        metrics["complete_texts"] = float(len(complete_indices))
+        metrics["incomplete_texts"] = float(len(s1_valid_indices) - len(complete_indices))
 
         logger.info(
             "PnC completeness check: {}/{} complete, {}/{} incomplete, {} empty",
@@ -314,22 +361,32 @@ class QwenTextLLM(ModelInterface):
         if not complete_indices:
             return is_complete, pnc_texts
 
+        step2_prep_t0 = time.perf_counter()
         s2_valid_indices, s2_valid_inputs = self._prepare_batch(
             texts, complete_indices, self.pnc_prompt, languages=languages,
         )
+        metrics["step2_prep_time_s"] = time.perf_counter() - step2_prep_t0
+        metrics["step2_valid_inputs"] = float(len(s2_valid_inputs))
 
         if not s2_valid_inputs:
             logger.warning("All Step 2 texts failed preprocessing")
             return is_complete, pnc_texts
 
+        step2_t0 = time.perf_counter()
         step2_outputs = self._llm.generate(
             s2_valid_inputs, sampling_params=self._sampling_params, use_tqdm=False,
         )
+        metrics["step2_generation_time_s"] = time.perf_counter() - step2_t0
+        metrics["step2_output_tokens"] = self._count_output_tokens(step2_outputs)
+        metrics["output_tokens"] += metrics["step2_output_tokens"]
 
+        restored_count = 0
         for idx, out in zip(s2_valid_indices, step2_outputs, strict=False):
             restored = out.outputs[0].text.strip()
             if restored:
                 pnc_texts[idx] = restored
+                restored_count += 1
+        metrics["restored_texts"] = float(restored_count)
 
         logger.info("PnC restoration: restored {} texts", len(s2_valid_indices))
         return is_complete, pnc_texts

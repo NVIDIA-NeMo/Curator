@@ -74,12 +74,25 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
         return task
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        renamed = 0
+        defaulted_lang = 0
+        dropped = 0
         for task in tasks:
             task.data[self.skip_me_key] = ""
             if self.source_lang_key and self.source_lang_key not in task.data:
                 task.data[self.source_lang_key] = self.default_source_lang
+                defaulted_lang += 1
             if self.original_text_key and self.original_text_key in task.data:
                 task.data[self.granary_v1_key] = task.data.pop(self.original_text_key)
+                renamed += 1
             for key in self.drop_keys:
-                task.data.pop(key, None)
+                if key in task.data:
+                    dropped += 1
+                    task.data.pop(key, None)
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "texts_renamed": float(renamed),
+            "source_lang_defaulted": float(defaulted_lang),
+            "fields_dropped": float(dropped),
+        })
         return tasks

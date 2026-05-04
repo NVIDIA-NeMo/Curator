@@ -83,21 +83,20 @@ def run_postprocessing_benchmark(  # noqa: PLR0913, PLR0915
         description="Granary v2 postprocessing benchmark pipeline",
     )
     pipeline.add_stage(ALMManifestReader(manifest_path=input_manifest))
-    pipeline.add_stage(InitializeFieldsStage())
+    pipeline.add_stage(InitializeFieldsStage(default_source_lang=target_lang))
     pipeline.add_stage(
         WhisperHallucinationStage(
             common_hall_file=hall_phrases,
             unique_words_threshold=unique_words_threshold,
             long_word_threshold=long_word_threshold,
             long_word_rel_threshold=long_word_rel_threshold,
-            char_rate_threshold=char_rate_threshold,
             max_char_rate=max_char_rate,
         )
     )
     pipeline.add_stage(
         FastTextLIDStage(
             model_path=fasttext_model,
-            target_lang=target_lang,
+            source_lang_key="source_lang",
             min_lang_prob=min_lang_prob,
         )
     )

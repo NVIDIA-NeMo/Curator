@@ -257,4 +257,32 @@ class AbbreviationConcatStage(ProcessingStage[AudioTask, AudioTask]):
         return self._process_single(task)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        return [self._process_single(task) for task in tasks]
+        pre_skipped = 0
+        changed = 0
+        abbreviations = 0
+        input_chars = 0
+        output_chars = 0
+        for task in tasks:
+            if task.data.get(self.skip_me_key, ""):
+                pre_skipped += 1
+            before = task.data.get(self.text_key, "")
+            if isinstance(before, str):
+                input_chars += len(before)
+            self._process_single(task)
+            after = task.data.get(self.output_text_key, "")
+            if isinstance(after, str):
+                output_chars += len(after)
+                if isinstance(before, str) and after != before:
+                    changed += 1
+            found = task.data.get(self.abbreviations_key, [])
+            if isinstance(found, list):
+                abbreviations += len(found)
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "utterances_pre_skipped": float(pre_skipped),
+            "utterances_changed": float(changed),
+            "abbreviations_joined": float(abbreviations),
+            "input_chars": float(input_chars),
+            "output_chars": float(output_chars),
+        })
+        return tasks

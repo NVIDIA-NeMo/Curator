@@ -27,6 +27,7 @@ def _make_stage(followup: str | None = None) -> InferenceQwenOmniStage:
         followup_prompt=followup,
     )
     mock_model = MagicMock()
+    mock_model.last_metrics = {}
     stage._model = mock_model
     return stage
 
@@ -52,7 +53,7 @@ def test_empty_batch() -> None:
 
 def test_basic_inference() -> None:
     stage = _make_stage()
-    stage._model.generate.return_value = (["hello world"], [""])
+    stage._model.generate.return_value = (["hello world"], [""], set())
 
     tasks = [_make_task()]
     results = stage.process_batch(tasks)
@@ -63,7 +64,7 @@ def test_basic_inference() -> None:
 
 def test_followup_prompt_stores_disfluency() -> None:
     stage = _make_stage(followup="Remove disfluencies")
-    stage._model.generate.return_value = (["hello world"], ["hello world cleaned"])
+    stage._model.generate.return_value = (["hello world"], ["hello world cleaned"], set())
 
     tasks = [_make_task()]
     results = stage.process_batch(tasks)
@@ -75,7 +76,7 @@ def test_followup_prompt_stores_disfluency() -> None:
 def test_keep_waveform_flag() -> None:
     stage = _make_stage()
     stage.keep_waveform = True
-    stage._model.generate.return_value = (["text"], [""])
+    stage._model.generate.return_value = (["text"], [""], set())
 
     tasks = [_make_task()]
     results = stage.process_batch(tasks)
@@ -92,7 +93,7 @@ def test_model_not_initialized_raises() -> None:
 
 def test_multi_task_batch() -> None:
     stage = _make_stage()
-    stage._model.generate.return_value = (["text1", "text2"], ["", ""])
+    stage._model.generate.return_value = (["text1", "text2"], ["", ""], set())
 
     tasks = [_make_task(), _make_task()]
     results = stage.process_batch(tasks)
@@ -103,7 +104,7 @@ def test_multi_task_batch() -> None:
 
 def test_language_resolution() -> None:
     stage = _make_stage()
-    stage._model.generate.return_value = (["hola"], [""])
+    stage._model.generate.return_value = (["hola"], [""], set())
 
     task = AudioTask(data={
         "waveform": np.zeros(16000, dtype=np.float32),
@@ -129,3 +130,14 @@ def test_inputs_outputs() -> None:
     _required, optional = stage.inputs()
     assert "waveform" in optional
     assert "sample_rate" in optional
+    _required, output_optional = stage.outputs()
+    assert "_skip_me" in output_optional
+
+
+def test_skipped_indices_set_skip_key() -> None:
+    stage = _make_stage()
+    stage._model.generate.return_value = ([""], [""], {0})
+
+    results = stage.process_batch([_make_task()])
+
+    assert results[0].data["_skip_me"] == "empty_audio"

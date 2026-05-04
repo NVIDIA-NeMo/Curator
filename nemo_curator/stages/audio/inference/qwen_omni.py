@@ -99,7 +99,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     source_lang_key: str = "source_lang"
     pred_text_key: str = "qwen3_prediction_s1"
     disfluency_text_key: str = "qwen3_prediction_s2"
-    skip_me_key: str = "_skipme"
+    skip_me_key: str = "_skip_me"
     max_model_len: int = 32768
     max_num_seqs: int = 32
     gpu_memory_utilization: float = 0.95
@@ -153,8 +153,14 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         """
         try:
             from huggingface_hub import snapshot_download
+
+            prefetch_t0 = time.perf_counter()
             snapshot_download(self.model_id)
-            logger.info("QwenOmni weights cached on node for %s", self.model_id)
+            logger.info(
+                "QwenOmni weights cached on node for {} in {:.3f}s",
+                self.model_id,
+                time.perf_counter() - prefetch_t0,
+            )
         except Exception:  # noqa: BLE001
             logger.warning("QwenOmni: snapshot_download failed; setup() will download")
 
@@ -177,7 +183,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.waveform_key, self.sample_rate_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        keys = [self.pred_text_key]
+        keys = [self.pred_text_key, self.skip_me_key]
         if self.followup_prompt:
             keys.append(self.disfluency_text_key)
         return [], keys
@@ -214,6 +220,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         t0 = time.perf_counter()
         pred_texts, disfluency_texts, skipped_indices = self._model.generate(waveforms, sample_rates, languages)
         inference_elapsed = time.perf_counter() - t0
+        model_metrics = dict(getattr(self._model, "last_metrics", {}) or {})
 
         for i, (task, pred, disfl) in enumerate(zip(tasks, pred_texts, disfluency_texts, strict=True)):
             task.data[self.pred_text_key] = pred
@@ -224,13 +231,31 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
             if not self.keep_waveform:
                 task.data.pop(self.waveform_key, None)
 
-        self._log_metrics({
+        metrics = {
+            "utterances_input": float(len(tasks)),
             "utterances_processed": float(len(pred_texts)),
             "utterances_skipped": float(len(skipped_indices)),
+            "audio_duration_s": sum(
+                float(w.shape[0]) / float(sr)
+                for w, sr in zip(waveforms, sample_rates, strict=False)
+                if sr and w is not None and getattr(w, "size", 0) > 0
+            ),
+            "waveform_bytes": sum(float(getattr(w, "nbytes", 0)) for w in waveforms if w is not None),
+            "output_chars": float(sum(len(text) for text in pred_texts) + sum(len(text) for text in disfluency_texts)),
+            "output_tokens": float(model_metrics.get("output_tokens", 0.0)),
+            "turn1_output_tokens": float(model_metrics.get("turn1_output_tokens", 0.0)),
+            "turn2_output_tokens": float(model_metrics.get("turn2_output_tokens", 0.0)),
+            "inference_time_s": inference_elapsed,
             "inference_time": inference_elapsed,
+        }
+        metrics.update({
+            f"model_{name}": value
+            for name, value in model_metrics.items()
+            if isinstance(value, (int, float))
         })
+        self._log_metrics(metrics)
 
         if skipped_indices:
-            logger.info(f"QwenOmni: marked {len(skipped_indices)}/{len(tasks)} tasks as empty_audio (_skipme)")
+            logger.info(f"QwenOmni: marked {len(skipped_indices)}/{len(tasks)} tasks as empty_audio ({self.skip_me_key})")
         logger.info(f"QwenOmni: generated {len(pred_texts)} predictions (turn2={bool(self.followup_prompt)})")
         return tasks

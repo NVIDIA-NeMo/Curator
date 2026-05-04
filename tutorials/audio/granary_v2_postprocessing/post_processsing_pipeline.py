@@ -102,7 +102,7 @@ def _create_pipeline(manifest_path: str, output_path: str, args: argparse.Namesp
         ),
     )
     pipeline.add_stage(ALMManifestReader(manifest_path=manifest_path))
-    pipeline.add_stage(InitializeFieldsStage())
+    pipeline.add_stage(InitializeFieldsStage(default_source_lang=args.target_lang))
 
     pipeline.add_stage(
         WhisperHallucinationStage(
@@ -110,14 +110,13 @@ def _create_pipeline(manifest_path: str, output_path: str, args: argparse.Namesp
             unique_words_threshold=args.unique_words_threshold,
             long_word_threshold=args.long_word_threshold,
             long_word_rel_threshold=args.long_word_rel_threshold,
-            char_rate_threshold=args.char_rate_threshold,
             max_char_rate=args.max_char_rate,
         )
     )
     pipeline.add_stage(
         FastTextLIDStage(
             model_path=args.fasttext_model,
-            target_lang=args.target_lang,
+            source_lang_key="source_lang",
             min_lang_prob=args.min_lang_prob,
         )
     )

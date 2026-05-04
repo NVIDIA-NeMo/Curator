@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import gc
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
@@ -89,6 +90,7 @@ class QwenOmni(ModelInterface):
         self._sampling_params: SamplingParams | None = None
         self._processor: Any = None
         self._prep_pool: ThreadPoolExecutor | None = None
+        self.last_metrics: dict[str, float] = {}
 
     @property
     def model_id_names(self) -> list[str]:
@@ -103,6 +105,7 @@ class QwenOmni(ModelInterface):
             msg = "vLLM is required for QwenOmni. Install it: pip install vllm"
             raise ImportError(msg)
 
+        setup_t0 = time.perf_counter()
         tp_size = self.tensor_parallel_size or get_gpu_count()
 
         logger.info(
@@ -134,7 +137,7 @@ class QwenOmni(ModelInterface):
 
         self._prep_pool = ThreadPoolExecutor(max_workers=self.prep_workers)
 
-        logger.info("QwenOmni model loaded")
+        logger.info("QwenOmni model loaded in {:.3f}s", time.perf_counter() - setup_t0)
 
     def teardown(self) -> None:
         if self._prep_pool is not None:
@@ -299,6 +302,18 @@ class QwenOmni(ModelInterface):
             ]
         return list(self._prep_pool.map(self._prepare_turn2_single, waveforms_16k, pred_texts, langs))
 
+    @staticmethod
+    def _count_output_tokens(outputs: list[Any]) -> float:
+        total = 0.0
+        for output in outputs:
+            sequences = getattr(output, "outputs", None) or []
+            if not sequences:
+                continue
+            token_ids = getattr(sequences[0], "token_ids", None)
+            if token_ids is not None:
+                total += float(len(token_ids))
+        return total
+
     # ------------------------------------------------------------------
     # Generation
     # ------------------------------------------------------------------
@@ -337,13 +352,41 @@ class QwenOmni(ModelInterface):
             raise RuntimeError(msg)
 
         n = len(waveforms)
+        metrics: dict[str, float] = {
+            "utterances_input": float(n),
+            "audio_duration_s": sum(
+                float(w.shape[0]) / float(sr)
+                for w, sr in zip(waveforms, sample_rates, strict=False)
+                if sr and w is not None and getattr(w, "size", 0) > 0
+            ),
+            "waveform_bytes": sum(
+                float(getattr(w, "nbytes", 0))
+                for w in waveforms
+                if w is not None
+            ),
+            "turn1_prep_time_s": 0.0,
+            "turn1_generation_time_s": 0.0,
+            "turn2_prep_time_s": 0.0,
+            "turn2_generation_time_s": 0.0,
+            "turn1_valid_inputs": 0.0,
+            "turn2_valid_inputs": 0.0,
+            "utterances_skipped_preprocess": 0.0,
+            "output_tokens": 0.0,
+            "turn1_output_tokens": 0.0,
+            "turn2_output_tokens": 0.0,
+        }
+        self.last_metrics = metrics
 
         # -- Turn 1 ----------------------------------------------------------
+        prep_t0 = time.perf_counter()
         prepared = self._prepare_batch(waveforms, sample_rates, languages)
+        metrics["turn1_prep_time_s"] = time.perf_counter() - prep_t0
         valid_indices = [i for i, p in enumerate(prepared) if p is not None]
         valid_inputs = [prepared[i][0] for i in valid_indices]
         waveforms_16k: dict[int, np.ndarray] = {i: prepared[i][1] for i in valid_indices}
         skipped_indices = set(range(n)) - set(valid_indices)
+        metrics["turn1_valid_inputs"] = float(len(valid_inputs))
+        metrics["utterances_skipped_preprocess"] = float(len(skipped_indices))
 
         if not valid_inputs:
             logger.warning(f"All {n} audio samples in batch failed preprocessing")
@@ -352,7 +395,11 @@ class QwenOmni(ModelInterface):
         if len(valid_inputs) < n:
             logger.warning(f"Skipped {n - len(valid_inputs)}/{n} corrupt audio samples")
 
+        t1_t0 = time.perf_counter()
         t1_outputs = self._llm.generate(valid_inputs, sampling_params=self._sampling_params, use_tqdm=False)
+        metrics["turn1_generation_time_s"] = time.perf_counter() - t1_t0
+        metrics["turn1_output_tokens"] = self._count_output_tokens(t1_outputs)
+        metrics["output_tokens"] += metrics["turn1_output_tokens"]
 
         pred_texts: list[str] = [""] * n
         for idx, out in zip(valid_indices, t1_outputs, strict=False):
@@ -367,20 +414,27 @@ class QwenOmni(ModelInterface):
             return pred_texts, [""] * n, skipped_indices
 
         langs = languages or [None] * n
+        t2_prep_t0 = time.perf_counter()
         t2_prepared = self._prepare_turn2_batch(
             [waveforms_16k[i] for i in t2_indices],
             [pred_texts[i] for i in t2_indices],
             [langs[i] for i in t2_indices],
         )
+        metrics["turn2_prep_time_s"] = time.perf_counter() - t2_prep_t0
 
         t2_valid = [(i, p) for i, p in zip(t2_indices, t2_prepared, strict=False) if p is not None]
+        metrics["turn2_valid_inputs"] = float(len(t2_valid))
         if not t2_valid:
             logger.warning("All Turn 2 samples failed preprocessing")
             return pred_texts, [""] * n, skipped_indices
 
+        t2_t0 = time.perf_counter()
         t2_outputs = self._llm.generate(
             [p for _, p in t2_valid], sampling_params=self._sampling_params, use_tqdm=False,
         )
+        metrics["turn2_generation_time_s"] = time.perf_counter() - t2_t0
+        metrics["turn2_output_tokens"] = self._count_output_tokens(t2_outputs)
+        metrics["output_tokens"] += metrics["turn2_output_tokens"]
 
         disfluency_texts: list[str] = [""] * n
         for (idx, _), out in zip(t2_valid, t2_outputs, strict=False):

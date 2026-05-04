@@ -26,6 +26,7 @@ import json
 import os
 import re
 import tarfile
+import time
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
@@ -180,6 +181,7 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     def process(self, _task: _EmptyTask) -> list[FileGroupTask]:  # noqa: C901
         import yaml
 
+        t0 = time.perf_counter()
         completed = self._scan_completed_shards()
         if completed:
             logger.info(f"Checkpoint: {len(completed)} shards already completed, will skip them")
@@ -189,10 +191,13 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             config = yaml.safe_load(f)
 
         tasks: list[FileGroupTask] = []
+        corpora_seen = 0
+        shards_seen = 0
         skipped = 0
         for group in config:
             for cfg in group.get("input_cfg", []):
                 corpus = cfg.get("corpus", "unknown")
+                corpora_seen += 1
                 if self.corpus_filter and corpus not in self.corpus_filter:
                     continue
                 if cfg.get("type", "nemo_tarred") != "nemo_tarred":
@@ -207,6 +212,7 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                     )
                     raise ValueError(msg)
                 for mp, tp in zip(manifest_paths, tar_paths, strict=False):
+                    shards_seen += 1
                     shard_key = self._manifest_to_rel_path(mp, corpus)
                     if shard_key in completed:
                         skipped += 1
@@ -228,6 +234,13 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         logger.info(
             f"NemoTarShardDiscoveryStage: found {len(tasks)} shards, skipped {skipped} completed (corpus_filter={self.corpus_filter})"
         )
+        self._log_metrics({
+            "corpora_seen": float(corpora_seen),
+            "shards_seen": float(shards_seen),
+            "shards_emitted": float(len(tasks)),
+            "shards_skipped_completed": float(skipped),
+            "discovery_time_s": time.perf_counter() - t0,
+        })
         return tasks
 
 
@@ -281,33 +294,52 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return entries
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
+        t0 = time.perf_counter()
         manifest_path, tar_path = task.data[0], task.data[1]
         corpus = task.reader_config.get("corpus", "unknown")
         shard_key = task.reader_config.get("shard_key", task.task_id)
 
+        manifest_t0 = time.perf_counter()
         manifest = self._read_manifest(manifest_path)
+        manifest_elapsed = time.perf_counter() - manifest_t0
 
         logger.info(f"Reading shard {shard_key}: {tar_path} ({len(manifest)} manifest entries)")
 
+        open_t0 = time.perf_counter()
         tar = _open_tar(tar_path, self.s3_endpoint_url)
+        tar_open_elapsed = time.perf_counter() - open_t0
         results: list[AudioTask] = []
+        tar_members_seen = 0
+        audio_members_matched = 0
+        corrupt_audio_count = 0
+        decoded_audio_seconds = 0.0
+        decoded_waveform_bytes = 0.0
+        decode_elapsed = 0.0
 
         try:
             for tar_info in tar:
+                tar_members_seen += 1
                 if not tar_info.isfile() or tar_info.name not in manifest:
                     continue
 
                 raw_audio = tar.extractfile(tar_info).read()
                 try:
+                    decode_t0 = time.perf_counter()
                     audio, sample_rate = sf.read(BytesIO(raw_audio), dtype="float32")
+                    decode_elapsed += time.perf_counter() - decode_t0
                 except Exception:  # noqa: BLE001
+                    corrupt_audio_count += 1
                     logger.warning(f"Skipping corrupt audio {tar_info.name} in {tar_path}")
                     continue
 
+                audio_members_matched += 1
                 num_channels = audio.shape[1] if audio.ndim > 1 else 1
 
                 if audio.ndim > 1:
                     audio = audio.mean(axis=1)
+                decoded_waveform_bytes += float(getattr(audio, "nbytes", 0))
+                if sample_rate:
+                    decoded_audio_seconds += float(audio.shape[0]) / float(sample_rate)
 
                 entry = dict(manifest[tar_info.name])
                 entry["waveform"] = audio
@@ -332,6 +364,19 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             result_task._metadata["_shard_total"] = shard_total
 
         logger.info(f"Shard {shard_key}: emitted {shard_total} AudioTasks")
+        self._log_metrics({
+            "manifest_entries": float(len(manifest)),
+            "tar_members_seen": float(tar_members_seen),
+            "audio_members_decoded": float(audio_members_matched),
+            "corrupt_audio_count": float(corrupt_audio_count),
+            "utterances_emitted": float(shard_total),
+            "audio_duration_s": decoded_audio_seconds,
+            "waveform_bytes": decoded_waveform_bytes,
+            "manifest_read_time_s": manifest_elapsed,
+            "tar_open_time_s": tar_open_elapsed,
+            "audio_decode_time_s": decode_elapsed,
+            "reader_total_time_s": time.perf_counter() - t0,
+        })
         return results
 
 

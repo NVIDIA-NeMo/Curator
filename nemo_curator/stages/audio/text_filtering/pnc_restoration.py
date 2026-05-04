@@ -147,9 +147,24 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        self._model = self._create_model()
-        self._model.setup()
-        logger.info("PnCRestoration model ready on node")
+        """Pre-download model weights and validate prompts once per node.
+
+        GPU/vLLM engine creation belongs in setup(), where the executor has
+        assigned this stage replica's resources.
+        """
+        try:
+            from huggingface_hub import snapshot_download
+
+            prefetch_t0 = time.perf_counter()
+            snapshot_download(self.model_id)
+            self._resolve_pnc_prompt()
+            logger.info(
+                "PnCRestoration weights cached on node for {} in {:.3f}s",
+                self.model_id,
+                time.perf_counter() - prefetch_t0,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("PnCRestoration: setup_on_node prefetch failed; setup() will retry")
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         if self._model is None:
@@ -214,27 +229,48 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         if not eligible_indices:
             logger.info("PnCRestoration: all {} tasks skipped (flagged or empty)", len(tasks))
             self._log_metrics({
+                "utterances_input": float(len(tasks)),
                 "utterances_eligible": 0.0,
+                "utterances_skipped": float(len(tasks)),
                 "utterances_restored": 0.0,
                 "utterances_kept_as_is": 0.0,
+                "input_chars": 0.0,
+                "input_words": 0.0,
+                "output_chars": 0.0,
+                "output_tokens": 0.0,
                 "inference_time": 0.0,
+                "inference_time_s": 0.0,
             })
             return tasks
 
         t0 = time.perf_counter()
         is_complete, pnc_texts = self._model.generate(eligible_texts, languages=eligible_langs)
         inference_elapsed = time.perf_counter() - t0
+        model_metrics = dict(getattr(self._model, "last_metrics", {}) or {})
 
         for idx, _complete, pnc_text in zip(eligible_indices, is_complete, pnc_texts, strict=False):
             tasks[idx].data[self.output_text_key] = pnc_text
 
         n_restored = sum(is_complete)
-        self._log_metrics({
+        metrics = {
+            "utterances_input": float(len(tasks)),
             "utterances_eligible": float(len(eligible_indices)),
+            "utterances_skipped": float(len(tasks) - len(eligible_indices)),
             "utterances_restored": float(n_restored),
             "utterances_kept_as_is": float(len(eligible_indices) - n_restored),
+            "input_chars": float(sum(len(text) for text in eligible_texts)),
+            "input_words": float(sum(len(text.split()) for text in eligible_texts)),
+            "output_chars": float(sum(len(text) for text in pnc_texts)),
+            "output_tokens": float(model_metrics.get("output_tokens", 0.0)),
             "inference_time": inference_elapsed,
+            "inference_time_s": inference_elapsed,
+        }
+        metrics.update({
+            f"model_{name}": value
+            for name, value in model_metrics.items()
+            if isinstance(value, (int, float))
         })
+        self._log_metrics(metrics)
         logger.info(
             "PnCRestoration: {}/{} restored, {}/{} kept as-is",
             n_restored, len(eligible_indices),

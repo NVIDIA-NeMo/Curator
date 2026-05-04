@@ -21,6 +21,7 @@ high-level ``transcribe()`` API that accepts in-memory numpy waveforms.
 from __future__ import annotations
 
 import gc
+import time
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -90,6 +91,7 @@ class QwenASR(ModelInterface):
             pass
 
     def setup(self) -> None:
+        setup_t0 = time.perf_counter()
         self._patch_transformers_compat()
 
         try:
@@ -116,7 +118,7 @@ class QwenASR(ModelInterface):
             prefix_caching_hash_algo="xxhash",
         )
 
-        logger.info("QwenASR model loaded")
+        logger.info("QwenASR model loaded in {:.3f}s", time.perf_counter() - setup_t0)
 
     def teardown(self) -> None:
         del self._model

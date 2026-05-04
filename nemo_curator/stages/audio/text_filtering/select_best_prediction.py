@@ -92,3 +92,36 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
 
         task.data[self.output_key] = primary_pred
         return task
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        asr_recovered = 0
+        agreement_recovered = 0
+        fallback_primary = 0
+        input_chars = 0
+        output_chars = 0
+        for task in tasks:
+            primary_pred = task.data.get(self.primary_text_key, "")
+            if isinstance(primary_pred, str):
+                input_chars += len(primary_pred)
+            before_notes = str(task.data.get(self.notes_key, ""))
+            before_skip = str(task.data.get(self.skip_me_key, ""))
+            self.process(task)
+            after_notes = str(task.data.get(self.notes_key, ""))
+            output = task.data.get(self.output_key, "")
+            if isinstance(output, str):
+                output_chars += len(output)
+            if "Recovered" in before_notes and task.data.get(self.asr_text_key, ""):
+                asr_recovered += 1
+            elif before_skip.startswith("Hallucination") and after_notes == "Recovered:CrossModelAgreement":
+                agreement_recovered += 1
+            else:
+                fallback_primary += 1
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "asr_recovered": float(asr_recovered),
+            "agreement_recovered": float(agreement_recovered),
+            "fallback_primary": float(fallback_primary),
+            "input_chars": float(input_chars),
+            "output_chars": float(output_chars),
+        })
+        return tasks

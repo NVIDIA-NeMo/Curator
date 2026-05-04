@@ -99,4 +99,32 @@ class RegexSubstitutionStage(ProcessingStage[AudioTask, AudioTask]):
                 "Calling setup() now — check that your executor invokes setup() on each worker."
             )
             self.setup()
-        return [self._process_single(task) for task in tasks]
+        pre_skipped = 0
+        processed = 0
+        empty_after = 0
+        input_chars = 0
+        output_chars = 0
+        for task in tasks:
+            before_skip = str(task.data.get(self.skip_me_key, ""))
+            if before_skip:
+                pre_skipped += 1
+            text = task.data.get(self.text_key, "")
+            if isinstance(text, str) and not before_skip:
+                input_chars += len(text)
+                processed += 1
+            self._process_single(task)
+            output = task.data.get(self.output_text_key, "")
+            if isinstance(output, str):
+                output_chars += len(output)
+            if not before_skip and str(task.data.get(self.skip_me_key, "")).startswith("Empty after regex"):
+                empty_after += 1
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "utterances_pre_skipped": float(pre_skipped),
+            "utterances_processed": float(processed),
+            "empty_after_regex": float(empty_after),
+            "input_chars": float(input_chars),
+            "output_chars": float(output_chars),
+            "rules_loaded": float(len(self._rules)),
+        })
+        return tasks

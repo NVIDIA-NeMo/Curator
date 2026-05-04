@@ -42,3 +42,16 @@ class FinalizeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
         for key in self.drop_keys:
             task.data.pop(key, None)
         return task
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        dropped = 0
+        for task in tasks:
+            for key in self.drop_keys:
+                if key in task.data:
+                    dropped += 1
+                    task.data.pop(key, None)
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "fields_dropped": float(dropped),
+        })
+        return tasks

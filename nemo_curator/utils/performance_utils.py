@@ -18,6 +18,7 @@ import contextlib
 import statistics
 import time
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import attrs
 from loguru import logger
@@ -46,6 +47,7 @@ class StagePerfStats:
     input_data_size_mb: float = 0.0
     num_items_processed: int = 0
     custom_metrics: dict[str, float] = attrs.field(factory=dict)
+    invocation_id: str = attrs.field(factory=lambda: str(uuid4()))
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
         """Add two StagePerfStats."""
@@ -59,6 +61,7 @@ class StagePerfStats:
                 key: self.custom_metrics.get(key, 0.0) + other.custom_metrics.get(key, 0.0)
                 for key in set(self.custom_metrics.keys()) | set(other.custom_metrics.keys())
             },
+            invocation_id=f"{self.invocation_id}+{other.invocation_id}",
         )
 
     def __radd__(self, other: int | StagePerfStats) -> StagePerfStats:
@@ -88,6 +91,7 @@ class StagePerfStats:
         """
         res = self.to_dict()
         res.pop("stage_name", None)
+        res.pop("invocation_id", None)
         # Extract and drop the raw custom_metrics dict from the flattened output
         custom_metrics = res.pop("custom_metrics", {})
         # Flatten custom_metrics with a stable prefix

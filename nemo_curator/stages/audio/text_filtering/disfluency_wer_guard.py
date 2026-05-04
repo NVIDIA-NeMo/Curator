@@ -74,4 +74,23 @@ class DisfluencyWerGuardStage(ProcessingStage[AudioTask, AudioTask]):
         return self._process_single(task)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        return [self._process_single(task) for task in tasks]
+        skipped = 0
+        fallbacks = 0
+        valid_wer = 0
+        for task in tasks:
+            before = task.data.get(self.hyp_text_key, "")
+            was_skipped = bool(task.data.get(self.skip_me_key, ""))
+            self._process_single(task)
+            if was_skipped:
+                skipped += 1
+            elif task.data.get(self.wer_key, -1.0) >= 0:
+                valid_wer += 1
+                if before and task.data.get(self.hyp_text_key, "") != before:
+                    fallbacks += 1
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "utterances_skipped": float(skipped),
+            "wer_computed": float(valid_wer),
+            "fallbacks_to_turn1": float(fallbacks),
+        })
+        return tasks
