@@ -140,7 +140,7 @@ class Entry:
         if self.script:
             script = self.script
             script = self.substitute_reserved_placeholders(script, session_entry_path, dataset_resolver)
-            script = self.substitute_container_or_host_paths(script, path_resolver, allow_other_placeholders=False)
+            script = self.substitute_container_or_host_paths(script, path_resolver)
 
             # Using the Path "/" operator means that if script is an abs path here then
             # self.script_base_path will be ignored automatically.
@@ -148,7 +148,7 @@ class Entry:
             cmd = f"python {script_path} {self.args or ''}"
 
             cmd = self.substitute_reserved_placeholders(cmd, session_entry_path, dataset_resolver)
-            cmd = self.substitute_container_or_host_paths(cmd, path_resolver, allow_other_placeholders=False)
+            cmd = self.substitute_container_or_host_paths(cmd, path_resolver)
         else:
             msg = f"Entry {self.name} must specify a script to run"
             raise ValueError(msg)
@@ -159,30 +159,22 @@ class Entry:
         return self.sink_data.get(sink_name, {})
 
     @staticmethod
-    def substitute_container_or_host_paths(
-        cmd: str, path_resolver: PathResolver, allow_other_placeholders: bool = True
-    ) -> str:
+    def substitute_container_or_host_paths(cmd: str, path_resolver: PathResolver) -> str:
         """
         Substitute paths in the command string that are intended to be resolved by PathResolver.
 
         This replaces placeholders in the form {path_name} with their corresponding host or container path.
-        If the placeholder does not correspond to a known path (as defined in PathResolver), it is left unchanged.
-        If allow_other_placeholders is False, then ValueError is raised if the placeholder does not correspond to a recognized path type.
+        ValueError is raised if a placeholder does not correspond to a name defined in PathResolver.
         """
         path_pattern = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
         def _replace_path(match: re.Match[str]) -> str:
             path_name = match.group(1).strip()
-            # PathResolver.resolve() only matches specific paths intended to be mapped between host and container.
-            # ValueError is raised if the placeholder (word inside {}) is not one of those paths.
             try:
                 return str(path_resolver.resolve(path_name))
             except ValueError as e:
-                if allow_other_placeholders:
-                    return match.group(0)
-                else:
-                    msg = f"Unknown path placeholder: {path_name}"
-                    raise ValueError(msg) from e
+                msg = f"Unknown path placeholder: {path_name}"
+                raise ValueError(msg) from e
 
         return path_pattern.sub(_replace_path, cmd)
 
