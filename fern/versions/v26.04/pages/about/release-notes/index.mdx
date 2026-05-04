@@ -207,7 +207,7 @@ When all stages are enabled, the default order is: MonoConversion → VAD → Ba
 Added an end-to-end tutorial for processing the DNS Challenge ReadSpeech dataset (14,279 WAV files at 48 kHz, 19.3 hours) through `AudioDataFilterStage`:
 
 - **`CreateInitialManifestReadSpeechStage`**: Downloads and extracts the dataset, parses filenames for book and reader IDs, and emits `AudioBatch` tasks ready for the filter pipeline.
-- **Tutorial materials in `tutorials/audio/readspeech/`**: A Python pipeline (`pipeline.py`), Hydra YAML config (`pipeline.yaml`), Hydra runner (`run.py`), and an `extract_segments.py` post-processing utility (using `soundfile`, no ffmpeg required for `wav`/`flac`/`ogg`). An interactive Jupyter notebook walkthrough is also included.
+- **Tutorial materials in `tutorials/audio/readspeech/`**: A Python pipeline (`pipeline.py`), Hydra YAML config (`pipeline.yaml`), Hydra runner (`run.py`), and an `extract_segments.py` post-processing utility (using `soundfile`, no ffmpeg required for `wav`/`flac`/`ogg`).
 - **Benchmark and test coverage**: A ReadSpeech audio curation benchmark is added to the nightly suite, and the default GPU resource requirements are lowered so the tutorial fits on smaller hosts. The dataset stage ships with a README and tests.
 
 ### NeMo Data Designer Integration
@@ -275,15 +275,7 @@ Added four filter stages for cleaning interleaved image/text datasets:
 
 ### Nemotron VLM Video Captioning
 
-Added the **Nemotron Nano 12B V2 VLM** as a captioning backend in the video pipeline. Select with `--captioning-algorithm nemotron --model-dir <path>` in the `video_split_clip_example.py` tutorial.
-
-### Qwen3 Video Captioning
-
-Added `qwen3` as a supported captioning variant alongside `qwen2.5`, replacing the previous unversioned `qwen` alias:
-
-- **New variants**: `Qwen/Qwen3-VL-8B-Instruct` (caption generation) and `Qwen/Qwen3-14B` (caption enhancement). The unversioned `qwen` alias is gone — `--captioning-algorithm` and `--enhance-captions-algorithm` now require explicit `qwen2.5` or `qwen3`.
-- **Per-variant pixel budgets**: A new `_QWEN_VL_PIXEL_PARAMS` mapping merges variant-specific `image_factor`, `min_pixels`, `max_pixels`, and `video_*_pixels` into `mm_processor_kwargs` on `setup()`. Qwen2.5 uses factor-28 params; Qwen3 uses factor-32.
-- **`captioning_model_variant` on `CaptionEnhancementStage`**: The enhancement stage now reads captions from the variant-specific key instead of the previously hardcoded `"qwen"` key, so generation and enhancement can use different Qwen variants without colliding.
+Added the **Nemotron Nano 12B V2 VLM** as a captioning backend in the video pipeline alongside the existing Qwen-VL backend. Select with `--captioning-algorithm nemotron --model-dir <path>` in the `video_split_clip_example.py` tutorial. Three precision variants ship together: `nemotron` / `nemotron-bf16` (default BF16, auto-downloaded), `nemotron-fp8` (FP8-quantized for lower memory), and `nemotron-nvfp4` (NVFP4 quantization-aware-distilled checkpoint).
 
 ## Improvements
 
@@ -375,10 +367,6 @@ Fixed a `deepcopy`/pickle crash in `MathContentExtractor` caused by unpickleable
 ### CommonCrawlWARCReader Serialization for Ray
 
 Added `__getstate__`/`__setstate__` to `CommonCrawlWARCReader` for pickle compatibility with Ray executors. The `threading.Lock`, `requests.Session`, and boto3 S3 client are stripped during serialization and lazily reinitialized after deserialization.
-
-### JSONL UTF-8 Preservation
-
-Fixed `JsonlWriter` escaping non-ASCII characters in output, which broke downstream tooling that consumed raw UTF-8 text. The writer now defaults to `force_ascii=False`, preserving multi-byte characters as-is.
 
 ### Images-Per-Tar Warning When Greater Than Batch Size
 

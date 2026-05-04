@@ -26,7 +26,7 @@ This tutorial demonstrates an end-to-end audio curation workflow:
 - Wiring `CreateInitialManifestReadSpeechStage` into a pipeline.
 - Toggling individual quality filters (`--enable-vad`, `--enable-utmos`, `--enable-sigmos`, `--enable-band-filter`, `--enable-speaker-separation`).
 - Tuning UTMOS / SIGMOS thresholds and VAD windowing.
-- Choosing between Python CLI, Hydra YAML, and Jupyter notebook drivers.
+- Choosing between Python CLI and Hydra YAML drivers.
 
 ## Working Example Location
 
@@ -38,8 +38,7 @@ The complete working code for this tutorial is located at:
 ├── pipeline.py                  # argparse CLI driver
 ├── pipeline.yaml                # Hydra config (full pipeline)
 ├── run.py                       # Hydra runner
-├── extract_segments.py          # Post-processing utility
-└── readspeech_tutorial.ipynb    # Interactive Jupyter walkthrough
+└── extract_segments.py          # Post-processing utility
 ```
 
 **Accessing the code:**
@@ -239,10 +238,6 @@ python extract_segments.py \
 ```
 
 This utility uses `soundfile` directly, so no `ffmpeg` is required for `wav`, `flac`, or `ogg` outputs.
-
-## Interactive Notebook
-
-A guided notebook walkthrough is included at `tutorials/audio/readspeech/readspeech_tutorial.ipynb`. Open it in Jupyter or VS Code for a step-by-step run with inline plots of UTMOS / SIGMOS distributions.
 
 ## Best Practices
 
