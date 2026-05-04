@@ -4739,7 +4739,6 @@ all = [
     { name = "peft" },
     { name = "pillow" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pyarabic" },
     { name = "pycld2" },
     { name = "pycuda" },
     { name = "pydub" },
@@ -4783,7 +4782,6 @@ audio-common = [
     { name = "onnx" },
     { name = "opencc-python-reimplemented" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pyarabic" },
     { name = "pydub" },
     { name = "scipy" },
     { name = "silero-vad" },
@@ -4803,7 +4801,6 @@ audio-cpu = [
     { name = "onnxruntime" },
     { name = "opencc-python-reimplemented" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pyarabic" },
     { name = "pydub" },
     { name = "scipy" },
     { name = "silero-vad" },
@@ -4827,7 +4824,6 @@ audio-cuda12 = [
     { name = "onnxruntime-gpu", marker = "platform_machine == 'x86_64'" },
     { name = "opencc-python-reimplemented" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pyarabic" },
     { name = "pydub" },
     { name = "scipy" },
     { name = "silero-vad" },
@@ -5157,7 +5153,6 @@ requires-dist = [
     { name = "pillow", marker = "extra == 'image-cpu'" },
     { name = "pillow", marker = "extra == 'interleaved-cpu'" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'audio-common'", specifier = ">=4.0.0" },
-    { name = "pyarabic", marker = "extra == 'audio-common'" },
     { name = "pyarrow" },
     { name = "pycld2", marker = "extra == 'text-cpu'" },
     { name = "pycuda", marker = "extra == 'video-cuda12'" },
@@ -7013,17 +7008,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f6/53/3e3f14c1382cf14e1dfeb958c08282c44ac07e6965803608e1b748a38273/pyannoteai_sdk-0.4.0.tar.gz", hash = "sha256:fbdade06eb54347374acf10698b8c9c0bcdb592f8339c90c5a16fa441ea8cf9d", size = 14773, upload-time = "2026-01-14T14:20:19.19Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f9/8d/16e62133ff748931e923c2d29a150a710c85283f533a4148adc42addb6a8/pyannoteai_sdk-0.4.0-py3-none-any.whl", hash = "sha256:36a0175978e0427f27843d690eb4d1e8ec839009ea540516d6dfcdce749cd883", size = 8886, upload-time = "2026-01-14T14:20:18.407Z" },
-]
-
-[[package]]
-name = "pyarabic"
-version = "0.6.15"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "six" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/64/0ea5be39e6a6515804cae8c280226d771f42750a08182f9d2e5f3b822694/PyArabic-0.6.15-py3-none-any.whl", hash = "sha256:b9a530277876008f5fbe53249c6953b4513dbbf2ea8f4339694e87c8a75d7edf", size = 126368, upload-time = "2022-06-18T10:47:16.66Z" },
 ]
 
 [[package]]

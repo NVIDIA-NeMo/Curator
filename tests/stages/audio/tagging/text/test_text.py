@@ -16,7 +16,6 @@ from collections.abc import Callable
 
 import pytest
 
-from nemo_curator.stages.audio.tagging.text.arabic_remove_diacritics import ArabicRemoveDiacriticsStage
 from nemo_curator.stages.audio.tagging.text.chinese_conversion import ChineseConversionStage
 from nemo_curator.stages.audio.tagging.text.pnc import PNCwithBERTStage
 from nemo_curator.stages.resources import Resources
@@ -28,45 +27,6 @@ try:
     _pnc_available = True
 except (ImportError, ModuleNotFoundError):
     _pnc_available = False
-
-
-class TestArabicRemoveDiacriticsStage:
-    def test_removes_diacritics_from_entry(self) -> None:
-        stage = ArabicRemoveDiacriticsStage(text_key="text")
-        entry = {
-            "text": "بِسْمِ اللَّهِ",
-            "alignment": [
-                {"word": "بِسْمِ", "start": 0.0, "end": 0.5},
-                {"word": "اللَّهِ", "start": 0.5, "end": 1.0},
-            ],
-        }
-        result = stage.process(AudioTask(data=entry))
-        out = result.data
-        assert out["text"] == "بسم الله"
-        assert out["alignment"][0]["word"] == "بسم"
-        assert out["alignment"][1]["word"] == "الله"
-
-    def test_handles_split_metadata(self) -> None:
-        stage = ArabicRemoveDiacriticsStage(text_key="text")
-        entry = {
-            "audio_filepath": "/a.wav",
-            "split_metadata": [
-                {
-                    "text": "بِسْمِ",
-                    "alignment": [{"word": "بِسْمِ", "start": 0.0, "end": 0.5}],
-                },
-                {
-                    "text": "اللَّهِ",
-                    "alignment": [{"word": "اللَّهِ", "start": 0.5, "end": 1.0}],
-                },
-            ],
-        }
-        result = stage.process(AudioTask(data=entry))
-        out = result.data
-        assert out["split_metadata"][0]["text"] == "بسم"
-        assert out["split_metadata"][0]["alignment"][0]["word"] == "بسم"
-        assert out["split_metadata"][1]["text"] == "الله"
-        assert out["split_metadata"][1]["alignment"][0]["word"] == "الله"
 
 
 @pytest.mark.skipif(not _pnc_available, reason="PunctuationCapitalizationModel requires nemo_toolkit <= 2.4.1")

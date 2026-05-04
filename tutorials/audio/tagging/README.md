@@ -98,7 +98,6 @@ These stages can be inserted after merging (stage 6) for language-specific text 
 |-------|-------------|-----|
 | **InverseTextNormalizationStage** | Inverse text normalization (spoken → written) | No |
 | **ChineseConversionStage** | Traditional → Simplified Chinese conversion | No |
-| **ArabicRemoveDiacriticsStage** | Remove diacritics from Arabic text | No |
 
 ## PNC with LLM (Punctuation & Capitalization)
 
