@@ -85,7 +85,7 @@ set -euo pipefail
 
 # Path on shared filesystem, visible from every node
 CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
-CONTAINER_IMAGE="nvcr.io/nvidia/nemo-curator:26.02"
+CONTAINER_IMAGE="nvcr.io/nvidia/nemo-curator:{{ container_version }}"
 
 # Shared filesystem path for Ray's port broadcast
 export RAY_PORT_BROADCAST_DIR="${CURATOR_DIR}/logs"
@@ -173,7 +173,7 @@ Both scripts default `RAY_PORT_BROADCAST_DIR` to `${CURATOR_DIR}/logs`. Change t
 
 ## Verified Configurations
 
-End-to-end tested on H100 nodes using the `nvcr.io/nvidia/nemo-curator:26.02` container. The reference workload is a word-count + GPU-tagging pipeline shipped in the `tutorials/slurm/` directory.
+End-to-end tested on H100 nodes using the `nvcr.io/nvidia/nemo-curator:26.02` container at the time `SlurmRayClient` was introduced. The reference workload is a word-count + GPU-tagging pipeline shipped in the `tutorials/slurm/` directory; it works unchanged on subsequent container versions, including {{ container_version }}.
 
 | Nodes | GPUs / node | Status | Notes |
 | --- | --- | --- | --- |
