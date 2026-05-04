@@ -46,19 +46,22 @@ from nemo_curator.stages.audio.alm.pretrain.stages import (
 
 
 class TestSegmentText:
-    def test_prefers_text_itn_when_set(self) -> None:
-        seg = {"text": "hello", "text_ITN": "Hello."}
-        assert _segment_text(seg) == "Hello."
-
-    def test_falls_back_to_text_when_itn_empty(self) -> None:
-        seg = {"text": "hello", "text_ITN": ""}
-        assert _segment_text(seg) == "hello"
-
-    def test_returns_empty_when_both_missing(self) -> None:
-        assert _segment_text({}) == ""
+    def test_returns_text_field(self) -> None:
+        assert _segment_text({"text": "hello"}) == "hello"
 
     def test_strips_whitespace(self) -> None:
-        assert _segment_text({"text_ITN": "  hi  "}) == "hi"
+        assert _segment_text({"text": "  hi  "}) == "hi"
+
+    def test_returns_empty_when_text_missing(self) -> None:
+        assert _segment_text({}) == ""
+
+    def test_returns_empty_when_text_empty(self) -> None:
+        assert _segment_text({"text": ""}) == ""
+
+    def test_ignores_text_itn(self) -> None:
+        # text_ITN is unreliable in real upstream data; the helper only reads `text`.
+        assert _segment_text({"text": "", "text_ITN": "ignored"}) == ""
+        assert _segment_text({"text": "kept", "text_ITN": "Other."}) == "kept"
 
 
 # ----------------------------------------------------------------------

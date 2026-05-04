@@ -143,8 +143,8 @@ class TestSnippetExtractionStageReal:
         )
         d = out[0].data
         # Snippet ID + path follow the spec
-        assert d["snippet_id"] == "X_1.000_4.000"
-        assert d["audio_filepath"].endswith("X_1.000_4.000.flac")
+        assert d["snippet_id"] == "X-1_000-4_000"
+        assert d["audio_filepath"].endswith("X-1_000-4_000.flac")
         # Metadata reflects post-cut audio (overwritten because the source had these keys)
         assert d["audio_sample_rate"] == 16000
         assert d["audio_num_channels"] == 1

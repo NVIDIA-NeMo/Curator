@@ -105,8 +105,16 @@ def _delete_shards(output_path: str, ext: str) -> int:
 
 
 def _segment_text(seg: dict) -> str:
-    """Return the best non-empty text representation of a segment."""
-    return (seg.get("text_ITN") or seg.get("text") or "").strip()
+    """Return the segment's ``text`` field, stripped, or an empty string.
+
+    The pipeline used to also consult ``text_ITN`` as a higher-priority
+    source, but ``text_ITN`` is unreliable in real upstream data (often
+    empty or stale even when ``text`` is populated), so the helper now
+    reads ``text`` exclusively.  ``text_ITN`` is still carried through
+    on output segments unchanged via the shallow copy in
+    ``relativize_segments``; it just no longer drives any decision.
+    """
+    return (seg.get("text") or "").strip()
 
 
 def filter_empty_segments(segments: list[dict]) -> tuple[list[dict], int]:

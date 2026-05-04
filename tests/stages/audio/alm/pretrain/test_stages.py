@@ -205,9 +205,11 @@ class TestSnippetExtractionStageDryRun:
         assert len(out) == 2
 
         s0 = out[0].data
-        # Snippet ID + path pattern
-        assert s0["snippet_id"] == "X_0.000_5.000"
-        assert s0["audio_filepath"].endswith("X_0.000_5.000.flac")
+        # Snippet ID + path pattern (WebDataset-friendly: dashes between
+        # fields, underscores instead of decimal points so the resulting
+        # filename has only one `.` before the extension).
+        assert s0["snippet_id"] == "X-0_000-5_000"
+        assert s0["audio_filepath"].endswith("X-0_000-5_000.flac")
         assert s0["duration"] == pytest.approx(5.0)
         # Field cleanup
         assert "alignment" not in s0
@@ -217,8 +219,9 @@ class TestSnippetExtractionStageDryRun:
         assert s0["audio_num_channels"] == 1
         assert s0["actual_duration"] == pytest.approx(5.0)
         assert s0["proposed_duration"] == pytest.approx(5.0)
-        # Top-level text recomputed (uses text_ITN -> "Hi.")
-        assert s0["text"] == "Hi."
+        # Top-level text recomputed from each segment's `text` field
+        # (text_ITN is unreliable in real data and is no longer consulted).
+        assert s0["text"] == "hi"
         # Segments relativized
         assert s0["segments"][0]["start"] == pytest.approx(0.0)
 

@@ -166,7 +166,7 @@ class TestPipelineEndToEndOnLocalManifest:
         for row in rows:
             assert row["id"] in source_ids, f"snippet id {row['id']!r} not in source manifest"
             assert isinstance(row["snippet_id"], str)
-            assert row["snippet_id"].startswith(row["id"] + "_")
+            assert row["snippet_id"].startswith(row["id"] + "-")
             assert row["audio_filepath"].endswith(".flac")
             assert isinstance(row["duration"], (int, float))
             assert row["duration"] > 0
