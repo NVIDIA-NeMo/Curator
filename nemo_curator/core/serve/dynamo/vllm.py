@@ -46,10 +46,29 @@ if TYPE_CHECKING:
     from nemo_curator.core.serve.placement import ReplicaBundleSpec
 
 
-# Installs ai-dynamo[vllm] to pin the exact vLLM release matching the
-# installed ai-dynamo — required because ai-dynamo's CLI surface tracks
-# a specific vLLM version.
-DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {"uv": ["ai-dynamo[vllm]"]}
+# Force flash-attn to rebuild against the actor venv's torch — its prebuilt
+# wheel has a torch-version-specific ABI and ai-dynamo[vllm] often pulls a
+# torch different from the base image's, so the prebuilt wheel's
+# ``c10::cuda::c10_cuda_check_implementation`` symbol misses at import.
+#
+# ``config.setup_timeout_seconds`` overrides Ray's 600s default — the
+# flash-attn from-source rebuild alone runs ~15 min, so the install would
+# otherwise be cancelled with ``RuntimeEnvSetupError`` before completing.
+DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
+    "uv": {
+        "packages": [
+            "ai-dynamo[vllm]",
+            "flash-attn",
+        ],
+        "uv_pip_install_options": [
+            "--reinstall-package",
+            "flash-attn",
+            "--no-build-isolation-package",
+            "flash-attn",
+        ],
+    },
+    "config": {"setup_timeout_seconds": 1800},
+}
 
 # Default KV-cache transfer configuration for disagg — NixlConnector is the
 # production path; ``kv_both`` makes each worker both send and receive KV
@@ -72,6 +91,12 @@ def merge_model_runtime_envs(models: list[DynamoVLLMModelConfig]) -> dict[str, A
     envs = [m.runtime_env for m in models if m.runtime_env]
     user_merged = reduce(BaseModelConfig.merge_runtime_envs, envs) if envs else None
     return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, user_merged)
+
+
+def _worker_subprocess_env(base_env: dict[str, str], runtime_dir: str) -> dict[str, str]:
+    # FlashInfer's default workspace can keep cubins from a prior session whose
+    # actor venv has since been replaced; anchor it per-run instead.
+    return {**base_env, "FLASHINFER_WORKSPACE_BASE": f"{runtime_dir}/flashinfer"}
 
 
 def resolve_disagg_role_config(
@@ -325,7 +350,7 @@ def _launch_vllm_worker(  # noqa: PLR0913
         python_args=python_args,
         runtime_dir=runtime_dir,
         actor_name_prefix=actor_name_prefix,
-        subprocess_env=base_env,
+        subprocess_env=_worker_subprocess_env(base_env, runtime_dir),
         runtime_env=dynamo_runtime_env(model_config),
     )
 
@@ -489,7 +514,11 @@ def _launch_disagg_role(  # noqa: PLR0913
             python_args=python_args,
             runtime_dir=runtime_dir,
             actor_name_prefix=actor_name_prefix,
-            subprocess_env={**base_env, "VLLM_NIXL_SIDE_CHANNEL_PORT": str(nixl_port), "PYTHONHASHSEED": "0"},
+            subprocess_env={
+                **_worker_subprocess_env(base_env, runtime_dir),
+                "VLLM_NIXL_SIDE_CHANNEL_PORT": str(nixl_port),
+                "PYTHONHASHSEED": "0",
+            },
             runtime_env=dynamo_runtime_env(model_config),
         )
         worker_actors.append(proc)
