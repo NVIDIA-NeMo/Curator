@@ -77,7 +77,7 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
     # so the planner closes the snippet at long gaps even when the
     # max-duration budget would still permit appending.
     max_segment_gap_in_snippet: float = 30.0,
-    ngram_n: int = 4,
+    ngram_n: int = 10,
     ngram_max_count: int = 3,
     target_sample_rate: int = 16000,
     output_format: str = "flac",
@@ -130,7 +130,7 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
             tokenizer (loadable via ``AutoTokenizer.from_pretrained``).
             Used by the snippet repetition filter to detect Whisper-style
             looping hallucinations via n-gram frequency.
-        ngram_n: N-gram size for the repetition filter; default 4.
+        ngram_n: N-gram size for the repetition filter; default 10.
         ngram_max_count: A snippet is dropped if any token-id n-gram in
             its joined text appears strictly more than this many times;
             default 3 (drop on ≥4 occurrences).  Filtered snippets are

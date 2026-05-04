@@ -106,7 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--ngram-n", type=int, default=4, help="N-gram size for the repetition filter (default 4)"
+        "--ngram-n", type=int, default=10, help="N-gram size for the repetition filter (default 10)"
     )
     parser.add_argument(
         "--ngram-max-count",

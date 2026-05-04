@@ -702,7 +702,7 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     tokenizer_path: str = ""
-    ngram_n: int = 4
+    ngram_n: int = 10
     ngram_max_count: int = 3
 
     name: str = "SnippetRepetitionFilter"
