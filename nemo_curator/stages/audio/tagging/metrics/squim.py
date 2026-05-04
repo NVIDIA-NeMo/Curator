@@ -89,8 +89,12 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
                 f"{data_entry.get('audio_item_id', 'unknown')}"
             )
             return task
-        info = sf.info(audio_path)
-        sr = info.samplerate
+        try:
+            info = sf.info(audio_path)
+            sr = info.samplerate
+        except Exception as ex:  # noqa: BLE001
+            logger.error(f"Failed to read audio info: {audio_path}, exception={ex}")
+            return task
 
         try:
             audio, _ = librosa.load(path=audio_path, sr=sr)

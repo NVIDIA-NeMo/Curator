@@ -156,7 +156,11 @@ class VLLMInference:
             torch.cuda.synchronize()
 
         if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_params["model"])
+            model_name = self.model_params.get("model")
+            if not model_name:
+                msg = "'model' key is required in model_params but was not provided."
+                raise ValueError(msg)
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         if self.sampling_params is None:
             self.sampling_params = SamplingParams(**self.inference_params)
 
@@ -173,15 +177,17 @@ class VLLMInference:
         """Format the prompt for a single data entry using the chat template."""
         prompt = self.prompt
         if self.prompt_field:
-            prompt = data_entry[self.prompt_field]
-
-        entry_chat = [{"role": role, "content": prompt[role].format(**data_entry)} for role in prompt]
+            prompt = data_entry.get(self.prompt_field)
+            if prompt is None:
+                logger.warning(f"prompt_field '{self.prompt_field}' missing from entry; skipping.")
+                return []
 
         try:
+            entry_chat = [{"role": role, "content": prompt[role].format(**data_entry)} for role in prompt]
             return self.tokenizer.apply_chat_template(entry_chat, **self.chat_template_params)
         except (TypeError, ValueError, KeyError, RuntimeError) as e:
-            logger.error(f"Error applying chat template: {e}")
-            return entry_chat
+            logger.error(f"Error formatting/applying chat template: {e}")
+            return []
 
     def load_model(self) -> None:
         """Instantiate the ``vllm.LLM`` engine."""

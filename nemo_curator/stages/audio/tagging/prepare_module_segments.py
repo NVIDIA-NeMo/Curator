@@ -95,7 +95,7 @@ class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
                 - bandwidth: The bandwidth of the word if available
         """
         segments = metadata["segments"]
-        audio_duration = metadata["duration"]
+        audio_duration = metadata.get("duration", 0.0)
 
         if "overlap_segments" not in metadata:
             add_non_speaker_segments(segments, audio_duration)
@@ -334,9 +334,10 @@ class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
                 "speaker": speaker,
                 "start": new_segment["start"],
                 "end": new_segment["end"],
-                self.text_key: " ".join(w["word"] for w in new_segment["words"]),
+                self.text_key: " ".join(w.get("word", "") for w in new_segment["words"]),
                 self.words_key: [
-                    {"word": w["word"], "start": w["start"], "end": w["end"]} for w in new_segment["words"]
+                    {"word": w.get("word", ""), "start": w.get("start", 0.0), "end": w.get("end", 0.0)}
+                    for w in new_segment["words"]
                 ],
                 "metrics": {
                     "pesq_squim": [w.get("pesq_squim") for w in new_segment["words"]],

@@ -252,6 +252,7 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     def teardown(self) -> None:
         if self._vllm is not None:
             self._vllm.clean_up()
+            self._vllm = None
 
     def _collect_prompts(self, data: dict) -> list[tuple[str | list, list]]:
         """Collect ``(prompt, key_path)`` pairs from a manifest entry.
@@ -287,7 +288,7 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         """Process a single AudioTask — collect prompts, run inference, write back."""
-        if self._vllm is None:
+        if self._vllm is None or self._vllm.llm is None:
             return task
 
         data = task.data
@@ -306,7 +307,7 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Batch-process multiple AudioTasks with a single vLLM call for efficiency."""
-        if not tasks or self._vllm is None:
+        if not tasks or self._vllm is None or self._vllm.llm is None:
             return tasks if tasks else []
 
         t0 = time.perf_counter()

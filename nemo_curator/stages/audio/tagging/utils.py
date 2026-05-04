@@ -37,6 +37,8 @@ def load_vocab_file(filepath: str) -> set[str]:
         if ch == "":
             chars.add(" ")
         else:
+            if len(ch) > 1:
+                logger.warning(f"Vocab file line has multiple characters: '{ch}' in {filepath}")
             chars.add(ch)
     logger.info(f"Loaded {len(chars)} vocab characters from {filepath}")
     return chars
