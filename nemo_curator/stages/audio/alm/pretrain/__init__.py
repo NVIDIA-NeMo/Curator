@@ -33,6 +33,7 @@ from nemo_curator.stages.audio.alm.pretrain.stages import (
     SnippetCutPlannerStage,
     SnippetExtractionStage,
     SnippetManifestWriterStage,
+    SnippetRepetitionFilterStage,
     finalize_audio_pretrain_outputs,
     prepare_audio_pretrain_outputs,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "SnippetCutPlannerStage",
     "SnippetExtractionStage",
     "SnippetManifestWriterStage",
+    "SnippetRepetitionFilterStage",
     "build_audio_pretrain_pipeline",
     "finalize_audio_pretrain_outputs",
     "prepare_audio_pretrain_outputs",

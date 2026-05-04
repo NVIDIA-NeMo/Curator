@@ -34,6 +34,7 @@ from nemo_curator.stages.audio.alm.pretrain import (
     SnippetCutPlannerStage,
     SnippetExtractionStage,
     SnippetManifestWriterStage,
+    SnippetRepetitionFilterStage,
     finalize_audio_pretrain_outputs,
     prepare_audio_pretrain_outputs,
 )
@@ -297,6 +298,7 @@ class TestPretrainMetricsAggregatorStage:
             "dropped_too_long": 0,
             "dropped_too_short": 0,
             "dropped_no_text": 0,
+            "filtered_repetition_texts": ["repeat one", "repeat two"],
         }
         task2 = _make_audio_task({"id": "A", "snippet_id": "A_5_12", "duration": 7.0, "segments": [_ts(0, 7, "y")]})
         task2._metadata[_PRETRAIN_META_KEY] = task1._metadata[_PRETRAIN_META_KEY]
@@ -331,6 +333,10 @@ class TestPretrainMetricsAggregatorStage:
         assert records[1]["out_duration_sec"] == pytest.approx(7.0)
         assert records[2]["is_stub"] is True
         assert records[2]["out_segments"] == 0
+        # filtered_texts is emitted exactly once per id (first occurrence).
+        assert records[0]["filtered_texts"] == ["repeat one", "repeat two"]
+        assert "filtered_texts" not in records[1]
+        assert records[2]["filtered_texts"] == []
 
 
 # ----------------------------------------------------------------------
@@ -380,7 +386,52 @@ class TestPrepareAndFinalize:
         assert summary["num_output_snippets"] == 3
         assert summary["output_total_duration_sec"] == pytest.approx(48.0)
         assert summary["snippet_duration_histogram_30s"] == {"0-30": 2, "30-60": 1}
+        # The new examples key is always present, empty when no records carry it.
+        assert summary["dropped_repetition_examples"] == []
         assert list(tmp_path.glob("*.shard-*")) == []
+
+    def test_finalize_caps_filtered_examples_globally(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import nemo_curator.stages.audio.alm.pretrain.stages as m
+
+        monkeypatch.setattr(m, "_MAX_FILTERED_TEXT_EXAMPLES", 5)
+        manifest = str(tmp_path / "snippets.jsonl")
+        metrics = str(tmp_path / "metrics.json")
+
+        record_template = {
+            "in_segments": 10,
+            "in_duration_sec": 100.0,
+            "dropped": {"empty": 0, "overlap": 0, "too_long": 0, "too_short": 0, "no_text": 0, "repetition": 4},
+            "is_stub": True,
+            "out_segments": 0,
+            "out_duration_sec": 0.0,
+        }
+        shard = _make_shard_path(metrics, "jsonl")
+        with open(shard, "w") as f:
+            # Three sources, each contributing 4 filtered texts → 12 total,
+            # capped to 5 globally.
+            for src_idx in range(3):
+                rec = {
+                    **record_template,
+                    "id": f"vid{src_idx}",
+                    "filtered_texts": [f"src{src_idx}-text{i}" for i in range(4)],
+                }
+                f.write(json.dumps(rec) + "\n")
+
+        finalize_audio_pretrain_outputs(manifest, metrics)
+
+        summary = json.loads(Path(metrics).read_text(encoding="utf-8"))
+        examples = summary["dropped_repetition_examples"]
+        assert len(examples) == 5
+        # First-encountered-wins: vid0's four texts plus the first of vid1's.
+        assert examples == [
+            "src0-text0",
+            "src0-text1",
+            "src0-text2",
+            "src0-text3",
+            "src1-text0",
+        ]
 
     def test_prepare_removes_only_matching_shards(self, tmp_path: Path) -> None:
         manifest = str(tmp_path / "snippets.jsonl")
@@ -396,3 +447,126 @@ class TestPrepareAndFinalize:
 
         assert list(tmp_path.glob("*.shard-*")) == []
         assert unrelated.exists()
+
+
+# ----------------------------------------------------------------------
+# SnippetRepetitionFilterStage
+# ----------------------------------------------------------------------
+
+
+def _build_tiny_word_tokenizer(tmp_dir: Path, words: list[str]) -> Path:
+    """Save a WordLevel HF fast tokenizer covering ``words`` to ``tmp_dir``."""
+    from tokenizers import Tokenizer, models, pre_tokenizers
+
+    vocab = {"[UNK]": 0}
+    for i, w in enumerate(words, start=1):
+        vocab[w] = i
+    tok = Tokenizer(models.WordLevel(vocab=vocab, unk_token="[UNK]"))
+    tok.pre_tokenizer = pre_tokenizers.Whitespace()
+    tok_dir = tmp_dir / "tok"
+    tok_dir.mkdir()
+    tok.save(str(tok_dir / "tokenizer.json"))
+    (tok_dir / "tokenizer_config.json").write_text(
+        json.dumps({"tokenizer_class": "PreTrainedTokenizerFast", "model_max_length": 4096}),
+        encoding="utf-8",
+    )
+    return tok_dir
+
+
+class TestSnippetRepetitionFilterStage:
+    @pytest.fixture
+    def tokenizer_dir(self, tmp_path: Path) -> Path:
+        pytest.importorskip("transformers")
+        pytest.importorskip("tokenizers")
+        return _build_tiny_word_tokenizer(
+            tmp_path,
+            ["thank", "you", "for", "watching", "please", "subscribe", "the", "quick", "brown", "fox", "hi"],
+        )
+
+    def _make_task_with_plan(self, plan: list[dict]) -> AudioTask:
+        task = AudioTask(task_id="t1", dataset_name="ds", data={_PLAN_DATA_KEY: plan})
+        task._metadata = {}
+        return task
+
+    def test_drops_repetitive_snippet(self, tokenizer_dir: Path) -> None:
+        stage = SnippetRepetitionFilterStage(tokenizer_path=str(tokenizer_dir))
+        stage.__post_init__()
+        stage.setup()
+
+        repeat = "thank you for watching " * 10
+        plan = [{"start": 0.0, "end": 30.0, "segments": [_ts(0.0, 30.0, repeat)]}]
+        out = stage.process(self._make_task_with_plan(plan))
+        assert out.data[_PLAN_DATA_KEY] == []
+        meta = out._metadata[_PRETRAIN_META_KEY]
+        assert meta["dropped_repetition"] == 1
+        assert meta["kept_after_repetition_filter"] == 0
+        # The dropped text is captured (un-colorized) for the metrics summary.
+        assert meta["filtered_repetition_texts"] == [repeat.strip()]
+
+    def test_keeps_non_repetitive_snippet(self, tokenizer_dir: Path) -> None:
+        stage = SnippetRepetitionFilterStage(tokenizer_path=str(tokenizer_dir))
+        stage.__post_init__()
+        stage.setup()
+
+        plan = [
+            {"start": 0.0, "end": 5.0, "segments": [_ts(0.0, 5.0, "the quick brown fox")]},
+        ]
+        out = stage.process(self._make_task_with_plan(plan))
+        assert len(out.data[_PLAN_DATA_KEY]) == 1
+        meta = out._metadata[_PRETRAIN_META_KEY]
+        assert meta["dropped_repetition"] == 0
+        assert meta["kept_after_repetition_filter"] == 1
+
+    def test_keeps_short_snippet_without_enough_tokens_for_ngram(self, tokenizer_dir: Path) -> None:
+        # ngram_n=4 but text tokenizes to 1 token -> no n-grams to evaluate, kept
+        stage = SnippetRepetitionFilterStage(tokenizer_path=str(tokenizer_dir), ngram_n=4)
+        stage.__post_init__()
+        stage.setup()
+
+        plan = [{"start": 0.0, "end": 1.0, "segments": [_ts(0.0, 1.0, "hi")]}]
+        out = stage.process(self._make_task_with_plan(plan))
+        assert len(out.data[_PLAN_DATA_KEY]) == 1
+        assert out._metadata[_PRETRAIN_META_KEY]["dropped_repetition"] == 0
+
+    def test_filters_only_repetitive_snippets_in_a_mixed_plan(self, tokenizer_dir: Path) -> None:
+        stage = SnippetRepetitionFilterStage(tokenizer_path=str(tokenizer_dir))
+        stage.__post_init__()
+        stage.setup()
+
+        plan = [
+            {"start": 0.0, "end": 5.0, "segments": [_ts(0.0, 5.0, "the quick brown fox")]},
+            {"start": 5.0, "end": 35.0, "segments": [_ts(5.0, 35.0, "thank you for watching " * 10)]},
+            {"start": 35.0, "end": 36.0, "segments": [_ts(35.0, 36.0, "hi")]},
+        ]
+        out = stage.process(self._make_task_with_plan(plan))
+        kept_texts = [s["segments"][0]["text"] for s in out.data[_PLAN_DATA_KEY]]
+        assert kept_texts == ["the quick brown fox", "hi"]
+        assert out._metadata[_PRETRAIN_META_KEY]["dropped_repetition"] == 1
+        assert out._metadata[_PRETRAIN_META_KEY]["kept_after_repetition_filter"] == 2
+        # The override of planned_snippets reflects the post-filter count.
+        assert out._metadata[_PRETRAIN_META_KEY]["planned_snippets"] == 2
+
+    def test_post_init_validates(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="tokenizer_path"):
+            SnippetRepetitionFilterStage(tokenizer_path="").__post_init__()
+        with pytest.raises(ValueError, match="ngram_n"):
+            SnippetRepetitionFilterStage(tokenizer_path=str(tmp_path), ngram_n=0).__post_init__()
+        with pytest.raises(ValueError, match="ngram_max_count"):
+            SnippetRepetitionFilterStage(tokenizer_path=str(tmp_path), ngram_max_count=0).__post_init__()
+
+    def test_per_source_example_cap(self, tokenizer_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The per-source filtered_repetition_texts list is capped."""
+        import nemo_curator.stages.audio.alm.pretrain.stages as m
+
+        monkeypatch.setattr(m, "_MAX_FILTERED_TEXT_EXAMPLES", 3)
+        stage = SnippetRepetitionFilterStage(tokenizer_path=str(tokenizer_dir))
+        stage.__post_init__()
+        stage.setup()
+
+        repeat = "thank you for watching " * 10
+        plan = [{"start": float(i), "end": float(i) + 30.0, "segments": [_ts(0.0, 30.0, repeat)]} for i in range(7)]
+        out = stage.process(self._make_task_with_plan(plan))
+        meta = out._metadata[_PRETRAIN_META_KEY]
+        # All 7 are counted as dropped, but only the first 3 texts are retained.
+        assert meta["dropped_repetition"] == 7
+        assert len(meta["filtered_repetition_texts"]) == 3

@@ -25,11 +25,18 @@ from pathlib import Path
 
 import pytest
 
+from collections import Counter
+
 from nemo_curator.stages.audio.alm.pretrain.stages import (
     _build_final_summary,
+    _count_ngrams,
     _delete_shards,
+    _find_offending_ngrams,
+    _format_red,
     _glob_shards,
+    _locate_ngram_char_ranges,
     _make_shard_path,
+    _merge_char_ranges,
     _resolve_audio_path,
     _segment_text,
     filter_empty_segments,
@@ -438,6 +445,88 @@ class TestBuildFinalSummary:
         assert s["dropped"] == {"empty": 1, "overlap": 2, "too_long": 1, "too_short": 1, "no_text": 0}
         assert s["snippet_duration_histogram_30s"] == {"0-30": 2}
         assert len(s["per_original"]) == 2
+
+
+# ----------------------------------------------------------------------
+# Repetition-filter helpers
+# ----------------------------------------------------------------------
+
+
+class TestCountNgrams:
+    def test_counts_overlapping_windows(self) -> None:
+        # [1,2,3] repeated three times -> 3-gram (1,2,3) appears 3 times
+        c = _count_ngrams([1, 2, 3, 1, 2, 3, 1, 2, 3], 3)
+        assert c[(1, 2, 3)] == 3
+        # 2-gram across the boundary: (3,1) appears twice
+        c2 = _count_ngrams([1, 2, 3, 1, 2, 3, 1, 2, 3], 2)
+        assert c2[(1, 2)] == 3
+        assert c2[(3, 1)] == 2
+
+    def test_returns_empty_when_too_short(self) -> None:
+        assert _count_ngrams([1, 2], 4) == Counter()
+        assert _count_ngrams([], 2) == Counter()
+
+    def test_returns_empty_when_n_invalid(self) -> None:
+        assert _count_ngrams([1, 2, 3], 0) == Counter()
+        assert _count_ngrams([1, 2, 3], -1) == Counter()
+
+
+class TestFindOffendingNgrams:
+    def test_strict_inequality(self) -> None:
+        c = Counter({(1, 2): 3, (3, 4): 4, (5, 6): 5})
+        # max_count=3 -> only counts > 3 are offending
+        assert _find_offending_ngrams(c, 3) == {(3, 4), (5, 6)}
+
+    def test_empty_when_none_exceed(self) -> None:
+        c = Counter({(1, 2): 3, (3, 4): 1})
+        assert _find_offending_ngrams(c, 3) == set()
+
+
+class TestLocateNgramCharRanges:
+    def test_locates_every_occurrence(self) -> None:
+        # Three repetitions of 3-gram (1,2,3) at non-touching offsets
+        toks = [1, 2, 3, 1, 2, 3, 1, 2, 3]
+        offs = [(0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11), (12, 13), (14, 15), (16, 17)]
+        ranges = _locate_ngram_char_ranges(toks, offs, {(1, 2, 3)}, 3)
+        assert ranges == [(0, 5), (6, 11), (12, 17)]
+
+    def test_empty_when_no_offending(self) -> None:
+        assert _locate_ngram_char_ranges([1, 2, 3], [(0, 1), (2, 3), (4, 5)], set(), 2) == []
+
+    def test_empty_when_too_short(self) -> None:
+        assert _locate_ngram_char_ranges([1], [(0, 1)], {(1, 2)}, 2) == []
+
+
+class TestMergeCharRanges:
+    def test_merges_overlapping(self) -> None:
+        assert _merge_char_ranges([(0, 5), (3, 8), (10, 15)]) == [(0, 8), (10, 15)]
+
+    def test_sorts_input(self) -> None:
+        assert _merge_char_ranges([(10, 15), (0, 5)]) == [(0, 5), (10, 15)]
+
+    def test_merges_touching(self) -> None:
+        assert _merge_char_ranges([(0, 5), (5, 10)]) == [(0, 10)]
+
+    def test_empty(self) -> None:
+        assert _merge_char_ranges([]) == []
+
+
+class TestFormatRed:
+    def test_wraps_single_range(self) -> None:
+        assert _format_red("hello world", [(0, 5)]) == "<red>hello</red> world"
+
+    def test_no_ranges_returns_text(self) -> None:
+        assert _format_red("hello world", []) == "hello world"
+
+    def test_escapes_lt_in_plain_text(self) -> None:
+        assert _format_red("a<b>c", []) == r"a\<b>c"
+
+    def test_escapes_lt_inside_highlighted(self) -> None:
+        # "<" inside a highlighted span must be escaped too so loguru doesn't try to parse it.
+        assert _format_red("<x>", [(0, 3)]) == r"<red>\<x></red>"
+
+    def test_multiple_ranges(self) -> None:
+        assert _format_red("aaa bbb ccc", [(0, 3), (8, 11)]) == "<red>aaa</red> bbb <red>ccc</red>"
 
 
 # ----------------------------------------------------------------------

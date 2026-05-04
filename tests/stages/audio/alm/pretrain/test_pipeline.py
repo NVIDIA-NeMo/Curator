@@ -30,6 +30,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from nemo_curator.stages.audio.alm.pretrain import (
     OverlapFilterStage,
     PretrainMetricsAggregatorStage,
@@ -37,6 +39,7 @@ from nemo_curator.stages.audio.alm.pretrain import (
     SnippetCutPlannerStage,
     SnippetExtractionStage,
     SnippetManifestWriterStage,
+    SnippetRepetitionFilterStage,
     finalize_audio_pretrain_outputs,
     prepare_audio_pretrain_outputs,
 )
@@ -60,6 +63,29 @@ def _first_n_rows(path: Path, n: int) -> list[dict]:
     return rows
 
 
+def _build_tiny_tokenizer_dir(tmp_dir: Path) -> Path:
+    """Save a permissive WordLevel HF fast tokenizer to ``tmp_dir`` for tests.
+
+    Vocab is unimportant for end-to-end tests because the manifest
+    fixture has no obvious repetition; the OOV ``[UNK]`` mass tokenizes
+    real words to a single id, but n-gram detection still works on
+    those ids without producing false positives at default thresholds.
+    """
+    from tokenizers import Tokenizer, models, pre_tokenizers
+
+    vocab = {"[UNK]": 0}
+    tok = Tokenizer(models.WordLevel(vocab=vocab, unk_token="[UNK]"))
+    tok.pre_tokenizer = pre_tokenizers.Whitespace()
+    tok_dir = tmp_dir / "tok"
+    tok_dir.mkdir()
+    tok.save(str(tok_dir / "tokenizer.json"))
+    (tok_dir / "tokenizer_config.json").write_text(
+        json.dumps({"tokenizer_class": "PreTrainedTokenizerFast", "model_max_length": 4096}),
+        encoding="utf-8",
+    )
+    return tok_dir
+
+
 def _run_pipeline_inline(  # noqa: PLR0913
     *,
     input_manifest: Path,
@@ -69,6 +95,7 @@ def _run_pipeline_inline(  # noqa: PLR0913
     metrics_path: Path,
     max_duration_sec: float,
     target_sample_rate: int,
+    tokenizer_path: Path,
 ) -> None:
     """Run every stage in sequence on the same Python process (no executor)."""
     prepare_audio_pretrain_outputs(str(output_manifest), str(metrics_path))
@@ -78,6 +105,9 @@ def _run_pipeline_inline(  # noqa: PLR0913
     overlap = OverlapFilterStage()
     planner = SnippetCutPlannerStage(max_duration_sec=max_duration_sec)
     planner.__post_init__()
+    rep_filter = SnippetRepetitionFilterStage(tokenizer_path=str(tokenizer_path))
+    rep_filter.__post_init__()
+    rep_filter.setup()
     extractor = SnippetExtractionStage(
         output_dir=str(output_dir),
         target_sample_rate=target_sample_rate,
@@ -99,7 +129,8 @@ def _run_pipeline_inline(  # noqa: PLR0913
     for input_task in reader.process(_EmptyTask(task_id="e", dataset_name="e", data=None)):
         filtered = overlap.process(input_task)
         planned = planner.process(filtered)
-        for snippet_task in extractor.process(planned):
+        rep_filtered = rep_filter.process(planned)
+        for snippet_task in extractor.process(rep_filtered):
             writer.process(snippet_task)
             aggregator.process(snippet_task)
 
@@ -115,6 +146,8 @@ class TestPipelineEndToEndOnLocalManifest:
     """
 
     def test_dry_run_produces_valid_outputs(self, tmp_path: Path) -> None:
+        pytest.importorskip("transformers")
+        pytest.importorskip("tokenizers")
         rows = _first_n_rows(_LOCAL_MANIFEST, _NUM_ROWS)
         assert len(rows) == _NUM_ROWS, f"expected {_NUM_ROWS} rows from {_LOCAL_MANIFEST}, got {len(rows)}"
 
@@ -128,6 +161,7 @@ class TestPipelineEndToEndOnLocalManifest:
         output_dir = tmp_path / "snippets"
         output_manifest = tmp_path / "snippets.jsonl"
         metrics_path = tmp_path / "metrics.json"
+        tokenizer_dir = _build_tiny_tokenizer_dir(tmp_path)
 
         _run_pipeline_inline(
             input_manifest=in_manifest,
@@ -137,6 +171,7 @@ class TestPipelineEndToEndOnLocalManifest:
             metrics_path=metrics_path,
             max_duration_sec=_MAX_DURATION_SEC,
             target_sample_rate=_TARGET_SR,
+            tokenizer_path=tokenizer_dir,
         )
 
         # Output files exist
@@ -206,10 +241,17 @@ class TestPipelineEndToEndOnLocalManifest:
         assert isinstance(summary["input_total_duration_sec"], (int, float))
         assert isinstance(summary["output_total_segments"], int)
         assert isinstance(summary["output_total_duration_sec"], (int, float))
-        assert set(summary["dropped"]) == {"empty", "overlap", "too_long", "too_short", "no_text"}
+        assert set(summary["dropped"]) == {"empty", "overlap", "too_long", "too_short", "no_text", "repetition"}
         for v in summary["dropped"].values():
             assert isinstance(v, int)
             assert v >= 0
+        # Filtered-snippet example texts are always surfaced (possibly empty).
+        examples = summary["dropped_repetition_examples"]
+        assert isinstance(examples, list)
+        for ex in examples:
+            assert isinstance(ex, str)
+        # The cap matches the count of repetition-filtered snippets.
+        assert len(examples) <= summary["dropped"]["repetition"]
         # Histogram: keys are 30s-wide bin labels, values are non-negative ints.
         for label, count in summary["snippet_duration_histogram_30s"].items():
             assert "-" in label

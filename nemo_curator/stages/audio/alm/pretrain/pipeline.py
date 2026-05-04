@@ -24,6 +24,11 @@ files and produces:
 * a metrics summary JSON with input/output counts, dropped-segment
   breakdowns, and a 30-second-bin histogram of snippet durations
 
+Includes an n-gram-frequency repetition filter (between the planner and
+the extractor) that drops snippets whose joined text shows Whisper-style
+looping hallucinations, so filtered snippets never incur audio decode /
+resample / file-write cost.
+
 The output manifest is intended as the foundation for audio LLM
 pretraining: each row's snippet-relative ``segments`` list is enough to
 build interleaved audio/text continuation data, ASR training pairs, TTS
@@ -42,6 +47,7 @@ from .stages import (
     SnippetCutPlannerStage,
     SnippetExtractionStage,
     SnippetManifestWriterStage,
+    SnippetRepetitionFilterStage,
     finalize_audio_pretrain_outputs,
     prepare_audio_pretrain_outputs,
 )
@@ -61,6 +67,7 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
     output_manifest_path: str,
     metrics_path: str,
     max_duration_sec: float,
+    tokenizer_path: str,
     min_duration_sec: float = 0.5,
     min_overlap_sec: float = 0.5,
     # Default 30s: two segments separated by more than 30s of silence
@@ -70,6 +77,8 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
     # so the planner closes the snippet at long gaps even when the
     # max-duration budget would still permit appending.
     max_segment_gap_in_snippet: float = 30.0,
+    ngram_n: int = 4,
+    ngram_max_count: int = 3,
     target_sample_rate: int = 16000,
     output_format: str = "flac",
     audio_filepath_key: str = "audio_filepath",
@@ -117,6 +126,15 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
             belong to semantically distinct conversations (topic change,
             ad break, recording boundary), which we don't want to bridge
             in a pretraining snippet.
+        tokenizer_path: Local directory containing a HuggingFace fast
+            tokenizer (loadable via ``AutoTokenizer.from_pretrained``).
+            Used by the snippet repetition filter to detect Whisper-style
+            looping hallucinations via n-gram frequency.
+        ngram_n: N-gram size for the repetition filter; default 4.
+        ngram_max_count: A snippet is dropped if any token-id n-gram in
+            its joined text appears strictly more than this many times;
+            default 3 (drop on ≥4 occurrences).  Filtered snippets are
+            logged with the offending text highlighted in red.
         target_sample_rate: Output snippet sample rate; the source audio
             is resampled with torchaudio if it differs.
         output_format: ``"wav"``, ``"flac"``, or ``"ogg"``.
@@ -147,6 +165,11 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
                 max_duration_sec=max_duration_sec,
                 min_duration_sec=min_duration_sec,
                 max_segment_gap_in_snippet=max_segment_gap_in_snippet,
+            ),
+            SnippetRepetitionFilterStage(
+                tokenizer_path=tokenizer_path,
+                ngram_n=ngram_n,
+                ngram_max_count=ngram_max_count,
             ),
             SnippetExtractionStage(
                 output_dir=output_dir,

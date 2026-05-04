@@ -37,7 +37,7 @@ import math
 import os
 import time
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -73,6 +73,12 @@ _MANIFEST_SHARD_EXT = "jsonl"
 # flushed in teardown would always produce an empty summary. See
 # `PretrainMetricsAggregatorStage.process` for the per-task record schema.
 _METRICS_SHARD_EXT = "jsonl"
+# Cap on how many filtered snippet texts are retained for the metrics summary.
+# Bounds per-source metadata, shard size, and the final summary list size --
+# the same constant is applied per-source in the filter stage and globally in
+# the shard merger. Large enough to be diagnostic but small enough that the
+# metrics JSON stays human-readable on pathological inputs.
+_MAX_FILTERED_TEXT_EXAMPLES = 1000
 
 
 def _make_shard_path(output_path: str, ext: str) -> str:
@@ -320,6 +326,83 @@ def histogram_30s(durations: list[float]) -> dict[str, int]:
     return {f"{i * bin_w}-{(i + 1) * bin_w}": counts[i] for i in range(max_idx + 1)}
 
 
+# ----------------------------------------------------------------------
+# Repetition filter helpers (pure, no HF / no Ray)
+# ----------------------------------------------------------------------
+
+
+def _count_ngrams(token_ids: list[int], n: int) -> Counter[tuple[int, ...]]:
+    """Count contiguous n-gram frequencies in a token id sequence."""
+    if n <= 0 or len(token_ids) < n:
+        return Counter()
+    return Counter(tuple(token_ids[i : i + n]) for i in range(len(token_ids) - n + 1))
+
+
+def _find_offending_ngrams(
+    counts: Counter[tuple[int, ...]], max_count: int
+) -> set[tuple[int, ...]]:
+    """Return n-grams whose frequency strictly exceeds ``max_count``."""
+    return {ng for ng, c in counts.items() if c > max_count}
+
+
+def _locate_ngram_char_ranges(
+    token_ids: list[int],
+    offsets: list[tuple[int, int]],
+    offending: set[tuple[int, ...]],
+    n: int,
+) -> list[tuple[int, int]]:
+    """Char-range spans for every position where an offending n-gram starts."""
+    if not offending or len(token_ids) < n:
+        return []
+    ranges: list[tuple[int, int]] = []
+    for i in range(len(token_ids) - n + 1):
+        ng = tuple(token_ids[i : i + n])
+        if ng in offending:
+            start = offsets[i][0]
+            end = offsets[i + n - 1][1]
+            if end > start:
+                ranges.append((start, end))
+    return ranges
+
+
+def _merge_char_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Merge overlapping or touching char ranges; input may be unsorted."""
+    if not ranges:
+        return []
+    sorted_ranges = sorted(ranges)
+    merged: list[tuple[int, int]] = [sorted_ranges[0]]
+    for start, end in sorted_ranges[1:]:
+        last_start, last_end = merged[-1]
+        if start <= last_end:
+            merged[-1] = (last_start, max(last_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _format_red(text: str, ranges: list[tuple[int, int]]) -> str:
+    """Wrap each char range in loguru ``<red>...</red>`` markup.
+
+    Literal ``<`` in the surrounding text is escaped to ``\\<`` so
+    loguru's tag parser leaves it alone.  ``ranges`` must be merged and
+    sorted (use :func:`_merge_char_ranges`).
+    """
+    if not ranges:
+        return text.replace("<", r"\<")
+    pieces: list[str] = []
+    cursor = 0
+    for start, end in ranges:
+        if start > cursor:
+            pieces.append(text[cursor:start].replace("<", r"\<"))
+        pieces.append("<red>")
+        pieces.append(text[start:end].replace("<", r"\<"))
+        pieces.append("</red>")
+        cursor = end
+    if cursor < len(text):
+        pieces.append(text[cursor:].replace("<", r"\<"))
+    return "".join(pieces)
+
+
 def _resolve_audio_path(audio_dir: str, value: str) -> str:
     """Resolve a manifest's audio path against ``audio_dir`` by basename.
 
@@ -525,7 +608,7 @@ class SnippetCutPlannerStage(ProcessingStage[AudioTask, AudioTask]):
     written to ``task._metadata['pretrain_long_form']``.
     """
 
-    max_duration_sec: float = 30.0
+    max_duration_sec: float = 600.0
     min_duration_sec: float = 0.5
     # Two segments separated by more than this many seconds of silence are
     # assumed to belong to semantically distinct conversations and are
@@ -588,7 +671,147 @@ class SnippetCutPlannerStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 # ----------------------------------------------------------------------
-# Stage 4: read source audio, extract snippets, write files
+# Stage 4: filter snippets whose joined text shows n-gram repetition
+# ----------------------------------------------------------------------
+
+
+@dataclass
+class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
+    """Drop planned snippets whose text shows suspicious n-gram repetition.
+
+    Whisper-style ASR sometimes degenerates into repeating the same
+    short phrase for many seconds; the resulting transcript looks fine
+    locally but contains the same n-gram of token ids dozens of times.
+    Such snippets are unsuitable for pretraining.
+
+    For every planned snippet (read from ``task.data["_snippet_plan"]``)
+    we join the segment ``text`` fields with the same formula the
+    extractor uses, tokenize with the configured HuggingFace fast
+    tokenizer, count n-gram frequencies over the resulting token-id
+    sequence, and drop the snippet if any n-gram appears strictly more
+    than ``ngram_max_count`` times.  Filtered snippets are logged with
+    the offending occurrences highlighted in red (loguru color tags).
+
+    Snippets whose tokenized text has fewer than ``ngram_n`` tokens are
+    kept unchanged (no n-grams to evaluate; the planner already enforces
+    a minimum-duration threshold).
+
+    Sits between :class:`SnippetCutPlannerStage` and
+    :class:`SnippetExtractionStage` so filtered snippets never incur
+    audio decode / resample / file-write cost.
+    """
+
+    tokenizer_path: str = ""
+    ngram_n: int = 4
+    ngram_max_count: int = 3
+
+    name: str = "SnippetRepetitionFilter"
+    batch_size: int = 1
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+
+    def __post_init__(self) -> None:
+        if not self.tokenizer_path:
+            msg = "tokenizer_path is required for SnippetRepetitionFilterStage"
+            raise ValueError(msg)
+        if self.ngram_n < 1:
+            msg = "ngram_n must be >= 1"
+            raise ValueError(msg)
+        if self.ngram_max_count < 1:
+            msg = "ngram_max_count must be >= 1"
+            raise ValueError(msg)
+        self._tokenizer: Any = None
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [_PLAN_DATA_KEY]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [_PLAN_DATA_KEY]
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        from transformers import AutoTokenizer
+
+        self._tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, use_fast=True)
+        if not getattr(self._tokenizer, "is_fast", False):
+            msg = (
+                f"SnippetRepetitionFilterStage requires a fast tokenizer with offset mapping; "
+                f"loaded tokenizer at {self.tokenizer_path!r} is not fast"
+            )
+            raise RuntimeError(msg)
+        logger.info(
+            f"[{self.name}] loaded tokenizer from {self.tokenizer_path} "
+            f"(n={self.ngram_n}, max_count={self.ngram_max_count})"
+        )
+
+    def process(self, task: AudioTask) -> AudioTask:
+        t0 = time.perf_counter()
+        plan: list[dict] = list(task.data.get(_PLAN_DATA_KEY) or [])
+        kept: list[dict] = []
+        dropped_texts: list[str] = []
+        for snippet in plan:
+            text = " ".join(_segment_text(s) for s in snippet["segments"]).strip()
+            if self._snippet_is_repetitive(text, snippet, task.task_id):
+                dropped_texts.append(text)
+            else:
+                kept.append(snippet)
+
+        task.data[_PLAN_DATA_KEY] = kept
+
+        meta = task._metadata.setdefault(_PRETRAIN_META_KEY, {})
+        meta["dropped_repetition"] = len(dropped_texts)
+        meta["kept_after_repetition_filter"] = len(kept)
+        # Override the planner's count so downstream consumers (and
+        # logging) see the post-filter snippet count.
+        meta["planned_snippets"] = len(kept)
+        # Retain up to N example texts per source for the metrics summary;
+        # the shard merger applies a second global cap of the same size.
+        examples: list[str] = meta.setdefault("filtered_repetition_texts", [])
+        if len(examples) < _MAX_FILTERED_TEXT_EXAMPLES:
+            examples.extend(dropped_texts[: _MAX_FILTERED_TEXT_EXAMPLES - len(examples)])
+
+        self._log_metrics(
+            {
+                "repetition_filter_time": time.perf_counter() - t0,
+                "snippets_scanned": float(len(plan)),
+                "snippets_filtered_repetition": float(len(dropped_texts)),
+            }
+        )
+        return task
+
+    def _snippet_is_repetitive(self, text: str, snippet: dict, task_id: str) -> bool:
+        """Tokenize ``text`` and decide whether to drop the snippet.
+
+        On drop, emit a colorized warning showing the offending n-gram
+        occurrences highlighted in red.
+        """
+        if not text:
+            return False
+        encoding = self._tokenizer(
+            text, add_special_tokens=False, return_offsets_mapping=True
+        )
+        token_ids: list[int] = list(encoding["input_ids"])
+        offsets: list[tuple[int, int]] = [tuple(o) for o in encoding["offset_mapping"]]
+        if len(token_ids) < self.ngram_n:
+            return False
+        counts = _count_ngrams(token_ids, self.ngram_n)
+        offending = _find_offending_ngrams(counts, self.ngram_max_count)
+        if not offending:
+            return False
+        ranges = _merge_char_ranges(
+            _locate_ngram_char_ranges(token_ids, offsets, offending, self.ngram_n)
+        )
+        colorized = _format_red(text, ranges)
+        worst_count = max(counts[ng] for ng in offending)
+        logger.opt(colors=True).warning(
+            f"[{self.name}] {task_id}: dropping snippet "
+            f"[{snippet.get('start', 0):.2f}, {snippet.get('end', 0):.2f}] "
+            f"(n={self.ngram_n}, offending_ngrams={len(offending)}, max_count={worst_count}): "
+            f"{colorized}"
+        )
+        return True
+
+
+# ----------------------------------------------------------------------
+# Stage 5: read source audio, extract snippets, write files
 # ----------------------------------------------------------------------
 
 
@@ -866,7 +1089,7 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 # ----------------------------------------------------------------------
-# Stage 5: append snippet records to a JSONL manifest
+# Stage 6: append snippet records to a JSONL manifest
 # ----------------------------------------------------------------------
 
 
@@ -924,7 +1147,7 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 # ----------------------------------------------------------------------
-# Stage 6: aggregate metrics across all snippets/originals
+# Stage 7: aggregate metrics across all snippets/originals
 # ----------------------------------------------------------------------
 
 
@@ -951,6 +1174,10 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
     * ``is_stub`` -- True iff this is the extractor's zero-snippet stub.
     * ``out_segments``, ``out_duration_sec`` -- this snippet's
       contribution; zero for stubs.
+    * ``filtered_texts`` -- example texts of snippets dropped by the
+      repetition filter; written only on the first record we see for a
+      given ``id`` per replica (so the shard stays small even when many
+      fan-out tasks share the same source).
 
     The merger sums ``out_*`` across non-stub records per id and counts
     them as ``out_snippets``.
@@ -967,6 +1194,7 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "output_path is required for PretrainMetricsAggregatorStage"
             raise ValueError(msg)
         self._shard_path: str | None = None
+        self._seen_ids: set[str] = set()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -998,7 +1226,7 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
             return task
         meta = task._metadata.get(_PRETRAIN_META_KEY, {})
         is_stub = _is_origin_stub(task)
-        record = {
+        record: dict[str, Any] = {
             "id": original_id,
             "in_segments": int(meta.get("original_seg_count", 0)),
             "in_duration_sec": float(meta.get("original_seg_duration", 0.0)),
@@ -1008,11 +1236,15 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
                 "too_long": int(meta.get("dropped_too_long", 0)),
                 "too_short": int(meta.get("dropped_too_short", 0)),
                 "no_text": int(meta.get("dropped_no_text", 0)),
+                "repetition": int(meta.get("dropped_repetition", 0)),
             },
             "is_stub": is_stub,
             "out_segments": 0 if is_stub else len(task.data.get("segments") or []),
             "out_duration_sec": 0.0 if is_stub else float(task.data.get("duration", 0.0)),
         }
+        if original_id not in self._seen_ids:
+            self._seen_ids.add(original_id)
+            record["filtered_texts"] = list(meta.get("filtered_repetition_texts") or [])
         with open(self._shard_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
         return task
@@ -1085,6 +1317,7 @@ def _merge_metrics_shards(metrics_path: str) -> None:
     shards = _glob_shards(metrics_path, _METRICS_SHARD_EXT)
     per_original: dict[str, dict[str, Any]] = {}
     durations: list[float] = []
+    filtered_examples: list[str] = []
     for s in shards:
         with open(s, encoding="utf-8") as f:
             for raw in f:
@@ -1120,8 +1353,15 @@ def _merge_metrics_shards(metrics_path: str) -> None:
                     entry["out_segments"] += int(r.get("out_segments", 0))
                     entry["out_duration_sec"] += float(r.get("out_duration_sec", 0.0))
                     durations.append(float(r.get("out_duration_sec", 0.0)))
+                # Globally cap the example list. The aggregator emits
+                # `filtered_texts` only on the first record per id per replica,
+                # so this branch fires at most once per source under typical
+                # scheduling.
+                if "filtered_texts" in r and len(filtered_examples) < _MAX_FILTERED_TEXT_EXAMPLES:
+                    remaining = _MAX_FILTERED_TEXT_EXAMPLES - len(filtered_examples)
+                    filtered_examples.extend(r["filtered_texts"][:remaining])
 
-    summary = _build_final_summary(per_original, durations)
+    summary = _build_final_summary(per_original, durations, filtered_examples)
     parent = os.path.dirname(metrics_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -1136,7 +1376,9 @@ def _merge_metrics_shards(metrics_path: str) -> None:
 
 
 def _build_final_summary(
-    per_original: dict[str, dict[str, Any]], durations: list[float]
+    per_original: dict[str, dict[str, Any]],
+    durations: list[float],
+    filtered_examples: list[str] | None = None,
 ) -> dict[str, Any]:
     totals_dropped: dict[str, int] = defaultdict(int)
     in_segments = 0
@@ -1162,5 +1404,6 @@ def _build_final_summary(
         "output_total_duration_sec": round(out_duration, 3),
         "dropped": dict(totals_dropped),
         "snippet_duration_histogram_30s": histogram_30s(durations),
+        "dropped_repetition_examples": list(filtered_examples or []),
         "per_original": list(per_original.values()),
     }

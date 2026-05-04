@@ -97,6 +97,27 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--tokenizer-path",
+        required=True,
+        help=(
+            "Local directory containing a HuggingFace fast tokenizer (loadable "
+            "via AutoTokenizer.from_pretrained), used by the snippet repetition "
+            "filter to detect Whisper-style looping hallucinations."
+        ),
+    )
+    parser.add_argument(
+        "--ngram-n", type=int, default=4, help="N-gram size for the repetition filter (default 4)"
+    )
+    parser.add_argument(
+        "--ngram-max-count",
+        type=int,
+        default=3,
+        help=(
+            "Drop a snippet if any token-id n-gram in its joined text appears "
+            "strictly more than this many times (default 3)"
+        ),
+    )
+    parser.add_argument(
         "--target-sample-rate", type=int, default=16000, help="Output snippet sample rate (default 16000)"
     )
     parser.add_argument("--output-format", choices=["wav", "flac", "ogg"], default="flac", help="Output audio format")
@@ -148,9 +169,12 @@ def main() -> None:
         output_manifest_path=args.output_manifest,
         metrics_path=args.metrics_path,
         max_duration_sec=args.max_duration_sec,
+        tokenizer_path=args.tokenizer_path,
         min_duration_sec=args.min_duration_sec,
         min_overlap_sec=args.min_overlap_sec,
         max_segment_gap_in_snippet=args.max_segment_gap_in_snippet,
+        ngram_n=args.ngram_n,
+        ngram_max_count=args.ngram_max_count,
         target_sample_rate=args.target_sample_rate,
         output_format=args.output_format,
         audio_filepath_key=args.audio_filepath_key,
