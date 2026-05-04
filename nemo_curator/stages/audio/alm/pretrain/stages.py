@@ -764,9 +764,10 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
         meta["planned_snippets"] = len(kept)
         # Retain up to N example texts per source for the metrics summary;
         # the shard merger applies a second global cap of the same size.
-        examples: list[str] = meta.setdefault("filtered_repetition_texts", [])
-        if len(examples) < _MAX_FILTERED_TEXT_EXAMPLES:
-            examples.extend(dropped_texts[: _MAX_FILTERED_TEXT_EXAMPLES - len(examples)])
+        # Assigned (not appended) so re-execution under Ray Data fan-out is
+        # idempotent -- the same source's plan can flow through this stage
+        # more than once without accumulating duplicate texts.
+        meta["filtered_repetition_texts"] = dropped_texts[:_MAX_FILTERED_TEXT_EXAMPLES]
 
         self._log_metrics(
             {

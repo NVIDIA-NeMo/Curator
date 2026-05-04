@@ -570,3 +570,37 @@ class TestSnippetRepetitionFilterStage:
         # All 7 are counted as dropped, but only the first 3 texts are retained.
         assert meta["dropped_repetition"] == 7
         assert len(meta["filtered_repetition_texts"]) == 3
+
+    def test_process_is_idempotent_under_re_execution(self, tokenizer_dir: Path) -> None:
+        """Calling process() twice on the same source must not double-count.
+
+        Ray Data may fan a stage out across multiple blocks for the same
+        upstream task, so process() can run more than once per source. The
+        per-source counters and example list must be assignment-based so
+        the second run overwrites rather than appends.
+        """
+        stage = SnippetRepetitionFilterStage(tokenizer_path=str(tokenizer_dir))
+        stage.__post_init__()
+        stage.setup()
+
+        repeat = "thank you for watching " * 10
+        # Build TWO tasks with the same plan; process() runs once per task.
+        task1 = self._make_task_with_plan(
+            [{"start": 0.0, "end": 30.0, "segments": [_ts(0.0, 30.0, repeat)]}]
+        )
+        task2 = self._make_task_with_plan(
+            [{"start": 0.0, "end": 30.0, "segments": [_ts(0.0, 30.0, repeat)]}]
+        )
+        # First-pass result.
+        out1 = stage.process(task1)
+        meta1 = out1._metadata[_PRETRAIN_META_KEY]
+        first_count = meta1["dropped_repetition"]
+        first_texts = list(meta1["filtered_repetition_texts"])
+        # Second pass on the same metadata dict (simulates re-execution).
+        # We feed it a task that ALREADY carries the prior-pass metadata.
+        task2._metadata[_PRETRAIN_META_KEY] = dict(meta1)
+        out2 = stage.process(task2)
+        meta2 = out2._metadata[_PRETRAIN_META_KEY]
+        # Counters identical (overwrite semantics, not append).
+        assert meta2["dropped_repetition"] == first_count
+        assert meta2["filtered_repetition_texts"] == first_texts
