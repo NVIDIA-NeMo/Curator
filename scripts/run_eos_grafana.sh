@@ -14,11 +14,11 @@
 set -ux
 
 # ---- USER CONFIG: update these paths for your environment ----
-CONTAINER="/lustre/fsw/llmservice_nemo_speechlm/users/nkoluguri/containers/curator-nightly-lhotse.sqsh"
+: "${CONTAINER:?Set CONTAINER to the Curator sqsh image path}"
 CURATOR_DIR="/lustre/fsw/llmservice_nemo_speechlm/users/mmkrtchyan/projects/Curator"
 OUTPUT_DIR="/lustre/fsw/llmservice_nemo_speechlm/users/mmkrtchyan/outputs"
 OUTPUT="${OUTPUT_DIR}/qwen_omni_yodas_grafana.jsonl"
-DATA_CONFIG="/lustre/fsw/llmservice_nemo_speechlm/users/nkoluguri/projects/transformer_revamp/scripts/fc/am-fl-gc-ll-mc-mm-yt-yo_En-d0.5_v1.1.yaml"
+: "${DATA_CONFIG:?Set DATA_CONFIG to the input data config YAML path}"
 HF_CACHE="/lustre/fsw/llmservice_nemo_speechlm/users/mmkrtchyan/.cache/huggingface"
 LOGIN_HOST="login-eos01.eos.clusters.nvidia.com"
 # ---- END USER CONFIG ----

@@ -1,7 +1,7 @@
 # Curator Branch Comparison
 
 **Our branch**: `aaftabv/standardize-audio-stages` (on `mohammadaaftabv/Curator`)
-**Reference branch**: `nkoluguri/integration-test`
+**Reference branch**: reference integration branch
 **Common ancestor**: `1cbb4a62` (28 commits in ref since, 15 in ours since)
 
 **Diff summary**: 72 files changed, +5668 / -2124 lines
@@ -24,7 +24,7 @@
 
 ## 1. High-Level Philosophy Differences
 
-| Aspect | Reference (`nkoluguri/integration-test`) | Ours (`aaftabv/standardize-audio-stages`) |
+| Aspect | Reference integration branch | Ours (`aaftabv/standardize-audio-stages`) |
 |---|---|---|
 | **Decision tracking** | `additional_notes` dict with per-stage entries via `pipeline_utils.set_note()` | Removed entirely — stages set `_skip_me` but don't log reasons to a dict |
 | **Skip key name** | `_skipme` (NeMo/lhotse convention per latest PR #8) | `_skip_me` (Python naming convention) |
