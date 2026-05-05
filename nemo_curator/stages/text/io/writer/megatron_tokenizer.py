@@ -89,7 +89,7 @@ class MegatronTokenizerWriter(BaseWriter):
                 local_files_only=True,
                 **self.transformers_init_kwargs
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             # Allow this fallback since loading a tokenizer is lightweight
             msg = f"Failed to load {self.model_identifier} from local files, loading from Hugging Face: {e}"
             logger.warning(msg)
