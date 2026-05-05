@@ -23,6 +23,7 @@ Three test scenarios matching generic-sdp test_asr_pnc_with_llm.py:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -83,8 +84,6 @@ def run_and_test_e2e(  # noqa: PLR0913
 @pytest.fixture
 def pnc_simple_manifest(tmp_path: Path) -> str:
     """Input manifest with pre-populated text_2 for the simple PNC test (no ASR stage)."""
-    import json
-
     audio_dir = TAGGING_FIXTURES_DIR / "audios"
     manifest_path = tmp_path / "manifest_simple.jsonl"
 
@@ -151,7 +150,6 @@ def test_pnc_llm_second_pass(tmp_path: Path) -> None:
 
 
 @pytest.mark.gpu
-@pytest.mark.skipif(not os.getenv("HF_TOKEN"), reason="HF_TOKEN required for PyAnnote models")
 def test_pnc_llm_first_pass(tmp_path: Path, get_input_manifest: str) -> None:
     """1st-pass ASR: Resample -> Diarize -> Split -> ASR Align ->
     PNC (top-level) -> Clean (alignment update) -> BERT -> Join ->

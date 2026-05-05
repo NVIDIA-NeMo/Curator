@@ -44,6 +44,7 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     audio_filepath_key: str = "resampled_audio_filepath"
+    target_sr: int = 16000
 
     # Stage metadata
     name: str = "TorchSquimQualityMetrics"
@@ -60,7 +61,12 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     @property
     def _device(self) -> str:
         """Derive device from resources configuration."""
-        return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
+        if self.resources.requires_gpu:
+            if not torch.cuda.is_available():
+                msg = f"[{self.name}] GPU requested via resources but CUDA is not available."
+                raise RuntimeError(msg)
+            return "cuda"
+        return "cpu"
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
@@ -122,9 +128,8 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
             y = audio[start_frame:end_frame]
             y = torch.from_numpy(y).unsqueeze(0)
 
-            target_sr = 16000
-            if sr != target_sr:
-                y = torchaudio_F.resample(y, sr, target_sr)
+            if sr != self.target_sr:
+                y = torchaudio_F.resample(y, sr, self.target_sr)
 
             try:
                 with torch.no_grad():

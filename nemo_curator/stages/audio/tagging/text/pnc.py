@@ -57,8 +57,8 @@ class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
       ``alignment``.
 
     .. note::
-       Requires ``nemo_toolkit < 2.4.1``.  When the installed version is
-       2.4.1 or later the stage silently passes tasks through unchanged.
+       Requires ``nemo_toolkit <= 2.4.1``.  An ``ImportError`` is raised
+       during setup if ``PunctuationCapitalizationModel`` is not available.
 
     Args:
         model_name:       Pretrained PNC model name.
@@ -82,7 +82,6 @@ class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
     resources: Resources = field(default_factory=lambda: Resources(gpus=1))
     # Internal state
     _pnc_model: Any = field(default=None, repr=False)
-    _skip: bool = field(default=False, repr=False)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -93,19 +92,23 @@ class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
     @property
     def _device(self) -> str:
         """Derive device from resources configuration."""
-        return "cuda" if self.resources.requires_gpu and torch.cuda.is_available() else "cpu"
+        if self.resources.requires_gpu:
+            if not torch.cuda.is_available():
+                msg = f"[{self.name}] GPU requested via resources but CUDA is not available."
+                raise RuntimeError(msg)
+            return "cuda"
+        return "cpu"
 
     def load_model(self) -> None:
         try:
             from nemo.collections.nlp.models import PunctuationCapitalizationModel
-        except (ImportError, ModuleNotFoundError):
-            logger.warning(
+        except (ImportError, ModuleNotFoundError) as e:
+            msg = (
                 f"[{self.name}] Could not import PunctuationCapitalizationModel. "
                 f"This model is only available in nemo_toolkit <= 2.4.1. "
-                f"Skipping PNC — tasks will pass through unchanged."
+                f"Install a compatible version to use BERTPNCStage."
             )
-            self._skip = True
-            return
+            raise ImportError(msg) from e
 
         if self.model_path:
             self._pnc_model = PunctuationCapitalizationModel.restore_from(self.model_path)
@@ -116,16 +119,13 @@ class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
         """Setup stage on node."""
-        if self._pnc_model is None and not self._skip:
+        if self._pnc_model is None:
             self.load_model()
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
-        if self._pnc_model is None and not self._skip:
+        if self._pnc_model is None:
             self.load_model()
-
-        if self._skip:
-            return
 
         self._pnc_model.to(self._device)
 
@@ -149,9 +149,6 @@ class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
                     pnc_idx += 1
 
     def process(self, task: AudioTask) -> AudioTask:
-        if self._skip:
-            return task
-
         data_entry = task.data
         if self.segments_key in data_entry:
             all_text: list[str] = []
@@ -288,9 +285,6 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process(self, task: AudioTask) -> AudioTask:
         """Process a single AudioTask — collect prompts, run inference, write back."""
-        if self._vllm is None or self._vllm.llm is None:
-            return task
-
         data = task.data
         items = self._collect_prompts(data)
 
@@ -307,9 +301,6 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Batch-process multiple AudioTasks with a single vLLM call for efficiency."""
-        if not tasks or self._vllm is None or self._vllm.llm is None:
-            return tasks if tasks else []
-
         t0 = time.perf_counter()
 
         all_prompts: list = []

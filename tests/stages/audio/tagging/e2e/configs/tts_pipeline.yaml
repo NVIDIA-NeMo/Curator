@@ -39,7 +39,7 @@ stages:
     segmentation_batch_size: 2
     embedding_batch_size: 2
     resources:
-      gpus: 1
+      gpus: 0.4
 
   # 3. Split long audio segments
   - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
@@ -57,7 +57,7 @@ stages:
     transcribe_batch_size: 4
     num_workers: 1
     resources:
-      gpus: 0.8
+      gpus: 0.45
 
   # 5. Join split audio metadata
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage

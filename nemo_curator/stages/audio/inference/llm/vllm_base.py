@@ -124,7 +124,6 @@ class VLLMInference:
         self.chat_template_params = apply_chat_template
         self.use_chat_api = use_chat_api or "tokenizer_mode" in model
 
-        self.device: str | None = None
         self.sampling_params: SamplingParams | None = None
         self.tokenizer: AutoTokenizer | None = None
         self.llm: LLM | None = None
@@ -140,6 +139,16 @@ class VLLMInference:
             snapshot_download(repo_id=model_name)
             AutoTokenizer.from_pretrained(model_name)
 
+    @property
+    def _device(self) -> str:
+        """Derive device from resources configuration."""
+        if self.resources.requires_gpu:
+            if not torch.cuda.is_available():
+                msg = f"[{self.name}] GPU requested via resources but CUDA is not available."
+                raise RuntimeError(msg)
+            return "cuda"
+        return "cpu"
+
     def setup(self) -> None:
         """Instantiate the vLLM engine on the target device.
 
@@ -147,11 +156,7 @@ class VLLMInference:
         model.  If :meth:`setup_on_node` was not called first, the tokenizer
         and sampling params are created here as well.
         """
-        self.device = "cuda"
-        if not torch.cuda.is_available():
-            self.device = "cpu"
-            logger.warning("CUDA is not available, using CPU")
-        else:
+        if self._device == "cuda":
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
 
@@ -214,12 +219,10 @@ class VLLMInference:
             raise RuntimeError(msg) from e
 
     def process_entry_prompts(self, entry_prompts: list, batch_size: int = 10000) -> list:
-        """Generate in batches, then clean up.
-
-        If :meth:`setup` has not been called yet, it is called automatically.
-        """
+        """Generate in batches, then clean up."""
         if self.llm is None:
-            self.setup()
+            msg = "VLLMInference.setup() must be called before process_entry_prompts()."
+            raise RuntimeError(msg)
         start_time = time.time()
         outputs: list = []
         for i in range(0, len(entry_prompts), batch_size):
@@ -238,6 +241,6 @@ class VLLMInference:
         if dist.is_initialized():
             dist.destroy_process_group()
         gc.collect()
-        if self.device is not None and self.device != "cpu":
+        if self._device == "cuda":
             torch.cuda.empty_cache()
             torch.cuda.synchronize()

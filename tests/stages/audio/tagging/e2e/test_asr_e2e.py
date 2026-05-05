@@ -49,7 +49,7 @@ def test_asr_e2e(tmp_path: Path) -> None:
     cfg.language_short = "en"
 
     pipeline = create_pipeline_from_yaml(cfg)
-    executor = XennaExecutor(config={"execution_mode": "batch"})
+    executor = XennaExecutor()
     pipeline.run(executor)
 
     check_output(cfg.final_manifest, reference_manifest, text_key="text")

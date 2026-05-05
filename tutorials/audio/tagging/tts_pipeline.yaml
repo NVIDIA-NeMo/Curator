@@ -84,6 +84,7 @@ sample_rate: 16000
 max_segment_length: 40
 execution_mode: streaming
 batch_size: 4
+# Default resources for CPU-only stages. GPU stages define their own resources inline.
 resources:
   cpus: 2
 
