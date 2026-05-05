@@ -12,9 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any
+
 import pytest
 
 from nemo_curator.core.serve import InferenceServer, RayServeModelConfig, is_inference_server_active
+from nemo_curator.tasks import DocumentBatch
+from tests.core.serve.coexistence_utils import (
+    COEXISTENCE_EXECUTOR_PARAMS,
+    CaptureGpuStage,
+    gpu_uuids_in_use,
+)
 
 INTEGRATION_TEST_MODEL = "HuggingFaceTB/SmolLM2-135M-Instruct"  # pragma: allowlist secret
 INTEGRATION_TEST_MODEL_2 = "HuggingFaceTB/SmolLM-135M-Instruct"  # pragma: allowlist secret
@@ -43,8 +51,18 @@ def model_server(shared_ray_cluster: str) -> InferenceServer:  # noqa: ARG001
     server.start()
 
     yield server
-
     server.stop()
+
+
+@pytest.fixture(scope="class")
+def inference_gpu_uuids(model_server: InferenceServer) -> set[str]:  # noqa: ARG001
+    """Snapshot GPU UUIDs held by the running inference server.
+
+    Captured once per class so residual processes from sibling pipeline
+    runs (e.g. Ray Data actors that linger on the non-inference GPU)
+    don't pollute the set when a later executor variant runs.
+    """
+    return gpu_uuids_in_use()
 
 
 @pytest.mark.gpu
@@ -92,6 +110,53 @@ class TestRayServeIntegration:
 
         client = OpenAI(base_url=model_server.endpoint, api_key="na")
         assert INTEGRATION_TEST_MODEL in {model.id for model in client.models.list()}
+
+    @pytest.mark.parametrize(("executor_import", "executor_kwargs"), COEXISTENCE_EXECUTOR_PARAMS)
+    def test_pipeline_gpu_stage_uses_different_gpu_than_inference(
+        self,
+        model_server: InferenceServer,
+        inference_gpu_uuids: set[str],
+        executor_import: tuple[str, str],
+        executor_kwargs: dict[str, Any],
+    ) -> None:
+        """Pipeline GPU stages never land on the Ray Serve inference GPU.
+
+        Reuses the class-scoped ``model_server`` fixture (no extra
+        ``start()`` cost) and runs a 1-stage pipeline with 10 initial
+        tasks. ``RayDataExecutor`` and ``RayActorPoolExecutor`` honor Ray's
+        GPU accounting and pass. ``XennaExecutor`` is rejected upfront by
+        ``Pipeline.run``'s inference-server guard (xfail).
+        """
+        import importlib
+
+        import pandas as pd
+
+        from nemo_curator.pipeline.pipeline import Pipeline
+
+        module_name, cls_name = executor_import
+        executor_cls = getattr(importlib.import_module(module_name), cls_name)
+
+        assert inference_gpu_uuids, "expected the Ray Serve vLLM worker to be visible in gpustat"
+
+        initial_tasks = [
+            DocumentBatch(
+                task_id=f"gpu-sep-{i}",
+                dataset_name="ray-serve-coexistence",
+                data=pd.DataFrame({"text": [f"hello {i}"]}),
+            )
+            for i in range(10)
+        ]
+        pipeline = Pipeline(name="gpu-sep", stages=[CaptureGpuStage(inference_gpu_uuids)])
+        executor = executor_cls(executor_kwargs) if executor_kwargs else executor_cls()
+        outputs = pipeline.run(executor, initial_tasks=initial_tasks)
+        assert outputs, "pipeline produced no output tasks"
+
+        # Server must still answer /v1/models after the pipeline hit the cluster.
+        assert is_inference_server_active()
+        from openai import OpenAI
+
+        client = OpenAI(base_url=model_server.endpoint, api_key="na")
+        assert INTEGRATION_TEST_MODEL in {m.id for m in client.models.list()}
 
     def test_restart_after_stop(self, model_server: InferenceServer) -> None:
         """A new InferenceServer starts cleanly after the previous one is stopped."""

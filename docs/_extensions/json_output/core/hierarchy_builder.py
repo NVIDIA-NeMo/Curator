@@ -113,7 +113,7 @@ class HierarchyBuilder:
             try:
                 child_data = self.json_formatter.build_child_json_data(child_docname)
                 data["children"].append(child_data)
-            except Exception as e:  # noqa: PERF203
+            except Exception as e:
                 logger.warning(f"Failed to build child data for {child_docname}: {e}")
 
         logger.debug(f"Included {len(data['children'])} child documents for {docname}")

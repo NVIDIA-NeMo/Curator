@@ -14,6 +14,7 @@ Hands-on tutorials for curating data across all modalities with NeMo Curator. Co
 | **[Image](image/)** | Computer vision and image processing | Aesthetic Classification, NSFW Detection, Deduplication |
 | **[Video](video/)** | Video processing and analysis | Clipping, Frame Extraction, Filtering |
 | **[Audio](audio/)** | Speech and audio data curation | FLEURS Dataset Processing |
+| **[Interleaved](interleaved/)** | Multimodal (text + image) data curation | Getting Started, PDF Extraction Pipeline (Nemotron-Parse) |
 
 ## Production Recipes
 
@@ -34,7 +35,7 @@ The [`quickstart.py`](quickstart.py) demonstrates NeMo Curator's foundational ar
 
 | Category | Links |
 |----------|-------|
-| **Getting Started** | [Installation](https://docs.nvidia.com/nemo/curator/latest/get-started/installation.html) • [Configuration](https://docs.nvidia.com/nemo/curator/latest/get-started/configuration.html) • [Core Concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) |
+| **Getting Started** | [Installation](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) • [Core Concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) |
 | **Modality Guides** | [Text Curation](https://docs.nvidia.com/nemo/curator/latest/curate-text/index.html) • [Image Curation](https://docs.nvidia.com/nemo/curator/latest/curate-images/index.html) • [Video Curation](https://docs.nvidia.com/nemo/curator/latest/curate-video/index.html) |
 | **Advanced** | [Custom Pipelines](https://docs.nvidia.com/nemo/curator/latest/reference/index.html) • [Execution Backends](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/execution-backends.html) • [API Reference](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html) |
 

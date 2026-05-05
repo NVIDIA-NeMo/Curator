@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG CUDA_VER=12.8.1
+ARG CUDA_VER=12.9.1
 ARG LINUX_VER=ubuntu24.04
 
 FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
@@ -34,14 +34,16 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
 # gnupg upgrade Address CVE-2025-68973
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.12-dev \
-    python3 \
-    python3-dev \
-    python3-venv \
-    python-is-python3\
+    software-properties-common \
     curl \
     git \
     vim && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    python3.13 \
+    python3.13-dev \
+    python3.13-venv \
+    python-is-python3 && \
     apt-get install -y --only-upgrade gnupg && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
@@ -56,7 +58,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_CACHE_DIR=/opt/uv_cache
 ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
-RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages --seed
+RUN uv venv ${UV_PROJECT_ENVIRONMENT} --python /usr/bin/python3.13 --system-site-packages --seed
 
 FROM build AS nemo_curator_dep
 
@@ -64,6 +66,17 @@ FROM build AS nemo_curator_dep
 COPY docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
+
+# Install etcd + nats-server (required by the Dynamo inference backend)
+COPY docker/common/install_etcd_nats.sh .
+RUN bash install_etcd_nats.sh && \
+    rm install_etcd_nats.sh
+
+# Install HAProxy so Ray Serve's HAProxy ingress mode (RAY_SERVE_ENABLE_HA_PROXY=1) has the binary on PATH
+COPY docker/common/install_haproxy.sh .
+RUN bash install_haproxy.sh && \
+    rm install_haproxy.sh
+ENV RAY_SERVE_HAPROXY_BINARY_PATH=/usr/local/bin/haproxy
 
 
 FROM nemo_curator_dep AS nemo_curator
@@ -77,7 +90,9 @@ COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
-RUN if [ -n "${CURATOR_EXTRA}" ]; then \
+# Cap ninja parallelism for flash-attn's NVCC build at min(nproc, 16); default of nproc OOMs at ~2 GB/job.
+RUN export MAX_JOBS=$(( $(nproc) > 16 ? 16 : $(nproc) )) && \
+    if [ -n "${CURATOR_EXTRA}" ]; then \
         uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
     else \
         uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
@@ -97,7 +112,7 @@ RUN if python3 -c "import wandb" 2>/dev/null; then \
         GRPC_VERSION=1.79.3 && \
         GO_VERSION=1.26.1 && \
         WANDB_VERSION=$(python3 -c "import wandb; print(wandb.__version__)") && \
-        WANDB_CORE_BIN=/opt/venv/lib/python3.12/site-packages/wandb/bin/wandb-core && \
+        WANDB_CORE_BIN=/opt/venv/lib/python3.13/site-packages/wandb/bin/wandb-core && \
         curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /tmp -xz && \
         export PATH="/tmp/go/bin:$PATH" && \
         export GOPATH=/tmp/gopath && \

@@ -6,11 +6,22 @@ Hands-on tutorials for curating audio data with NeMo Curator. Complete working e
 
 **New to audio curation?** Start with the [Audio Getting Started Guide](https://docs.nvidia.com/nemo/curator/latest/get-started/audio.html) for setup and basic concepts.
 
+### System Dependencies
+
+Audio pipelines require `ffmpeg` for resampling and format conversion. Install them before running any audio tutorial:
+
+```bash
+# Ubuntu / Debian
+sudo apt-get install -y ffmpeg
+
+```
+
 ## Available Tutorials
 
 | Tutorial | Description | Files |
 |----------|-------------|-------|
 | **[FLEURS Dataset](fleurs/)** | Complete pipeline for multilingual speech data | `pipeline.py`, `run.py`, `pipeline.yaml` |
+| **[Audio Tagging](tagging/)** | Label raw audio for TTS/ASR via diarization, alignment, and quality metrics | `main.py`, `tts_pipeline.yaml`, `asr_pipeline.yaml` |
 | **[ALM Data Pipeline](alm/)** | Create training windows for Audio Language Models | `main.py`, `pipeline.yaml` |
 
 ## Documentation Links

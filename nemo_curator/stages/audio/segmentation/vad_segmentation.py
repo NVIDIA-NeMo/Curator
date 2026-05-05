@@ -104,7 +104,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["waveform", "sample_rate", "start_ms", "end_ms", "segment_num", "duration_sec"]
+        return [], ["waveform", "sample_rate", "start_ms", "end_ms", "segment_num", "duration"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
         if self.nested:
@@ -183,7 +183,6 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
                 "start_ms",
                 "end_ms",
                 "segment_num",
-                "duration_sec",
                 "duration",
                 "num_samples",
             )
@@ -195,7 +194,7 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
                 "start_ms": start_ms,
                 "end_ms": end_ms,
                 "segment_num": segment_num,
-                "duration_sec": (end_ms - start_ms) / 1000.0,
+                "duration": (end_ms - start_ms) / 1000.0,
                 "original_file": item.get("original_file", item.get("audio_filepath", "unknown")),
             }
         )
