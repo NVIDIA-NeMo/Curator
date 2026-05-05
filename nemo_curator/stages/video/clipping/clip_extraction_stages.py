@@ -35,7 +35,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that transcodes video clips into a standardized format.
 
     This stage handles the conversion of video clips using FFmpeg, supporting both
-    software (libx264, libopenh264) and hardware (NVENC) encoding with configurable parameters.
+    software (libx264) and hardware (NVENC) encoding with configurable parameters.
 
     Args:
         num_cpus_per_worker: Number of CPUs per worker.
@@ -69,8 +69,8 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
-        if self.encoder not in {"libopenh264", "libx264", "h264_nvenc"}:
-            error_msg = f"Expected encoder of `libopenh264`, `libx264`, or `h264_nvenc`. Got {self.encoder}"
+        if self.encoder not in {"libx264", "h264_nvenc"}:
+            error_msg = f"Expected encoder of `libx264` or `h264_nvenc`. Got {self.encoder}"
             raise ValueError(error_msg)
 
     def __post_init__(self) -> None:

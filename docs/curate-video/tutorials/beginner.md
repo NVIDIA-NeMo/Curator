@@ -46,7 +46,7 @@ flowchart LR
 - **Data units**: Input videos → clip windows → frames → embeddings + files.
 - **Common choices**:
   - **Splitting**: fixed stride vs. scene-change (TransNetV2)
-  - **Encoding**: `libopenh264`, `h264_nvenc`, or `libx264`
+  - **Encoding**: `h264_nvenc` or `libx264`
   - **Embeddings**: Cosmos-Embed1
 - **Outputs**: Clips (mp4), previews (optional), and parquet embeddings for downstream tasks (such as semantic duplicate removal).
 
@@ -158,7 +158,7 @@ Convert clip buffers to H.264 using the selected encoder and settings. Refer to 
 pipeline.add_stage(
     ClipTranscodingStage(
         num_cpus_per_worker=6.0,
-        encoder="libopenh264",
+        encoder="libx264",
         encoder_threads=1,
         encode_batch_size=16,
         use_hwaccel=False,

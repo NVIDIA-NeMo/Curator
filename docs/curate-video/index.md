@@ -121,7 +121,6 @@ Encode clips to H.264 using CPU or GPU encoders and tune performance.
 +++
 {bdg-primary}`clips`
 {bdg-secondary}`h264_nvenc`
-{bdg-secondary}`libopenh264`
 {bdg-secondary}`libx264`
 :::
 

@@ -60,7 +60,7 @@ To use NeMo Curator's video curation capabilities, ensure your system meets thes
 #### Software Dependencies
 * **FFmpeg 8.0+** with H.264 encoding support
   - GPU encoder: `h264_nvenc` (recommended for performance)
-  - CPU encoders: `libopenh264` or `libx264` (fallback options)
+  - CPU encoder: `libx264` (fallback option)
 
 :::{tip}
 If `uv` is not installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
@@ -122,13 +122,13 @@ For details on container environments and configurations, see [Container Environ
 
 ## Install FFmpeg and Encoders
 
-Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libopenh264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
+Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libx264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
 
 ::::{tab-set}
 
 :::{tab-item} Debian/Ubuntu (Script)
 
-Use the maintained script in the repository to build and install `FFmpeg` with `libopenh264` and NVIDIA NVENC support. The script enables `--enable-libopenh264`, `--enable-cuda-nvcc`, and `--enable-libnpp`.
+Use the maintained script in the repository to build and install `FFmpeg` with NVIDIA NVENC support. The script enables `--enable-cuda-nvcc` and `--enable-libnpp`.
 
 - Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
 
@@ -146,7 +146,7 @@ Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is a
 
 ```bash
 ffmpeg -hide_banner -version | head -n 5
-ffmpeg -encoders | grep -E "h264_nvenc|libopenh264|libx264" | cat
+ffmpeg -encoders | grep -E "h264_nvenc|libx264" | cat
 ```
 
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
@@ -231,7 +231,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
   --embedding-algorithm cosmos-embed1-224p \
-  --transcode-encoder libopenh264 \
+  --transcode-encoder libx264 \
   --verbose
 ```
 
@@ -239,7 +239,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 1. Reads all video files from `$DATA_DIR`
 2. Splits each video into 10-second clips using fixed stride
 3. Generates embeddings using Cosmos-Embed1-224p model
-4. Encodes clips using libopenh264 codec
+4. Encodes clips using libx264 codec
 5. Writes output clips and metadata to `$OUT_DIR`
 
 ```{tip}
@@ -250,7 +250,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
     --splitting-algorithm fixed_stride
     --fixed-stride-split-duration 10.0
     --embedding-algorithm cosmos-embed1-224p
-    --transcode-encoder libopenh264' > my_config.txt
+    --transcode-encoder libx264' > my_config.txt
     
     python tutorials/video/getting-started/video_split_clip_example.py @my_config.txt
 ```
@@ -266,7 +266,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | **Embedding** |
 | `--embedding-algorithm` | `cosmos-embed1-224p`, `cosmos-embed1-336p`, `cosmos-embed1-448p` | Embedding model to use |
 | **Encoding** |
-| `--transcode-encoder` | `h264_nvenc`, `libopenh264`, `libx264` | Video encoder for output clips |
+| `--transcode-encoder` | `h264_nvenc`, `libx264` | Video encoder for output clips |
 | `--transcode-use-hwaccel` | Flag | Enable hardware acceleration for encoding |
 | **Optional Features** |
 | `--generate-captions` | Flag | Generate text captions for each clip |
