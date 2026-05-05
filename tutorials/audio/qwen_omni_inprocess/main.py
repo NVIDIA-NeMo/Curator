@@ -74,6 +74,19 @@ def _read_file_or_str(value: str | None) -> str | None:
     return value
 
 
+def _with_optional_gpu_resources(stage, cfg: DictConfig, key: str):  # noqa: ANN001, ANN201
+    """Override scheduler GPU resources when a config key is explicitly set.
+
+    Tensor-parallel stages use ``tensor_parallel_size`` to decide how many
+    visible CUDA devices the model engine uses.  This helper lets runtime
+    configs tune scheduler accounting separately, including fractional GPU specs.
+    """
+    value = cfg.get(key)
+    if value is None:
+        return stage
+    return stage.with_(resources=Resources(gpus=float(value)))
+
+
 def build_granary_v2_pipeline(cfg: DictConfig) -> Pipeline:  # noqa: C901, PLR0912, PLR0915
     """Construct the full Granary v2 stage chain from a Hydra config."""
     data_config = cfg.get("data_config") or cfg.get("input_manifest")
@@ -129,24 +142,28 @@ def build_granary_v2_pipeline(cfg: DictConfig) -> Pipeline:  # noqa: C901, PLR09
             ),
         ])
 
-    stages.append(InferenceQwenOmniStage(
-        model_id=cfg.get("model_id", "Qwen/Qwen3-Omni-30B-A3B-Instruct"),
-        prompt_text=ml_prompt,
-        en_prompt_text=en_prompt,
-        followup_prompt=followup_prompt,
-        system_prompt=system_prompt,
-        tensor_parallel_size=cfg.get("tensor_parallel_size", 2),
-        batch_size=cfg.get("batch_size", 32),
-        max_output_tokens=cfg.get("max_output_tokens", 256),
-        max_model_len=cfg.get("max_model_len", 32768),
-        max_num_seqs=cfg.get("max_num_seqs", 16),
-        gpu_memory_utilization=cfg.get("gpu_memory_utilization", 0.95),
-        prep_workers=cfg.get("prep_workers", 16),
-        source_lang_key=source_lang_key,
-        pred_text_key="qwen3_prediction_s1",
-        disfluency_text_key="qwen3_prediction_s2",
-        keep_waveform=bool(asr_model_id),
-        num_workers_override=cfg.get("omni_num_workers"),
+    stages.append(_with_optional_gpu_resources(
+        InferenceQwenOmniStage(
+            model_id=cfg.get("model_id", "Qwen/Qwen3-Omni-30B-A3B-Instruct"),
+            prompt_text=ml_prompt,
+            en_prompt_text=en_prompt,
+            followup_prompt=followup_prompt,
+            system_prompt=system_prompt,
+            tensor_parallel_size=cfg.get("tensor_parallel_size", 2),
+            batch_size=cfg.get("batch_size", 32),
+            max_output_tokens=cfg.get("max_output_tokens", 256),
+            max_model_len=cfg.get("max_model_len", 32768),
+            max_num_seqs=cfg.get("max_num_seqs", 16),
+            gpu_memory_utilization=cfg.get("gpu_memory_utilization", 0.95),
+            prep_workers=cfg.get("prep_workers", 16),
+            source_lang_key=source_lang_key,
+            pred_text_key="qwen3_prediction_s1",
+            disfluency_text_key="qwen3_prediction_s2",
+            keep_waveform=bool(asr_model_id),
+            num_workers_override=cfg.get("omni_num_workers"),
+        ),
+        cfg,
+        "omni_resource_gpus",
     ))
 
     if followup_prompt:
@@ -168,15 +185,19 @@ def build_granary_v2_pipeline(cfg: DictConfig) -> Pipeline:  # noqa: C901, PLR09
 
     if asr_model_id:
         stages.extend([
-            InferenceQwenASRStage(
-                model_id=asr_model_id,
-                source_lang_key=source_lang_key,
-                batch_size=cfg.get("asr_batch_size", 128),
-                gpu_memory_utilization=cfg.get("asr_gpu_memory_utilization", 0.95),
-                max_new_tokens=cfg.get("asr_max_new_tokens", 4096),
-                run_only_if_key="_skip_me",
-                run_only_if_prefix="Hallucination",
-                num_workers_override=cfg.get("asr_num_workers"),
+            _with_optional_gpu_resources(
+                InferenceQwenASRStage(
+                    model_id=asr_model_id,
+                    source_lang_key=source_lang_key,
+                    batch_size=cfg.get("asr_batch_size", 128),
+                    gpu_memory_utilization=cfg.get("asr_gpu_memory_utilization", 0.95),
+                    max_new_tokens=cfg.get("asr_max_new_tokens", 4096),
+                    run_only_if_key="_skip_me",
+                    run_only_if_prefix="Hallucination",
+                    num_workers_override=cfg.get("asr_num_workers"),
+                ),
+                cfg,
+                "asr_resource_gpus",
             ),
             WhisperHallucinationStage(
                 name="WhisperHallucination_asr",
@@ -222,19 +243,23 @@ def build_granary_v2_pipeline(cfg: DictConfig) -> Pipeline:  # noqa: C901, PLR09
         if cfg.get("completeness_prompt"):
             pnc_kwargs["completeness_prompt"] = cfg.completeness_prompt
         stages.extend([
-            PnCRestorationStage(
-                model_id=cfg.get("pnc_model_id", "Qwen/Qwen3.5-35B-A3B-FP8"),
-                text_key="abbreviated_text",
-                output_text_key="pnc_text",
-                tensor_parallel_size=cfg.get("pnc_tensor_parallel_size", 2),
-                batch_size=cfg.get("pnc_batch_size", 64),
-                max_model_len=cfg.get("pnc_max_model_len", 8192),
-                max_num_seqs=cfg.get("pnc_max_num_seqs", 64),
-                gpu_memory_utilization=cfg.get("pnc_gpu_memory_utilization", 0.95),
-                prep_workers=cfg.get("pnc_prep_workers", 8),
-                source_lang_key=cfg.get("pnc_source_lang_key", source_lang_key),
-                num_workers_override=cfg.get("pnc_num_workers"),
-                **pnc_kwargs,
+            _with_optional_gpu_resources(
+                PnCRestorationStage(
+                    model_id=cfg.get("pnc_model_id", "Qwen/Qwen3.5-35B-A3B-FP8"),
+                    text_key="abbreviated_text",
+                    output_text_key="pnc_text",
+                    tensor_parallel_size=cfg.get("pnc_tensor_parallel_size", 2),
+                    batch_size=cfg.get("pnc_batch_size", 64),
+                    max_model_len=cfg.get("pnc_max_model_len", 8192),
+                    max_num_seqs=cfg.get("pnc_max_num_seqs", 64),
+                    gpu_memory_utilization=cfg.get("pnc_gpu_memory_utilization", 0.95),
+                    prep_workers=cfg.get("pnc_prep_workers", 8),
+                    source_lang_key=cfg.get("pnc_source_lang_key", source_lang_key),
+                    num_workers_override=cfg.get("pnc_num_workers"),
+                    **pnc_kwargs,
+                ),
+                cfg,
+                "pnc_resource_gpus",
             ),
             PnCContentGuardStage(
                 text_key="abbreviated_text",
@@ -246,19 +271,23 @@ def build_granary_v2_pipeline(cfg: DictConfig) -> Pipeline:  # noqa: C901, PLR09
     if cfg.get("enable_itn", False):
         skip_pnc = cfg.get("skip_pnc", False)
         itn_text_key = cfg.get("itn_text_key") or ("pnc_text" if not skip_pnc else "abbreviated_text")
-        stages.append(ITNRestorationStage(
-            model_id=cfg.get("itn_model_id", "Qwen/Qwen3.5-35B-A3B-FP8"),
-            prompt_text=itn_prompt,
-            text_key=itn_text_key,
-            output_text_key=cfg.get("itn_output_key", "itn_text"),
-            tensor_parallel_size=cfg.get("itn_tensor_parallel_size"),
-            max_output_tokens=cfg.get("itn_max_output_tokens", 512),
-            max_model_len=cfg.get("itn_max_model_len", 4096),
-            max_num_seqs=cfg.get("itn_max_num_seqs", 16),
-            gpu_memory_utilization=cfg.get("itn_gpu_memory_utilization", 0.95),
-            batch_size=cfg.get("itn_batch_size", 64),
-            enable_validation=not cfg.get("itn_no_validation", False),
-            num_workers_override=cfg.get("itn_num_workers"),
+        stages.append(_with_optional_gpu_resources(
+            ITNRestorationStage(
+                model_id=cfg.get("itn_model_id", "Qwen/Qwen3.5-35B-A3B-FP8"),
+                prompt_text=itn_prompt,
+                text_key=itn_text_key,
+                output_text_key=cfg.get("itn_output_key", "itn_text"),
+                tensor_parallel_size=cfg.get("itn_tensor_parallel_size"),
+                max_output_tokens=cfg.get("itn_max_output_tokens", 512),
+                max_model_len=cfg.get("itn_max_model_len", 4096),
+                max_num_seqs=cfg.get("itn_max_num_seqs", 16),
+                gpu_memory_utilization=cfg.get("itn_gpu_memory_utilization", 0.95),
+                batch_size=cfg.get("itn_batch_size", 64),
+                enable_validation=not cfg.get("itn_no_validation", False),
+                num_workers_override=cfg.get("itn_num_workers"),
+            ),
+            cfg,
+            "itn_resource_gpus",
         ))
 
     stages.append(ShardedManifestWriterStage(output_dir=output_dir))
