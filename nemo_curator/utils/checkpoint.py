@@ -134,12 +134,19 @@ def get_or_create_checkpoint_actor(checkpoint_path: str) -> Any:  # noqa: ANN401
             self._mgr.add_expected(resumability_key, increment)
 
     try:
-        actor = ray.get_actor(name)
+        actor = ray.get_actor(name, namespace="")
         logger.debug(f"Reusing existing checkpoint actor: {name}")
     except ValueError:
         logger.info(f"Creating new checkpoint actor: {name}")
+        # get_if_exists=True makes this safe under concurrent setup() calls:
+        # if another worker races to create the actor first, Ray returns that
+        # handle instead of raising ActorAlreadyExistsError.
+        # namespace="" places the actor in the global namespace so every worker
+        # can find it regardless of their job namespace.
         actor = _CheckpointActor.options(  # type: ignore[attr-defined]
             name=name,
+            namespace="",
             lifetime="detached",
+            get_if_exists=True,
         ).remote(checkpoint_path)
     return actor
