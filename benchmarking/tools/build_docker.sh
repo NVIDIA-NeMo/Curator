@@ -53,6 +53,12 @@ THIS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CURATOR_DIR="$(cd ${THIS_SCRIPT_DIR}/../.. && pwd)"
 
 # Either pull, build, or skip the standard NeMo Curator image
+if ${SKIP_CURATOR_BUILD} && ${SKIP_CURATOR_BUILD_AND_PULL}; then
+  echo "Error: --skip-curator-image-build and --skip-curator-image-build-and-pull cannot be combined."
+  exit 1
+fi
+
+# Either pull, build, or skip the standard NeMo Curator image
 if ${SKIP_CURATOR_BUILD_AND_PULL}; then
   echo "Skipping build and pull, using existing NeMo Curator image: ${CURATOR_IMAGE}"
 elif ${SKIP_CURATOR_BUILD}; then
