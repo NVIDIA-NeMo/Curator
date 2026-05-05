@@ -227,6 +227,15 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         # Check if process_batch has been overridden
         return type(self).process_batch is not ProcessingStage.process_batch
 
+    def is_source_stage(self) -> bool:
+        """Return True if this stage introduces new source partitions into the pipeline.
+
+        Source stages must populate ``task._metadata["resumability_key"]`` with a
+        stable, unique string per partition so the checkpoint system can track
+        completion across runs.  Override this in stages like FilePartitioningStage.
+        """
+        return False
+
     def __repr__(self) -> str:
         """String representation of the stage."""
         return f"{self.__class__.__name__}"

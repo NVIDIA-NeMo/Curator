@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from typing import Any
 
 from loguru import logger
@@ -174,12 +175,20 @@ class Pipeline:
 
         return "\n".join(lines)
 
-    def run(self, executor: BaseExecutor | None = None, initial_tasks: list[Task] | None = None) -> list[Task] | None:
+    def run(
+        self,
+        executor: BaseExecutor | None = None,
+        initial_tasks: list[Task] | None = None,
+        checkpoint_path: str | None = None,
+    ) -> list[Task] | None:
         """Run the pipeline.
 
         Args:
             executor (BaseExecutor): Executor to use
             initial_tasks (list[Task], optional): Initial tasks to start the pipeline with. Defaults to None.
+            checkpoint_path (str, optional): Directory for resumability checkpoints (LMDB).
+                If set, completed source partitions are skipped on subsequent runs.
+                Relative paths are resolved to absolute on the driver. Defaults to None.
 
         Returns:
             list[Task] | None: List of tasks
@@ -212,4 +221,48 @@ class Pipeline:
                     "The executor will schedule GPU stages on GPUs not held by Serve."
                 )
 
-        return executor.execute(self.stages, initial_tasks)
+        if checkpoint_path:
+            if "://" not in checkpoint_path:
+                checkpoint_path = os.path.abspath(checkpoint_path)
+            stages = self._with_checkpoint_stages(self.stages, checkpoint_path)
+        else:
+            self._clear_checkpoint_attrs(self.stages)
+            stages = self.stages
+
+        return executor.execute(stages, initial_tasks)
+
+    def _with_checkpoint_stages(self, stages: list[ProcessingStage], checkpoint_path: str) -> list[ProcessingStage]:
+        """Return a new stage list with checkpoint filter/recorder stages injected.
+
+        Does NOT mutate ``self.stages``.  The filter is inserted after the first
+        ``is_source_stage()`` stage only; the recorder is appended at the end.
+        """
+        from nemo_curator.stages.checkpoint import _CheckpointFilterStage, _CheckpointRecorderStage
+
+        source_indices = [i for i, s in enumerate(stages) if s.is_source_stage()]
+        if not source_indices:
+            msg = (
+                "Resumability is enabled (checkpoint_path is set) but no source stage found in the "
+                "pipeline. Mark a source stage with is_source_stage() = True and ensure it sets "
+                "_metadata['resumability_key'] on each output task."
+            )
+            raise ValueError(msg)
+
+        result: list[ProcessingStage] = []
+        first_source_idx = source_indices[0]
+        filter_inserted = False
+
+        for i, stage in enumerate(stages):
+            stage._checkpoint_path = checkpoint_path
+            result.append(stage)
+            if i == first_source_idx and not filter_inserted:
+                result.append(_CheckpointFilterStage(checkpoint_path))
+                filter_inserted = True
+
+        result.append(_CheckpointRecorderStage(checkpoint_path))
+        return result
+
+    def _clear_checkpoint_attrs(self, stages: list[ProcessingStage]) -> None:
+        """Remove checkpoint attrs stamped by a previous run (prevents stale state)."""
+        for stage in stages:
+            stage.__dict__.pop("_checkpoint_path", None)

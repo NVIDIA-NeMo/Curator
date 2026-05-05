@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -97,6 +98,9 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
+    def is_source_stage(self) -> bool:
+        return True
+
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""
         return {
@@ -174,14 +178,21 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 # https://github.com/NVIDIA-NeMo/Curator/issues/948
                 logger.info(f"Reached limit of {self.limit} file groups")
                 break
+            # Stable resumability key: sorted file paths + partition index.
+            # Sorting eliminates filesystem ordering variance; the partition index
+            # discriminates groups that share the same file paths (e.g. sub-file splits).
+            resumability_key = "|".join(sorted(file_group)) + "::" + str(i)
+            # Deterministic task_id based on content, stable across re-runs with the same files.
+            task_id = hashlib.sha256(resumability_key.encode()).hexdigest()[:12]
             file_task = FileGroupTask(
-                task_id=f"file_group_{i}",
+                task_id=task_id,
                 dataset_name=dataset_name,
                 data=file_group,
                 _metadata={
                     "partition_index": i,
                     "total_partitions": len(partitions),
-                    "source_files": file_group,  # Add source files for deterministic naming during write stage
+                    "source_files": file_group,
+                    "resumability_key": resumability_key,
                 },
                 reader_config={},  # Empty - will be populated by reader stage
             )
