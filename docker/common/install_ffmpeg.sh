@@ -48,6 +48,7 @@ apt-get install -y \
     libvorbis-dev \
     libvpx-dev \
     libwebp-dev \
+    libx264-dev \
     nasm \
     pkg-config \
     vainfo \
@@ -68,6 +69,7 @@ tar xjvf /tmp/ffmpeg-snapshot.tar.bz2 -C /tmp/
 cd /tmp/ffmpeg-${FFMPEG_VERSION}
 PATH="/usr/local/cuda/bin:$PATH" ./configure \
     --prefix=/usr/local \
+    --enable-gpl \
     --enable-nonfree \
     --enable-cuda-nvcc \
     --enable-libnpp \
@@ -76,6 +78,7 @@ PATH="/usr/local/cuda/bin:$PATH" ./configure \
     --enable-libvorbis \
     --enable-libvpx \
     --enable-libwebp \
+    --enable-libx264 \
     --enable-vaapi \
     --extra-cflags=-I/usr/local/cuda/include \
     --extra-ldflags=-L/usr/local/cuda/lib64 \
