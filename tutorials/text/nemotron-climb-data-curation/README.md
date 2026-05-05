@@ -37,6 +37,18 @@ To run NeMo Curator, the following system requirements are needed:
 
 Refer to the [Megatron Core Installation documentation](https://docs.nvidia.com/megatron-core/developer-guide/latest/get-started/install.html) for information about the system requirements for running Megatron-LM, which is used in step 6 of this tutorial.
 
+If any of the individual input JSONL or Parquet files are greater than 2 GB, it is recommended to use the `nemo_curator/utils/split_large_files.py` helper script to split them into more manageable sizes and prevent out-of-memory issues. For example:
+
+```bash
+python /path/to/Curator/nemo_curator/utils/split_large_files.py \
+    --input-path "/path/to/data_dir" \
+    --file-type "jsonl" \
+    --output-path "/path/to/sharded_dir" \
+    --target-size-mb 128
+```
+
+shards every file in the input path and outputs files that are 128 MB each.
+
 ## Step 1: Compute Embeddings
 
 Compute text embeddings on the dataset with:
