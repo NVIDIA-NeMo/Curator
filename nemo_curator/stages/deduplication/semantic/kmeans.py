@@ -263,8 +263,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         Pass 2: loads each group one at a time (full columns), predicts labels, writes,
                 then frees GPU memory before loading the next group.
 
-        Peak GPU memory ≈ max(max_rows_for_fitting, one_group_size) × embedding_dim × 4 bytes,
-        instead of total_data × embedding_dim × 4 bytes.
+        Peak GPU memory ≈ max(max_rows_for_fitting, one_group_size) x embedding_dim x 4 bytes,
+        instead of total_data x embedding_dim x 4 bytes.
         """
         sample_rows_per_group = max(1, self.max_rows_for_fitting // len(groups))
 
@@ -318,7 +318,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
 
             labels = self.kmeans.predict(embeddings_array, convert_dtype=False).astype(cp.int32)
             df["centroid"] = labels
-            df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)  # noqa: PLW2901
+            df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)
 
             output_filename = f"{tasks[0]._uuid}_{i}"
             self.write_parquet(
