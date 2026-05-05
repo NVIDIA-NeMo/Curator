@@ -139,12 +139,12 @@ docker run --gpus all -it --rm nemo-curator:latest
 
 ### Install FFmpeg and Encoders (Required for Video)
 
-Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (using `--transcode-encoder h264_nvenc`), install `FFmpeg` with NVENC support.
+Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (using `--transcode-encoder h264_nvenc`), install `FFmpeg` with NVENC support. The maintained script also includes `libopenh264`, but only `h264_nvenc` is supported by Curator's transcoding stage.
 
 <Tabs>
 <Tab title="Debian/Ubuntu (Script)">
 
-Use the maintained script in the repository to build and install `FFmpeg` with NVIDIA NVENC support. The script enables `--enable-cuda-nvcc` and `--enable-libnpp`.
+Use the maintained script in the repository to build and install `FFmpeg` with NVIDIA NVENC support. The script enables `--enable-cuda-nvcc`, `--enable-libnpp`, and `--enable-libopenh264`.
 
 - Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
 
