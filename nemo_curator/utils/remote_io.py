@@ -91,10 +91,9 @@ def _expand_spec_string(spec: str) -> list[str]:
         if end < start:
             msg = f"Invalid shard range: start={start}, end={end}, spec={spec}"
             raise ValueError(msg)
-        width = max(len(start_str), len(end_str))
         prefix = spec[: match.start()]
         suffix = spec[match.end() :]
-        expanded = [f"{prefix}{value:0{width}d}{suffix}" for value in range(start, end + 1)]
+        expanded = [f"{prefix}{value}{suffix}" for value in range(start, end + 1)]
         results: list[str] = []
         for item in expanded:
             results.extend(_expand_spec_string(item))

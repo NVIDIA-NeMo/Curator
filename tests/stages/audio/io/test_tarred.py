@@ -31,6 +31,7 @@ from nemo_curator.stages.audio.io.tarred import (
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
+from nemo_curator.utils.remote_io import expand_sharded_paths
 
 
 def _write_tar(path: Path, members: dict[str, bytes]) -> None:
@@ -75,6 +76,13 @@ class _PathConsumerStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 class TestTarredAudioManifestReader:
+    def test_expand_sharded_paths_does_not_zero_pad_ranges(self) -> None:
+        expanded = expand_sharded_paths("s3://bucket/manifest__OP_0..12_CL_.json")
+
+        assert expanded[0] == "s3://bucket/manifest_0.json"
+        assert expanded[9] == "s3://bucket/manifest_9.json"
+        assert expanded[-1] == "s3://bucket/manifest_12.json"
+
     def test_partition_stage_expands_op_cl_pattern(self, tmp_path: Path) -> None:
         for shard_id in range(2):
             (tmp_path / f"manifest_{shard_id}.json").write_text(
