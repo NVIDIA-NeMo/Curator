@@ -39,14 +39,15 @@ def main(args: argparse.Namespace) -> None:
 
     subdirectories = [os.path.join(args.input_path, d) for d in os.listdir(args.input_path)]
 
+    cache_path = os.path.join(args.output_path, "cache")
+    os.makedirs(cache_path, exist_ok=True)
+
     for centroid_path in subdirectories:
         pipeline = Pipeline(name="4_tokenize")
 
         pipeline.add_stage(reader(file_paths=centroid_path, files_per_partition=1, fields=[args.text_field]))
 
         centroid = centroid_path.split("/")[-1].split("=")[1]
-        cache_path = os.path.join(args.output_path, "cache")
-        os.makedirs(cache_path, exist_ok=True)
         writer_path = os.path.join(cache_path, f"domain_{centroid}")
 
         # Use Curator pipeline to tokenize the data
