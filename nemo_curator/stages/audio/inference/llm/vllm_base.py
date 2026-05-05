@@ -83,6 +83,7 @@ class VLLMInference:
         inference: dict[str, Any] | None = None,
         apply_chat_template: dict[str, Any] | None = None,
         use_chat_api: bool = False,
+        device: str = "cpu",
     ):
         if model is None:
             model = {}
@@ -94,6 +95,7 @@ class VLLMInference:
         self.generation_field = generation_field
         self.prompt = prompt
         self.prompt_field = prompt_field
+        self.device = device
 
         prompt_args_counter = sum(
             [
@@ -139,16 +141,6 @@ class VLLMInference:
             snapshot_download(repo_id=model_name)
             AutoTokenizer.from_pretrained(model_name)
 
-    @property
-    def _device(self) -> str:
-        """Derive device from resources configuration."""
-        if self.resources.requires_gpu:
-            if not torch.cuda.is_available():
-                msg = f"[{self.name}] GPU requested via resources but CUDA is not available."
-                raise RuntimeError(msg)
-            return "cuda"
-        return "cpu"
-
     def setup(self) -> None:
         """Instantiate the vLLM engine on the target device.
 
@@ -156,7 +148,7 @@ class VLLMInference:
         model.  If :meth:`setup_on_node` was not called first, the tokenizer
         and sampling params are created here as well.
         """
-        if self._device == "cuda":
+        if self.device == "cuda":
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
 
@@ -189,10 +181,15 @@ class VLLMInference:
 
         try:
             entry_chat = [{"role": role, "content": prompt[role].format(**data_entry)} for role in prompt]
+        except (KeyError, TypeError, ValueError) as e:
+            logger.error(f"Error formatting prompt template: {e}")
+            return []
+
+        try:
             return self.tokenizer.apply_chat_template(entry_chat, **self.chat_template_params)
         except (TypeError, ValueError, KeyError, RuntimeError) as e:
-            logger.error(f"Error formatting/applying chat template: {e}")
-            return []
+            logger.error(f"Error applying chat template: {e}")
+            return entry_chat
 
     def load_model(self) -> None:
         """Instantiate the ``vllm.LLM`` engine."""
@@ -241,6 +238,6 @@ class VLLMInference:
         if dist.is_initialized():
             dist.destroy_process_group()
         gc.collect()
-        if self._device == "cuda":
+        if self.device == "cuda":
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
