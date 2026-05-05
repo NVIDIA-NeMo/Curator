@@ -143,6 +143,8 @@ def generate_weights_dirichlet(  # noqa: C901, PLR0912, PLR0913
     print("The number of deduplicated samples: ", len(final_samples))
     selected_samples = random.sample(final_samples, min(num_samples, len(final_samples)))
     print("The number of selected samples: ", len(selected_samples))
+    if not selected_samples:
+        return np.empty((0, len(prior_dist)))
     return np.stack(selected_samples, axis=0)
 
 
@@ -196,6 +198,14 @@ def generate_config_from_prior(  # noqa: PLR0913
         min_strength=min_strength,
         max_strength=max_strength,
     )
+
+    if len(train_weights) < number_of_samples:
+        msg = (
+            f"Only {len(train_weights)} unique mixture(s) survived rejection sampling and "
+            f"deduplication, but {number_of_samples} were requested. Increase sample_multiplier, "
+            f"loosen maximum_usage, or lower the deduplication threshold."
+        )
+        raise RuntimeError(msg)
 
     for output_path, weights in zip(output_paths, train_weights, strict=True):
         # get the train group

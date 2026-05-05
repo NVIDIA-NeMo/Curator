@@ -114,8 +114,19 @@ def fit_predictor(df: pd.DataFrame, domain_names: list[str], target_column: str)
     shuffled_df = df.sample(frac=1, random_state=SEED)
 
     # Split the DataFrame into train and test sets
-    train_df = shuffled_df.iloc[: int(len(shuffled_df) * 0.9)]
-    test_df = shuffled_df.iloc[int(len(shuffled_df) * 0.9) :]
+    split_idx = int(len(shuffled_df) * 0.9)
+    if split_idx == 0 or split_idx == len(shuffled_df):
+        msg = (
+            f"fit_predictor needs at least 2 rows to produce non-empty 90/10 train/test splits, "
+            f"got {len(shuffled_df)}."
+        )
+        raise ValueError(msg)
+    train_df = shuffled_df.iloc[:split_idx]
+    test_df = shuffled_df.iloc[split_idx:]
+
+    # Cap stopping_rounds at len(test_df) so early stopping stays proportional to the eval set
+    # Nemotron-CLIMB algorithm starts with 64 proxy model evaluations -> test=7, far below the original stopping_rounds=20
+    stopping_rounds = min(20, len(test_df))
 
     train_df_config = train_df[domain_names]
     train_df_target = train_df[[target_column]]
@@ -151,7 +162,7 @@ def fit_predictor(df: pd.DataFrame, domain_names: list[str], target_column: str)
         eval_set=[(x_test, y_test)],
         eval_metric="l2",
         callbacks=[
-            lgb.early_stopping(stopping_rounds=20, verbose=False),
+            lgb.early_stopping(stopping_rounds=stopping_rounds, verbose=False),
         ],
     )
 
@@ -220,7 +231,7 @@ def main(args: argparse.Namespace) -> None:
 
     # Get the token distribution of each domain
     token_dist = get_token_distribution(args.domains_path)
-    prior_dist = [token_dist[str(f)] for f in bin_files]
+    prior_dist = np.array([token_dist[str(f)] for f in bin_files])
     domain_paths = [str(f.with_suffix("")) for f in bin_files]
 
     samples = np.random.dirichlet(prior_dist * 1, 100000)  # noqa: NPY002

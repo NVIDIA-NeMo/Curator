@@ -70,7 +70,10 @@ def main(args: argparse.Namespace) -> None:
         merge_file_prefixes(input_dir=writer_path, output_prefix=result_path)
 
         # Remove individual tokenized files in favor of the merged bin/idx file
-        shutil.rmtree(cache_path)
+        shutil.rmtree(writer_path)
+
+    # Remove the cache directory
+    shutil.rmtree(cache_path)
 
     ray_client.stop()
 
