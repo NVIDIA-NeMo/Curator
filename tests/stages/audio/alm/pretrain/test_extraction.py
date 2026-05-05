@@ -16,12 +16,14 @@
 
 Generates a short synthesized sine WAV (mono and stereo variants),
 feeds it through ``SnippetExtractionStage`` with a hand-rolled snippet
-plan, and checks the resulting audio files match expected sample
-rate, channel count, and duration.
+plan, and checks the resulting tar shard's audio members match expected
+sample rate, channel count, and duration.
 """
 
 from __future__ import annotations
 
+import io
+import tarfile
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -34,6 +36,15 @@ from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def _open_member_as_audio(tar_path: str, member_name: str) -> tuple[np.ndarray, int, int]:
+    """Read ``member_name`` from ``tar_path`` and return (data, sample_rate, channels)."""
+    with tarfile.open(tar_path, "r") as t:
+        f = t.extractfile(member_name)
+        assert f is not None, f"member {member_name!r} not in {tar_path}"
+        data, sr = sf.read(io.BytesIO(f.read()), always_2d=True)
+    return data, sr, data.shape[1]
 
 
 def _make_wav(path: Path, duration_sec: float, sample_rate: int, channels: int = 1) -> None:
@@ -61,7 +72,21 @@ def _task_with_plan(audio_path: Path, plan: list[dict], extras: dict | None = No
 
 
 class TestSnippetExtractionStageReal:
-    def test_writes_one_file_per_planned_snippet(self, tmp_path: Path) -> None:
+    @staticmethod
+    def _make_stage(tmp_path: Path, *, output_format: str = "wav") -> tuple[SnippetExtractionStage, Path]:
+        tar_path = tmp_path / "snips.tar"
+        stage = SnippetExtractionStage(
+            output_dir=str(tmp_path / "snips"),
+            output_audio_tar_path=str(tar_path),
+            target_sample_rate=16000,
+            output_format=output_format,
+        )
+        stage.__post_init__()
+        stage.setup_on_node()
+        stage.setup()
+        return stage, tar_path
+
+    def test_writes_one_member_per_planned_snippet(self, tmp_path: Path) -> None:
         src = tmp_path / "src.wav"
         _make_wav(src, duration_sec=10.0, sample_rate=16000)
 
@@ -69,70 +94,66 @@ class TestSnippetExtractionStageReal:
             {"start": 0.0, "end": 3.0, "segments": [_seg(0.0, 3.0)]},
             {"start": 4.0, "end": 8.0, "segments": [_seg(4.0, 8.0)]},
         ]
-        out_dir = tmp_path / "snips"
-        stage = SnippetExtractionStage(output_dir=str(out_dir), target_sample_rate=16000, output_format="wav")
-        stage.__post_init__()
-        stage.setup_on_node()
-        stage.setup()
+        stage, tar_path = self._make_stage(tmp_path, output_format="wav")
 
         out = stage.process(_task_with_plan(src, plan))
+        stage.teardown()
         assert len(out) == 2
-        files = sorted(out_dir.glob("*.wav"))
-        assert len(files) == 2
 
-        # File 1: 3.0s @ 16k = 48000 frames
-        info1 = sf.info(str(files[0]))
-        assert info1.samplerate == 16000
-        assert info1.channels == 1
-        assert info1.frames == pytest.approx(48000, abs=2)
+        # Per-replica tar shard exists and has 2 members
+        shards = sorted(tmp_path.glob("snips.tar.shard-*.tar"))
+        assert len(shards) == 1
+        with tarfile.open(str(shards[0]), "r") as t:
+            members = sorted(t.getnames())
+        assert members == sorted(o.data["audio_filepath"] for o in out)
+        assert len(members) == 2
+
+        # First member: 3.0s @ 16k = 48000 frames
+        data, sr, channels = _open_member_as_audio(str(shards[0]), members[0])
+        assert sr == 16000
+        assert channels == 1
+        assert data.shape[0] == pytest.approx(48000, abs=2)
 
     def test_resamples_when_source_rate_differs(self, tmp_path: Path) -> None:
         src = tmp_path / "src22k.wav"
         _make_wav(src, duration_sec=4.0, sample_rate=22050)
 
         plan = [{"start": 0.0, "end": 2.0, "segments": [_seg(0.0, 2.0)]}]
-        stage = SnippetExtractionStage(
-            output_dir=str(tmp_path / "snips"), target_sample_rate=16000, output_format="wav"
-        )
-        stage.__post_init__()
-        stage.setup_on_node()
-        stage.setup()
+        stage, _tar = self._make_stage(tmp_path, output_format="wav")
 
         out = stage.process(_task_with_plan(src, plan))
+        stage.teardown()
         assert len(out) == 1
-        info = sf.info(out[0].data["audio_filepath"])
-        assert info.samplerate == 16000
-        assert info.channels == 1
+
+        shards = sorted(tmp_path.glob("snips.tar.shard-*.tar"))
+        assert len(shards) == 1
+        member = out[0].data["audio_filepath"]
+        data, sr, channels = _open_member_as_audio(str(shards[0]), member)
+        assert sr == 16000
+        assert channels == 1
         # 2s @ 16k = 32000 frames (allow tiny resample rounding)
-        assert info.frames == pytest.approx(32000, abs=4)
+        assert data.shape[0] == pytest.approx(32000, abs=4)
 
     def test_channel_averages_to_mono_for_stereo_source(self, tmp_path: Path) -> None:
         src = tmp_path / "stereo.wav"
         _make_wav(src, duration_sec=2.0, sample_rate=16000, channels=2)
 
         plan = [{"start": 0.0, "end": 1.0, "segments": [_seg(0.0, 1.0)]}]
-        stage = SnippetExtractionStage(
-            output_dir=str(tmp_path / "snips"), target_sample_rate=16000, output_format="wav"
-        )
-        stage.__post_init__()
-        stage.setup_on_node()
-        stage.setup()
+        stage, _tar = self._make_stage(tmp_path, output_format="wav")
 
         out = stage.process(_task_with_plan(src, plan))
-        info = sf.info(out[0].data["audio_filepath"])
-        assert info.channels == 1
+        stage.teardown()
+        shards = sorted(tmp_path.glob("snips.tar.shard-*.tar"))
+        member = out[0].data["audio_filepath"]
+        _data, _sr, channels = _open_member_as_audio(str(shards[0]), member)
+        assert channels == 1
 
-    def test_emitted_metadata_matches_extracted_file(self, tmp_path: Path) -> None:
+    def test_emitted_metadata_uses_tar_basename(self, tmp_path: Path) -> None:
         src = tmp_path / "src.wav"
         _make_wav(src, duration_sec=5.0, sample_rate=16000)
 
         plan = [{"start": 1.0, "end": 4.0, "segments": [_seg(1.0, 4.0)]}]
-        stage = SnippetExtractionStage(
-            output_dir=str(tmp_path / "snips"), target_sample_rate=16000, output_format="flac"
-        )
-        stage.__post_init__()
-        stage.setup_on_node()
-        stage.setup()
+        stage, _tar = self._make_stage(tmp_path, output_format="flac")
 
         # Source row has audio_sample_rate / audio_num_channels populated, so
         # the extractor's conditional updates fire.
@@ -141,10 +162,11 @@ class TestSnippetExtractionStageReal:
                 src, plan, extras={"audio_sample_rate": 22050, "audio_num_channels": 2}
             )
         )
+        stage.teardown()
         d = out[0].data
-        # Snippet ID + path follow the spec
+        # Snippet ID + tar-internal basename (no slashes, no directory prefix)
         assert d["snippet_id"] == "X-1_000-4_000"
-        assert d["audio_filepath"].endswith("X-1_000-4_000.flac")
+        assert d["audio_filepath"] == "X-1_000-4_000.flac"
         # Metadata reflects post-cut audio (overwritten because the source had these keys)
         assert d["audio_sample_rate"] == 16000
         assert d["audio_num_channels"] == 1
@@ -154,12 +176,34 @@ class TestSnippetExtractionStageReal:
     def test_missing_source_emits_stub(self, tmp_path: Path) -> None:
         plan = [{"start": 0.0, "end": 1.0, "segments": [_seg(0.0, 1.0)]}]
         task = _task_with_plan(tmp_path / "does_not_exist.wav", plan)
+        stage, _tar = self._make_stage(tmp_path, output_format="wav")
+        out = stage.process(task)
+        stage.teardown()
+        assert len(out) == 1
+        assert out[0].data["snippet_id"] is None
+        # The shard was still opened (setup ran) but contains no members.
+        shards = sorted(tmp_path.glob("snips.tar.shard-*.tar"))
+        assert len(shards) == 1
+        with tarfile.open(str(shards[0]), "r") as t:
+            assert t.getnames() == []
+
+    def test_dry_run_writes_no_tar(self, tmp_path: Path) -> None:
+        plan = [{"start": 0.0, "end": 1.0, "segments": [_seg(0.0, 1.0)]}]
         stage = SnippetExtractionStage(
-            output_dir=str(tmp_path / "snips"), target_sample_rate=16000, output_format="wav"
+            output_dir=str(tmp_path / "snips"),
+            output_audio_tar_path=str(tmp_path / "snips.tar"),
+            target_sample_rate=16000,
+            output_format="flac",
+            dry_run=True,
         )
         stage.__post_init__()
         stage.setup_on_node()
         stage.setup()
-        out = stage.process(task)
+        out = stage.process(_task_with_plan(tmp_path / "missing.wav", plan))
+        stage.teardown()
         assert len(out) == 1
-        assert out[0].data["snippet_id"] is None
+        # Manifest entry uses tar-internal basename even in dry-run
+        assert out[0].data["audio_filepath"] == "X-0_000-1_000.flac"
+        # No tar file or tar shards on disk
+        assert not (tmp_path / "snips.tar").exists()
+        assert sorted(tmp_path.glob("snips.tar.shard-*.tar")) == []

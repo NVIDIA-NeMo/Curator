@@ -65,6 +65,7 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
     audio_dir: str,
     output_dir: str,
     output_manifest_path: str,
+    output_audio_tar_path: str,
     metrics_path: str,
     max_duration_sec: float,
     tokenizer_path: str,
@@ -103,9 +104,19 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
         audio_dir: Directory containing the source audio files.  Each
             row's ``audio_filepath`` is re-anchored to this directory by
             basename.
-        output_dir: Directory where snippet audio files are written.
+        output_dir: Directory where pipeline outputs are written.  The
+            audio tar, manifest JSONL, and metrics JSON typically live
+            here, though each has its own explicit path argument.
         output_manifest_path: Path of the output JSONL manifest (one row
-            per snippet).
+            per snippet).  Each row's ``audio_filepath`` is the
+            tar-internal basename of that snippet's audio member, not a
+            filesystem path.
+        output_audio_tar_path: Path of the output tar archive that
+            contains every extracted snippet's audio file (one tar
+            member per snippet, named ``<snippet_id>.<output_format>``).
+            Members are stored at the tar root with no subdirectories,
+            sorted lexicographically -- compatible with WebDataset and
+            Energon tar-dataset readers.
         metrics_path: Path of the metrics summary JSON.
         max_duration_sec: Maximum snippet duration; greedy packing never
             exceeds this.  Single segments longer than this are dropped
@@ -173,6 +184,7 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
             ),
             SnippetExtractionStage(
                 output_dir=output_dir,
+                output_audio_tar_path=output_audio_tar_path,
                 target_sample_rate=target_sample_rate,
                 output_format=output_format,
                 audio_filepath_key=audio_filepath_key,

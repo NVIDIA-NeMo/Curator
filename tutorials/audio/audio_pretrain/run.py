@@ -72,8 +72,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--input-manifest", required=True, help="Path to input JSONL manifest")
     parser.add_argument("--audio-dir", required=True, help="Directory containing source audio files")
-    parser.add_argument("--output-dir", required=True, help="Directory to write snippet audio files")
+    parser.add_argument(
+        "--output-dir",
+        required=True,
+        help=(
+            "Directory for pipeline outputs (typically the parent of the "
+            "manifest, tar, and metrics paths)."
+        ),
+    )
     parser.add_argument("--output-manifest", required=True, help="Path to output JSONL manifest (one row per snippet)")
+    parser.add_argument(
+        "--output-audio-tar-path",
+        required=True,
+        help=(
+            "Path to the output audio tar archive containing one member per "
+            "snippet (named '<snippet_id>.<output-format>'). Members are at "
+            "the tar root, sorted lexicographically (WebDataset/Energon "
+            "compatible)."
+        ),
+    )
     parser.add_argument("--metrics-path", required=True, help="Path to metrics summary JSON")
     parser.add_argument("--max-duration-sec", type=float, required=True, help="Maximum snippet duration in seconds")
     parser.add_argument(
@@ -158,7 +175,12 @@ def main() -> None:
     logger.remove()
     logger.add(sys.stderr, level="DEBUG" if args.verbose else "INFO")
 
-    for path in (args.output_dir, os.path.dirname(args.output_manifest), os.path.dirname(args.metrics_path)):
+    for path in (
+        args.output_dir,
+        os.path.dirname(args.output_manifest),
+        os.path.dirname(args.output_audio_tar_path),
+        os.path.dirname(args.metrics_path),
+    ):
         if path:
             os.makedirs(path, exist_ok=True)
 
@@ -167,6 +189,7 @@ def main() -> None:
         audio_dir=args.audio_dir,
         output_dir=args.output_dir,
         output_manifest_path=args.output_manifest,
+        output_audio_tar_path=args.output_audio_tar_path,
         metrics_path=args.metrics_path,
         max_duration_sec=args.max_duration_sec,
         tokenizer_path=args.tokenizer_path,
@@ -191,7 +214,7 @@ def main() -> None:
     executor = _create_executor(args.backend, **executor_kwargs)
 
     logger.info(f"Running on backend={args.backend}")
-    prepare_audio_pretrain_outputs(args.output_manifest, args.metrics_path)
+    prepare_audio_pretrain_outputs(args.output_manifest, args.metrics_path, args.output_audio_tar_path)
     t0 = time.monotonic()
     try:
         pipeline.run(executor)
@@ -201,10 +224,10 @@ def main() -> None:
         # Without this, partial shards would be silently deleted by the next
         # prepare_audio_pretrain_outputs call and any partial output is lost.
         elapsed = time.monotonic() - t0
-        finalize_audio_pretrain_outputs(args.output_manifest, args.metrics_path)
+        finalize_audio_pretrain_outputs(args.output_manifest, args.metrics_path, args.output_audio_tar_path)
     logger.info(
         f"Pipeline finished in {elapsed:.2f}s ({elapsed / 60:.2f} min). "
-        f"Snippets in {args.output_dir}, manifest at {args.output_manifest}, "
+        f"Snippet tar at {args.output_audio_tar_path}, manifest at {args.output_manifest}, "
         f"metrics at {args.metrics_path}"
     )
 

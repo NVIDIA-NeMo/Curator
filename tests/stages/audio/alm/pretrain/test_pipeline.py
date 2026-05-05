@@ -12,12 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""End-to-end pipeline test on a small committed sample of long-form
-diarized audio manifest rows.
+"""End-to-end pipeline tests.
 
-Drives every stage in sequence (no Ray) in dry-run mode -- the test
-doesn't need the source audios to exist on disk, only the manifest --
-and verifies the final manifest + metrics summary against the spec.
+Two scenarios:
+
+* ``TestPipelineEndToEndOnLocalManifest`` drives every stage in
+  sequence (no Ray) in dry-run mode against a committed 10-row sample
+  of real production manifest data; the source audios don't need to
+  exist on disk in dry-run.
+
+* ``TestPipelineEndToEndTarMode`` synthesizes a tiny manifest backed by
+  generated WAV files and runs the pipeline in real-extraction mode,
+  verifying that the merged audio tar contains exactly the expected
+  members (one per manifest snippet row) sorted lexicographically and
+  that each member is decodable.
 
 The fixture ``sample_long_form_manifest.jsonl`` next to this file is a
 10-row excerpt of real production data, large enough to exercise the
@@ -27,10 +35,14 @@ checking in the multi-hundred-MB source manifest.
 
 from __future__ import annotations
 
+import io
 import json
+import tarfile
 from pathlib import Path
 
+import numpy as np
 import pytest
+import soundfile as sf
 
 from nemo_curator.stages.audio.alm.pretrain import (
     OverlapFilterStage,
@@ -92,13 +104,15 @@ def _run_pipeline_inline(  # noqa: PLR0913
     audio_dir: Path,
     output_dir: Path,
     output_manifest: Path,
+    output_audio_tar_path: Path,
     metrics_path: Path,
     max_duration_sec: float,
     target_sample_rate: int,
     tokenizer_path: Path,
+    dry_run: bool = True,
 ) -> None:
     """Run every stage in sequence on the same Python process (no executor)."""
-    prepare_audio_pretrain_outputs(str(output_manifest), str(metrics_path))
+    prepare_audio_pretrain_outputs(str(output_manifest), str(metrics_path), str(output_audio_tar_path))
 
     reader = ReadLongFormManifestStage(input_manifest=str(input_manifest), audio_dir=str(audio_dir))
     reader.__post_init__()
@@ -110,9 +124,10 @@ def _run_pipeline_inline(  # noqa: PLR0913
     rep_filter.setup()
     extractor = SnippetExtractionStage(
         output_dir=str(output_dir),
+        output_audio_tar_path=str(output_audio_tar_path),
         target_sample_rate=target_sample_rate,
         output_format="flac",
-        dry_run=True,
+        dry_run=dry_run,
     )
     extractor.__post_init__()
     extractor.setup_on_node()
@@ -133,8 +148,9 @@ def _run_pipeline_inline(  # noqa: PLR0913
         for snippet_task in extractor.process(rep_filtered):
             writer.process(snippet_task)
             aggregator.process(snippet_task)
+    extractor.teardown()
 
-    finalize_audio_pretrain_outputs(str(output_manifest), str(metrics_path))
+    finalize_audio_pretrain_outputs(str(output_manifest), str(metrics_path), str(output_audio_tar_path))
 
 
 class TestPipelineEndToEndOnLocalManifest:
@@ -160,6 +176,7 @@ class TestPipelineEndToEndOnLocalManifest:
         audio_dir.mkdir()
         output_dir = tmp_path / "snippets"
         output_manifest = tmp_path / "snippets.jsonl"
+        output_audio_tar = tmp_path / "snippets.tar"
         metrics_path = tmp_path / "metrics.json"
         tokenizer_dir = _build_tiny_tokenizer_dir(tmp_path)
 
@@ -168,15 +185,17 @@ class TestPipelineEndToEndOnLocalManifest:
             audio_dir=audio_dir,
             output_dir=output_dir,
             output_manifest=output_manifest,
+            output_audio_tar_path=output_audio_tar,
             metrics_path=metrics_path,
             max_duration_sec=_MAX_DURATION_SEC,
             target_sample_rate=_TARGET_SR,
             tokenizer_path=tokenizer_dir,
         )
 
-        # Output files exist
+        # Output files exist; tar file is NOT produced in dry-run.
         assert output_manifest.exists()
         assert metrics_path.exists()
+        assert not output_audio_tar.exists()
 
         # All shards merged + cleaned up
         leftover = sorted(tmp_path.glob("**/*.shard-*"))
@@ -203,6 +222,9 @@ class TestPipelineEndToEndOnLocalManifest:
             assert isinstance(row["snippet_id"], str)
             assert row["snippet_id"].startswith(row["id"] + "-")
             assert row["audio_filepath"].endswith(".flac")
+            # In tar mode `audio_filepath` is the tar-internal basename only.
+            assert "/" not in row["audio_filepath"]
+            assert row["audio_filepath"] == f"{row['snippet_id']}.flac"
             assert isinstance(row["duration"], (int, float))
             assert row["duration"] > 0
             # Audio-property fields point to the snippet, not the source
@@ -271,3 +293,103 @@ class TestPipelineEndToEndOnLocalManifest:
                 "out_segments",
                 "out_duration_sec",
             } <= set(entry)
+
+
+class TestPipelineEndToEndTarMode:
+    """End-to-end real-extraction test with the audio tar output enabled.
+
+    Synthesizes two short WAV source audios with a hand-rolled segment
+    list, runs the full pipeline in non-dry-run mode, and verifies that
+    the final merged tar at ``output_audio_tar_path`` contains exactly
+    the snippets the manifest references, sorted lexicographically, and
+    that every member decodes back to the expected sample rate +
+    duration.
+    """
+
+    @staticmethod
+    def _make_wav(path: Path, duration_sec: float, sample_rate: int) -> None:
+        n = int(duration_sec * sample_rate)
+        t = np.linspace(0, duration_sec, n, endpoint=False, dtype=np.float32)
+        mono = (0.1 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        sf.write(str(path), mono, sample_rate, subtype="PCM_16")
+
+    @staticmethod
+    def _seg(start: float, end: float, text: str) -> dict:
+        return {"speaker": "A", "start": start, "end": end, "text": text, "text_ITN": text, "words": []}
+
+    def test_full_pipeline_writes_merged_tar_with_expected_members(self, tmp_path: Path) -> None:
+        pytest.importorskip("transformers")
+        pytest.importorskip("tokenizers")
+        pytest.importorskip("torchaudio")
+
+        audio_dir = tmp_path / "audios"
+        audio_dir.mkdir()
+        # Two source files, 12s each. Each yields 2 snippets at max-duration 5s
+        # (planner packs greedy, snippet boundaries fall on segment boundaries).
+        for src_id in ("A", "B"):
+            self._make_wav(audio_dir / f"{src_id}.wav", duration_sec=12.0, sample_rate=16000)
+
+        rows = []
+        for src_id in ("A", "B"):
+            rows.append(
+                {
+                    "id": src_id,
+                    "audio_filepath": str(audio_dir / f"{src_id}.wav"),
+                    # 4 segments of ~3s each, no overlaps, < 30s default gap
+                    "segments": [
+                        self._seg(0.0, 3.0, f"{src_id} hello"),
+                        self._seg(3.0, 6.0, f"{src_id} world"),
+                        self._seg(6.0, 9.0, f"{src_id} foo"),
+                        self._seg(9.0, 12.0, f"{src_id} bar"),
+                    ],
+                }
+            )
+
+        in_manifest = tmp_path / "in.jsonl"
+        with in_manifest.open("w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+
+        output_dir = tmp_path / "snippets"
+        output_manifest = tmp_path / "snippets.jsonl"
+        output_audio_tar = tmp_path / "snippets.tar"
+        metrics_path = tmp_path / "metrics.json"
+        tokenizer_dir = _build_tiny_tokenizer_dir(tmp_path)
+
+        _run_pipeline_inline(
+            input_manifest=in_manifest,
+            audio_dir=audio_dir,
+            output_dir=output_dir,
+            output_manifest=output_manifest,
+            output_audio_tar_path=output_audio_tar,
+            metrics_path=metrics_path,
+            max_duration_sec=5.0,
+            target_sample_rate=_TARGET_SR,
+            tokenizer_path=tokenizer_dir,
+            dry_run=False,
+        )
+
+        # Final tar exists; shards cleaned up
+        assert output_audio_tar.exists()
+        assert sorted(tmp_path.glob("snippets.tar.shard-*.tar")) == []
+
+        # Manifest's audio_filepath set == tar member set
+        with output_manifest.open(encoding="utf-8") as f:
+            snippet_rows = [json.loads(line) for line in f if line.strip()]
+        assert snippet_rows, "expected at least one snippet emitted"
+        manifest_members = {row["audio_filepath"] for row in snippet_rows}
+
+        with tarfile.open(str(output_audio_tar), "r") as t:
+            tar_member_names = t.getnames()
+            # Members are sorted lexicographically by the merger
+            assert tar_member_names == sorted(tar_member_names)
+            assert set(tar_member_names) == manifest_members
+            # Every member is a readable audio file at the target SR
+            for ti in t.getmembers():
+                assert ti.isreg()
+                f = t.extractfile(ti)
+                assert f is not None
+                data, sr = sf.read(io.BytesIO(f.read()), always_2d=True)
+                assert sr == _TARGET_SR
+                assert data.shape[1] == 1
+                assert data.shape[0] > 0

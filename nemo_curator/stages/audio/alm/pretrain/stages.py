@@ -32,9 +32,11 @@ from __future__ import annotations
 
 import copy
 import glob
+import io
 import json
 import math
 import os
+import tarfile
 import time
 import uuid
 from collections import Counter, defaultdict
@@ -73,6 +75,16 @@ _MANIFEST_SHARD_EXT = "jsonl"
 # flushed in teardown would always produce an empty summary. See
 # `PretrainMetricsAggregatorStage.process` for the per-task record schema.
 _METRICS_SHARD_EXT = "jsonl"
+# Per-replica audio tar shards; merged into the user-facing tar in
+# `finalize_audio_pretrain_outputs`. The extractor holds an open
+# `TarFile` on the instance for the worker's lifetime (re-opening in
+# append mode for every snippet would force `tarfile` to re-scan the
+# archive to find the end-of-archive marker, making writes O(n^2)). A
+# worker killed by `ray.kill()` mid-process won't write the trailing
+# zero-blocks, but `tarfile.open(..., "r")` reads such truncated
+# archives by walking valid headers until it hits EOF, so the merger
+# tolerates them.
+_TAR_SHARD_EXT = "tar"
 # Cap on how many filtered snippet texts are retained for the metrics summary.
 # Bounds per-source metadata, shard size, and the final summary list size --
 # the same constant is applied per-source in the filter stage and globally in
@@ -818,7 +830,7 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
 @dataclass
 class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
-    """Slice the source audio per snippet plan, mono-resample, and write.
+    """Slice the source audio per snippet plan, mono-resample, and write into a tar.
 
     For each planned snippet:
 
@@ -826,26 +838,37 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     2. Channel-average to mono if the source has > 1 channel.
     3. Resample to ``target_sample_rate`` using torchaudio if the source
        rate differs.
-    4. Write to ``output_dir/<snippet_id>.<output_format>``.
+    4. Encode the mono waveform in-memory (via ``soundfile`` to a
+       ``BytesIO``) and append it as ``<snippet_id>.<output_format>`` to
+       this replica's tar shard (``output_audio_tar_path.shard-...``);
+       all replicas' shards are merged into ``output_audio_tar_path`` by
+       :func:`finalize_audio_pretrain_outputs`.
     5. Emit one ``AudioTask`` per snippet with the source row's metadata
        carried over (minus ``alignment``), the new ``snippet_id``,
-       updated ``audio_filepath`` / ``duration``, and segments
-       relativized to the snippet start.
+       ``audio_filepath`` set to the **tar-internal basename**
+       (``<snippet_id>.<output_format>``), updated ``duration``, and
+       segments relativized to the snippet start.
+
+    The tar-internal basename matches webdataset / Energon convention:
+    sample key is ``<snippet_id>`` (everything before the first ``.``),
+    extension is ``<output_format>``.  ``make_snippet_id`` already
+    avoids ``.`` characters so the snippet id never spuriously splits.
 
     If the input produced zero snippets, a single "stub" ``AudioTask``
-    is emitted (``snippet_id=None``, no audio file written) so that
+    is emitted (``snippet_id=None``, no audio written) so that
     per-original metrics can still flow to the aggregator.
 
     Dry-run mode (``dry_run=True``): skips steps 1-4 entirely (no
-    ``soundfile`` reads, no resampling, no file writes), and step 5 uses
-    the planned ``end - start`` as the snippet ``duration`` instead of
-    the post-resample frame count.  The emitted ``audio_filepath`` still
-    points at where the file *would* have been written, but the file
-    does not exist on disk.  Useful for quickly previewing the manifest
-    and metrics on real data before committing to a full run.
+    ``soundfile`` reads, no resampling, no tar writes -- not even a tar
+    shard is opened), and step 5 uses the planned ``end - start`` as the
+    snippet ``duration`` instead of the post-resample frame count.  The
+    emitted ``audio_filepath`` still uses the basename form for parity
+    with real runs.  Useful for previewing the manifest and metrics on
+    real data before committing to a full run.
     """
 
     output_dir: str = ""
+    output_audio_tar_path: str = ""
     target_sample_rate: int = 16000
     output_format: str = "flac"
     audio_filepath_key: str = "audio_filepath"
@@ -859,12 +882,17 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         if not self.output_dir:
             msg = "output_dir is required for SnippetExtractionStage"
             raise ValueError(msg)
+        if not self.output_audio_tar_path:
+            msg = "output_audio_tar_path is required for SnippetExtractionStage"
+            raise ValueError(msg)
         if self.output_format not in _SOUNDFILE_SUBTYPES:
             msg = f"output_format must be one of {sorted(_SOUNDFILE_SUBTYPES)}, got {self.output_format!r}"
             raise ValueError(msg)
         if self.target_sample_rate <= 0:
             msg = "target_sample_rate must be > 0"
             raise ValueError(msg)
+        self._tar_shard_path: str | None = None
+        self._tar: Any = None  # tarfile.TarFile, opened lazily in setup()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, _PLAN_DATA_KEY]
@@ -881,9 +909,29 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
+        parent = os.path.dirname(self.output_audio_tar_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
+        parent = os.path.dirname(self.output_audio_tar_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        if self.dry_run:
+            return
+        self._tar_shard_path = _make_shard_path(self.output_audio_tar_path, _TAR_SHARD_EXT)
+        self._tar = tarfile.open(self._tar_shard_path, "w")
+        logger.info(f"[{self.name}] writing audio tar shard to {self._tar_shard_path}")
+
+    def teardown(self) -> None:
+        if self._tar is not None:
+            try:
+                self._tar.close()
+            except OSError as e:
+                logger.warning(f"[{self.name}] failed to close tar shard {self._tar_shard_path}: {e}")
+            finally:
+                self._tar = None
 
     def process(self, task: AudioTask) -> list[AudioTask]:
         t0 = time.perf_counter()
@@ -943,19 +991,19 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     ) -> list[AudioTask]:
         """Emit snippet metadata only, without reading or writing audio.
 
-        The ``audio_filepath`` of each emitted task points at where the
-        snippet *would* have been written; that file does not exist on
-        disk in dry-run mode.  Snippet ``duration`` is the planned
-        ``end - start`` (vs. the resampled-frame-count duration the real
-        path would compute -- the difference is at most one frame at
-        ``target_sample_rate``).
+        ``audio_filepath`` is the tar-internal basename
+        ``<snippet_id>.<output_format>`` for parity with real runs --
+        the tar itself is not opened in dry-run.  Snippet ``duration``
+        is the planned ``end - start`` (vs. the resampled-frame-count
+        duration the real path would compute -- the difference is at
+        most one frame at ``target_sample_rate``).
         """
         outputs: list[AudioTask] = []
         for snippet in plan:
             start_sec = float(snippet["start"])
             end_sec = float(snippet["end"])
             snippet_id = make_snippet_id(original_id, start_sec, end_sec)
-            out_path = os.path.join(self.output_dir, f"{snippet_id}.{self.output_format}")
+            out_path = f"{snippet_id}.{self.output_format}"
             outputs.append(
                 self._make_snippet_task(
                     task=task,
@@ -1008,23 +1056,29 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         actual_duration = mono.shape[0] / float(self.target_sample_rate)
 
         snippet_id = make_snippet_id(original_id, start_sec, end_sec)
-        out_path = os.path.join(self.output_dir, f"{snippet_id}.{self.output_format}")
+        member_name = f"{snippet_id}.{self.output_format}"
         try:
+            buf = io.BytesIO()
             sf.write(
-                out_path,
+                buf,
                 mono,
                 self.target_sample_rate,
+                format=self.output_format.upper(),
                 subtype=_SOUNDFILE_SUBTYPES[self.output_format],
             )
+            payload = buf.getvalue()
+            tarinfo = tarfile.TarInfo(name=member_name)
+            tarinfo.size = len(payload)
+            self._tar.addfile(tarinfo, io.BytesIO(payload))
         except Exception as e:  # noqa: BLE001
-            logger.error(f"[{self.name}] failed to write {out_path}: {e}")
+            logger.error(f"[{self.name}] failed to add {member_name} to tar shard {self._tar_shard_path}: {e}")
             return None
 
         return self._make_snippet_task(
             task=task,
             snippet=snippet,
             snippet_id=snippet_id,
-            out_path=out_path,
+            out_path=member_name,
             duration=actual_duration,
         )
 
@@ -1256,7 +1310,9 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
 # ----------------------------------------------------------------------
 
 
-def prepare_audio_pretrain_outputs(output_manifest_path: str, metrics_path: str) -> None:
+def prepare_audio_pretrain_outputs(
+    output_manifest_path: str, metrics_path: str, output_audio_tar_path: str
+) -> None:
     """Delete any pre-existing shards from prior runs.
 
     Call this once on the driver, BEFORE ``pipeline.run()``.  Multi-worker
@@ -1265,24 +1321,38 @@ def prepare_audio_pretrain_outputs(output_manifest_path: str, metrics_path: str)
     """
     n_man = _delete_shards(output_manifest_path, _MANIFEST_SHARD_EXT)
     n_met = _delete_shards(metrics_path, _METRICS_SHARD_EXT)
-    if n_man or n_met:
+    n_tar = _delete_shards(output_audio_tar_path, _TAR_SHARD_EXT)
+    if n_man or n_met or n_tar:
         logger.info(
             f"prepare_audio_pretrain_outputs: removed {n_man} stale manifest "
-            f"shard(s) and {n_met} stale metrics shard(s) from prior runs"
+            f"shard(s), {n_met} stale metrics shard(s), {n_tar} stale tar shard(s) "
+            f"from prior runs"
         )
 
 
-def finalize_audio_pretrain_outputs(output_manifest_path: str, metrics_path: str) -> None:
-    """Merge per-worker shards into the final manifest and metrics JSON.
+def finalize_audio_pretrain_outputs(
+    output_manifest_path: str, metrics_path: str, output_audio_tar_path: str
+) -> None:
+    """Merge per-worker shards into the final manifest, metrics JSON, and audio tar.
 
     Call once on the driver, AFTER ``pipeline.run()`` returns
-    successfully.  Reads all manifest + metrics shards written by the
-    writer / aggregator stages, concatenates / combines them, writes
-    the final user-facing files at the user-provided paths, and removes
-    the shards.
+    successfully.  Reads all manifest + metrics + tar shards written by
+    the writer / aggregator / extractor stages, concatenates / combines
+    them, writes the final user-facing files at the user-provided paths,
+    and removes the shards.
+
+    After the audio tar is built, reconciles the manifest against the
+    tar: any manifest row whose ``audio_filepath`` is not a valid member
+    in the tar is dropped.  This guards against the Xenna failure mode
+    where a worker is ``ray.kill``-ed between writing a JSONL line for
+    a snippet and flushing the snippet's audio bytes to its tar shard,
+    which would otherwise leave consumers (WebDataset, Energon) with a
+    manifest entry pointing at a missing tar member.
     """
     _merge_manifest_shards(output_manifest_path)
     _merge_metrics_shards(metrics_path)
+    _merge_tar_shards(output_audio_tar_path)
+    _reconcile_manifest_with_tar(output_manifest_path, output_audio_tar_path)
 
 
 def _merge_manifest_shards(output_path: str) -> None:
@@ -1388,6 +1458,137 @@ def _merge_metrics_shards(metrics_path: str) -> None:
         except OSError as e:
             logger.warning(f"failed to remove metrics shard {s}: {e}")
     logger.info(f"merged {len(shards)} metrics shard(s) into {metrics_path}")
+
+
+def _merge_tar_shards(output_path: str) -> None:
+    """Merge per-replica audio tar shards into ``output_path``.
+
+    Reads every ``<output_path>.shard-*.tar`` written by the extractor
+    workers, copies their members into a single fresh tar at
+    ``output_path`` in **lexicographic member-name order** (matches
+    Energon expectations for indexed tar datasets), and removes the
+    shards.  Re-write via Python ``tarfile`` instead of byte-level
+    concatenation so the merger is portable, handles padding/header
+    boundaries correctly, and tolerates shards left without trailing
+    zero-blocks by workers that were ``ray.kill``-ed before
+    ``teardown()``.
+    """
+    shards = _glob_shards(output_path, _TAR_SHARD_EXT)
+    # Same re-run-safety guard as _merge_manifest_shards: skip when no
+    # shards exist so an early failure on a re-run can't overwrite a
+    # previous successful run's tar with an empty archive.
+    if not shards:
+        logger.info(f"no tar shards found for {output_path}; skipping merge")
+        return
+    parent = os.path.dirname(output_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    # Read all (tarinfo, payload) pairs into memory before sorting and
+    # writing.  Snippet payloads are bounded by `max_duration_sec` (a few
+    # MB at 16 kHz mono FLAC for a 600s snippet); a typical run produces
+    # thousands of them and fits comfortably in worker RAM.  If this ever
+    # becomes a memory issue, switch to a two-pass approach (collect
+    # member names + offsets, then stream-copy in sorted order).
+    members: list[tuple[tarfile.TarInfo, bytes]] = []
+    for s in shards:
+        try:
+            in_tar = tarfile.open(s, "r")
+        except tarfile.TarError as e:
+            # An empty or non-tar file written by a worker killed before
+            # the first `addfile()` -- nothing recoverable in this shard.
+            logger.warning(f"skipping unreadable tar shard {s}: {e}")
+            continue
+        try:
+            # Iterate manually and stop at the first malformed header,
+            # rather than `for ti in in_tar:` which raises on truncation.
+            # A worker `ray.kill`-ed mid-write can leave the trailing
+            # member partially written; everything before that point is
+            # still valid and recoverable.
+            kept_in_shard = 0
+            while True:
+                try:
+                    ti = in_tar.next()
+                except tarfile.TarError as e:
+                    logger.warning(
+                        f"tar shard {s} truncated after {kept_in_shard} member(s): {e}; "
+                        f"keeping the recovered members"
+                    )
+                    break
+                if ti is None:
+                    break
+                if not ti.isreg():
+                    continue
+                try:
+                    f = in_tar.extractfile(ti)
+                    payload = f.read() if f is not None else b""
+                except tarfile.TarError as e:
+                    logger.warning(
+                        f"tar shard {s} member {ti.name!r} unreadable ({e}); "
+                        f"stopping at {kept_in_shard} kept member(s)"
+                    )
+                    break
+                members.append((ti, payload))
+                kept_in_shard += 1
+        finally:
+            in_tar.close()
+    members.sort(key=lambda m: m[0].name)
+    with tarfile.open(output_path, "w") as out_tar:
+        for ti, payload in members:
+            ti.size = len(payload)
+            out_tar.addfile(ti, io.BytesIO(payload))
+    for s in shards:
+        try:
+            os.remove(s)
+        except OSError as e:
+            logger.warning(f"failed to remove tar shard {s}: {e}")
+    logger.info(f"merged {len(shards)} tar shard(s) into {output_path} ({len(members)} member(s))")
+
+
+def _reconcile_manifest_with_tar(manifest_path: str, tar_path: str) -> None:
+    """Drop manifest rows whose ``audio_filepath`` isn't in ``tar_path``.
+
+    A no-op when the tar file doesn't exist (dry-run, or all tar shards
+    were empty).  See ``finalize_audio_pretrain_outputs`` for why this
+    is needed even when the pipeline reports success.
+    """
+    if not os.path.exists(tar_path):
+        return
+    if not os.path.exists(manifest_path):
+        return
+    try:
+        with tarfile.open(tar_path, "r") as t:
+            valid_members = set(t.getnames())
+    except tarfile.TarError as e:
+        logger.warning(f"cannot read merged tar {tar_path} for manifest reconciliation: {e}")
+        return
+
+    kept_lines: list[str] = []
+    dropped = 0
+    with open(manifest_path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                # _merge_manifest_shards already filtered these; unreachable
+                # in practice, but keep the file usable if it ever happens.
+                continue
+            if row.get("audio_filepath") in valid_members:
+                kept_lines.append(line)
+            else:
+                dropped += 1
+    if dropped == 0:
+        return
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        for line in kept_lines:
+            f.write(line + "\n")
+    logger.warning(
+        f"reconciled manifest {manifest_path}: dropped {dropped} row(s) whose "
+        f"audio_filepath is not a valid member of {tar_path} (likely truncated "
+        f"by a worker killed mid-write); {len(kept_lines)} row(s) kept"
+    )
 
 
 def _build_final_summary(

@@ -200,7 +200,11 @@ class TestSnippetExtractionStageDryRun:
                 "alignment": "STALE",
             }
         )
-        stage = SnippetExtractionStage(output_dir=str(tmp_path / "snips"), dry_run=True)
+        stage = SnippetExtractionStage(
+            output_dir=str(tmp_path / "snips"),
+            output_audio_tar_path=str(tmp_path / "snips.tar"),
+            dry_run=True,
+        )
         stage.__post_init__()
         out = stage.process(task)
         assert len(out) == 2
@@ -210,7 +214,9 @@ class TestSnippetExtractionStageDryRun:
         # fields, underscores instead of decimal points so the resulting
         # filename has only one `.` before the extension).
         assert s0["snippet_id"] == "X-0_000-5_000"
-        assert s0["audio_filepath"].endswith("X-0_000-5_000.flac")
+        # In tar mode `audio_filepath` is the tar-internal basename,
+        # not a filesystem path -- no slashes.
+        assert s0["audio_filepath"] == "X-0_000-5_000.flac"
         assert s0["duration"] == pytest.approx(5.0)
         # Field cleanup
         assert "alignment" not in s0
@@ -228,17 +234,28 @@ class TestSnippetExtractionStageDryRun:
 
     def test_zero_planned_emits_stub(self, tmp_path: Path) -> None:
         task = _make_audio_task({"id": "X", _PLAN_DATA_KEY: []})
-        stage = SnippetExtractionStage(output_dir=str(tmp_path / "snips"), dry_run=True)
+        stage = SnippetExtractionStage(
+            output_dir=str(tmp_path / "snips"),
+            output_audio_tar_path=str(tmp_path / "snips.tar"),
+            dry_run=True,
+        )
         stage.__post_init__()
         out = stage.process(task)
         assert len(out) == 1
         assert out[0].data["snippet_id"] is None
 
     def test_invalid_output_format_rejected(self, tmp_path: Path) -> None:
+        tar_path = str(tmp_path / "snips.tar")
         with pytest.raises(ValueError, match="output_format"):
-            SnippetExtractionStage(output_dir=str(tmp_path), output_format="m4a").__post_init__()
+            SnippetExtractionStage(
+                output_dir=str(tmp_path), output_audio_tar_path=tar_path, output_format="m4a"
+            ).__post_init__()
         with pytest.raises(ValueError, match="target_sample_rate"):
-            SnippetExtractionStage(output_dir=str(tmp_path), target_sample_rate=0).__post_init__()
+            SnippetExtractionStage(
+                output_dir=str(tmp_path), output_audio_tar_path=tar_path, target_sample_rate=0
+            ).__post_init__()
+        with pytest.raises(ValueError, match="output_audio_tar_path"):
+            SnippetExtractionStage(output_dir=str(tmp_path)).__post_init__()
 
 
 # ----------------------------------------------------------------------
@@ -348,6 +365,7 @@ class TestPrepareAndFinalize:
     def test_finalize_merges_manifest_and_metrics(self, tmp_path: Path) -> None:
         manifest = str(tmp_path / "snippets.jsonl")
         metrics = str(tmp_path / "metrics.json")
+        tar_path = str(tmp_path / "snippets.tar")
 
         # Two writer shards
         s1 = _make_shard_path(manifest, "jsonl")
@@ -375,7 +393,7 @@ class TestPrepareAndFinalize:
         with open(m2, "w") as f:
             f.write(json.dumps({**record_template, "out_duration_sec": 31.0}) + "\n")
 
-        finalize_audio_pretrain_outputs(manifest, metrics)
+        finalize_audio_pretrain_outputs(manifest, metrics, tar_path)
 
         # Manifest concatenated
         lines = Path(manifest).read_text(encoding="utf-8").splitlines()
@@ -398,6 +416,7 @@ class TestPrepareAndFinalize:
         monkeypatch.setattr(m, "_MAX_FILTERED_TEXT_EXAMPLES", 5)
         manifest = str(tmp_path / "snippets.jsonl")
         metrics = str(tmp_path / "metrics.json")
+        tar_path = str(tmp_path / "snippets.tar")
 
         record_template = {
             "in_segments": 10,
@@ -419,7 +438,7 @@ class TestPrepareAndFinalize:
                 }
                 f.write(json.dumps(rec) + "\n")
 
-        finalize_audio_pretrain_outputs(manifest, metrics)
+        finalize_audio_pretrain_outputs(manifest, metrics, tar_path)
 
         summary = json.loads(Path(metrics).read_text(encoding="utf-8"))
         examples = summary["dropped_repetition_examples"]
@@ -433,17 +452,86 @@ class TestPrepareAndFinalize:
             "src1-text0",
         ]
 
+    def test_finalize_merges_tar_shards_sorted(self, tmp_path: Path) -> None:
+        import io
+        import tarfile
+
+        manifest = str(tmp_path / "snippets.jsonl")
+        metrics = str(tmp_path / "metrics.json")
+        tar_path = str(tmp_path / "snippets.tar")
+
+        # Two tar shards, in unsorted order across the two files
+        s1 = _make_shard_path(tar_path, "tar")
+        s2 = _make_shard_path(tar_path, "tar")
+        with tarfile.open(s1, "w") as t:
+            for name, body in (("c.flac", b"CCC"), ("a.flac", b"AAA")):
+                ti = tarfile.TarInfo(name=name)
+                ti.size = len(body)
+                t.addfile(ti, io.BytesIO(body))
+        with tarfile.open(s2, "w") as t:
+            for name, body in (("d.flac", b"DDDD"), ("b.flac", b"BB")):
+                ti = tarfile.TarInfo(name=name)
+                ti.size = len(body)
+                t.addfile(ti, io.BytesIO(body))
+
+        finalize_audio_pretrain_outputs(manifest, metrics, tar_path)
+
+        # Final tar exists, contains all 4 members, sorted
+        with tarfile.open(tar_path, "r") as t:
+            names = t.getnames()
+            assert names == ["a.flac", "b.flac", "c.flac", "d.flac"]
+            payloads = {n: t.extractfile(n).read() for n in names}
+        assert payloads == {"a.flac": b"AAA", "b.flac": b"BB", "c.flac": b"CCC", "d.flac": b"DDDD"}
+        # Tar shards cleaned up
+        assert sorted(tmp_path.glob("snippets.tar.shard-*.tar")) == []
+
+    def test_finalize_drops_manifest_rows_missing_from_tar(self, tmp_path: Path) -> None:
+        """Manifest reconciliation: rows whose tar member is missing get dropped."""
+        import io
+        import tarfile
+
+        manifest = str(tmp_path / "snippets.jsonl")
+        metrics = str(tmp_path / "metrics.json")
+        tar_path = str(tmp_path / "snippets.tar")
+
+        # Manifest writer shard with 3 entries; tar shard has only 2 of those
+        # members (the third member's data was "truncated" -- simulated by
+        # never adding it to the tar at all).
+        ms = _make_shard_path(manifest, "jsonl")
+        with open(ms, "w") as f:
+            for sid in ("X-0_000-1_000", "X-1_000-2_000", "X-2_000-3_000"):
+                f.write(
+                    json.dumps(
+                        {"id": "X", "snippet_id": sid, "audio_filepath": f"{sid}.flac", "duration": 1.0}
+                    )
+                    + "\n"
+                )
+        ts = _make_shard_path(tar_path, "tar")
+        with tarfile.open(ts, "w") as t:
+            for sid in ("X-0_000-1_000", "X-2_000-3_000"):
+                ti = tarfile.TarInfo(name=f"{sid}.flac")
+                ti.size = 4
+                t.addfile(ti, io.BytesIO(b"FAKE"))
+
+        finalize_audio_pretrain_outputs(manifest, metrics, tar_path)
+
+        # Manifest reduced to 2 rows matching the tar's members
+        kept_paths = [json.loads(line)["audio_filepath"] for line in Path(manifest).read_text().splitlines() if line]
+        assert sorted(kept_paths) == ["X-0_000-1_000.flac", "X-2_000-3_000.flac"]
+
     def test_prepare_removes_only_matching_shards(self, tmp_path: Path) -> None:
         manifest = str(tmp_path / "snippets.jsonl")
         metrics = str(tmp_path / "metrics.json")
-        # Plant a stale shard for both (both are JSONL — metrics shards are
-        # JSONL too, since the aggregator writes per-task records).
+        tar_path = str(tmp_path / "snippets.tar")
+        # Plant a stale shard for each output type. Manifest and metrics
+        # shards are JSONL; tar shards are TAR.
         for path in (manifest, metrics):
             Path(_make_shard_path(path, "jsonl")).touch()
+        Path(_make_shard_path(tar_path, "tar")).touch()
         unrelated = tmp_path / "other.txt"
         unrelated.write_text("keep me", encoding="utf-8")
 
-        prepare_audio_pretrain_outputs(manifest, metrics)
+        prepare_audio_pretrain_outputs(manifest, metrics, tar_path)
 
         assert list(tmp_path.glob("*.shard-*")) == []
         assert unrelated.exists()
