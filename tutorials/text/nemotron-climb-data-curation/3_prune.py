@@ -187,6 +187,9 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
     assert len(args.fasttext_model_paths) == len(args.score_fields), (  # noqa: S101
         "Number of fasttext model paths and score fields must match"
     )
+    assert len(args.pruning_thresholds) == len(args.score_fields), (  # noqa: S101
+        "Number of pruning thresholds and score fields must match"
+    )
     for fasttext_model_path, score_field in zip(args.fasttext_model_paths, args.score_fields, strict=True):
         pipeline.add_stage(
             Score(
@@ -202,12 +205,12 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
     pipeline.run()
 
     removed_clusters = []
-    for score_field in args.score_fields:
+    for score_field, pruning_threshold in zip(args.score_fields, args.pruning_thresholds, strict=True):
         # List all subdirectories under the output path and compute average score per cluster
         subdirectories = [os.path.join(args.output_path, d) for d in os.listdir(args.output_path)]
         paths_to_remove = ray.get(
             [
-                compute_average_score_per_cluster.remote(subdirectory, score_field, args.pruning_threshold)
+                compute_average_score_per_cluster.remote(subdirectory, score_field, pruning_threshold)
                 for subdirectory in subdirectories
             ]
         )
@@ -266,7 +269,7 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--output-path", type=str, required=True)
 
     # Pruning args
-    parser.add_argument("--pruning-threshold", type=float, default=1.0)
+    parser.add_argument("--pruning-thresholds", nargs="+", type=float, required=True)
 
     # Cluster merging args
     parser.add_argument("--centroids-path", type=str, required=True)

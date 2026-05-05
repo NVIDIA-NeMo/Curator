@@ -108,12 +108,14 @@ FASTTEXT_SCORE_FIELDS=(
     informational_value_score
     quality_score
 )
+FASTTEXT_PRUNING_THRESHOLDS=(2.0 1.0 1.0 1.0 1.0)
 python 3_prune.py \
     --input-path /path/to/clusters \
     --output-path /path/to/pruned_clusters \
     --fasttext-model-paths ${FASTTEXT_MODEL_PATHS[@]} \
     --score-fields ${FASTTEXT_SCORE_FIELDS[@]} \
     --text-field "text" \
+    --pruning-thresholds ${FASTTEXT_PRUNING_THRESHOLDS[@]} \
     --centroids-path /path/to/centroids \
     --merge-threshold 1.5
 ```
@@ -130,9 +132,9 @@ TODO: Update links when the models are published
 - [best_model_informational_value.bin](https://huggingface.co/nvidia)
 - [best_model_quality.bin](https://huggingface.co/nvidia)
 
-Users may opt to run the script with all 5 models as demonstrated above, or a subset of the models. For each path in `--fasttext-model-paths`, a unique score field must be set via the `--score-fields` argument.
+Users may opt to run the script with all 5 models as demonstrated above, or a subset of the models. For each path in `--fasttext-model-paths`, a unique score field must be set via the `--score-fields` argument. After the FastText scores are computed, clusters with an average score less than the corresponding pruning threshold are removed. For example, in the above snippet, the average advertisement score of a cluster must be 2.0 or larger; the rest of the cultural, educational, informational, and quality scores must be 1.0 or larger.
 
-After the FastText scores are computed, clusters with an average score less than `--pruning-threshold 1.0` are removed. Finally, remaining clusters with a Euclidean distance closer than `--merge-threshold 1.5` are combined with each other.
+Finally, remaining clusters with a Euclidean distance closer than `--merge-threshold 1.5` are combined with each other to form super clusters.
 
 ## Step 4: Convert to Tokenized Files
 
