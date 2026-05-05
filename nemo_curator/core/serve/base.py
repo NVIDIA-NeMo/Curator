@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
@@ -57,11 +58,57 @@ class BaseModelConfig:
             merged["env_vars"] = {**base_env_vars, **override_env_vars}
 
         for key in ("pip", "uv"):
-            base_packages = base.get(key, [])
-            override_packages = override.get(key, [])
-            if base_packages and override_packages:
-                merged[key] = [*base_packages, *override_packages]
+            if key in base or key in override:
+                merged[key] = BaseModelConfig._merge_package_runtime_env(key, base.get(key), override.get(key))
 
+        return merged
+
+    @staticmethod
+    def _merge_package_runtime_env(
+        key: str,
+        base: dict[str, Any] | list[str] | None,
+        override: dict[str, Any] | list[str] | None,
+    ) -> dict[str, Any] | list[str]:
+        # Ray accepts pip/uv as either a list of packages or a dict carrying
+        # ``packages`` plus ``{pip,uv_pip}_install_options``. A list-form
+        # override must append to ``packages`` without dropping the dict-form
+        # base's installer options.
+        if base is None:
+            return deepcopy(override)
+        if override is None:
+            return deepcopy(base)
+
+        if isinstance(base, list) and isinstance(override, list):
+            return [*base, *override]
+
+        option_key = "uv_pip_install_options" if key == "uv" else "pip_install_options"
+
+        if isinstance(base, dict):
+            merged: dict[str, Any] = deepcopy(base)
+            base_packages = list(base.get("packages", []))
+            base_options = list(base.get(option_key, []))
+        else:
+            merged = {"packages": list(base)}
+            base_packages = list(base)
+            base_options = []
+
+        if isinstance(override, dict):
+            override_packages = list(override.get("packages", []))
+            override_options = list(override.get(option_key, []))
+            # Carry override's extra keys (e.g. ``pip_check``) through. The
+            # symmetric base-side propagation happens via ``deepcopy(base)``
+            # above when base is a dict; when base is a list it has no extra
+            # keys to carry.
+            for k, v in override.items():
+                if k not in {"packages", option_key}:
+                    merged[k] = deepcopy(v)
+        else:
+            override_packages = list(override)
+            override_options = []
+
+        merged["packages"] = [*base_packages, *override_packages]
+        if base_options or override_options:
+            merged[option_key] = [*base_options, *override_options]
         return merged
 
 
