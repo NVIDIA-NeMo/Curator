@@ -87,6 +87,31 @@ def test_process_batch(tmp_path: Path) -> None:
     assert len(lines) == 2
 
 
+def test_write_perf_stats_false_skips_perf_outputs(tmp_path: Path) -> None:
+    stage = ShardedManifestWriterStage(output_dir=str(tmp_path), write_perf_stats=False)
+    task = AudioTask(
+        task_id="t1",
+        data={"text": "hello", "duration": 1.0},
+        _metadata={"_shard_key": "corpus/shard_0", "_shard_total": 1},
+        _stage_perf=[
+            StagePerfStats(
+                stage_name="upstream",
+                process_time=1.0,
+                num_items_processed=1,
+                custom_metrics={"audio_duration_s": 1.0},
+            )
+        ],
+    )
+
+    stage.process(task)
+    stage.teardown()
+
+    assert (tmp_path / "corpus" / "shard_0.jsonl").exists()
+    assert (tmp_path / "corpus" / "shard_0.jsonl.done").exists()
+    assert not (tmp_path / "corpus" / "shard_0_perf.jsonl").exists()
+    assert not (tmp_path / "perf_summary.json").exists()
+
+
 def test_empty_batch(tmp_path: Path) -> None:
     stage = ShardedManifestWriterStage(output_dir=str(tmp_path))
     assert stage.process_batch([]) == []

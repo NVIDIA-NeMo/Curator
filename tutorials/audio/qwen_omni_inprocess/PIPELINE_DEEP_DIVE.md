@@ -162,13 +162,13 @@ The shard key is derived from the manifest path starting at the corpus
 directory component. For example:
 
 ```text
-/tmp/work/mmlpc/aaftabv/granary_data_sample/manifests/manifest_0.json
+/tmp/work/mmlpc/project/granary_data_sample/manifests/manifest_0.json
 ```
 
 with `corpus: mmlpc` becomes:
 
 ```text
-mmlpc/aaftabv/granary_data_sample/manifests/manifest_0
+mmlpc/project/granary_data_sample/manifests/manifest_0
 ```
 
 This key is later used by the writer, so output paths mirror the input
@@ -385,6 +385,9 @@ punctuation and capitalization:
 - output key: `pnc_text`
 - model: `pnc_model_id`
 - prompt: `pnc_prompt_file` or `pnc_prompt`
+- language context: the default prompt includes `{language}`, and the stage
+  passes per-sample language names from `source_lang_key` into
+  `QwenTextLLM.generate(..., languages=...)`
 
 Important runtime knobs:
 

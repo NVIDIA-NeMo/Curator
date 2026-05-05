@@ -12,33 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-
-from loguru import logger
 
 from nemo_curator.tasks import Task
 from nemo_curator.utils.performance_utils import StageTimer
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
-    from nemo_curator.utils.performance_utils import StagePerfStats
-
-
-_FALSE_ENV_VALUES = {"0", "false", "no", "off"}
-
-
-def _stage_metric_logs_enabled() -> bool:
-    return os.environ.get("CURATOR_LOG_STAGE_METRICS", "1").strip().lower() not in _FALSE_ENV_VALUES
-
-
-def _metric_value(value: float | int) -> float | int:
-    if isinstance(value, float):
-        return round(value, 6)
-    return value
 
 
 @dataclass
@@ -82,20 +65,6 @@ class BaseStageAdapter:
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
 
-    def _log_stage_invocation_metrics(self, stats: "StagePerfStats") -> None:
-        """Emit one compact structured log line for every stage batch call."""
-        payload: dict[str, float | int | str] = {
-            "stage": stats.stage_name,
-            "invocation_id": stats.invocation_id,
-            "process_time_s": _metric_value(stats.process_time),
-            "actor_idle_time_s": _metric_value(stats.actor_idle_time),
-            "input_data_size_mb": _metric_value(stats.input_data_size_mb),
-            "num_items_processed": stats.num_items_processed,
-        }
-        for key, value in sorted((stats.custom_metrics or {}).items()):
-            payload[f"custom.{key}"] = _metric_value(value)
-        logger.info("curator_stage_metrics {}", json.dumps(payload, sort_keys=True))
-
     def process_batch(self, tasks: list[Task]) -> list[Task]:
         """Process a batch of tasks.
 
@@ -124,10 +93,6 @@ class BaseStageAdapter:
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
-        stage_perf_stats.custom_metrics.setdefault("input_tasks", float(len(tasks)))
-        stage_perf_stats.custom_metrics.setdefault("output_tasks", float(len(results)))
-        if _stage_metric_logs_enabled():
-            self._log_stage_invocation_metrics(stage_perf_stats)
         for task in results:
             task.add_stage_perf(stage_perf_stats)
 

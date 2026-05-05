@@ -1,6 +1,6 @@
 # Granary v2 Pipeline — Complete Technical Explanation
 
-This document explains the entire Granary v2 audio transcription and text filtering pipeline as implemented in the `aaftabv/standardize-audio-stages` branch of the Curator repository.
+This document explains the entire Granary v2 audio transcription and text filtering pipeline as implemented in the Curator audio pipeline.
 
 ---
 
@@ -520,7 +520,8 @@ If ASR is clean → sets notes to "Recovered:QwenASR", clears `_skip_me`.
 - If "complete" → proceed to Step 2
 
 **Step 2 — PnC restoration**:
-- Prompt (from `pnc_prompt.md`): "Add proper punctuation, capitalization, and formatting to: {text}"
+- Prompt (from `pnc_prompt.md`) includes per-sample language context:
+  `Add punctuation and capitalization to the raw ASR transcription in {language} below...`
 - Output: Text with restored punctuation and capitalization
 
 **Batching**: Chunks eligible texts into `batch_size` sub-batches, runs vLLM inference per chunk.

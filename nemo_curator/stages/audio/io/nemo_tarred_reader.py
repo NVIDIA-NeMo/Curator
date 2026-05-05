@@ -247,6 +247,8 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             f"NemoTarShardDiscoveryStage: found {len(tasks)} shards, skipped {skipped} completed (corpus_filter={self.corpus_filter})"
         )
         self._log_metrics({
+            "input_tasks": 1.0,
+            "output_tasks": float(len(tasks)),
             "corpora_seen": float(corpora_seen),
             "shards_seen": float(shards_seen),
             "shards_emitted": float(len(tasks)),
@@ -414,6 +416,9 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
         logger.info(f"Shard {shard_key}: emitted {shard_total} AudioTasks")
         self._log_metrics({
+            "input_shards": 1.0,
+            "output_tasks": float(shard_total),
+            "output_utterances": float(shard_total),
             "manifest_entries": float(len(manifest)),
             "tar_members_seen": float(tar_members_seen),
             "audio_members_decoded": float(audio_members_matched),

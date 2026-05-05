@@ -17,7 +17,6 @@
 import json
 import os
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,25 +24,8 @@ from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.audio.metrics.performance import AudioPerformanceSummary, serialize_stage_perf
 from nemo_curator.tasks import AudioTask, FileGroupTask
-
-
-def _serialize_stage_perf(stage_perf_list: list) -> list[dict]:
-    """Serialize a list of StagePerfStats to JSON-friendly dicts."""
-    result = []
-    for perf in stage_perf_list:
-        entry: dict[str, Any] = {
-            "invocation_id": getattr(perf, "invocation_id", ""),
-            "stage_name": perf.stage_name,
-            "process_time": perf.process_time,
-            "actor_idle_time": perf.actor_idle_time,
-            "input_data_size_mb": perf.input_data_size_mb,
-            "num_items_processed": perf.num_items_processed,
-        }
-        if perf.custom_metrics:
-            entry["custom_metrics"] = dict(perf.custom_metrics)
-        result.append(entry)
-    return result
 
 
 @dataclass
@@ -73,14 +55,7 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
     output_dir: str = ""
     write_perf_stats: bool = True
     duration_key: str = "duration"
-    _shard_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int), repr=False)
-    _shard_audio_seconds: dict[str, float] = field(default_factory=lambda: defaultdict(float), repr=False)
-    _stage_totals: dict[str, dict[str, float]] = field(default_factory=lambda: defaultdict(lambda: defaultdict(float)), repr=False)
-    _stage_custom_totals: dict[str, dict[str, float]] = field(default_factory=lambda: defaultdict(lambda: defaultdict(float)), repr=False)
-    _seen_perf_invocations: set[str] = field(default_factory=set, repr=False)
-    _total_utterances: int = field(default=0, repr=False)
-    _total_audio_seconds: float = field(default=0.0, repr=False)
-    _wall_start_s: float = field(default=0.0, repr=False)
+    _perf_summary: AudioPerformanceSummary = field(init=False, repr=False)
     _writer_manifest_write_time_s: float = field(default=0.0, repr=False)
     _writer_perf_write_time_s: float = field(default=0.0, repr=False)
     _writer_done_write_time_s: float = field(default=0.0, repr=False)
@@ -90,6 +65,7 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         if not self.output_dir:
             msg = "output_dir is required for ShardedManifestWriterStage"
             raise ValueError(msg)
+        self._perf_summary = AudioPerformanceSummary(duration_key=self.duration_key)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -103,46 +79,15 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
-        self._wall_start_s = time.perf_counter()
+        self._perf_summary.reset_wall_timer()
         logger.info(f"ShardedManifestWriterStage: output_dir={self.output_dir}")
-
-    def _task_audio_seconds(self, task: AudioTask) -> float:
-        value = task.data.get(self.duration_key, 0.0)
-        try:
-            seconds = float(value)
-        except (TypeError, ValueError):
-            seconds = 0.0
-        return seconds if seconds > 0 else 0.0
-
-    def _accumulate_task_totals(self, task: AudioTask, shard_key: str) -> None:
-        audio_seconds = self._task_audio_seconds(task)
-        self._total_utterances += 1
-        self._total_audio_seconds += audio_seconds
-        self._shard_audio_seconds[shard_key] += audio_seconds
-
-    def _accumulate_perf(self, task: AudioTask) -> None:
-        """Accumulate per-stage metrics from the task for the summary."""
-        for perf in (task._stage_perf or []):
-            invocation_id = getattr(perf, "invocation_id", "")
-            if invocation_id:
-                if invocation_id in self._seen_perf_invocations:
-                    continue
-                self._seen_perf_invocations.add(invocation_id)
-            totals = self._stage_totals[perf.stage_name]
-            totals["process_time"] += perf.process_time
-            totals["actor_idle_time"] += perf.actor_idle_time
-            totals["input_data_size_mb"] += perf.input_data_size_mb
-            totals["num_items_processed"] += perf.num_items_processed
-            totals["invocation_count"] += 1
-            for k, v in (perf.custom_metrics or {}).items():
-                self._stage_custom_totals[perf.stage_name][k] += v
 
     def _write_perf_line(self, task: AudioTask, shard_key: str) -> None:
         """Append one task's stage perf chain to the shard's perf JSONL."""
         perf_path = os.path.join(self.output_dir, f"{shard_key}_perf.jsonl")
         line = {
             "task_id": task.task_id,
-            "stages": _serialize_stage_perf(task._stage_perf or []),
+            "stages": serialize_stage_perf(task._stage_perf or []),
         }
         t0 = time.perf_counter()
         with open(perf_path, "a", encoding="utf-8") as f:
@@ -161,21 +106,21 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
         self._writer_manifest_write_time_s += time.perf_counter() - write_t0
 
+        self._perf_summary.record_task(task, shard_key=shard_key, include_stage_perf=self.write_perf_stats)
         if self.write_perf_stats:
-            self._accumulate_task_totals(task, shard_key)
-            self._accumulate_perf(task)
             self._write_perf_line(task, shard_key)
 
-        self._shard_counts[shard_key] += 1
-
         shard_total = task._metadata.get("_shard_total", 0)
-        if shard_total > 0 and self._shard_counts[shard_key] >= shard_total:
+        if shard_total > 0 and self._perf_summary.shard_count(shard_key) >= shard_total:
             done_path = os.path.join(self.output_dir, f"{shard_key}.jsonl.done")
             done_t0 = time.perf_counter()
             with open(done_path, "w") as f:
-                f.write(f"{self._shard_counts[shard_key]}\n")
+                f.write(f"{self._perf_summary.shard_count(shard_key)}\n")
             self._writer_done_write_time_s += time.perf_counter() - done_t0
-            logger.info(f"Shard {shard_key} complete: {self._shard_counts[shard_key]} utterances, wrote {done_path}")
+            logger.info(
+                f"Shard {shard_key} complete: "
+                f"{self._perf_summary.shard_count(shard_key)} utterances, wrote {done_path}"
+            )
             if self.write_perf_stats:
                 self._write_perf_summary()
 
@@ -198,78 +143,12 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
 
     def _write_perf_summary(self) -> None:
         """Write aggregate perf_summary.json at the output root."""
-        stages_summary: dict[str, dict[str, Any]] = {}
-        for stage_name, totals in self._stage_totals.items():
-            entry: dict[str, Any] = {
-                "total_process_time_s": totals.get("process_time", 0.0),
-                "total_actor_idle_time_s": totals.get("actor_idle_time", 0.0),
-                "total_input_data_size_mb": totals.get("input_data_size_mb", 0.0),
-                "total_items_processed": totals.get("num_items_processed", 0.0),
-                "invocation_count": totals.get("invocation_count", 0.0),
-            }
-            invocation_count = totals.get("invocation_count", 0.0)
-            if invocation_count > 0:
-                entry["avg_invocation_time_s"] = totals.get("process_time", 0.0) / invocation_count
-            total_time = totals.get("process_time", 0.0)
-            total_items = totals.get("num_items_processed", 0.0)
-            if total_time > 0 and total_items > 0:
-                entry["throughput_items_per_s"] = total_items / total_time
-            custom_sums = dict(self._stage_custom_totals.get(stage_name, {}))
-            if custom_sums:
-                entry["custom_metrics_sum"] = custom_sums
-                audio_seconds = custom_sums.get("audio_duration_s", 0.0)
-                if audio_seconds > 0 and total_time > 0:
-                    entry["throughput_audio_s_per_process_s"] = audio_seconds / total_time
-                if audio_seconds > 0 and total_items > 0:
-                    entry["avg_audio_s_per_item"] = audio_seconds / total_items
-                inference_time = custom_sums.get("inference_time_s", custom_sums.get("inference_time", 0.0))
-                if audio_seconds > 0 and inference_time > 0:
-                    entry["throughput_audio_s_per_inference_s"] = audio_seconds / inference_time
-                output_tokens = custom_sums.get("output_tokens", 0.0)
-                if output_tokens > 0 and total_time > 0:
-                    entry["throughput_output_tokens_per_process_s"] = output_tokens / total_time
-                if output_tokens > 0 and inference_time > 0:
-                    entry["throughput_output_tokens_per_inference_s"] = output_tokens / inference_time
-                output_chars = custom_sums.get("output_chars", 0.0)
-                if output_chars > 0 and total_time > 0:
-                    entry["throughput_output_chars_per_process_s"] = output_chars / total_time
-                if output_chars > 0 and inference_time > 0:
-                    entry["throughput_output_chars_per_inference_s"] = output_chars / inference_time
-                waveform_bytes = custom_sums.get("waveform_bytes", 0.0)
-                if waveform_bytes > 0 and total_time > 0:
-                    entry["throughput_waveform_mb_per_process_s"] = (waveform_bytes / 1024.0 / 1024.0) / total_time
-                input_tasks = custom_sums.get("input_tasks", 0.0)
-                output_tasks = custom_sums.get("output_tasks", 0.0)
-                if input_tasks > 0:
-                    entry["output_tasks_per_input_task"] = output_tasks / input_tasks
-                utterances_input = custom_sums.get("utterances_input", custom_sums.get("input_tasks", 0.0))
-                if utterances_input > 0:
-                    for metric_name in (
-                        "utterances_selected",
-                        "utterances_skipped",
-                        "utterances_processed",
-                        "utterances_eligible",
-                        "utterances_restored",
-                        "utterances_kept_as_is",
-                        "utterances_filtered",
-                        "utterances_newly_flagged",
-                        "utterances_recovered",
-                        "pnc_rejected",
-                        "empty_after_regex",
-                        "wrong_language",
-                        "low_probability",
-                    ):
-                        metric_value = custom_sums.get(metric_name, 0.0)
-                        if metric_value:
-                            entry[f"{metric_name}_per_input_utterance"] = metric_value / utterances_input
-            stages_summary[stage_name] = entry
-
         writer_total_time = (
             self._writer_manifest_write_time_s
             + self._writer_perf_write_time_s
             + self._writer_done_write_time_s
         )
-        stages_summary[self.name] = {
+        writer_summary = {
             "total_process_time_s": writer_total_time,
             "total_items_processed": float(self._writer_process_calls),
             "invocation_count": float(self._writer_process_calls),
@@ -284,37 +163,22 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             },
         }
 
-        wall_time = max(time.perf_counter() - self._wall_start_s, 0.0) if self._wall_start_s else 0.0
-        summary = {
-            "total_utterances": self._total_utterances,
-            "total_audio_seconds": self._total_audio_seconds,
-            "total_audio_hours": self._total_audio_seconds / 3600.0,
-            "writer_wall_time_s": wall_time,
-            "pipeline_audio_s_per_wall_s": self._total_audio_seconds / wall_time if wall_time > 0 else 0.0,
-            "pipeline_utterances_per_wall_s": self._total_utterances / wall_time if wall_time > 0 else 0.0,
-            "perf_invocations_counted": len(self._seen_perf_invocations),
-            "shards": {
-                shard: {
-                    "utterances": count,
-                    "audio_seconds": self._shard_audio_seconds.get(shard, 0.0),
-                    "audio_hours": self._shard_audio_seconds.get(shard, 0.0) / 3600.0,
-                }
-                for shard, count in sorted(self._shard_counts.items())
-            },
-            "stages": stages_summary,
-        }
+        summary = self._perf_summary.build_summary(extra_stage_summaries={self.name: writer_summary})
         summary_path = os.path.join(self.output_dir, "perf_summary.json")
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
         logger.info(f"Wrote perf_summary.json: {summary_path}")
 
     def teardown(self) -> None:
-        total = sum(self._shard_counts.values())
+        total = self._perf_summary.total_utterances
         done = sum(
-            1 for k in self._shard_counts
+            1 for k in self._perf_summary.shard_keys
             if os.path.exists(os.path.join(self.output_dir, f"{k}.jsonl.done"))
         )
-        logger.info(f"ShardedManifestWriter: {total} utterances across {len(self._shard_counts)} shards, {done} completed with .done")
+        logger.info(
+            f"ShardedManifestWriter: {total} utterances across "
+            f"{len(self._perf_summary.shard_keys)} shards, {done} completed with .done"
+        )
 
         if self.write_perf_stats:
             self._write_perf_summary()

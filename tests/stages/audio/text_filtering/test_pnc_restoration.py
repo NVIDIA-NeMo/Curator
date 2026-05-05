@@ -48,6 +48,7 @@ def test_skipped_tasks_get_empty_output() -> None:
     ]
     results = stage.process_batch(tasks)
     assert results[0].data["pnc_text"] == ""
+    assert results[0].data["additional_notes"][stage.name] == "skipped (flagged)"
     mock_model.generate.assert_not_called()
 
 
@@ -58,6 +59,7 @@ def test_empty_text_preserved() -> None:
     ]
     results = stage.process_batch(tasks)
     assert results[0].data["pnc_text"] == "   "
+    assert results[0].data["additional_notes"][stage.name] == "skipped (empty)"
     mock_model.generate.assert_not_called()
 
 
@@ -65,11 +67,21 @@ def test_eligible_texts_sent_to_model() -> None:
     stage, mock_model = _make_stage_with_mock_model()
     mock_model.generate.return_value = ([True], ["Hello World."])
     tasks = [
-        AudioTask(data={"cleaned_text": "hello world", "_skip_me": ""}),
+        AudioTask(data={"cleaned_text": "hello world", "_skip_me": "", "source_lang": "English"}),
     ]
     results = stage.process_batch(tasks)
     assert results[0].data["pnc_text"] == "Hello World."
-    mock_model.generate.assert_called_once()
+    assert results[0].data["additional_notes"][stage.name] == "applied (modified)"
+    mock_model.generate.assert_called_once_with(["hello world"], languages=["English"])
+
+
+def test_default_pnc_prompt_includes_language_context() -> None:
+    stage = PnCRestorationStage(model_id="mock/model")
+    prompt = stage._resolve_pnc_prompt()
+
+    assert "in {language}" in prompt
+    assert "Raw ASR transcription in {language}" in prompt
+    assert "{text}" in prompt
 
 
 def test_process_batch_uses_backend_supplied_batch() -> None:

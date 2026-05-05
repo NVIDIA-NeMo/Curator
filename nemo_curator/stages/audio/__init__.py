@@ -54,6 +54,7 @@ __all__ = [
     "RegexSubstitutionStage",
     "SIGMOSFilterStage",
     "SegmentConcatenationStage",
+    "SegmentExtractorStage",
     "SegmentExtractionStage",
     "SelectBestPredictionStage",
     "ShardedManifestWriterStage",
@@ -96,6 +97,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "MonoConversionStage": ("nemo_curator.stages.audio.preprocessing", "MonoConversionStage"),
     "SegmentConcatenationStage": ("nemo_curator.stages.audio.preprocessing", "SegmentConcatenationStage"),
     # Segmentation
+    "SegmentExtractorStage": ("nemo_curator.stages.audio.segmentation", "SegmentExtractorStage"),
     "SpeakerSeparationStage": ("nemo_curator.stages.audio.segmentation", "SpeakerSeparationStage"),
     "VADSegmentationStage": ("nemo_curator.stages.audio.segmentation", "VADSegmentationStage"),
     # Text filtering

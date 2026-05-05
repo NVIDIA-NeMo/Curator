@@ -38,9 +38,17 @@ LANG_CODE_TO_NAME: dict[str, str] = {
 
 
 def set_note(task_data: dict[str, Any], stage_name: str, value: str, notes_key: str = NOTES_KEY) -> None:
-    """Write a stage decision note into a per-task notes dictionary."""
+    """Write a stage decision note into a per-task notes dictionary.
+
+    Some older Granary stages used ``additional_notes`` as a plain string.
+    Preserve that value under ``"_legacy"`` instead of dropping it when a
+    structured stage note is first added.
+    """
     notes = task_data.get(notes_key)
     if not isinstance(notes, dict):
+        legacy_note = notes if isinstance(notes, str) and notes else None
         notes = {}
+        if legacy_note:
+            notes["_legacy"] = legacy_note
         task_data[notes_key] = notes
     notes[stage_name] = value

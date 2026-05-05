@@ -1,5 +1,6 @@
-Add punctuation and capitalization to the raw ASR transcription below. That is the ONLY change you are allowed to make.
-Raw ASR transcription: {text}
+Add punctuation and capitalization to the raw ASR transcription in {language} below. That is the ONLY change you are allowed to make.
+Raw ASR transcription in {language}:
+{text}
 
 RULES:
 - Add periods, commas, question marks, exclamation marks where appropriate.

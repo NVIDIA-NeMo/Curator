@@ -28,13 +28,28 @@ def test_get_wer_basic() -> None:
     assert get_wer("a b c", "a x c") == 33.33
 
 
+def test_get_wer_empty_reference_guards_zero_division() -> None:
+    assert get_wer("", "") == 0.0
+    assert get_wer("", "extra") == 100.0
+
+
 def test_get_cer_basic() -> None:
     assert get_cer("abc", "axc") == 33.33
+
+
+def test_get_cer_empty_reference_guards_zero_division() -> None:
+    assert get_cer("", "") == 0.0
+    assert get_cer("", "x") == 100.0
 
 
 def test_rates() -> None:
     assert get_charrate("abcd", 2.0) == 2.0
     assert get_wordrate("a b c d", 2.0) == 2.0
+
+
+def test_rates_zero_duration_guard() -> None:
+    assert get_charrate("abcd", 0.0) == 0.0
+    assert get_wordrate("a b c d", 0.0) == 0.0
 
 
 def test_pairwise_wer_validate_input_valid() -> None:

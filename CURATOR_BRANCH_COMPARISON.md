@@ -1,6 +1,6 @@
 # Curator Branch Comparison
 
-**Our branch**: `aaftabv/standardize-audio-stages` (on `mohammadaaftabv/Curator`)
+**Curator branch under review**: Granary v2 audio standardization branch
 **Reference branch**: reference integration branch
 **Common ancestor**: `1cbb4a62` (28 commits in ref since, 15 in ours since)
 
@@ -24,7 +24,7 @@
 
 ## 1. High-Level Philosophy Differences
 
-| Aspect | Reference integration branch | Ours (`aaftabv/standardize-audio-stages`) |
+| Aspect | Reference integration branch | Curator branch under review |
 |---|---|---|
 | **Decision tracking** | `additional_notes` dict with per-stage entries via `pipeline_utils.set_note()` | Removed entirely — stages set `_skip_me` but don't log reasons to a dict |
 | **Skip key name** | `_skipme` (NeMo/lhotse convention per latest PR #8) | `_skip_me` (Python naming convention) |
@@ -120,9 +120,13 @@ Plus CLI args: `--omni_num_workers`, `--asr_num_workers`, `--pnc_num_workers`, `
 
 **In reference:** PnC stage accepts `source_lang_key` and passes `languages` to `QwenTextLLM.generate()`. The prompt template uses `{language}` placeholder for per-sample language resolution.
 
-**In ours:** Removed. PnC prompt uses `{text}` only. All samples get the same language-agnostic PnC restoration.
+**In ours:** Restored. PnC still accepts `source_lang_key`, passes per-sample
+languages to `QwenTextLLM.generate()`, and the default PnC prompt now includes
+`{language}` in the same places as the reference branch.
 
-**Impact:** Reference supports multilingual PnC where the prompt says e.g. "Add punctuation to this Italian text: {text}". Ours assumes English or language-agnostic prompts.
+**Impact:** Current code now supports multilingual PnC where the prompt says
+e.g. "Add punctuation to this Italian text: {text}", while keeping the local
+`_skip_me` convention and worker lifecycle improvements.
 
 ### 2.6 Granary v1 `_skipme` Preservation
 
@@ -339,10 +343,10 @@ Added documentation and dependency listing for the tutorial.
 
 | Aspect | Reference | Ours |
 |---|---|---|
-| `_prepare_single()` | Accepts `language` parameter, formats `{text}` + `{language}` | No `language` parameter, formats `{text}` only |
-| `_prepare_batch()` | Accepts `languages: list[str] | None` | No `languages` parameter |
-| `generate()` | Accepts `languages: list[str] | None` | No `languages` parameter |
-| Batch mapping | `pool.map(_prepare_single, texts, templates, langs)` | `pool.map(_prepare_single, texts, templates)` |
+| `_prepare_single()` | Accepts `language` parameter, formats `{text}` + `{language}` | Same |
+| `_prepare_batch()` | Accepts `languages: list[str] | None` | Same |
+| `generate()` | Accepts `languages: list[str] | None` | Same |
+| Batch mapping | `pool.map(_prepare_single, texts, templates, langs)` | Same, plus output-token metrics |
 
 ### 4.9 `QwenOmni` (model wrapper, `models/qwen_omni.py`)
 
@@ -475,7 +479,7 @@ Added documentation and dependency listing for the tutorial.
 
 1. **SED stages** — Do we want them? They're useful for audio quality assessment but add complexity and dependencies.
 2. **`num_workers` / manual scaling** — Do we need manual override for multi-node? Autoscaler may not always be optimal for bursty GPU workloads.
-3. **Per-language PnC** — Do we need multilingual PnC prompt support? Currently only English is targeted.
+3. **Per-language PnC** — Resolved in current code. The default PnC prompt includes `{language}` and the stage passes per-sample language names into `QwenTextLLM.generate()`.
 4. **`phrases.txt`** format — Reference added a `phrases.txt` (65 lines) with trailing integers (counts?). Our parser handles this via `rsplit`; reference reads raw lines. Need to verify format compatibility.
 
 ---
