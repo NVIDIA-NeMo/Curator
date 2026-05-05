@@ -63,6 +63,8 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         gpu_memory_utilization: Fraction of GPU memory vLLM may use.
         max_new_tokens: Maximum tokens to generate per sample.
         max_inference_batch_size: Batch size for internal vLLM batching.
+            If unset, this follows ``batch_size`` so pipeline-level batch
+            tuning also controls vLLM KV-cache reservation.
     """
 
     name: str = "QwenASR_inference"
@@ -78,7 +80,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     notes_key: str = "additional_notes"
     gpu_memory_utilization: float = 0.95
     max_new_tokens: int = 4096
-    max_inference_batch_size: int = 128
+    max_inference_batch_size: int | None = None
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
@@ -111,7 +113,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             model_id=self.model_id,
             gpu_memory_utilization=self.gpu_memory_utilization,
             max_new_tokens=self.max_new_tokens,
-            max_inference_batch_size=self.max_inference_batch_size,
+            max_inference_batch_size=self.max_inference_batch_size or self.batch_size,
         )
 
     # ------------------------------------------------------------------
