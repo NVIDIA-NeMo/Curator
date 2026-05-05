@@ -244,7 +244,7 @@ def sort_and_deduplicate(data: np.ndarray, threshold: float = 1e-5) -> np.ndarra
         if diff > threshold:
             result.append(sorted_arr[i])
 
-    return result
+    return np.stack(result, axis=0)
 
 
 def main(args: argparse.Namespace) -> None:
