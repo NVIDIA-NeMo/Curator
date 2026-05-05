@@ -65,7 +65,8 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
     Args:
         output_dir: Root directory for output manifests.
         write_perf_stats: If True, write per-task stage perf to a sibling
-            ``_perf.jsonl`` file and an aggregate ``perf_summary.json``.
+            ``_perf.jsonl`` file and refresh an aggregate
+            ``perf_summary.json`` whenever a shard completes.
     """
 
     name: str = "sharded_manifest_writer"
@@ -175,6 +176,8 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
                 f.write(f"{self._shard_counts[shard_key]}\n")
             self._writer_done_write_time_s += time.perf_counter() - done_t0
             logger.info(f"Shard {shard_key} complete: {self._shard_counts[shard_key]} utterances, wrote {done_path}")
+            if self.write_perf_stats:
+                self._write_perf_summary()
 
         return FileGroupTask(
             task_id=task.task_id,

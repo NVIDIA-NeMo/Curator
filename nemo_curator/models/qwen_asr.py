@@ -46,11 +46,13 @@ class QwenASR(ModelInterface):
         self,
         model_id: str = _QWEN3_ASR_MODEL_ID,
         gpu_memory_utilization: float = 0.7,
+        max_model_len: int | None = None,
         max_new_tokens: int = 4096,
         max_inference_batch_size: int = 128,
     ):
         self.model_id = model_id
         self.gpu_memory_utilization = gpu_memory_utilization
+        self.max_model_len = max_model_len
         self.max_new_tokens = max_new_tokens
         self.max_inference_batch_size = max_inference_batch_size
 
@@ -103,20 +105,25 @@ class QwenASR(ModelInterface):
         logger.info(
             f"Loading QwenASR model={self.model_id}  "
             f"gpu_mem={self.gpu_memory_utilization}  "
+            f"max_model_len={self.max_model_len}  "
             f"max_new_tokens={self.max_new_tokens}  "
             f"max_batch={self.max_inference_batch_size}"
         )
 
-        self._model = Qwen3ASRModel.LLM(
-            model=self.model_id,
-            gpu_memory_utilization=self.gpu_memory_utilization,
-            max_inference_batch_size=self.max_inference_batch_size,
-            max_new_tokens=self.max_new_tokens,
-            trust_remote_code=True,
-            enforce_eager=True,
-            enable_prefix_caching=True,
-            prefix_caching_hash_algo="xxhash",
-        )
+        llm_kwargs: dict[str, Any] = {
+            "model": self.model_id,
+            "gpu_memory_utilization": self.gpu_memory_utilization,
+            "max_inference_batch_size": self.max_inference_batch_size,
+            "max_new_tokens": self.max_new_tokens,
+            "trust_remote_code": True,
+            "enforce_eager": True,
+            "enable_prefix_caching": True,
+            "prefix_caching_hash_algo": "xxhash",
+        }
+        if self.max_model_len is not None:
+            llm_kwargs["max_model_len"] = self.max_model_len
+
+        self._model = Qwen3ASRModel.LLM(**llm_kwargs)
 
         logger.info("QwenASR model loaded in {:.3f}s", time.perf_counter() - setup_t0)
 

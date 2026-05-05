@@ -61,6 +61,8 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         run_only_if_key: If set, only run inference on tasks where
             ``task.data[run_only_if_key]`` starts with ``run_only_if_prefix``.
         gpu_memory_utilization: Fraction of GPU memory vLLM may use.
+        max_model_len: Maximum vLLM context length. Lower values reduce
+            KV-cache reservation for constrained or co-located ASR workers.
         max_new_tokens: Maximum tokens to generate per sample.
         max_inference_batch_size: Batch size for internal vLLM batching.
             If unset, this follows ``batch_size`` so pipeline-level batch
@@ -79,6 +81,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     run_only_if_prefix: str = "Hallucination"
     notes_key: str = "additional_notes"
     gpu_memory_utilization: float = 0.95
+    max_model_len: int | None = None
     max_new_tokens: int = 4096
     max_inference_batch_size: int | None = None
     num_workers_override: int | None = None
@@ -112,6 +115,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         return QwenASR(
             model_id=self.model_id,
             gpu_memory_utilization=self.gpu_memory_utilization,
+            max_model_len=self.max_model_len,
             max_new_tokens=self.max_new_tokens,
             max_inference_batch_size=self.max_inference_batch_size or self.batch_size,
         )

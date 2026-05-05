@@ -147,3 +147,25 @@ def test_worker_override_specs() -> None:
 
     assert stage.num_workers() == 2
     assert stage.xenna_stage_spec() == {"num_workers": 2}
+
+
+@patch("nemo_curator.stages.audio.inference.qwen_asr.QwenASR")
+def test_create_model_forwards_vllm_cache_knobs(mock_qwen_asr: MagicMock) -> None:
+    stage = InferenceQwenASRStage(
+        model_id="mock/model",
+        batch_size=16,
+        gpu_memory_utilization=0.2,
+        max_model_len=4096,
+        max_new_tokens=1024,
+    )
+
+    model = stage._create_model()
+
+    assert model is mock_qwen_asr.return_value
+    mock_qwen_asr.assert_called_once_with(
+        model_id="mock/model",
+        gpu_memory_utilization=0.2,
+        max_model_len=4096,
+        max_new_tokens=1024,
+        max_inference_batch_size=16,
+    )

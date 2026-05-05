@@ -231,6 +231,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="QwenASR model ID or local path. If set, enables hallucination recovery.")
     asr.add_argument("--asr_batch_size", type=int, default=128)
     asr.add_argument("--asr_gpu_memory_utilization", type=float, default=0.95)
+    asr.add_argument("--asr_max_model_len", type=int, default=None)
     asr.add_argument("--asr_max_new_tokens", type=int, default=4096)
 
     scaling = ap.add_argument_group("multi-node scaling")
@@ -364,6 +365,7 @@ def main() -> None:  # noqa: C901
                 source_lang_key=args.source_lang_key,
                 batch_size=args.asr_batch_size,
                 gpu_memory_utilization=args.asr_gpu_memory_utilization,
+                max_model_len=args.asr_max_model_len,
                 max_new_tokens=args.asr_max_new_tokens,
                 run_only_if_key="_skip_me",
                 run_only_if_prefix="Hallucination",
