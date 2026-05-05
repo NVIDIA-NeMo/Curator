@@ -43,7 +43,6 @@ apt-get install -y \
     libfreetype6-dev \
     libgnutls28-dev \
     libnuma-dev \
-    libopenh264-dev \
     libtool \
     libva-dev \
     libvorbis-dev \
@@ -72,7 +71,6 @@ PATH="/usr/local/cuda/bin:$PATH" ./configure \
     --enable-nonfree \
     --enable-cuda-nvcc \
     --enable-libnpp \
-    --enable-libopenh264 \
     --enable-libaom \
     --enable-libdav1d \
     --enable-libvorbis \
