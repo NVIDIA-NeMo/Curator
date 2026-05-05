@@ -409,3 +409,33 @@ markers = [
     "asyncio",
     "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
 ]
+
+[tool.check-manifest]
+ignore = [
+  ".claude/**",
+  ".cursor/**",
+  ".github/**",
+  ".pre-commit-config.yaml",
+  ".secrets.baseline",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "CODEOWNERS",
+  "CONTRIBUTING.md",
+  "MAINTAINERS.md",
+  "Makefile",
+  "RELEASE.md",
+  "SECURITY.md",
+  "docker/**",
+  "docs/**",
+  "examples/**",
+  "image/**",
+  "tests/**",
+  "tutorials/**",
+  "ruff.toml",
+  "*.lock",
+  "*.cfg",
+  "*.yml",
+  "*.yaml",
+  "**/.gitkeep",
+  "**/conftest.py",
+]
