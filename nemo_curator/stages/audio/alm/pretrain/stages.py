@@ -1287,6 +1287,14 @@ def finalize_audio_pretrain_outputs(output_manifest_path: str, metrics_path: str
 
 def _merge_manifest_shards(output_path: str) -> None:
     shards = _glob_shards(output_path, _MANIFEST_SHARD_EXT)
+    # Skip the merge when there are no shards.  This guards against silent
+    # data loss on re-runs: with finalize_audio_pretrain_outputs called from
+    # a try/finally, an early failure (before any worker writes a shard)
+    # would otherwise truncate a previous successful run's manifest to
+    # zero bytes via the "w"-mode open below.
+    if not shards:
+        logger.info(f"no manifest shards found for {output_path}; skipping merge")
+        return
     parent = os.path.dirname(output_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -1316,6 +1324,12 @@ def _merge_manifest_shards(output_path: str) -> None:
 
 def _merge_metrics_shards(metrics_path: str) -> None:
     shards = _glob_shards(metrics_path, _METRICS_SHARD_EXT)
+    # Same re-run-safety guard as _merge_manifest_shards: skip when no
+    # shards exist so an early failure on a re-run can't overwrite a
+    # previous successful run's metrics summary with an all-zero JSON.
+    if not shards:
+        logger.info(f"no metrics shards found for {metrics_path}; skipping merge")
+        return
     per_original: dict[str, dict[str, Any]] = {}
     durations: list[float] = []
     filtered_examples: list[str] = []

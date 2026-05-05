@@ -18,7 +18,7 @@ The output snippet manifest is intentionally generic. Each row keeps a snippet-r
 
 - `--output-dir`: directory of snippet audio files, one per snippet, named `<original_id>_<start>_<end>.<ext>` (timestamps are seconds with three decimals, in the source audio's coordinate system).
 - `--output-manifest`: JSONL where each row is the original metadata of the source audio (with `alignment` removed) plus the new fields `snippet_id`, updated `audio_filepath`, updated `duration`, and a snippet-relative `segments` list. The original `id` is preserved unchanged so snippets are joinable back to their source.
-- `--metrics-path`: JSON summary with input/output counts, total durations, dropped-segment breakdowns (empty / overlap / too-long / too-short / no-text), a 30-second-bin histogram of snippet durations, and a per-original breakdown.
+- `--metrics-path`: JSON summary with input/output counts, total durations, dropped-snippet/segment breakdowns (empty / overlap / too-long / too-short / no-text / repetition), a 30-second-bin histogram of snippet durations, a per-original breakdown, and up to 1000 example texts of snippets dropped by the repetition filter.
 
 ## Cutting algorithm
 
@@ -26,7 +26,8 @@ The output snippet manifest is intentionally generic. Each row keeps a snippet-r
 2. **Drop overlapping segments** — two segments overlap (and both are discarded) iff their intersection is at least `--min-overlap-sec` seconds **or** one fully contains the other. Smaller incidental overlaps are kept.
 3. **Greedy contiguous packing** — surviving segments are walked in start-time order. The current snippet grows while (a) `last.end - first.start <= --max-duration-sec` AND (b) the gap from the current snippet's last accepted segment's `end` to the next segment's `start` is at most `--max-segment-gap-in-snippet`. Either constraint failing closes the snippet and opens a new one starting from the current segment. Segments are never split.
 4. **Drop snippets that don't fit** — a snippet whose span exceeds `--max-duration-sec` (which only happens when a single segment alone is too long), is shorter than `--min-duration-sec`, or has empty concatenated text is dropped and counted under `too_long` / `too_short` / `no_text`.
-5. **Audio extraction** — for each surviving snippet the source audio is sliced, channel-averaged to mono if needed, resampled to `--target-sample-rate` (default 16000), and written to `--output-dir`. Snippet `segments` (and word timestamps) are shifted so the snippet starts at `0.0`.
+5. **Drop snippets with repetitive text** — for each candidate snippet the joined text is tokenized with the HuggingFace fast tokenizer at `--tokenizer-path` and any snippet whose token-id n-gram histogram has an entry above the configured threshold is dropped (default `--ngram-n 10 --ngram-max-count 3`). This catches Whisper-style decoding loops without paying audio I/O cost on filtered snippets.
+6. **Audio extraction** — for each surviving snippet the source audio is sliced, channel-averaged to mono if needed, resampled to `--target-sample-rate` (default 16000), and written to `--output-dir`. Snippet `segments` (and word timestamps) are shifted so the snippet starts at `0.0`.
 
 ## Example
 
@@ -37,8 +38,11 @@ python -m tutorials.audio.audio_pretrain.run \
     --output-dir /path/to/snippets \
     --output-manifest /path/to/snippets.jsonl \
     --metrics-path /path/to/metrics_summary.json \
+    --tokenizer-path /path/to/hf_tokenizer_dir \
     --max-duration-sec 30
 ```
+
+`--tokenizer-path` is required: it points at a local directory loadable by `AutoTokenizer.from_pretrained` (e.g. a snapshot of an HF hub repo).
 
 By default the pipeline runs on the Xenna streaming executor; pass `--backend ray_data` or `--backend ray_actor_pool` to switch.
 
@@ -53,6 +57,7 @@ python -m tutorials.audio.audio_pretrain.run \
     --output-dir /tmp/snippets_unused \
     --output-manifest /tmp/snippets_dryrun.jsonl \
     --metrics-path /tmp/metrics_dryrun.json \
+    --tokenizer-path /path/to/hf_tokenizer_dir \
     --max-duration-sec 30 \
     --dry-run
 ```
