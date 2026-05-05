@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     import cudf
 
 import gc
+import os
 import time
 
 import torch
@@ -205,7 +206,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         concatenated_embeddings = cp.concatenate(embeddings_arrays, axis=0)
         self.kmeans._fit(concatenated_embeddings, sample_weight=None, convert_dtype=False, multigpu=True)
 
-        if self.cache_path is not None:
+        if self.cache_path is not None and getattr(self, "_actor_index", 0) == 0:
+            os.makedirs(self.cache_path, exist_ok=True)
             cp.save(f"{self.cache_path}/kmeans_centroids.npy", self.kmeans.cluster_centers_)
             logger.info(f"Saved {self.n_clusters} KMeans centroids to {self.cache_path}/kmeans_centroids.npy")
 
@@ -258,8 +260,9 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
     def _process_batch_two_pass(self, tasks: list[FileGroupTask], groups: list[list[str]]) -> list["_EmptyTask"]:
         """Memory-efficient two-pass approach for large datasets.
 
-        Pass 1: reads only the embedding column, samples at most max_rows_for_fitting
-                rows total, frees each group's GPU memory immediately after sampling.
+        Pass 1: reads only the embedding column, samples up to max_rows_for_fitting
+                rows per actor (with a floor of 1 row per group), frees each group's
+                GPU memory immediately after sampling.
         Pass 2: loads each group one at a time (full columns), predicts labels, writes,
                 then frees GPU memory before loading the next group.
 
@@ -273,12 +276,12 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         sample_embeddings_list = []
         total_rows = 0
 
-        for group in groups:
+        for group_index, group in enumerate(groups):
             df = self._read_group(group, [self.embedding_field])
             total_rows += len(df)
 
             if len(df) > sample_rows_per_group:
-                df = df.sample(sample_rows_per_group, random_state=self.random_state)
+                df = df.sample(sample_rows_per_group, random_state=self.random_state + group_index)
 
             df = self.normalize_embeddings_col_in_df(df, self.embedding_field)
             # .copy() detaches from the df so we can delete the df and free its memory
@@ -300,7 +303,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         del concatenated_samples
         gc.collect()
 
-        if self.cache_path is not None:
+        if self.cache_path is not None and getattr(self, "_actor_index", 0) == 0:
+            os.makedirs(self.cache_path, exist_ok=True)
             cp.save(f"{self.cache_path}/kmeans_centroids.npy", self.kmeans.cluster_centers_)
             logger.info(f"Saved {self.n_clusters} KMeans centroids to {self.cache_path}/kmeans_centroids.npy")
 
