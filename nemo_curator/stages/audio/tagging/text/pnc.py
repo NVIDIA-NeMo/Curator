@@ -234,17 +234,8 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
             inference=dict(self.sampling_params),
             apply_chat_template=dict(self.chat_template_params),
             use_chat_api=self.use_chat_api,
-            device=self.get_device(),
+            device="cuda" if self.resources.requires_gpu else "cpu",
         )
-
-    def get_device(self) -> str:
-        """Get device from resources configuration."""
-        if self.resources.requires_gpu:
-            if not torch.cuda.is_available():
-                msg = f"[{self.name}] GPU requested via resources but CUDA is not available."
-                raise RuntimeError(msg)
-            return "cuda"
-        return "cpu"
 
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None

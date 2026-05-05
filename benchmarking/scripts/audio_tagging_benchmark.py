@@ -95,7 +95,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             name="PyAnnoteDiarization",
             hf_token=hf_token,
             max_length=max_segment_length,
-        ).with_(resources=Resources(cpus=cpus, gpus=0.5))
+        ).with_(resources=Resources(cpus=cpus, gpus=0.4))
     )
 
     # Split long audio segments
@@ -114,7 +114,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             is_fastconformer=True,
             decoder_type="rnnt",
             batch_size=asr_batch_size,
-        ).with_(resources=Resources(cpus=cpus, gpus=0.45))
+        ).with_(resources=Resources(cpus=cpus, gpus=0.25))
     )
 
     # Rejoin split audio metadata

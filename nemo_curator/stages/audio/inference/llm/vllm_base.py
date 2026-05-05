@@ -148,6 +148,10 @@ class VLLMInference:
         model.  If :meth:`setup_on_node` was not called first, the tokenizer
         and sampling params are created here as well.
         """
+        if self.device == "cuda" and not torch.cuda.is_available():
+            msg = "CUDA is not available, but CUDA device is requested"
+            raise RuntimeError(msg)
+
         if self.device == "cuda":
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
