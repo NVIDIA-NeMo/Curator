@@ -71,10 +71,10 @@ def load_benchmark_results(
             raise RuntimeError(msg)
 
         # Grab the benchmark results
-        data = json.loads(jsons[-1].read_text()).get("results")
-        arc_easy_acc = data.get("arc_easy").get("acc,none") * 100
-        piqa_acc_norm = data.get("piqa").get("acc_norm,none") * 100
-        hellaswag_acc_norm = data.get("hellaswag").get("acc_norm,none") * 100
+        data = json.loads(jsons[-1].read_text())["results"]
+        arc_easy_acc = data["arc_easy"]["acc,none"] * 100
+        piqa_acc_norm = data["piqa"]["acc_norm,none"] * 100
+        hellaswag_acc_norm = data["hellaswag"]["acc_norm,none"] * 100
         valid_avg = (arc_easy_acc + piqa_acc_norm + hellaswag_acc_norm) / 3
 
         # Assign the values to the Series

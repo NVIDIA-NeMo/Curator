@@ -12,9 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This script is adapted from the RegMix project:
-# https://github.com/sail-sg/regmix/blob/main/mixture_config/synthesize_mixture.py
-
 import argparse
 import glob
 import os
@@ -65,6 +62,9 @@ def create_ray_client(args: argparse.Namespace) -> RayClient:
 def get_token_distribution(input_path: str) -> dict[str, float]:
     """
     Get the token distribution from the input path of the tokenized files.
+
+    This function is adapted from the RegMix project:
+    https://github.com/sail-sg/regmix/blob/main/mixture_config/synthesize_mixture.py
 
     Args:
     input_path (str): Path to the input directory containing the tokenized files.

@@ -97,10 +97,11 @@ def generate_weights_dirichlet(  # noqa: C901, PLR0912, PLR0913
         prior_dist = prior_dist / np.sum(prior_dist)
         print("\n\nWith temperature: ", prior_dist)
 
-    print("\n\nThe domain usage bound (maximum domain weight): ")
-    # print the bound for each group
-    for i in range(len(prior_dist)):
-        print(f"{train_groups[i]}: {number_bound[i][1]}")
+    if enable_bound:
+        print("\n\nThe domain usage bound (maximum domain weight): ")
+        # print the bound for each group
+        for i in range(len(prior_dist)):
+            print(f"{train_groups[i]}: {number_bound[i][1]}")
 
     # combine reject sampling with dirichlet distribution
     for _ in range(num_samples * sample_multiplier):
@@ -140,7 +141,7 @@ def generate_weights_dirichlet(  # noqa: C901, PLR0912, PLR0913
     print("\nThe number of available samples: ", len(final_samples))
     final_samples = sort_and_deduplicate(np.array(final_samples))
     print("The number of deduplicated samples: ", len(final_samples))
-    selected_samples = random.sample(final_samples, num_samples)
+    selected_samples = random.sample(final_samples, min(num_samples, len(final_samples)))
     print("The number of selected samples: ", len(selected_samples))
     return np.stack(selected_samples, axis=0)
 
@@ -222,6 +223,8 @@ def sort_and_deduplicate(data: np.ndarray, threshold: float = 1e-5) -> np.ndarra
     """
 
     arr = np.array(data)
+    if arr.size == 0:
+        return arr
     sorted_indices = np.lexsort(arr.T)
     sorted_arr = arr[sorted_indices]
     result = [sorted_arr[0]]

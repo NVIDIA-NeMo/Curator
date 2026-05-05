@@ -89,9 +89,9 @@ class MegatronTokenizerWriter(BaseWriter):
                 local_files_only=True,
                 **self.transformers_init_kwargs
             )
-        except OSError as _:
+        except Exception as e:
             # Allow this fallback since loading a tokenizer is lightweight
-            msg = f"Failed to load {self.model_identifier} from local files, loading from Hugging Face"
+            msg = f"Failed to load {self.model_identifier} from local files, loading from Hugging Face: {e}"
             logger.warning(msg)
 
             self.tokenizer = AutoTokenizer.from_pretrained(

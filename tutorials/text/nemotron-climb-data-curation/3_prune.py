@@ -244,7 +244,7 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
                 src_dir = f"{args.output_path}/centroid={other}"
                 for f in os.listdir(src_dir):
                     shutil.move(os.path.join(src_dir, f), dst_dir)
-                os.rmdir(src_dir)
+                shutil.rmtree(src_dir)
 
     ray_client.stop()
 
