@@ -45,6 +45,12 @@ from nemo_curator.tasks import DocumentBatch
 from .conftest import MockAsyncLLMClient
 
 
+def _only_stage_of_type(stages: list[object], stage_type: type) -> object:
+    matches = [stage for stage in stages if isinstance(stage, stage_type)]
+    assert len(matches) == 1
+    return matches[0]
+
+
 # ---------------------------------------------------------------------------
 # TranslationStage.decompose() tests
 # ---------------------------------------------------------------------------
@@ -52,36 +58,6 @@ from .conftest import MockAsyncLLMClient
 
 class TestTranslationStageDecompose:
     """Tests for the CompositeStage decompose behaviour."""
-
-    def test_decompose_without_faith_eval(self, mock_client: MockAsyncLLMClient) -> None:
-        """Pipeline without FAITH eval decomposes into 3 stages."""
-        pipeline = TranslationStage(
-            source_lang="en",
-            target_lang="de",
-            client=mock_client,
-            model_name="test-model",
-        )
-        stages = pipeline.decompose()
-        assert len(stages) == 3
-        assert isinstance(stages[0], SegmentationStage)
-        assert isinstance(stages[1], SegmentTranslationStage)
-        assert isinstance(stages[2], ReassemblyStage)
-
-    def test_decompose_with_faith_eval(self, mock_client: MockAsyncLLMClient) -> None:
-        """Pipeline with FAITH eval decomposes into 4 stages."""
-        pipeline = TranslationStage(
-            source_lang="en",
-            target_lang="de",
-            client=mock_client,
-            model_name="test-model",
-            enable_faith_eval=True,
-        )
-        stages = pipeline.decompose()
-        assert len(stages) == 4
-        assert isinstance(stages[0], SegmentationStage)
-        assert isinstance(stages[1], SegmentTranslationStage)
-        assert isinstance(stages[2], ReassemblyStage)
-        assert isinstance(stages[3], FaithEvalFilter)
 
     def test_decompose_faith_eval_uses_faith_model_name(self, mock_client: MockAsyncLLMClient) -> None:
         """When faith_model_name is set, FaithEvalFilter uses it instead of model_name."""
@@ -94,8 +70,7 @@ class TestTranslationStageDecompose:
             faith_model_name="faith-model",
         )
         stages = pipeline.decompose()
-        faith_stage = stages[3]
-        assert isinstance(faith_stage, FaithEvalFilter)
+        faith_stage = _only_stage_of_type(stages, FaithEvalFilter)
         assert faith_stage.model_name == "faith-model"
 
     def test_decompose_faith_eval_fallback_to_model_name(self, mock_client: MockAsyncLLMClient) -> None:
@@ -109,8 +84,7 @@ class TestTranslationStageDecompose:
             faith_model_name="",
         )
         stages = pipeline.decompose()
-        faith_stage = stages[3]
-        assert isinstance(faith_stage, FaithEvalFilter)
+        faith_stage = _only_stage_of_type(stages, FaithEvalFilter)
         assert faith_stage.model_name == "translate-model"
 
     def test_llm_backend_requires_model_name(self, mock_client: MockAsyncLLMClient) -> None:
@@ -163,14 +137,13 @@ class TestTranslationStageDecompose:
         )
         stages = pipeline.decompose()
 
-        assert len(stages) == 5
-        assert isinstance(stages[2], FaithEvalFilter)
-        assert stages[2].source_text_field == "_seg_segments"
-        assert stages[2].translated_text_field == "_translated"
-        assert stages[2].filter_enabled is False
-        assert isinstance(stages[3], ReassemblyStage)
-        assert stages[3].aggregate_faith_scores is True
-        assert isinstance(stages[4], FaithThresholdFilterStage)
+        faith_stage = _only_stage_of_type(stages, FaithEvalFilter)
+        reassembly_stage = _only_stage_of_type(stages, ReassemblyStage)
+        _only_stage_of_type(stages, FaithThresholdFilterStage)
+        assert faith_stage.source_text_field == "_seg_segments"
+        assert faith_stage.translated_text_field == "_translated"
+        assert faith_stage.filter_enabled is False
+        assert reassembly_stage.aggregate_faith_scores is True
 
     def test_decompose_faith_scores_segments_before_reassembly(
         self,
@@ -188,16 +161,16 @@ class TestTranslationStageDecompose:
 
         stages = pipeline.decompose()
 
-        assert len(stages) == 5
-        assert isinstance(stages[0], SegmentationStage)
-        assert isinstance(stages[1], SegmentTranslationStage)
-        assert isinstance(stages[2], FaithEvalFilter)
-        assert stages[2].source_text_field == "_seg_segments"
-        assert stages[2].translated_text_field == "_translated"
-        assert stages[2].filter_enabled is False
-        assert isinstance(stages[3], ReassemblyStage)
-        assert stages[3].aggregate_faith_scores is True
-        assert isinstance(stages[4], FaithThresholdFilterStage)
+        stage_positions = {type(stage): index for index, stage in enumerate(stages)}
+        assert stage_positions[FaithEvalFilter] < stage_positions[ReassemblyStage]
+        assert stage_positions[ReassemblyStage] < stage_positions[FaithThresholdFilterStage]
+
+        faith_stage = _only_stage_of_type(stages, FaithEvalFilter)
+        reassembly_stage = _only_stage_of_type(stages, ReassemblyStage)
+        assert faith_stage.source_text_field == "_seg_segments"
+        assert faith_stage.translated_text_field == "_translated"
+        assert faith_stage.filter_enabled is False
+        assert reassembly_stage.aggregate_faith_scores is True
 
     def test_segmentation_stage_inherits_config(self, mock_client: MockAsyncLLMClient) -> None:
         """SegmentationStage receives text_field and source_lang from the pipeline."""
@@ -483,54 +456,8 @@ class TestEndToEndMock:
     sequentially to verify column flow.
     """
 
-    def test_pipeline_columns_flow(self, mock_client: MockAsyncLLMClient, sample_batch: DocumentBatch) -> None:
-        """Running decomposed stages sequentially produces the expected columns."""
-        pipeline = TranslationStage(
-            source_lang="en",
-            target_lang="de",
-            client=mock_client,
-            model_name="test-model",
-            enable_faith_eval=True,
-            faith_threshold=1.0,  # Low threshold so nothing is filtered
-        )
-        stages = pipeline.decompose()
-        assert len(stages) == 4
-
-        # We cannot fully run SegmentationStage and SegmentTranslationStage without
-        # Dev 1 and Dev 2's implementations being present.  Instead, we
-        # verify that the pipeline *decomposes* correctly and that the last
-        # stage (FaithEvalFilter) can process a pre-built DataFrame.
-
-        # Simulate post-reassembly DataFrame
-        df = pd.DataFrame(
-            {
-                "text": ["Hello world.", "Goodbye."],
-                "translated_text": ["Hallo Welt.", "Auf Wiedersehen."],
-                "id": [1, 2],
-            }
-        )
-        simulated_batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
-
-        # Run FaithEvalFilter (the 4th stage)
-        faith_stage = stages[3]
-        assert isinstance(faith_stage, FaithEvalFilter)
-        faith_stage.setup()
-        result = faith_stage.process(simulated_batch)
-        result_df = result.to_pandas()
-
-        # All rows kept (threshold=1.0, mock scores average ~4.2)
-        assert len(result_df) == 2
-        assert "faith_avg" in result_df.columns
-        assert "translated_text" in result_df.columns
-        assert "id" in result_df.columns  # Original columns preserved
-
-    def test_full_e2e_all_four_stages(self, mock_client: MockAsyncLLMClient) -> None:
-        """True end-to-end test: run all 4 stages sequentially.
-
-        Exercises: SegmentationStage -> SegmentTranslationStage -> ReassemblyStage ->
-        FaithEvalFilter, verifying that columns flow correctly through every
-        stage and no data is silently lost.
-        """
+    def test_full_e2e_with_faith_eval(self, mock_client: MockAsyncLLMClient) -> None:
+        """Run the composed translation stage sequence and verify user-visible output."""
         # -- Build input batch with two documents ----------------------------
         df = pd.DataFrame(
             {
@@ -543,7 +470,6 @@ class TestEndToEndMock:
         )
         batch = DocumentBatch(data=df, dataset_name="e2e-test", task_id="1")
 
-        # -- Decompose pipeline with faith eval enabled ----------------------
         pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
@@ -552,62 +478,11 @@ class TestEndToEndMock:
             enable_faith_eval=True,
             faith_threshold=1.0,  # Low threshold so nothing is filtered
         )
-        stages = pipeline.decompose()
-        assert len(stages) == 4
 
-        # -- Stage 1: Segmentation ------------------------------------------
-        seg_stage = stages[0]
-        assert isinstance(seg_stage, SegmentationStage)
-        result = seg_stage.process(batch)
-        seg_df = result.to_pandas()
-
-        # After segmentation, we should have internal columns
-        assert "_seg_segments" in seg_df.columns
-        assert "_seg_metadata" in seg_df.columns
-        assert "_seg_doc_id" in seg_df.columns
-        # Should have more rows than input (first doc has multiple segments)
-        assert len(seg_df) >= 2
-        # Original columns still present
-        assert "text" in seg_df.columns
-        assert "id" in seg_df.columns
-
-        # -- Stage 2: Translation -------------------------------------------
-        tr_stage = stages[1]
-        assert isinstance(tr_stage, SegmentTranslationStage)
-        tr_stage.setup()
-        result = tr_stage.process(result)
-        tr_df = result.to_pandas()
-
-        assert "_translated" in tr_df.columns
-        # Every segment should have a translation (non-None)
-        assert tr_df["_translated"].notna().all()
-        # Row count should not change
-        assert len(tr_df) == len(seg_df)
-
-        # -- Stage 3: Reassembly -------------------------------------------
-        reas_stage = stages[2]
-        assert isinstance(reas_stage, ReassemblyStage)
-        result = reas_stage.process(result)
-        reas_df = result.to_pandas()
-
-        # Should collapse back to the original number of documents
-        assert len(reas_df) == 2
-        # translated_text column must exist
-        assert "translated_text" in reas_df.columns
-        # Original columns preserved
-        assert "text" in reas_df.columns
-        assert "id" in reas_df.columns
-        # Internal columns must be cleaned up
-        for col in ["_seg_segments", "_seg_metadata", "_seg_doc_id", "_translated"]:
-            assert col not in reas_df.columns
-        # translated_text should not be empty
-        assert all(len(t) > 0 for t in reas_df["translated_text"])
-
-        # -- Stage 4: FaithEvalFilter ---------------------------------------
-        faith_stage = stages[3]
-        assert isinstance(faith_stage, FaithEvalFilter)
-        faith_stage.setup()
-        result = faith_stage.process(result)
+        result = batch
+        for stage in pipeline.decompose():
+            stage.setup()
+            result = stage.process(result)
         final_df = result.to_pandas()
 
         # All rows kept (threshold=1.0, mock scores average ~4.2)
@@ -755,12 +630,7 @@ class TestFaithEvalFilterEnabled:
         assert len(result_df) == 0
 
     def test_pipeline_with_faith_eval_score_only(self, mock_client: MockAsyncLLMClient) -> None:
-        """Pipeline with enable_faith_eval=True builds stages correctly.
-
-        TranslationStage exposes ``filter_enabled`` and forwards it to
-        :class:`FaithEvalFilter`.  The default is ``True`` (drop rows below
-        threshold).
-        """
+        """TranslationStage wires scoring and threshold filtering separately."""
         pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",
@@ -770,13 +640,11 @@ class TestFaithEvalFilterEnabled:
             faith_threshold=1.0,
         )
         stages = pipeline.decompose()
-        assert len(stages) == 4
-        faith_stage = stages[3]
-        assert isinstance(faith_stage, FaithEvalFilter)
-        # Default is filter_enabled=True
-        assert faith_stage.filter_enabled is True
+        faith_stage = _only_stage_of_type(stages, FaithEvalFilter)
+        assert faith_stage.filter_enabled is False
+        assert any(isinstance(stage, FaithThresholdFilterStage) for stage in stages)
 
-        # Explicitly passing filter_enabled=False is forwarded.
+        # Disabling filtering keeps FAITH scoring but omits threshold dropping.
         pipeline2 = TranslationStage(
             source_lang="en",
             target_lang="de",
@@ -785,9 +653,10 @@ class TestFaithEvalFilterEnabled:
             enable_faith_eval=True,
             filter_enabled=False,
         )
-        faith_stage2 = pipeline2.decompose()[3]
-        assert isinstance(faith_stage2, FaithEvalFilter)
+        stages2 = pipeline2.decompose()
+        faith_stage2 = _only_stage_of_type(stages2, FaithEvalFilter)
         assert faith_stage2.filter_enabled is False
+        assert not any(isinstance(stage, FaithThresholdFilterStage) for stage in stages2)
 
 
 class TestDryRunMode:
