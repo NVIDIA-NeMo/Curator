@@ -141,3 +141,10 @@ def test_skipped_indices_set_skip_key() -> None:
     results = stage.process_batch([_make_task()])
 
     assert results[0].data["_skip_me"] == "empty_audio"
+
+
+def test_worker_override_specs() -> None:
+    stage = InferenceQwenOmniStage(num_workers_override=3)
+
+    assert stage.num_workers() == 3
+    assert stage.xenna_stage_spec() == {"num_workers": 3}

@@ -95,6 +95,7 @@ class TestNemoTarShardReaderStage:
         results = stage.process(task)
         assert len(results) == 1
         assert results[0].data["sample_rate"] == 16000
+        assert results[0].data["sampling_rate"] == 16000
         assert results[0].data["corpus"] == "test"
         assert isinstance(results[0].data["waveform"], np.ndarray)
 
@@ -125,6 +126,44 @@ class TestNemoTarShardReaderStage:
         results = stage.process(task)
         assert results[0]._metadata["_shard_total"] == 1
 
+    def test_max_utterances_per_shard_limits_fanout(self, tmp_path: Path) -> None:
+        manifest_path = str(tmp_path / "manifest.jsonl")
+        tar_path = str(tmp_path / "audio.tar")
+
+        audio_data = np.zeros(16000, dtype=np.float32)
+        buf = BytesIO()
+        sf.write(buf, audio_data, 16000, format="WAV")
+        audio_bytes = buf.getvalue()
+
+        with tarfile.open(tar_path, "w") as tar:
+            for idx in range(2):
+                info = tarfile.TarInfo(name=f"utt_{idx}.wav")
+                info.size = len(audio_bytes)
+                tar.addfile(info, BytesIO(audio_bytes))
+
+        with open(manifest_path, "w") as f:
+            for idx in range(2):
+                f.write(json.dumps({"audio_filepath": f"utt_{idx}.wav", "duration": 1.0}) + "\n")
+
+        stage = NemoTarShardReaderStage(max_utterances_per_shard=1)
+        task = FileGroupTask(
+            task_id="shard_0",
+            dataset_name="test_ds",
+            data=[manifest_path, tar_path],
+            reader_config={"corpus": "test", "shard_key": "test/shard_0"},
+        )
+
+        results = stage.process(task)
+
+        assert len(results) == 1
+        assert results[0]._metadata["_shard_total"] == 1
+
+    def test_reader_worker_specs(self) -> None:
+        stage = NemoTarShardReaderStage(num_workers_override=8, num_workers_per_node=2)
+
+        assert stage.num_workers() == 8
+        assert stage.xenna_stage_spec() == {"num_workers": 8, "num_workers_per_node": 2}
+
 
 class TestNemoTarredAudioReader:
     def test_requires_yaml_path(self) -> None:
@@ -137,3 +176,19 @@ class TestNemoTarredAudioReader:
         reader = NemoTarredAudioReader(yaml_path=yaml_path)
         stages = reader.decompose()
         assert len(stages) == 2
+
+    def test_decompose_propagates_reader_efficiency_knobs(self, tmp_path: Path) -> None:
+        yaml_path = str(tmp_path / "config.yaml")
+        Path(yaml_path).write_text("[]")
+        reader = NemoTarredAudioReader(
+            yaml_path=yaml_path,
+            max_utterances_per_shard=5,
+            reader_num_workers=4,
+            reader_num_workers_per_node=1,
+        )
+
+        _discovery, shard_reader = reader.decompose()
+
+        assert shard_reader.max_utterances_per_shard == 5
+        assert shard_reader.num_workers() == 4
+        assert shard_reader.xenna_stage_spec() == {"num_workers": 4, "num_workers_per_node": 1}

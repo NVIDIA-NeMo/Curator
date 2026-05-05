@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nemo_curator.models.qwen_asr import QwenASR
-from nemo_curator.stages.audio.inference.qwen_omni import _LANG_CODE_TO_NAME
+from nemo_curator.stages.audio.pipeline_utils import LANG_CODE_TO_NAME as _LANG_CODE_TO_NAME
+from nemo_curator.stages.audio.pipeline_utils import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -74,14 +75,36 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     context_key: str | None = None
     run_only_if_key: str | None = None
     run_only_if_prefix: str = "Hallucination"
+    notes_key: str = "additional_notes"
     gpu_memory_utilization: float = 0.95
     max_new_tokens: int = 4096
     max_inference_batch_size: int = 128
+    num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
+    _supported_langs: set[str] = field(default_factory=set, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._model: QwenASR | None = None
+
+    def _get_supported_languages(self) -> set[str]:
+        """Return QwenASR-supported language names when the package exposes them."""
+        if not self._supported_langs:
+            try:
+                from qwen_asr.inference.utils import SUPPORTED_LANGUAGES
+
+                self._supported_langs = set(SUPPORTED_LANGUAGES)
+            except (ImportError, AttributeError):
+                return set()
+        return self._supported_langs
+
+    def num_workers(self) -> int | None:
+        return self.num_workers_override
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        if self.num_workers_override is None:
+            return {}
+        return {"num_workers": self.num_workers_override}
 
     def _create_model(self) -> QwenASR:
         return QwenASR(
@@ -137,7 +160,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.waveform_key, self.sample_rate_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.pred_text_key, self.language_key]
+        return [], [self.pred_text_key, self.language_key, self.notes_key]
 
     # ------------------------------------------------------------------
     # Processing
@@ -164,6 +187,27 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             _LANG_CODE_TO_NAME.get(code, code) if code else None
             for code in (tasks[i].data.get(self.source_lang_key) for i in indices)
         ]
+
+    def _filter_supported_languages(self, tasks: list[AudioTask], indices: list[int]) -> list[int]:
+        """Drop tasks whose source language is known unsupported by QwenASR."""
+        supported = self._get_supported_languages()
+        if not self.source_lang_key or not supported:
+            return indices
+
+        eligible: list[int] = []
+        for idx in indices:
+            code = tasks[idx].data.get(self.source_lang_key, "")
+            lang_name = _LANG_CODE_TO_NAME.get(code, code) if code else None
+            if lang_name and lang_name not in supported:
+                set_note(
+                    tasks[idx].data,
+                    self.name,
+                    f"skipped unsupported language: {lang_name}",
+                    self.notes_key,
+                )
+                continue
+            eligible.append(idx)
+        return eligible
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:
@@ -213,28 +257,64 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             logger.info(f"QwenASR: skipped entire batch of {len(tasks)} (none matched run_only_if_key)")
             return tasks
 
-        waveforms = [tasks[i].data[self.waveform_key] for i in run_indices]
-        sample_rates = [tasks[i].data[self.sample_rate_key] for i in run_indices]
+        eligible_indices = self._filter_supported_languages(tasks, run_indices)
+        unsupported_indices = set(run_indices) - set(eligible_indices)
+
+        if not eligible_indices:
+            skipped_indices = set(range(len(tasks)))
+            skipped_audio_seconds = sum(
+                float(tasks[i].data[self.waveform_key].shape[0]) / float(tasks[i].data[self.sample_rate_key])
+                for i in skipped_indices
+                if tasks[i].data.get(self.sample_rate_key)
+                and tasks[i].data.get(self.waveform_key) is not None
+                and getattr(tasks[i].data.get(self.waveform_key), "size", 0) > 0
+            )
+            skipped_waveform_bytes = sum(
+                float(getattr(tasks[i].data.get(self.waveform_key), "nbytes", 0))
+                for i in skipped_indices
+                if tasks[i].data.get(self.waveform_key) is not None
+            )
+            for task in tasks:
+                task.data.pop(self.waveform_key, None)
+            self._log_metrics({
+                "utterances_input": float(len(tasks)),
+                "utterances_selected": 0.0,
+                "utterances_skipped": float(len(tasks)),
+                "utterances_unsupported_language": float(len(unsupported_indices)),
+                "audio_duration_s": 0.0,
+                "skipped_audio_duration_s": skipped_audio_seconds,
+                "waveform_bytes": 0.0,
+                "skipped_waveform_bytes": skipped_waveform_bytes,
+                "output_chars": 0.0,
+                "inference_time_s": 0.0,
+                "inference_time": 0.0,
+            })
+            logger.info(f"QwenASR: skipped entire batch of {len(tasks)} (no eligible samples)")
+            return tasks
+
+        waveforms = [tasks[i].data[self.waveform_key] for i in eligible_indices]
+        sample_rates = [tasks[i].data[self.sample_rate_key] for i in eligible_indices]
         contexts = (
-            [tasks[i].data.get(self.context_key, "") for i in run_indices]
+            [tasks[i].data.get(self.context_key, "") for i in eligible_indices]
             if self.context_key else None
         )
-        languages = self._resolve_languages(tasks, run_indices)
+        languages = self._resolve_languages(tasks, eligible_indices)
 
         inference_t0 = time.perf_counter()
         pred_texts, detected_langs = self._model.generate(waveforms, sample_rates, contexts, languages)
         inference_elapsed = time.perf_counter() - inference_t0
 
-        for idx, pred, lang in zip(run_indices, pred_texts, detected_langs, strict=True):
+        for idx, pred, lang in zip(eligible_indices, pred_texts, detected_langs, strict=True):
             tasks[idx].data[self.pred_text_key] = pred
             tasks[idx].data[self.language_key] = lang
 
-        skipped = len(tasks) - len(run_indices)
-        skipped_indices = set(range(len(tasks))) - set(run_indices)
+        skipped = len(tasks) - len(eligible_indices)
+        skipped_indices = set(range(len(tasks))) - set(eligible_indices)
         self._log_metrics({
             "utterances_input": float(len(tasks)),
-            "utterances_selected": float(len(run_indices)),
+            "utterances_selected": float(len(eligible_indices)),
             "utterances_skipped": float(skipped),
+            "utterances_unsupported_language": float(len(unsupported_indices)),
             "audio_duration_s": sum(
                 float(w.shape[0]) / float(sr)
                 for w, sr in zip(waveforms, sample_rates, strict=False)
@@ -259,5 +339,8 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         })
         for task in tasks:
             task.data.pop(self.waveform_key, None)
-        logger.info(f"QwenASR: generated {len(run_indices)} predictions, skipped {skipped}")
+        logger.info(
+            f"QwenASR: generated {len(eligible_indices)} predictions, "
+            f"skipped {skipped} ({len(unsupported_indices)} unsupported language)"
+        )
         return tasks

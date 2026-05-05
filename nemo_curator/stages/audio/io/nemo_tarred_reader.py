@@ -89,6 +89,18 @@ def _open_tar(tar_path: str, s3_endpoint_url: str | None = None) -> tarfile.TarF
     return tarfile.open(fileobj=fileobj, mode="r|*")
 
 
+def _open_text_stream(path: str, s3_endpoint_url: str | None = None) -> Any:
+    """Open a local or S3/AIS text file as a binary stream."""
+    from lhotse.serialization import open_best
+
+    if path.startswith("s3://"):
+        return open_best(_s3_to_pipe(path, s3_endpoint_url), mode="rb")
+    if not os.path.exists(path):
+        msg = f"Text file not found: {path}"
+        raise FileNotFoundError(msg)
+    return open_best(path, mode="rb")
+
+
 # ---------------------------------------------------------------------------
 # Stage 1: Shard discovery
 # ---------------------------------------------------------------------------
@@ -259,7 +271,9 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     tar streaming and ``soundfile`` for audio decoding.  No files are
     written to disk.  Each emitted ``AudioTask`` carries the waveform as
     a 1-D numpy float32 array (mono) in ``task.data["waveform"]`` and the
-    native sample rate in ``task.data["sample_rate"]``.
+    native sample rate in ``task.data["sample_rate"]``. A
+    ``task.data["sampling_rate"]`` alias is also emitted for compatibility
+    with Granary v2 reference scripts.
 
     Args:
         filepath_key: Manifest key that identifies the audio filename
@@ -271,12 +285,37 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     name: str = "nemo_tar_shard_reader"
     filepath_key: str = "audio_filepath"
     s3_endpoint_url: str | None = None
+    max_utterances_per_shard: int | None = None
+    num_workers_override: int | None = None
+    num_workers_per_node: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.max_utterances_per_shard is not None and self.max_utterances_per_shard <= 0:
+            msg = "max_utterances_per_shard must be positive when set"
+            raise ValueError(msg)
+        if self.num_workers_override is not None and self.num_workers_override <= 0:
+            msg = "num_workers_override must be positive when set"
+            raise ValueError(msg)
+        if self.num_workers_per_node is not None and self.num_workers_per_node <= 0:
+            msg = "num_workers_per_node must be positive when set"
+            raise ValueError(msg)
+
+    def num_workers(self) -> int | None:
+        return self.num_workers_override
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {}
+        if self.num_workers_override is not None:
+            spec["num_workers"] = self.num_workers_override
+        if self.num_workers_per_node is not None:
+            spec["num_workers_per_node"] = self.num_workers_per_node
+        return spec
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["waveform", "sample_rate", "corpus", "num_channels"]
+        return ["data"], ["waveform", "sample_rate", "sampling_rate", "corpus", "num_channels"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
         if RayStageSpecKeys is not None:
@@ -285,8 +324,10 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     def _read_manifest(self, path: str) -> dict[str, dict]:
         entries: dict[str, dict] = {}
-        with open(path, encoding="utf-8") as f:
+        with _open_text_stream(path, self.s3_endpoint_url) as f:
             for raw_line in f:
+                if isinstance(raw_line, bytes):
+                    raw_line = raw_line.decode("utf-8")
                 stripped = raw_line.strip()
                 if stripped:
                     entry = json.loads(stripped)
@@ -344,6 +385,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 entry = dict(manifest[tar_info.name])
                 entry["waveform"] = audio
                 entry["sample_rate"] = sample_rate
+                entry["sampling_rate"] = sample_rate
                 entry["num_channels"] = num_channels
                 entry["corpus"] = corpus
 
@@ -356,6 +398,13 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                         _stage_perf=list(task._stage_perf),
                     )
                 )
+                if self.max_utterances_per_shard and len(results) >= self.max_utterances_per_shard:
+                    logger.info(
+                        "Shard {}: reached max_utterances_per_shard={} and stopped early",
+                        shard_key,
+                        self.max_utterances_per_shard,
+                    )
+                    break
         finally:
             tar.close()
 
@@ -370,6 +419,9 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             "audio_members_decoded": float(audio_members_matched),
             "corrupt_audio_count": float(corrupt_audio_count),
             "utterances_emitted": float(shard_total),
+            "utterance_limit_hit": float(
+                bool(self.max_utterances_per_shard and shard_total >= self.max_utterances_per_shard)
+            ),
             "audio_duration_s": decoded_audio_seconds,
             "waveform_bytes": decoded_waveform_bytes,
             "manifest_read_time_s": manifest_elapsed,
@@ -408,6 +460,9 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     filepath_key: str = "audio_filepath"
     s3_endpoint_url: str | None = None
     output_dir: str | None = None
+    max_utterances_per_shard: int | None = None
+    reader_num_workers: int | None = None
+    reader_num_workers_per_node: int | None = None
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -424,6 +479,9 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
             NemoTarShardReaderStage(
                 filepath_key=self.filepath_key,
                 s3_endpoint_url=self.s3_endpoint_url,
+                max_utterances_per_shard=self.max_utterances_per_shard,
+                num_workers_override=self.reader_num_workers,
+                num_workers_per_node=self.reader_num_workers_per_node,
             ),
         ]
 

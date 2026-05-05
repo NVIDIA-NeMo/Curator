@@ -106,3 +106,10 @@ def test_model_not_initialized_raises() -> None:
     tasks = [AudioTask(data={"cleaned_text": "hello", "_skip_me": ""})]
     with pytest.raises(RuntimeError, match="setup"):
         stage.process_batch(tasks)
+
+
+def test_worker_override_specs() -> None:
+    stage = PnCRestorationStage(model_id="mock/model", num_workers_override=4)
+
+    assert stage.num_workers() == 4
+    assert stage.xenna_stage_spec() == {"num_workers": 4}

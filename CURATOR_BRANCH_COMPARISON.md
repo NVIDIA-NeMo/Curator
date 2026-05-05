@@ -230,11 +230,7 @@ Generic manifest I/O stages added to `common.py`:
 - Data flow diagrams
 - Configuration reference
 
-### 3.10 Benchmarking Script
-
-`benchmarking/scripts/audio_postprocessing_benchmark.py` (221 lines) — performance benchmarking for the audio postprocessing pipeline.
-
-### 3.11 Comprehensive Test Suite
+### 3.10 Comprehensive Test Suite
 
 New test files (all `tests/stages/audio/`):
 - `inference/test_qwen_asr.py` (121 lines)
@@ -500,7 +496,6 @@ tutorials/audio/granary_v2_postprocessing/phrases.txt
 
 ### Files only in ours (we added):
 ```
-benchmarking/scripts/audio_postprocessing_benchmark.py
 nemo_curator/stages/audio/inference/asr/__init__.py
 nemo_curator/stages/audio/inference/asr/asr_nemo.py
 nemo_curator/stages/audio/inference/speaker_diarization/__init__.py

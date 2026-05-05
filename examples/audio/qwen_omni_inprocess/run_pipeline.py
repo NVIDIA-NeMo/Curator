@@ -23,6 +23,10 @@ Architecture:
         → streams NeMo-tarred shards, decodes audio in memory
     InitializeFieldsStage (CPU)
         → sets _skip_me = "", renames text → granary_v1_prediction
+    [optional] SEDInferenceStage (GPU)
+        → runs PANNs CNN14 on each audio, writes framewise probabilities
+    [optional] SEDPostprocessingStage (CPU)
+        → labels entries with detected sound events
     InferenceQwenOmniStage (GPU, TP=2)
         → batched vLLM inference, outputs qwen3_prediction_s1/s2
     [optional] DisfluencyWerGuardStage (CPU)
@@ -107,8 +111,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                     help="Manifest key holding per-sample language code. "
                          "Used for prompt interpolation ({language} placeholder) and per-sample LID filtering.")
     ap.add_argument("--s3_endpoint_url", type=str, default=None)
+    ap.add_argument("--max_utterances_per_shard", type=int, default=None,
+                    help="Optional debug throttle for reader fan-out. Default processes the whole shard.")
     ap.add_argument(
         "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
+    )
+    ap.add_argument(
+        "--autoscale_interval_s", type=int, default=180,
+        help="Seconds between Xenna streaming autoscaler checks.",
     )
 
     tf = ap.add_argument_group("text filtering")
@@ -170,6 +180,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Thread pool size for PnC prompt preprocessing.")
     pnc.add_argument("--pnc_gpu_memory_utilization", type=float, default=0.95,
                      help="Fraction of GPU memory for PnC vLLM engine.")
+    pnc.add_argument("--pnc_source_lang_key", type=str, default="source_lang",
+                     help="Task data key holding per-sample language for the PnC prompt.")
     pnc.add_argument("--skip_pnc", action="store_true", default=False,
                      help="Skip PnC restoration stage entirely.")
 
@@ -184,7 +196,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     itn.add_argument("--itn_batch_size", type=int, default=64, help="Batch size for ITN inference.")
     itn.add_argument("--itn_tensor_parallel_size", type=int, default=None,
                      help="TP size for ITN model (None = auto-detect).")
-    itn.add_argument("--itn_max_output_tokens", type=int, default=4096,
+    itn.add_argument("--itn_max_output_tokens", type=int, default=512,
                      help="Max tokens to generate per ITN sample.")
     itn.add_argument("--itn_max_model_len", type=int, default=4096,
                      help="Max context length for ITN vLLM engine.")
@@ -194,12 +206,46 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Fraction of GPU memory for ITN vLLM engine.")
     itn.add_argument("--itn_no_validation", action="store_true", help="Disable ITN output validation.")
 
+    sed = ap.add_argument_group("SED (sound event detection)")
+    sed.add_argument("--sed_checkpoint", type=str, default=None,
+                     help="Path to PANNs CNN14 .pth checkpoint. Enables SED when set.")
+    sed.add_argument("--sed_model_type", type=str, default="Cnn14_DecisionLevelMax",
+                     help="CNN14 variant name.")
+    sed.add_argument("--sed_speech_threshold", type=float, default=0.5,
+                     help="Probability threshold for SED event detection.")
+    sed.add_argument("--sed_min_duration", type=float, default=0.3,
+                     help="Minimum SED event duration in seconds.")
+    sed.add_argument("--sed_merge_gap", type=float, default=0.0,
+                     help="Merge SED events separated by gaps smaller than this many seconds.")
+    sed.add_argument("--sed_batch_size", type=int, default=32,
+                     help="Batch size for SED inference.")
+    sed.add_argument("--sed_gpu_memory_gb", type=float, default=4.0,
+                     help="GPU memory in GB requested by SED inference.")
+    sed.add_argument("--sed_subcategories", action="store_true", default=False,
+                     help="Emit per-class SED events instead of aggregated superclass events.")
+    sed.add_argument("--sed_num_workers", type=int, default=None,
+                     help="Fixed SED worker count. Default lets the executor autoscale.")
+
     asr = ap.add_argument_group("QwenASR hallucination recovery")
     asr.add_argument("--asr_model_id", type=str, default=None,
                      help="QwenASR model ID or local path. If set, enables hallucination recovery.")
     asr.add_argument("--asr_batch_size", type=int, default=128)
     asr.add_argument("--asr_gpu_memory_utilization", type=float, default=0.95)
     asr.add_argument("--asr_max_new_tokens", type=int, default=4096)
+
+    scaling = ap.add_argument_group("multi-node scaling")
+    scaling.add_argument("--reader_num_workers", type=int, default=None,
+                         help="Fixed shard-reader worker count. Default lets the executor autoscale.")
+    scaling.add_argument("--reader_num_workers_per_node", type=int, default=None,
+                         help="Fixed shard-reader workers per node.")
+    scaling.add_argument("--omni_num_workers", type=int, default=None,
+                         help="Fixed QwenOmni worker count. Default lets the executor autoscale.")
+    scaling.add_argument("--asr_num_workers", type=int, default=None,
+                         help="Fixed QwenASR worker count.")
+    scaling.add_argument("--pnc_num_workers", type=int, default=None,
+                         help="Fixed PnC worker count.")
+    scaling.add_argument("--itn_num_workers", type=int, default=None,
+                         help="Fixed ITN worker count.")
     return ap
 
 
@@ -247,27 +293,52 @@ def main() -> None:  # noqa: C901
             corpus_filter=args.corpus,
             s3_endpoint_url=args.s3_endpoint_url,
             output_dir=args.output_dir,
+            max_utterances_per_shard=args.max_utterances_per_shard,
+            reader_num_workers=args.reader_num_workers,
+            reader_num_workers_per_node=args.reader_num_workers_per_node,
         ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
         InitializeFieldsStage(),
-        InferenceQwenOmniStage(
-            model_id=args.model_id,
-            prompt_text=prompt,
-            en_prompt_text=en_prompt,
-            followup_prompt=followup_prompt,
-            system_prompt=system_prompt,
-            tensor_parallel_size=args.tensor_parallel_size,
-            batch_size=args.batch_size,
-            max_output_tokens=args.max_output_tokens,
-            max_model_len=args.max_model_len,
-            max_num_seqs=args.max_num_seqs,
-            gpu_memory_utilization=args.gpu_memory_utilization,
-            prep_workers=args.prep_workers,
-            source_lang_key=args.source_lang_key,
-            pred_text_key="qwen3_prediction_s1",
-            disfluency_text_key="qwen3_prediction_s2",
-            keep_waveform=bool(args.asr_model_id),
-        ),
     ]
+
+    if args.sed_checkpoint:
+        from nemo_curator.stages.audio.inference.sed import SEDInferenceStage
+        from nemo_curator.stages.audio.postprocessing.sed_postprocessing import SEDPostprocessingStage
+
+        stages.extend([
+            SEDInferenceStage(
+                checkpoint_path=args.sed_checkpoint,
+                model_type=args.sed_model_type,
+                batch_size=args.sed_batch_size,
+                num_workers_override=args.sed_num_workers,
+                resources=Resources(cpus=1.0, gpu_memory_gb=args.sed_gpu_memory_gb),
+            ),
+            SEDPostprocessingStage(
+                threshold=args.sed_speech_threshold,
+                min_duration_sec=args.sed_min_duration,
+                merge_gap_sec=args.sed_merge_gap,
+                emit_subcategories=args.sed_subcategories,
+            ),
+        ])
+
+    stages.append(InferenceQwenOmniStage(
+        model_id=args.model_id,
+        prompt_text=prompt,
+        en_prompt_text=en_prompt,
+        followup_prompt=followup_prompt,
+        system_prompt=system_prompt,
+        tensor_parallel_size=args.tensor_parallel_size,
+        batch_size=args.batch_size,
+        max_output_tokens=args.max_output_tokens,
+        max_model_len=args.max_model_len,
+        max_num_seqs=args.max_num_seqs,
+        gpu_memory_utilization=args.gpu_memory_utilization,
+        prep_workers=args.prep_workers,
+        source_lang_key=args.source_lang_key,
+        pred_text_key="qwen3_prediction_s1",
+        disfluency_text_key="qwen3_prediction_s2",
+        keep_waveform=bool(args.asr_model_id),
+        num_workers_override=args.omni_num_workers,
+    ))
 
     if followup_prompt:
         stages.append(DisfluencyWerGuardStage(
@@ -296,6 +367,7 @@ def main() -> None:  # noqa: C901
                 max_new_tokens=args.asr_max_new_tokens,
                 run_only_if_key="_skip_me",
                 run_only_if_prefix="Hallucination",
+                num_workers_override=args.asr_num_workers,
             ),
             WhisperHallucinationStage(
                 name="WhisperHallucination_asr",
@@ -346,6 +418,8 @@ def main() -> None:  # noqa: C901
                 max_num_seqs=args.pnc_max_num_seqs,
                 gpu_memory_utilization=args.pnc_gpu_memory_utilization,
                 prep_workers=args.pnc_prep_workers,
+                source_lang_key=args.pnc_source_lang_key,
+                num_workers_override=args.pnc_num_workers,
                 **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
                 **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
             ),
@@ -369,6 +443,7 @@ def main() -> None:  # noqa: C901
             gpu_memory_utilization=args.itn_gpu_memory_utilization,
             batch_size=args.itn_batch_size,
             enable_validation=not args.itn_no_validation,
+            num_workers_override=args.itn_num_workers,
         ))
 
     stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
@@ -383,6 +458,7 @@ def main() -> None:  # noqa: C901
     executor = XennaExecutor(
         config={
             "execution_mode": args.execution_mode,
+            "autoscale_interval_s": args.autoscale_interval_s,
         }
     )
 

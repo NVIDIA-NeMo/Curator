@@ -16,33 +16,18 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nemo_curator.models.qwen_omni import QwenOmni
+from nemo_curator.stages.audio.pipeline_utils import LANG_CODE_TO_NAME as _LANG_CODE_TO_NAME
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-
-_LANG_CODE_TO_NAME: dict[str, str] = {
-    "en": "English", "de": "German", "es": "Spanish", "fr": "French",
-    "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "ru": "Russian",
-    "pl": "Polish", "cs": "Czech", "ro": "Romanian", "hu": "Hungarian",
-    "el": "Greek", "fi": "Finnish", "da": "Danish", "sv": "Swedish",
-    "lt": "Lithuanian", "lv": "Latvian", "hr": "Croatian", "et": "Estonian",
-    "bg": "Bulgarian", "sk": "Slovak", "sl": "Slovenian", "mt": "Maltese",
-    "uk": "Ukrainian", "sr": "Serbian", "mk": "Macedonian", "no": "Norwegian",
-    "hi": "Hindi", "ta": "Tamil", "mr": "Marathi", "bn": "Bengali",
-    "kn": "Kannada", "te": "Telugu", "ml": "Malayalam", "gu": "Gujarati",
-    "ur": "Urdu", "pa": "Punjabi",
-    "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "ar": "Arabic",
-    "he": "Hebrew", "id": "Indonesian", "vi": "Vietnamese", "th": "Thai",
-    "tr": "Turkish", "fil": "Filipino", "tl": "Tagalog", "fa": "Persian",
-}
 
 
 @dataclass
@@ -109,6 +94,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     top_k: int = 1
     prep_workers: int = 8
     keep_waveform: bool = False
+    num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
 
@@ -117,6 +103,14 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         tp = self.tensor_parallel_size
         if tp and tp > 0:
             self.resources = Resources(gpus=float(tp))
+
+    def num_workers(self) -> int | None:
+        return self.num_workers_override
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        if self.num_workers_override is None:
+            return {}
+        return {"num_workers": self.num_workers_override}
 
     def _create_model(self) -> QwenOmni:
         return QwenOmni(

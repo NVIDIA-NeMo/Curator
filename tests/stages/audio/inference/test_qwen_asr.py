@@ -77,6 +77,27 @@ def test_run_only_if_key_filters() -> None:
     assert results[1].data["qwen3_asr_prediction"] == ""
 
 
+def test_unsupported_language_skipped_before_inference() -> None:
+    stage = _make_stage(run_only_if_key="_skip_me")
+    stage._supported_langs = {"English"}
+    stage._model.generate.return_value = (["recovered"], ["English"])
+
+    tasks = [
+        _make_task(skip_me="Hallucination:ngram"),
+        _make_task(skip_me="Hallucination:ngram"),
+    ]
+    tasks[1].data["source_lang"] = "zz"
+
+    results = stage.process_batch(tasks)
+
+    stage._model.generate.assert_called_once()
+    assert results[0].data["qwen3_asr_prediction"] == "recovered"
+    assert results[1].data["qwen3_asr_prediction"] == ""
+    assert "unsupported language" in results[1].data["additional_notes"][stage.name]
+    assert "waveform" not in results[0].data
+    assert "waveform" not in results[1].data
+
+
 def test_all_skipped_by_run_only_if() -> None:
     stage = _make_stage(run_only_if_key="_skip_me")
 
@@ -119,3 +140,10 @@ def test_inputs_outputs() -> None:
     assert "sample_rate" in optional
     _, out_optional = stage.outputs()
     assert "qwen3_asr_prediction" in out_optional
+
+
+def test_worker_override_specs() -> None:
+    stage = InferenceQwenASRStage(num_workers_override=2)
+
+    assert stage.num_workers() == 2
+    assert stage.xenna_stage_spec() == {"num_workers": 2}

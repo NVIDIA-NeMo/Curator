@@ -143,6 +143,7 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
     max_num_seqs: int = 64
     gpu_memory_utilization: float = 0.95
     kv_cache_dtype: str = "fp8"
+    num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 64
 
@@ -157,6 +158,14 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         tp = self.tensor_parallel_size
         if tp and tp > 0:
             self.resources = Resources(gpus=float(tp))
+
+    def num_workers(self) -> int | None:
+        return self.num_workers_override
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        if self.num_workers_override is None:
+            return {}
+        return {"num_workers": self.num_workers_override}
 
     # ------------------------------------------------------------------
     # Prompt resolution

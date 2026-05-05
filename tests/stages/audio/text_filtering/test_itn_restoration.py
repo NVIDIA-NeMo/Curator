@@ -133,3 +133,9 @@ class TestITNRestorationStage:
         assert results[0].data["itn_text"] == ""
         assert results[1].data["itn_text"] == "$14"
         assert results[2].data["itn_text"] == "  "
+
+    def test_worker_override_specs(self) -> None:
+        stage = ITNRestorationStage(model_id="mock/model", num_workers_override=2)
+
+        assert stage.num_workers() == 2
+        assert stage.xenna_stage_spec() == {"num_workers": 2}

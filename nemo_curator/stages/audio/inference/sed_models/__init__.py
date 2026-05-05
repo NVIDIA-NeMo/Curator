@@ -12,16 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Audio postprocessing stages.
-
-These stages run after filtering and speaker separation to produce
-the final output:
-- TimestampMapperStage: Map segment positions back to original file timestamps
-- SEDPostprocessingStage: Convert framewise sound-event probabilities to labels
-"""
-
-from .sed_postprocessing import SEDPostprocessingStage
-from .timestamp_mapper import TimestampMapperStage
-
-__all__ = ["SEDPostprocessingStage", "TimestampMapperStage"]
+"""Sound Event Detection model definitions."""
