@@ -34,8 +34,8 @@ from nemo_curator.utils.operation_utils import make_pipeline_temporary_dir
 class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that transcodes video clips into a standardized format.
 
-    This stage handles the conversion of video clips using FFmpeg, supporting both
-    software (libx264) and hardware (NVENC) encoding with configurable parameters.
+    This stage handles the conversion of video clips using FFmpeg with hardware
+    (NVENC) encoding and configurable parameters.
 
     Args:
         num_cpus_per_worker: Number of CPUs per worker.
@@ -51,7 +51,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     """
 
     num_cpus_per_worker: float = 6.0
-    encoder: str = "libx264"
+    encoder: str = "h264_nvenc"
     encoder_threads: int = 1
     encode_batch_size: int = 16
     nb_streams_per_gpu: int = 3
@@ -69,8 +69,8 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
-        if self.encoder not in {"libx264", "h264_nvenc"}:
-            error_msg = f"Expected encoder of `libx264` or `h264_nvenc`. Got {self.encoder}"
+        if self.encoder != "h264_nvenc":
+            error_msg = f"Expected encoder of `h264_nvenc`. Got {self.encoder}"
             raise ValueError(error_msg)
 
     def __post_init__(self) -> None:

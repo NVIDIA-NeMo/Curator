@@ -138,7 +138,7 @@ docker run --gpus all -it --rm nemo-curator:latest
 
 ### Install FFmpeg and Encoders (Required for Video)
 
-Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libx264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
+Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (using `--transcode-encoder h264_nvenc`), install `FFmpeg` with NVENC support.
 
 ::::{tab-set}
 
@@ -162,7 +162,7 @@ Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is a
 
 ```bash
 ffmpeg -hide_banner -version | head -n 5
-ffmpeg -encoders | grep -E "h264_nvenc|libx264" | cat
+ffmpeg -encoders | grep h264_nvenc | cat
 ```
 
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.

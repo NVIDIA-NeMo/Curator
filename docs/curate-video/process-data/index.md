@@ -42,7 +42,6 @@ Encode clips to H.264 using CPU or GPU encoders and tune performance.
 +++
 {bdg-primary}`clips`
 {bdg-secondary}`h264_nvenc`
-{bdg-secondary}`libx264`
 :::
 
 :::{grid-item-card} {octicon}`filter;1.5em;sd-mr-1` Filter Clips and Frames

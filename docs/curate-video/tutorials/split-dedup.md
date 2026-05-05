@@ -38,7 +38,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
   --embedding-algorithm cosmos-embed1-224p \
-  --transcode-encoder libx264 \
+  --transcode-encoder h264_nvenc \
   --verbose
 ```
 

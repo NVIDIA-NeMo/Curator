@@ -22,7 +22,6 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage
 from nemo_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
@@ -46,7 +45,7 @@ class TestClipTranscodingStage:
         """Set up test fixtures."""
         self.stage = ClipTranscodingStage(
             num_cpus_per_worker=4.0,
-            encoder="libx264",
+            encoder="h264_nvenc",
             encoder_threads=2,
             encode_batch_size=8,
             use_hwaccel=False,
@@ -111,14 +110,6 @@ class TestClipTranscodingStage:
 
         assert RayStageSpecKeys.IS_FANOUT_STAGE in spec
         assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
-
-    def test_resources_cpu_encoder(self) -> None:
-        """Test resource requirements for CPU encoders."""
-        stage = ClipTranscodingStage(encoder="libx264", use_hwaccel=False, num_cpus_per_worker=6.0)
-
-        resources = stage.resources
-        assert isinstance(resources, Resources)
-        assert resources.cpus == 6.0
 
     def test_process_no_clips(self) -> None:
         """Test processing when video has no clips."""
@@ -317,7 +308,7 @@ class TestClipTranscodingStage:
         assert "-map" in command
         assert "0:v:0" in command
         assert "-c:v" in command
-        assert "libx264" in command
+        assert "h264_nvenc" in command
 
     def test_add_video_encoding_options_no_bitrate(self) -> None:
         """Test adding video encoding options without bit rate."""

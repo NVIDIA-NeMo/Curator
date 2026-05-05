@@ -41,7 +41,7 @@ from nemo_curator.stages.video.clipping.clip_extraction_stages import FixedStrid
 
 pipe = Pipeline(name="transcode_example")
 pipe.add_stage(FixedStrideExtractorStage(clip_len_s=10.0, clip_stride_s=10.0))
-pipe.add_stage(ClipTranscodingStage(encoder="libx264", encode_batch_size=16, encoder_threads=1, verbose=True))
+pipe.add_stage(ClipTranscodingStage(encoder="h264_nvenc", encode_batch_size=16, encoder_threads=1, verbose=True))
 pipe.run()
 ```
 
@@ -67,9 +67,6 @@ python -m ray_curator.examples.video.video_split_clip_example \
 * - Encoder
   - Hardware
   - Description
-* - `libx264`
-  - CPU
-  - Widely available, high quality, CPU-based.
 * - `h264_nvenc`
   - NVIDIA GPU (NVENC)
   - Uses NVENC for high-throughput H.264 encoding on NVIDIA GPU hardware.
@@ -99,7 +96,7 @@ Use `ClipTranscodingStage` to control encoder choice, batching, and acceleration
 from nemo_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage
 
 transcode = ClipTranscodingStage(
-    encoder="h264_nvenc",        # or "libx264"
+    encoder="h264_nvenc",
     use_hwaccel=True,             # enable NVENC when using h264_nvenc
     encoder_threads=1,            # CPU thread count for CPU encoders
     encode_batch_size=16,         # number of clips per encode batch
@@ -118,7 +115,7 @@ transcode = ClipTranscodingStage(
 * - Parameter
   - Description
 * - `encoder`
-  - Selects the encoding backend. Recommended defaults: `libx264` (CPU) or `h264_nvenc` (GPU).
+  - Selects the encoding backend. Currently only `h264_nvenc` (GPU) is supported.
 * - `use_hwaccel`
   - Enable when using GPU encoders like `h264_nvenc`.
 * - `encoder_threads`

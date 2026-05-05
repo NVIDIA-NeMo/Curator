@@ -379,8 +379,8 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--transcode-encoder",
         type=str,
-        default="libx264",
-        choices=["h264_nvenc", "libx264"],
+        default="h264_nvenc",
+        choices=["h264_nvenc"],
         help="Codec for transcoding clips; None to skip transcoding.",
     )
     parser.add_argument(
