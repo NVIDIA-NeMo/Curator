@@ -210,6 +210,35 @@ class TestDynamoSingleGpuServer:
         client = OpenAI(base_url=single_gpu_server.endpoint, api_key="na")
         assert INTEGRATION_TEST_MODEL in {m.id for m in client.models.list()}
 
+    def test_actor_runtime_env_imports_flash_attn(self, single_gpu_server: InferenceServer) -> None:
+        """Spawn a Ray actor with the same runtime_env Dynamo uses; verify
+        ``flash_attn`` imports cleanly.
+
+        Catches the prebuilt-wheel ABI mismatch where ``ai-dynamo[vllm]``'s
+        bundled ``flash_attn_2_cuda.cpython-*.so`` was built against a
+        different torch than the actor's runtime torch and crashes with
+        ``undefined symbol: c10::cuda::c10_cuda_check_implementation``.
+        Reuses the same uv venv cache the ``single_gpu_server`` fixture
+        already populated, so the import resolves in seconds.
+
+        The smaller ``INTEGRATION_TEST_MODEL`` (SmolLM2-135M) doesn't
+        exercise vLLM's flash-attn rotary-embedding path, so this assertion
+        is what surfaces regressions in ``DYNAMO_VLLM_RUNTIME_ENV``.
+        """
+        import ray
+
+        from nemo_curator.core.serve.dynamo.vllm import DYNAMO_VLLM_RUNTIME_ENV
+
+        @ray.remote(runtime_env=DYNAMO_VLLM_RUNTIME_ENV, num_gpus=0)
+        def _import_flash_attn() -> str:
+            import flash_attn
+            from flash_attn.flash_attn_interface import flash_attn_func  # noqa: F401
+
+            return flash_attn.__version__
+
+        version = ray.get(_import_flash_attn.remote())
+        assert version, "flash_attn imported but reported empty version"
+
     def test_restart_after_stop(self, single_gpu_server: InferenceServer) -> None:
         """Stop the shared fixture, start a fresh server, verify it serves.
 
