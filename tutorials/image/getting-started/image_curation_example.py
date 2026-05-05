@@ -141,7 +141,7 @@ def main(args: argparse.Namespace) -> None:
     executor = XennaExecutor()
 
     # Execute pipeline
-    pipeline.run(executor)
+    pipeline.run(executor, checkpoint_path=args.checkpoint_path)
 
     end_time = time.time()
 
@@ -282,6 +282,15 @@ if __name__ == "__main__":
         type=float,
         default=0.5,
         help="NSFW score threshold for filtering (images above this score will be filtered out as NSFW)"
+    )
+
+    # Resumability
+    parser.add_argument(
+        "--checkpoint-path",
+        type=str,
+        default=None,
+        help="Directory for resumability checkpoints. If set, completed source partitions are "
+        "skipped on re-runs. Omit to disable resumability.",
     )
 
     # Output dataset arguments
