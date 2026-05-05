@@ -17,7 +17,8 @@ import json
 import os
 import shutil
 
-from nemo_curator.core.client import RayClient
+from utils import attach_ray_client_args, create_ray_client
+
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer.megatron_tokenizer import MegatronTokenizerWriter
@@ -25,7 +26,7 @@ from nemo_curator.utils.merge_file_prefixes import merge_file_prefixes
 
 
 def main(args: argparse.Namespace) -> None:
-    ray_client = RayClient(num_cpus=args.num_cpus, num_gpus=args.num_gpus)
+    ray_client = create_ray_client(args)
     ray_client.start()
 
     if args.input_filetype == "jsonl":
@@ -77,9 +78,7 @@ def main(args: argparse.Namespace) -> None:
 def attach_args() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
-    # Ray cluster args
-    parser.add_argument("--num-cpus", type=int, default=None)
-    parser.add_argument("--num-gpus", type=int, default=0)
+    attach_ray_client_args(parser)
 
     # Reader args
     parser.add_argument("--input-path", type=str, required=True)

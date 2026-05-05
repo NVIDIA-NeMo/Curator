@@ -15,7 +15,8 @@
 import argparse
 import json
 
-from nemo_curator.core.client import RayClient
+from utils import attach_ray_client_args, create_ray_client
+
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.embedders.base import EmbeddingCreatorStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
@@ -27,7 +28,7 @@ _EMBEDDING_MODEL_MAX_SEQ_LENGTH = 512
 
 
 def main(args: argparse.Namespace) -> None:
-    ray_client = RayClient(num_cpus=args.num_cpus, num_gpus=args.num_gpus)
+    ray_client = create_ray_client(args)
     ray_client.start()
 
     if args.input_filetype == "jsonl":
@@ -87,9 +88,7 @@ def main(args: argparse.Namespace) -> None:
 def attach_args() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
-    # Ray cluster args
-    parser.add_argument("--num-cpus", type=int, default=None)
-    parser.add_argument("--num-gpus", type=int, default=None)
+    attach_ray_client_args(parser)
 
     # Reader args
     parser.add_argument("--input-path", type=str, required=True)

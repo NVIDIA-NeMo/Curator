@@ -25,9 +25,9 @@ import numpy as np
 import ray
 from loguru import logger
 from scipy.cluster.hierarchy import fcluster, linkage
+from utils import attach_ray_client_args, create_ray_client
 
 import nemo_curator.stages.text.io.writer.utils as writer_utils
-from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.text.filters import DocumentFilter, Score
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
@@ -169,7 +169,7 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
         if not os.path.exists(os.path.join(args.output_path, subdirectory.split("/")[-1])):
             os.makedirs(os.path.join(args.output_path, subdirectory.split("/")[-1]))
 
-    ray_client = RayClient(num_cpus=args.num_cpus, num_gpus=args.num_gpus)
+    ray_client = create_ray_client(args)
     ray_client.start()
 
     if args.input_filetype == "jsonl":
@@ -252,9 +252,7 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
 def attach_args() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
-    # Ray cluster args
-    parser.add_argument("--num-cpus", type=int, default=None)
-    parser.add_argument("--num-gpus", type=int, default=0)
+    attach_ray_client_args(parser)
 
     # Reader args
     parser.add_argument("--input-path", type=str, required=True)

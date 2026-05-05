@@ -15,14 +15,15 @@
 import argparse
 import os
 
-from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
-from nemo_curator.core.client import RayClient
+from utils import attach_ray_client_args, create_ray_client
+
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.semantic.kmeans import KMeansStage
 
 
 def main(args: argparse.Namespace) -> None:
-    ray_client = RayClient(num_cpus=args.num_cpus, num_gpus=args.num_gpus)
+    ray_client = create_ray_client(args)
     ray_client.start()
 
     kmeans_executor = RayActorPoolExecutor()
@@ -59,9 +60,7 @@ def main(args: argparse.Namespace) -> None:
 def attach_args() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
-    # Ray cluster args
-    parser.add_argument("--num-cpus", type=int, default=None)
-    parser.add_argument("--num-gpus", type=int, default=None)
+    attach_ray_client_args(parser)
 
     # I/O args
     parser.add_argument("--input-path", type=str, required=True)
