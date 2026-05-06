@@ -161,7 +161,7 @@ pipeline.add_stage(
         encoder="h264_nvenc",  # or "libvpx-vp9" for non-NVENC GPUs
         encoder_threads=1,
         encode_batch_size=16,
-        use_hwaccel=False,
+        use_hwaccel=True,
         use_input_bit_rate=False,
         num_clips_per_chunk=32,
         verbose=True,

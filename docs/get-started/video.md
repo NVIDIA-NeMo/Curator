@@ -128,7 +128,7 @@ Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you p
 
 :::{tab-item} Debian/Ubuntu (Script)
 
-Use the maintained script in the repository to build and install `FFmpeg` with NVIDIA NVENC support. The script enables `--enable-cuda-nvcc` and `--enable-libnpp`.
+Use the maintained script in the repository to build and install `FFmpeg` with NVIDIA NVENC and libvpx-vp9 support. The script enables `--enable-cuda-nvcc`, `--enable-libnpp`, and `--enable-libvpx`.
 
 - Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
 
