@@ -41,7 +41,7 @@ from nemo_curator.stages.video.clipping.clip_extraction_stages import FixedStrid
 
 pipe = Pipeline(name="transcode_example")
 pipe.add_stage(FixedStrideExtractorStage(clip_len_s=10.0, clip_stride_s=10.0))
-pipe.add_stage(ClipTranscodingStage(encoder="libopenh264", encode_batch_size=16, encoder_threads=1, verbose=True))
+pipe.add_stage(ClipTranscodingStage(encoder="h264_nvenc", encode_batch_size=16, encoder_threads=1, verbose=True))
 pipe.run()
 ```
 
@@ -53,7 +53,7 @@ pipe.run()
 python -m ray_curator.examples.video.video_split_clip_example \
   ...
   --transcode-encoder h264_nvenc \
-  --transcode-use-hwaccel \
+  --transcode-use-hwaccel
 ```
 
 :::
@@ -67,19 +67,23 @@ python -m ray_curator.examples.video.video_split_clip_example \
 * - Encoder
   - Hardware
   - Description
-* - `libx264`
-  - CPU
-  - Widely available, high quality, CPU-based.
-* - `libopenh264`
-  - CPU
-  - Good quality and throughput balance. Often faster than `libx264` at similar presets.
 * - `h264_nvenc`
   - NVIDIA GPU (NVENC)
   - Uses NVENC for high-throughput H.264 encoding on NVIDIA GPU hardware.
+* - `libvpx-vp9`
+  - CPU
+  - - VP9 software encoder. Use as a fallback on GPUs without NVENC silicon (e.g., A100/H100). Slower than NVENC; produces VP9 in `.mp4`. Emits a one-time performance advisory at construction.
+* - `libopenh264`
+  - CPU
+  - H.264 software encoder. **Not bundled with Curator's FFmpeg build** — accepted only when a user-installed FFmpeg provides it. The stage probes at setup time and raises with a docs link if missing. See [Bring-Your-Own H.264 Software Encoder](../../admin/installation.md#bring-your-own-h264-software-encoder-advanced).
 ```
 
 ```{tip}
-On systems with supported NVIDIA GPU hardware and an `ffmpeg` build with NVENC, `h264_nvenc` can significantly increase throughput. Refer to the verification steps below to confirm NVENC availability.
+On systems with supported NVIDIA GPU hardware and an `ffmpeg` build with NVENC, `h264_nvenc` can significantly increase throughput. Refer to the verification steps below to confirm NVENC availability. On GPUs without an NVENC encoder block (such as A100 and H100), use `libvpx-vp9` instead — it runs entirely on CPU and has no proprietary licensing constraints.
+```
+
+```{note}
+**Need software H.264 (libopenh264 / libx264)?** Curator's default FFmpeg build excludes them for licensing reasons. See [Bring-Your-Own H.264 Software Encoder](../../admin/installation.md#bring-your-own-h264-software-encoder-advanced) for how to enable them yourself.
 ```
 
 ### Verify `ffmpeg`/NVENC Support
@@ -102,7 +106,7 @@ Use `ClipTranscodingStage` to control encoder choice, batching, and acceleration
 from nemo_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage
 
 transcode = ClipTranscodingStage(
-    encoder="h264_nvenc",        # or "libopenh264", "libx264"
+    encoder="h264_nvenc",
     use_hwaccel=True,             # enable NVENC when using h264_nvenc
     encoder_threads=1,            # CPU thread count for CPU encoders
     encode_batch_size=16,         # number of clips per encode batch
@@ -121,9 +125,9 @@ transcode = ClipTranscodingStage(
 * - Parameter
   - Description
 * - `encoder`
-  - Selects the encoding backend. Recommended defaults: `libopenh264` (CPU) or `h264_nvenc` (GPU).
+  - Selects the encoding backend. Supported values: `h264_nvenc` (GPU, requires NVENC), `libvpx-vp9` (CPU fallback for non-NVENC GPUs such as A100/H100), and `libopenh264` (CPU, requires user-installed FFmpeg — see [BYO H.264](../../admin/installation.md#bring-your-own-h264-software-encoder-advanced)).
 * - `use_hwaccel`
-  - Enable when using GPU encoders like `h264_nvenc`.
+  - Enable when using `h264_nvenc`. Not valid with `libvpx-vp9` or `libopenh264`.
 * - `encoder_threads`
   - CPU threads per worker for CPU encoders. Increase to use more CPU.
 * - `encode_batch_size`
