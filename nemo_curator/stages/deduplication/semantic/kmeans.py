@@ -299,7 +299,19 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         # size-aware grouper; jsonl uses a single group (matching process_batch's
         # jsonl path).
         all_files = [f for g in groups for f in g]
-        n_files = max(1, round(len(all_files) * fraction))
+        target_n_files = round(len(all_files) * fraction)
+        n_files = max(1, target_n_files)
+        if target_n_files < 1:
+            # RAFT's cooperative _fit needs every actor to contribute at least one row,
+            # so we pull up to 1. Warn loudly: the user asked for less than that, and
+            # if many actors hit this floor the realized sample is much larger than
+            # fit_data_fraction would suggest.
+            logger.warning(
+                f"fit_data_fraction={fraction} on {len(all_files)} files would sample "
+                f"0 files for this actor; bumping to 1 to keep it in the cooperative "
+                f"fit. Increase fit_data_fraction (or pass None for full data) if you "
+                f"care about pass-1 cost."
+            )
         rng = random.Random(self.random_state)  # noqa: S311
         fit_files = rng.sample(all_files, n_files)
 
