@@ -178,14 +178,13 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 # https://github.com/NVIDIA-NeMo/Curator/issues/948
                 logger.info(f"Reached limit of {self.limit} file groups")
                 break
-            # Stable resumability key: sorted file paths + partition index.
+            # Deterministic resumability key: SHA256 of sorted file paths + partition index.
             # Sorting eliminates filesystem ordering variance; the partition index
             # discriminates groups that share the same file paths (e.g. sub-file splits).
-            resumability_key = "|".join(sorted(file_group)) + "::" + str(i)
-            # Deterministic task_id based on content, stable across re-runs with the same files.
-            task_id = hashlib.sha256(resumability_key.encode()).hexdigest()[:12]
+            raw_key = "|".join(sorted(file_group)) + "::" + str(i)
+            resumability_key = hashlib.sha256(raw_key.encode()).hexdigest()
             file_task = FileGroupTask(
-                task_id=task_id,
+                task_id=f"file_group_{i}",
                 dataset_name=dataset_name,
                 data=file_group,
                 _metadata={
