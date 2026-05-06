@@ -45,7 +45,6 @@ _LAZY_IMPORTS = {
     # --- Text processing (tagging/text/) ---
     "InverseTextNormalizationStage": "nemo_curator.stages.audio.tagging.text.itn",
     "ChineseConversionStage": "nemo_curator.stages.audio.tagging.text.chinese_conversion",
-    "PNCwithBERTStage": "nemo_curator.stages.audio.tagging.text.pnc",
     # --- Metrics (tagging/metrics/) ---
     "BandwidthEstimationStage": "nemo_curator.stages.audio.tagging.metrics.bandwidth",
     "TorchSquimQualityMetricsStage": "nemo_curator.stages.audio.tagging.metrics.squim",

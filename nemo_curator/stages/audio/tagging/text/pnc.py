@@ -14,9 +14,8 @@
 
 """Punctuation and Capitalization (PNC) stages.
 
-Contains three PNC stages:
+Contains two PNC stages:
 
-* :class:`PNCwithBERTStage` — BERT-based PNC (requires ``nemo_toolkit <= 2.4.1``).
 * :class:`PNCwithvLLMInferenceStage` — vLLM-backed LLM PNC.
 * :class:`CleanLLMOutputStage` — post-processing for vLLM PNC output.
 """
@@ -28,7 +27,6 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import torch
 from loguru import logger
 from nemo.collections.asr.metrics.wer import word_error_rate_detail
 
@@ -40,141 +38,6 @@ from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-
-
-@dataclass
-class PNCwithBERTStage(ProcessingStage[AudioTask, AudioTask]):
-    """Punctuation and capitalisation using a BERT-based NeMo model.
-
-    Supports two operating modes controlled by ``is_audio_entry``:
-
-    * **audio entry** (``is_audio_entry=True``, default) -- iterates over the
-      ``segments`` list inside each manifest entry (or falls back to the
-      top-level ``text_key``) and applies PNC to each text.
-    * **segmented entry** (``is_audio_entry=False``) -- treats each manifest
-      row as an individual segment, reconstructs text from the ``alignment``
-      word list, runs PNC, and writes the punctuated words back into
-      ``alignment``.
-
-    .. note::
-       Requires ``nemo_toolkit <= 2.4.1``.  An ``ImportError`` is raised
-       during setup if ``PunctuationCapitalizationModel`` is not available.
-
-    Args:
-        model_name:       Pretrained PNC model name.
-        model_path:       Path to a local ``.nemo`` checkpoint (overrides *model_name*).
-        batch_size:       Batch size passed to the PNC model.
-        text_key:         Manifest key holding the text.
-        use_bert_pnc_key: Gate processing on the ``use_bert_pnc`` field.
-        is_audio_entry:   ``True`` → audio-entry mode; ``False`` → segmented-entry mode.
-    """
-
-    model_name: str = "punctuation_en_bert"
-    model_path: str = ""
-    batch_size: int = 64
-    text_key: str = "text"
-    use_bert_pnc_key: bool = False
-    segments_key: str = "segments"
-    update_alignment: bool = False
-
-    # Stage metadata
-    name: str = "PNCwithBERT"
-    resources: Resources = field(default_factory=lambda: Resources(gpus=1))
-    # Internal state
-    _pnc_model: Any = field(default=None, repr=False)
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return [], []
-
-    @property
-    def _device(self) -> str:
-        """Derive device from resources configuration."""
-        if self.resources.requires_gpu:
-            if not torch.cuda.is_available():
-                msg = f"[{self.name}] GPU requested via resources but CUDA is not available."
-                raise RuntimeError(msg)
-            return "cuda"
-        return "cpu"
-
-    def load_model(self) -> None:
-        try:
-            from nemo.collections.nlp.models import PunctuationCapitalizationModel
-        except (ImportError, ModuleNotFoundError) as e:
-            msg = (
-                f"[{self.name}] Could not import PunctuationCapitalizationModel. "
-                f"This model is only available in nemo_toolkit <= 2.4.1. "
-                f"Install a compatible version to use BERTPNCStage."
-            )
-            raise ImportError(msg) from e
-
-        if self.model_path:
-            self._pnc_model = PunctuationCapitalizationModel.restore_from(self.model_path)
-        else:
-            self._pnc_model = PunctuationCapitalizationModel.from_pretrained(self.model_name)
-
-    def setup_on_node(
-        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
-    ) -> None:
-        """Setup stage on node."""
-        if self._pnc_model is None:
-            self.load_model()
-
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Setup stage."""
-        if self._pnc_model is None:
-            self.load_model()
-
-        self._pnc_model.to(self._device)
-
-        logger.info(f"[{self.name}] Initialized PNC model on {self._device}")
-
-    def _should_skip(self, entry: dict) -> bool:
-        """Return True when use_bert_pnc_key is set and the entry opts out."""
-        return self.use_bert_pnc_key and not entry.get("use_bert_pnc", False)
-
-    def update_segment_alignment(self, segment: dict[str, Any], pnc_text: str) -> None:
-        if self.update_alignment:
-            alignment = segment.get("alignment", [])
-            pnc_words = pnc_text.split()
-            pnc_idx = 0
-            for word in alignment:
-                if word.get("word", "") != "":
-                    if pnc_idx >= len(pnc_words):
-                        logger.warning(f"[{self.name}] PNC word count mismatch; stopping alignment update.")
-                        break
-                    word["word"] = pnc_words[pnc_idx]
-                    pnc_idx += 1
-
-    def process(self, task: AudioTask) -> AudioTask:
-        data_entry = task.data
-        if self.segments_key in data_entry:
-            all_text: list[str] = []
-            text_indices: list[int] = []
-            for i, segment in enumerate(data_entry[self.segments_key]):
-                if self.text_key not in segment or not segment[self.text_key]:
-                    continue
-                if self._should_skip(segment):
-                    continue
-                all_text.append(segment[self.text_key])
-                text_indices.append(i)
-
-            if all_text:
-                text_pnc = self._pnc_model.add_punctuation_capitalization(all_text, batch_size=self.batch_size)
-                for idx, pnc_text in zip(text_indices, text_pnc, strict=False):
-                    data_entry[self.segments_key][idx][self.text_key] = pnc_text
-                    self.update_segment_alignment(data_entry[self.segments_key][idx], pnc_text)
-
-        elif not self._should_skip(data_entry):
-            text = data_entry.get(self.text_key, "")
-            if text:
-                text_pnc = self._pnc_model.add_punctuation_capitalization([text], batch_size=self.batch_size)
-                data_entry[self.text_key] = text_pnc[0]
-                self.update_segment_alignment(data_entry, text_pnc[0])
-
-        return task
 
 
 @dataclass
@@ -341,8 +204,7 @@ class CleanLLMOutputStage(ProcessingStage[AudioTask, AudioTask]):
     Compares the LLM-generated punctuated text against the original ASR
     prediction using CER.  When the CER exceeds the threshold, the output
     contains digits, or the text has invalid characters, the stage flags
-    the entry with ``use_bert_pnc=True`` so a downstream
-    :class:`PNCwithBERTStage` can re-process it.
+    the entry with ``use_bert_pnc=True`` for downstream handling.
 
     When ``segments`` are present, each segment is cleaned individually;
     otherwise the top-level entry is cleaned.

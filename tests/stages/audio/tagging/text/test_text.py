@@ -14,53 +14,8 @@
 
 from collections.abc import Callable
 
-import pytest
-
 from nemo_curator.stages.audio.tagging.text.chinese_conversion import ChineseConversionStage
-from nemo_curator.stages.audio.tagging.text.pnc import PNCwithBERTStage
-from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
-
-try:
-    from nemo.collections.nlp.models import PunctuationCapitalizationModel  # noqa: F401
-
-    _pnc_available = True
-except (ImportError, ModuleNotFoundError):
-    _pnc_available = False
-
-
-@pytest.mark.skipif(not _pnc_available, reason="PunctuationCapitalizationModel requires nemo_toolkit <= 2.4.1")
-class TestPNCwithBERTStage:
-    def test_processes_segments(self, audio_task: Callable[..., AudioTask]) -> None:
-        stage = PNCwithBERTStage(text_key="text", update_alignment=True, resources=Resources())
-        stage.setup()
-        task = audio_task(
-            segments=[
-                {
-                    "text": "hello world",
-                    "start": 0.0,
-                    "end": 1.0,
-                    "alignment": [
-                        {"word": "hello", "start": 0.0, "end": 0.5},
-                        {"word": "world", "start": 0.5, "end": 1.0},
-                    ],
-                },
-            ],
-        )
-        result = stage.process(task)
-        out = result.data
-        assert out["segments"][0]["text"]
-        assert out["segments"][0]["text"] == "Hello world."
-        assert out["segments"][0]["alignment"][0]["word"] == "Hello"
-
-    def test_processes_top_level_text(self) -> None:
-        stage = PNCwithBERTStage(text_key="text", resources=Resources())
-        stage.setup()
-        entry = {"text": "hello world"}
-        result = stage.process(AudioTask(data=entry))
-        out = result.data
-        assert out["text"]
-        assert out["text"] == "Hello world."
 
 
 class TestChineseConversionStage:
