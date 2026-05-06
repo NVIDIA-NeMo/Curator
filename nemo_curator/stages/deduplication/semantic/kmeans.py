@@ -89,7 +89,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
             oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
             max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-            fit_data_fraction (float | None): Fraction of the dataset (in (0, 1]) sampled from every group to fit the KMeans model. For example, 0.1 trains on 10% of every group across all actors. When set, uses a two-pass approach: Pass 1 reads only the embedding column and samples this fraction from each group (freeing the group's GPU memory immediately after sampling), then Pass 2 loads each group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
+            fit_data_fraction (float | None): Fraction of the dataset (in (0, 1]) used to fit the KMeans model. Sampling is done at the file level: each actor draws `round(fit_data_fraction × num_actor_files)` of its files (floor of 1) for the fit. When set, uses a two-pass approach: Pass 1 reads only the embedding column from the sampled files (so IO and GPU memory in Pass 1 scale with the fraction); Pass 2 then loads each (full) original group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
             cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
             read_kwargs (dict[dict]): Keyword arguments for the read stage.
             write_kwargs (dict[dict]): Keyword arguments for the write stage.
@@ -138,8 +138,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         is trained cooperatively across all actors using RAFT communication.
 
         When fit_data_fraction is set, uses a memory-efficient two-pass approach:
-          Pass 1: reads only the embedding column, samples rows, frees GPU memory per group
-          Pass 2: loads each group one at a time for prediction and writing
+          Pass 1: samples files at the actor level, reads only the embedding column from those files
+          Pass 2: loads each (full) original group one at a time for prediction and writing
         Otherwise, loads all groups simultaneously (original behavior).
         """
 
@@ -185,7 +185,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         raise ValueError(msg)
 
     def _process_batch_single_pass(self, tasks: list[FileGroupTask], groups: list[list[str]]) -> list["_EmptyTask"]:
-        """Original single-pass approach: loads all groups simultaneously.
+        """Single-pass approach: loads all groups simultaneously.
 
         Requires peak GPU memory = sum(all groups' data). Only suitable when the
         total dataset fits in GPU memory.
@@ -264,35 +264,59 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
     def _process_batch_two_pass(self, tasks: list[FileGroupTask], groups: list[list[str]]) -> list["_EmptyTask"]:
         """Memory-efficient two-pass approach for large datasets.
 
-        Pass 1: subsets fit_data_fraction of the files in each group (rounded, with a
-                floor of 1 file per group) and reads only those files' embedding column.
-                Subsetting at the file level means IO and GPU memory in Pass 1 scale
-                roughly with fit_data_fraction.
-        Pass 2: loads each (full) group one at a time, predicts labels, writes,
-                then frees GPU memory before loading the next group.
+        Pass 1 (_fit_pass): samples fit_data_fraction of the actor's files (across
+                all groups), re-chunks them into memory-bounded fit_groups, reads
+                only the embedding column, fits the KMeans model, and saves
+                centroids if cache_path is set. IO and GPU memory in Pass 1 scale
+                with fit_data_fraction.
+        Pass 2 (_predict_write_pass): loads each (full) original group one at a
+                time, predicts labels, writes, then frees GPU memory before
+                loading the next group.
 
         Peak GPU memory ≈ max(fit_data_fraction x actor_rows, one_group_size) x embedding_dim x 4 bytes,
         instead of total_data x embedding_dim x 4 bytes.
         """
+        pass1_read_time = self._fit_pass(groups)
+        results, pass2_read_time, total_rows = self._predict_write_pass(tasks, groups)
+        self._log_metrics({
+            "kmeans_read_time": pass1_read_time + pass2_read_time,
+            "num_rows": total_rows,
+        })
+        return results
+
+    def _fit_pass(self, groups: list[list[str]]) -> float:
+        """Pass 1: sample files at the actor level, read embeddings, fit KMeans,
+        and (on actor 0) save centroids.
+
+        Returns:
+            Wall-clock seconds spent reading sampled files (for the combined
+            kmeans_read_time metric reported by the orchestrator).
+        """
         fraction = self.fit_data_fraction
 
-        # --- Pass 1: sample files within each group, read only those files ---
+        # Sample files at the actor level (across all groups), then re-chunk into
+        # memory-bounded groups. Works for both filetypes: parquet uses the
+        # size-aware grouper; jsonl uses a single group (matching process_batch's
+        # jsonl path).
+        all_files = [f for g in groups for f in g]
+        if fraction < 1.0:
+            n_files = max(1, round(len(all_files) * fraction))
+            rng = random.Random(self.random_state)
+            fit_files = rng.sample(all_files, n_files)
+        else:
+            fit_files = all_files
+
+        if self.filetype == "parquet":
+            fit_groups = break_parquet_partition_into_groups(fit_files, embedding_dim=self.embedding_dim)
+        else:  # jsonl
+            fit_groups = [fit_files]
+
         t0 = time.perf_counter()
         sample_embeddings_list = []
         sampled_rows = 0
-        sampled_files = 0
-        total_files = sum(len(g) for g in groups)
 
-        for group_index, group in enumerate(groups):
-            if fraction < 1.0:
-                rng = random.Random(self.random_state + group_index)
-                n_files = max(1, round(len(group) * fraction))
-                files_to_read = rng.sample(group, n_files)
-            else:
-                files_to_read = group
-            sampled_files += len(files_to_read)
-
-            df = self._read_group(files_to_read, [self.embedding_field])
+        for fit_group in fit_groups:
+            df = self._read_group(fit_group, [self.embedding_field])
             sampled_rows += len(df)
             df = self.normalize_embeddings_col_in_df(df, self.embedding_field)
             # .copy() detaches from the df so we can delete the df and free its memory
@@ -304,7 +328,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         pass1_read_time = t1 - t0
         logger.debug(
             f"Pass 1 (sampling) time: {pass1_read_time:.2f}s, "
-            f"read {sampled_files}/{total_files} files = {sampled_rows} rows"
+            f"read {len(fit_files)}/{len(all_files)} files = {sampled_rows} rows"
         )
 
         # Fit on sampled data cooperatively across all actors
@@ -313,7 +337,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         gc.collect()
         logger.info(
             f"Fitting KMeans on {len(concatenated_samples)} sampled rows "
-            f"(fit_data_fraction={fraction:.4f}, {sampled_files}/{total_files} files)"
+            f"(fit_data_fraction={fraction:.4f}, {len(fit_files)}/{len(all_files)} files)"
         )
 
         self.kmeans._fit(concatenated_samples, sample_weight=None, convert_dtype=False, multigpu=True)
@@ -329,9 +353,22 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         self._log_metric("kmeans_fit_time", t2 - t1)
         logger.info(f"KMeans fit time: {(t2 - t1):.2f} seconds")
 
-        # --- Pass 2: predict and write, one group at a time ---
-        results = []
+        return pass1_read_time
+
+    def _predict_write_pass(
+        self, tasks: list[FileGroupTask], groups: list[list[str]]
+    ) -> tuple[list["_EmptyTask"], float, int]:
+        """Pass 2: load each full group, predict labels, write results.
+
+        Returns:
+            (results, pass2_read_time, total_rows). The orchestrator combines
+            pass2_read_time with pass1_read_time into kmeans_read_time, and
+            reports total_rows as num_rows.
+        """
+        t_start = time.perf_counter()
+        results: list[_EmptyTask] = []
         pass2_read_time = 0.0
+        total_rows = 0
 
         for i, group in enumerate(groups):
             t_read_start = time.perf_counter()
@@ -339,6 +376,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             df = self.normalize_embeddings_col_in_df(df, self.embedding_field)
             embeddings_array = get_array_from_df(df, self.embedding_field)
             pass2_read_time += time.perf_counter() - t_read_start
+            total_rows += len(df)
 
             labels = self.kmeans.predict(embeddings_array, convert_dtype=False).astype(cp.int32)
             df["centroid"] = labels
@@ -367,18 +405,14 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             del df, embeddings_array, labels
             gc.collect()
 
-        t3 = time.perf_counter()
-        self._log_metrics({
-            "kmeans_read_time": pass1_read_time + pass2_read_time,
-            "kmeans_predict_write_time": (t3 - t2) - pass2_read_time,
-            "num_rows": total_rows,
-        })
+        t_end = time.perf_counter()
+        self._log_metric("kmeans_predict_write_time", (t_end - t_start) - pass2_read_time)
         logger.info(
-            f"Pass 2 total time: {(t3 - t2):.2f} seconds "
-            f"(read: {pass2_read_time:.2f}s, predict+write: {(t3 - t2) - pass2_read_time:.2f}s)"
+            f"Pass 2 total time: {(t_end - t_start):.2f} seconds "
+            f"(read: {pass2_read_time:.2f}s, predict+write: {(t_end - t_start) - pass2_read_time:.2f}s)"
         )
 
-        return results
+        return results, pass2_read_time, total_rows
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         from cuml.cluster.kmeans import KMeans as cumlKMeans
@@ -483,7 +517,7 @@ class KMeansStage(CompositeStage[_EmptyTask, _EmptyTask]):
         n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
         oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
         max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-        fit_data_fraction (float | None): Fraction of the dataset (in (0, 1]) sampled from every group to fit the KMeans model. For example, 0.1 trains on 10% of every group across all actors. When set, uses a two-pass approach: Pass 1 reads only the embedding column and samples this fraction from each group (freeing the group's GPU memory immediately after sampling), then Pass 2 loads each group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
+        fit_data_fraction (float | None): Fraction of the dataset (in (0, 1]) used to fit the KMeans model. Sampling is done at the file level: each actor draws `round(fit_data_fraction × num_actor_files)` of its files (floor of 1) for the fit. When set, uses a two-pass approach: Pass 1 reads only the embedding column from the sampled files (so IO and GPU memory in Pass 1 scale with the fraction); Pass 2 then loads each (full) original group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
         cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
     """
 
@@ -521,7 +555,7 @@ class KMeansStage(CompositeStage[_EmptyTask, _EmptyTask]):
                 n_init=self.n_init,
                 oversampling_factor=self.oversampling_factor,
                 max_samples_per_batch=self.max_samples_per_batch,
-                max_rows_for_fitting=self.max_rows_for_fitting,
+                fit_data_fraction=self.fit_data_fraction,
                 read_kwargs=self.read_kwargs,
                 write_kwargs=self.write_kwargs,
                 cache_path=self.cache_path,
