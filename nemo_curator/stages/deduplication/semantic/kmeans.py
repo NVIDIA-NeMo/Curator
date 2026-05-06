@@ -89,7 +89,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
             oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
             max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-            fit_data_fraction (float | None): Fraction of the dataset (in (0, 1]) used to fit the KMeans model. Sampling is done at the file level: each actor draws `round(fit_data_fraction x num_actor_files)` of its files (floor of 1) for the fit. When set, uses a two-pass approach: Pass 1 reads only the embedding column from the sampled files (so IO and GPU memory in Pass 1 scale with the fraction); Pass 2 then loads each (full) original group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
+            fit_data_fraction (float | None): Fraction of the dataset (in (0, 1)) used to fit the KMeans model. Pass None to fit on the full dataset (single-pass mode). Sampling is done at the file level: each actor draws `round(fit_data_fraction x num_actor_files)` of its files (floor of 1) for the fit. When set, uses a two-pass approach: Pass 1 reads only the embedding column from the sampled files (so IO and GPU memory in Pass 1 scale with the fraction); Pass 2 then loads each (full) original group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
             cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
             read_kwargs (dict[dict]): Keyword arguments for the read stage.
             write_kwargs (dict[dict]): Keyword arguments for the write stage.
@@ -109,8 +109,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         self.n_init = n_init
         self.oversampling_factor = oversampling_factor
         self.max_samples_per_batch = max_samples_per_batch
-        if fit_data_fraction is not None and not 0.0 < fit_data_fraction <= 1.0:
-            msg = f"fit_data_fraction must be in (0, 1], got {fit_data_fraction}"
+        if fit_data_fraction is not None and not 0.0 < fit_data_fraction < 1.0:
+            msg = f"fit_data_fraction must be in (0, 1), got {fit_data_fraction}; pass None to fit on the full dataset"
             raise ValueError(msg)
         self.fit_data_fraction = fit_data_fraction
 
@@ -299,12 +299,9 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         # size-aware grouper; jsonl uses a single group (matching process_batch's
         # jsonl path).
         all_files = [f for g in groups for f in g]
-        if fraction < 1.0:
-            n_files = max(1, round(len(all_files) * fraction))
-            rng = random.Random(self.random_state)  # noqa: S311
-            fit_files = rng.sample(all_files, n_files)
-        else:
-            fit_files = all_files
+        n_files = max(1, round(len(all_files) * fraction))
+        rng = random.Random(self.random_state)  # noqa: S311
+        fit_files = rng.sample(all_files, n_files)
 
         if self.filetype == "parquet":
             fit_groups = break_parquet_partition_into_groups(fit_files, embedding_dim=self.embedding_dim)
@@ -343,15 +340,16 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         self.kmeans._fit(concatenated_samples, sample_weight=None, convert_dtype=False, multigpu=True)
         del concatenated_samples
         gc.collect()
+        # Stop the fit-time clock before centroid I/O so the metric isn't skewed
+        # by disk write latency on actor 0.
+        t_fit_done = time.perf_counter()
+        self._log_metric("kmeans_fit_time", t_fit_done - t1)
+        logger.info(f"KMeans fit time: {(t_fit_done - t1):.2f} seconds")
 
         if self.cache_path is not None and getattr(self, "_actor_index", 0) == 0:
             os.makedirs(self.cache_path, exist_ok=True)
             cp.save(f"{self.cache_path}/kmeans_centroids.npy", self.kmeans.cluster_centers_)
             logger.info(f"Saved {self.n_clusters} KMeans centroids to {self.cache_path}/kmeans_centroids.npy")
-
-        t2 = time.perf_counter()
-        self._log_metric("kmeans_fit_time", t2 - t1)
-        logger.info(f"KMeans fit time: {(t2 - t1):.2f} seconds")
 
         return pass1_read_time
 
@@ -517,13 +515,18 @@ class KMeansStage(CompositeStage[_EmptyTask, _EmptyTask]):
         n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
         oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
         max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-        fit_data_fraction (float | None): Fraction of the dataset (in (0, 1]) used to fit the KMeans model. Sampling is done at the file level: each actor draws `round(fit_data_fraction x num_actor_files)` of its files (floor of 1) for the fit. When set, uses a two-pass approach: Pass 1 reads only the embedding column from the sampled files (so IO and GPU memory in Pass 1 scale with the fraction); Pass 2 then loads each (full) original group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
+        fit_data_fraction (float | None): Fraction of the dataset (in (0, 1)) used to fit the KMeans model. Pass None to fit on the full dataset (single-pass mode). Sampling is done at the file level: each actor draws `round(fit_data_fraction x num_actor_files)` of its files (floor of 1) for the fit. When set, uses a two-pass approach: Pass 1 reads only the embedding column from the sampled files (so IO and GPU memory in Pass 1 scale with the fraction); Pass 2 then loads each (full) original group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
         cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
     """
 
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
         super().__init__()
+        # Validate eagerly so bad values surface at construction, not later in
+        # decompose() / on a worker.
+        if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction < 1.0:
+            msg = f"fit_data_fraction must be in (0, 1), got {self.fit_data_fraction}; pass None to fit on the full dataset"
+            raise ValueError(msg)
 
     def decompose(self) -> list[ProcessingStage]:
         # Set default file extensions based on input_filetype if not provided
