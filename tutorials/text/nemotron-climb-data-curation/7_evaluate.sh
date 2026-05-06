@@ -21,8 +21,13 @@ if [ $# -lt 5 ]; then
   exit 1
 fi
 
-# Hack: auto-detect number of GPUs
-NUM_GPUS=$(nvidia-smi -L | wc -l)
+# Auto-detect the number of visible GPUs. Honor CUDA_VISIBLE_DEVICES when set,
+# otherwise fall back to nvidia-smi (which lists all physical GPUs on the host).
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+    NUM_GPUS=$(echo "$CUDA_VISIBLE_DEVICES" | tr ',' '\n' | grep -c .)
+else
+    NUM_GPUS=$(nvidia-smi -L | wc -l)
+fi
 
 # Path to the lm-evaluation-harness directory
 export LM_EVAL_PATH=$1

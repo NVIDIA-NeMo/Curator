@@ -141,7 +141,7 @@ def generate_weights_dirichlet(  # noqa: C901, PLR0912, PLR0913
     print("\nThe number of available samples: ", len(final_samples))
     final_samples = sort_and_deduplicate(np.array(final_samples))
     print("The number of deduplicated samples: ", len(final_samples))
-    selected_samples = random.sample(final_samples, min(num_samples, len(final_samples)))
+    selected_samples = random.sample(list(final_samples), min(num_samples, len(final_samples)))
     print("The number of selected samples: ", len(selected_samples))
     if not selected_samples:
         return np.empty((0, len(prior_dist)))
