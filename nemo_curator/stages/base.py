@@ -194,7 +194,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             result = self.process(task)
             if isinstance(result, list):
                 results.extend(result)
-            else:
+            elif result is not None:
                 results.append(result)
         return results
 
