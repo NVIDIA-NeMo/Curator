@@ -55,7 +55,7 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
 
         self._actor = get_or_create_checkpoint_actor(self._checkpoint_path)
 
-    def process(self, task: Task) -> list[Task]:
+    def process(self, task: Task) -> Task | None:
         key = task._metadata.get("resumability_key", "")
         if not key:
             msg = (
@@ -73,8 +73,8 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
 
         if ray.get(self._actor.is_task_completed.remote(key)):
             logger.info(f"Resumability: skipping already-completed partition {key!r}")
-            return []
-        return [task]
+            return None
+        return task
 
 
 class _CheckpointRecorderStage(ProcessingStage[Task, Task]):
