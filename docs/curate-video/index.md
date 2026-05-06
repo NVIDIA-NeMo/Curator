@@ -48,7 +48,7 @@ Get oriented and prepare your environment so you can start curating videos with 
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Concepts
 :link: about-concepts-video
 :link-type: ref
-Learn about the architecture, stages, pipelines, and data flow for video curation
+Learn about the architecture, stages, pipelines, and data flow for video curation.
 +++
 {bdg-secondary}`stages`
 {bdg-secondary}`pipelines`

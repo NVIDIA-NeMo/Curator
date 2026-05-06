@@ -22,7 +22,7 @@ Learn how to run the splitting pipeline to generate clips and embeddings, then r
 
 ## Before You Start
 
-- Complete the [Get Started guide](gs-video).
+- Complete the {ref}`Get Started with Video Curation <gs-video>` guide.
 
 ---
 
@@ -60,7 +60,7 @@ The pipeline writes embeddings to Parquet with two columns:
 
 ::::{tab-set}
 
-:::{tab-item} Directory layout
+:::{tab-item} Directory Layout
 
 ```text
 $OUT_DIR/
@@ -80,7 +80,7 @@ embedding: list<float32>  # length = 768 for Cosmos-Embed1
 
 :::
 
-:::{tab-item} Sample row
+:::{tab-item} Sample Row
 
 ```json
 {"id": "a3f2b0c1-7d64-4a1e-9f2b-8b0f6d1e2c33", "embedding": [0.0123, -0.0456, 0.0031, 0.1279]}
@@ -88,7 +88,7 @@ embedding: list<float32>  # length = 768 for Cosmos-Embed1
 
 :::
 
-:::{tab-item} Read example
+:::{tab-item} Read Example
 
 ```python
 import pyarrow.parquet as pq
@@ -149,9 +149,9 @@ pipe.add_stage(
 pipe.run()
 ```
 
-`which_to_keep` selects the representative within each cluster: "hard" keeps outliers far from the centroid, "easy" keeps the nearest to the centroid, and "random" ignores distance and picks randomly.
+`which_to_keep` selects the representative within each cluster: `hard` keeps outliers far from the centroid, `easy` keeps the nearest to the centroid, and `random` ignores distance and picks randomly.
 
-`sim_metric` sets the distance used for similarity: "cosine" uses cosine distance (1 − cosine similarity), while "l2" uses Euclidean distance.
+`sim_metric` sets the distance used for similarity: `cosine` uses cosine distance (1 − cosine similarity), while `l2` uses Euclidean distance.
 
 `pairwise_batch_size` controls how many items are processed per GPU batch during pairwise similarity; larger values can be faster but require more GPU memory.
 

@@ -109,7 +109,7 @@ pipeline.add_stage(
 
 ::::{tab-set}
 
-:::{tab-item} Fixed stride
+:::{tab-item} Fixed Stride
 
 ```python
 pipeline.add_stage(
@@ -124,7 +124,7 @@ pipeline.add_stage(
 
 :::
 
-:::{tab-item} TransNetV2 (scene change)
+:::{tab-item} TransNetV2 (Scene Change)
 
 ```python
 from nemo_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage

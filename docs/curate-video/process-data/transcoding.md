@@ -53,7 +53,7 @@ pipe.run()
 python -m ray_curator.examples.video.video_split_clip_example \
   ...
   --transcode-encoder h264_nvenc \
-  --transcode-use-hwaccel \
+  --transcode-use-hwaccel
 ```
 
 :::
@@ -72,7 +72,7 @@ python -m ray_curator.examples.video.video_split_clip_example \
   - Uses NVENC for high-throughput H.264 encoding on NVIDIA GPU hardware.
 * - `libvpx-vp9`
   - CPU
-  - VP9 software encoder. Use as a fallback on GPUs without NVENC silicon (e.g. A100/H100). Slower than NVENC; produces VP9 in `.mp4`. Emits a one-time perf advisory at construction.
+  - - VP9 software encoder. Use as a fallback on GPUs without NVENC silicon (e.g., A100/H100). Slower than NVENC; produces VP9 in `.mp4`. Emits a one-time performance advisory at construction.
 * - `libopenh264`
   - CPU
   - H.264 software encoder. **Not bundled with Curator's FFmpeg build** — accepted only when a user-installed FFmpeg provides it. The stage probes at setup time and raises with a docs link if missing. See [Bring-Your-Own H.264 Software Encoder](../../admin/installation.md#bring-your-own-h264-software-encoder-advanced).

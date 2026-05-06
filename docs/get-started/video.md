@@ -122,13 +122,13 @@ For details on container environments and configurations, see [Container Environ
 
 ## Install FFmpeg and Encoders
 
-Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (using `--transcode-encoder h264_nvenc` or `--transcode-encoder libvpx-vp9`), install `FFmpeg` with NVENC and libvpx-vp9 support. The maintained install script bundles both.
+Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (using `--transcode-encoder h264_nvenc` or `--transcode-encoder libvpx-vp9`), install `FFmpeg` with NVENC and `libvpx-vp9` support. The maintained install script bundles both.
 
 ::::{tab-set}
 
 :::{tab-item} Debian/Ubuntu (Script)
 
-Use the maintained script in the repository to build and install `FFmpeg` with NVIDIA NVENC and libvpx-vp9 support. The script enables `--enable-cuda-nvcc`, `--enable-libnpp`, and `--enable-libvpx`.
+Use the maintained script in the repository to build and install `FFmpeg` with NVIDIA NVENC and `libvpx-vp9` support. The script enables `--enable-cuda-nvcc`, `--enable-libnpp`, and `--enable-libvpx`.
 
 - Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
 
@@ -158,7 +158,6 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 Refer to [Clip Encoding](video-process-transcoding) to choose encoders and verify NVENC support on your system.
 
 ### Available Models
-
 
 Embeddings convert each video clip into a numeric vector that captures visual and semantic content. Curator uses these vectors to:
 
@@ -221,7 +220,7 @@ Organize input videos and output locations before running the pipeline.
 
 ## Run the Splitting Pipeline Example
 
-Use the example script from https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/video/getting-started to read videos, split into clips, and write outputs. This runs a Ray pipeline with `XennaExecutor` under the hood.
+Use the [example script](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/video/getting-started) to read videos, split into clips, and write outputs. This runs a Ray pipeline with `XennaExecutor` under the hood.
 
 ```bash
 python tutorials/video/getting-started/video_split_clip_example.py \
@@ -273,7 +272,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | `--generate-previews` | Flag | Create preview images for each clip |
 | `--verbose` | Flag | Enable detailed logging output |
 
-### Understanding Pipeline Output
+### Understand Pipeline Output
 
 After successful execution, the output directory will contain:
 
