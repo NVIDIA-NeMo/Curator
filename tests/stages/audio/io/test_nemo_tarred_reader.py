@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.io.nemo_tarred_reader import (
     NemoTarredAudioReader,
     NemoTarShardDiscoveryStage,
@@ -60,6 +61,10 @@ class TestNemoTarShardDiscoveryStage:
             NemoTarShardDiscoveryStage._manifest_to_rel_path(
                 "/data/yodas/nested/yodas/file.jsonl", "yodas"
             )
+
+    def test_ray_stage_spec_marks_discovery_as_fanout(self, tmp_path: Path) -> None:
+        stage = NemoTarShardDiscoveryStage(yaml_path=str(tmp_path / "config.yaml"))
+        assert stage.ray_stage_spec() == {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
 
 class TestNemoTarShardReaderStage:
@@ -163,6 +168,7 @@ class TestNemoTarShardReaderStage:
 
         assert stage.num_workers() == 8
         assert stage.xenna_stage_spec() == {"num_workers": 8, "num_workers_per_node": 2}
+        assert stage.ray_stage_spec() == {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
 
 class TestNemoTarredAudioReader:

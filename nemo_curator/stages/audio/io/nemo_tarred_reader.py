@@ -136,6 +136,9 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers_per_node": 1}
 
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+
     def _scan_completed_shards(self) -> set[str]:
         """Scan output_dir recursively for .done marker files and return completed shard keys.
 
@@ -320,9 +323,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return ["data"], ["waveform", "sample_rate", "sampling_rate", "corpus", "num_channels"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        if RayStageSpecKeys is not None:
-            return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
-        return {"is_fanout_stage": True}
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def _read_manifest(self, path: str) -> dict[str, dict]:
         entries: dict[str, dict] = {}

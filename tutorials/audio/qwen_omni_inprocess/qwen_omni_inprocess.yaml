@@ -34,6 +34,7 @@ final_manifest: ${workspace_dir}/output.jsonl
 language_short: en
 max_segment_length: 40
 hf_token: ""
+backend: xenna
 execution_mode: streaming
 autoscale_interval_s: 180
 

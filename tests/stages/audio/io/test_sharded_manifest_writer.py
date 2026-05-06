@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.io.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.performance_utils import StagePerfStats
@@ -121,6 +122,13 @@ def test_inputs_outputs(tmp_path: Path) -> None:
     stage = ShardedManifestWriterStage(output_dir=str(tmp_path))
     assert stage.inputs() == ([], [])
     assert stage.outputs() == ([], [])
+
+
+def test_backend_worker_specs(tmp_path: Path) -> None:
+    stage = ShardedManifestWriterStage(output_dir=str(tmp_path))
+    assert stage.num_workers() == 1
+    assert stage.xenna_stage_spec() == {"num_workers": 1}
+    assert stage.ray_stage_spec() == {RayStageSpecKeys.IS_ACTOR_STAGE: True}
 
 
 def test_perf_summary_deduplicates_batch_stage_metrics(tmp_path: Path) -> None:

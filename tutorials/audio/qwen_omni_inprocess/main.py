@@ -32,6 +32,7 @@ with Hydra overrides ``workspace_dir``, ``input_manifest``,
 YAML and forwarded to the appropriate stages.
 """
 
+import importlib
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -43,7 +44,6 @@ import hydra
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.inference.qwen_asr import InferenceQwenASRStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
@@ -62,6 +62,11 @@ from nemo_curator.stages.audio.text_filtering import (
 )
 from nemo_curator.stages.audio.text_filtering.select_best_prediction import SelectBestPredictionStage
 from nemo_curator.stages.resources import Resources
+
+_EXECUTOR_FACTORIES = {
+    "xenna": "nemo_curator.backends.xenna:XennaExecutor",
+    "ray_data": "nemo_curator.backends.ray_data:RayDataExecutor",
+}
 
 
 def _read_file_or_str(value: str | None) -> str | None:
@@ -351,6 +356,28 @@ def _prefetch_models(cfg: DictConfig) -> None:
     logger.info(f"All model pre-fetch complete in {time.time() - t0:.1f}s")
 
 
+def _create_executor(cfg: DictConfig):  # noqa: ANN201
+    backend = cfg.get("backend", "xenna")
+    if backend not in _EXECUTOR_FACTORIES:
+        msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
+        raise ValueError(msg)
+
+    module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
+    executor_cls = getattr(importlib.import_module(module_path), class_name)
+    logger.info(f"Using backend: {backend}")
+
+    if backend == "xenna":
+        return executor_cls(
+            config={
+                "execution_mode": cfg.get("execution_mode", "streaming"),
+                "autoscale_interval_s": cfg.get("autoscale_interval_s", 180),
+            }
+        )
+    if cfg.get("execution_mode") not in (None, "streaming"):
+        logger.info("execution_mode={} is Xenna-only and is ignored by Ray Data", cfg.get("execution_mode"))
+    return executor_cls()
+
+
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
     """Hydra entry point for the Granary v2 Qwen-Omni pipeline."""
@@ -366,12 +393,7 @@ def main(cfg: DictConfig) -> None:
     pipeline = build_granary_v2_pipeline(cfg)
     logger.info(f"Pipeline: {pipeline.describe()}")
 
-    executor = XennaExecutor(
-        config={
-            "execution_mode": cfg.get("execution_mode", "streaming"),
-            "autoscale_interval_s": cfg.get("autoscale_interval_s", 180),
-        }
-    )
+    executor = _create_executor(cfg)
 
     t0 = time.time()
     pipeline.run(executor=executor)

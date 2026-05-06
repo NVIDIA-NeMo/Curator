@@ -23,6 +23,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.audio.metrics.performance import AudioPerformanceSummary, serialize_stage_perf
 from nemo_curator.tasks import AudioTask, FileGroupTask
@@ -185,6 +186,9 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
 
     def num_workers(self) -> int | None:
         return 1
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {RayStageSpecKeys.IS_ACTOR_STAGE: True}
 
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers": 1}
