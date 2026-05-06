@@ -116,7 +116,7 @@ class BaseStageAdapter:
         self.stage.setup(worker_metadata)
         checkpoint_path = getattr(self.stage, "_checkpoint_path", None)
         if checkpoint_path:
-            from nemo_curator.utils.checkpoint import get_or_create_checkpoint_actor  # noqa: PLC0415
+            from nemo_curator.utils.checkpoint import get_or_create_checkpoint_actor
 
             self._checkpoint_actor = get_or_create_checkpoint_actor(checkpoint_path)
 
@@ -142,9 +142,7 @@ class BaseStageAdapter:
         is_full_drop = len(output_tasks) == 0
 
         if is_fanout:
-            from nemo_curator.utils.checkpoint import _resumability_uuid  # noqa: PLC0415
-
-            import ray  # noqa: PLC0415
+            from nemo_curator.utils.checkpoint import _checkpoint_get, _resumability_uuid
 
             parent = input_tasks[0]
             key = parent._metadata.get("resumability_key", "")
@@ -154,16 +152,16 @@ class BaseStageAdapter:
             for i, task in enumerate(output_tasks):
                 task._metadata["_resumability_uuid"] = _resumability_uuid(key, i + 1)
             # Commit increment synchronously so the recorder can't satisfy the check early.
-            ray.get(self._checkpoint_actor.add_expected.remote(key, n - 1))
+            _checkpoint_get(self._checkpoint_actor.add_expected.remote(key, n - 1))
 
         elif is_full_drop:
-            import ray  # noqa: PLC0415
+            from nemo_curator.utils.checkpoint import _checkpoint_get
 
             for task in input_tasks:
                 key = task._metadata.get("resumability_key", "")
                 uuid = task._metadata.get("_resumability_uuid", "")
                 if key and uuid:
-                    ray.get(self._checkpoint_actor.mark_completed.remote(uuid, key))
+                    _checkpoint_get(self._checkpoint_actor.mark_completed.remote(uuid, key))
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""

@@ -19,13 +19,12 @@ These stages are never instantiated by users directly.
 
 from typing import TYPE_CHECKING
 
-import ray
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task
-from nemo_curator.utils.checkpoint import _resumability_uuid
+from nemo_curator.utils.checkpoint import _checkpoint_get, _resumability_uuid
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
@@ -65,9 +64,9 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
         task._metadata["_resumability_uuid"] = _resumability_uuid(key, 0)
 
         # Register partition with expected=1 (no-op if already present from previous run).
-        ray.get(self._actor.init_partition.remote(key))
+        _checkpoint_get(self._actor.init_partition.remote(key))
 
-        if ray.get(self._actor.is_task_completed.remote(key)):
+        if _checkpoint_get(self._actor.is_task_completed.remote(key)):
             logger.info(f"Resumability: skipping already-completed partition {key!r}")
             return None
         return task
@@ -100,7 +99,5 @@ class _CheckpointRecorderStage(ProcessingStage[Task, Task]):
                 "completion will not be recorded."
             )
             return task
-        # Fire-and-forget: no race risk since the partition's expected count was committed
-        # synchronously before any leaf task could be dispatched (see adapter).
-        self._actor.mark_completed.remote(uuid, key)
+        _checkpoint_get(self._actor.mark_completed.remote(uuid, key))
         return task

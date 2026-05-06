@@ -22,6 +22,8 @@ All LMDB access is serialized through a singleton Ray actor so workers never
 open the database file directly (it lives on the driver/head node).
 """
 
+import asyncio
+import concurrent.futures
 import hashlib
 import os
 import struct
@@ -29,6 +31,24 @@ from typing import Any
 
 import lmdb
 from loguru import logger
+
+
+def _checkpoint_get(ref: Any) -> Any:  # noqa: ANN401
+    """Call ray.get() safely from both sync and async Ray actor contexts.
+
+    Xenna wraps each stage in an async Ray actor. Calling ray.get() directly
+    inside an async actor blocks the event loop and triggers Ray's warning
+    "Using blocking ray.get inside async actor." This helper detects an active
+    event loop and offloads the blocking call to a ThreadPoolExecutor instead.
+    """
+    import ray
+
+    try:
+        asyncio.get_running_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(ray.get, ref).result()
+    except RuntimeError:
+        return ray.get(ref)
 
 
 def _key_hash(resumability_key: str) -> bytes:
