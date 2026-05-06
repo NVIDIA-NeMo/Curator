@@ -15,8 +15,13 @@
 from collections.abc import Callable
 from pathlib import Path
 
+import pytest
+import torch
+
 from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
+from nemo_curator.stages.audio.tagging.metrics.squim import TorchSquimQualityMetricsStage
 from nemo_curator.stages.audio.tagging.metrics.wer import ComputeWERStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
@@ -112,3 +117,47 @@ class TestComputeWERStage:
             assert "char_rate" in seg["metrics"]
             assert "word_rate" in seg["metrics"]
             assert abs(seg["metrics"]["wer"]["wer"] - expected_wer[idx]) < 1e-4
+
+
+class TestTorchSquimQualityMetricsStage:
+    """Tests for TorchSquimQualityMetricsStage on CPU and GPU."""
+
+    def _make_task(self, audio_task: Callable[..., AudioTask], wav_filepath: Path) -> AudioTask:
+        """Create a task with multiple segments spanning the audio file."""
+        return audio_task(
+            resampled_audio_filepath=str(wav_filepath),
+            segments=[
+                {"speaker": "s1", "start": 0.0, "end": 5.0, "text": "segment one"},
+                {"speaker": "s1", "start": 5.0, "end": 15.0, "text": "segment two"},
+                {"speaker": "s2", "start": 15.0, "end": 30.0, "text": "segment three"},
+                {"speaker": "s2", "start": 30.0, "end": 45.0, "text": "segment four"},
+                {"speaker": "s1", "start": 45.0, "end": 60.0, "text": "segment five"},
+            ],
+        )
+
+    @pytest.mark.gpu
+    def test_process(self, audio_task: Callable[..., AudioTask], wav_filepath: Path) -> None:
+        """TorchSquim produces valid metrics on GPU."""
+        stage = TorchSquimQualityMetricsStage(resources=Resources(cpus=1.0, gpus=1.0))
+        stage.setup()
+
+        task = self._make_task(audio_task, wav_filepath)
+
+        # Warmup pass to exclude CUDA JIT compilation from timing
+        warmup_task = audio_task(
+            resampled_audio_filepath=str(wav_filepath),
+            segments=[{"speaker": "s1", "start": 0.0, "end": 2.0, "text": "warmup"}],
+        )
+        stage.process(warmup_task)
+        torch.cuda.synchronize()
+
+        result = stage.process(task)
+
+        out = result.data
+        for seg in out["segments"]:
+            assert "metrics" in seg
+            assert "pesq_squim" in seg["metrics"]
+            assert "stoi_squim" in seg["metrics"]
+            assert "sisdr_squim" in seg["metrics"]
+            assert 1.0 <= seg["metrics"]["pesq_squim"] <= 5.0
+            assert 0.0 <= seg["metrics"]["stoi_squim"] <= 1.0
