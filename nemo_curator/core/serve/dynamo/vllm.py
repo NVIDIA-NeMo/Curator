@@ -52,12 +52,10 @@ if TYPE_CHECKING:
 # actor venvs whose ray version differs from the cluster head's. uv has no
 # inline override syntax — only ``--override <file>`` — so we materialize a
 # tiny constraints file at a fixed path on every node via
-# ``ensure_actor_overrides_on_all_nodes``. ai-dynamo[vllm]==1.1.0 also pins
-# vllm 0.19.0 with torch==2.10.0, identical to the base venv's torch, so the
-# inherited flash-attn wheel's ABI is preserved and no source rebuild is
-# needed in the actor overlay.
+# ``ensure_actor_overrides_on_all_nodes``; the content is derived from the
+# driver's ``ray.__version__`` at fan-out time so a future Curator ray bump
+# doesn't need a code change here.
 _ACTOR_VENV_OVERRIDES_PATH = Path(tempfile.gettempdir()) / "nemo_curator_dynamo_actor_overrides.txt"
-_ACTOR_VENV_OVERRIDES_CONTENT = "ray==2.55.1\n"
 
 DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
     "uv": {
@@ -71,6 +69,10 @@ DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
 def ensure_actor_overrides_on_all_nodes() -> None:
     """Write the actor-venv ``--override`` file at a fixed path on every alive node.
 
+    The file pins ``ray=={ray.__version__}`` (read from the driver) so the
+    actor venv keeps the same ray patch as the cluster head — Ray rejects
+    any mismatch.
+
     Must run inside an active Ray context, before any worker spawned with
     :data:`DYNAMO_VLLM_RUNTIME_ENV` lands. The runtime_env_agent on each
     worker reads the file from the node-local filesystem; a single
@@ -83,7 +85,7 @@ def ensure_actor_overrides_on_all_nodes() -> None:
     from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
     path_str = str(_ACTOR_VENV_OVERRIDES_PATH)
-    content = _ACTOR_VENV_OVERRIDES_CONTENT
+    content = f"ray=={ray.__version__}\n"
 
     @ray.remote(num_cpus=0)
     def _write_override(path: str, body: str) -> None:
