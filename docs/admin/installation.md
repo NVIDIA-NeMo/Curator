@@ -12,7 +12,7 @@ modality: "universal"
 
 # Installation Guide
 
-This guide covers installing NeMo Curator with support for **all modalities** and verifying your installation is working correctly.
+This guide covers installing NeMo Curator with support for **all modalities** and verifying that your installation is working correctly.
 
 ## Before You Start
 
@@ -28,7 +28,7 @@ For comprehensive system requirements and production deployment specifications, 
 - **GPU** (optional): NVIDIA GPU with 16GB+ VRAM for acceleration
 - **CUDA 12** (required for `audio_cuda12`, `video_cuda12`, `image_cuda12`, and `text_cuda12` extras)
 
-### Development vs Production
+### Development vs. Production
 
 | Use Case | Requirements | See |
 |----------|-------------|-----|
@@ -96,7 +96,7 @@ uv sync --all-extras --all-groups
 
 :::{tab-item} Container Installation (Recommended for Video/Audio)
 
-NeMo Curator is available as a standalone container on NGC: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator. The container includes NeMo Curator with all dependencies pre-installed, including FFmpeg with NVENC support.
+NeMo Curator is available as a standalone container on [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator). The container includes NeMo Curator with all dependencies pre-installed, including FFmpeg with NVENC support.
 
 ```bash
 # Pull the container from NGC
@@ -138,13 +138,13 @@ docker run --gpus all -it --rm nemo-curator:latest
 
 ### Install FFmpeg and Encoders (Required for Video)
 
-Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libopenh264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
+Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (using `--transcode-encoder h264_nvenc` or `--transcode-encoder libvpx-vp9`), install `FFmpeg` with NVENC and libvpx-vp9 support. The maintained install script bundles both.
 
 ::::{tab-set}
 
 :::{tab-item} Debian/Ubuntu (Script)
 
-Use the maintained script in the repository to build and install `FFmpeg` with `libopenh264` and NVIDIA NVENC support. The script enables `--enable-libopenh264`, `--enable-cuda-nvcc`, and `--enable-libnpp`.
+Use the maintained script in the repository to build and install `FFmpeg` with NVIDIA NVENC support. The script enables `--enable-cuda-nvcc`, `--enable-libnpp`, and `--enable-libvpx`.
 
 - Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
 
@@ -158,11 +158,11 @@ sudo bash install_ffmpeg.sh
 
 :::{tab-item} Verify Installation
 
-Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is available:
+Confirm that `FFmpeg` is on your `PATH` and that at least one supported encoder is available:
 
 ```bash
 ffmpeg -hide_banner -version | head -n 5
-ffmpeg -encoders | grep -E "h264_nvenc|libopenh264|libx264" | cat
+ffmpeg -encoders | grep -E "h264_nvenc|libvpx-vp9" | cat
 ```
 
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
@@ -173,6 +173,49 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 ```{note}
 **FFmpeg build requires CUDA toolkit (nvcc):** If you encounter `ERROR: failed checking for nvcc` during FFmpeg installation, ensure that the CUDA toolkit is installed and `nvcc` is available on your `PATH`. You can verify with `nvcc --version`. If using the NeMo Curator container, FFmpeg is pre-installed with NVENC support.
 ```
+
+### Bring-Your-Own H.264 Software Encoder (Advanced)
+
+Curator's default FFmpeg build deliberately excludes software H.264 encoders (`libopenh264`, `libx264`, `libx265`). If your environment permits these encoders and you want H.264 software encoding (for example, on GPUs without an NVENC encoder block such as A100 or H100), you can install them yourself.
+
+#### Option 1: Use the System FFmpeg
+
+Most Linux distributions ship FFmpeg with `libx264` (and sometimes `libopenh264`) preinstalled:
+
+```bash
+sudo apt-get install -y ffmpeg
+ffmpeg -hide_banner -encoders | grep -E "libx264|libopenh264"
+```
+
+Make sure the `ffmpeg` on your `PATH` is the one you want — it must shadow Curator's bundled build.
+
+#### Option 2: Add Encoders to Curator's FFmpeg Build
+
+Edit [`docker/common/install_ffmpeg.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh) before rebuilding the container:
+
+- For `libopenh264`: add `libopenh264-dev` to the apt list and `--enable-libopenh264` to the configure flags.
+- For `libx264`: add `libx264-dev` to the apt list and `--enable-libx264 --enable-gpl` to the configure flags. Note that `--enable-gpl` makes the resulting FFmpeg binary GPL-licensed.
+
+Then rebuild your image.
+
+#### Use the Encoder in `ClipTranscodingStage`
+
+`libopenh264` is accepted by `ClipTranscodingStage` out of the box. At setup time, the stage probes the local FFmpeg build and raises a clear error pointing back to this section if the encoder is not actually compiled in. Once your FFmpeg build includes it, just pass:
+
+```bash
+python video_split_clip_example.py ... --transcode-encoder libopenh264
+```
+
+For other custom encoders not in `SUPPORTED_ENCODERS` (for example, `libx264`), edit `nemo_curator/stages/video/clipping/clip_extraction_stages.py` to extend the tuple, and add the encoder name to the `--transcode-encoder` argparse `choices` list in `tutorials/video/getting-started/video_split_clip_example.py`:
+
+```python
+SUPPORTED_ENCODERS = ("h264_nvenc", "libvpx-vp9", "libopenh264", "libx264")  # add yours
+```
+
+#### Caveats
+
+- **Default options for these encoders are not tuned.** `ClipTranscodingStage` only sets quality presets for `h264_nvenc` and `libvpx-vp9`. Other encoders run with FFmpeg defaults, which may produce different quality/size trade-offs than you expect — see [Configure encoders](../curate-video/process-data/transcoding.md#configure) for how to pass an explicit bitrate.
+- **The NeMo Curator team does not test custom encoder configurations.** Issues filed against custom encoder builds may be closed.
 
 ---
 
@@ -198,7 +241,7 @@ NeMo Curator provides several installation extras to install only the components
   - CPU-only audio curation with NeMo Toolkit ASR
 * - **audio_cuda12**
   - `uv pip install nemo-curator[audio_cuda12]`
-  - GPU-accelerated audio curation. When using `uv`, requires `transformers==4.55.2` override.
+  - GPU-accelerated audio curation. When using `uv`, requires a `transformers==4.55.2` override.
 * - **image_cpu**
   - `uv pip install nemo-curator[image_cpu]`
   - CPU-only image processing
@@ -219,11 +262,11 @@ NeMo Curator provides several installation extras to install only the components
 
 ---
 
-## Installation Verification
+## Verify Your Installation
 
 After installation, verify that NeMo Curator is working correctly:
 
-### 1. Basic Import Test
+### 1. Test Basic Imports
 
 ```python
 # Test basic imports
@@ -236,7 +279,7 @@ from nemo_curator.tasks import DocumentBatch
 print("✓ Core modules imported successfully")
 ```
 
-### 2. GPU Availability Check
+### 2. Check GPU Availability
 
 If you installed GPU support, verify GPU access:
 
@@ -249,7 +292,7 @@ try:
         print(f"✓ GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     else:
         print("⚠ No GPU detected")
-    
+
     # Check cuDF for GPU deduplication
     import cudf
     print("✓ cuDF available for GPU-accelerated deduplication")

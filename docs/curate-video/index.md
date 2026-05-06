@@ -48,7 +48,7 @@ Get oriented and prepare your environment so you can start curating videos with 
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Concepts
 :link: about-concepts-video
 :link-type: ref
-Learn about the architecture, stages, pipelines, and data flow for video curation
+Learn about the architecture, stages, pipelines, and data flow for video curation.
 +++
 {bdg-secondary}`stages`
 {bdg-secondary}`pipelines`
@@ -121,8 +121,6 @@ Encode clips to H.264 using CPU or GPU encoders and tune performance.
 +++
 {bdg-primary}`clips`
 {bdg-secondary}`h264_nvenc`
-{bdg-secondary}`libopenh264`
-{bdg-secondary}`libx264`
 :::
 
 :::{grid-item-card} {octicon}`filter;1.5em;sd-mr-1` Filter Clips and Frames

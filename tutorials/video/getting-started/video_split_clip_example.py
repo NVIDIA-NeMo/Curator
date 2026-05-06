@@ -382,9 +382,15 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
     parser.add_argument(
         "--transcode-encoder",
         type=str,
-        default="libopenh264",
-        choices=["libopenh264", "h264_nvenc", "libx264"],
-        help="Codec for transcoding clips; None to skip transcoding.",
+        default="h264_nvenc",
+        choices=["h264_nvenc", "libvpx-vp9", "libopenh264"],
+        help=(
+            "Codec for transcoding clips. Use `h264_nvenc` on NVENC-equipped GPUs; "
+            "use `libvpx-vp9` (CPU) as a royalty-free fallback on GPUs without NVENC "
+            "such as A100/H100; `libopenh264` is accepted but requires a user-"
+            "installed FFmpeg build (Curator does not ship it — see the "
+            "Bring-Your-Own H.264 docs)."
+        ),
     )
     parser.add_argument(
         "--transcode-encoder-threads",
