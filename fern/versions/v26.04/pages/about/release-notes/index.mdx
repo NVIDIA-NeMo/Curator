@@ -16,7 +16,7 @@ modality: "universal"
 
 ## What's New in 26.04
 
-### vLLM and Sentence Transformers Embedding Support (PR #1346)
+### vLLM and Sentence Transformers Embedding Support
 
 Added two new embedding backends for text curation, giving users flexibility to choose the best engine for their model size and throughput needs:
 
@@ -38,18 +38,18 @@ Built-in LLM serving alongside curation pipelines using Ray Serve and vLLM:
 
 Learn more in the [Inference Server](/curate-text/synthetic/inference-server) documentation.
 
-### RayDataExecutor Promoted from Experimental (PR #1619)
+### RayDataExecutor Promoted from Experimental
 
 Moved `RayDataExecutor` out of the experimental namespace to `nemo_curator.backends.ray_data`. The executor is no longer marked as experimental, and the startup warning has been removed. Import path changes:
 
 - **Before**: `from nemo_curator.backends.experimental.ray_data import RayDataExecutor`
 - **After**: `from nemo_curator.backends.ray_data import RayDataExecutor`
 
-### Shared Tokenizer Support for Multiple Classifiers (PR #1528)
+### Shared Tokenizer Support for Multiple Classifiers
 
 Text classifiers that share the same base tokenizer can now reuse tokens across a pipeline, avoiding redundant tokenization. New parameters `keep_tokens` and `use_existing_tokens` on all distributed classifiers control this behavior. DeBERTa-based classifiers (DomainClassifier, MultilingualDomainClassifier, QualityClassifier, ContentTypeClassifier, FineWeb variants, PromptTaskComplexityClassifier) and LlamaGuard-based classifiers (AegisClassifier, InstructionDataGuardClassifier) each form a compatible tokenizer group.
 
-### vLLM Default for Semantic Deduplication Embeddings (PR #1606)
+### vLLM Default for Semantic Deduplication Embeddings
 
 Switched the default embedding backend in `TextSemanticDeduplicationWorkflow` from SentenceTransformers to vLLM, with `google/embeddinggemma-300m` as the new default model:
 
@@ -70,15 +70,15 @@ Improved Prometheus and Grafana monitoring support for shared clusters:
 
 Learn more in the [Monitoring](/reference/infra/monitoring) documentation.
 
-### Cosmos-Xenna 0.2.0 (PR #1571)
+### Cosmos-Xenna 0.2.0
 
 Upgraded Cosmos-Xenna from 0.1.2 to 0.2.0 with a simplified resource model and improved GPU management:
 
 - **Simplified `Resources` API**: Removed `nvdecs`, `nvencs`, and `entire_gpu` fields. GPU allocation now uses `gpu_memory_gb` (fractional single-GPU) or `gpus` (one or more full GPUs) exclusively.
 - **Xenna-managed CUDA devices**: Xenna now manages CUDA device visibility directly, replacing the previous Ray-managed approach.
-- **Ray 2.54** (PR #1557): Updated the minimum Ray dependency from 2.50 to 2.54 for compatibility with Cosmos-Xenna 0.2.0. Added the `RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO` environment variable to the Xenna executor to prevent Ray 2.54 from overriding accelerator environment variables when `num_gpus=0`.
+- **Ray 2.54**: Updated the minimum Ray dependency from 2.50 to 2.54 for compatibility with Cosmos-Xenna 0.2.0. Added the `RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO` environment variable to the Xenna executor to prevent Ray 2.54 from overriding accelerator environment variables when `num_gpus=0`.
 
-### FastText Filter Benchmarking (PR #1452)
+### FastText Filter Benchmarking
 
 Added nightly benchmarking coverage for FastText-based document filters:
 
@@ -86,7 +86,7 @@ Added nightly benchmarking coverage for FastText-based document filters:
 - **Dedicated benchmark script**: `fasttext_filter_benchmark.py` follows the same Hydra-configured pattern as existing filter benchmarks, reporting `num_kept_documents` and `throughput_docs_per_sec`.
 - **Consistent model path naming**: Renamed `--fasttext-model-path` to `--fasttext-langid-model-path` across benchmark scripts for clarity, and introduced `--fasttext-quality-model-path` for the new [FastText quality filter model](https://huggingface.co/mlfoundations/fasttext-oh-eli5). The [FastText language identification model](https://fasttext.cc/docs/en/language-identification.html) uses the renamed `--fasttext-langid-model-path` argument.
 
-### Filter and Modifier Directory Reorganization (PR #1472)
+### Filter and Modifier Directory Reorganization
 
 Reorganized the `DocumentFilter` and `DocumentModifier` directory structures to avoid eagerly importing heavy dependencies:
 
@@ -96,7 +96,7 @@ Reorganized the `DocumentFilter` and `DocumentModifier` directory structures to 
 - **`ScoreFilter`/`Filter`/`Score` moved**: These stages moved from `stages.text.modules` to `stages.text.filters`.
 - **`Modify` moved**: Moved from `stages.text.modules` to `stages.text.modifiers`.
 
-### Fused Document Iterate and Extract Stages (PR #1458)
+### Fused Document Iterate and Extract Stages
 
 The data acquisition pipeline now uses a three-stage architecture instead of four, fusing the iterate and extract steps into a single `DocumentIterateExtractStage`. This reduces memory overhead and improves pipeline performance:
 
@@ -104,11 +104,11 @@ The data acquisition pipeline now uses a three-stage architecture instead of fou
 - **Improved Memory Efficiency**: The fused stage processes records inline instead of materializing intermediate DataFrames, reducing peak memory usage. With limited RAM (200 GB), the Common Crawl pipeline succeeds with 32 CPUs where the unfused pipeline ran out of memory even at 16 CPUs.
 - **Better Performance**: Benchmarks show faster runtimes across both the Ray Data and Xenna executors (e.g., ~6% faster with Ray Data, ~18% faster with Xenna).
 
-### Worker Recycling for JusText Extraction (PR #1534)
+### Worker Recycling for JusText Extraction
 
 Added `max_calls_per_worker` support to mitigate out-of-memory errors caused by lxml/libxml2 memory fragmentation in long-running jusText extraction jobs. `CommonCrawlDownloadExtractStage` now defaults to `extractor_max_calls_per_worker=2` for `JusTextExtractor`, automatically recycling workers to reclaim fragmented memory.
 
-### Per-Stage Runtime Environments (PR #1623)
+### Per-Stage Runtime Environments
 
 Pipeline stages can now declare isolated Python dependencies using Ray's native `runtime_env` support. Each stage can specify a different set of pip or uv packages, and Ray creates a cached virtualenv per unique dependency set so that incompatible library versions coexist in the same pipeline:
 
@@ -119,7 +119,7 @@ Pipeline stages can now declare isolated Python dependencies using Ray's native 
 
 Learn more in the [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) documentation.
 
-### Audio Task Redesign (PR #1608)
+### Audio Task Redesign
 
 Redesigned the audio task model and stage hierarchy for consistency with other modalities:
 
@@ -129,7 +129,7 @@ Redesigned the audio task model and stage hierarchy for consistency with other m
 - **`cache_dir` parameter**: `InferenceAsrNemoStage` accepts an optional `cache_dir` for NeMo model checkpoint storage.
 - **Fan-out stage fix**: `CreateInitialManifestFleursStage` now declares `ray_stage_spec()` for correct Ray Data repartitioning.
 
-### Pipeline Stage Metrics (PR #1385)
+### Pipeline Stage Metrics
 
 Pipeline stages now track document-level metrics through `StagePerfStats.num_items_processed`, so you can see how each stage affects your dataset. After calling `pipeline.run()`, the returned task objects expose per-stage document counts that you can use to monitor filtering behavior and tune thresholds.
 
@@ -142,7 +142,7 @@ Standardized return type for all deduplication workflows:
 - **Structured metadata**: Access per-stage timing (`total_time`, `identification_time`, and others), duplicate counts (`num_duplicates`, `num_duplicates_removed`), and output paths through `result.metadata`
 - **`TaskPerfUtils` compatibility**: `collect_stage_metrics()` and `aggregate_task_metrics()` now accept `WorkflowRunResult` directly
 
-### Megatron Tokenization Writer (PR #1259)
+### Megatron Tokenization Writer
 
 Added `MegatronTokenizerWriter`, a writer stage that tokenizes text documents and produces the `.bin` and `.idx` files required by Megatron-LM for data loading during pretraining:
 
@@ -153,15 +153,15 @@ Added `MegatronTokenizerWriter`, a writer stage that tokenizes text documents an
 
 Learn more in the [Save and Export](/curate-text/save-export) documentation.
 
-### Image Reader Ray Data Support (PR #1610)
+### Image Reader Ray Data Support
 
 `ImageReaderStage` now works with `RayDataExecutor` in addition to `XennaExecutor`. The stage declares itself as a fanout stage, enabling Ray Data to repartition the multiple `ImageBatch` objects produced from each tar file across downstream workers for parallel processing.
 
-### Actor Pool Progress Bars (PR #1457)
+### Actor Pool Progress Bars
 
 Added tqdm progress bars to `RayActorPoolExecutor` for real-time visibility into task completion during stage processing and shuffle inserts. Progress bars are enabled by default and can be configured with `show_progress` and `progress_interval` parameters. This is particularly useful for long-running deduplication jobs where progress is not otherwise apparent.
 
-### ALM Data Curation Pipeline (PR #1419)
+### ALM Data Curation Pipeline
 
 New four-stage pipeline for curating audio language model training data from diarized audio segments:
 
@@ -173,13 +173,42 @@ New four-stage pipeline for curating audio language model training data from dia
 
 Learn more in the [ALM Pipeline Concepts](/about/concepts/audio/alm-pipeline) documentation and the [ALM Tutorial](/curate-audio/tutorials/alm).
 
-### Audio Stage-Wise Profiling (PR #1676)
+### Audio Stage-Wise Profiling
 
 Added stage-wise profiling for FLEURS GPU and ALM CPU pipelines with benchmark scripts integrated into the nightly CI matrix:
 
 - **Per-stage timing breakdowns** on DGX A100: FLEURS pipeline completes in approximately 100 seconds with Xenna (4.01 tasks per second) and 123 seconds with Ray Data (3.27 tasks per second).
 - **Bottleneck analysis**: Identified data download (91% of FLEURS wall time) and `repeat_entries` (44% of ALM wall time) as primary bottlenecks.
 - **Nightly CI entries**: Split FLEURS and ALM benchmarks into separate Xenna and Ray Data entries for both-backend coverage.
+
+### Audio Filtering Pipeline Stages
+
+Added a suite of audio preprocessing and filtering stages that compose into end-to-end audio data curation pipelines:
+
+- **`MonoConversionStage`, `SegmentConcatenationStage`, `TimestampMapperStage`**: Foundational preprocessing — convert multi-channel audio to mono with strict or non-strict sample-rate enforcement, concatenate audio segments with configurable silence gaps, and map filtered segments back to original-file timestamps.
+- **`BandFilterStage`**: Classifies audio as `full_band` or `narrow_band` using a scikit-learn model on spectral features and filters out items not matching the configured `band_value`. Works standalone (loads audio from `audio_filepath`) or in-pipeline (accepts an upstream waveform).
+- **`SIGMOSFilterStage`**: Filters audio using SIGMOS quality metrics (NOISE, OVRL, SIG, COL, DISC, LOUD, REVERB on a 0–5 scale) via an ONNX model. Each threshold is independently configurable; setting any to `None` disables that dimension.
+- **`VADSegmentationStage`**: Segments audio into speech chunks using Silero VAD, fanning out to one `AudioBatch` per detected speech segment with `start_ms`, `end_ms`, `segment_num`, `duration_sec`, and both PyDub and torch waveform outputs. Configurable `min_duration_sec`, `max_duration_sec`, `threshold`, and `speech_pad_ms`. Runs on CPU or GPU.
+- **`SpeakerSeparationStage`**: Diarizes audio with NeMo's SortFormer model, fanning out to one `AudioBatch` per detected speaker. Configurable `exclude_overlaps`, `min_duration`, `gap_threshold`, and `buffer_time`. GPU required.
+- **`UTMOSFilterStage`**: Filters audio segments based on UTMOS predicted Mean Opinion Score using the `utmos22_strong` model loaded via `torch.hub` from `tarepan/SpeechMOS:v1.2.0`. Auto-resamples to 16 kHz, accepts in-memory `waveform + sample_rate` or `audio_filepath` input, and uses a configurable `mos_threshold` (default 3.5; set to `None` to pass all).
+
+### Streaming Sortformer Speaker Diarization
+
+Added `InferenceSortformerStage` for speaker diarization using NVIDIA's [Streaming Sortformer model](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2). Supports configurable streaming latency, RTTM output, and parallel execution via `Pipeline` + `RayActorPoolExecutor`. Evaluated on CallHome-eng0 (139 files) at 6.2% macro DER and 6.0% weighted DER (collar=0.25s).
+
+### `AudioDataFilterStage` Composite Pipeline
+
+Added `AudioDataFilterStage`, a `CompositeStage` that decomposes into a configurable sequence of audio processing sub-stages for extracting clean single-speaker segments from raw audio files. Each sub-stage has its own resource allocation (CPU for band/concat, GPU for VAD/UTMOS/SIGMOS/speaker separation), letting the executor parallelize across input files.
+
+When all stages are enabled, the default order is: MonoConversion → VAD → BandFilter → UTMOS → SIGMOS → SegmentConcatenation → SpeakerSeparation → per-speaker filters (VAD + Band + UTMOS + SIGMOS) → TimestampMapper. All sub-stages are individually toggleable through `AudioDataFilterConfig` (`enable_vad`, `enable_band_filter`, `enable_utmos`, `enable_sigmos`, and so on). A subsequent fix in this release redesigns the stage to support all VAD/Speaker combinations and resolves a waveform tensor leak that grew memory under sustained load.
+
+### DNS Challenge ReadSpeech Tutorial
+
+Added an end-to-end tutorial for processing the DNS Challenge ReadSpeech dataset (14,279 WAV files at 48 kHz, 19.3 hours) through `AudioDataFilterStage`:
+
+- **`CreateInitialManifestReadSpeechStage`**: Downloads and extracts the dataset, parses filenames for book and reader IDs, and emits `AudioBatch` tasks ready for the filter pipeline.
+- **Tutorial materials in `tutorials/audio/readspeech/`**: A Python pipeline (`pipeline.py`), Hydra YAML config (`pipeline.yaml`), Hydra runner (`run.py`), and an `extract_segments.py` post-processing utility (using `soundfile`, no ffmpeg required for `wav`/`flac`/`ogg`).
+- **Benchmark and test coverage**: A ReadSpeech audio curation benchmark is added to the nightly suite, and the default GPU resource requirements are lowered so the tutorial fits on smaller hosts. The dataset stage ships with a README and tests.
 
 ### NeMo Data Designer Integration
 
@@ -192,7 +221,7 @@ Integrated the NeMo Data Designer (NDD) client with NeMo Curator for declarative
 
 Learn more in the [NeMo Data Designer](/curate-text/synthetic/nemo-data-designer) documentation.
 
-### S3 Transport for CommonCrawlWARCReader (PR #1604)
+### S3 Transport for CommonCrawlWARCReader
 
 Added S3 as an alternative transport for `CommonCrawlWARCReader`, which fetches individual WARC records using byte-range requests:
 
@@ -202,16 +231,62 @@ Added S3 as an alternative transport for `CommonCrawlWARCReader`, which fetches 
 
 Learn more in the [Common Crawl](/curate-text/load-data/common-crawl) documentation.
 
+### Multi-Node Ray on SLURM
+
+Added `SlurmRayClient`, a drop-in replacement for `RayClient` that orchestrates multi-node Ray clusters under SLURM job scheduling:
+
+- **Head/worker role detection**: The head node (`SLURM_NODEID=0`) starts `ray start --head`, writes the GCS port to a shared broadcast file, and waits for workers to join. Worker nodes block on the port file and call `ray start --block`. Only the head returns from `start()`.
+- **Drop-in replacement**: Existing pipelines move from local to SLURM by replacing `RayClient()` with `SlurmRayClient()`; no other changes required.
+- **Reference tutorials in `tutorials/slurm/`**: Ships `submit_container.sh` (NGC container via Pyxis) and `submit.sh` (bare-metal via uv) covering 1- and 2-node configurations with 2 or 8 GPUs per node. Set `RAY_PORT_BROADCAST_DIR` to a shared filesystem path when `/tmp` is node-local.
+
+Verified end-to-end on 1- and 2-node H100 SLURM jobs using the `nvcr.io/nvidia/nemo-curator:26.02` container.
+
+### Nemotron-Parse PDF Pipeline
+
+Added a four-stage Xenna pipeline that turns PDF datasets into interleaved Parquet output using NVIDIA's Nemotron-Parse vision-language model:
+
+- **`PDFPartitioningStage`**: Reads a JSONL manifest and packs PDF entries into `FileGroupTask`s.
+- **`PDFPreprocessStage`**: Extracts PDF bytes from a directory, a CC-MAIN-2021-31-PDF-UNTRUNCATED zip hierarchy, or JSONL-encoded PDF datasets, and renders pages to images with scale-to-fit guarding against OOM on large pages.
+- **`NemotronParseInferenceStage`**: Runs Nemotron-Parse via vLLM (recommended) or Hugging Face Transformers, with `text_in_pic` and `enforce_eager` flags and free-port retry logic on collisions.
+- **`NemotronParsePostprocessStage`**: Parses model output, aligns images and captions, crops, and emits interleaved rows.
+- **`NemotronParsePDFReader`**: Composite stage wrapping the four steps above so callers can drop the pipeline into a single `pipeline.add_stage()` call.
+
+The render timeout uses a forked subprocess instead of `signal.SIGALRM`, allowing the stage to run inside Xenna actor processes (which dispatch on non-main threads). Adds `pypdfium2` as a new dependency and ships `benchmarking/scripts/nemotron_parse_pdf_benchmark.py`.
+
+### Interleaved IO Round-Trip
+
+Completed the interleaved IO round-trip with new readers, writers, and shared schema utilities so all four conversions (`WDS tar ⇄ InterleavedBatch ⇄ Parquet`) work out of the box:
+
+- **`InterleavedParquetReader` / `InterleavedParquetReaderStage`**: Reads Parquet directly into `InterleavedBatch`, with `fields=` passthrough column selection (consistent with the WDS reader), push-down column projection via `pq.read_schema()`, and `max_batch_bytes` splitting that preserves per-split source-file lineage.
+- **`InterleavedWebdatasetWriterStage`**: Writes `InterleavedBatch` to MINT-1T-style WDS tar shards. Uses `urllib.parse.quote(sample_id, safe="")` for injective, roundtrip-safe key escaping and groups rows by `sample_id` in a single `groupby` pass. Supported modalities are `metadata`, `text`, and `image`; any other raises `ValueError` at write time.
+- **Schema utilities (`utils/schema.py`)**: New `reconcile_schema()`, `align_table()`, and `resolve_schema()` helpers shared by all arrow-based readers and writers. Reserved columns get canonical types and use `safe=False` for safe large↔small casts; passthrough columns preserve types and use `safe=True` to surface (rather than silently corrupt) overflow.
+- **Reader/writer base improvements**: New `schema=` and `schema_overrides=` parameters with a warning when both are provided, a writer `on_materialize_error=` policy (`"error"`, `"warn"`, `"drop_row"`, `"drop_sample"`), and mixed-backend safe path handling so batches that combine S3 and local paths no longer fail silently.
+
+Benchmarks on 80 NVMe shards (MINT-1T PDF data) with an aspect-ratio filter applied show Parquet-sourced paths ~5× faster than WDS-sourced paths.
+
+### Interleaved Dataset Filters
+
+Added four filter stages for cleaning interleaved image/text datasets:
+
+- **`InterleavedBlurFilterStage`**: Computes Laplacian variance on each image with OpenCV and filters out images below a configurable sharpness threshold.
+- **`InterleavedQRCodeFilterStage`**: Detects QR codes with OpenCV and filters images whose QR-code bounding box exceeds a configurable area ratio of the total image.
+- **`InterleavedCLIPScoreFilterStage`**: Computes CLIP image and text embeddings and filters samples whose cosine similarity falls below a minimum semantic-alignment threshold.
+- **`InterleavedImageToTextRatioFilterStage`**: Computes the per-sample ratio of image count to text word count and filters samples outside a configurable `min_ratio`/`max_ratio` window.
+
+### Nemotron VLM Video Captioning
+
+Added the **Nemotron Nano 12B V2 VLM** as a captioning backend in the video pipeline alongside the existing Qwen-VL backend. Select with `--captioning-algorithm nemotron --model-dir <path>` in the `video_split_clip_example.py` tutorial. Three precision variants ship together: `nemotron` / `nemotron-bf16` (default BF16, auto-downloaded), `nemotron-fp8` (FP8-quantized for lower memory), and `nemotron-nvfp4` (NVFP4 quantization-aware-distilled checkpoint).
+
 ## Improvements
 
-### Batched Shuffle Insertion for Exact Deduplication (PR #1369)
+### Batched Shuffle Insertion for Exact Deduplication
 
 The exact deduplication identification stage now supports batched insertion into the shuffler, improving throughput by processing multiple file groups in a single call. This reduces actor call overhead and enables larger, more efficient GPU operations during the shuffle phase.
 
 - **New `identification_batchsize` parameter** on `ExactDeduplicationWorkflow`: Controls how many input blocks are concatenated and inserted together. For example, an `input_blocksize` of `256MiB` with `identification_batchsize=4` processes ~1 GB of data per insertion call.
 - **Batch-aware shuffle adapter**: The Ray actor pool shuffle adapter now automatically uses `read_and_insert_batch` when a stage provides it, falling back to single-task processing otherwise.
 
-### LSH Memory Configuration for Fuzzy Deduplication (PR #1603)
+### LSH Memory Configuration for Fuzzy Deduplication
 
 `FuzzyDeduplicationWorkflow` now exposes three parameters for controlling GPU memory and shuffle behavior during the LSH stage:
 
@@ -221,31 +296,7 @@ The exact deduplication identification stage now supports batched insertion into
 
 These parameters were previously hardcoded in the LSH stage and are now configurable at the workflow level, enabling finer-grained GPU memory tuning for large-scale fuzzy deduplication jobs.
 
-## Security Fixes
-
-### CVE Fixes for Audio and Inference Dependencies (PR #1612)
-
-Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
-
-- **nemo-toolkit RCE (CVE-2025-33245, CVE-2025-33253)**: NeMo Toolkit versions before 2.6.1 used `torch.load()` and `pickle.load()` without `weights_only=True` when loading model checkpoints, enabling remote code execution through maliciously crafted `.nemo` or `.ckpt` files. Curator's `InferenceAsrNemoStage` calls `ASRModel.from_pretrained()`, which uses this deserialization path. The CVE was fixed in nemo-toolkit 2.6.1; bumped to `>=2.7.2` to pick up additional fixes and ensure compatibility with Curator's dependency set.
-- **xgrammar DoS (CVE-2026-25048)**: Constructing a grammar rule with deeply nested parentheses triggered a segfault via uncontrolled recursion in xgrammar's syntax parsing, which could crash applications using vLLM structured output without authentication. Fixed by overriding vLLM's `xgrammar==0.1.29` pin to `>=0.1.32`.
-- **jackson-core DoS (GHSA-72hv-8253-57qq)**: The non-blocking JSON parser in jackson-core 2.16.1, bundled inside `ray_dist.jar` in the Ray Python package, bypassed the `maxNumberLength` constraint, allowing denial of service through arbitrarily long JSON numbers. Since Curator does not use Ray's Java support, the JAR is now deleted during the Docker image build with a build-time verification guard. This fix applies only to the container image.
-
-## Dependency Updates
-
-- **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
-- **Ray** (PR #1557): Updated minimum version from 2.50 to 2.54. This supersedes the previous constraint dependency for CVE GHSA-q279-jhrf-cc6v, which required >=2.52.
-- **pynvml**: Added to the `cuda12` optional dependency group for Xenna GPU detection
-- **sentence-transformers**: Added to the `text_cpu` optional dependency group
-- **vllm**: New vllm optional dependency group
-- **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
-- **nemo-toolkit**: Bumped `nemo_toolkit[asr]` from `==2.4.0` to `>=2.7.2` to address deserialization CVEs. Only affects `audio_cpu` and `audio_cuda12` extras.
-- **xgrammar**: Moved from `constraint-dependencies` (`>=0.1.21`) to `override-dependencies` (`>=0.1.32`) to override vLLM's pinned version and address CVE-2026-25048.
-- **boto3**: Added `boto3>=1.35` to the `math_cpu` install extra for S3 range requests in `CommonCrawlWARCReader` (PR #1604)
-
-## Enhancements
-
-### Exact Deduplication Workflow Tuning Parameters (PR #1561)
+### Exact Deduplication Workflow Tuning Parameters
 
 Exposed additional configuration parameters in `ExactDeduplicationWorkflow` for fine-grained control over large-scale cluster runs:
 
@@ -265,41 +316,65 @@ workflow = ExactDeduplicationWorkflow(
 )
 ```
 
-## Improvements
-
-### AEGIS Classifier GPU Utilization (Issue #878)
+### AEGIS Classifier GPU Utilization
 
 Confirmed full GPU utilization for the AEGIS safety classifier when running on multi-GPU setups. The AEGIS classifier, which uses the LlamaGuard-7b generative model, properly distributes inference across all available GPUs. Added a performance note to the [classifier documentation](/curate-text/process-data/quality-assessment/distributed-classifier) to set expectations for processing times relative to encoder-based classifiers.
 
+## Security Fixes
+
+### CVE Fixes for Audio and Inference Dependencies
+
+Resolved four HIGH-severity vulnerabilities affecting Curator dependencies:
+
+- **nemo-toolkit RCE (CVE-2025-33245, CVE-2025-33253)**: NeMo Toolkit versions before 2.6.1 used `torch.load()` and `pickle.load()` without `weights_only=True` when loading model checkpoints, enabling remote code execution through maliciously crafted `.nemo` or `.ckpt` files. Curator's `InferenceAsrNemoStage` calls `ASRModel.from_pretrained()`, which uses this deserialization path. The CVE was fixed in nemo-toolkit 2.6.1; bumped to `>=2.7.2` to pick up additional fixes and ensure compatibility with Curator's dependency set.
+- **xgrammar DoS (CVE-2026-25048)**: Constructing a grammar rule with deeply nested parentheses triggered a segfault via uncontrolled recursion in xgrammar's syntax parsing, which could crash applications using vLLM structured output without authentication. Fixed by overriding vLLM's `xgrammar==0.1.29` pin to `>=0.1.32`.
+- **jackson-core DoS (GHSA-72hv-8253-57qq)**: The non-blocking JSON parser in jackson-core 2.16.1, bundled inside `ray_dist.jar` in the Ray Python package, bypassed the `maxNumberLength` constraint, allowing denial of service through arbitrarily long JSON numbers. Since Curator does not use Ray's Java support, the JAR is now deleted during the Docker image build with a build-time verification guard. This fix applies only to the container image.
+
+## Dependency Updates
+
+- **Cosmos-Xenna**: Updated from 0.1.2 to 0.2.0 with simplified resource model
+- **Ray**: Updated minimum version from 2.50 to 2.54. This supersedes the previous constraint dependency for CVE GHSA-q279-jhrf-cc6v, which required >=2.52.
+- **pynvml**: Added to the `cuda12` optional dependency group for Xenna GPU detection
+- **sentence-transformers**: Added to the `text_cpu` optional dependency group
+- **vllm**: New vllm optional dependency group
+- **uv**: Added minimum required version (>=0.7.0) to prevent lockfile revision drift
+- **nemo-toolkit**: Bumped `nemo_toolkit[asr]` from `==2.4.0` to `>=2.7.2` to address deserialization CVEs. Only affects `audio_cpu` and `audio_cuda12` extras.
+- **xgrammar**: Moved from `constraint-dependencies` (`>=0.1.21`) to `override-dependencies` (`>=0.1.32`) to override vLLM's pinned version and address CVE-2026-25048.
+- **boto3**: Added `boto3>=1.35` to the `math_cpu` install extra for S3 range requests in `CommonCrawlWARCReader`
+
 ## Bug Fixes
 
-### JusText Extraction OOM (PR #1534)
+### JusText Extraction OOM
 
 Fixed out-of-memory errors during long-running jusText extraction jobs caused by lxml/libxml2 C-heap memory fragmentation. Worker recycling through `max_calls_per_worker` now prevents unbounded RSS growth by restarting worker processes periodically.
 
-### CUDA Fork Error with vLLM and RayDataExecutor (PR #1606)
+### CUDA Fork Error with vLLM and RayDataExecutor
 
 Fixed a `RuntimeError: Cannot re-initialize CUDA in forked subprocess` error that occurred when running vLLM stages with `RayDataExecutor`. The vLLM auto-detection for `spawn` versus `fork` multiprocessing only triggers inside Ray actors, not Ray tasks. The `RayDataExecutor.execute_setup_on_node` method dispatches `setup_on_node` as a remote task, so vLLM previously defaulted to `fork` and caused a CUDA reinitialization error. Fixed by setting `VLLM_WORKER_MULTIPROC_METHOD=spawn` in the remote task.
 
-### Video vLLM Setup Race Condition (PR #1590)
+### Video vLLM Setup Race Condition
 
 Fixed a race condition in video captioning stages (`CaptionGenerationStage` and `CaptionEnhancementStage`) where multiple workers simultaneously initializing vLLM caused a `FileNotFoundError` from the shared `torch.compile` cache directory. vLLM initialization now runs inside `setup_on_node` so the cache directory is created once per node, matching the pattern that text vLLM stages already use.
 
-### Audio Stage Name Propagation (PR #1470)
+### Audio Stage Name Propagation
 
 Fixed audio pipeline stage names not propagating in `StagePerfStats`, making benchmark output unable to identify per-stage timing. All audio stages (`GetAudioDurationStage`, `PreserveByValueStage`, `AudioToDocumentStage`, `GetPairwiseWerStage`) now correctly report their names, and stage performance history persists when stages create new task objects.
 
-### Video vLLM Setup Race Condition (PR #1590)
-
-Fixed a race condition in `CaptionGenerationStage` and `CaptionEnhancementStage` where multiple workers simultaneously initializing vLLM would race on the shared `torch.compile` cache directory, causing `FileNotFoundError`. Model initialization now runs once per node in `setup_on_node()` instead of per-worker in `setup()`, matching the pattern used by text vLLM stages.
-
-### MathContentExtractor Serialization Crash (PR #1604)
+### MathContentExtractor Serialization Crash
 
 Fixed a `deepcopy`/pickle crash in `MathContentExtractor` caused by unpickleable `threading.Lock` and `magic.Magic` objects. Added `__getstate__`/`__setstate__` methods that strip these objects before serialization and reinitialize them on deserialization. This fixes failures triggered by `ProcessingStage.with_()` and Ray executors.
 
-### CommonCrawlWARCReader Serialization for Ray (PR #1604)
+### CommonCrawlWARCReader Serialization for Ray
 
 Added `__getstate__`/`__setstate__` to `CommonCrawlWARCReader` for pickle compatibility with Ray executors. The `threading.Lock`, `requests.Session`, and boto3 S3 client are stripped during serialization and lazily reinitialized after deserialization.
+
+### Images-Per-Tar Warning When Greater Than Batch Size
+
+The image reader silently produced under-packed tars when `--images-per-tar` was greater than `--batch-size`, because each batch only emits a single chunk regardless of the tar size flag. The pipeline now warns when `--images-per-tar` exceeds `--batch-size`, and tutorials have been updated to clarify the relationship between the two flags. Addresses NVBug 6075086.
+
+### VideoReader Path Validation
+
+`VideoReader` now validates input paths during initialization, accepting single-file inputs in addition to directories and raising explicit errors for unsupported file formats instead of failing later in the pipeline.
 
 ## Deprecations
 
