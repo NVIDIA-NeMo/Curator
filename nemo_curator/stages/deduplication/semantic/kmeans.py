@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
 import gc
 import os
+import random
 import time
 
 import torch
@@ -65,7 +66,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         n_init: int | Literal["auto"] = 1,
         oversampling_factor: float = 2.0,
         max_samples_per_batch: int = 1 << 15,
-        max_rows_for_fitting: int | None = None,
+        fit_data_fraction: float | None = None,
         # I/O args
         cache_path: str | None = None,
         read_kwargs: dict[dict] | None = None,
@@ -88,7 +89,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
             oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
             max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-            max_rows_for_fitting (int | None): Maximum number of rows (per actor) to use when fitting the KMeans model. When set, uses a two-pass approach: Pass 1 samples this many rows from all groups to fit the model (freeing each group's GPU memory immediately after sampling), then Pass 2 loads each group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously (original behavior).
+            fit_data_fraction (float | None): Fraction of the dataset (in (0, 1]) sampled from every group to fit the KMeans model. For example, 0.1 trains on 10% of every group across all actors. When set, uses a two-pass approach: Pass 1 reads only the embedding column and samples this fraction from each group (freeing the group's GPU memory immediately after sampling), then Pass 2 loads each group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
             cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
             read_kwargs (dict[dict]): Keyword arguments for the read stage.
             write_kwargs (dict[dict]): Keyword arguments for the write stage.
@@ -108,7 +109,10 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         self.n_init = n_init
         self.oversampling_factor = oversampling_factor
         self.max_samples_per_batch = max_samples_per_batch
-        self.max_rows_for_fitting = max_rows_for_fitting
+        if fit_data_fraction is not None and not 0.0 < fit_data_fraction <= 1.0:
+            msg = f"fit_data_fraction must be in (0, 1], got {fit_data_fraction}"
+            raise ValueError(msg)
+        self.fit_data_fraction = fit_data_fraction
 
         self.cache_path = cache_path
         self.read_kwargs = read_kwargs.copy() if read_kwargs is not None else {}
@@ -133,7 +137,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         In RAFT mode, each actor processes its assigned tasks, but the KMeans model
         is trained cooperatively across all actors using RAFT communication.
 
-        When max_rows_for_fitting is set, uses a memory-efficient two-pass approach:
+        When fit_data_fraction is set, uses a memory-efficient two-pass approach:
           Pass 1: reads only the embedding column, samples rows, frees GPU memory per group
           Pass 2: loads each group one at a time for prediction and writing
         Otherwise, loads all groups simultaneously (original behavior).
@@ -155,7 +159,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             msg = f"Unsupported filetype: {self.filetype}. Only jsonl and parquet are supported."
             raise ValueError(msg)
 
-        if self.max_rows_for_fitting is not None:
+        if self.fit_data_fraction is not None:
             return self._process_batch_two_pass(tasks, groups)
         return self._process_batch_single_pass(tasks, groups)
 
@@ -260,29 +264,36 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
     def _process_batch_two_pass(self, tasks: list[FileGroupTask], groups: list[list[str]]) -> list["_EmptyTask"]:
         """Memory-efficient two-pass approach for large datasets.
 
-        Pass 1: reads only the embedding column, samples up to max_rows_for_fitting
-                rows per actor (with a floor of 1 row per group), frees each group's
-                GPU memory immediately after sampling.
-        Pass 2: loads each group one at a time (full columns), predicts labels, writes,
+        Pass 1: subsets fit_data_fraction of the files in each group (rounded, with a
+                floor of 1 file per group) and reads only those files' embedding column.
+                Subsetting at the file level means IO and GPU memory in Pass 1 scale
+                roughly with fit_data_fraction.
+        Pass 2: loads each (full) group one at a time, predicts labels, writes,
                 then frees GPU memory before loading the next group.
 
-        Peak GPU memory ≈ max(max_rows_for_fitting, one_group_size) x embedding_dim x 4 bytes,
+        Peak GPU memory ≈ max(fit_data_fraction x actor_rows, one_group_size) x embedding_dim x 4 bytes,
         instead of total_data x embedding_dim x 4 bytes.
         """
-        sample_rows_per_group = max(1, self.max_rows_for_fitting // len(groups))
+        fraction = self.fit_data_fraction
 
-        # --- Pass 1: sample embeddings for fitting ---
+        # --- Pass 1: sample files within each group, read only those files ---
         t0 = time.perf_counter()
         sample_embeddings_list = []
-        total_rows = 0
+        sampled_rows = 0
+        sampled_files = 0
+        total_files = sum(len(g) for g in groups)
 
         for group_index, group in enumerate(groups):
-            df = self._read_group(group, [self.embedding_field])
-            total_rows += len(df)
+            if fraction < 1.0:
+                rng = random.Random(self.random_state + group_index)
+                n_files = max(1, round(len(group) * fraction))
+                files_to_read = rng.sample(group, n_files)
+            else:
+                files_to_read = group
+            sampled_files += len(files_to_read)
 
-            if len(df) > sample_rows_per_group:
-                df = df.sample(sample_rows_per_group, random_state=self.random_state + group_index)
-
+            df = self._read_group(files_to_read, [self.embedding_field])
+            sampled_rows += len(df)
             df = self.normalize_embeddings_col_in_df(df, self.embedding_field)
             # .copy() detaches from the df so we can delete the df and free its memory
             sample_embeddings_list.append(get_array_from_df(df, self.embedding_field).copy())
@@ -291,7 +302,10 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
 
         t1 = time.perf_counter()
         pass1_read_time = t1 - t0
-        logger.debug(f"Pass 1 (sampling) time: {pass1_read_time:.2f} seconds, {total_rows} total rows")
+        logger.debug(
+            f"Pass 1 (sampling) time: {pass1_read_time:.2f}s, "
+            f"read {sampled_files}/{total_files} files = {sampled_rows} rows"
+        )
 
         # Fit on sampled data cooperatively across all actors
         concatenated_samples = cp.concatenate(sample_embeddings_list, axis=0)
@@ -299,7 +313,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         gc.collect()
         logger.info(
             f"Fitting KMeans on {len(concatenated_samples)} sampled rows "
-            f"(up to {sample_rows_per_group} per group)"
+            f"(fit_data_fraction={fraction:.4f}, {sampled_files}/{total_files} files)"
         )
 
         self.kmeans._fit(concatenated_samples, sample_weight=None, convert_dtype=False, multigpu=True)
@@ -446,7 +460,7 @@ class KMeansStage(CompositeStage[_EmptyTask, _EmptyTask]):
     n_init: int | Literal["auto"] = 1
     oversampling_factor: float = 2.0
     max_samples_per_batch: int = 1 << 15
-    max_rows_for_fitting: int | None = None
+    fit_data_fraction: float | None = None
     cache_path: str | None = None
     """KMeans clustering stage that requires RAFT for distributed processing.
 
@@ -469,7 +483,7 @@ class KMeansStage(CompositeStage[_EmptyTask, _EmptyTask]):
         n_init (int | Literal["auto"]): Number of times the k-means algorithm will be run with different centroid seeds. The final results will be the best output of n_init consecutive runs in terms of inertia.
         oversampling_factor (float): The amount of points to sample in scalable k-means++ initialization for potential centroids. Increasing this value can lead to better initial centroids at the cost of memory. The total number of centroids sampled in scalable k-means++ is oversampling_factor * n_clusters * 8.
         max_samples_per_batch (int): The number of data samples to use for batches of the pairwise distance computation. This computation is done throughout both fit predict. The default should suit most cases. The total number of elements in the batched pairwise distance computation is max_samples_per_batch * n_clusters. It might become necessary to lower this number when n_clusters becomes prohibitively large.
-        max_rows_for_fitting (int | None): Maximum number of rows (per actor) to use when fitting the KMeans model. When set, uses a two-pass approach: Pass 1 samples this many rows from all groups to fit the model (freeing each group's GPU memory immediately after sampling), then Pass 2 loads each group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously (original behavior).
+        fit_data_fraction (float | None): Fraction of the dataset (in (0, 1]) sampled from every group to fit the KMeans model. For example, 0.1 trains on 10% of every group across all actors. When set, uses a two-pass approach: Pass 1 reads only the embedding column and samples this fraction from each group (freeing the group's GPU memory immediately after sampling), then Pass 2 loads each group one at a time to predict labels and write results. This dramatically reduces peak GPU memory for large datasets. If None, all rows are loaded simultaneously.
         cache_path (str | None): The path to save the centroids to. If None, the centroids will not be saved.
     """
 
