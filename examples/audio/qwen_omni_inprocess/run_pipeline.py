@@ -33,17 +33,10 @@ Architecture:
         → compares Turn 1 vs Turn 2 WER
     WhisperHallucinationStage (CPU)
         → flags hallucination patterns, sets _skipme
-    InferenceLanguageRoutedAsrStage (GPU)
-        → always-on recovery ASR routed by ``source_lang``: Indic Conformer
-          for Indic codes (``--indic_conformer_model_id``), NVIDIA Parakeet-TDT
-          v3 for ``lv``/``hr``/``et``/``bg``/``sk``/``sl``/``mt``/``uk``/``lt``
-          (``--parakeet_model_id``), Faster-Whisper for Whisper-routed codes
-          (``--whisper_model_size_or_path``), Qwen3-ASR for everything else
-          (``--asr_model_id``). All four default to hardcoded model IDs; the
-          omni prediction remains the primary winner unless flagged as
-          hallucinated. Writes ``additional_notes["asr_model"]`` per sample.
-    WhisperHallucinationStage (CPU)
-        → checks recovery-ASR output; recovers or confirms hallucination
+    [optional] InferenceQwenASRStage (GPU)
+        → re-transcribes only hallucinated samples with Qwen3-ASR
+    [optional] WhisperHallucinationStage (CPU)
+        → checks QwenASR output; recovers or confirms hallucination
     SelectBestPredictionStage (CPU)
         → picks ASR prediction if recovered, else omni prediction
     FastTextLIDStage (CPU)
@@ -76,13 +69,8 @@ from loguru import logger
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.pipeline import Pipeline
-
-QWEN_ASR_DEFAULT_MODEL_ID = "Qwen/Qwen3-ASR-0.6B"
-INDIC_CONFORMER_DEFAULT_MODEL_ID = "ai4bharat/indic-conformer-600m-multilingual"
-WHISPER_DEFAULT_MODEL = "large-v3"
-PARAKEET_DEFAULT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
-from nemo_curator.stages.audio.inference.language_routed_asr import InferenceLanguageRoutedAsrStage
+from nemo_curator.stages.audio.inference.qwen_asr import InferenceQwenASRStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
 from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
 from nemo_curator.stages.audio.io.unified_reader import UnifiedAudioReader
@@ -125,7 +113,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                          "Used for prompt interpolation ({language} placeholder) and per-sample LID filtering.")
     ap.add_argument("--s3_endpoint_url", type=str, default=None)
     ap.add_argument("--use_unified_reader", action="store_true", default=False,
-                    help="Use UnifiedAudioReader (NeMo lhotse adapters for tarred + non-tarred data).")
+                    help="Use UnifiedAudioReader (supports S3 corpusview YAML + lhotse CutSet).")
+    ap.add_argument("--s3_site", type=str, default="pdx", help="Site key for corpusview YAML paths resolution.")
     ap.add_argument(
         "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
     )
@@ -224,8 +213,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Path to PANNs CNN14 .pth checkpoint. Enables SED stages when set.")
     sed.add_argument("--sed_model_type", type=str, default="Cnn14_DecisionLevelMax",
                      help="CNN14 variant name (see sed_models.MODEL_REGISTRY).")
-    sed.add_argument("--sed_speech_threshold", type=float, default=0.4,
-                     help="Probability threshold for event detection (applied per-class).")
+    sed.add_argument("--sed_speech_threshold", type=float, default=0.5,
+                     help="Speech probability threshold for event detection.")
     sed.add_argument("--sed_min_duration", type=float, default=0.3,
                      help="Minimum speech event duration in seconds.")
     sed.add_argument("--sed_merge_gap", type=float, default=0.0,
@@ -234,121 +223,23 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Batch size for SED GPU inference.")
     sed.add_argument("--sed_gpu_memory_gb", type=float, default=4.0,
                      help="GPU memory in GB for SED inference stage.")
-    sed.add_argument("--sed_superclasses", action="store_true", default=False,
-                     help="Emit aggregated superclass events (noisy-or per group) instead of per-class subcategory events.")
+    sed.add_argument("--sed_subcategories", action="store_true", default=False,
+                     help="Emit per-class subcategory events instead of aggregated superclass events.")
     sed.add_argument("--sed_num_workers", type=int, default=None,
                      help="Fixed actor count for SED stage.")
 
-    asr = ap.add_argument_group("Language-routed ASR hallucination recovery (always enabled)")
-    asr.add_argument(
-        "--asr_model_id",
-        type=str,
-        default=QWEN_ASR_DEFAULT_MODEL_ID,
-        help=(
-            f"Qwen3-ASR model ID or local path (default: {QWEN_ASR_DEFAULT_MODEL_ID}). "
-            "Used as the default fallback backend for languages not handled by Indic Conformer "
-            "or Faster-Whisper."
-        ),
-    )
-    asr.add_argument("--no_qwen_asr", action="store_true", default=False,
-                     help="Disable the Qwen3-ASR backend in the language-routed ASR stage.")
-    asr.add_argument(
-        "--indic_conformer_model_id",
-        type=str,
-        default=INDIC_CONFORMER_DEFAULT_MODEL_ID,
-        metavar="HF_REPO_OR_PATH",
-        help=(
-            f"AI4Bharat Indic Conformer model ID (default: {INDIC_CONFORMER_DEFAULT_MODEL_ID}). "
-            "Used for Indic source_lang codes. The HF repo is gated — set HF_TOKEN in the "
-            "environment, or pass --no_indic_conformer to skip this backend."
-        ),
-    )
-    asr.add_argument("--no_indic_conformer", action="store_true", default=False,
-                     help="Disable the Indic Conformer backend in the language-routed ASR stage.")
-    asr.add_argument(
-        "--indic_conformer_decode",
-        type=str,
-        default="rnnt",
-        choices=["ctc", "rnnt"],
-        help="Decoding mode for Indic Conformer (model card).",
-    )
-    asr.add_argument(
-        "--whisper_model_size_or_path",
-        type=str,
-        default=WHISPER_DEFAULT_MODEL,
-        metavar="MODEL",
-        help=(
-            f"faster-whisper model name or path (default: {WHISPER_DEFAULT_MODEL}). "
-            "Routes Romanian/Hungarian/Greek/Finnish/Danish/Swedish/Thai/Filipino/Tagalog/Persian "
-            "source_lang codes to Whisper; see WHISPER_ROUTED_LANGUAGE_CODES in pipeline_utils."
-        ),
-    )
-    asr.add_argument("--no_whisper", action="store_true", default=False,
-                     help="Disable the Faster-Whisper backend in the language-routed ASR stage.")
-    asr.add_argument(
-        "--whisper_device",
-        type=str,
-        default="cuda",
-        choices=["cuda", "cpu", "auto"],
-        help="Device for faster-whisper (cuda/cpu/auto).",
-    )
-    asr.add_argument(
-        "--whisper_compute_type",
-        type=str,
-        default="float16",
-        help="faster-whisper compute_type (e.g. float16, int8_float16, int8).",
-    )
-    asr.add_argument(
-        "--whisper_download_root",
-        type=str,
-        default=None,
-        help="Optional cache directory for faster-whisper downloads.",
-    )
-    asr.add_argument(
-        "--parakeet_model_id",
-        type=str,
-        default=PARAKEET_DEFAULT_MODEL_ID,
-        metavar="HF_REPO_OR_PATH",
-        help=(
-            f"NVIDIA Parakeet-TDT v3 model ID (default: {PARAKEET_DEFAULT_MODEL_ID}). "
-            "Routes Latvian/Croatian/Estonian/Bulgarian/Slovak/Slovenian/Maltese/"
-            "Ukrainian/Lithuanian source_lang codes to Parakeet; see "
-            "PARAKEET_LANGUAGE_CODES in pipeline_utils."
-        ),
-    )
-    asr.add_argument("--no_parakeet", action="store_true", default=False,
-                     help="Disable the Parakeet-TDT v3 backend in the language-routed ASR stage.")
-    asr.add_argument(
-        "--parakeet_cache_dir",
-        type=str,
-        default=None,
-        help="Optional NeMo cache directory for Parakeet downloads.",
-    )
-    asr.add_argument(
-        "--parakeet_inference_batch_size",
-        type=int,
-        default=16,
-        help="Batch size passed to Parakeet ASRModel.transcribe().",
-    )
+    asr = ap.add_argument_group("QwenASR hallucination recovery")
+    asr.add_argument("--asr_model_id", type=str, default=None,
+                     help="QwenASR model ID or local path. If set, enables hallucination recovery.")
     asr.add_argument("--asr_batch_size", type=int, default=128)
     asr.add_argument("--asr_gpu_memory_utilization", type=float, default=0.95)
     asr.add_argument("--asr_max_new_tokens", type=int, default=4096)
-    asr.add_argument(
-        "--asr_all_resident_models",
-        action="store_true",
-        default=False,
-        help=(
-            "Legacy mode: keep every enabled ASR backend (Qwen, Indic, Whisper, Parakeet) "
-            "loaded on the GPU for the worker's lifetime. Default is single-resident: only "
-            "the backend needed for the current batch is loaded; others are evicted."
-        ),
-    )
 
     scaling = ap.add_argument_group("multi-node scaling")
     scaling.add_argument("--omni_num_workers", type=int, default=None,
                          help="Fixed actor count for QwenOmni stage. Default: autoscaler decides.")
     scaling.add_argument("--asr_num_workers", type=int, default=None,
-                         help="Fixed actor count for ASR recovery (QwenASR or language-routed).")
+                         help="Fixed actor count for QwenASR stage.")
     scaling.add_argument("--pnc_num_workers", type=int, default=None,
                          help="Fixed actor count for PnC stage.")
     scaling.add_argument("--itn_num_workers", type=int, default=None,
@@ -397,9 +288,11 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     stages = [
         UnifiedAudioReader(
             yaml_path=args.data_config,
+            site=args.s3_site,
             corpus_filter=args.corpus,
             output_dir=args.output_dir,
-        )
+            s3_config={"endpoint_url": args.s3_endpoint_url} if args.s3_endpoint_url else None,
+        ).with_({"unified_reader": {"resources": Resources(cpus=4.0)}})
         if args.use_unified_reader else
         NemoTarredAudioReader(
             yaml_path=args.data_config,
@@ -426,7 +319,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 threshold=args.sed_speech_threshold,
                 min_duration_sec=args.sed_min_duration,
                 merge_gap_sec=args.sed_merge_gap,
-                emit_superclasses=args.sed_superclasses,
+                emit_subcategories=args.sed_subcategories,
             ),
         ])
 
@@ -446,7 +339,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         source_lang_key=args.source_lang_key,
         pred_text_key="qwen3_prediction_s1",
         disfluency_text_key="qwen3_prediction_s2",
-        keep_waveform=True,
+        keep_waveform=bool(args.asr_model_id),
         num_workers_override=args.omni_num_workers,
     ))
 
@@ -467,54 +360,32 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         max_char_rate=args.max_char_rate,
     ))
 
-    qwen_asr_id = None if args.no_qwen_asr else args.asr_model_id
-    indic_conformer_id = None if args.no_indic_conformer else args.indic_conformer_model_id
-    whisper_model = None if args.no_whisper else args.whisper_model_size_or_path
-    parakeet_id = None if args.no_parakeet else args.parakeet_model_id
-    if not (qwen_asr_id or indic_conformer_id or whisper_model or parakeet_id):
-        msg = (
-            "All four ASR backends are disabled (--no_qwen_asr, --no_indic_conformer, "
-            "--no_whisper, --no_parakeet). Enable at least one or remove the "
-            "InferenceLanguageRoutedAsrStage."
-        )
-        raise SystemExit(msg)
-
-    stages.extend([
-        InferenceLanguageRoutedAsrStage(
-            qwen_model_id=qwen_asr_id,
-            indic_model_id=indic_conformer_id,
-            indic_decode_mode=args.indic_conformer_decode,
-            whisper_model_size_or_path=whisper_model,
-            whisper_device=args.whisper_device,
-            whisper_compute_type=args.whisper_compute_type,
-            whisper_download_root=args.whisper_download_root,
-            parakeet_model_id=parakeet_id,
-            parakeet_cache_dir=args.parakeet_cache_dir,
-            parakeet_inference_batch_size=args.parakeet_inference_batch_size,
-            source_lang_key=args.source_lang_key,
-            batch_size=args.asr_batch_size,
-            gpu_memory_utilization=args.asr_gpu_memory_utilization,
-            max_new_tokens=args.asr_max_new_tokens,
-            max_inference_batch_size=args.asr_batch_size,
-            num_workers_override=args.asr_num_workers,
-            single_resident_models=not args.asr_all_resident_models,
-        ),
-        WhisperHallucinationStage(
-            name="WhisperHallucination_asr",
-            common_hall_file=args.hall_phrases,
-            text_key="asr_prediction",
-            overwrite=True,
-            recovery_value="Recovered:ASR",
-            unique_words_threshold=args.unique_words_threshold,
-            long_word_threshold=args.long_word_threshold,
-            long_word_rel_threshold=args.long_word_rel_threshold,
-            max_char_rate=args.max_char_rate,
-        ),
-    ])
+    if args.asr_model_id:
+        stages.extend([
+            InferenceQwenASRStage(
+                model_id=args.asr_model_id,
+                source_lang_key=args.source_lang_key,
+                batch_size=args.asr_batch_size,
+                gpu_memory_utilization=args.asr_gpu_memory_utilization,
+                max_new_tokens=args.asr_max_new_tokens,
+                num_workers_override=args.asr_num_workers,
+            ),
+            WhisperHallucinationStage(
+                name="WhisperHallucination_asr",
+                common_hall_file=args.hall_phrases,
+                text_key="qwen3_asr_prediction",
+                overwrite=True,
+                recovery_value="Recovered:QwenASR",
+                unique_words_threshold=args.unique_words_threshold,
+                long_word_threshold=args.long_word_threshold,
+                long_word_rel_threshold=args.long_word_rel_threshold,
+                max_char_rate=args.max_char_rate,
+            ),
+        ])
 
     stages.append(SelectBestPredictionStage(
         primary_text_key=omni_text_key,
-        asr_text_key="asr_prediction",
+        asr_text_key="qwen3_asr_prediction",
     ))
 
     stages.extend([
