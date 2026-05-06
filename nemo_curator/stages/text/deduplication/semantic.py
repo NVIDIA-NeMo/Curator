@@ -195,7 +195,7 @@ class TextSemanticDeduplicationWorkflow:
     def _validate_config(self) -> None:
         """Validate workflow configuration."""
         if self.kmeans_fit_data_fraction is not None and not 0.0 < self.kmeans_fit_data_fraction < 1.0:
-            msg = f"kmeans_fit_data_fraction must be in (0, 1), got {kmeans_fit_data_fraction}; pass None to fit on the full dataset"
+            msg = f"kmeans_fit_data_fraction must be in (0, 1), got {self.kmeans_fit_data_fraction}; pass None to fit on the full dataset"
             raise ValueError(msg)
 
         if self.perform_removal and self.eps is None:

@@ -212,7 +212,7 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
 
         # Validate fit_data_fraction
         if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction < 1.0:
-            msg = f"fit_data_fraction must be in (0, 1), got {fit_data_fraction}; pass None to fit on the full dataset"
+            msg = f"fit_data_fraction must be in (0, 1), got {self.fit_data_fraction}; pass None to fit on the full dataset"
             raise ValueError(msg)
 
         # Validate distance_metric
