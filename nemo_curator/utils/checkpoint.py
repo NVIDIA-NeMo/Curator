@@ -35,6 +35,10 @@ def _key_hash(resumability_key: str) -> bytes:
     return hashlib.sha256(resumability_key.encode()).hexdigest()[:16].encode()
 
 
+def _resumability_uuid(resumability_key: str, position: int) -> str:
+    return hashlib.sha256(f"{resumability_key}::{position}".encode()).hexdigest()[:16]
+
+
 class CheckpointManager:
     """Manages checkpoint state in a local LMDB database.
 

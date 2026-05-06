@@ -17,7 +17,6 @@
 These stages are never instantiated by users directly.
 """
 
-import hashlib
 from typing import TYPE_CHECKING
 
 import ray
@@ -26,13 +25,10 @@ from loguru import logger
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task
+from nemo_curator.utils.checkpoint import _resumability_uuid
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
-
-
-def _resumability_uuid(resumability_key: str, position: int) -> str:
-    return hashlib.sha256(f"{resumability_key}::{position}".encode()).hexdigest()[:16]
 
 
 class _CheckpointFilterStage(ProcessingStage[Task, Task]):

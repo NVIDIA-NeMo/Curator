@@ -98,8 +98,10 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
         Returns:
             List of processed tasks or None
         """
-        # Use the base stage's monitoring capability
-        return self.process_batch(tasks)
+        results = self.process_batch(tasks)
+        self._propagate_resumability_metadata(tasks, results)
+        self._record_checkpoint_events(tasks, results)
+        return results
 
     def setup_on_node(self, node_info: XennaNodeInfo, worker_metadata: XennaWorkerMetadata) -> None:
         """Setup the stage on a node - Xenna-specific signature.

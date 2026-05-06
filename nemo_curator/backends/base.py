@@ -61,6 +61,7 @@ class BaseStageAdapter:
 
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
+        self._checkpoint_actor = None
 
     def process_batch(self, tasks: list[Task]) -> list[Task]:
         """Process a batch of tasks.
@@ -113,6 +114,56 @@ class BaseStageAdapter:
             worker_metadata (WorkerMetadata, optional): Information about the worker
         """
         self.stage.setup(worker_metadata)
+        checkpoint_path = getattr(self.stage, "_checkpoint_path", None)
+        if checkpoint_path:
+            from nemo_curator.utils.checkpoint import get_or_create_checkpoint_actor  # noqa: PLC0415
+
+            self._checkpoint_actor = get_or_create_checkpoint_actor(checkpoint_path)
+
+    def _propagate_resumability_metadata(self, input_tasks: list[Task], output_tasks: list[Task]) -> None:
+        """Copy resumability_key from inputs to outputs that lack it."""
+        if not input_tasks:
+            return
+        source_key = input_tasks[0]._metadata.get("resumability_key", "")
+        if not source_key:
+            return
+        for task in output_tasks:
+            if "resumability_key" not in task._metadata:
+                task._metadata["resumability_key"] = source_key
+
+    def _record_checkpoint_events(self, input_tasks: list[Task], output_tasks: list[Task]) -> None:
+        """Detect fan-out and full-drop events; update checkpoint state accordingly."""
+        if self._checkpoint_actor is None:
+            return
+        if not input_tasks:
+            return
+
+        is_fanout = len(output_tasks) > len(input_tasks) and len(input_tasks) == 1
+        is_full_drop = len(output_tasks) == 0
+
+        if is_fanout:
+            from nemo_curator.utils.checkpoint import _resumability_uuid  # noqa: PLC0415
+
+            import ray  # noqa: PLC0415
+
+            parent = input_tasks[0]
+            key = parent._metadata.get("resumability_key", "")
+            if not key:
+                return
+            n = len(output_tasks)
+            for i, task in enumerate(output_tasks):
+                task._metadata["_resumability_uuid"] = _resumability_uuid(key, i + 1)
+            # Commit increment synchronously so the recorder can't satisfy the check early.
+            ray.get(self._checkpoint_actor.add_expected.remote(key, n - 1))
+
+        elif is_full_drop:
+            import ray  # noqa: PLC0415
+
+            for task in input_tasks:
+                key = task._metadata.get("resumability_key", "")
+                uuid = task._metadata.get("_resumability_uuid", "")
+                if key and uuid:
+                    ray.get(self._checkpoint_actor.mark_completed.remote(uuid, key))
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""

@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import copy
-import hashlib
 from collections.abc import Callable
 from typing import Any
 
@@ -29,10 +28,6 @@ from nemo_curator.tasks import Task
 from .utils import calculate_concurrency_for_actors_for_stage, is_actor_stage
 
 
-def _resumability_uuid(resumability_key: str, position: int) -> str:
-    return hashlib.sha256(f"{resumability_key}::{position}".encode()).hexdigest()[:16]
-
-
 class RayDataStageAdapter(BaseStageAdapter):
     """Adapts ProcessingStage to Ray Data operations.
 
@@ -46,8 +41,6 @@ class RayDataStageAdapter(BaseStageAdapter):
 
     def __init__(self, stage: ProcessingStage):
         super().__init__(stage)
-        self._checkpoint_actor = None
-
         self._batch_size = self.stage.batch_size
         if self._batch_size is None and self.stage.resources.gpus > 0:
             logger.warning(f"When using Ray Data, batch size is not set for GPU stage {self.stage}. Setting it to 1.")
@@ -63,55 +56,6 @@ class RayDataStageAdapter(BaseStageAdapter):
     def batch_size(self) -> int | None:
         """Get the batch size for this stage."""
         return self._batch_size
-
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
-        super().setup(worker_metadata)
-        checkpoint_path = getattr(self.stage, "_checkpoint_path", None)
-        if checkpoint_path:
-            from nemo_curator.utils.checkpoint import get_or_create_checkpoint_actor
-
-            self._checkpoint_actor = get_or_create_checkpoint_actor(checkpoint_path)
-
-    def _propagate_resumability_metadata(self, input_tasks: list[Task], output_tasks: list[Task]) -> None:
-        """Copy resumability_key from inputs to outputs that lack it."""
-        if not input_tasks:
-            return
-        source_key = input_tasks[0]._metadata.get("resumability_key", "")
-        if not source_key:
-            return
-        for task in output_tasks:
-            if "resumability_key" not in task._metadata:
-                task._metadata["resumability_key"] = source_key
-
-    def _record_checkpoint_events(self, input_tasks: list[Task], output_tasks: list[Task]) -> None:
-        """Detect fan-out and full-drop events; update checkpoint state accordingly."""
-        if self._checkpoint_actor is None:
-            return
-        if not input_tasks:
-            return
-
-        is_fanout = len(output_tasks) > len(input_tasks) and len(input_tasks) == 1
-        is_full_drop = len(output_tasks) == 0
-
-        if is_fanout:
-            parent = input_tasks[0]
-            key = parent._metadata.get("resumability_key", "")
-            if not key:
-                return
-            n = len(output_tasks)
-            # Assign stable, deterministic resumability UUIDs to each fan-out output.
-            for i, task in enumerate(output_tasks):
-                task._metadata["_resumability_uuid"] = _resumability_uuid(key, i + 1)
-            # Synchronously commit the expected increment BEFORE returning output tasks
-            # so the recorder can't satisfy the completion check prematurely.
-            ray.get(self._checkpoint_actor.add_expected.remote(key, n - 1))
-
-        elif is_full_drop:
-            for task in input_tasks:
-                key = task._metadata.get("resumability_key", "")
-                uuid = task._metadata.get("_resumability_uuid", "")
-                if key and uuid:
-                    ray.get(self._checkpoint_actor.mark_completed.remote(uuid, key))
 
     def _process_batch_internal(self, batch: dict[str, Any]) -> dict[str, Any]:
         """Internal method that handles the actual batch processing logic.
