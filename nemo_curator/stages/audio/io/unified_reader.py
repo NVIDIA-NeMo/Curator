@@ -76,18 +76,41 @@ def _read_text(path: str, s3_config: dict[str, Any] | None = None) -> str:
         return f.read()
 
 
-def _manifest_to_shard_key(manifest_path: str, corpus: str) -> str:
-    """Derive a shard key from a manifest path relative to the corpus name."""
-    parts = manifest_path.replace("\\", "/").split("/")
-    parts_lower = [p.lower() for p in parts]
-    corpus_lower = corpus.lower()
-    matches = [i for i, p in enumerate(parts_lower) if p == corpus_lower]
-    rel = "/".join(parts[matches[0]:]) if matches else os.path.basename(manifest_path)
+def _manifest_to_shard_key(manifest_path: str, corpus: str, language: str = "", shard_type: str = "") -> str:
+    """Derive a unique shard key from a manifest path.
+
+    For tarred (Granary) data the key is extracted from the filesystem
+    path starting at the corpus directory — this matches the existing
+    ``NemoTarredAudioReader`` convention and requires the YAML ``corpus``
+    field to match a directory component (case-insensitive).
+
+    For non-tarred (corpusview / S3) data the corpus name typically does
+    not appear in the path, so the key is constructed as
+    ``{corpus}/{language}/{manifest_stem}`` instead.
+    """
+    if shard_type == "nemo_tarred":
+        parts = manifest_path.replace("\\", "/").split("/")
+        parts_lower = [p.lower() for p in parts]
+        corpus_lower = corpus.lower()
+        matches = [i for i, p in enumerate(parts_lower) if p == corpus_lower]
+        if matches:
+            rel = "/".join(parts[matches[0]:])
+            for ext in (".jsonl", ".json", ".jsonl.gz"):
+                if rel.endswith(ext):
+                    rel = rel[: -len(ext)]
+                    break
+            return rel
+
+    basename = manifest_path.replace("\\", "/").rsplit("/", 1)[-1]
     for ext in (".jsonl", ".json", ".jsonl.gz"):
-        if rel.endswith(ext):
-            rel = rel[: -len(ext)]
+        if basename.endswith(ext):
+            basename = basename[: -len(ext)]
             break
-    return rel
+    parts = [corpus]
+    if language:
+        parts.append(language)
+    parts.append(basename)
+    return "/".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -202,13 +225,14 @@ class UnifiedDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
         completed = self._scan_completed_shards()
         if completed:
-            logger.info(f"Checkpoint: {len(completed)} shards already completed")
+            logger.info(f"Checkpoint: {len(completed)} shards already completed, first 10: {sorted(completed)[:10]}")
 
         tasks: list[FileGroupTask] = []
         skipped = 0
         for desc in shard_descs:
             corpus = desc["corpus"]
-            shard_key = _manifest_to_shard_key(desc["manifest_path"], corpus)
+            language = desc.get("language", "")
+            shard_key = _manifest_to_shard_key(desc["manifest_path"], corpus, language, desc["type"])
             if shard_key in completed:
                 skipped += 1
                 continue
@@ -216,6 +240,7 @@ class UnifiedDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 partial = os.path.join(self.output_dir, f"{shard_key}.jsonl")
                 if os.path.exists(partial):
                     os.remove(partial)
+                    logger.info(f"Removed partial output for {shard_key}")
 
             data = [desc["manifest_path"]]
             if "tar_path" in desc:
