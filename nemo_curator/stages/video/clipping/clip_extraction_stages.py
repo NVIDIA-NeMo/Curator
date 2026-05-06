@@ -14,6 +14,7 @@
 
 import copy
 import pathlib
+import shutil
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -29,17 +30,29 @@ from nemo_curator.tasks.video import Clip, Video, VideoTask
 from nemo_curator.utils import grouping
 from nemo_curator.utils.operation_utils import make_pipeline_temporary_dir
 
-SUPPORTED_ENCODERS = ("h264_nvenc", "libvpx-vp9")
+SUPPORTED_ENCODERS = ("h264_nvenc", "libvpx-vp9", "libopenh264")
+
+_BYO_H264_DOCS_URL = (
+    "https://github.com/NVIDIA-NeMo/Curator/blob/main/docs/admin/installation.md"
+    "#bring-your-own-h264-software-encoder-advanced"
+)
 
 
 @dataclass
 class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that transcodes video clips into a standardized format.
 
-    This stage handles the conversion of video clips using FFmpeg. Supports
-    hardware H.264 encoding via NVENC (`h264_nvenc`) on NVENC-equipped GPUs and
-    royalty-free CPU-side VP9 encoding via `libvpx-vp9` as a fallback for
-    GPUs without NVENC silicon (e.g. A100/H100).
+    This stage handles the conversion of video clips using FFmpeg. Supported
+    encoders:
+
+    - ``h264_nvenc`` — hardware H.264 via NVENC (recommended; requires an
+      NVENC-equipped NVIDIA GPU — note that A100/H100 do not include NVENC).
+    - ``libvpx-vp9`` — royalty-free VP9 software encoder (CPU fallback for
+      non-NVENC GPUs). Significantly slower; emits a perf advisory.
+    - ``libopenh264`` — H.264 software encoder. Not bundled with Curator's
+      FFmpeg build for licensing reasons; users must install it themselves.
+      The stage probes for it at setup time and raises a clear error pointing
+      to the docs if it is not available.
 
     Args:
         num_cpus_per_worker: Number of CPUs per worker.
@@ -79,6 +92,38 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         if self.encoder == "libvpx-vp9" and self.use_hwaccel:
             error_msg = "use_hwaccel is not supported with libvpx-vp9 (CPU encoder)"
             raise ValueError(error_msg)
+        if self.encoder == "libopenh264":
+            self._verify_libopenh264_available()
+
+    @staticmethod
+    def _verify_libopenh264_available() -> None:
+        """Probe the local FFmpeg build for libopenh264 support."""
+        ffmpeg_bin = shutil.which("ffmpeg")
+        if ffmpeg_bin is None:
+            error_msg = (
+                "Could not find `ffmpeg` on PATH while verifying libopenh264 support. "
+                f"Install FFmpeg and ensure it is on PATH. See {_BYO_H264_DOCS_URL}"
+            )
+            raise RuntimeError(error_msg)
+        try:
+            result = subprocess.run(  # noqa: S603
+                [ffmpeg_bin, "-hide_banner", "-encoders"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired as e:
+            error_msg = f"`ffmpeg -encoders` timed out while verifying libopenh264 support. See {_BYO_H264_DOCS_URL}"
+            raise RuntimeError(error_msg) from e
+        if "libopenh264" not in result.stdout:
+            error_msg = (
+                "encoder='libopenh264' was requested but the local FFmpeg build "
+                "does not include it. Curator does not ship libopenh264 due to "
+                "its patent-license redistribution model. To enable it, install "
+                f"a libopenh264-enabled FFmpeg yourself — see {_BYO_H264_DOCS_URL}"
+            )
+            raise RuntimeError(error_msg)
 
     def __post_init__(self) -> None:
         """Post-initialization method called after all fields are set."""
@@ -90,6 +135,14 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                 self.resources = Resources(gpus=1)
         else:
             self.resources = Resources(cpus=self.num_cpus_per_worker)
+
+        if self.encoder == "libvpx-vp9":
+            logger.warning(
+                "ClipTranscodingStage: libvpx-vp9 is significantly slower than "
+                "h264_nvenc and libopenh264. If your GPU has NVENC, prefer "
+                "encoder='h264_nvenc'. To use libopenh264 instead, see "
+                f"{_BYO_H264_DOCS_URL}"
+            )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["source_bytes"]

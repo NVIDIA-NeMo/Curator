@@ -198,18 +198,18 @@ Edit [`docker/common/install_ffmpeg.sh`](https://github.com/NVIDIA-NeMo/Curator/
 
 Then rebuild your image.
 
-#### Allow the encoder in `ClipTranscodingStage`
+#### Use the encoder in `ClipTranscodingStage`
 
-The stage validator only accepts the encoders Curator ships with by default. To allow a custom encoder, edit `nemo_curator/stages/video/clipping/clip_extraction_stages.py`:
-
-```python
-SUPPORTED_ENCODERS = ("h264_nvenc", "libvpx-vp9", "libopenh264")  # add yours
-```
-
-If you use `tutorials/video/getting-started/video_split_clip_example.py`, also extend its argparse `choices` list, or invoke `ClipTranscodingStage` directly from your own Python script.
+`libopenh264` is accepted by `ClipTranscodingStage` out of the box. At setup time, the stage probes the local FFmpeg build and raises a clear error pointing back to this section if the encoder is not actually compiled in. Once your FFmpeg build includes it, just pass:
 
 ```bash
 python video_split_clip_example.py ... --transcode-encoder libopenh264
+```
+
+For other custom encoders not in `SUPPORTED_ENCODERS` (for example, `libx264`), edit `nemo_curator/stages/video/clipping/clip_extraction_stages.py` to extend the tuple, and add the encoder name to the `--transcode-encoder` argparse `choices` list in `tutorials/video/getting-started/video_split_clip_example.py`:
+
+```python
+SUPPORTED_ENCODERS = ("h264_nvenc", "libvpx-vp9", "libopenh264", "libx264")  # add yours
 ```
 
 #### Caveats

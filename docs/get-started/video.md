@@ -266,7 +266,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | **Embedding** |
 | `--embedding-algorithm` | `cosmos-embed1-224p`, `cosmos-embed1-336p`, `cosmos-embed1-448p` | Embedding model to use |
 | **Encoding** |
-| `--transcode-encoder` | `h264_nvenc`, `libvpx-vp9` | Video encoder for output clips. Use `libvpx-vp9` (CPU) on GPUs without NVENC such as A100/H100. |
+| `--transcode-encoder` | `h264_nvenc`, `libvpx-vp9`, `libopenh264` | Video encoder for output clips. Use `libvpx-vp9` (CPU) on GPUs without NVENC such as A100/H100. `libopenh264` is accepted but requires a user-installed FFmpeg build — see [BYO H.264](../admin/installation.md#bring-your-own-h264-software-encoder-advanced). |
 | `--transcode-use-hwaccel` | Flag | Enable hardware acceleration for encoding (only valid with `h264_nvenc`). |
 | **Optional Features** |
 | `--generate-captions` | Flag | Generate text captions for each clip |

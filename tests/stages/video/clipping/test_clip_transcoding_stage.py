@@ -114,6 +114,55 @@ class TestClipTranscodingStage:
         with pytest.raises(ValueError, match="use_hwaccel is not supported with libvpx-vp9"):
             stage.setup()
 
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.subprocess.run")
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.shutil.which")
+    def test_setup_libopenh264_available_passes(self, mock_which: MagicMock, mock_run: MagicMock) -> None:
+        """libopenh264 is accepted when the local FFmpeg build advertises it."""
+        mock_which.return_value = "/usr/local/bin/ffmpeg"
+        mock_run.return_value = MagicMock(stdout="V..... libopenh264 OpenH264 H.264", returncode=0)
+        stage = ClipTranscodingStage(encoder="libopenh264")
+        stage.setup()  # should not raise
+        mock_run.assert_called_once()
+        # Verify the probe used `ffmpeg -hide_banner -encoders` with the resolved path
+        cmd = mock_run.call_args.args[0]
+        assert cmd[0] == "/usr/local/bin/ffmpeg"
+        assert "-encoders" in cmd
+
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.subprocess.run")
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.shutil.which")
+    def test_setup_libopenh264_unavailable_raises(self, mock_which: MagicMock, mock_run: MagicMock) -> None:
+        """libopenh264 raises a clear error when the local FFmpeg build lacks it."""
+        mock_which.return_value = "/usr/local/bin/ffmpeg"
+        mock_run.return_value = MagicMock(stdout="V..... h264_nvenc NVIDIA NVENC", returncode=0)
+        stage = ClipTranscodingStage(encoder="libopenh264")
+        with pytest.raises(RuntimeError, match=r"libopenh264.*does not include it"):
+            stage.setup()
+
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.shutil.which")
+    def test_setup_libopenh264_ffmpeg_missing_raises(self, mock_which: MagicMock) -> None:
+        """A missing FFmpeg binary surfaces as a RuntimeError pointing to the docs."""
+        mock_which.return_value = None
+        stage = ClipTranscodingStage(encoder="libopenh264")
+        with pytest.raises(RuntimeError, match=r"Could not find `ffmpeg` on PATH"):
+            stage.setup()
+
+    def test_post_init_libvpx_vp9_emits_perf_warning(self) -> None:
+        """Constructing a libvpx-vp9 stage logs the perf advisory."""
+        import nemo_curator.stages.video.clipping.clip_extraction_stages as ces
+
+        with patch.object(ces, "logger") as mock_logger:
+            ClipTranscodingStage(encoder="libvpx-vp9")
+            mock_logger.warning.assert_called_once()
+            assert "libvpx-vp9 is significantly slower" in mock_logger.warning.call_args[0][0]
+
+    def test_post_init_h264_nvenc_no_perf_warning(self) -> None:
+        """h264_nvenc construction does not trigger the VP9 perf advisory."""
+        import nemo_curator.stages.video.clipping.clip_extraction_stages as ces
+
+        with patch.object(ces, "logger") as mock_logger:
+            ClipTranscodingStage(encoder="h264_nvenc")
+            assert not any("libvpx-vp9 is significantly slower" in str(c) for c in mock_logger.warning.call_args_list)
+
     def test_ray_stage_spec(self) -> None:
         """Test that ray_stage_spec returns the correct values."""
         spec = self.stage.ray_stage_spec()
