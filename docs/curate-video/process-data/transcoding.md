@@ -70,10 +70,17 @@ python -m ray_curator.examples.video.video_split_clip_example \
 * - `h264_nvenc`
   - NVIDIA GPU (NVENC)
   - Uses NVENC for high-throughput H.264 encoding on NVIDIA GPU hardware.
+* - `libvpx-vp9`
+  - CPU
+  - VP9 software encoder. Use as a fallback on GPUs without NVENC silicon (e.g. A100/H100). Slower than NVENC; produces VP9 in `.mp4`.
 ```
 
 ```{tip}
-On systems with supported NVIDIA GPU hardware and an `ffmpeg` build with NVENC, `h264_nvenc` can significantly increase throughput. Refer to the verification steps below to confirm NVENC availability.
+On systems with supported NVIDIA GPU hardware and an `ffmpeg` build with NVENC, `h264_nvenc` can significantly increase throughput. Refer to the verification steps below to confirm NVENC availability. On GPUs without an NVENC encoder block (such as A100 and H100), use `libvpx-vp9` instead — it runs entirely on CPU and has no proprietary licensing constraints.
+```
+
+```{note}
+**Need software H.264 (libopenh264 / libx264)?** Curator's default FFmpeg build excludes them for licensing reasons. See [Bring-Your-Own H.264 Software Encoder](../../admin/installation.md#bring-your-own-h264-software-encoder-advanced) for how to enable them yourself.
 ```
 
 ### Verify `ffmpeg`/NVENC Support
@@ -115,9 +122,9 @@ transcode = ClipTranscodingStage(
 * - Parameter
   - Description
 * - `encoder`
-  - Selects the encoding backend. Currently only `h264_nvenc` (GPU) is supported.
+  - Selects the encoding backend. Supported values are `h264_nvenc` (GPU, requires NVENC) and `libvpx-vp9` (CPU fallback for non-NVENC GPUs such as A100/H100).
 * - `use_hwaccel`
-  - Enable when using GPU encoders like `h264_nvenc`.
+  - Enable when using `h264_nvenc`. Not valid with `libvpx-vp9`.
 * - `encoder_threads`
   - CPU threads per worker for CPU encoders. Increase to use more CPU.
 * - `encode_batch_size`

@@ -53,7 +53,7 @@ python video_split_clip_example.py \
   --transcode-encoder h264_nvenc \
   --verbose
 ```
-This example demonstrates a more advanced workflow than the minimal example by using scene-aware splitting with the TransNetV2 algorithm (which detects scene boundaries instead of fixed intervals), applies the Cosmos-Embed1 embedding model to each clip, transcodes the output using the `h264_nvenc` encoder, and enables verbose logging for more detailed output.
+This example demonstrates a more advanced workflow than the minimal example by using scene-aware splitting with the TransNetV2 algorithm (which detects scene boundaries instead of fixed intervals), applies the Cosmos-Embed1 embedding model to each clip, transcodes the output using the `h264_nvenc` encoder, and enables verbose logging for more detailed output. On GPUs without NVENC (such as A100/H100), pass `--transcode-encoder libvpx-vp9` instead — VP9 is a royalty-free CPU encoder that produces clips in the same `.mp4` container.
 
 **Full pipeline with captions and filtering**:
 ```bash

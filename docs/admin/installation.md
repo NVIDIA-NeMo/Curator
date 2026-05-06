@@ -138,7 +138,7 @@ docker run --gpus all -it --rm nemo-curator:latest
 
 ### Install FFmpeg and Encoders (Required for Video)
 
-Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (using `--transcode-encoder h264_nvenc`), install `FFmpeg` with NVENC support.
+Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (using `--transcode-encoder h264_nvenc` or `--transcode-encoder libvpx-vp9`), install `FFmpeg` with NVENC and libvpx-vp9 support. The maintained install script bundles both.
 
 ::::{tab-set}
 
@@ -158,11 +158,11 @@ sudo bash install_ffmpeg.sh
 
 :::{tab-item} Verify Installation
 
-Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is available:
+Confirm that `FFmpeg` is on your `PATH` and that at least one supported encoder is available:
 
 ```bash
 ffmpeg -hide_banner -version | head -n 5
-ffmpeg -encoders | grep h264_nvenc | cat
+ffmpeg -encoders | grep -E "h264_nvenc|libvpx-vp9" | cat
 ```
 
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
@@ -173,6 +173,55 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 ```{note}
 **FFmpeg build requires CUDA toolkit (nvcc):** If you encounter `ERROR: failed checking for nvcc` during FFmpeg installation, ensure that the CUDA toolkit is installed and `nvcc` is available on your `PATH`. You can verify with `nvcc --version`. If using the NeMo Curator container, FFmpeg is pre-installed with NVENC support.
 ```
+
+### Bring-Your-Own H.264 Software Encoder (Advanced)
+
+Curator's default FFmpeg build deliberately excludes software H.264 encoders (`libopenh264`, `libx264`, `libx265`) due to licensing constraints:
+
+- **`libx264` / `libx265`** are GPL-licensed. Linking them would require Curator's binary distribution to also be GPL.
+- **`libopenh264`** uses a BSD source license, but its production use depends on a Cisco-distributed patent-licensed binary, which is not compatible with all redistribution scenarios.
+
+If your environment permits these encoders and you want H.264 software encoding (for example, on GPUs without an NVENC encoder block such as A100 or H100), you can install them yourself.
+
+#### Option 1: Use the system FFmpeg
+
+Most Linux distributions ship FFmpeg with `libx264` (and sometimes `libopenh264`) preinstalled:
+
+```bash
+sudo apt-get install -y ffmpeg
+ffmpeg -hide_banner -encoders | grep -E "libx264|libopenh264"
+```
+
+Make sure the `ffmpeg` on your `PATH` is the one you want — it must shadow Curator's bundled build.
+
+#### Option 2: Add encoders to Curator's FFmpeg build
+
+Edit [`docker/common/install_ffmpeg.sh`](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh) before rebuilding the container:
+
+- For `libopenh264`: add `libopenh264-dev` to the apt list and `--enable-libopenh264` to the configure flags.
+- For `libx264`: add `libx264-dev` to the apt list and `--enable-libx264 --enable-gpl` to the configure flags. Note that `--enable-gpl` makes the resulting FFmpeg binary GPL-licensed.
+
+Then rebuild your image.
+
+#### Allow the encoder in `ClipTranscodingStage`
+
+The stage validator only accepts the encoders Curator ships with by default. To allow a custom encoder, edit `nemo_curator/stages/video/clipping/clip_extraction_stages.py`:
+
+```python
+SUPPORTED_ENCODERS = ("h264_nvenc", "libvpx-vp9", "libopenh264")  # add yours
+```
+
+If you use `tutorials/video/getting-started/video_split_clip_example.py`, also extend its argparse `choices` list, or invoke `ClipTranscodingStage` directly from your own Python script.
+
+```bash
+python video_split_clip_example.py ... --transcode-encoder libopenh264
+```
+
+#### Caveats
+
+- **Licensing is your responsibility.** Adding `libx264` (`--enable-gpl`) or `libopenh264` to your FFmpeg build may obligate you to additional license terms when you redistribute Curator.
+- **Default options for these encoders are not tuned.** `ClipTranscodingStage` only sets quality presets for `h264_nvenc` and `libvpx-vp9`. Other encoders run with FFmpeg defaults, which may produce different quality/size trade-offs than you expect — see [Configure encoders](../curate-video/process-data/transcoding.md#configure) for how to pass an explicit bitrate.
+- **NVIDIA does not test custom encoder configurations.** Issues filed against custom encoder builds may be closed.
 
 ---
 
@@ -249,7 +298,7 @@ try:
         print(f"✓ GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     else:
         print("⚠ No GPU detected")
-    
+
     # Check cuDF for GPU deduplication
     import cudf
     print("✓ cuDF available for GPU-accelerated deduplication")

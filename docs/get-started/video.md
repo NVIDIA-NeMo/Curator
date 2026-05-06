@@ -58,8 +58,9 @@ To use NeMo Curator's video curation capabilities, ensure your system meets thes
   - Reduced configuration (lower batch sizes, FP8): ~21GB VRAM
 
 #### Software Dependencies
-* **FFmpeg 8.0+** with H.264 encoding support
-  - GPU encoder: `h264_nvenc` (recommended for performance)
+* **FFmpeg 8.0+** with one of the following encoders:
+  - GPU encoder: `h264_nvenc` (recommended for performance; requires an NVENC-equipped GPU — note that A100 and H100 do **not** include NVENC)
+  - CPU encoder: `libvpx-vp9` (royalty-free fallback for non-NVENC GPUs; produces VP9 in `.mp4`)
 
 :::{tip}
 If `uv` is not installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
@@ -121,7 +122,7 @@ For details on container environments and configurations, see [Container Environ
 
 ## Install FFmpeg and Encoders
 
-Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (using `--transcode-encoder h264_nvenc`), install `FFmpeg` with NVENC support.
+Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (using `--transcode-encoder h264_nvenc` or `--transcode-encoder libvpx-vp9`), install `FFmpeg` with NVENC and libvpx-vp9 support. The maintained install script bundles both.
 
 ::::{tab-set}
 
@@ -145,7 +146,7 @@ Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is a
 
 ```bash
 ffmpeg -hide_banner -version | head -n 5
-ffmpeg -encoders | grep h264_nvenc | cat
+ffmpeg -encoders | grep -E "h264_nvenc|libvpx-vp9" | cat
 ```
 
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
@@ -250,7 +251,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
     --fixed-stride-split-duration 10.0
     --embedding-algorithm cosmos-embed1-224p
     --transcode-encoder h264_nvenc' > my_config.txt
-    
+
     python tutorials/video/getting-started/video_split_clip_example.py @my_config.txt
 ```
 
@@ -265,8 +266,8 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | **Embedding** |
 | `--embedding-algorithm` | `cosmos-embed1-224p`, `cosmos-embed1-336p`, `cosmos-embed1-448p` | Embedding model to use |
 | **Encoding** |
-| `--transcode-encoder` | `h264_nvenc` | Video encoder for output clips |
-| `--transcode-use-hwaccel` | Flag | Enable hardware acceleration for encoding |
+| `--transcode-encoder` | `h264_nvenc`, `libvpx-vp9` | Video encoder for output clips. Use `libvpx-vp9` (CPU) on GPUs without NVENC such as A100/H100. |
+| `--transcode-use-hwaccel` | Flag | Enable hardware acceleration for encoding (only valid with `h264_nvenc`). |
 | **Optional Features** |
 | `--generate-captions` | Flag | Generate text captions for each clip |
 | `--generate-previews` | Flag | Create preview images for each clip |

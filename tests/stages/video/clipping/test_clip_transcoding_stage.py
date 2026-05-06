@@ -98,7 +98,20 @@ class TestClipTranscodingStage:
         """Test setup with invalid encoder raises ValueError."""
         stage = ClipTranscodingStage(encoder="invalid_encoder")
 
-        with pytest.raises(ValueError, match="Expected encoder of"):
+        with pytest.raises(ValueError, match="Expected encoder in"):
+            stage.setup()
+
+    def test_setup_libvpx_vp9_valid(self) -> None:
+        """Test setup accepts libvpx-vp9 as a valid encoder."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9", use_hwaccel=False)
+        # Should not raise
+        stage.setup()
+
+    def test_setup_libvpx_vp9_with_hwaccel_raises(self) -> None:
+        """Test setup rejects libvpx-vp9 combined with use_hwaccel=True."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9", use_hwaccel=True)
+
+        with pytest.raises(ValueError, match="use_hwaccel is not supported with libvpx-vp9"):
             stage.setup()
 
     def test_ray_stage_spec(self) -> None:
@@ -291,6 +304,22 @@ class TestClipTranscodingStage:
         stage_multi = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=4)
         assert stage_multi.resources.gpus == 0.25
 
+    def test_resources_libvpx_vp9_uses_cpu(self) -> None:
+        """Test that libvpx-vp9 allocates CPU resources, not GPU."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9", use_hwaccel=False, num_cpus_per_worker=8.0)
+        assert stage.resources.cpus == 8.0
+        assert stage.resources.gpus == 0
+
+    def test_add_hwaccel_options_libvpx_vp9_ignored(self) -> None:
+        """Test that hwaccel options are not added for libvpx-vp9 even if requested."""
+        command: list[str] = []
+        # Bypass setup-time validation by constructing without use_hwaccel,
+        # then assert the command builder is also defensive.
+        stage = ClipTranscodingStage(encoder="libvpx-vp9", use_hwaccel=False)
+        stage.use_hwaccel = True  # simulate misconfiguration
+        stage._add_hwaccel_options(command)
+        assert "-hwaccel" not in command
+
     def test_add_input_options(self) -> None:
         """Test adding input options to FFmpeg command."""
         command = []
@@ -328,6 +357,50 @@ class TestClipTranscodingStage:
         # Should add bit rate options
         assert "-b:v" in command
         assert "5000K" in command
+
+    def test_add_video_encoding_options_libvpx_vp9_crf_mode(self) -> None:
+        """Test that libvpx-vp9 emits CRF-mode options when no bitrate is given."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9")
+        command: list[str] = []
+
+        stage._add_video_encoding_options(command, None, False)
+
+        # CRF mode: -b:v 0 plus -crf
+        assert "-b:v" in command
+        assert "0" in command
+        assert "-crf" in command
+        # VP9 threading/speed knobs
+        assert "-row-mt" in command
+        assert "-tile-columns" in command
+        assert "-deadline" in command
+        assert "-cpu-used" in command
+        # Must not contain NVENC-only flags
+        assert "-rc:v" not in command
+        assert "-cq:v" not in command
+        assert "-tune" not in command
+
+    def test_add_video_encoding_options_libvpx_vp9_with_bitrate(self) -> None:
+        """Test that libvpx-vp9 honors an explicit bitrate (skips CRF mode)."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9")
+        command: list[str] = []
+
+        stage._add_video_encoding_options(command, "5000K", False)
+
+        # Bitrate path: -b:v 5000K, no -crf
+        assert "5000K" in command
+        assert "-crf" not in command
+        # Threading/speed knobs still present
+        assert "-row-mt" in command
+
+    def test_add_video_encoding_options_libvpx_vp9_force_pix_fmt(self) -> None:
+        """Test that libvpx-vp9 forces yuv420p when force_pix_fmt is True."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9")
+        command: list[str] = []
+
+        stage._add_video_encoding_options(command, None, True)
+
+        assert "-pix_fmt" in command
+        assert "yuv420p" in command
 
     def test_add_output_options(self) -> None:
         """Test adding output options to FFmpeg command."""

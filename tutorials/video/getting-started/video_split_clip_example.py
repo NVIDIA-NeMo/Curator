@@ -380,8 +380,12 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         "--transcode-encoder",
         type=str,
         default="h264_nvenc",
-        choices=["h264_nvenc"],
-        help="Codec for transcoding clips; None to skip transcoding.",
+        choices=["h264_nvenc", "libvpx-vp9"],
+        help=(
+            "Codec for transcoding clips. Use `h264_nvenc` on NVENC-equipped GPUs; "
+            "use `libvpx-vp9` (CPU) as a royalty-free fallback on GPUs without NVENC "
+            "such as A100/H100."
+        ),
     )
     parser.add_argument(
         "--transcode-encoder-threads",

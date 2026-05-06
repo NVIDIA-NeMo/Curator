@@ -29,13 +29,17 @@ from nemo_curator.tasks.video import Clip, Video, VideoTask
 from nemo_curator.utils import grouping
 from nemo_curator.utils.operation_utils import make_pipeline_temporary_dir
 
+SUPPORTED_ENCODERS = ("h264_nvenc", "libvpx-vp9")
+
 
 @dataclass
 class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that transcodes video clips into a standardized format.
 
-    This stage handles the conversion of video clips using FFmpeg with hardware
-    (NVENC) encoding and configurable parameters.
+    This stage handles the conversion of video clips using FFmpeg. Supports
+    hardware H.264 encoding via NVENC (`h264_nvenc`) on NVENC-equipped GPUs and
+    royalty-free CPU-side VP9 encoding via `libvpx-vp9` as a fallback for
+    GPUs without NVENC silicon (e.g. A100/H100).
 
     Args:
         num_cpus_per_worker: Number of CPUs per worker.
@@ -43,7 +47,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         encoder_threads: Number of threads per encoder.
         encode_batch_size: Number of clips to encode in parallel.
         nb_streams_per_gpu: Number of streams per GPU.
-        use_hwaccel: Whether to use hardware acceleration.
+        use_hwaccel: Whether to use hardware acceleration. Only valid with `h264_nvenc`.
         use_input_bit_rate: Whether to use input video bit rate.
         num_clips_per_chunk: Number of clips per chunk. If the number of clips is larger than this, the clips will be split into chunks, and created VideoTasks for each chunk.
         verbose: Whether to print verbose logs.
@@ -69,8 +73,11 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
-        if self.encoder != "h264_nvenc":
-            error_msg = f"Expected encoder of `h264_nvenc`. Got {self.encoder}"
+        if self.encoder not in SUPPORTED_ENCODERS:
+            error_msg = f"Expected encoder in {SUPPORTED_ENCODERS}. Got {self.encoder}"
+            raise ValueError(error_msg)
+        if self.encoder == "libvpx-vp9" and self.use_hwaccel:
+            error_msg = "use_hwaccel is not supported with libvpx-vp9 (CPU encoder)"
             raise ValueError(error_msg)
 
     def __post_init__(self) -> None:
@@ -232,11 +239,8 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
     def _add_hwaccel_options(self, command: list[str]) -> None:
         """Add hardware acceleration options to command."""
-        if self.use_hwaccel:
-            if self.encoder == "h264_nvenc":
-                command.extend(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
-            else:
-                command.extend(["-hwaccel", "auto"])
+        if self.use_hwaccel and self.encoder == "h264_nvenc":
+            command.extend(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
 
     def _add_input_options(self, command: list[str], clip: Clip, video_filename: str, index: int) -> None:
         """Add input options to command."""
@@ -263,6 +267,8 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
         if self.encoder == "h264_nvenc":
             self._add_nvenc_options(command, force_pix_fmt)
+        elif self.encoder == "libvpx-vp9":
+            self._add_libvpx_vp9_options(command, use_bit_rate, force_pix_fmt)
 
     def _add_nvenc_options(self, command: list[str], force_pix_fmt: bool) -> None:
         """Add NVENC-specific encoding options."""
@@ -282,6 +288,28 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                 "20",
                 "-spatial-aq",
                 "1",
+            ]
+        )
+
+        if force_pix_fmt:
+            command.extend(["-pix_fmt", "yuv420p"])
+
+    def _add_libvpx_vp9_options(self, command: list[str], use_bit_rate: str | None, force_pix_fmt: bool) -> None:
+        """Add libvpx-vp9 (CPU) encoding options."""
+        # Constant-quality mode when no explicit bitrate is requested.
+        # libvpx-vp9 requires `-b:v 0` to honor `-crf` exactly.
+        if use_bit_rate is None:
+            command.extend(["-b:v", "0", "-crf", "31"])
+        command.extend(
+            [
+                "-deadline",
+                "good",
+                "-cpu-used",
+                "4",
+                "-row-mt",
+                "1",
+                "-tile-columns",
+                "2",
             ]
         )
 
