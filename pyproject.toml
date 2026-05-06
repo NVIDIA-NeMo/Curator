@@ -151,7 +151,7 @@ translation_metrics = [
 
 translation_segmentation = [
     "nemo_curator[translation_common]",
-    "spacy>=3.8,<3.9",
+    "spacy>=3.8",
 ]
 
 translation_aws = [

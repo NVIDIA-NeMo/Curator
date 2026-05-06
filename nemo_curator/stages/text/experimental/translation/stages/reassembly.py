@@ -257,7 +257,9 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         for field_path, texts in reassembled_by_path.items():
             output_payload = self._write_one_field_payload(out_row, field_path, texts)
 
-        if len(reassembled_by_path) == 1 and output_payload is not None:
+        if not reassembled_by_path:
+            out_row[self.output_field] = ""
+        elif len(reassembled_by_path) == 1 and output_payload is not None:
             out_row[self.output_field] = output_payload
         else:
             out_row[self.output_field] = translation_map
