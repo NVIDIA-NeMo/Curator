@@ -453,7 +453,7 @@ class TestKMeansReadFitWriteStage:
         )
 
 
-def _build_inner_stage(
+def _build_inner_stage(  # noqa: PLR0913
     tmp_path: Path,
     *,
     fit_data_fraction: float | None = None,
@@ -576,7 +576,7 @@ class TestFitPassFileSampling:
             ) as mock_break,
             patch.object(stage, "_read_group", return_value=self._embedding_df()),
         ):
-            mock_break.side_effect = lambda files, **kwargs: [list(files)]
+            mock_break.side_effect = lambda files, **_: [list(files)]
             stage._fit_pass(groups)
             (sampled_files,) = mock_break.call_args.args
             assert len(sampled_files) == expected, (
@@ -599,7 +599,7 @@ class TestFitPassFileSampling:
             patch.object(stage, "_read_group", return_value=self._embedding_df(1)),
             patch("nemo_curator.stages.deduplication.semantic.kmeans.logger") as mock_logger,
         ):
-            mock_break.side_effect = lambda files, **kwargs: [list(files)]
+            mock_break.side_effect = lambda files, **_: [list(files)]
             stage._fit_pass(groups)
             (sampled_files,) = mock_break.call_args.args
             assert sampled_files == ["only.parquet"]
@@ -619,7 +619,7 @@ class TestFitPassFileSampling:
             ) as mock_break,
             patch.object(stage, "_read_group", return_value=self._embedding_df()),
         ):
-            mock_break.side_effect = lambda files, **kwargs: [list(files)]
+            mock_break.side_effect = lambda files, **_: [list(files)]
             stage._fit_pass(groups)
             (sampled_files,) = mock_break.call_args.args
             assert len(sampled_files) == 5
@@ -689,7 +689,7 @@ class TestCachePath:
         with (
             patch(
                 "nemo_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups",
-                side_effect=lambda files, **kwargs: [list(files)],
+                side_effect=lambda files, **_: [list(files)],
             ),
             patch.object(stage, "_read_group", return_value=self._embedding_df()),
         ):
@@ -710,7 +710,7 @@ class TestCachePath:
         with (
             patch(
                 "nemo_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups",
-                side_effect=lambda files, **kwargs: [list(files)],
+                side_effect=lambda files, **_: [list(files)],
             ),
             patch.object(stage, "_read_group", return_value=self._embedding_df()),
         ):
@@ -726,7 +726,7 @@ class TestCachePath:
         with (
             patch(
                 "nemo_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups",
-                side_effect=lambda files, **kwargs: [list(files)],
+                side_effect=lambda files, **_: [list(files)],
             ),
             patch.object(stage, "_read_group", return_value=self._embedding_df()),
         ):
@@ -745,7 +745,7 @@ class TestCachePath:
         with (
             patch(
                 "nemo_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups",
-                side_effect=lambda files, **kwargs: [list(files)],
+                side_effect=lambda files, **_: [list(files)],
             ),
             patch.object(stage, "_read_group", return_value=self._embedding_df()),
         ):
