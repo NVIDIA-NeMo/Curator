@@ -290,14 +290,17 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             gc.collect()
 
         t1 = time.perf_counter()
-        self._log_metrics({"kmeans_read_time": t1 - t0, "num_rows": total_rows})
-        logger.debug(f"Pass 1 (sampling) time: {(t1 - t0):.2f} seconds, {total_rows} total rows")
+        pass1_read_time = t1 - t0
+        logger.debug(f"Pass 1 (sampling) time: {pass1_read_time:.2f} seconds, {total_rows} total rows")
 
         # Fit on sampled data cooperatively across all actors
         concatenated_samples = cp.concatenate(sample_embeddings_list, axis=0)
         del sample_embeddings_list
         gc.collect()
-        logger.info(f"Fitting KMeans on {len(concatenated_samples)} sampled rows ({sample_rows_per_group} per group)")
+        logger.info(
+            f"Fitting KMeans on {len(concatenated_samples)} sampled rows "
+            f"(up to {sample_rows_per_group} per group)"
+        )
 
         self.kmeans._fit(concatenated_samples, sample_weight=None, convert_dtype=False, multigpu=True)
         del concatenated_samples
@@ -314,11 +317,14 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
 
         # --- Pass 2: predict and write, one group at a time ---
         results = []
+        pass2_read_time = 0.0
 
         for i, group in enumerate(groups):
+            t_read_start = time.perf_counter()
             df = self._read_group(group, [self.id_field, self.embedding_field, *self.metadata_fields])
             df = self.normalize_embeddings_col_in_df(df, self.embedding_field)
             embeddings_array = get_array_from_df(df, self.embedding_field)
+            pass2_read_time += time.perf_counter() - t_read_start
 
             labels = self.kmeans.predict(embeddings_array, convert_dtype=False).astype(cp.int32)
             df["centroid"] = labels
@@ -348,8 +354,15 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             gc.collect()
 
         t3 = time.perf_counter()
-        self._log_metric("kmeans_predict_write_time", t3 - t2)
-        logger.info(f"Pass 2 (predict+write) time: {(t3 - t2):.2f} seconds")
+        self._log_metrics({
+            "kmeans_read_time": pass1_read_time + pass2_read_time,
+            "kmeans_predict_write_time": (t3 - t2) - pass2_read_time,
+            "num_rows": total_rows,
+        })
+        logger.info(
+            f"Pass 2 total time: {(t3 - t2):.2f} seconds "
+            f"(read: {pass2_read_time:.2f}s, predict+write: {(t3 - t2) - pass2_read_time:.2f}s)"
+        )
 
         return results
 
