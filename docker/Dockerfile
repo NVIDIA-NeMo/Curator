@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG CUDA_VER=12.8.1
+ARG CUDA_VER=12.9.1
 ARG LINUX_VER=ubuntu24.04
 
 FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
@@ -71,6 +71,12 @@ RUN bash install_ffmpeg.sh && \
 COPY docker/common/install_etcd_nats.sh .
 RUN bash install_etcd_nats.sh && \
     rm install_etcd_nats.sh
+
+# Install HAProxy so Ray Serve's HAProxy ingress mode (RAY_SERVE_ENABLE_HA_PROXY=1) has the binary on PATH
+COPY docker/common/install_haproxy.sh .
+RUN bash install_haproxy.sh && \
+    rm install_haproxy.sh
+ENV RAY_SERVE_HAPROXY_BINARY_PATH=/usr/local/bin/haproxy
 
 
 FROM nemo_curator_dep AS nemo_curator
