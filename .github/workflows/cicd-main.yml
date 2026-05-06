@@ -31,7 +31,7 @@ permissions:
   actions: write  # Required for gh run cancel
 
 env:
-  container-registry: nemoci.azurecr.io
+  container-registry: ${{ vars.DEFAULT_CONTAINER_REGISTRY }}
   UV_HTTP_TIMEOUT: 60
 
 jobs:
@@ -138,11 +138,8 @@ jobs:
       - name: main
         uses: ./.github/actions/build-container
         with:
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          container-registry: ${{ env.container-registry }}
           dockerfile-path: "./docker/Dockerfile"
-          has-azure-credentials: "true"
           PAT: ${{ secrets.PAT }}
           repo-name: "Curator"
 
@@ -198,10 +195,6 @@ jobs:
         with:
           script: L0_Unit_Test_GPU
           is_unit_test: "false"
-          has-azure-credentials: "true"
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           PAT: ${{ secrets.PAT }}
           timeout: 40
