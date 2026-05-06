@@ -16,14 +16,12 @@ import copy
 from collections.abc import Callable
 from typing import Any
 
-import ray
 from loguru import logger
 from ray.data import Dataset
 
-from nemo_curator.backends.base import BaseStageAdapter, WorkerMetadata
+from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import Task
 
 from .utils import calculate_concurrency_for_actors_for_stage, is_actor_stage
 
@@ -66,10 +64,10 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dictionary with arrays/lists representing processed Task objects
         """
-        input_tasks: list[Task] = batch["item"]
-        results: list[Task] = self.process_batch(input_tasks)
-        self._propagate_resumability_metadata(input_tasks, results)
-        self._record_checkpoint_events(input_tasks, results)
+        tasks = batch["item"]
+        results = self.process_batch(tasks)
+        self._propagate_resumability_metadata(tasks, results)
+        self._record_checkpoint_events(tasks, results)
         return {"item": results}
 
     def process_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
