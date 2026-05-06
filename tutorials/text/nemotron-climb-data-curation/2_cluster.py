@@ -48,6 +48,7 @@ def main(args: argparse.Namespace) -> None:
         n_init=args.n_init,
         oversampling_factor=args.oversampling_factor,
         max_samples_per_batch=args.max_samples_per_batch,
+        fit_data_fraction=args.fit_data_fraction,
         cache_path=args.centroids_path,
     )
 
@@ -81,6 +82,7 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--n-init", type=int, default=1)
     parser.add_argument("--oversampling-factor", type=float, default=2.0)
     parser.add_argument("--max-samples-per-batch", type=int, default=1 << 15)
+    parser.add_argument("--fit-data-fraction", type=float, default=None)
     parser.add_argument("--centroids-path", type=str, required=True)
 
     return parser

@@ -17,12 +17,17 @@
 set -xeuo pipefail
 
 if [ $# -lt 4 ]; then
-  echo "Usage: $0 <pretrain_gpt_path> <mixture_script> <work_path> <tokenizer_model>"
+  echo "Usage: $0 <pretrain_gpt_path> <mixture_script> <work_path> <tokenizer_model> [pretrained_model_path]"
   exit 1
 fi
 
-# Hack: auto-detect number of GPUs
-NUM_GPUS=$(nvidia-smi -L | wc -l)
+# Auto-detect the number of visible GPUs. Honor CUDA_VISIBLE_DEVICES when set,
+# otherwise fall back to nvidia-smi (which lists all physical GPUs on the host).
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+    NUM_GPUS=$(echo "$CUDA_VISIBLE_DEVICES" | tr ',' '\n' | grep -c .)
+else
+    NUM_GPUS=$(nvidia-smi -L | wc -l)
+fi
 
 # Path to Megatron-LM's pretrain_gpt.py script
 PRETRAIN_GPT_PATH=$1
@@ -46,9 +51,29 @@ mkdir -p "$CHECKPOINT_PATH" "$TENSORBOARD_LOGS_PATH" "$DATA_CACHE_PATH"
 # Path to the tokenizer model file, e.g., tokenizer.model
 TOKENIZER_MODEL=$4
 
+# Optional 5th argument: checkpoint path to a pretrained model to fine-tune from.
+# If set, pass --load <pretrained> --finetune. If omitted, --load points at
+# CHECKPOINT_PATH so the run starts from scratch (and naturally resumes from
+# saved checkpoints on restart). ${5:-} keeps `set -u` happy when unset.
+PRETRAINED_MODEL_PATH="${5:-}"
+
+LOAD_ARGS=()
+if [ -n "$PRETRAINED_MODEL_PATH" ]; then
+    if [ ! -d "$PRETRAINED_MODEL_PATH" ]; then
+        echo "Pretrained model path does not exist: $PRETRAINED_MODEL_PATH" >&2
+        exit 1
+    fi
+    LOAD_ARGS+=(--load "$PRETRAINED_MODEL_PATH" --finetune)
+else
+    LOAD_ARGS+=(--load "$CHECKPOINT_PATH")
+fi
+
 export NCCL_DEBUG=INFO
 
 # TIPS AND CONSIDERATIONS:
+#
+# If using a pretrained model, make sure to set parameters like --num-layers, --hidden-size, --num-attention-heads,
+# --max-position-embeddings, --tokenizer-type, --tokenizer-model, etc. appropriately
 #
 # Note small --train-iters 10000 for proxy model training
 # Consider increasing --train-iters depending on your GPU setup and throughput, but
@@ -113,6 +138,6 @@ torchrun --nproc_per_node $NUM_GPUS "$PRETRAIN_GPT_PATH" \
     --save-interval 1000 \
     --eval-interval 50000000 \
     --save "$CHECKPOINT_PATH" \
-    --load "$CHECKPOINT_PATH" \
+    "${LOAD_ARGS[@]}" \
     --eval-iters 0 \
     --tensorboard-dir "$TENSORBOARD_LOGS_PATH"
