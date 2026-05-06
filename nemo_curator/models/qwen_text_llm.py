@@ -23,6 +23,7 @@ from loguru import logger
 
 from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils.gpu_utils import get_gpu_count
+from nemo_curator.utils.vllm_utils import resolve_local_model_path
 
 try:
     from vllm import LLM, SamplingParams
@@ -112,14 +113,19 @@ class QwenTextLLM(ModelInterface):
 
         setup_t0 = time.perf_counter()
         tp_size = self.tensor_parallel_size or get_gpu_count()
+        model_path = resolve_local_model_path(self.model_id)
 
         logger.info(
-            "Loading QwenTextLLM model={}  tp={}  max_model_len={}  max_num_seqs={}",
-            self.model_id, tp_size, self.max_model_len, self.max_num_seqs,
+            "Loading QwenTextLLM model={} resolved_model_path={} tp={} max_model_len={} max_num_seqs={}",
+            self.model_id,
+            model_path,
+            tp_size,
+            self.max_model_len,
+            self.max_num_seqs,
         )
 
         self._llm = LLM(
-            model=self.model_id,
+            model=model_path,
             trust_remote_code=True,
             gpu_memory_utilization=self.gpu_memory_utilization,
             tensor_parallel_size=tp_size,

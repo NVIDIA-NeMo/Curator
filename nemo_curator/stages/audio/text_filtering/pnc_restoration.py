@@ -167,11 +167,12 @@ class PnCRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             from huggingface_hub import snapshot_download
 
             prefetch_t0 = time.perf_counter()
-            snapshot_download(self.model_id)
+            model_path = self.model_id if Path(self.model_id).is_dir() else snapshot_download(self.model_id)
             self._resolve_pnc_prompt()
             logger.info(
-                "PnCRestoration weights cached on node for {} in {:.3f}s",
+                "PnCRestoration weights cached on node for {} at {} in {:.3f}s",
                 self.model_id,
+                model_path,
                 time.perf_counter() - prefetch_t0,
             )
         except Exception:  # noqa: BLE001

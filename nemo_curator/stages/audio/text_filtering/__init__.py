@@ -14,26 +14,37 @@
 
 """Text filtering stages for ASR postprocessing."""
 
-from nemo_curator.stages.audio.text_filtering.abbreviation_concat import AbbreviationConcatStage
-from nemo_curator.stages.audio.text_filtering.disfluency_wer_guard import DisfluencyWerGuardStage
-from nemo_curator.stages.audio.text_filtering.fasttext_lid import FastTextLIDStage
-from nemo_curator.stages.audio.text_filtering.finalize_fields import FinalizeFieldsStage
-from nemo_curator.stages.audio.text_filtering.initialize_fields import InitializeFieldsStage
-from nemo_curator.stages.audio.text_filtering.itn_restoration import ITNRestorationStage
-from nemo_curator.stages.audio.text_filtering.pnc_content_guard import PnCContentGuardStage
-from nemo_curator.stages.audio.text_filtering.pnc_restoration import PnCRestorationStage
-from nemo_curator.stages.audio.text_filtering.regex_substitution import RegexSubstitutionStage
-from nemo_curator.stages.audio.text_filtering.whisper_hallucination import WhisperHallucinationStage
+from __future__ import annotations
 
-__all__ = [
-    "AbbreviationConcatStage",
-    "DisfluencyWerGuardStage",
-    "FastTextLIDStage",
-    "FinalizeFieldsStage",
-    "ITNRestorationStage",
-    "InitializeFieldsStage",
-    "PnCContentGuardStage",
-    "PnCRestorationStage",
-    "RegexSubstitutionStage",
-    "WhisperHallucinationStage",
-]
+from importlib import import_module
+from typing import Any
+
+_EXPORTS = {
+    "AbbreviationConcatStage": "nemo_curator.stages.audio.text_filtering.abbreviation_concat",
+    "DisfluencyWerGuardStage": "nemo_curator.stages.audio.text_filtering.disfluency_wer_guard",
+    "FastTextLIDStage": "nemo_curator.stages.audio.text_filtering.fasttext_lid",
+    "FinalizeFieldsStage": "nemo_curator.stages.audio.text_filtering.finalize_fields",
+    "InitializeFieldsStage": "nemo_curator.stages.audio.text_filtering.initialize_fields",
+    "ITNRestorationStage": "nemo_curator.stages.audio.text_filtering.itn_restoration",
+    "PnCContentGuardStage": "nemo_curator.stages.audio.text_filtering.pnc_content_guard",
+    "PnCRestorationStage": "nemo_curator.stages.audio.text_filtering.pnc_restoration",
+    "RegexSubstitutionStage": "nemo_curator.stages.audio.text_filtering.regex_substitution",
+    "WhisperHallucinationStage": "nemo_curator.stages.audio.text_filtering.whisper_hallucination",
+}
+
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:  # noqa: ANN401
+    if name not in _EXPORTS:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+
+    module = import_module(_EXPORTS[name])
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted([*globals(), *__all__])

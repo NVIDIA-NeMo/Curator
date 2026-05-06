@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.vllm_utils import resolve_local_model_path
 
 try:
     from vllm import LLM, SamplingParams
@@ -196,10 +197,12 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         from nemo_curator.utils.gpu_utils import get_gpu_count
 
         tp = self.tensor_parallel_size or get_gpu_count()
+        model_path = resolve_local_model_path(self.model_id)
 
         logger.info(
-            "ITN: loading %s (tp=%d, max_model_len=%d, kv_cache_dtype=%s)",
+            "ITN: loading {} from {} (tp={}, max_model_len={}, kv_cache_dtype={})",
             self.model_id,
+            model_path,
             tp,
             self.max_model_len,
             self.kv_cache_dtype,
@@ -208,7 +211,7 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
         # trust_remote_code is required for Qwen model architectures;
         # operators changing model_id should audit the target repo first.
         self._llm = LLM(
-            model=self.model_id,
+            model=model_path,
             trust_remote_code=True,
             gpu_memory_utilization=self.gpu_memory_utilization,
             tensor_parallel_size=tp,
@@ -251,11 +254,12 @@ class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
             from huggingface_hub import snapshot_download
 
             prefetch_t0 = time.perf_counter()
-            snapshot_download(self.model_id)
+            model_path = self.model_id if Path(self.model_id).is_dir() else snapshot_download(self.model_id)
             self._resolve_prompt()
             logger.info(
-                "ITN: weights cached on node for {} in {:.3f}s",
+                "ITN: weights cached on node for {} at {} in {:.3f}s",
                 self.model_id,
+                model_path,
                 time.perf_counter() - prefetch_t0,
             )
         except Exception:  # noqa: BLE001
