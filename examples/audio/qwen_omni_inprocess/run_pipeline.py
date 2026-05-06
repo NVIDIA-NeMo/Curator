@@ -73,6 +73,7 @@ from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifes
 from nemo_curator.stages.audio.inference.qwen_asr import InferenceQwenASRStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
 from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
+from nemo_curator.stages.audio.io.unified_reader import UnifiedAudioReader
 from nemo_curator.stages.audio.text_filtering import (
     AbbreviationConcatStage,
     DisfluencyWerGuardStage,
@@ -111,6 +112,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                     help="Manifest key holding per-sample language code. "
                          "Used for prompt interpolation ({language} placeholder) and per-sample LID filtering.")
     ap.add_argument("--s3_endpoint_url", type=str, default=None)
+    ap.add_argument("--use_unified_reader", action="store_true", default=False,
+                    help="Use UnifiedAudioReader (supports S3 corpusview YAML + lhotse CutSet).")
+    ap.add_argument("--s3_site", type=str, default="pdx", help="Site key for corpusview YAML paths resolution.")
     ap.add_argument(
         "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
     )
@@ -243,7 +247,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     return ap
 
 
-def main() -> None:  # noqa: C901
+def main() -> None:  # noqa: C901, PLR0912, PLR0915
     args = _build_arg_parser().parse_args()
 
     prompt = args.ml_prompt
@@ -282,6 +286,14 @@ def main() -> None:  # noqa: C901
     omni_text_key = "qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1"
 
     stages = [
+        UnifiedAudioReader(
+            yaml_path=args.data_config,
+            site=args.s3_site,
+            corpus_filter=args.corpus,
+            output_dir=args.output_dir,
+            s3_config={"endpoint_url": args.s3_endpoint_url} if args.s3_endpoint_url else None,
+        ).with_({"unified_reader": {"resources": Resources(cpus=4.0)}})
+        if args.use_unified_reader else
         NemoTarredAudioReader(
             yaml_path=args.data_config,
             corpus_filter=args.corpus,
