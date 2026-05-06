@@ -46,7 +46,7 @@ flowchart LR
 - **Data units**: Input videos → clip windows → frames → embeddings + files.
 - **Common choices**:
   - **Splitting**: fixed stride vs. scene-change (TransNetV2)
-  - **Encoding**: `h264_nvenc`
+  - **Encoding**: `h264_nvenc` (NVENC-equipped GPU) or `libvpx-vp9` (CPU fallback for non-NVENC GPUs such as A100/H100)
   - **Embeddings**: Cosmos-Embed1
 - **Outputs**: Clips (mp4), previews (optional), and parquet embeddings for downstream tasks (such as semantic duplicate removal).
 
@@ -152,13 +152,13 @@ pipeline.add_stage(
 
 ### Encode Clips
 
-Convert clip buffers to H.264 using the selected encoder and settings. Refer to [Clip Encoding](video-process-transcoding) for encoder choices and NVENC setup.
+Convert clip buffers using the selected encoder and settings. Choose `h264_nvenc` on NVENC-equipped GPUs or `libvpx-vp9` (CPU) on GPUs without NVENC such as A100/H100. Refer to [Clip Encoding](video-process-transcoding) for encoder details and NVENC setup.
 
 ```python
 pipeline.add_stage(
     ClipTranscodingStage(
         num_cpus_per_worker=6.0,
-        encoder="h264_nvenc",
+        encoder="h264_nvenc",  # or "libvpx-vp9" for non-NVENC GPUs
         encoder_threads=1,
         encode_batch_size=16,
         use_hwaccel=False,

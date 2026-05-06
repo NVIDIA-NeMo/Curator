@@ -60,7 +60,7 @@ To use NeMo Curator's video curation capabilities, ensure your system meets thes
 #### Software Dependencies
 * **FFmpeg 8.0+** with one of the following encoders:
   - GPU encoder: `h264_nvenc` (recommended for performance; requires an NVENC-equipped GPU — note that A100 and H100 do **not** include NVENC)
-  - CPU encoder: `libvpx-vp9` (royalty-free fallback for non-NVENC GPUs; produces VP9 in `.mp4`)
+  - CPU encoder: `libvpx-vp9` (for non-NVENC GPUs; produces VP9 in `.mp4`)
 
 :::{tip}
 If `uv` is not installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
