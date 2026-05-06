@@ -36,9 +36,14 @@ np.random.seed(SEED)  # noqa: NPY002
 
 
 def load_benchmark_results(
-    input_path: str, domain_names: list[str], mixtures_path: str, output_path: str
+    input_paths: list[str], domain_names: list[str], mixtures_paths: list[str], output_path: str
 ) -> pd.DataFrame:
-    input_path = Path(input_path)
+    if len(input_paths) != len(mixtures_paths):
+        msg = (
+            f"Number of --input-paths entries ({len(input_paths)}) must match "
+            f"number of --mixtures-paths entries ({len(mixtures_paths)})."
+        )
+        raise ValueError(msg)
 
     # Initialize an empty DataFrame
     df = pd.DataFrame(
@@ -52,57 +57,60 @@ def load_benchmark_results(
         ]
     )
 
-    # Construct the DataFrame of benchmark results and data mixtures per model
-    for model_dirs in sorted(input_path.iterdir(), key=lambda p: p.name):
-        # Initialize a Series with the same columns as the DataFrame
-        series = pd.Series(index=df.columns)
-        # Grab model name from model directory name, e.g., n1, n2, etc.
-        model_name = model_dirs.name
+    # Construct the DataFrame of benchmark results and data mixtures per model across all input/mixtures pairs
+    for input_path_str, mixtures_path in zip(input_paths, mixtures_paths, strict=True):
+        input_path = Path(input_path_str)
 
-        # Grab relevant subdirectory from each model directory
-        subdirs = [d for d in model_dirs.iterdir() if d.is_dir()]
-        assert len(subdirs) == 1, "Expected exactly one subdirectory per model directory"  # noqa: S101
-        model_dir = subdirs[0]
+        for model_dirs in sorted(input_path.iterdir(), key=lambda p: p.name):
+            # Initialize a Series with the same columns as the DataFrame
+            series = pd.Series(index=df.columns)
+            # Grab model name from model directory name, e.g., n1, n2, etc.
+            model_name = model_dirs.name
 
-        # Grab benchmark result file for the model
-        jsons = sorted(model_dir.glob("results_*.json"))
-        if not jsons:
-            msg = f"No benchmark result file found for the model {model_dir}. Check if the input path is correct."
-            raise RuntimeError(msg)
+            # Grab relevant subdirectory from each model directory
+            subdirs = [d for d in model_dirs.iterdir() if d.is_dir()]
+            assert len(subdirs) == 1, "Expected exactly one subdirectory per model directory"  # noqa: S101
+            model_dir = subdirs[0]
 
-        # Grab the benchmark results
-        data = json.loads(jsons[-1].read_text())["results"]
-        arc_easy_acc = data["arc_easy"]["acc,none"] * 100
-        piqa_acc_norm = data["piqa"]["acc_norm,none"] * 100
-        hellaswag_acc_norm = data["hellaswag"]["acc_norm,none"] * 100
-        valid_avg = (arc_easy_acc + piqa_acc_norm + hellaswag_acc_norm) / 3
+            # Grab benchmark result file for the model
+            jsons = sorted(model_dir.glob("results_*.json"))
+            if not jsons:
+                msg = f"No benchmark result file found for the model {model_dir}. Check if the input path is correct."
+                raise RuntimeError(msg)
 
-        # Assign the values to the Series
-        series["model_benchmark_path"] = model_dirs
-        series["arc_easy_acc"] = arc_easy_acc
-        series["piqa_acc_norm"] = piqa_acc_norm
-        series["hellaswag_acc_norm"] = hellaswag_acc_norm
-        series["valid_avg"] = valid_avg
+            # Grab the benchmark results
+            data = json.loads(jsons[-1].read_text())["results"]
+            arc_easy_acc = data["arc_easy"]["acc,none"] * 100
+            piqa_acc_norm = data["piqa"]["acc_norm,none"] * 100
+            hellaswag_acc_norm = data["hellaswag"]["acc_norm,none"] * 100
+            valid_avg = (arc_easy_acc + piqa_acc_norm + hellaswag_acc_norm) / 3
 
-        # Grab the data mixture for the model
-        data_mixture = os.path.join(mixtures_path, f"{model_name}.sh")
+            # Assign the values to the Series
+            series["model_benchmark_path"] = model_dirs
+            series["arc_easy_acc"] = arc_easy_acc
+            series["piqa_acc_norm"] = piqa_acc_norm
+            series["hellaswag_acc_norm"] = hellaswag_acc_norm
+            series["valid_avg"] = valid_avg
 
-        # Grab the corresponding data mixture for the model
-        with open(data_mixture) as f:
-            # Ignore the first line and any line containing "EOF"
-            for line in f:
-                if line.startswith("#") or line.startswith("cat") or line.startswith("EOF"):  # noqa: PIE810
-                    continue
-                weight, domain_name = line.strip().split()
-                domain_name = domain_name.split("/")[-1]
-                assert domain_name in domain_names, f"Domain {domain_name} not found in the domains_path"  # noqa: S101
-                series[domain_name] = float(weight)
+            # Grab the data mixture for the model
+            data_mixture = os.path.join(mixtures_path, f"{model_name}.sh")
 
-        # Replace NaN with 0
-        series = series.fillna(0)
+            # Grab the corresponding data mixture for the model
+            with open(data_mixture) as f:
+                # Ignore the first line and any line containing "EOF"
+                for line in f:
+                    if line.startswith("#") or line.startswith("cat") or line.startswith("EOF"):  # noqa: PIE810
+                        continue
+                    weight, domain_name = line.strip().split()
+                    domain_name = domain_name.split("/")[-1]
+                    assert domain_name in domain_names, f"Domain {domain_name} not found in the domains_path"  # noqa: S101
+                    series[domain_name] = float(weight)
 
-        # Append the Series to the DataFrame
-        df = pd.concat([df, series.to_frame().T], ignore_index=True)
+            # Replace NaN with 0
+            series = series.fillna(0)
+
+            # Append the Series to the DataFrame
+            df = pd.concat([df, series.to_frame().T], ignore_index=True)
 
     # Save the DataFrame to a CSV file and return it
     df.to_csv(os.path.join(output_path, "lm_harness_results.csv"), index=False)
@@ -213,18 +221,17 @@ def main(args: argparse.Namespace) -> None:
     # Grab file names without extension (these are the domain names)
     domain_names = [file.stem for file in bin_files]
 
-    # TODO: Load the benchmark results for several iterations of training and evaluation
-    if args.input_path is not None and args.mixtures_path is not None:
+    if args.input_paths is not None and args.mixtures_paths is not None:
         df = load_benchmark_results(
-            input_path=args.input_path,
+            input_paths=args.input_paths,
             domain_names=domain_names,
-            mixtures_path=args.mixtures_path,
+            mixtures_paths=args.mixtures_paths,
             output_path=args.output_path,
         )
     elif args.lm_harness_results_csv_path is not None:
         df = pd.read_csv(args.lm_harness_results_csv_path)
     else:
-        msg = "Either (--input-path, --mixtures-path) or (--lm-harness-results-csv-path) must be provided"
+        msg = "Either (--input-paths, --mixtures-paths) or (--lm-harness-results-csv-path) must be provided"
         raise ValueError(msg)
 
     predictor = fit_predictor(df, domain_names, args.metric)
@@ -244,10 +251,10 @@ def attach_args() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
     # I/O args
-    parser.add_argument("--input-path", type=str, required=False)
+    parser.add_argument("--input-paths", type=str, nargs="+", required=False)
     parser.add_argument("--lm-harness-results-csv-path", type=str, required=False)
     parser.add_argument("--domains-path", type=str, required=True)
-    parser.add_argument("--mixtures-path", type=str, required=False)
+    parser.add_argument("--mixtures-paths", type=str, nargs="+", required=False)
     parser.add_argument("--output-path", type=str, required=True)
 
     # Prediction args

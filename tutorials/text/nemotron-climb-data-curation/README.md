@@ -4,14 +4,14 @@
 
 This tutorial uses NeMo Curator to implement the data curation recipe used to create the [Nemotron-CLIMB dataset](https://huggingface.co/datasets/nvidia/Nemotron-ClimbMix). At a high level, it follows these steps:
 
-1. Compute text embeddings per document
-2. Cluster the documents with K-Means
-3. Use FastText classification models to remove low-quality clusters, then merge similar clusters according to a Euclidean distance threshold
-4. Tokenize and write to `.bin` and `.idx` files
-5. Use a Dirichlet distribution to generate data mixtures
-6. Train a proxy model for each data mixture using Megatron-LM
-7. Benchmark each proxy model using LM Evaluation Harness
-8. Fit a LightGBM predictor on the benchmark results and use the predictor to generate an optimal data mixture for full-scale LLM training
+1. Compute text embeddings per document.
+2. Cluster the documents with K-Means.
+3. Use FastText classification models to remove low-quality clusters, then merge similar clusters according to a Euclidean distance threshold.
+4. Tokenize and write to `.bin` and `.idx` files.
+5. Use a Dirichlet distribution to generate data mixtures.
+6. Train a proxy model for each data mixture using Megatron-LM.
+7. Benchmark each proxy model using LM Evaluation Harness.
+8. Fit a LightGBM predictor on the benchmark results and use the predictor to generate an optimal data mixture for full-scale LLM training.
 
 For reference, the [Nemotron-CLIMB dataset](https://huggingface.co/datasets/nvidia/Nemotron-ClimbMix) was produced using this pipeline on multi-terabyte pretraining corpora. See the [Nemotron-CLIMB paper](https://arxiv.org/pdf/2504.13161) for full experimental details, ablations, and results.
 
@@ -75,9 +75,9 @@ The script uses the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSe
 Some of the default parameters in the script include:
 
 - Use `--model_inference_batch_size 1024` to create digestible batch sizes for the model forward pass. Adjust as necessary; decrease the size to address memory issues and increase the size to improve performance.
-- Use [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5)'s `max_length` of 512 via the `--max-seq-length` argument
-- Use `--padding-side "right"` and `--embedding_pooling="mean_pooling"` defaults as appropriate for the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model
-- Use `--transformers-init-kwargs "{'trust_remote_code': true}"` as required to load the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model
+- Use [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5)'s `max_length` of 512 via the `--max-seq-length` argument.
+- Use `--padding-side "right"` and `--embedding_pooling="mean_pooling"` defaults as appropriate for the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model.
+- Use `--transformers-init-kwargs "{'trust_remote_code': true}"` as required to load the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model.
 
 See script for full list of parameters.
 
@@ -275,9 +275,9 @@ Fit a [LightGBM](https://lightgbm.readthedocs.io/en/stable/) predictor on the re
 # run `uv pip install lightgbm` if not already installed
 
 python 8_predict.py \
-    --input-path /path/to/lm_eval_results \
+    --input-paths /path/to/lm_eval_results \
     --domains-path /path/to/domains \
-    --mixtures-path /path/to/mixtures \
+    --mixtures-paths /path/to/mixtures \
     --output-path /path/to/predict_results \
     --metric "valid_avg" \
     --num-mixtures 1
@@ -285,14 +285,26 @@ python 8_predict.py \
 
 The script uses `lightgbm` which can each be installed via `uv pip install lightgbm`. It requires several inputs:
 
-- `--input-path`: The output `lm_eval_results` directory from step 7
-- `--domains-path`: The output `domains` directory from step 4 containing the `.bin` and `.idx` files
-- `--mixtures-path`: The output `mixtures` directory from step 5 containing the data mixtures
-- `--output-path`: Path to write the output mixture(s)
+- `--input-paths`: One or more `lm_eval_results` directories from step 7 (space-separated), paired by position with `--mixtures-paths`.
+- `--domains-path`: The output `domains` directory from step 4 containing the `.bin` and `.idx` files.
+- `--mixtures-paths`: One or more `mixtures` directories from steps 5 and/or 8 (space-separated), paired by position with `--input-paths`.
+- `--output-path`: Path to write the output mixture(s).
 
 The script fits a LightGBM predictor by using the data mixtures as the features and the average benchmark score (via `--metric "valid_avg"`) as the target. It then outputs `--num-mixtures 1` data ratios which represent the optimal data mixture(s) to use for LLM training.
 
 From here, the user may opt to use `num_mixtures > 1` and repeat steps 6 and 7 with the newly generated data mixtures. Then, the new benchmarks can be combined with the existing benchmarks to rerun step 8 and fit a predictor with all benchmarking data. The goal is to iterate upon steps 6, 7, and 8 until a single optimal data mixture is produced to be used for full-scale LLM training.
+
+To fit the LightGBM predictor on multiple rounds of proxy model evaluations at once, pass space-separated lists to `--input-paths` and `--mixtures-paths`. Each `--input-paths` entry is paired with the `--mixtures-paths` entry at the same position, and all rows are combined into a single table for fitting:
+
+```bash
+python 8_predict.py \
+    --input-paths /path/to/lm_eval_results /path/to/lm_eval_results_2 \
+    --domains-path /path/to/domains \
+    --mixtures-paths /path/to/mixtures /path/to/mixtures_2 \
+    --output-path /path/to/mixtures_3 \
+    --metric "valid_avg" \
+    --num-mixtures 16
+```
 
 ## Conclusion
 
