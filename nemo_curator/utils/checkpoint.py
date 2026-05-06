@@ -120,6 +120,28 @@ class CheckpointManager:
             current = struct.unpack("<I", raw)[0] if raw else 1
             txn.put(h, struct.pack("<I", current + increment), db=self._partitions_db)
 
+    def reset_partition(self, resumability_key: str) -> None:
+        """Reset a partition to its initial state (expected=1, no completions).
+
+        Called by the filter stage when a partition is determined to be incomplete
+        and is about to be reprocessed. A previous interrupted run may have called
+        add_expected (fan-out) without writing all completions, inflating the
+        expected count. Resetting ensures the count is correct for this attempt.
+        """
+        h = _key_hash(resumability_key)
+        prefix = h + b":"
+        with self._env.begin(write=True) as txn:
+            txn.put(h, struct.pack("<I", 1), db=self._partitions_db)
+            cursor = txn.cursor(db=self._completions_db)
+            if cursor.set_range(prefix):
+                keys_to_delete = []
+                for k in cursor.iternext(keys=True, values=False):
+                    if not k.startswith(prefix):
+                        break
+                    keys_to_delete.append(k)
+                for k in keys_to_delete:
+                    txn.delete(k, db=self._completions_db)
+
     def close(self) -> None:
         self._env.close()
 
@@ -156,6 +178,9 @@ def get_or_create_checkpoint_actor(checkpoint_path: str) -> Any:  # noqa: ANN401
 
         def add_expected(self, resumability_key: str, increment: int) -> None:
             self._mgr.add_expected(resumability_key, increment)
+
+        def reset_partition(self, resumability_key: str) -> None:
+            self._mgr.reset_partition(resumability_key)
 
     try:
         actor = ray.get_actor(name)

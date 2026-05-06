@@ -69,6 +69,11 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
         if _checkpoint_get(self._actor.is_task_completed.remote(key)):
             logger.info(f"Resumability: skipping already-completed partition {key!r}")
             return None
+
+        # A previous interrupted run may have called add_expected (fan-out) without
+        # writing all completions, inflating the expected count. Reset to 1 so
+        # this attempt starts with a clean slate before fan-out re-registers.
+        _checkpoint_get(self._actor.reset_partition.remote(key))
         return task
 
 
