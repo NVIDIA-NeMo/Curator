@@ -47,34 +47,35 @@ from nemo_curator.tasks.document import DocumentBatch
 # ---------------------------------------------------------------------------
 
 SPACY_LANG_MODELS: dict[str, str] = {
-    "en": "en_core_web_sm",      # English
-    "de": "de_core_news_sm",     # German
-    "fr": "fr_core_news_sm",     # French
-    "es": "es_core_news_sm",     # Spanish
-    "it": "it_core_news_sm",     # Italian
-    "pt": "pt_core_news_sm",     # Portuguese
-    "nl": "nl_core_news_sm",     # Dutch
-    "pl": "pl_core_news_sm",     # Polish
-    "ru": "ru_core_news_sm",     # Russian
-    "zh": "zh_core_web_sm",      # Chinese
-    "ja": "ja_core_news_sm",     # Japanese
+    "en": "en_core_web_sm",  # English
+    "de": "de_core_news_sm",  # German
+    "fr": "fr_core_news_sm",  # French
+    "es": "es_core_news_sm",  # Spanish
+    "it": "it_core_news_sm",  # Italian
+    "pt": "pt_core_news_sm",  # Portuguese
+    "nl": "nl_core_news_sm",  # Dutch
+    "pl": "pl_core_news_sm",  # Polish
+    "ru": "ru_core_news_sm",  # Russian
+    "zh": "zh_core_web_sm",  # Chinese
+    "ja": "ja_core_news_sm",  # Japanese
     # Languages without dedicated models use multilingual fallback
-    "hi": "xx_sent_ud_sm",       # Hindi
-    "ar": "xx_sent_ud_sm",       # Arabic
-    "ko": "xx_sent_ud_sm",       # Korean
+    "hi": "xx_sent_ud_sm",  # Hindi
+    "ar": "xx_sent_ud_sm",  # Arabic
+    "ko": "xx_sent_ud_sm",  # Korean
 }
 SPACY_FALLBACK_MODEL: str = "xx_sent_ud_sm"
 
 # Cache for loaded spaCy models. Variants with a custom ``max_length`` are
 # cached separately so callers do not mutate shared model instances.
-_nlp_cache: dict[tuple[str, int | None], Any] = {}
+_nlp_cache: dict[tuple[str, int | None], object] = {}
+
 
 def _resolve_spacy_model_name(src_lang: str = "en") -> str:
     """Resolve the spaCy model name for the given language."""
     return SPACY_LANG_MODELS.get(src_lang, SPACY_FALLBACK_MODEL)
 
 
-def _get_spacy_nlp(src_lang: str = "en", *, max_length: int | None = None) -> Any:
+def _get_spacy_nlp(src_lang: str = "en", *, max_length: int | None = None) -> object:
     """Lazy-load a spaCy model for the given source language.
 
     Args:
@@ -92,18 +93,18 @@ def _get_spacy_nlp(src_lang: str = "en", *, max_length: int | None = None) -> An
         try:
             import spacy
         except ImportError as exc:
-            raise ImportError(
+            msg = (
                 "spaCy is required for segmentation_mode='fine'. "
                 "Install the optional translation_segmentation extra "
                 "(for example, `uv sync --extra translation_segmentation`)."
-            ) from exc
+            )
+            raise ImportError(msg) from exc
 
         try:
             nlp = spacy.load(model_name)
         except OSError:
             logger.warning(
-                f"spaCy model '{model_name}' not found for lang '{src_lang}', "
-                f"using fallback '{SPACY_FALLBACK_MODEL}'"
+                f"spaCy model '{model_name}' not found for lang '{src_lang}', using fallback '{SPACY_FALLBACK_MODEL}'"
             )
             model_name = SPACY_FALLBACK_MODEL
             nlp = spacy.load(model_name)
@@ -126,6 +127,58 @@ def _get_spacy_nlp(src_lang: str = "en", *, max_length: int | None = None) -> An
 # Sentence splitting with structure preservation
 # ---------------------------------------------------------------------------
 
+
+def _append_stripped_unit(units: list[tuple[str, str]], text_unit: str, separator: str) -> None:
+    """Append a text unit while preserving leading/trailing whitespace."""
+    stripped_text = text_unit.strip()
+    leading_spaces = text_unit[: len(text_unit) - len(text_unit.lstrip())]
+    trailing_spaces = text_unit[len(text_unit.rstrip()) :]
+    new_separator = trailing_spaces + separator
+
+    if leading_spaces and stripped_text:
+        units.append(("", leading_spaces))
+    units.append((stripped_text, new_separator))
+
+
+def _spacy_units_with_separators(text: str, spacy_sentences: list[object]) -> list[tuple[str, str]]:
+    """Return spaCy sentence text plus the exact following separator."""
+    units: list[tuple[str, str]] = []
+    if spacy_sentences and spacy_sentences[0].start_char > 0:
+        units.append(("", text[: spacy_sentences[0].start_char]))
+
+    for idx, sent in enumerate(spacy_sentences):
+        sent_start = sent.start_char
+        sent_end = sent.end_char
+        next_start = spacy_sentences[idx + 1].start_char if idx < len(spacy_sentences) - 1 else len(text)
+        units.append((text[sent_start:sent_end], text[sent_end:next_start]))
+    return units
+
+
+def _split_unit_on_special_separators(
+    sent_text: str,
+    sent_separator: str,
+    special_separator_pattern: str,
+) -> list[tuple[str, str]]:
+    """Split one spaCy unit on custom separators while preserving structure."""
+    matches = list(re.finditer(special_separator_pattern, sent_text))
+    if not matches:
+        units: list[tuple[str, str]] = []
+        _append_stripped_unit(units, sent_text, sent_separator)
+        return units
+
+    units = []
+    last_end = 0
+    for match in matches:
+        _append_stripped_unit(units, sent_text[last_end : match.start()], sent_text[match.start() : match.end()])
+        last_end = match.end()
+
+    if last_end < len(sent_text):
+        _append_stripped_unit(units, sent_text[last_end:], sent_separator)
+    elif sent_separator:
+        units.append(("", sent_separator))
+    return units
+
+
 def split_into_sentences_with_structure(text: str, src_lang: str = "en") -> list[tuple[str, str]]:
     """Split *text* using spaCy, then apply custom regex patterns while preserving exact structure.
 
@@ -143,91 +196,23 @@ def split_into_sentences_with_structure(text: str, src_lang: str = "en") -> list
     # Custom regex pattern for special characters that should be treated as separators
     special_separator_pattern = (
         r"(\#{2,}|\_{2,}|\…{2,}|\%{2,}|\+{2,}|\.{2,}|\-{3,}|\*{2,}|\~{2,}|\={2,}|\!{2,}"
-        r"|\n|\t|\‣|\⁃|\⁌|\⁍|\●|\○|\•|\·|\◘|\◦|\⦾|\⦿|\|)"
+        r"|\n|\t|\‣|\u2043|\⁌|\⁍|\●|\○|\•|\·|\◘|\◦|\⦾|\⦿|\|)"
     )
 
     doc = nlp(text)
     spacy_sentences = list(doc.sents)
-
-    spacy_units_with_separators: list[tuple[str, str]] = []
-
-    # Check if there's text before the first spaCy sentence
-    if spacy_sentences:
-        first_sent_start = spacy_sentences[0].start_char
-        if first_sent_start > 0:
-            leading_text = text[:first_sent_start]
-            spacy_units_with_separators.append(("", leading_text))
-
-    for i, sent in enumerate(spacy_sentences):
-        sent_start = sent.start_char
-        sent_end = sent.end_char
-
-        # Calculate the separator after this sentence
-        if i < len(spacy_sentences) - 1:
-            next_sent_start = spacy_sentences[i + 1].start_char
-            separator = text[sent_end:next_sent_start]
-        else:
-            separator = text[sent_end:]
-
-        sentence_text = text[sent_start:sent_end]
-        spacy_units_with_separators.append((sentence_text, separator))
+    spacy_units = _spacy_units_with_separators(text, spacy_sentences)
 
     # Process each spaCy unit for special separators
     all_text_units: list[tuple[str, str]] = []
-
-    for sent_text, sent_separator in spacy_units_with_separators:
-        special_matches = list(re.finditer(special_separator_pattern, sent_text))
-
-        if not special_matches:
-            # Strip leading/trailing spaces from text unit and add to separator
-            stripped_text = sent_text.strip()
-            leading_spaces = sent_text[: len(sent_text) - len(sent_text.lstrip())]
-            trailing_spaces = sent_text[len(sent_text.rstrip()) :]
-
-            new_separator = trailing_spaces + sent_separator
-
-            if leading_spaces and stripped_text:
-                all_text_units.append(("", leading_spaces))
-
-            all_text_units.append((stripped_text, new_separator))
-        else:
-            # Split this sentence by special separators
-            last_end = 0
-            for match in special_matches:
-                split_start = match.start()
-                split_end = match.end()
-
-                text_unit = sent_text[last_end:split_start]
-                separator = sent_text[split_start:split_end]
-
-                stripped_text_unit = text_unit.strip()
-                leading_spaces = text_unit[: len(text_unit) - len(text_unit.lstrip())]
-                trailing_spaces = text_unit[len(text_unit.rstrip()) :]
-
-                new_separator = trailing_spaces + separator
-
-                if leading_spaces and stripped_text_unit:
-                    all_text_units.append(("", leading_spaces))
-
-                all_text_units.append((stripped_text_unit, new_separator))
-                last_end = split_end
-
-            # Handle remaining text after last special separator
-            if last_end < len(sent_text):
-                remaining = sent_text[last_end:]
-                stripped_remaining = remaining.strip()
-                leading_spaces = remaining[: len(remaining) - len(remaining.lstrip())]
-                trailing_spaces = remaining[len(remaining.rstrip()) :]
-
-                new_sent_separator = trailing_spaces + sent_separator
-
-                if leading_spaces and stripped_remaining:
-                    all_text_units.append(("", leading_spaces))
-
-                all_text_units.append((stripped_remaining, new_sent_separator))
-            else:
-                if sent_separator:
-                    all_text_units.append(("", sent_separator))
+    for sent_text, sent_separator in spacy_units:
+        all_text_units.extend(
+            _split_unit_on_special_separators(
+                sent_text,
+                sent_separator,
+                special_separator_pattern,
+            )
+        )
 
     # Verify reconstruction
     reconstructed = "".join(text_unit + separator for text_unit, separator in all_text_units)
@@ -251,9 +236,8 @@ def is_line_translatable_content(line: str) -> bool:
         return False
     if stripped_line.startswith("<") and stripped_line.endswith(">"):
         return False
-    if (
-        (stripped_line.startswith("{") and stripped_line.endswith("}"))
-        or (stripped_line.startswith("[") and stripped_line.endswith("]"))
+    if (stripped_line.startswith("{") and stripped_line.endswith("}")) or (
+        stripped_line.startswith("[") and stripped_line.endswith("]")
     ):
         try:
             parsed = json.loads(stripped_line)
@@ -267,6 +251,7 @@ def is_line_translatable_content(line: str) -> bool:
 # ---------------------------------------------------------------------------
 # SegmentationStage
 # ---------------------------------------------------------------------------
+
 
 @dataclass(kw_only=True)
 class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -297,7 +282,8 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __post_init__(self) -> None:
         self.source_lang = self.source_lang.strip()
         if not self.source_lang:
-            raise ValueError("SegmentationStage requires a non-empty 'source_lang'")
+            msg = "SegmentationStage requires a non-empty 'source_lang'"
+            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         # For simple (non-wildcard) single fields, declare the column dependency.
@@ -358,7 +344,7 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         out_df = pd.DataFrame(all_rows)
         # Reset index so downstream stages get a clean 0-based index
-        out_df.reset_index(drop=True, inplace=True)
+        out_df = out_df.reset_index(drop=True)
 
         return DocumentBatch(
             task_id=batch.task_id,

@@ -244,8 +244,8 @@ def get_language_name(lang_code: str) -> str:
     if callable(to_name):
         try:
             name = to_name(lang_code)
-        except Exception:  # pragma: no cover - defensive against third-party APIs
-            pass
+        except (KeyError, AttributeError, TypeError, ValueError):  # pragma: no cover - third-party API variants
+            name = None
         else:
             if isinstance(name, str) and name:
                 return name

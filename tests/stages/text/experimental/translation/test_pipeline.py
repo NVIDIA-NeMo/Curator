@@ -23,10 +23,10 @@ import pytest
 
 from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.stages.text.experimental.translation.evaluation.faith import (
+    _SCORE_COLUMNS,
     FAITH_KEYS,
     FaithEvalFilter,
     FaithThresholdFilterStage,
-    _SCORE_COLUMNS,
 )
 from nemo_curator.stages.text.experimental.translation.pipeline import TranslationStage
 from nemo_curator.stages.text.experimental.translation.stages import (
@@ -441,7 +441,7 @@ class TestFaithEvalFilter:
         assert "tgt" in in_cols
 
         _, out_cols = stage.outputs()
-        assert set(out_cols) == set(_SCORE_COLUMNS + ["faith_parse_failed"])
+        assert set(out_cols) == {*_SCORE_COLUMNS, "faith_parse_failed"}
 
 
 # ---------------------------------------------------------------------------
@@ -1046,9 +1046,7 @@ class TestFormatTranslationOutputStage:
             {
                 "translated_text": ["ignored fallback"],
                 "_translation_map": [json.dumps({"question": "Hallo"})],
-                "_segmented_translation_map": [
-                    json.dumps({"question": [{"src": "Hello", "tgt": "Hallo"}]})
-                ],
+                "_segmented_translation_map": [json.dumps({"question": [{"src": "Hello", "tgt": "Hallo"}]})],
             }
         )
         batch = DocumentBatch(data=df, dataset_name="test", task_id="1")

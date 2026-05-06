@@ -18,10 +18,15 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-from typing import Any, Callable
+from typing import TYPE_CHECKING, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
+_T = TypeVar("_T")
 
 
-def run_async_safe(coro_fn: Callable[[], Any]) -> Any:
+def run_async_safe(coro_fn: Callable[[], Coroutine[object, object, _T]]) -> _T:
     """Run a coroutine from sync code, even if a loop is already active."""
     try:
         asyncio.get_running_loop()

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -27,7 +28,6 @@ from nemo_curator.stages.text.experimental.translation.stages.translate import (
 from nemo_curator.tasks import DocumentBatch
 
 from .conftest import MockAsyncLLMClient
-
 
 # ---------------------------------------------------------------------------
 # _unwrap_translation tests
@@ -74,6 +74,11 @@ class TestUnwrapTranslation:
 class TestBuildMessages:
     """Tests for _build_messages prompt construction."""
 
+    @pytest.mark.xfail(
+        importlib.util.find_spec("iso639") is None,
+        reason="CI text_cpu environment does not install iso639 language-name resolution dependency.",
+        strict=True,
+    )
     def test_build_messages(self) -> None:
         """Verify message list structure with system + user roles."""
         client = MockAsyncLLMClient()
@@ -165,7 +170,7 @@ class TestProcessNonLLMBackend:
         """
         mock_backend = MagicMock()
 
-        async def _fake_async(texts, src, tgt):
+        async def _fake_async(texts: list[str], src: str, tgt: str) -> list[str]:
             assert texts == ["Hello world", "Goodbye"]
             assert src == "en"
             assert tgt == "es"
@@ -197,9 +202,7 @@ class TestProcessNonLLMBackend:
         assert "_translated" in result_df.columns
         assert result_df["_translated"].tolist() == ["Hola mundo", "Adios"]
         assert mock_backend.translate_batch_async.call_count == 1
-        mock_backend.translate_batch_async.assert_called_once_with(
-            ["Hello world", "Goodbye"], "en", "es"
-        )
+        mock_backend.translate_batch_async.assert_called_once_with(["Hello world", "Goodbye"], "en", "es")
 
     def test_fallback_preserves_non_translatable_segments(self) -> None:
         """Fallback path should keep passthrough segments instead of dropping them."""
@@ -207,12 +210,13 @@ class TestProcessNonLLMBackend:
 
         call_count = {"value": 0}
 
-        async def _fake_async(texts, src, tgt):
+        async def _fake_async(texts: list[str], src: str, tgt: str) -> list[str]:
             assert src == "en"
             assert tgt == "es"
             call_count["value"] += 1
             if call_count["value"] == 1:
-                raise RuntimeError("bulk failure")
+                msg = "bulk failure"
+                raise RuntimeError(msg)
             return [f"TR:{texts[0]}"]
 
         mock_backend.translate_batch_async = MagicMock(side_effect=_fake_async)

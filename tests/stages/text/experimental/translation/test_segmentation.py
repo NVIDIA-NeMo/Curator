@@ -32,7 +32,6 @@ from nemo_curator.tasks import DocumentBatch
 
 from .conftest import MockAsyncLLMClient
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -61,7 +60,7 @@ def _seg_metadata(batch: DocumentBatch, row: int = 0) -> dict:
 
 _SPACY_AVAILABLE = False
 try:
-    import spacy  # noqa: F401
+    import spacy
 
     try:
         spacy.load("en_core_web_sm")
@@ -131,8 +130,8 @@ class TestCoarseSegmentation:
         template = meta["template"]
         # Non-translatable lines (empty, whitespace) are stored verbatim
         assert template[0] is None  # "Line one" -> translatable
-        assert template[1] == ""    # empty line
-        assert template[2] == "   " # whitespace-only line
+        assert template[1] == ""  # empty line
+        assert template[2] == "   "  # whitespace-only line
         assert template[3] is None  # "Line two" -> translatable
 
     def test_coarse_leading_whitespace(self) -> None:
@@ -159,10 +158,10 @@ class TestCoarseSegmentation:
 
         meta = _seg_metadata(result)
         template = meta["template"]
-        assert template[0] is None   # "Title" -> translatable
+        assert template[0] is None  # "Title" -> translatable
         assert template[1] == "---"  # non-translatable
         assert template[2] == "***"  # non-translatable
-        assert template[3] is None   # "Content" -> translatable
+        assert template[3] is None  # "Content" -> translatable
 
     def test_coarse_json_blob_non_translatable(self) -> None:
         """Machine-readable JSON lines should be preserved, not translated."""
@@ -225,7 +224,7 @@ class TestFineSegmentation:
         # At least one unit should have a non-empty separator
         separators = [u["separator"] for u in units if u["translatable"]]
         # The space between sentences should be captured somewhere
-        all_separators = "".join(separators)
+        "".join(separators)
         # Reconstruction should work: join all original + separator
         reconstructed = "".join(u["original"] + u["separator"] for u in units)
         assert reconstructed == text
@@ -295,9 +294,7 @@ class TestSegmentationGeneral:
                 self.max_length = 5
 
             def __call__(self, text: str) -> SimpleNamespace:
-                return SimpleNamespace(
-                    sents=[SimpleNamespace(start_char=0, end_char=len(text))]
-                )
+                return SimpleNamespace(sents=[SimpleNamespace(start_char=0, end_char=len(text))])
 
         fake_spacy = SimpleNamespace(load=lambda _name: FakeNLP())
         monkeypatch.setitem(sys.modules, "spacy", fake_spacy)
@@ -360,12 +357,13 @@ class TestPassthroughTranslatabilityFilter:
 
     def test_passthrough_pure_code_skips_llm(self) -> None:
         """A code-only passthrough segment must NOT call the LLM."""
+
         class CountingMockClient(MockAsyncLLMClient):
             def __init__(self) -> None:
                 super().__init__()
                 self.call_count = 0
 
-            async def _query_model_impl(self, **kwargs):  # type: ignore[override]
+            async def _query_model_impl(self, **kwargs: object) -> list[str]:  # type: ignore[override]
                 self.call_count += 1
                 return await super()._query_model_impl(**kwargs)
 
@@ -400,12 +398,13 @@ class TestPassthroughTranslatabilityFilter:
 
     def test_passthrough_real_text_still_calls_llm(self) -> None:
         """A passthrough segment with translatable content still calls the LLM."""
+
         class CountingMockClient(MockAsyncLLMClient):
             def __init__(self) -> None:
                 super().__init__()
                 self.call_count = 0
 
-            async def _query_model_impl(self, **kwargs):  # type: ignore[override]
+            async def _query_model_impl(self, **kwargs: object) -> list[str]:  # type: ignore[override]
                 self.call_count += 1
                 return await super()._query_model_impl(**kwargs)
 

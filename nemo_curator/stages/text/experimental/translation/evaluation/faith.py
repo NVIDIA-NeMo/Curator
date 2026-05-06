@@ -26,13 +26,12 @@ from loguru import logger
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import DocumentBatch
-
 from nemo_curator.stages.text.experimental.translation.utils.async_utils import run_async_safe
 from nemo_curator.stages.text.experimental.translation.utils.prompt_loader import (
     load_prompt_template,
 )
 from nemo_curator.stages.text.utils.text_utils import get_language_name
+from nemo_curator.tasks import DocumentBatch
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
@@ -57,6 +56,51 @@ def _to_mutable_dataframe(batch: DocumentBatch) -> pd.DataFrame:
     if isinstance(batch.data, pd.DataFrame):
         return df.copy()
     return df
+
+
+def _update_json_string_state(ch: str, *, in_string: bool, escape: bool) -> tuple[bool, bool, bool]:
+    """Return updated JSON string state and whether ``ch`` was consumed by it."""
+    if in_string:
+        if escape:
+            return True, False, True
+        if ch == "\\":
+            return True, True, True
+        if ch == '"':
+            return False, False, True
+        return True, False, True
+    if ch == '"':
+        return True, False, True
+    return False, False, False
+
+
+def _find_json_object_start(text: str) -> int:
+    """Return the first ``{`` outside a JSON string, or ``-1``."""
+    in_string = False
+    escape = False
+    for idx, ch in enumerate(text):
+        in_string, escape, consumed = _update_json_string_state(ch, in_string=in_string, escape=escape)
+        if not consumed and ch == "{":
+            return idx
+    return -1
+
+
+def _find_json_object_end(text: str, start: int) -> int:
+    """Return the balanced object end index starting at ``start``, or ``-1``."""
+    depth = 0
+    in_string = False
+    escape = False
+    for idx in range(start, len(text)):
+        ch = text[idx]
+        in_string, escape, consumed = _update_json_string_state(ch, in_string=in_string, escape=escape)
+        if consumed:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return idx
+    return -1
 
 
 @dataclass(kw_only=True)
@@ -117,13 +161,17 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.target_lang = self.target_lang.strip()
         self.model_name = self.model_name.strip()
         if not self.source_lang:
-            raise ValueError("FaithEvalFilter requires a non-empty 'source_lang'")
+            msg = "FaithEvalFilter requires a non-empty 'source_lang'"
+            raise ValueError(msg)
         if not self.target_lang:
-            raise ValueError("FaithEvalFilter requires a non-empty 'target_lang'")
+            msg = "FaithEvalFilter requires a non-empty 'target_lang'"
+            raise ValueError(msg)
         if self.client is None:
-            raise ValueError("FaithEvalFilter requires a non-None 'client' (AsyncLLMClient)")
+            msg = "FaithEvalFilter requires a non-None 'client' (AsyncLLMClient)"
+            raise ValueError(msg)
         if not self.model_name:
-            raise ValueError("FaithEvalFilter requires a non-empty 'model_name'")
+            msg = "FaithEvalFilter requires a non-empty 'model_name'"
+            raise ValueError(msg)
 
     # ------------------------------------------------------------------
     # ProcessingStage interface
@@ -133,7 +181,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.source_text_field, self.translated_text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], list(_SCORE_COLUMNS) + ["faith_parse_failed"]
+        return ["data"], [*list(_SCORE_COLUMNS), "faith_parse_failed"]
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Initialize the LLM client and load prompt templates.
@@ -199,7 +247,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             axis=1,
         )
 
-        zero_scores = {key: 0.0 for key in FAITH_KEYS}
+        zero_scores = dict.fromkeys(FAITH_KEYS, 0.0)
         all_scores = [dict(zero_scores) for _ in range(len(df))]
         parse_failed_flags = [False] * len(df)
 
@@ -386,52 +434,12 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             Substring from the first real ``{`` to its matching ``}``
             inclusive, or ``None`` if no balanced object can be found.
         """
-        # First pass: find the first ``{`` that lies *outside* any string
-        # literal.  Tracking ``in_string``/``escape`` from index 0 ensures
-        # braces inside quoted strings do not anchor the scan.
-        start = -1
-        in_string = False
-        escape = False
-        for i, ch in enumerate(text):
-            if in_string:
-                if escape:
-                    escape = False
-                elif ch == "\\":
-                    escape = True
-                elif ch == '"':
-                    in_string = False
-            else:
-                if ch == '"':
-                    in_string = True
-                elif ch == "{":
-                    start = i
-                    break
+        start = _find_json_object_start(text)
         if start == -1:
             return None
 
-        # Second pass: balanced brace walk from ``start``.
-        depth = 0
-        in_string = False
-        escape = False
-        for i in range(start, len(text)):
-            ch = text[i]
-            if in_string:
-                if escape:
-                    escape = False
-                elif ch == "\\":
-                    escape = True
-                elif ch == '"':
-                    in_string = False
-            else:
-                if ch == '"':
-                    in_string = True
-                elif ch == "{":
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                    if depth == 0:
-                        return text[start : i + 1]
-        return None
+        end = _find_json_object_end(text, start)
+        return text[start : end + 1] if end != -1 else None
 
     @classmethod
     def _extract_scores_from_json(cls, text: str) -> tuple[dict, bool]:
@@ -450,7 +458,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             is ``True`` iff no JSON object could be located or it failed to
             parse / validate.
         """
-        zero_scores = {k: 0.0 for k in FAITH_KEYS}
+        zero_scores = dict.fromkeys(FAITH_KEYS, 0.0)
         candidate = cls._extract_json_object(text)
         if candidate is None:
             return zero_scores, True

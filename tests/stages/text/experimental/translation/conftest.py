@@ -16,13 +16,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig
 from nemo_curator.tasks import DocumentBatch
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 class MockAsyncLLMClient(AsyncLLMClient):
@@ -45,9 +48,9 @@ class MockAsyncLLMClient(AsyncLLMClient):
         self,
         *,
         messages: Iterable,
-        model: str,  # noqa: ARG002
-        conversation_formatter=None,  # noqa: ARG002
-        generation_config: GenerationConfig | dict | None = None,  # noqa: ARG002
+        model: str,
+        conversation_formatter: object = None,
+        generation_config: GenerationConfig | dict | None = None,
     ) -> list[str]:
         messages_list = list(messages)
         system_msg = ""
@@ -61,8 +64,7 @@ class MockAsyncLLMClient(AsyncLLMClient):
         # Detect FAITH evaluation requests
         if "evaluating the quality" in system_msg.lower() or "faith" in system_msg.lower():
             return [
-                '{"Fluency": 4.0, "Accuracy": 4.5, "Idiomaticity": 3.5, '
-                '"Terminology": 4.0, "Handling_of_Format": 5.0}'
+                '{"Fluency": 4.0, "Accuracy": 4.5, "Idiomaticity": 3.5, "Terminology": 4.0, "Handling_of_Format": 5.0}'
             ]
 
         # Default: return a bracketed mock translation
@@ -70,13 +72,13 @@ class MockAsyncLLMClient(AsyncLLMClient):
         return [f"\u3018mock translation of: {snippet}\u3019"]
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_client() -> MockAsyncLLMClient:
     """Return a fresh ``MockAsyncLLMClient`` instance."""
     return MockAsyncLLMClient()
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_batch() -> DocumentBatch:
     """A small ``DocumentBatch`` suitable for pipeline integration tests.
 
@@ -96,7 +98,7 @@ def sample_batch() -> DocumentBatch:
     return DocumentBatch(data=df, dataset_name="test", task_id="1")
 
 
-@pytest.fixture()
+@pytest.fixture
 def messages_batch() -> DocumentBatch:
     """A ``DocumentBatch`` with an OpenAI-style ``messages`` column.
 
@@ -106,15 +108,19 @@ def messages_batch() -> DocumentBatch:
     """
     import json
 
-    messages_doc1 = json.dumps([
-        {"role": "user", "content": "Hello, how are you?"},
-        {"role": "assistant", "content": "I am fine, thank you."},
-    ])
-    messages_doc2 = json.dumps([
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Tell me about NLP."},
-        {"role": "assistant", "content": "NLP stands for Natural Language Processing."},
-    ])
+    messages_doc1 = json.dumps(
+        [
+            {"role": "user", "content": "Hello, how are you?"},
+            {"role": "assistant", "content": "I am fine, thank you."},
+        ]
+    )
+    messages_doc2 = json.dumps(
+        [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Tell me about NLP."},
+            {"role": "assistant", "content": "NLP stands for Natural Language Processing."},
+        ]
+    )
     df = pd.DataFrame(
         {
             "messages": [messages_doc1, messages_doc2],
@@ -124,7 +130,7 @@ def messages_batch() -> DocumentBatch:
     return DocumentBatch(data=df, dataset_name="messages-test", task_id="1")
 
 
-@pytest.fixture()
+@pytest.fixture
 def batch_with_existing_translations() -> DocumentBatch:
     """A ``DocumentBatch`` simulating partially-translated data for skip/resume tests.
 

@@ -19,8 +19,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import pandas as pd
-
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch
 
@@ -35,11 +33,12 @@ def compute_text_quality_metric(
     try:
         import sacrebleu
     except ImportError as exc:  # pragma: no cover - optional dependency
-        raise ImportError(
+        msg = (
             "sacrebleu is required for translation quality metrics. "
             "Install the optional translation_metrics extra "
             "(for example, `uv sync --extra translation_metrics`)."
-        ) from exc
+        )
+        raise ImportError(msg) from exc
 
     references = [reference]
     if metric_type == "sacrebleu":
@@ -51,7 +50,8 @@ def compute_text_quality_metric(
     if metric_type == "ter":
         score = sacrebleu.sentence_ter(hypothesis, references).score
         return score, score <= threshold
-    raise ValueError(f"Unsupported round-trip quality metric: {metric_type}")
+    msg = f"Unsupported round-trip quality metric: {metric_type}"
+    raise ValueError(msg)
 
 
 @dataclass
@@ -63,7 +63,7 @@ class TextQualityMetricStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     hypothesis_text_field: str = "backtranslated_text"
     metrics: list[dict[str, Any]] = field(default_factory=list)
     filter_enabled: bool = False
-    pass_column: str = "is_quality_metric_passed"
+    pass_column: str = "is_quality_metric_passed"  # noqa: S105
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.reference_text_field, self.hypothesis_text_field]

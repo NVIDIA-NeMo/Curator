@@ -32,7 +32,6 @@ from nemo_curator.stages.text.experimental.translation.backends.google import (
 )
 from nemo_curator.stages.text.experimental.translation.backends.nmt import NMTTranslationBackend
 
-
 # ---------------------------------------------------------------------------
 # TranslationBackend ABC tests
 # ---------------------------------------------------------------------------
@@ -142,9 +141,7 @@ class TestAWSTranslationBackend:
         backend = AWSTranslationBackend(region="us-east-1")
 
         mock_client = MagicMock()
-        mock_client.translate_text.return_value = {
-            "TranslatedText": "Hola mundo"
-        }
+        mock_client.translate_text.return_value = {"TranslatedText": "Hola mundo"}
 
         backend._client = mock_client
         backend._semaphore = asyncio.Semaphore(32)
@@ -205,9 +202,7 @@ class TestNMTTranslationBackend:
         # Create a mock aiohttp response.
         mock_response = AsyncMock()
         mock_response.raise_for_status = MagicMock()
-        mock_response.json = AsyncMock(
-            return_value={"translations": ["Hola mundo", "Adios"]}
-        )
+        mock_response.json = AsyncMock(return_value={"translations": ["Hola mundo", "Adios"]})
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=False)
 
@@ -218,9 +213,7 @@ class TestNMTTranslationBackend:
 
         backend._session = mock_session
 
-        result = backend.translate_batch(
-            ["Hello world", "Goodbye"], "en", "es"
-        )
+        result = backend.translate_batch(["Hello world", "Goodbye"], "en", "es")
 
         assert result == ["Hola mundo", "Adios"]
         mock_session.post.assert_called_once_with(
@@ -249,12 +242,10 @@ class TestNMTTranslationBackend:
         mock_response.raise_for_status = MagicMock()
 
         # Return matching-length translations for each sub-batch.
-        async def mock_json():
+        async def mock_json() -> dict[str, list[str]]:
             # Find the texts from the last call.
             last_call = call_payloads[-1]
-            return {
-                "translations": [f"translated_{t}" for t in last_call["texts"]]
-            }
+            return {"translations": [f"translated_{t}" for t in last_call["texts"]]}
 
         mock_response.json = mock_json
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
@@ -263,7 +254,7 @@ class TestNMTTranslationBackend:
         mock_session = AsyncMock()
         mock_session.closed = False
 
-        def capture_post(url, json=None):
+        def capture_post(_url: str, json: dict[str, object] | None = None) -> AsyncMock:
             call_payloads.append(json)
             return mock_response
 

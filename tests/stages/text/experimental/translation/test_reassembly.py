@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
@@ -28,6 +29,8 @@ from nemo_curator.stages.text.experimental.translation.stages.reassembly import 
 from nemo_curator.stages.text.experimental.translation.stages.segmentation import SegmentationStage
 from nemo_curator.tasks import DocumentBatch
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,7 +48,7 @@ def _make_batch(texts: list[str], **extra_columns: list) -> DocumentBatch:
 def _segment_and_add_translations(
     texts: list[str],
     mode: str = "coarse",
-    translate_fn=None,
+    translate_fn: Callable[[str], str] | None = None,
     extra_columns: dict | None = None,
 ) -> DocumentBatch:
     """Segment texts, then add a _translated column (identity or custom).
@@ -83,7 +86,7 @@ def _segment_and_add_translations(
 
 _SPACY_AVAILABLE = False
 try:
-    import spacy  # noqa: F401
+    import spacy
 
     try:
         spacy.load("en_core_web_sm")
@@ -254,13 +257,15 @@ class TestEdgeCases:
 
     def test_empty_batch(self) -> None:
         """Empty DataFrame is handled gracefully."""
-        df = pd.DataFrame({
-            "_seg_segments": pd.Series(dtype="str"),
-            "_seg_metadata": pd.Series(dtype="str"),
-            "_seg_doc_id": pd.Series(dtype="int"),
-            "_translated": pd.Series(dtype="str"),
-            "text": pd.Series(dtype="str"),
-        })
+        df = pd.DataFrame(
+            {
+                "_seg_segments": pd.Series(dtype="str"),
+                "_seg_metadata": pd.Series(dtype="str"),
+                "_seg_doc_id": pd.Series(dtype="int"),
+                "_translated": pd.Series(dtype="str"),
+                "text": pd.Series(dtype="str"),
+            }
+        )
         batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
 
         stage = ReassemblyStage()
@@ -304,10 +309,12 @@ class TestEdgeCases:
         """Wildcard paths over list roots are reassembled back into the source schema."""
         df = pd.DataFrame(
             {
-                "messages": [[
-                    {"role": "user", "content": "Hello"},
-                    {"role": "assistant", "content": "Hi there"},
-                ]]
+                "messages": [
+                    [
+                        {"role": "user", "content": "Hello"},
+                        {"role": "assistant", "content": "Hi there"},
+                    ]
+                ]
             }
         )
         batch = DocumentBatch(data=df, dataset_name="test", task_id="1")

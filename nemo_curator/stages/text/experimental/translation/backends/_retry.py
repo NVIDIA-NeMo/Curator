@@ -23,9 +23,14 @@ from __future__ import annotations
 
 import asyncio
 import random
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, TypeVar
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+_T = TypeVar("_T")
 
 MAX_RETRIES = 5
 # Upper cap on a single backoff sleep, in seconds.
@@ -33,12 +38,12 @@ _MAX_BACKOFF_SECONDS = 60.0
 
 
 async def retry_with_backoff(
-    fn: Callable[[], Awaitable[Any]],
+    fn: Callable[[], Awaitable[_T]],
     *,
     max_retries: int = MAX_RETRIES,
     backend_name: str = "",
     non_retryable: tuple[type[BaseException], ...] = (),
-) -> Any:
+) -> _T:
     """Execute ``fn()`` (an async zero-arg callable) with exponential backoff.
 
     On exception, waits ``2 ** attempt`` seconds before retrying, up to
@@ -65,7 +70,8 @@ async def retry_with_backoff(
         Whatever ``fn()`` resolves to on success.
     """
     if max_retries < 1:
-        raise ValueError(f"max_retries must be >= 1, got {max_retries}")
+        msg = f"max_retries must be >= 1, got {max_retries}"
+        raise ValueError(msg)
 
     label = f"{backend_name} " if backend_name else ""
     for attempt in range(max_retries):
@@ -78,7 +84,7 @@ async def retry_with_backoff(
             if attempt < max_retries - 1:
                 # Full jitter: uniform over [0, 2**attempt], capped at _MAX_BACKOFF_SECONDS.
                 # Prevents thundering-herd retries against a shared rate-limiter.
-                wait_time = min(random.uniform(0, 2 ** attempt), _MAX_BACKOFF_SECONDS)
+                wait_time = min(random.uniform(0, 2**attempt), _MAX_BACKOFF_SECONDS)  # noqa: S311
                 logger.warning(
                     "{}API error (attempt {}/{}): {}. Retrying in {:.2f}s...",
                     label,
@@ -98,6 +104,5 @@ async def retry_with_backoff(
 
     # Belt-and-suspenders: the loop above must either return or raise.
     # Reaching this line indicates a logic error in retry_with_backoff itself.
-    raise RuntimeError(
-        f"retry_with_backoff: exhausted {max_retries} attempts without result or exception"
-    )
+    msg = f"retry_with_backoff: exhausted {max_retries} attempts without result or exception"
+    raise RuntimeError(msg)

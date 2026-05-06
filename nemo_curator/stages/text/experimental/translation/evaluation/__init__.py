@@ -1,6 +1,6 @@
 from nemo_curator.stages.text.experimental.translation.evaluation.faith import (
-    FAITH_KEYS,
     _SCORE_COLUMNS,
+    FAITH_KEYS,
     FaithEvalFilter,
 )
 from nemo_curator.stages.text.experimental.translation.evaluation.text_quality import (
@@ -10,8 +10,8 @@ from nemo_curator.stages.text.experimental.translation.evaluation.text_quality i
 
 __all__ = [
     "FAITH_KEYS",
+    "_SCORE_COLUMNS",
     "FaithEvalFilter",
     "TextQualityMetricStage",
-    "_SCORE_COLUMNS",
     "compute_text_quality_metric",
 ]

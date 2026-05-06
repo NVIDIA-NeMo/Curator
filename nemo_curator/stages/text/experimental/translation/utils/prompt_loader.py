@@ -51,18 +51,17 @@ def load_prompt_template(filename: str) -> tuple[str, str]:
         with open(prompt_path, encoding="utf-8") as fh:
             data = yaml.safe_load(fh)
     except FileNotFoundError as exc:
-        raise FileNotFoundError(f"Prompt template not found: {prompt_path}") from exc
+        msg = f"Prompt template not found: {prompt_path}"
+        raise FileNotFoundError(msg) from exc
     except yaml.YAMLError as exc:
-        raise ValueError(f"Malformed prompt template {prompt_path}: {exc}") from exc
+        msg = f"Malformed prompt template {prompt_path}: {exc}"
+        raise ValueError(msg) from exc
 
     if not isinstance(data, dict):
-        raise ValueError(
-            f"Prompt template {prompt_path} must contain a top-level mapping, "
-            f"got {type(data).__name__}"
-        )
+        msg = f"Prompt template {prompt_path} must contain a top-level mapping, got {type(data).__name__}"
+        raise TypeError(msg)
     missing = [k for k in ("system", "user") if k not in data]
     if missing:
-        raise KeyError(
-            f"Prompt template {prompt_path} is missing required keys: {missing}"
-        )
+        msg = f"Prompt template {prompt_path} is missing required keys: {missing}"
+        raise KeyError(msg)
     return data["system"], data["user"]

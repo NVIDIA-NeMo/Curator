@@ -17,10 +17,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.text.experimental.translation.evaluation.faith import (
     FaithEvalFilter,
@@ -29,13 +29,16 @@ from nemo_curator.stages.text.experimental.translation.evaluation.faith import (
 from nemo_curator.stages.text.experimental.translation.stages import (
     FormatTranslationOutputStage,
     MergeFaithScoresStage,
-    SegmentTranslationStage,
     ReassemblyStage,
-    SegmentationStage,
     RestoreSkippedRowsStage,
+    SegmentationStage,
+    SegmentTranslationStage,
     SkipExistingTranslationsStage,
 )
 from nemo_curator.tasks import DocumentBatch
+
+if TYPE_CHECKING:
+    from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig
 
 _VALID_OUTPUT_MODES = {"replaced", "raw", "both"}
 
@@ -79,63 +82,73 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
         self.model_name = self.model_name.strip()
         self.faith_model_name = self.faith_model_name.strip()
 
+        self._validate_languages()
+        self._validate_output_mode()
+        self._validate_translation_backend()
+        self._validate_faith_config()
+        self._validate_score_merging()
+
+        super().__init__()
+        self.stages = self._build_stages()
+
+    def _validate_languages(self) -> None:
+        """Validate source and target language codes."""
         if not self.source_lang:
-            raise ValueError("TranslationStage requires a non-empty 'source_lang'")
+            msg = "TranslationStage requires a non-empty 'source_lang'"
+            raise ValueError(msg)
         if not self.target_lang:
-            raise ValueError("TranslationStage requires a non-empty 'target_lang'")
+            msg = "TranslationStage requires a non-empty 'target_lang'"
+            raise ValueError(msg)
 
+    def _validate_output_mode(self) -> None:
+        """Validate requested output mode."""
         if self.output_mode not in _VALID_OUTPUT_MODES:
-            raise ValueError(
-                f"Invalid output_mode '{self.output_mode}'. "
-                f"Must be one of: {sorted(_VALID_OUTPUT_MODES)}"
-            )
+            msg = f"Invalid output_mode '{self.output_mode}'. Must be one of: {sorted(_VALID_OUTPUT_MODES)}"
+            raise ValueError(msg)
 
+    def _validate_translation_backend(self) -> None:
+        """Validate backend-specific translation requirements."""
         if self.backend_type == "llm":
             if self.client is None:
-                raise ValueError(
-                    "TranslationStage with backend_type='llm' requires a non-None "
-                    "'client' (AsyncLLMClient)"
-                )
+                msg = "TranslationStage with backend_type='llm' requires a non-None 'client' (AsyncLLMClient)"
+                raise ValueError(msg)
             if not self.model_name:
-                raise ValueError(
-                    "TranslationStage with backend_type='llm' requires a non-empty "
-                    "'model_name'"
-                )
+                msg = "TranslationStage with backend_type='llm' requires a non-empty 'model_name'"
+                raise ValueError(msg)
 
+    def _validate_faith_config(self) -> None:
+        """Validate optional FAITH scoring configuration."""
         if self.enable_faith_eval:
             if self.client is None:
                 if self.backend_type == "llm":
-                    raise ValueError(
-                        "TranslationStage with enable_faith_eval=True requires a non-None "
-                        "'client' (AsyncLLMClient)"
-                    )
-                raise ValueError(
+                    msg = "TranslationStage with enable_faith_eval=True requires a non-None 'client' (AsyncLLMClient)"
+                    raise ValueError(msg)
+                msg = (
                     "TranslationStage with enable_faith_eval=True and "
                     f"backend_type={self.backend_type!r} requires a separate "
                     "AsyncLLMClient for FAITH scoring"
                 )
+                raise ValueError(msg)
 
             faith_model = self.faith_model_name or self.model_name
             if not faith_model:
-                raise ValueError(
+                msg = (
                     "TranslationStage with enable_faith_eval=True requires "
                     "'faith_model_name' or 'model_name' to be set for FAITH scoring"
                 )
+                raise ValueError(msg)
 
+    def _validate_score_merging(self) -> None:
+        """Validate score-merging options."""
         if self.merge_scores and self.output_mode == "replaced":
-            raise ValueError(
+            msg = (
                 "merge_scores=True requires output_mode in {'raw','both'}. "
                 "Got output_mode='replaced'. Set output_mode='both' explicitly."
             )
+            raise ValueError(msg)
 
         if self.merge_scores and not self.enable_faith_eval:
-            logger.warning(
-                "merge_scores=True but enable_faith_eval=False; "
-                "score merging will be skipped"
-            )
-
-        super().__init__()
-        self.stages = self._build_stages()
+            logger.warning("merge_scores=True but enable_faith_eval=False; score merging will be skipped")
 
     def _build_stages(self) -> list[ProcessingStage]:
         """Construct the ordered list of sub-stages."""
@@ -199,10 +212,7 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
         if self.skip_translated:
             stages.append(RestoreSkippedRowsStage())
 
-        needs_formatting = (
-            self.output_mode != "replaced"
-            or self.reconstruct_messages
-        )
+        needs_formatting = self.output_mode != "replaced" or self.reconstruct_messages
         if needs_formatting:
             stages.append(
                 FormatTranslationOutputStage(

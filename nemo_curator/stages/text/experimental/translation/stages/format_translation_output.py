@@ -18,9 +18,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
-
-import pandas as pd
+from typing import TYPE_CHECKING
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.experimental.translation.utils.metadata import (
@@ -28,6 +26,9 @@ from nemo_curator.stages.text.experimental.translation.utils.metadata import (
     reconstruct_messages_with_translation,
 )
 from nemo_curator.tasks import DocumentBatch
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @dataclass(kw_only=True)
@@ -45,9 +46,8 @@ class FormatTranslationOutputStage(ProcessingStage[DocumentBatch, DocumentBatch]
     def __post_init__(self) -> None:
         self.target_lang = self.target_lang.strip()
         if not self.target_lang:
-            raise ValueError(
-                "FormatTranslationOutputStage requires a non-empty 'target_lang'"
-            )
+            msg = "FormatTranslationOutputStage requires a non-empty 'target_lang'"
+            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.output_field]
@@ -103,9 +103,7 @@ class FormatTranslationOutputStage(ProcessingStage[DocumentBatch, DocumentBatch]
             row = df.iloc[idx]
             translated_text = row.get(self.output_field, "")
             translation_map = self._parse_optional_json_object(row.get("_translation_map"))
-            segmented_translation_map = self._parse_optional_json_object(
-                row.get("_segmented_translation_map")
-            )
+            segmented_translation_map = self._parse_optional_json_object(row.get("_segmented_translation_map"))
 
             metadata_values.append(
                 build_translation_metadata(
@@ -151,7 +149,7 @@ class FormatTranslationOutputStage(ProcessingStage[DocumentBatch, DocumentBatch]
         df["translated_messages"] = translated_msgs
 
     @staticmethod
-    def _parse_optional_json_object(value: Any) -> dict[str, Any] | None:
+    def _parse_optional_json_object(value: object) -> dict[str, object] | None:
         """Parse helper JSON emitted by ReassemblyStage when present."""
         if value is None:
             return None

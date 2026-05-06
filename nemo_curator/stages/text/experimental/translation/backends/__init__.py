@@ -30,10 +30,8 @@ _CUSTOM_BACKENDS: dict[str, type] = {}
 def register_backend(name: str, backend_class: type) -> None:
     """Register a custom translation backend."""
     if not (isinstance(backend_class, type) and issubclass(backend_class, TranslationBackend)):
-        raise TypeError(
-            f"backend_class must be a subclass of TranslationBackend, "
-            f"got {backend_class!r}"
-        )
+        msg = f"backend_class must be a subclass of TranslationBackend, got {backend_class!r}"
+        raise TypeError(msg)
     _CUSTOM_BACKENDS[name.lower()] = backend_class
     logger.info("Registered custom translation backend: {} -> {}", name, backend_class.__name__)
 
@@ -59,8 +57,9 @@ def get_backend(backend_type: str, config: dict) -> TranslationBackend:
         return NMTTranslationBackend(**config)
     else:
         registered = ", ".join(sorted(_CUSTOM_BACKENDS)) if _CUSTOM_BACKENDS else "none"
-        raise ValueError(
+        msg = (
             f"Unknown backend type: {backend_type!r}. "
             f"Built-in backends: google, aws, nmt. "
             f"Custom registered backends: {registered}"
         )
+        raise ValueError(msg)

@@ -18,24 +18,23 @@ from __future__ import annotations
 
 import copy
 import json
-from typing import Any
 
 
 def build_translation_metadata(
     target_lang: str,
     translated_text: str | None = None,
-    translation_map: dict[str, Any] | None = None,
-    segmented_translation_map: dict[str, Any] | None = None,
+    translation_map: dict[str, object] | None = None,
+    segmented_translation_map: dict[str, object] | None = None,
 ) -> str:
     """Build translation metadata as JSON."""
     if translation_map is None:
-        meta_translation: dict[str, Any] = {"content": translated_text or ""}
+        meta_translation: dict[str, object] = {"content": translated_text or ""}
     else:
         meta_translation = translation_map
 
-    meta_segmented: Any = segmented_translation_map if segmented_translation_map is not None else []
+    meta_segmented: object = segmented_translation_map if segmented_translation_map is not None else []
 
-    meta: dict[str, Any] = {
+    meta: dict[str, object] = {
         "target_lang": target_lang,
         "translation": meta_translation,
         "segmented_translation": meta_segmented,
@@ -46,7 +45,7 @@ def build_translation_metadata(
 
 def merge_faith_scores_into_metadata(
     metadata_json: str,
-    faith_scores: dict[str, Any],
+    faith_scores: dict[str, object],
 ) -> str:
     """Merge FAITH scores into existing translation metadata."""
     try:
@@ -59,10 +58,10 @@ def merge_faith_scores_into_metadata(
 
 
 def reconstruct_messages_with_translation(
-    original_messages: list[dict[str, Any]],
-    translated_text: Any,
+    original_messages: list[dict[str, object]],
+    translated_text: object,
     field_path: str = "content",
-) -> list[dict[str, Any]]:
+) -> list[dict[str, object]]:
     """Return a copy of messages with translated content inserted."""
     if not original_messages:
         return []
@@ -76,10 +75,7 @@ def reconstruct_messages_with_translation(
     translated_text_str = "" if translated_text is None else str(translated_text)
 
     separator = "\n---\n"
-    if separator in translated_text_str:
-        parts = translated_text_str.split(separator)
-    else:
-        parts = [translated_text_str]
+    parts = translated_text_str.split(separator) if separator in translated_text_str else [translated_text_str]
 
     path_keys = field_path.split(".")
 
@@ -90,7 +86,7 @@ def reconstruct_messages_with_translation(
     return messages
 
 
-def _set_nested(obj: dict[str, Any], keys: list[str], value: Any) -> None:
+def _set_nested(obj: dict[str, object], keys: list[str], value: object) -> None:
     """Set a nested value when the full path already exists."""
     for key in keys[:-1]:
         if key in obj and isinstance(obj[key], dict):
@@ -101,7 +97,7 @@ def _set_nested(obj: dict[str, Any], keys: list[str], value: Any) -> None:
         obj[keys[-1]] = value
 
 
-def _parse_structured_messages(translated_text: Any) -> list[dict[str, Any]] | None:
+def _parse_structured_messages(translated_text: object) -> list[dict[str, object]] | None:
     """Return translated messages when they are already structured."""
     if isinstance(translated_text, list):
         if all(isinstance(item, dict) for item in translated_text):

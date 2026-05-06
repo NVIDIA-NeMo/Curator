@@ -24,7 +24,6 @@ from nemo_curator.stages.text.experimental.translation.utils.metadata import (
     reconstruct_messages_with_translation,
 )
 
-
 # ---------------------------------------------------------------------------
 # build_translation_metadata tests
 # ---------------------------------------------------------------------------
@@ -189,9 +188,7 @@ class TestReconstructMessagesWithTranslation:
         original = [
             {"role": "user", "data": {"text": "Hello"}},
         ]
-        result = reconstruct_messages_with_translation(
-            original, "Hola", field_path="data.text"
-        )
+        result = reconstruct_messages_with_translation(original, "Hola", field_path="data.text")
         assert result[0]["data"]["text"] == "Hola"
         assert result[0]["role"] == "user"
 
@@ -201,9 +198,7 @@ class TestReconstructMessagesWithTranslation:
             {"role": "user", "content": "Hello"},
         ]
         # "nonexistent.path" won't match anything in the message
-        result = reconstruct_messages_with_translation(
-            original, "Hola", field_path="nonexistent.path"
-        )
+        result = reconstruct_messages_with_translation(original, "Hola", field_path="nonexistent.path")
         # Message is unchanged because the path doesn't match
         assert result[0]["content"] == "Hello"
 

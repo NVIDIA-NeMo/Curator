@@ -19,21 +19,23 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import DocumentBatch
-
 from nemo_curator.stages.text.experimental.translation.utils.async_utils import run_async_safe
 from nemo_curator.stages.text.experimental.translation.utils.prompt_loader import (
     load_prompt_template,
 )
 from nemo_curator.stages.text.utils.text_utils import get_language_name
+from nemo_curator.tasks import DocumentBatch
 
 from .segmentation import is_line_translatable_content
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import WorkerMetadata
+    from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig
 
 # ---------------------------------------------------------------------------
 # SegmentTranslationStage
@@ -77,21 +79,18 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.target_lang = self.target_lang.strip()
         self.model_name = self.model_name.strip()
         if not self.source_lang:
-            raise ValueError(
-                "SegmentTranslationStage requires a non-empty 'source_lang'"
-            )
+            msg = "SegmentTranslationStage requires a non-empty 'source_lang'"
+            raise ValueError(msg)
         if not self.target_lang:
-            raise ValueError(
-                "SegmentTranslationStage requires a non-empty 'target_lang'"
-            )
+            msg = "SegmentTranslationStage requires a non-empty 'target_lang'"
+            raise ValueError(msg)
         if self.backend_type == "llm":
             if self.client is None:
                 msg = "SegmentTranslationStage requires a non-None 'client' (AsyncLLMClient) when backend_type='llm'"
                 raise ValueError(msg)
             if not self.model_name:
-                raise ValueError(
-                    "SegmentTranslationStage requires a non-empty 'model_name' when backend_type='llm'"
-                )
+                msg = "SegmentTranslationStage requires a non-empty 'model_name' when backend_type='llm'"
+                raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["_seg_segments"]
@@ -99,7 +98,7 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["_translated", "_translation_time", "_translation_error"]
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Initialize the client or backend on the worker."""
         if not self._initialized:
             self._system_prompt, self._user_template = load_prompt_template("translate.yaml")
@@ -128,47 +127,39 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         """Verify the translation backend is reachable."""
         if self.backend_type == "llm":
             try:
-                messages = self._build_messages("Hello")
-
-                async def _test_query() -> str:
-                    resp = await self.client.query_model(  # type: ignore[union-attr]
-                        model=self.model_name,
-                        messages=messages,
-                        generation_config=self.generation_config,
-                    )
-                    return resp[0] if resp else ""
-
-                result = run_async_safe(_test_query)
-
-                if result:
-                    logger.info("LLM health check passed")
-                else:
-                    raise RuntimeError("LLM health check returned empty response")
+                result = run_async_safe(self._query_llm_health_check)
             except RuntimeError:
                 raise
             except Exception as exc:
-                raise RuntimeError(
-                    f"LLM health check failed: {exc}. "
-                    "Ensure the LLM server is running and reachable."
-                ) from exc
-        else:
-            if self._backend is not None and hasattr(self._backend, "check_server"):
-                ok = self._backend.check_server()
-                if not ok:
-                    raise RuntimeError(
-                        f"{self.backend_type!r} backend health check failed. "
-                        "Ensure the translation service is running and reachable."
-                    )
-            else:
-                logger.debug(
-                    "Backend {!r} does not implement check_server(); "
-                    "skipping health check",
-                    self.backend_type,
+                msg = f"LLM health check failed: {exc}. Ensure the LLM server is running and reachable."
+                raise RuntimeError(msg) from exc
+            if not result:
+                msg = "LLM health check returned empty response"
+                raise RuntimeError(msg)
+            logger.info("LLM health check passed")
+        elif self._backend is not None and hasattr(self._backend, "check_server"):
+            ok = self._backend.check_server()
+            if not ok:
+                msg = (
+                    f"{self.backend_type!r} backend health check failed. "
+                    "Ensure the translation service is running and reachable."
                 )
+                raise RuntimeError(msg)
+        else:
+            logger.debug(
+                "Backend {!r} does not implement check_server(); skipping health check",
+                self.backend_type,
+            )
 
-    # ------------------------------------------------------------------
-    # process()
-    # ------------------------------------------------------------------
+    async def _query_llm_health_check(self) -> str:
+        """Run the lightweight LLM health-check request."""
+        messages = self._build_messages("Hello")
+        resp = await self.client.query_model(  # type: ignore[union-attr]
+            model=self.model_name,
+            messages=messages,
+            generation_config=self.generation_config,
+        )
+        return resp[0] if resp else ""
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         """Translate every segment in the batch."""
@@ -219,15 +210,11 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     # LLM translation helpers
     # ------------------------------------------------------------------
 
-    def _translate_llm_async(
-        self, segments: list[str]
-    ) -> tuple[list[str], list[float], list[str]]:
+    def _translate_llm_async(self, segments: list[str]) -> tuple[list[str], list[float], list[str]]:
         """Translate segments with the async LLM client."""
         return run_async_safe(lambda: self._translate_all_async(segments))
 
-    async def _translate_all_async(
-        self, segments: list[str]
-    ) -> tuple[list[str], list[float], list[str]]:
+    async def _translate_all_async(self, segments: list[str]) -> tuple[list[str], list[float], list[str]]:
         """Translate all segments concurrently."""
         sem = asyncio.Semaphore(self.max_concurrent_requests)
 
@@ -279,9 +266,7 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     # Non-LLM backend delegation
     # ------------------------------------------------------------------
 
-    def _translate_backend(
-        self, segments: list[str]
-    ) -> tuple[list[str], list[float], list[str]]:
+    def _translate_backend(self, segments: list[str]) -> tuple[list[str], list[float], list[str]]:
         """Delegate translation to a non-LLM backend."""
         if self._backend is None:
             msg = f"Backend '{self.backend_type}' was not initialized"
@@ -291,6 +276,39 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         timings = [0.0] * len(segments)
         errors = [""] * len(segments)
 
+        translate_indices, translate_segments = self._collect_backend_segments(segments, translated)
+
+        if not translate_segments:
+            return translated, timings, errors
+
+        try:
+            start = time.time()
+            result = self._call_backend_batch(translate_segments)
+            elapsed = time.time() - start
+
+            self._validate_backend_result_count(result, translate_segments)
+        except self._backend_failure_exceptions() as exc:
+            logger.warning(
+                "Bulk backend translation failed for {} segments: {}. Falling back to per-segment requests.",
+                len(translate_segments),
+                exc,
+            )
+        else:
+            self._write_bulk_backend_results(
+                result=result,
+                elapsed=elapsed,
+                translate_indices=translate_indices,
+                translated=translated,
+                timings=timings,
+            )
+            return translated, timings, errors
+
+        self._translate_backend_one_by_one(segments, translated, timings, errors)
+        return translated, timings, errors
+
+    @staticmethod
+    def _collect_backend_segments(segments: list[str], translated: list[str]) -> tuple[list[int], list[str]]:
+        """Collect translatable segments and preserve passthrough segments."""
         translate_indices: list[int] = []
         translate_segments: list[str] = []
         for idx, seg in enumerate(segments):
@@ -301,35 +319,38 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 continue
             translate_indices.append(idx)
             translate_segments.append(seg)
+        return translate_indices, translate_segments
 
-        if not translate_segments:
-            return translated, timings, errors
+    @staticmethod
+    def _validate_backend_result_count(result: list[str], translate_segments: list[str]) -> None:
+        """Raise if the backend returned a different number of translations."""
+        if len(result) != len(translate_segments):
+            msg = f"Backend returned {len(result)} translations for {len(translate_segments)} segments"
+            raise RuntimeError(msg)
 
-        try:
-            start = time.time()
-            result = self._call_backend_batch(translate_segments)
-            elapsed = time.time() - start
+    @staticmethod
+    def _write_bulk_backend_results(
+        *,
+        result: list[str],
+        elapsed: float,
+        translate_indices: list[int],
+        translated: list[str],
+        timings: list[float],
+    ) -> None:
+        """Write successful bulk backend outputs into result arrays."""
+        per_segment_time = elapsed / len(translate_indices)
+        for out_idx, translated_text in zip(translate_indices, result, strict=False):
+            translated[out_idx] = translated_text
+            timings[out_idx] = per_segment_time
 
-            if len(result) != len(translate_segments):
-                raise RuntimeError(
-                    f"Backend returned {len(result)} translations for "
-                    f"{len(translate_segments)} segments"
-                )
-
-            per_segment_time = elapsed / len(translate_segments)
-            for out_idx, translated_text in zip(translate_indices, result):
-                translated[out_idx] = translated_text
-                timings[out_idx] = per_segment_time
-
-            return translated, timings, errors
-        except Exception as exc:
-            logger.warning(
-                "Bulk backend translation failed for {} segments: {}. "
-                "Falling back to per-segment requests.",
-                len(translate_segments),
-                exc,
-            )
-
+    def _translate_backend_one_by_one(
+        self,
+        segments: list[str],
+        translated: list[str],
+        timings: list[float],
+        errors: list[str],
+    ) -> None:
+        """Fallback path that retries backend translation one segment at a time."""
         for idx, seg in enumerate(segments):
             if not seg or not seg.strip():
                 continue
@@ -343,7 +364,7 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 translated[idx] = result[0] if result else ""
                 timings[idx] = elapsed
                 errors[idx] = ""
-            except Exception as exc:
+            except self._backend_failure_exceptions() as exc:
                 elapsed = time.time() - start
                 logger.error(
                     "Backend translation failed for segment index {}: {}",
@@ -354,7 +375,9 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 timings[idx] = elapsed
                 errors[idx] = str(exc)
 
-        return translated, timings, errors
+    def _backend_failure_exceptions(self) -> tuple[type[BaseException], ...]:
+        """Return exception types handled at the backend boundary."""
+        return (Exception,)
 
     def _call_backend_batch(self, segments: list[str]) -> list[str]:
         """Invoke the configured non-LLM backend for one batch of segments."""

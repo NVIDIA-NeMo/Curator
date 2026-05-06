@@ -64,12 +64,7 @@ class AWSTranslationBackend(ExecutorTranslationBackend):
         max_concurrent_requests: int = 32,
     ) -> None:
         super().__init__(max_concurrent_requests=max_concurrent_requests)
-        self._region = (
-            region
-            or os.environ.get("AWS_REGION")
-            or os.environ.get("AWS_DEFAULT_REGION")
-            or "us-east-2"
-        )
+        self._region = region or os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-2"
         self._client = None  # Initialized in setup()
 
     # --------------------------------------------------------------------- #
@@ -86,12 +81,13 @@ class AWSTranslationBackend(ExecutorTranslationBackend):
 
         try:
             import boto3
-        except ImportError:
-            raise ImportError(
+        except ImportError as exc:
+            msg = (
                 "boto3 is required for the AWS backend: "
                 "install the optional translation_aws extra "
                 "(for example, `uv sync --extra translation_aws`)"
             )
+            raise ImportError(msg) from exc
 
         self._client = boto3.client(
             "translate",
@@ -123,11 +119,12 @@ class AWSTranslationBackend(ExecutorTranslationBackend):
         """
         text_bytes = len(text.encode("utf-8"))
         if text_bytes > AWS_MAX_BYTES_PER_REQUEST:
-            raise ValueError(
+            msg = (
                 f"AWS TranslateText input too large: {text_bytes} bytes "
                 f"(UTF-8), limit is {AWS_MAX_BYTES_PER_REQUEST} bytes. "
                 "Please chunk the input text before calling AWS Translate."
             )
+            raise ValueError(msg)
 
         response = self._client.translate_text(
             Text=text,

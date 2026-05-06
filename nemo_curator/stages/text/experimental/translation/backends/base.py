@@ -19,8 +19,8 @@ from abc import ABC, abstractmethod
 
 from loguru import logger
 
-from ..utils.async_utils import run_async_safe
-from ._retry import retry_with_backoff
+from nemo_curator.stages.text.experimental.translation.backends._retry import retry_with_backoff
+from nemo_curator.stages.text.experimental.translation.utils.async_utils import run_async_safe
 
 
 class TranslationBackend(ABC):
@@ -53,7 +53,6 @@ class TranslationBackend(ABC):
         ``translate_batch_async()`` so that it always belongs to the correct
         event loop.
         """
-        pass
 
     @abstractmethod
     def check_server(self) -> bool:
@@ -85,9 +84,7 @@ class TranslationBackend(ABC):
         Returns:
             Translated texts in the same order as input.
         """
-        return run_async_safe(
-            lambda: self.translate_batch_async(texts, source_lang, target_lang)
-        )
+        return run_async_safe(lambda: self.translate_batch_async(texts, source_lang, target_lang))
 
     @abstractmethod
     async def translate_batch_async(
@@ -113,7 +110,7 @@ class TranslationBackend(ABC):
 
         Override in subclasses that hold open connections.
         """
-        pass
+        self._semaphore = None
 
     def _get_semaphore(self) -> asyncio.Semaphore:
         """Return the per-backend semaphore, creating it lazily per event loop."""
@@ -144,7 +141,7 @@ class ExecutorTranslationBackend(TranslationBackend):
                 self.health_check_source_lang,
                 self.health_check_target_lang,
             )
-        except Exception as exc:
+        except self._health_check_exceptions() as exc:
             logger.warning("{} health check failed: {}", self.backend_name, exc)
             return False
 
@@ -165,10 +162,7 @@ class ExecutorTranslationBackend(TranslationBackend):
         if not texts:
             return []
 
-        tasks = [
-            self._translate_single_async(text, source_lang, target_lang)
-            for text in texts
-        ]
+        tasks = [self._translate_single_async(text, source_lang, target_lang) for text in texts]
         return list(await asyncio.gather(*tasks))
 
     async def _translate_single_async(
@@ -203,6 +197,10 @@ class ExecutorTranslationBackend(TranslationBackend):
     def _non_retryable_exceptions(self) -> tuple[type[BaseException], ...]:
         """Return exception types that should bypass retry/backoff."""
         return ()
+
+    def _health_check_exceptions(self) -> tuple[type[BaseException], ...]:
+        """Return provider exception types treated as health-check failures."""
+        return (Exception,)
 
     @abstractmethod
     def _translate_single_sync(

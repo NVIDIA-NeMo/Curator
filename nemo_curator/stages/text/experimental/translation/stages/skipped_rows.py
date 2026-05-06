@@ -172,7 +172,7 @@ class RestoreSkippedRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
 
 __all__ = [
+    "_SKIPPED_ROWS_METADATA_KEY",
     "RestoreSkippedRowsStage",
     "SkipExistingTranslationsStage",
-    "_SKIPPED_ROWS_METADATA_KEY",
 ]

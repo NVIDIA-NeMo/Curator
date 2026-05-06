@@ -82,31 +82,30 @@ class GoogleTranslationBackend(ExecutorTranslationBackend):
                 from google.cloud import translate_v3 as translate
             else:
                 from google.cloud import translate_v2 as translate
-        except ImportError:
-            raise ImportError(
+        except ImportError as exc:
+            msg = (
                 "Google Cloud Translate required: "
                 "install the optional translation_google extra "
                 "(for example, `uv sync --extra translation_google`)"
             )
+            raise ImportError(msg) from exc
 
         if self._api_version == "v3":
             self._client = translate.TranslationServiceClient()
             if not self._project_id:
-                raise ValueError(
+                msg = (
                     "project_id is required for Google Translation API v3. "
                     "Set project_id in backend_config or the "
                     "GOOGLE_CLOUD_PROJECT environment variable."
                 )
-            self._parent = (
-                f"projects/{self._project_id}/locations/{self._location}"
-            )
+                raise ValueError(msg)
+            self._parent = f"projects/{self._project_id}/locations/{self._location}"
         else:
             self._client = translate.Client()
             self._parent = None
 
         logger.info(
-            "Google Cloud Translation client initialized "
-            "(api_version={}, project={})",
+            "Google Cloud Translation client initialized (api_version={}, project={})",
             self._api_version,
             self._project_id or "none (v2 mode)",
         )

@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from nemo_curator.stages.text.experimental.translation.utils.field_paths import (
     extract_nested_fields,
     is_wildcard_path,
@@ -27,7 +25,6 @@ from nemo_curator.stages.text.experimental.translation.utils.field_paths import 
     parse_structured_value,
     set_nested_fields,
 )
-
 
 # ---------------------------------------------------------------------------
 # extract_nested_fields tests
@@ -302,7 +299,7 @@ class TestParseStructuredValue:
 
     def test_json_array_returns_list(self) -> None:
         """A JSON array should round-trip as structured data."""
-        s = '[1, 2, 3]'
+        s = "[1, 2, 3]"
         result = parse_structured_value(s)
         assert result == [1, 2, 3]
 

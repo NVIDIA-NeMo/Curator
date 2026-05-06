@@ -37,11 +37,15 @@ Dependencies:
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from ._retry import retry_with_backoff
 from .base import TranslationBackend
+
+if TYPE_CHECKING:
+    import aiohttp
 
 
 class NMTTranslationBackend(TranslationBackend):
@@ -63,15 +67,14 @@ class NMTTranslationBackend(TranslationBackend):
     ) -> None:
         super().__init__(max_concurrent_requests=max_concurrent_requests)
         if not server_url or not server_url.strip():
-            raise ValueError(
-                "NMT backend requires a non-empty server_url. "
-                "Example: server_url='http://localhost:8000'"
-            )
+            msg = "NMT backend requires a non-empty server_url. Example: server_url='http://localhost:8000'"
+            raise ValueError(msg)
         self._server_url = server_url.rstrip("/")
         self._batch_size = batch_size
         self._timeout = timeout
         self._session = None  # aiohttp.ClientSession, lazily created
         self._session_loop = None
+        self._session_close_task: asyncio.Task | None = None
 
     # --------------------------------------------------------------------- #
     #  Lifecycle
@@ -89,19 +92,19 @@ class NMTTranslationBackend(TranslationBackend):
         # error at setup time rather than mid-translation.
         try:
             import aiohttp  # noqa: F401
-        except ImportError:
-            raise ImportError(
+        except ImportError as exc:
+            msg = (
                 "aiohttp is required for the NMT backend: "
                 "install the optional translation_nmt extra "
                 "(for example, `uv sync --extra translation_nmt`)"
             )
+            raise ImportError(msg) from exc
 
         # Optional health check -- log but do not fail.
         self.check_server()
 
         logger.info(
-            "NMT backend initialized: server_url={}, batch_size={}, "
-            "timeout={}s, max_concurrent={}",
+            "NMT backend initialized: server_url={}, batch_size={}, timeout={}s, max_concurrent={}",
             self._server_url,
             self._batch_size,
             self._timeout,
@@ -121,7 +124,7 @@ class NMTTranslationBackend(TranslationBackend):
                 loop = asyncio.get_running_loop()
                 # Already inside a running loop -- schedule on it.  The
                 # ``loop=`` kwarg was removed from asyncio APIs in 3.10.
-                loop.create_task(self._session.close())
+                self._session_close_task = loop.create_task(self._session.close())
             except RuntimeError:
                 # No running event loop -- actually await the close.
                 asyncio.run(self._session.close())
@@ -149,15 +152,9 @@ class NMTTranslationBackend(TranslationBackend):
         self._get_semaphore()
 
         # Split into sub-batches.
-        sub_batches = [
-            texts[i : i + self._batch_size]
-            for i in range(0, len(texts), self._batch_size)
-        ]
+        sub_batches = [texts[i : i + self._batch_size] for i in range(0, len(texts), self._batch_size)]
 
-        tasks = [
-            self._translate_sub_batch(sub, source_lang, target_lang)
-            for sub in sub_batches
-        ]
+        tasks = [self._translate_sub_batch(sub, source_lang, target_lang) for sub in sub_batches]
         results = await asyncio.gather(*tasks)
 
         # Flatten the list of lists.
@@ -167,16 +164,17 @@ class NMTTranslationBackend(TranslationBackend):
     #  Internal helpers
     # --------------------------------------------------------------------- #
 
-    async def _get_session(self):
+    async def _get_session(self) -> aiohttp.ClientSession:
         """Lazily create or return the aiohttp session."""
         try:
             import aiohttp
-        except ImportError:
-            raise ImportError(
+        except ImportError as exc:
+            msg = (
                 "aiohttp is required for the NMT backend: "
                 "install the optional translation_nmt extra "
                 "(for example, `uv sync --extra translation_nmt`)"
             )
+            raise ImportError(msg) from exc
 
         current_loop = asyncio.get_running_loop()
         if (
@@ -212,21 +210,24 @@ class NMTTranslationBackend(TranslationBackend):
         }
 
         async def _attempt() -> list[str]:
-            async with semaphore:
-                async with session.post(
+            async with (
+                semaphore,
+                session.post(
                     f"{self._server_url}/translate",
                     json=payload,
-                ) as response:
-                    response.raise_for_status()
-                    result = await response.json()
+                ) as response,
+            ):
+                response.raise_for_status()
+                result = await response.json()
 
             translations = result.get("translations", [])
             if len(translations) != len(texts):
-                raise RuntimeError(
+                msg = (
                     f"Translation count mismatch: sent {len(texts)} "
                     f"texts, received {len(translations)} translations "
                     "from NMT server."
                 )
+                raise RuntimeError(msg)
             return translations
 
         return await retry_with_backoff(_attempt, backend_name="NMT")
@@ -243,31 +244,26 @@ class NMTTranslationBackend(TranslationBackend):
         try:
             import requests
         except ImportError:
-            logger.debug(
-                "requests not installed; skipping NMT health check"
-            )
+            logger.debug("requests not installed; skipping NMT health check")
             return True  # Assume reachable if we cannot check
 
         try:
-            resp = requests.get(
-                f"{self._server_url}/health", timeout=10
-            )
+            resp = requests.get(f"{self._server_url}/health", timeout=10)
             resp.raise_for_status()
-            logger.info("NMT server health check passed ({})", self._server_url)
-            return True
-        except Exception:
+        except requests.RequestException:
             try:
                 resp = requests.get(self._server_url, timeout=10)
-                logger.info(
-                    "NMT server reachable at {} (no /health endpoint)",
-                    self._server_url,
-                )
-                return True
-            except Exception as exc:
+            except requests.RequestException as exc:
                 logger.warning(
-                    "NMT server at {} is not reachable: {}. "
-                    "Translation calls may fail.",
+                    "NMT server at {} is not reachable: {}. Translation calls may fail.",
                     self._server_url,
                     exc,
                 )
                 return False
+            logger.info(
+                "NMT server reachable at {} (no /health endpoint)",
+                self._server_url,
+            )
+            return True
+        logger.info("NMT server health check passed ({})", self._server_url)
+        return True

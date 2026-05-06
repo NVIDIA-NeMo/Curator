@@ -1,6 +1,8 @@
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from nemo_curator.stages.text.utils.text_utils import get_language_name
 
 
@@ -12,12 +14,12 @@ class _LangResolver:
         self.name = names[code]
 
 
-def test_get_language_name_supports_lang_api(monkeypatch) -> None:
+def test_get_language_name_supports_lang_api(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "iso639", SimpleNamespace(Lang=_LangResolver))
     assert get_language_name("en") == "English"
 
 
-def test_get_language_name_supports_to_name_api(monkeypatch) -> None:
+def test_get_language_name_supports_to_name_api(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(
         sys.modules,
         "iso639",
@@ -26,7 +28,7 @@ def test_get_language_name_supports_to_name_api(monkeypatch) -> None:
     assert get_language_name("de") == "German"
 
 
-def test_get_language_name_falls_back_on_unknown_code(monkeypatch) -> None:
+def test_get_language_name_falls_back_on_unknown_code(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(
         sys.modules,
         "iso639",
