@@ -51,6 +51,7 @@ from nemo_curator.core.serve.dynamo.constants import (
 )
 from nemo_curator.core.serve.dynamo.infra import build_infra_pg, engine_kwargs_to_cli_flags
 from nemo_curator.core.serve.dynamo.vllm import (
+    ensure_actor_overrides_on_all_nodes,
     launch_disagg_replicas,
     launch_replicas,
     merge_model_runtime_envs,
@@ -143,6 +144,11 @@ class DynamoBackend(InferenceBackend):
             self._runtime_dir = str(session_dir / f"nemo_curator_dynamo_{short_id}")
             os.makedirs(self._runtime_dir, exist_ok=True)
             logger.info(f"Dynamo runtime dir: {self._runtime_dir}")
+
+            # Materialize the actor-venv override file on every node before
+            # any worker with DYNAMO_VLLM_RUNTIME_ENV is spawned; uv reads the
+            # path from the node where the runtime_env install runs.
+            ensure_actor_overrides_on_all_nodes()
 
             self._sweep_orphan_actors()
             remove_named_pgs_with_prefix(self._pg_name_prefix)
