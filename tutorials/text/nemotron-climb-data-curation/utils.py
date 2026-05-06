@@ -75,8 +75,16 @@ def get_token_distribution(input_path: str) -> dict[str, float]:
 
     files = sorted(glob.glob(f"{input_path}/*.bin"))
 
+    if not files:
+        msg = f"No .bin files found under {input_path}. Check that the path points to the tokenized output from step 4."
+        raise FileNotFoundError(msg)
+
     sizes = [os.path.getsize(f) for f in files]
     total = sum(sizes)
+
+    if total == 0:
+        msg = f"All .bin files under {input_path} are empty (total size 0 bytes); cannot compute a token distribution."
+        raise ValueError(msg)
 
     weights: list[float] = [s / total for s in sizes]
 
