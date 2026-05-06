@@ -176,12 +176,7 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 
 ### Bring-Your-Own H.264 Software Encoder (Advanced)
 
-Curator's default FFmpeg build deliberately excludes software H.264 encoders (`libopenh264`, `libx264`, `libx265`) due to licensing constraints:
-
-- **`libx264` / `libx265`** are GPL-licensed. Linking them would require Curator's binary distribution to also be GPL.
-- **`libopenh264`** uses a BSD source license, but its production use depends on a Cisco-distributed patent-licensed binary, which is not compatible with all redistribution scenarios.
-
-If your environment permits these encoders and you want H.264 software encoding (for example, on GPUs without an NVENC encoder block such as A100 or H100), you can install them yourself.
+Curator's default FFmpeg build deliberately excludes software H.264 encoders (`libopenh264`, `libx264`, `libx265`). If your environment permits these encoders and you want H.264 software encoding (for example, on GPUs without an NVENC encoder block such as A100 or H100), you can install them yourself.
 
 #### Option 1: Use the system FFmpeg
 
@@ -219,9 +214,8 @@ python video_split_clip_example.py ... --transcode-encoder libopenh264
 
 #### Caveats
 
-- **Licensing is your responsibility.** Adding `libx264` (`--enable-gpl`) or `libopenh264` to your FFmpeg build may obligate you to additional license terms when you redistribute Curator.
 - **Default options for these encoders are not tuned.** `ClipTranscodingStage` only sets quality presets for `h264_nvenc` and `libvpx-vp9`. Other encoders run with FFmpeg defaults, which may produce different quality/size trade-offs than you expect — see [Configure encoders](../curate-video/process-data/transcoding.md#configure) for how to pass an explicit bitrate.
-- **NVIDIA does not test custom encoder configurations.** Issues filed against custom encoder builds may be closed.
+- **NeMo Curator team does not test custom encoder configurations.** Issues filed against custom encoder builds may be closed.
 
 ---
 
