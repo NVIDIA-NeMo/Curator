@@ -24,6 +24,7 @@ Additionally, we employed a separate validation set and an early stopping mechan
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 
 import lightgbm as lgb
@@ -31,8 +32,13 @@ import numpy as np
 import pandas as pd
 from utils import get_token_distribution
 
+
 SEED = 42
 np.random.seed(SEED)  # noqa: NPY002
+
+
+def _natural_key(name: str) -> tuple[int | str, ...]:
+    return tuple(int(t) if t.isdigit() else t for t in re.split(r"(\d+)", name))
 
 
 def load_benchmark_results(
@@ -61,14 +67,14 @@ def load_benchmark_results(
     for input_path_str, mixtures_path in zip(input_paths, mixtures_paths, strict=True):
         input_path = Path(input_path_str)
 
-        for model_dirs in sorted(input_path.iterdir(), key=lambda p: p.name):
+        for proxy_dir in sorted(input_path.iterdir(), key=lambda p: _natural_key(p.name)):
             # Initialize a Series with the same columns as the DataFrame
             series = pd.Series(index=df.columns)
             # Grab model name from model directory name, e.g., n1, n2, etc.
-            model_name = model_dirs.name
+            model_name = proxy_dir.name
 
             # Grab relevant subdirectory from each model directory
-            subdirs = [d for d in model_dirs.iterdir() if d.is_dir()]
+            subdirs = [d for d in proxy_dir.iterdir() if d.is_dir()]
             assert len(subdirs) == 1, "Expected exactly one subdirectory per model directory"  # noqa: S101
             model_dir = subdirs[0]
 
@@ -80,13 +86,17 @@ def load_benchmark_results(
 
             # Grab the benchmark results
             data = json.loads(jsons[-1].read_text())["results"]
+            for bench in ("arc_easy", "piqa", "hellaswag"):
+                if bench not in data:
+                    msg = f"Benchmark {bench!r} missing from {jsons[-1]}"
+                    raise RuntimeError(msg)
             arc_easy_acc = data["arc_easy"]["acc,none"] * 100
             piqa_acc_norm = data["piqa"]["acc_norm,none"] * 100
             hellaswag_acc_norm = data["hellaswag"]["acc_norm,none"] * 100
             valid_avg = (arc_easy_acc + piqa_acc_norm + hellaswag_acc_norm) / 3
 
             # Assign the values to the Series
-            series["model_benchmark_path"] = model_dirs
+            series["model_benchmark_path"] = proxy_dir
             series["arc_easy_acc"] = arc_easy_acc
             series["piqa_acc_norm"] = piqa_acc_norm
             series["hellaswag_acc_norm"] = hellaswag_acc_norm
@@ -99,10 +109,12 @@ def load_benchmark_results(
             with open(data_mixture) as f:
                 # Ignore the first line and any line containing "EOF"
                 for line in f:
+                    if not line.strip():
+                        continue
                     if line.startswith("#") or line.startswith("cat") or line.startswith("EOF"):  # noqa: PIE810
                         continue
                     weight, domain_name = line.strip().split()
-                    domain_name = domain_name.split("/")[-1]
+                    domain_name = os.path.basename(domain_name)
                     assert domain_name in domain_names, f"Domain {domain_name} not found in the domains_path"  # noqa: S101
                     series[domain_name] = float(weight)
 
@@ -136,16 +148,10 @@ def fit_predictor(df: pd.DataFrame, domain_names: list[str], target_column: str)
     # Nemotron-CLIMB algorithm starts with 64 proxy model evaluations -> test=7, far below the original stopping_rounds=20
     stopping_rounds = min(20, len(test_df))
 
-    train_df_config = train_df[domain_names]
-    train_df_target = train_df[[target_column]]
-
-    test_df_config = test_df[domain_names]
-    test_df_target = test_df[[target_column]]
-
-    x_train = train_df_config[train_df_config.columns[0:]].to_numpy()
-    y_train = train_df_target[train_df_target.columns[0:]].to_numpy()
-    x_test = test_df_config[test_df_config.columns[0:]].to_numpy()
-    y_test = test_df_target[test_df_target.columns[0:]].to_numpy()
+    x_train = train_df[domain_names].to_numpy()
+    y_train = train_df[target_column].to_numpy()
+    x_test = test_df[domain_names].to_numpy()
+    y_test = test_df[target_column].to_numpy()
 
     # Train the predictor
     hyper_params = {
@@ -179,36 +185,24 @@ def generate_mixtures(
     num_mixtures: int, output_path: str, samples: np.ndarray, simulation: np.ndarray, domain_paths: list[str]
 ) -> None:
     if num_mixtures == 1:
-        # Get the single best predicted data mixture
-        best_idx = np.argmax(simulation)
-        optimal_data_mixture = samples[best_idx]
-
-        # Save n1.sh file
-        with open(os.path.join(output_path, "n1.sh"), "w") as f:
-            f.write("#!/bin/bash\n")
-            f.write("cat <<EOF\n")
-            for path, weight in zip(domain_paths, optimal_data_mixture, strict=True):
-                if weight > 0:
-                    formatted = f"{weight:.4f}".rstrip("0").rstrip(".")
-                    if formatted != "0":
-                        f.write(f"{formatted} {path}\n")
-            f.write("EOF\n")
+        # Single best predicted data mixture
+        chosen_mixtures = [samples[np.argmax(simulation)]]
     else:
+        # Sample diverse mixtures from the top-k pool by predicted score
         k_pool = max(num_mixtures * num_mixtures, 128)
         top_pool = samples[np.argsort(simulation)[-k_pool:]]
         chosen_mixtures = top_pool[np.random.choice(len(top_pool), size=num_mixtures, replace=False)]  # noqa: NPY002
 
-        # Save n1.sh, ..., n{args.num_mixtures}.sh files for each diverse mixture
-        for i in range(num_mixtures):
-            with open(os.path.join(output_path, f"n{i + 1}.sh"), "w") as f:
-                f.write("#!/bin/bash\n")
-                f.write("cat <<EOF\n")
-                for path, weight in zip(domain_paths, chosen_mixtures[i], strict=True):
-                    if weight > 0:
-                        formatted = f"{weight:.4f}".rstrip("0").rstrip(".")
-                        if formatted != "0":
-                            f.write(f"{formatted} {path}\n")
-                f.write("EOF\n")
+    # Save n1.sh, ..., n{num_mixtures}.sh files
+    for i, mixture in enumerate(chosen_mixtures):
+        with open(os.path.join(output_path, f"n{i + 1}.sh"), "w") as f:
+            f.write("#!/bin/bash\n")
+            f.write("cat <<EOF\n")
+            for path, weight in zip(domain_paths, mixture, strict=True):
+                formatted = f"{weight:.4f}".rstrip("0").rstrip(".")
+                if formatted != "0":
+                    f.write(f"{formatted} {path}\n")
+            f.write("EOF\n")
 
 
 def main(args: argparse.Namespace) -> None:
@@ -221,7 +215,14 @@ def main(args: argparse.Namespace) -> None:
     # Grab file names without extension (these are the domain names)
     domain_names = [file.stem for file in bin_files]
 
-    if args.input_paths is not None and args.mixtures_paths is not None:
+    if (args.input_paths is None) != (args.mixtures_paths is None):
+        msg = "--input-paths and --mixtures-paths must be provided together"
+        raise ValueError(msg)
+    if args.input_paths is not None and args.lm_harness_results_csv_path is not None:
+        msg = "Pass either --input-paths/--mixtures-paths or --lm-harness-results-csv-path, not both"
+        raise ValueError(msg)
+
+    if args.input_paths is not None:
         df = load_benchmark_results(
             input_paths=args.input_paths,
             domain_names=domain_names,
@@ -234,14 +235,24 @@ def main(args: argparse.Namespace) -> None:
         msg = "Either (--input-paths, --mixtures-paths) or (--lm-harness-results-csv-path) must be provided"
         raise ValueError(msg)
 
+    if args.metric not in df.columns:
+        msg = f"--metric {args.metric!r} is not a column in the benchmark results. Available: {sorted(df.columns)}"
+        raise ValueError(msg)
+
+    # Force numeric dtype on feature/target columns; the per-row Series construction in
+    # load_benchmark_results leaves them as object, which modern LightGBM rejects.
+    numeric_cols = [*domain_names, "arc_easy_acc", "piqa_acc_norm", "hellaswag_acc_norm", "valid_avg"]
+    df[numeric_cols] = df[numeric_cols].astype(float)
+
     predictor = fit_predictor(df, domain_names, args.metric)
 
     # Get the token distribution of each domain
     token_dist = get_token_distribution(args.domains_path)
-    prior_dist = np.array([token_dist[str(f)] for f in bin_files])
+    # Floor the alphas so a zero-byte .bin doesn't break np.random.dirichlet (requires alpha > 0)
+    prior_dist = np.maximum(np.array([token_dist[str(f)] for f in bin_files]), 1e-12)
     domain_paths = [str(f.with_suffix("")) for f in bin_files]
 
-    samples = np.random.dirichlet(prior_dist * 1, 100000)  # noqa: NPY002
+    samples = np.random.dirichlet(prior_dist, args.num_samples)  # noqa: NPY002
     simulation = predictor.predict(samples)
 
     generate_mixtures(args.num_mixtures, args.output_path, samples, simulation, domain_paths)
@@ -260,6 +271,7 @@ def attach_args() -> argparse.ArgumentParser:
     # Prediction args
     parser.add_argument("--metric", type=str, default="valid_avg")
     parser.add_argument("--num-mixtures", type=int, default=1)
+    parser.add_argument("--num-samples", type=int, default=100000, help="Dirichlet samples to score for mixture search")
 
     return parser
 

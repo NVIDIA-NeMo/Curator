@@ -50,7 +50,7 @@ def generate_train_group(groups: list[str], weights: list[float], precision: int
 
 
 def generate_weights_dirichlet(  # noqa: C901, PLR0912, PLR0913
-    prior_dist: list[float],
+    prior_dist: np.ndarray,
     train_groups: list[str],
     minimum_number: float,
     num_samples: int = 128,
@@ -65,7 +65,7 @@ def generate_weights_dirichlet(  # noqa: C901, PLR0912, PLR0913
     Generate the weights for the train groups using the Dirichlet distribution.
 
     Args:
-    prior_dist (list): List of prior distribution weights.
+    prior_dist (np.ndarray): 1-D array of prior distribution weights.
     train_groups (list): List of train group names.
     minimum_number (float): Minimum number of samples for each group.
     num_samples (int): Number of samples to generate. Defaults to 128.
@@ -85,9 +85,9 @@ def generate_weights_dirichlet(  # noqa: C901, PLR0912, PLR0913
     if enable_bound:
         # generate the bound for reject sampling
         number_bound = []
-        for i in range(len(prior_dist)):
-            # the token cannot be used more than 4 times
-            number_bound.append([0.0, min(prior_dist[i] * maximum_usage, 1.0)])
+        for prior in prior_dist:
+            # the token cannot be used more than maximum_usage times
+            number_bound.append([0.0, min(prior * maximum_usage, 1.0)])
     else:
         number_bound = None
 
@@ -100,29 +100,28 @@ def generate_weights_dirichlet(  # noqa: C901, PLR0912, PLR0913
     if enable_bound:
         print("\n\nThe domain usage bound (maximum domain weight): ")
         # print the bound for each group
-        for i in range(len(prior_dist)):
-            print(f"{train_groups[i]}: {number_bound[i][1]}")
+        for group, bound in zip(train_groups, number_bound, strict=True):
+            print(f"{group}: {bound[1]}")
 
     # combine reject sampling with dirichlet distribution
     for _ in range(num_samples * sample_multiplier):
         if min_strength == max_strength:
             samples = np.random.dirichlet(prior_dist * min_strength, 1)  # noqa: NPY002
         else:
-            samples = []
             min_strength_log = np.log10(min_strength)
             max_strength_log = np.log10(max_strength)
-            for strength in np.logspace(min_strength_log, max_strength_log, 15):
-                # add a noise to the strength
-                samples_per_strength = np.random.dirichlet(prior_dist * strength, 1)  # noqa: NPY002
-                samples.append(samples_per_strength)
+            strength_samples = [
+                np.random.dirichlet(prior_dist * strength, 1)  # noqa: NPY002
+                for strength in np.logspace(min_strength_log, max_strength_log, 15)
+            ]
             # random sample one
-            samples = random.choice(samples)  # noqa: S311
+            samples = random.choice(strength_samples)  # noqa: S311
 
         # if there is a bound, the bound is a list of tuples indicating the lower and upper bound of each group
         ensure_flag = True
         if number_bound is not None:
-            for j in range(len(samples[0])):
-                if samples[0][j] < number_bound[j][0] or samples[0][j] > number_bound[j][1]:
+            for sample, bound in zip(samples[0], number_bound, strict=True):
+                if sample < bound[0] or sample > bound[1]:
                     ensure_flag = False
                     break
 
@@ -150,7 +149,7 @@ def generate_weights_dirichlet(  # noqa: C901, PLR0912, PLR0913
 
 def generate_config_from_prior(  # noqa: PLR0913
     output_paths: list[str],
-    prior_config: dict[str, dict[str, float]],
+    prior_config: dict[str, float],
     temp: float,
     min_strength: float,
     max_strength: float,
@@ -163,7 +162,7 @@ def generate_config_from_prior(  # noqa: PLR0913
 
     Args:
     output_paths (list): List of output paths.
-    prior_config (dict): Dictionary of prior distribution.
+    prior_config (dict[str, float]): Mapping from `<domain>.bin` filename to its token-share weight.
     temp (float): Temperature for the Dirichlet distribution.
     min_strength (float): Minimum strength for the Dirichlet distribution.
     max_strength (float): Maximum strength for the Dirichlet distribution.
@@ -176,12 +175,8 @@ def generate_config_from_prior(  # noqa: PLR0913
     """
 
     number_of_samples = len(output_paths)
-    train_config = prior_config
-    train_groups, prior_dist = [], []
-
-    for k, v in train_config.items():
-        train_groups.append(k)
-        prior_dist.append(v)
+    train_groups = list(prior_config.keys())
+    prior_dist = list(prior_config.values())
 
     # renormalize the prior distribution
     prior_dist = prior_dist / np.sum(prior_dist)
@@ -222,7 +217,7 @@ def generate_config_from_prior(  # noqa: PLR0913
 
 def sort_and_deduplicate(data: np.ndarray, threshold: float = 1e-5) -> np.ndarray:
     """
-    Remove identify configs to avoid duplicated training.
+    Remove identical configs to avoid duplicated training.
 
     Args:
     data (np.ndarray): Array of weights for the train groups.
@@ -232,11 +227,10 @@ def sort_and_deduplicate(data: np.ndarray, threshold: float = 1e-5) -> np.ndarra
     np.ndarray: Array of deduplicated weights for the train groups.
     """
 
-    arr = np.array(data)
-    if arr.size == 0:
-        return arr
-    sorted_indices = np.lexsort(arr.T)
-    sorted_arr = arr[sorted_indices]
+    if data.size == 0:
+        return data
+    sorted_indices = np.lexsort(data.T)
+    sorted_arr = data[sorted_indices]
     result = [sorted_arr[0]]
 
     for i in range(1, len(sorted_arr)):
@@ -252,13 +246,9 @@ def main(args: argparse.Namespace) -> None:
     output_path = args.output_path
     num_mixtures = args.num_mixtures
 
-    # if not exist, create the folder
-    if not os.path.exists(output_path):
-        os.makedirs(output_path)
+    os.makedirs(output_path, exist_ok=True)
 
-    output_paths = []
-    for i in range(1, num_mixtures + 1):
-        output_paths.append(f"{output_path}/n{i}.sh")
+    output_paths = [os.path.join(output_path, f"n{i}.sh") for i in range(1, num_mixtures + 1)]
 
     generate_config_from_prior(
         output_paths,
@@ -292,10 +282,10 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument("--sample-multiplier", type=int, default=100)
 
     # How many epochs are allowed for each domain for the large-scale model training. This hyper-parameter
-    #   is used because the natura trade off between the reweighting v.s. the number of avaiable tokens in each domain.
+    #   is used because the natural trade off between the reweighting v.s. the number of available tokens in each domain.
     #   Usually we think repeating 4 epochs is okay for language model pre-training, and here we set it as 15
-    #   because the avaiable token of The Pile is much larger than the token amount for training Chinchilla-Optimal 1B models (i.e., 25B tokens).
-    #   However, if you want to train the large-scale model with all avaiable tokens, you can use less than 4 epochs also in the proxy
+    #   because the available token of The Pile is much larger than the token amount for training Chinchilla-Optimal 1B models (i.e., 25B tokens).
+    #   However, if you want to train the large-scale model with all available tokens, you can use less than 4 epochs also in the proxy
     #   model training.
     parser.add_argument("--maximum-usage", type=int, default=15)
 

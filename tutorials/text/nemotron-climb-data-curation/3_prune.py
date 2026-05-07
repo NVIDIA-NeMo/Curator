@@ -25,7 +25,7 @@ import numpy as np
 import ray
 from loguru import logger
 from scipy.cluster.hierarchy import fcluster, linkage
-from utils import attach_ray_client_args, create_ray_client
+from utils import attach_ray_client_args, centroid_id, create_ray_client, list_centroid_dirs
 
 import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.pipeline.pipeline import Pipeline
@@ -100,9 +100,11 @@ class JsonlClusterWriter(JsonlWriter):
         if source_files := task._metadata.get("source_files"):
             assert len(source_files) == 1, "Only one source file is allowed"  # noqa: S101
             source_file = source_files[0]
-            assert "centroid=" in source_file, "Source file must contain a 'centroid=' directory"  # noqa: S101
 
-            centroid = source_file.split("/")[-2].split("=")[1]
+            centroid = centroid_id(os.path.dirname(source_file))
+            if centroid is None:
+                msg = f"source_file {source_file} parent dir is not centroid=<int>"
+                raise RuntimeError(msg)
             filename = f"centroid={centroid}/{writer_utils.get_deterministic_hash(source_files, task.task_id)}"
         else:
             msg = "The task either does not have source_files in metadata or source_files does not contain a 'centroid=' directory"
@@ -163,11 +165,9 @@ def compute_average_score_per_cluster(cluster_path: str, score_field: str, thres
 
 
 def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
-    subdirectories = [os.path.join(args.input_path, d) for d in os.listdir(args.input_path)]
-    # Initialize empty subdirectories in output path
-    for subdirectory in subdirectories:
-        if not os.path.exists(os.path.join(args.output_path, subdirectory.split("/")[-1])):
-            os.makedirs(os.path.join(args.output_path, subdirectory.split("/")[-1]))
+    # Mirror each centroid=<int> dir from input_path into output_path
+    for subdirectory in list_centroid_dirs(args.input_path):
+        os.makedirs(os.path.join(args.output_path, os.path.basename(subdirectory)), exist_ok=True)
 
     ray_client = create_ray_client(args)
     ray_client.start()
@@ -206,8 +206,8 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
 
     removed_clusters = []
     for score_field, pruning_threshold in zip(args.score_fields, args.pruning_thresholds, strict=True):
-        # List all subdirectories under the output path and compute average score per cluster
-        subdirectories = [os.path.join(args.output_path, d) for d in os.listdir(args.output_path)]
+        # List centroid=<int> subdirectories under the output path and compute average score per cluster
+        subdirectories = list_centroid_dirs(args.output_path)
         paths_to_remove = ray.get(
             [
                 compute_average_score_per_cluster.remote(subdirectory, score_field, pruning_threshold)
@@ -219,12 +219,14 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
         for path_to_remove in paths_to_remove:
             if path_to_remove is not None:
                 shutil.rmtree(path_to_remove)
-                # Grab the number from the path, e.g., output_path/centroid=999 grabs 999
-                removed_clusters.append(int(path_to_remove.split("/")[-1].split("=")[1]))
+                cid = centroid_id(path_to_remove)
+                if cid is not None:
+                    removed_clusters.append(cid)
 
     centroids = np.load(os.path.join(args.centroids_path, "kmeans_centroids.npy"))
 
-    kept = [i for i in range(len(centroids)) if i not in removed_clusters]
+    removed_set = set(removed_clusters)
+    kept = [i for i in range(len(centroids)) if i not in removed_set]
 
     # Merge similar clusters according to a Euclidean distance threshold using Ward's method (agglomerative clustering)
     if len(kept) > 1:

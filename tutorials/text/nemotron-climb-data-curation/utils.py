@@ -13,8 +13,8 @@
 # limitations under the License.
 
 import argparse
-import glob
 import os
+from pathlib import Path
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.core.constants import (
@@ -59,6 +59,26 @@ def create_ray_client(args: argparse.Namespace) -> RayClient:
     )
 
 
+def centroid_id(path: str) -> int | None:
+    """Return the integer N from a `centroid=N` basename, or None if the path doesn't match the convention."""
+    base = os.path.basename(path.rstrip("/"))
+    if not base.startswith("centroid="):
+        return None
+    try:
+        return int(base.split("=", 1)[1])
+    except ValueError:
+        return None
+
+
+def list_centroid_dirs(parent: str) -> list[str]:
+    """List subdirectories of `parent` whose basename matches `centroid=<int>`."""
+    return sorted(
+        os.path.join(parent, name)
+        for name in os.listdir(parent)
+        if os.path.isdir(os.path.join(parent, name)) and centroid_id(name) is not None
+    )
+
+
 def get_token_distribution(input_path: str) -> dict[str, float]:
     """
     Get the token distribution from the input path of the tokenized files.
@@ -73,7 +93,8 @@ def get_token_distribution(input_path: str) -> dict[str, float]:
     dict: Dictionary of tokenized files and their corresponding weights.
     """
 
-    files = sorted(glob.glob(f"{input_path}/*.bin"))
+    # Normalize via Path so a trailing slash on input_path doesn't produce "//" keys
+    files = sorted(str(p) for p in Path(input_path).glob("*.bin"))
 
     if not files:
         msg = f"No .bin files found under {input_path}. Check that the path points to the tokenized output from step 4."

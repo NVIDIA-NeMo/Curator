@@ -82,7 +82,7 @@ export NCCL_DEBUG=INFO
 # Evaluation is disabled by default, but can be enabled by setting --eval-iters > 0 and a reasonably small --eval-interval
 # Note: --eval-interval 50000000 is used below to avoid a zero division error, it's set to a large value so eval never triggers
 #
-# Consider lowering --lr for less noise, e.g., --lr 3e-4
+# Consider lowering --lr for less noise, e.g., --lr 3e-4, if noisy training is observed
 #
 # Make sure NUM_GPUS, --global-batch-size, and --micro-batch-size align with each other
 # That is, global-batch-size = micro-batch-size x data-parallel-size x gradient-accumulation-steps
@@ -96,10 +96,7 @@ export NCCL_DEBUG=INFO
 #
 # Decreasing the micro-batch-size can help reduce memory pressure, e.g., --micro-batch-size 32
 #
-# Use --no-mmap-bin-files if dataset is on slow/network storage
-# Otherwise, mmap is usually faster and more memory-efficient
-#
-# For the best performing mixtures, consider re-running with a new seed to see if the results are reproducible
+# For the best performing mixtures, consider re-running with a new seed to verify the model isn't a seed-specific artifact
 
 torchrun --nproc_per_node $NUM_GPUS "$PRETRAIN_GPT_PATH" \
     --num-layers 12 \

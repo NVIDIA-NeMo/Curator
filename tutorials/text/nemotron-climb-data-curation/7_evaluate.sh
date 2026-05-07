@@ -49,8 +49,9 @@ TOKENIZER_MODEL=$5
 
 TASKS="arc_easy,hellaswag,piqa"
 
-# Auto-discover all n{i} model dirs that have a checkpoint subdir
-mapfile -t MODEL_DIRS < <(find "$BASE_CKPT_DIR" -maxdepth 1 -type d -name 'n[0-9]*' | sort -V)
+# Auto-discover all n{i} model dirs that have a checkpoint subdir.
+# -regextype posix-extended + '.*/n[0-9]+$' restricts the match to literal n<int> (rejects e.g. nFOO, n1foo).
+mapfile -t MODEL_DIRS < <(find "$BASE_CKPT_DIR" -maxdepth 1 -type d -regextype posix-extended -regex '.*/n[0-9]+$' | sort -V)
 
 if [[ ${#MODEL_DIRS[@]} -eq 0 ]]; then
     echo "No model directories matching n{i} found under $BASE_CKPT_DIR"

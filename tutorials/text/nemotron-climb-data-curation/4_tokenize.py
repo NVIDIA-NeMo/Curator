@@ -17,7 +17,7 @@ import json
 import os
 import shutil
 
-from utils import attach_ray_client_args, create_ray_client
+from utils import attach_ray_client_args, centroid_id, create_ray_client, list_centroid_dirs
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
@@ -37,17 +37,18 @@ def main(args: argparse.Namespace) -> None:
         msg = f"Invalid input file type: {args.input_filetype}"
         raise ValueError(msg)
 
-    subdirectories = [os.path.join(args.input_path, d) for d in os.listdir(args.input_path)]
-
     cache_path = os.path.join(args.output_path, "cache")
     os.makedirs(cache_path, exist_ok=True)
 
-    for centroid_path in subdirectories:
+    for centroid_path in list_centroid_dirs(args.input_path):
         pipeline = Pipeline(name="4_tokenize")
 
         pipeline.add_stage(reader(file_paths=centroid_path, files_per_partition=1, fields=[args.text_field]))
 
-        centroid = centroid_path.split("/")[-1].split("=")[1]
+        centroid = centroid_id(centroid_path)
+        if centroid is None:
+            msg = f"Cluster path {centroid_path} does not match the expected `centroid=<int>` convention"
+            raise RuntimeError(msg)
         writer_path = os.path.join(cache_path, f"domain_{centroid}")
 
         # Use Curator pipeline to tokenize the data

@@ -77,7 +77,7 @@ Some of the default parameters in the script include:
 - Use `--model_inference_batch_size 1024` to create digestible batch sizes for the model forward pass. Adjust as necessary; decrease the size to address memory issues and increase the size to improve performance.
 - Use [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5)'s `max_length` of 512 via the `--max-seq-length` argument.
 - Use `--padding-side "right"` and `--embedding_pooling="mean_pooling"` defaults as appropriate for the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model.
-- Use `--transformers-init-kwargs "{'trust_remote_code': true}"` as required to load the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model.
+- Use `--transformers-init-kwargs '{"trust_remote_code": true}'` as required to load the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model.
 
 See script for full list of parameters.
 
@@ -159,6 +159,8 @@ python 4_tokenize.py \
     --hf-token "hf_XXX" \
     --append-eod
 ```
+
+where `--input-path /path/to/pruned_clusters` is the directory created by step 3 and contains `centroid=*` subdirectories.
 
 By default, the script tokenizes the text using [https://huggingface.co/meta-llama/Llama-2-7b](https://huggingface.co/meta-llama/Llama-2-7b), which is a gated model. The user can request access to it on Hugging Face and pass the `--hf-token` argument as demonstrated above.
 
@@ -263,7 +265,7 @@ The above script looks for 5 inputs in order:
 - `RESULTS_DIR` (`/path/to/lm_eval_results`): The path to save the benchmarking results.
 - `TOKENIZER_MODEL` (`/path/to/Llama-2-7b/tokenizer.model`): The path to the tokenizer used in steps 4 and 6.
 
-The script evalutes each proxy model on the [ARC-Easy](https://arxiv.org/abs/1803.05457), [HellaSwag](https://arxiv.org/abs/1905.07830), and [PIQA](https://arxiv.org/abs/1911.11641) benchmarks.
+The script evaluates each proxy model on the [ARC-Easy](https://arxiv.org/abs/1803.05457), [HellaSwag](https://arxiv.org/abs/1905.07830), and [PIQA](https://arxiv.org/abs/1911.11641) benchmarks.
 
 By default, all available GPUs are used for benchmarking. Make sure the `model_args` used in `7_evaluate.sh` match those used in `6_train.sh` (e.g., `tokenizer_type=Llama2Tokenizer` and `seq_length=1024`).
 
@@ -283,7 +285,7 @@ python 8_predict.py \
     --num-mixtures 1
 ```
 
-The script uses `lightgbm` which can each be installed via `uv pip install lightgbm`. It requires several inputs:
+The script uses `lightgbm` which can be installed via `uv pip install lightgbm`. It requires several inputs:
 
 - `--input-paths`: One or more `lm_eval_results` directories from step 7 (space-separated), paired by position with `--mixtures-paths`.
 - `--domains-path`: The output `domains` directory from step 4 containing the `.bin` and `.idx` files.
