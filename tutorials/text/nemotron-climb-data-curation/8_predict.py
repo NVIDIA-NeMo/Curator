@@ -32,7 +32,6 @@ import numpy as np
 import pandas as pd
 from utils import get_token_distribution
 
-
 SEED = 42
 np.random.seed(SEED)  # noqa: NPY002
 
@@ -271,7 +270,9 @@ def attach_args() -> argparse.ArgumentParser:
     # Prediction args
     parser.add_argument("--metric", type=str, default="valid_avg")
     parser.add_argument("--num-mixtures", type=int, default=1)
-    parser.add_argument("--num-samples", type=int, default=100000, help="Dirichlet samples to score for mixture search")
+    parser.add_argument(
+        "--num-samples", type=int, default=100000, help="Dirichlet samples to score for mixture search"
+    )
 
     return parser
 
