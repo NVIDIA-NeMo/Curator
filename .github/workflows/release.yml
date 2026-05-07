@@ -41,6 +41,11 @@ on:
         type: string
         required: true
         description: Branch to target for version bump
+      publish-docs:
+        description: Publish docs
+        required: false
+        default: true
+        type: boolean
 
 defaults:
   run:
@@ -69,7 +74,8 @@ jobs:
       dry-run: ${{ inputs.dry-run || false }}
       version-bump-branch: ${{ inputs.version-bump-branch || github.ref_name }}
       gh-release-use-changelog-builder: ${{ inputs.generate-changelog || true }}
-      publish-docs: false
+      publish-docs: ${{ inputs.publish-docs || true }}
+      docs-target-path: nemo/curator
       restrict-to-admins: true
     secrets: inherit
 
