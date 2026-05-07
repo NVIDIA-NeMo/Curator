@@ -535,7 +535,7 @@ class TestKMeansReadFitWriteStage:
                 fit_data_fraction=bad_fraction,
             )
 
-    def test_process_batch_routes_by_fit_data_fraction(self, make_stage) -> None:
+    def test_process_batch_routes_by_fit_data_fraction(self, make_stage: KMeansReadFitWriteStage) -> None:
         """fit_data_fraction=None -> single-pass; fraction set -> two-pass."""
         # Use jsonl so process_batch skips break_parquet_partition_into_groups (which reads metadata).
         task = FileGroupTask(task_id="t", dataset_name="d", data=["x.jsonl"])
@@ -565,7 +565,7 @@ class TestKMeansReadFitWriteStage:
         ],
     )
     def test_fit_pass_samples_files_at_actor_level(
-        self, make_stage, groups: list[list[str]], fraction: float, expected_count: int
+        self, make_stage: KMeansReadFitWriteStage, groups: list[list[str]], fraction: float, expected_count: int
     ) -> None:
         """_fit_pass samples round(fraction * total_files) across all groups, no duplicates."""
         stage = make_stage(fit_data_fraction=fraction)
@@ -584,7 +584,7 @@ class TestKMeansReadFitWriteStage:
         assert set(sampled_files).issubset(all_input)
         assert len(set(sampled_files)) == len(sampled_files)
 
-    def test_fit_pass_floors_at_one_file_and_warns(self, make_stage) -> None:
+    def test_fit_pass_floors_at_one_file_and_warns(self, make_stage: KMeansReadFitWriteStage) -> None:
         """Tiny fractions still pick >= 1 file (RAFT cooperative fit needs every actor to
         contribute), but emit a warning since the realized sample exceeds the request."""
         stage = make_stage(fit_data_fraction=0.001)
@@ -603,7 +603,7 @@ class TestKMeansReadFitWriteStage:
         mock_logger.warning.assert_called_once()
         assert "fit_data_fraction" in mock_logger.warning.call_args.args[0]
 
-    def test_fit_pass_jsonl_skips_parquet_grouper(self, make_stage) -> None:
+    def test_fit_pass_jsonl_skips_parquet_grouper(self, make_stage: KMeansReadFitWriteStage) -> None:
         """JSONL filetype routes sampled files into a single fit_group, no grouping."""
         stage = make_stage(fit_data_fraction=0.5, filetype="jsonl")
         df = cudf.DataFrame({"embeddings": [[1.0, 0.0]] * 4})
@@ -618,7 +618,7 @@ class TestKMeansReadFitWriteStage:
         mock_read.assert_called_once()
         assert len(mock_read.call_args.args[0]) == 5
 
-    def test_predict_write_pass_reads_every_group(self, make_stage) -> None:
+    def test_predict_write_pass_reads_every_group(self, make_stage: KMeansReadFitWriteStage) -> None:
         """Pass 2 must load every original group, regardless of fit_data_fraction."""
         stage = make_stage(fit_data_fraction=0.1)
         groups = [
@@ -652,7 +652,7 @@ class TestKMeansReadFitWriteStage:
     def test_two_pass_cache_path(
         self,
         tmp_path: Path,
-        make_stage,
+        make_stage: KMeansReadFitWriteStage,
         actor_index: int,
         cache_subpath: str | None,
         expect_saved: bool,
@@ -681,7 +681,7 @@ class TestKMeansReadFitWriteStage:
         else:
             assert not list(tmp_path.rglob("*.npy"))
 
-    def test_single_pass_saves_centroids(self, tmp_path: Path, make_stage) -> None:
+    def test_single_pass_saves_centroids(self, tmp_path: Path, make_stage: KMeansReadFitWriteStage) -> None:
         """_process_batch_single_pass also persists centroids on actor 0 when cache_path is set."""
         cache_path = tmp_path / "centroids"
         stage = make_stage(fit_data_fraction=None, cache_path=str(cache_path))
