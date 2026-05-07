@@ -91,9 +91,12 @@ def download_one(
     if local_path.exists() and not force:
         return (filename, url, local_path, None)
 
+    if not url.startswith(("http://", "https://")):
+        return (filename, url, None, f"refusing non-http(s) scheme: {url}")
+
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-        with urllib.request.urlopen(req, timeout=60) as resp, open(local_path, "wb") as f:
+        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})  # noqa: S310 (scheme checked above)
+        with urllib.request.urlopen(req, timeout=60) as resp, open(local_path, "wb") as f:  # noqa: S310
             while chunk := resp.read(64 * 1024):
                 f.write(chunk)
     except (urllib.error.URLError, TimeoutError, OSError) as e:
@@ -135,8 +138,7 @@ def download_all(cfg: DownloadConfig) -> list[tuple[str, str, Path]]:
 
 def write_manifest(successes: list[tuple[str, str, Path]], manifest_path: Path) -> None:
     with open(manifest_path, "w") as f:
-        for filename, url, _ in successes:
-            f.write(json.dumps({"file_name": filename, "url": url}) + "\n")
+        f.writelines(json.dumps({"file_name": filename, "url": url}) + "\n" for filename, url, _ in successes)
     logger.info(f"Wrote manifest with {len(successes)} entries to {manifest_path}")
 
 
