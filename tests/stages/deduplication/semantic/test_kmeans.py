@@ -1,6 +1,6 @@
 # modality: text
 
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -278,10 +278,71 @@ class TestKMeansStageIntegration:
             f"Expected exactly {N_CLUSTERS} centroid partitions, got {len(centroid_dirs)}"
         )
 
+    def test_pipeline_with_fit_data_fraction_predicts_all_rows(self, tmp_path: Path) -> None:
+        """fit_data_fraction=0.5 still labels every row and clusters well end-to-end."""
+        input_dir, true_labels = create_clustered_dataset(tmp_path)
+        output_dir = tmp_path / "output"
+        output_dir.mkdir(exist_ok=True)
+        cache_path = tmp_path / "centroids_cache"
+
+        pipeline = Pipeline(
+            name="kmeans_fdf_integration",
+            stages=[
+                KMeansStage(
+                    id_field="id",
+                    embedding_field="embeddings",
+                    n_clusters=N_CLUSTERS,
+                    input_path=str(input_dir),
+                    output_path=str(output_dir),
+                    metadata_fields=["random_col", "true_cluster"],
+                    embedding_dim=EMBEDDING_DIM,
+                    input_filetype="parquet",
+                    random_state=RANDOM_STATE,
+                    fit_data_fraction=0.5,
+                    cache_path=str(cache_path),
+                )
+            ],
+        )
+        results = pipeline.run(RayActorPoolExecutor())
+        assert len(results) > 0
+
+        npy = cache_path / "kmeans_centroids.npy"
+        assert npy.exists(), f"centroids file should be saved at {npy}"
+        assert np.load(npy).shape == (N_CLUSTERS, EMBEDDING_DIM)
+
+        df = cudf.read_parquet(output_dir).sort_values("id", ignore_index=True)
+        # Pass 2 must label every row even though fit only saw half the files
+        assert len(df) == len(true_labels)
+        ari = adjusted_rand_score(df["centroid"].to_numpy(), true_labels)
+        assert ari > 0.95, f"ARI too low at fit_data_fraction=0.5: {ari:.3f}"
+
 
 @pytest.mark.gpu
 class TestKMeansReadFitWriteStage:
     """Unit tests for KMeansReadFitWriteStage methods."""
+
+    @pytest.fixture
+    def make_stage(self, tmp_path: Path):
+        """Factory: minimally-mocked KMeansReadFitWriteStage; kwargs override defaults."""
+
+        def _make(**kwargs) -> "KMeansReadFitWriteStage":
+            stage = KMeansReadFitWriteStage(
+                **{
+                    "id_field": "id",
+                    "embedding_field": "embeddings",
+                    "output_path": str(tmp_path),
+                    "filetype": "parquet",
+                    "n_clusters": 2,
+                    "embedding_dim": 2,
+                    "random_state": 42,
+                    **kwargs,
+                }
+            )
+            stage.kmeans = Mock()
+            stage.kmeans.cluster_centers_ = cp.array([[1.0, 0.0], [0.0, 1.0]], dtype=cp.float32)
+            return stage
+
+        return _make
 
     @pytest.mark.parametrize(
         # expect_break: Whether to expect a call to break_parquet_partition_into_groups
@@ -451,3 +512,188 @@ class TestKMeansReadFitWriteStage:
             rtol=1e-5,
             atol=1e-5,
         )
+
+    @pytest.mark.parametrize("bad_fraction", [0.0, 1.0, -0.001, 1.001])
+    def test_fit_data_fraction_validation(self, tmp_path: Path, bad_fraction: float) -> None:
+        """Both KMeansStage and KMeansReadFitWriteStage reject out-of-range values at construction."""
+        with pytest.raises(ValueError, match="fit_data_fraction must be in"):
+            KMeansStage(
+                n_clusters=2,
+                id_field="id",
+                embedding_field="embeddings",
+                input_path=str(tmp_path / "in"),
+                output_path=str(tmp_path / "out"),
+                fit_data_fraction=bad_fraction,
+            )
+        with pytest.raises(ValueError, match="fit_data_fraction must be in"):
+            KMeansReadFitWriteStage(
+                id_field="id",
+                embedding_field="embeddings",
+                output_path=str(tmp_path / "out"),
+                filetype="parquet",
+                n_clusters=2,
+                fit_data_fraction=bad_fraction,
+            )
+
+    def test_process_batch_routes_by_fit_data_fraction(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        """fit_data_fraction=None -> single-pass; fraction set -> two-pass."""
+        # Use jsonl so process_batch skips break_parquet_partition_into_groups (which reads metadata).
+        task = FileGroupTask(task_id="t", dataset_name="d", data=["x.jsonl"])
+
+        for fraction, expect_single in [(None, True), (0.5, False)]:
+            stage = make_stage(fit_data_fraction=fraction, filetype="jsonl")
+            with (
+                patch.object(stage, "_process_batch_single_pass", return_value=[]) as sp,
+                patch.object(stage, "_process_batch_two_pass", return_value=[]) as tp,
+            ):
+                stage.process_batch([task])
+            assert sp.called is expect_single
+            assert tp.called is not expect_single
+
+    @pytest.mark.parametrize(
+        ("groups", "fraction", "expected_count"),
+        [
+            ([[f"f{i}.parquet" for i in range(20)]], 0.5, 10),
+            ([[f"f{i}.parquet" for i in range(20)]], 0.25, 5),
+            ([[f"f{i}.parquet" for i in range(10)]], 0.35, 4),  # banker's rounding
+            # multi-group: sampling flattens at the actor level, not within groups
+            (
+                [[f"a{i}.parquet" for i in range(5)], [f"b{i}.parquet" for i in range(5)]],
+                0.5,
+                5,
+            ),
+        ],
+    )
+    def test_fit_pass_samples_files_at_actor_level(
+        self, make_stage: "KMeansReadFitWriteStage", groups: list[list[str]], fraction: float, expected_count: int
+    ) -> None:
+        """_fit_pass samples round(fraction * total_files) across all groups, no duplicates."""
+        stage = make_stage(fit_data_fraction=fraction)
+        df = cudf.DataFrame({"embeddings": [[1.0, 0.0]] * 4})
+        all_input = {f for g in groups for f in g}
+        with (
+            patch(
+                "nemo_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups",
+                side_effect=lambda files, **_: [list(files)],
+            ) as mock_break,
+            patch.object(stage, "_read_group", return_value=df),
+        ):
+            stage._fit_pass(groups)
+            (sampled_files,) = mock_break.call_args.args
+        assert len(sampled_files) == expected_count
+        assert set(sampled_files).issubset(all_input)
+        assert len(set(sampled_files)) == len(sampled_files)
+
+    def test_fit_pass_floors_at_one_file_and_warns(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        """Tiny fractions still pick >= 1 file (RAFT cooperative fit needs every actor to
+        contribute), but emit a warning since the realized sample exceeds the request."""
+        stage = make_stage(fit_data_fraction=0.001)
+        df = cudf.DataFrame({"embeddings": [[1.0, 0.0]]})
+        with (
+            patch(
+                "nemo_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups",
+                side_effect=lambda files, **_: [list(files)],
+            ) as mock_break,
+            patch.object(stage, "_read_group", return_value=df),
+            patch("nemo_curator.stages.deduplication.semantic.kmeans.logger") as mock_logger,
+        ):
+            stage._fit_pass([["only.parquet"]])
+            (sampled_files,) = mock_break.call_args.args
+        assert sampled_files == ["only.parquet"]
+        mock_logger.warning.assert_called_once()
+        assert "fit_data_fraction" in mock_logger.warning.call_args.args[0]
+
+    def test_fit_pass_jsonl_skips_parquet_grouper(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        """JSONL filetype routes sampled files into a single fit_group, no grouping."""
+        stage = make_stage(fit_data_fraction=0.5, filetype="jsonl")
+        df = cudf.DataFrame({"embeddings": [[1.0, 0.0]] * 4})
+        with (
+            patch(
+                "nemo_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups"
+            ) as mock_break,
+            patch.object(stage, "_read_group", return_value=df) as mock_read,
+        ):
+            stage._fit_pass([[f"f{i}.jsonl" for i in range(10)]])
+        mock_break.assert_not_called()
+        mock_read.assert_called_once()
+        assert len(mock_read.call_args.args[0]) == 5
+
+    def test_predict_write_pass_reads_every_group(self, make_stage: "KMeansReadFitWriteStage") -> None:
+        """Pass 2 must load every original group, regardless of fit_data_fraction."""
+        stage = make_stage(fit_data_fraction=0.1)
+        groups = [
+            ["g0_f0.parquet", "g0_f1.parquet"],
+            ["g1_f0.parquet", "g1_f1.parquet"],
+            ["g2_f0.parquet"],
+        ]
+        df = cudf.DataFrame({"id": [0, 1], "embeddings": [[1.0, 0.0], [0.0, 1.0]]})
+        stage.kmeans.predict = Mock(return_value=cp.zeros(len(df), dtype=cp.int32))
+        tasks = [FileGroupTask(task_id="t0", dataset_name="d", data=["any.parquet"])]
+        with (
+            patch.object(stage, "_read_group", return_value=df) as mock_read,
+            patch.object(stage, "write_parquet"),
+        ):
+            results, _, total_rows = stage._predict_write_pass(tasks, groups)
+
+        assert mock_read.call_count == len(groups)
+        assert [call.args[0] for call in mock_read.call_args_list] == groups
+        assert len(results) == len(groups)
+        assert total_rows == len(df) * len(groups)
+
+    @pytest.mark.parametrize(
+        ("actor_index", "cache_subpath", "expect_saved"),
+        [
+            (0, "centroids", True),
+            (1, "centroids", False),  # non-zero actors don't write
+            (0, None, False),  # no cache_path -> don't write
+            (0, "deeply/nested/centroids", True),  # creates missing dirs
+        ],
+    )
+    def test_two_pass_cache_path(
+        self,
+        tmp_path: Path,
+        make_stage: "KMeansReadFitWriteStage",
+        actor_index: int,
+        cache_subpath: str | None,
+        expect_saved: bool,
+    ) -> None:
+        """_fit_pass saves centroids only on actor 0 when cache_path is set."""
+        cache_path = tmp_path / cache_subpath if cache_subpath else None
+        stage = make_stage(
+            fit_data_fraction=0.5,
+            cache_path=str(cache_path) if cache_path else None,
+        )
+        stage._actor_index = actor_index
+        df = cudf.DataFrame({"embeddings": [[1.0, 0.0]] * 4})
+        with (
+            patch(
+                "nemo_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups",
+                side_effect=lambda files, **_: [list(files)],
+            ),
+            patch.object(stage, "_read_group", return_value=df),
+        ):
+            stage._fit_pass([[f"f{i}.parquet" for i in range(4)]])
+
+        if expect_saved:
+            npy = cache_path / "kmeans_centroids.npy"
+            assert npy.exists()
+            assert np.load(npy).shape == (2, 2)
+        else:
+            assert not list(tmp_path.rglob("*.npy"))
+
+    def test_single_pass_saves_centroids(self, tmp_path: Path, make_stage: "KMeansReadFitWriteStage") -> None:
+        """_process_batch_single_pass also persists centroids on actor 0 when cache_path is set."""
+        cache_path = tmp_path / "centroids"
+        stage = make_stage(fit_data_fraction=None, cache_path=str(cache_path))
+        df = cudf.DataFrame({"id": [0, 1], "embeddings": [[1.0, 0.0], [0.0, 1.0]]})
+        stage.kmeans.predict = Mock(return_value=cp.zeros(len(df), dtype=cp.int32))
+        tasks = [FileGroupTask(task_id="t", dataset_name="d", data=["any.parquet"])]
+        with (
+            patch.object(stage, "_read_group", return_value=df),
+            patch.object(stage, "write_parquet"),
+        ):
+            stage._process_batch_single_pass(tasks, [["any.parquet"]])
+
+        npy = cache_path / "kmeans_centroids.npy"
+        assert npy.exists()
+        assert np.load(npy).shape == (2, 2)
