@@ -114,6 +114,7 @@ stages:
 
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
     name: "JoinSplitMetadata"
+    text_key: ${text_key}
     resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
