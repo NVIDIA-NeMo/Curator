@@ -132,7 +132,7 @@ python 3_prune.py \
     --merge-threshold 1.5
 ```
 
-No GPUs are needed to run this step, so by default the script sets `--num-gpus 0`. Use the `--num-cpus` argument as desired to control the number of CPUs used by the Ray client; by default, all are used. However, because each FastText model is large, CPU out-of-memory errors may occur due to overhead between stage workers. Try decreasing the number of CPUs if needed.
+No GPUs are needed to run this step. Use the `--num-cpus` argument as desired to control the number of CPUs used by the Ray client; by default, all are used. However, because each FastText model is large, CPU out-of-memory errors may occur due to overhead between stage workers. Try decreasing the number of CPUs if needed.
 
 There are 5 FastText quality models that can be used for this step. Each can be pre-downloaded from Hugging Face:
 

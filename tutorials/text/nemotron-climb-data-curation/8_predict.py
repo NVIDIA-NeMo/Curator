@@ -220,6 +220,12 @@ def main(args: argparse.Namespace) -> None:
     if args.input_paths is not None and args.lm_harness_results_csv_path is not None:
         msg = "Pass either --input-paths/--mixtures-paths or --lm-harness-results-csv-path, not both"
         raise ValueError(msg)
+    if args.num_samples < args.num_mixtures:
+        msg = (
+            f"--num-samples ({args.num_samples}) must be >= --num-mixtures ({args.num_mixtures}); "
+            f"cannot draw more diverse mixtures than the candidate pool."
+        )
+        raise ValueError(msg)
 
     if args.input_paths is not None:
         df = load_benchmark_results(

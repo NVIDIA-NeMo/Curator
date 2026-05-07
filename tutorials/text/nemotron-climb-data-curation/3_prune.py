@@ -244,6 +244,8 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
             dst_dir = f"{args.output_path}/centroid={cluster_ids_sorted[0]}"
             for other in cluster_ids_sorted[1:]:
                 src_dir = f"{args.output_path}/centroid={other}"
+                if not os.path.isdir(src_dir):
+                    continue
                 for f in os.listdir(src_dir):
                     shutil.move(os.path.join(src_dir, f), dst_dir)
                 shutil.rmtree(src_dir)
