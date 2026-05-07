@@ -182,7 +182,7 @@ class TestDynamoBackendStart:
             mock.patch.object(
                 dynamo_backend,
                 "ensure_actor_overrides_on_all_nodes",
-                side_effect=lambda: order.append("overrides"),
+                side_effect=lambda **_kw: order.append("overrides"),
             ),
             mock.patch.object(backend, "_sweep_orphan_actors", side_effect=lambda: order.append("actors")),
             mock.patch.object(

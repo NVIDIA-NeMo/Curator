@@ -148,7 +148,7 @@ class DynamoBackend(InferenceBackend):
             # Materialize the actor-venv override file on every node before
             # any worker with DYNAMO_VLLM_RUNTIME_ENV is spawned; uv reads the
             # path from the node where the runtime_env install runs.
-            ensure_actor_overrides_on_all_nodes()
+            ensure_actor_overrides_on_all_nodes(ignore_head_node=ignore_ray_head_node())
 
             self._sweep_orphan_actors()
             remove_named_pgs_with_prefix(self._pg_name_prefix)

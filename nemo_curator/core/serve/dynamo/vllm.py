@@ -22,6 +22,7 @@ from functools import reduce
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import ray
 from loguru import logger
 
 from nemo_curator.core.serve.base import BaseModelConfig
@@ -38,6 +39,7 @@ from nemo_curator.core.serve.placement import (
     plan_replica_bundle_shape,
 )
 from nemo_curator.core.serve.subprocess_mgr import ManagedSubprocess
+from nemo_curator.utils.ray_utils import run_on_each_node
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -66,7 +68,12 @@ DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
 }
 
 
-def ensure_actor_overrides_on_all_nodes() -> None:
+@ray.remote
+def _write_actor_overrides_file(path: str, body: str) -> None:
+    Path(path).write_text(body)
+
+
+def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> None:
     """Write the actor-venv ``--override`` file at a fixed path on every alive node.
 
     The file pins ``ray=={ray.__version__}`` (read from the driver) so the
@@ -81,27 +88,12 @@ def ensure_actor_overrides_on_all_nodes() -> None:
     Re-call after cluster topology changes (autoscale, node restart) — this
     is one-shot and not auto-triggered.
     """
-    import ray
-    from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
-
-    path_str = str(_ACTOR_VENV_OVERRIDES_PATH)
-    content = f"ray=={ray.__version__}\n"
-
-    @ray.remote(num_cpus=0)
-    def _write_override(path: str, body: str) -> None:
-        Path(path).write_text(body)
-
-    alive_nodes = [n for n in ray.nodes() if n.get("Alive")]
-    if not alive_nodes:
-        return
-
-    refs = [
-        _write_override.options(
-            scheduling_strategy=NodeAffinitySchedulingStrategy(node_id=n["NodeID"], soft=False),
-        ).remote(path_str, content)
-        for n in alive_nodes
-    ]
-    ray.get(refs)
+    run_on_each_node(
+        _write_actor_overrides_file,
+        str(_ACTOR_VENV_OVERRIDES_PATH),
+        f"ray=={ray.__version__}\n",
+        ignore_head_node=ignore_head_node,
+    )
 
 
 # Default KV-cache transfer configuration for disagg — NixlConnector is the
