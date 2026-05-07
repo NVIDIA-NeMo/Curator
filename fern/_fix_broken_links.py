@@ -174,43 +174,6 @@ def fix_file(path: Path) -> bool:
     return False
 
 
-def fix_autodoc_file(path: Path) -> bool:
-    """Rewrite Fern Python library generator cross-refs.
-
-    Two issues in generator output:
-      1. Cross-refs use /nemo-curator/... instead of basepath /nemo/curator/nemo-curator/...
-      2. Sphinx-style #nemo_curator-... fragments don't match any rendered anchor.
-
-    Both are dropped/rewritten here as a workaround.
-    """
-    text = path.read_text(encoding="utf-8")
-    orig = text
-
-    # Markdown link: ](/nemo-curator/...#nemo_curator-...)  →  ](/nemo/curator/nemo-curator/...)
-    text = re.sub(
-        r"(\]\()/nemo-curator/([^)#\s]+)(?:#nemo_curator-[^)\s]*)?(\))",
-        lambda m: f"{m.group(1)}/nemo/curator/nemo-curator/{m.group(2)}{m.group(3)}",
-        text,
-    )
-    # href="/nemo-curator/...#nemo_curator-..."  →  href="/nemo/curator/nemo-curator/..."
-    text = re.sub(
-        r'(href=")/nemo-curator/([^"#\s]+)(?:#nemo_curator-[^"\s]*)?(")',
-        lambda m: f"{m.group(1)}/nemo/curator/nemo-curator/{m.group(2)}{m.group(3)}",
-        text,
-    )
-    # Absolute URL form (some generators emit full URLs)
-    text = re.sub(
-        r"https://docs\.nvidia\.com/nemo-curator/([^)\"'#\s]+)(?:#nemo_curator-[^)\"'\s]*)?",
-        lambda m: f"https://docs.nvidia.com/nemo/curator/nemo-curator/{m.group(1)}",
-        text,
-    )
-
-    if text != orig:
-        path.write_text(text, encoding="utf-8")
-        return True
-    return False
-
-
 def main() -> None:
     roots = [
         REPO_FERN / "versions/v25.09/pages",
@@ -223,19 +186,6 @@ def main() -> None:
                 n += 1
                 print(mdx.relative_to(REPO_FERN))
     print(f"Updated {n} files")
-
-    # Workaround for Fern Python library generator (filed upstream).
-    # Walks generated MDX produced by `fern docs md generate` and rewrites
-    # cross-refs that miss the site basepath / carry stale anchor fragments.
-    autodoc_root = REPO_FERN / "product-docs/nemo-curator/Full-Library-Reference"
-    if autodoc_root.exists():
-        a = 0
-        for mdx in sorted(autodoc_root.rglob("*.mdx")):
-            if fix_autodoc_file(mdx):
-                a += 1
-        print(f"Updated {a} autodoc files")
-    else:
-        print(f"(autodoc dir not present: {autodoc_root.relative_to(REPO_FERN)} — skipping)")
 
 
 if __name__ == "__main__":

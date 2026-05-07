@@ -322,17 +322,15 @@ This is a temporary maneuver — track the change so it gets reverted.
 
 `fern/docs.yml` declares a `libraries:` block that pulls Python source from `nemo_curator/` and generates MDX into `fern/product-docs/nemo-curator/Full-Library-Reference/` (gitignored). It runs as `fern docs md generate` in the publish and preview workflows.
 
-**Known bug in the Fern Python library generator** (filed upstream): the generator emits cross-references that miss the `/nemo/curator` site basepath (links use `/nemo-curator/...` instead of `/nemo/curator/nemo-curator/...`) and tacks on Sphinx-style `#nemo_curator-…` fragments that don't match any rendered anchor.
+**Known bug in the Fern Python library generator** (filed upstream): the generator emits cross-references that miss the `/nemo/curator` site basepath (links use `/nemo-curator/...` instead of `/nemo/curator/nemo-curator/...`) and tacks on Sphinx-style `#nemo_curator-…` fragments that don't match any rendered anchor. Result: ~540 broken links across the generated API reference.
 
-**Workaround:** `fern/_fix_broken_links.py` has a `fix_autodoc_file()` pass that walks the generated MDX after `fern docs md generate` and rewrites those patterns. The script must run between `fern docs md generate` and `fern generate --docs` in both `.github/workflows/publish-fern-docs.yml` and `.github/workflows/fern-docs-preview-comment.yml`. Without that wiring, the generated content ships broken.
+**No in-repo workaround currently.** A post-generation rewrite (walking the generated MDX, fixing the basepath, dropping stale fragments) is feasible but not yet wired up. Track the upstream Fern fix; revisit if it doesn't land soon.
 
-The same script also rewrites a long list of legacy URL patterns (`/api/reference/api-reference/`, old Sphinx slugs, etc.) on the **committed** MDX under `fern/versions/v25.09/pages/` and `fern/versions/v26.02/pages/`. If CI doesn't run it, committed pages drift out of sync. Re-run locally and commit the diff if you see drift:
+`fern/_fix_broken_links.py` separately rewrites a long list of legacy URL patterns (`/api/reference/api-reference/`, old Sphinx slugs, etc.) on the **committed** MDX under `fern/versions/v25.09/pages/` and `fern/versions/v26.02/pages/`. CI does not run it, so committed pages can drift. Re-run locally and commit the diff if you see drift:
 
 ```bash
 python3 fern/_fix_broken_links.py
 ```
-
-Remove the autodoc-rewrite block from the script once Fern fixes the upstream generator.
 
 ## Redirect Quirks
 

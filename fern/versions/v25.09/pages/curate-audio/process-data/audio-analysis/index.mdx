@@ -74,11 +74,11 @@ max_duration_filter = PreserveByValueStage(
 )
 ```
 
-Refer to [Duration Filtering](/curate-audio/process-data/curate-audio/process-data/quality-assessment/curate-audio/process-data/quality-assessment/duration-filtering) for end-to-end examples.
+Refer to [Duration Filtering](/curate-audio/process-data/quality-assessment/duration-filtering) for end-to-end examples.
 
 ## Format Validation
 
-NeMo Curator infers basic format validity during duration extraction using `soundfile.read`. If `soundfile`/`libsndfile` cannot read a file, `GetAudioDurationStage` sets `duration = -1.0`, which you can filter out. Refer to [Format Validation](/curate-audio/process-data/audio-analysis/curate-audio/process-data/audio-analysis/format-validation) for behavior and supported formats.
+NeMo Curator infers basic format validity during duration extraction using `soundfile.read`. If `soundfile`/`libsndfile` cannot read a file, `GetAudioDurationStage` sets `duration = -1.0`, which you can filter out. Refer to [Format Validation](/curate-audio/process-data/audio-analysis/format-validation) for behavior and supported formats.
 
 ### Basic Format Check
 
