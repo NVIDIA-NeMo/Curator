@@ -79,7 +79,7 @@ jobs:
       docs-requirements-file: requirements-docs.txt
       docs-fail-on-warning: false
       restrict-to-admins: true
-    secrets: inherit
+    secrets: inherit  # pragma: allowlist secret
 
   release-summary:
     needs: [release]
