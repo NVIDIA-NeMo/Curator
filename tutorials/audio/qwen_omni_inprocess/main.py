@@ -36,6 +36,7 @@ import importlib
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Callable
 
 os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 os.environ.setdefault("VLLM_LOGGING_LEVEL", "ERROR")
@@ -45,22 +46,14 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.audio.inference.qwen_asr import InferenceQwenASRStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
-from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
-from nemo_curator.stages.audio.io.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.stages.audio.text_filtering import (
-    AbbreviationConcatStage,
-    DisfluencyWerGuardStage,
     FastTextLIDStage,
-    InitializeFieldsStage,
     ITNRestorationStage,
-    PnCContentGuardStage,
     PnCRestorationStage,
-    RegexSubstitutionStage,
-    WhisperHallucinationStage,
 )
-from nemo_curator.stages.audio.text_filtering.select_best_prediction import SelectBestPredictionStage
 from nemo_curator.stages.resources import Resources
 
 _EXECUTOR_FACTORIES = {
@@ -69,239 +62,135 @@ _EXECUTOR_FACTORIES = {
 }
 
 
-def _read_file_or_str(value: str | None) -> str | None:
-    """Return file contents if *value* is a readable path, else return it as-is."""
-    if value is None:
-        return None
-    if os.path.isfile(value):
-        with open(value, encoding="utf-8") as f:
-            return f.read().strip()
+def _as_container(value: Any, *, resolve: bool = True) -> Any:
+    if OmegaConf.is_config(value):
+        return OmegaConf.to_container(value, resolve=resolve)
     return value
 
 
-def _with_optional_gpu_resources(stage, cfg: DictConfig, key: str):  # noqa: ANN001, ANN201
-    """Override scheduler GPU resources when a config key is explicitly set.
+def _normalise_name_set(value: Any) -> set[str] | None:
+    """Return selected processor names, or ``None`` for all processors."""
+    value = _as_container(value)
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if value.lower() == "all":
+            return None
+        items = [part.strip() for part in value.split(",")]
+    else:
+        items = [str(item).strip() for item in value]
+    names = {item for item in items if item}
+    return None if any(item.lower() == "all" for item in names) else names
 
-    Tensor-parallel stages use ``tensor_parallel_size`` to decide how many
-    visible CUDA devices the model engine uses.  This helper lets runtime
-    configs tune scheduler accounting separately, including fractional GPU specs.
-    """
-    value = cfg.get(key)
+
+def _instantiate_resources(value: Any) -> Resources:
+    if isinstance(value, Resources):
+        return value
+    if OmegaConf.is_config(value) or isinstance(value, dict):
+        cfg = value if OmegaConf.is_config(value) else OmegaConf.create(value)
+        if "_target_" in cfg:
+            return hydra.utils.instantiate(cfg)
+        raw = OmegaConf.to_container(cfg, resolve=True)
+        return Resources(**raw)
+    msg = f"Invalid resources override: {value!r}"
+    raise TypeError(msg)
+
+
+def _normalise_with_kwargs(value: Any) -> dict[str, Any]:
+    kwargs = _as_container(value) or {}
+    if not isinstance(kwargs, dict):
+        msg = f"stage_with entries must be mappings, got {type(kwargs).__name__}"
+        raise TypeError(msg)
+    kwargs = dict(kwargs)
+    if "resources" in kwargs:
+        kwargs["resources"] = _instantiate_resources(kwargs["resources"])
+    return kwargs
+
+
+def _apply_stage_with(stage: ProcessingStage, value: Any) -> ProcessingStage:
+    """Apply optional ``stage_with`` metadata after Hydra construction."""
     if value is None:
         return stage
-    return stage.with_(resources=Resources(gpus=float(value)))
+    value = _as_container(value)
+    if isinstance(stage, CompositeStage):
+        return stage.with_({name: _normalise_with_kwargs(kwargs) for name, kwargs in value.items()})
+    return stage.with_(**_normalise_with_kwargs(value))
 
 
-def build_granary_v2_pipeline(cfg: DictConfig) -> Pipeline:  # noqa: C901, PLR0912, PLR0915
-    """Construct the full Granary v2 stage chain from a Hydra config."""
-    data_config = cfg.get("data_config") or cfg.get("input_manifest")
-    if not data_config:
-        raise ValueError("Either 'data_config' or 'input_manifest' must be set in the config")
-
-    output_dir = cfg.get("output_dir") or cfg.get("workspace_dir", "./output")
-
-    corpus_filter = OmegaConf.to_container(cfg.corpus, resolve=True) if "corpus" in cfg and cfg.corpus else None
-
-    ml_prompt = _read_file_or_str(cfg.get("ml_prompt_file")) or cfg.get("ml_prompt", "Transcribe the audio.")
-    en_prompt = _read_file_or_str(cfg.get("en_prompt_file"))
-    followup_prompt = _read_file_or_str(cfg.get("followup_prompt_file")) or cfg.get("followup_prompt")
-    system_prompt = _read_file_or_str(cfg.get("system_prompt"))
-    pnc_prompt = _read_file_or_str(cfg.get("pnc_prompt_file")) or cfg.get("pnc_prompt")
-    itn_prompt = _read_file_or_str(cfg.get("itn_prompt_file"))
-
-    omni_text_key = "qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1"
-    source_lang_key = cfg.get("source_lang_key", "source_lang")
-    asr_model_id = cfg.get("asr_model_id")
-
-    stages = [
-        NemoTarredAudioReader(
-            yaml_path=data_config,
-            corpus_filter=corpus_filter,
-            s3_endpoint_url=cfg.get("s3_endpoint_url"),
-            output_dir=output_dir,
-            max_utterances_per_shard=cfg.get("max_utterances_per_shard"),
-            reader_num_workers=cfg.get("reader_num_workers"),
-            reader_num_workers_per_node=cfg.get("reader_num_workers_per_node"),
-        ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
-
-        InitializeFieldsStage(),
-    ]
-
-    if cfg.get("sed_checkpoint"):
-        from nemo_curator.stages.audio.inference.sed import SEDInferenceStage
-        from nemo_curator.stages.audio.postprocessing.sed_postprocessing import SEDPostprocessingStage
-
-        stages.extend([
-            SEDInferenceStage(
-                checkpoint_path=cfg.sed_checkpoint,
-                model_type=cfg.get("sed_model_type", "Cnn14_DecisionLevelMax"),
-                batch_size=cfg.get("sed_batch_size", 32),
-                num_workers_override=cfg.get("sed_num_workers"),
-                resources=Resources(cpus=1.0, gpu_memory_gb=cfg.get("sed_gpu_memory_gb", 4.0)),
-            ),
-            SEDPostprocessingStage(
-                threshold=cfg.get("sed_speech_threshold", 0.5),
-                min_duration_sec=cfg.get("sed_min_duration", 0.3),
-                merge_gap_sec=cfg.get("sed_merge_gap", 0.0),
-                emit_subcategories=cfg.get("sed_subcategories", False),
-            ),
-        ])
-
-    stages.append(_with_optional_gpu_resources(
-        InferenceQwenOmniStage(
-            model_id=cfg.get("model_id", "Qwen/Qwen3-Omni-30B-A3B-Instruct"),
-            prompt_text=ml_prompt,
-            en_prompt_text=en_prompt,
-            followup_prompt=followup_prompt,
-            system_prompt=system_prompt,
-            tensor_parallel_size=cfg.get("tensor_parallel_size", 2),
-            batch_size=cfg.get("batch_size", 32),
-            max_output_tokens=cfg.get("max_output_tokens", 256),
-            max_model_len=cfg.get("max_model_len", 32768),
-            max_num_seqs=cfg.get("max_num_seqs", 16),
-            gpu_memory_utilization=cfg.get("gpu_memory_utilization", 0.95),
-            prep_workers=cfg.get("prep_workers", 16),
-            source_lang_key=source_lang_key,
-            pred_text_key="qwen3_prediction_s1",
-            disfluency_text_key="qwen3_prediction_s2",
-            keep_waveform=bool(asr_model_id),
-            num_workers_override=cfg.get("omni_num_workers"),
-        ),
-        cfg,
-        "omni_resource_gpus",
-    ))
-
-    if followup_prompt:
-        stages.append(DisfluencyWerGuardStage(
-            ref_text_key="qwen3_prediction_s1",
-            hyp_text_key="qwen3_prediction_s2",
-            max_wer_pct=cfg.get("max_wer_pct", 50.0),
-        ))
-
-    stages.append(WhisperHallucinationStage(
-        name="WhisperHallucination_omni",
-        common_hall_file=cfg.hall_phrases,
-        text_key=omni_text_key,
-        unique_words_threshold=cfg.get("unique_words_threshold", 0.4),
-        long_word_threshold=cfg.get("long_word_threshold", 25),
-        long_word_rel_threshold=cfg.get("long_word_rel_threshold", 3.0),
-        max_char_rate=cfg.get("max_char_rate", 40.0),
-    ))
-
-    if asr_model_id:
-        stages.extend([
-            _with_optional_gpu_resources(
-                InferenceQwenASRStage(
-                    model_id=asr_model_id,
-                    source_lang_key=source_lang_key,
-                    batch_size=cfg.get("asr_batch_size", 128),
-                    gpu_memory_utilization=cfg.get("asr_gpu_memory_utilization", 0.95),
-                    max_model_len=cfg.get("asr_max_model_len"),
-                    max_new_tokens=cfg.get("asr_max_new_tokens", 4096),
-                    run_only_if_key="_skip_me",
-                    run_only_if_prefix="Hallucination",
-                    num_workers_override=cfg.get("asr_num_workers"),
-                ),
-                cfg,
-                "asr_resource_gpus",
-            ),
-            WhisperHallucinationStage(
-                name="WhisperHallucination_asr",
-                common_hall_file=cfg.hall_phrases,
-                text_key="qwen3_asr_prediction",
-                overwrite=True,
-                recovery_value="Recovered:QwenASR",
-                unique_words_threshold=cfg.get("unique_words_threshold", 0.4),
-                long_word_threshold=cfg.get("long_word_threshold", 25),
-                long_word_rel_threshold=cfg.get("long_word_rel_threshold", 3.0),
-                max_char_rate=cfg.get("max_char_rate", 40.0),
-            ),
-        ])
-
-    stages.append(SelectBestPredictionStage(
-        primary_text_key=omni_text_key,
-        asr_text_key="qwen3_asr_prediction",
-    ))
-
-    stages.extend([
-        FastTextLIDStage(
-            model_path=cfg.get("fasttext_model", "facebook/fasttext-language-identification"),
-            text_key="best_prediction",
-            source_lang_key=source_lang_key,
-            min_lang_prob=cfg.get("min_lang_prob", 0.8),
-        ),
-        RegexSubstitutionStage(
-            regex_params_yaml=cfg.regex_yaml,
-            text_key="best_prediction",
-            output_text_key="cleaned_text",
-        ),
-        AbbreviationConcatStage(
-            text_key="cleaned_text",
-            output_text_key="abbreviated_text",
-            source_lang_key=source_lang_key,
-        ),
-    ])
-
-    if not cfg.get("skip_pnc", False):
-        pnc_kwargs = {}
-        if pnc_prompt:
-            pnc_kwargs["pnc_prompt"] = pnc_prompt
-        if cfg.get("completeness_prompt"):
-            pnc_kwargs["completeness_prompt"] = cfg.completeness_prompt
-        stages.extend([
-            _with_optional_gpu_resources(
-                PnCRestorationStage(
-                    model_id=cfg.get("pnc_model_id", "Qwen/Qwen3.5-35B-A3B-FP8"),
-                    text_key="abbreviated_text",
-                    output_text_key="pnc_text",
-                    tensor_parallel_size=cfg.get("pnc_tensor_parallel_size", 2),
-                    batch_size=cfg.get("pnc_batch_size", 64),
-                    max_model_len=cfg.get("pnc_max_model_len", 8192),
-                    max_num_seqs=cfg.get("pnc_max_num_seqs", 64),
-                    gpu_memory_utilization=cfg.get("pnc_gpu_memory_utilization", 0.95),
-                    prep_workers=cfg.get("pnc_prep_workers", 8),
-                    source_lang_key=cfg.get("pnc_source_lang_key", source_lang_key),
-                    num_workers_override=cfg.get("pnc_num_workers"),
-                    **pnc_kwargs,
-                ),
-                cfg,
-                "pnc_resource_gpus",
-            ),
-            PnCContentGuardStage(
-                text_key="abbreviated_text",
-                pnc_text_key="pnc_text",
-                rejected_text_key="rejected_pnc_text",
-            ),
-        ])
-
-    if cfg.get("enable_itn", False):
-        skip_pnc = cfg.get("skip_pnc", False)
-        itn_text_key = cfg.get("itn_text_key") or ("pnc_text" if not skip_pnc else "abbreviated_text")
-        stages.append(_with_optional_gpu_resources(
-            ITNRestorationStage(
-                model_id=cfg.get("itn_model_id", "Qwen/Qwen3.5-35B-A3B-FP8"),
-                prompt_text=itn_prompt,
-                text_key=itn_text_key,
-                output_text_key=cfg.get("itn_output_key", "itn_text"),
-                tensor_parallel_size=cfg.get("itn_tensor_parallel_size"),
-                max_output_tokens=cfg.get("itn_max_output_tokens", 512),
-                max_model_len=cfg.get("itn_max_model_len", 4096),
-                max_num_seqs=cfg.get("itn_max_num_seqs", 16),
-                gpu_memory_utilization=cfg.get("itn_gpu_memory_utilization", 0.95),
-                batch_size=cfg.get("itn_batch_size", 64),
-                enable_validation=not cfg.get("itn_no_validation", False),
-                num_workers_override=cfg.get("itn_num_workers"),
-            ),
-            cfg,
-            "itn_resource_gpus",
-        ))
-
-    stages.append(ShardedManifestWriterStage(output_dir=output_dir))
-
-    return Pipeline(name="qwen_omni_inference", stages=stages)
+def _target_idents(processor_id: str | None, target: str | None) -> set[str]:
+    return {
+        ident
+        for ident in (
+            processor_id,
+            target,
+            target.rsplit(".", 1)[-1] if target else None,
+        )
+        if ident
+    }
 
 
-def _prefetch_models(cfg: DictConfig) -> None:
+def _instantiate_configured_processors(cfg: DictConfig) -> list[ProcessingStage]:
+    if "processors" not in cfg or not cfg.processors:
+        msg = (
+            "qwen_omni_inprocess requires a Hydra 'processors:' list. "
+            "There is no implicit Granary-v2 stage fallback; every stage must be listed explicitly."
+        )
+        raise ValueError(msg)
+
+    run_set = _normalise_name_set(cfg.get("processors_to_run", "all"))
+    skip_set = _normalise_name_set(cfg.get("processors_to_skip", [])) or set()
+    available: set[str] = set()
+    stages: list[ProcessingStage] = []
+
+    for processor_cfg in cfg.processors:
+        raw_unresolved = _as_container(processor_cfg, resolve=False)
+        if not isinstance(raw_unresolved, dict):
+            msg = f"Each processor entry must be a mapping, got {type(raw_unresolved).__name__}"
+            raise TypeError(msg)
+
+        processor_id = raw_unresolved.get("processor_id", raw_unresolved.get("id"))
+        enabled = bool(processor_cfg.get("enabled", True))
+        target = str(raw_unresolved.get("_target_", ""))
+        idents = _target_idents(processor_id, target)
+        available.update(idents)
+        selected = enabled
+        if selected and run_set is not None:
+            selected = bool(idents & run_set)
+        if selected and idents & skip_set:
+            selected = False
+        if selected:
+            raw = _as_container(processor_cfg, resolve=True)
+            raw.pop("processor_id", raw.pop("id", None))
+            raw.pop("enabled", None)
+            stage_with = raw.pop("stage_with", raw.pop("with_", None))
+            stage = hydra.utils.instantiate(OmegaConf.create(raw))
+            stage = _apply_stage_with(stage, stage_with)
+            stages.append(stage)
+            logger.info("Enabled processor {} ({})", processor_id or stage.name, type(stage).__name__)
+        else:
+            logger.info("Skipped processor {} ({})", processor_id or target.rsplit(".", 1)[-1], target)
+
+    unknown_run = run_set - available if run_set is not None else set()
+    unknown_skip = skip_set - available
+    if unknown_run or unknown_skip:
+        details = []
+        if unknown_run:
+            details.append(f"processors_to_run={sorted(unknown_run)}")
+        if unknown_skip:
+            details.append(f"processors_to_skip={sorted(unknown_skip)}")
+        msg = f"Unknown processor selector(s): {', '.join(details)}. Available: {sorted(available)}"
+        raise ValueError(msg)
+    if not stages:
+        raise ValueError("No processors selected; check enabled/processors_to_run/processors_to_skip")
+    return stages
+
+
+def build_granary_v2_pipeline(cfg: DictConfig) -> Pipeline:
+    """Construct the Granary v2 stage chain from the explicit Hydra processor list."""
+    return Pipeline(name="qwen_omni_inference", stages=_instantiate_configured_processors(cfg))
+
+
+def _prefetch_models(stages: list[ProcessingStage]) -> None:
     """Download all models in parallel before pipeline execution.
 
     On gpu.l40s.4 (218 CPUs, 980Gi RAM, 5680Gi disk) we have massive
@@ -312,30 +201,35 @@ def _prefetch_models(cfg: DictConfig) -> None:
     """
     from huggingface_hub import hf_hub_download, snapshot_download
 
-    tasks: list[tuple[str, callable]] = []
+    tasks: list[tuple[str, Callable[[], str]]] = []
+    seen_snapshots: set[str] = set()
+    seen_hf_files: set[str] = set()
 
-    omni_model = cfg.get("model_id", "Qwen/Qwen3-Omni-30B-A3B-Instruct")
-    tasks.append((f"snapshot:{omni_model}", lambda m=omni_model: snapshot_download(m)))
+    def add_snapshot(model_id: str) -> None:
+        if model_id in seen_snapshots:
+            return
+        seen_snapshots.add(model_id)
+        tasks.append((f"snapshot:{model_id}", lambda m=model_id: snapshot_download(m)))
 
-    if not cfg.get("skip_pnc", False):
-        pnc_model = cfg.get("pnc_model_id", "Qwen/Qwen3.5-35B-A3B-FP8")
-        tasks.append((f"snapshot:{pnc_model}", lambda m=pnc_model: snapshot_download(m)))
+    def add_hf_file(repo_id: str, filename: str = "model.bin") -> None:
+        key = f"{repo_id}:{filename}"
+        if key in seen_hf_files:
+            return
+        seen_hf_files.add(key)
+        tasks.append((f"hf_hub:{repo_id}", lambda r=repo_id, f=filename: hf_hub_download(repo_id=r, filename=f)))
 
-    if cfg.get("enable_itn", False):
-        itn_model = cfg.get("itn_model_id", "Qwen/Qwen3.5-35B-A3B-FP8")
-        if itn_model != cfg.get("pnc_model_id", "Qwen/Qwen3.5-35B-A3B-FP8"):
-            tasks.append((f"snapshot:{itn_model}", lambda m=itn_model: snapshot_download(m)))
-
-    asr_model_id = cfg.get("asr_model_id")
-    if asr_model_id:
-        tasks.append((f"snapshot:{asr_model_id}", lambda m=asr_model_id: snapshot_download(m)))
-
-    fasttext_model = cfg.get("fasttext_model", "facebook/fasttext-language-identification")
-    if "/" in fasttext_model and not os.path.isfile(fasttext_model):
-        tasks.append((
-            f"hf_hub:{fasttext_model}",
-            lambda m=fasttext_model: hf_hub_download(repo_id=m, filename="model.bin"),
-        ))
+    for stage in stages:
+        if isinstance(stage, InferenceQwenOmniStage):
+            add_snapshot(stage.model_id)
+        elif isinstance(stage, InferenceQwenASRStage):
+            add_snapshot(stage.model_id)
+        elif isinstance(stage, PnCRestorationStage):
+            add_snapshot(stage.model_id)
+        elif isinstance(stage, ITNRestorationStage):
+            add_snapshot(stage.model_id)
+        elif isinstance(stage, FastTextLIDStage):
+            if "/" in stage.model_path and not os.path.isfile(stage.model_path):
+                add_hf_file(stage.model_path)
 
     if not tasks:
         return
@@ -388,10 +282,9 @@ def main(cfg: DictConfig) -> None:
         os.environ["HF_TOKEN"] = hf_token
         os.environ.setdefault("HF_HOME", "/tmp/hf_home")
 
-    _prefetch_models(cfg)
-
     pipeline = build_granary_v2_pipeline(cfg)
     logger.info(f"Pipeline: {pipeline.describe()}")
+    _prefetch_models(pipeline.stages)
 
     executor = _create_executor(cfg)
 

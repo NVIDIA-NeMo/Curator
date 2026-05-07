@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -76,9 +77,13 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "QwenOmni_inference"
     model_id: str = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
     prompt_text: str = "Transcribe the audio."
+    prompt_file: str | None = None
     en_prompt_text: str | None = None
+    en_prompt_file: str | None = None
     followup_prompt: str | None = None
+    followup_prompt_file: str | None = None
     system_prompt: str | None = None
+    system_prompt_file: str | None = None
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
     source_lang_key: str = "source_lang"
@@ -112,13 +117,23 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
             return {}
         return {"num_workers": self.num_workers_override}
 
+    @staticmethod
+    def _resolve_text(text: str | None, file_path: str | None) -> str | None:
+        if file_path:
+            path = Path(file_path)
+            if not path.exists():
+                msg = f"QwenOmni prompt file not found: {path}"
+                raise FileNotFoundError(msg)
+            return path.read_text(encoding="utf-8").strip()
+        return text
+
     def _create_model(self) -> QwenOmni:
         return QwenOmni(
             model_id=self.model_id,
-            prompt_text=self.prompt_text,
-            en_prompt_text=self.en_prompt_text,
-            followup_prompt=self.followup_prompt,
-            system_prompt=self.system_prompt,
+            prompt_text=self._resolve_text(self.prompt_text, self.prompt_file) or "",
+            en_prompt_text=self._resolve_text(self.en_prompt_text, self.en_prompt_file),
+            followup_prompt=self._resolve_text(self.followup_prompt, self.followup_prompt_file),
+            system_prompt=self._resolve_text(self.system_prompt, self.system_prompt_file),
             max_model_len=self.max_model_len,
             max_num_seqs=self.max_num_seqs,
             gpu_memory_utilization=self.gpu_memory_utilization,
