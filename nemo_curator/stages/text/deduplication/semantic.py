@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -92,6 +92,7 @@ class TextSemanticDeduplicationWorkflow:
     kmeans_n_init: int | Literal["auto"] = 1
     kmeans_oversampling_factor: float = 2.0
     kmeans_max_samples_per_batch: int = 1 << 15  # 32768
+    kmeans_fit_data_fraction: float | None = None
     # Pairwise similarity parameters
     ranking_strategy: RankingStrategy | None = None
     pairwise_batch_size: int = 1024
@@ -147,6 +148,7 @@ class TextSemanticDeduplicationWorkflow:
         kmeans_n_init: Number of K-means initialization runs
         kmeans_oversampling_factor: Oversampling factor for K-means
         kmeans_max_samples_per_batch: Maximum samples per batch for K-means
+        kmeans_fit_data_fraction: Fraction of the dataset (in (0, 1)) used to fit the KMeans model. If None, fit on the full dataset
         ranking_strategy: Custom ranking strategy for documents within clusters (None uses which_to_keep/distance_metric)
         pairwise_batch_size: Batch size for pairwise similarity computation
         _duplicates_num_row_groups_hint: Hint for number of row groups in duplicates output
@@ -192,6 +194,10 @@ class TextSemanticDeduplicationWorkflow:
 
     def _validate_config(self) -> None:
         """Validate workflow configuration."""
+        if self.kmeans_fit_data_fraction is not None and not 0.0 < self.kmeans_fit_data_fraction < 1.0:
+            msg = f"kmeans_fit_data_fraction must be in (0, 1), got {self.kmeans_fit_data_fraction}; pass None to fit on the full dataset"
+            raise ValueError(msg)
+
         if self.perform_removal and self.eps is None:
             msg = "perform_removal=True but eps=None. Without eps, duplicates can't be identified. "
             msg += "Either set eps or set perform_removal=False"
@@ -316,6 +322,7 @@ class TextSemanticDeduplicationWorkflow:
             n_init=self.kmeans_n_init,
             oversampling_factor=self.kmeans_oversampling_factor,
             max_samples_per_batch=self.kmeans_max_samples_per_batch,
+            fit_data_fraction=self.kmeans_fit_data_fraction,
             # Pairwise similarity parameters
             distance_metric=self.distance_metric,
             which_to_keep=self.which_to_keep,

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG CUDA_VER=12.8.1
+ARG CUDA_VER=12.9.1
 ARG LINUX_VER=ubuntu24.04
 
 FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
@@ -72,6 +72,12 @@ COPY docker/common/install_etcd_nats.sh .
 RUN bash install_etcd_nats.sh && \
     rm install_etcd_nats.sh
 
+# Install HAProxy so Ray Serve's HAProxy ingress mode (RAY_SERVE_ENABLE_HA_PROXY=1) has the binary on PATH
+COPY docker/common/install_haproxy.sh .
+RUN bash install_haproxy.sh && \
+    rm install_haproxy.sh
+ENV RAY_SERVE_HAPROXY_BINARY_PATH=/usr/local/bin/haproxy
+
 
 FROM nemo_curator_dep AS nemo_curator
 
@@ -84,7 +90,9 @@ COPY pyproject.toml uv.lock /opt/Curator/
 COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
 
 # Install Curator
-RUN if [ -n "${CURATOR_EXTRA}" ]; then \
+# Cap ninja parallelism for flash-attn's NVCC build at min(nproc, 16); default of nproc OOMs at ~2 GB/job.
+RUN export MAX_JOBS=$(( $(nproc) > 16 ? 16 : $(nproc) )) && \
+    if [ -n "${CURATOR_EXTRA}" ]; then \
         uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
     else \
         uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
