@@ -36,7 +36,6 @@ from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAl
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
 from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
 from nemo_curator.stages.audio.tagging.metrics.squim import TorchSquimQualityMetricsStage
-from nemo_curator.stages.audio.tagging.metrics.wer import ComputeWERStage
 from nemo_curator.stages.audio.tagging.prepare_module_segments import PrepareModuleSegmentsStage
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
 from nemo_curator.stages.audio.tagging.split import JoinSplitAudioMetadataStage, SplitLongAudioStage
@@ -51,7 +50,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     max_segment_length: float,
     asr_batch_size: int,
     executor: str,
-    cpus: int,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the full audio tagging pipeline benchmark."""
@@ -62,7 +60,6 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     final_manifest = str(results_dir / "tagging_output.jsonl")
 
     logger.info("Starting audio tagging pipeline benchmark")
-    logger.info(f"CPUs: {cpus}")
     logger.info(f"Max segment length: {max_segment_length}s")
 
     exc = setup_executor(executor, config={"execution_mode": "streaming"})
@@ -86,7 +83,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             target_sample_rate=16000,
             target_format="wav",
             target_nchannels=1,
-        ).with_(resources=Resources(cpus=cpus))
+        ).with_(resources=Resources(cpus=1))
     )
 
     # Speaker diarization and overlap detection (PyAnnote)
@@ -95,7 +92,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             name="PyAnnoteDiarization",
             hf_token=hf_token,
             max_length=max_segment_length,
-        ).with_(resources=Resources(cpus=cpus, gpus=0.4))
+        ).with_(resources=Resources(cpus=1, gpus=0.4))
     )
 
     # Split long audio segments
@@ -104,21 +101,21 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             name="SplitLongAudio",
             suggested_max_len=max_segment_length,
             min_len=1.0,
-        ).with_(resources=Resources(cpus=cpus))
+        ).with_(resources=Resources(cpus=1))
     )
 
-    # ASR forced alignment (NeMo FastConformer)
+    # ASR forced alignment (NeMo FastConformer) — ~19 GB VRAM with CUDA graphs
     pipeline.add_stage(
         NeMoASRAlignerStage(
             name="ASRAlignment",
             is_fastconformer=True,
             decoder_type="rnnt",
             batch_size=asr_batch_size,
-        ).with_(resources=Resources(cpus=cpus, gpus=0.25))
+        ).with_(resources=Resources(cpus=1, gpus=0.45))
     )
 
     # Rejoin split audio metadata
-    pipeline.add_stage(JoinSplitAudioMetadataStage(name="JoinSplitMetadata").with_(resources=Resources(cpus=cpus)))
+    pipeline.add_stage(JoinSplitAudioMetadataStage(name="JoinSplitMetadata").with_(resources=Resources(cpus=1)))
 
     # Merge alignment with diarization
     pipeline.add_stage(
@@ -126,11 +123,11 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             name="MergeAlignmentDiar",
             text_key="text",
             words_key="words",
-        ).with_(resources=Resources(cpus=cpus))
+        ).with_(resources=Resources(cpus=1))
     )
 
     # Bandwidth estimation per segment
-    pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=cpus)))
+    pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=1)))
 
     # Audio quality metrics (PESQ, STOI, SI-SDR)
     pipeline.add_stage(TorchSquimQualityMetricsStage(name="SquimMetrics").with_(resources=Resources(gpus=0.05)))
@@ -143,37 +140,11 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             min_duration=5,
             max_duration=20,
             full_utterance_ratio=1.0,
-        ).with_(resources=Resources(cpus=cpus))
-    )
-
-    # Second pass ASR
-    pipeline.add_stage(
-        NeMoASRAlignerStage(
-            name="ASRAlignment2",
-            model_name="nvidia/stt_en_conformer_ctc_large",
-            is_fastconformer=False,
-            decoder_type="ctc",
-            batch_size=64,
-            split_batch_size=100,
-            text_key="text_2",
-            infer_segment_only=True,  # to run inference only on each segment
-            compute_timestamps=False,
-        ).with_(resources=Resources(gpus=0.25))
-    )
-
-    # Compute WER
-    pipeline.add_stage(
-        ComputeWERStage(
-            name="ComputeWER",
-            language="en",
-            hypothesis_text_key="text",
-            reference_text_key="text_2",
-            pnc_chars=".?,",
-        ).with_(resources=Resources(cpus=cpus))
+        ).with_(resources=Resources(cpus=1))
     )
 
     # Write output manifest
-    pipeline.add_stage(ManifestWriterStage(output_path=final_manifest).with_(resources=Resources(cpus=cpus)))
+    pipeline.add_stage(ManifestWriterStage(output_path=final_manifest).with_(resources=Resources(cpus=1)))
 
     results = pipeline.run(exc)
 
@@ -212,7 +183,6 @@ def main() -> int:
     )
     parser.add_argument("--asr-batch-size", type=int, default=100, help="Batch size for ASR alignment")
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data", "ray_actors"], help="Executor")
-    parser.add_argument("--cpus", type=int, default=10, help="Number of CPUs to use for the pipeline")
 
     args = parser.parse_args()
 
@@ -229,6 +199,8 @@ def main() -> int:
     try:
         result_dict.update(run_audio_tagging_benchmark(**vars(args)))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
+    except Exception as e:
+        logger.error(f"Benchmark failed: {e}")
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)
     return success_code

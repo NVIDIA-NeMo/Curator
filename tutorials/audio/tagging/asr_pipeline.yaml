@@ -91,9 +91,6 @@ execution_mode: streaming
 batch_size: 4
 text_key1: text
 text_key2: text_2
-# Default resources for CPU-only stages. GPU stages define their own resources inline.
-resources:
-  cpus: 2
 
 # =============================================================================
 # PIPELINE STAGES
@@ -111,7 +108,6 @@ stages:
     target_sample_rate: ${sample_rate}
     target_format: "wav"
     target_nchannels: 1
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
     name: "PyAnnoteDiarization"
@@ -122,7 +118,6 @@ stages:
     name: "SplitLongAudio"
     suggested_max_len: ${max_segment_length}
     min_len: 1.0
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
     name: "ASRAlignment"
@@ -132,17 +127,14 @@ stages:
 
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
     name: "JoinSplitMetadata"
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
     name: "MergeAlignmentDiar"
     text_key: ${text_key1}
     words_key: "words"
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
     name: "BandwidthEstimation"
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
     name: "SquimMetrics"
@@ -156,7 +148,6 @@ stages:
     terminal_punct_marks: ".!?。？！。"
     full_utterance_ratio: 0.8
     punctuation_split_only: false
-    resources: ${resources}
 
   # Second pass ASR
   - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
@@ -169,7 +160,6 @@ stages:
     text_key: ${text_key2}
     infer_segment_only: True
     compute_timestamps: False
-    resources: ${resources}
 
   # Optional: PNC with vLLM after 2nd-pass ASR.
   # Uncomment the two stages below and change hypothesis_text_key in ComputeWER
@@ -211,7 +201,6 @@ stages:
   #   cer_threshold: 0.01
   #   punct_marks: ".,?"
   #   vocab_set: "abcdefghijklmnopqrstuvwxyz' "
-  #   resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.ComputeWERStage
     name: "ComputeWER"
@@ -220,7 +209,6 @@ stages:
     reference_text_key: ${text_key1}
     pnc_chars: ".?,"
     compute_pnc_wer: false
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     name: "ManifestWriter"

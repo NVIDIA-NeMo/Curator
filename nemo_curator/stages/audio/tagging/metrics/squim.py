@@ -48,7 +48,7 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Stage metadata
     name: str = "TorchSquimQualityMetrics"
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=1.0))
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     model: Any = field(default=None, repr=False)
 

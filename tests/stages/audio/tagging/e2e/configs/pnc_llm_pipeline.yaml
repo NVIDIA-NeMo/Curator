@@ -24,6 +24,7 @@ stages:
     prompt_file: ${prompt_file}
     generation_field: ${pnc_text_key}
     inference_batch_size: 2
+    use_chat_api: false
     model_params:
       model: "Qwen/Qwen2.5-1.5B-Instruct"
       tensor_parallel_size: 1

@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
 import pytest
 
-MODULE = "nemo_curator.stages.audio.inference.llm.vllm_base"
+MODULE = "nemo_curator.models.vllm_model"
 
 
 def _get_vllm_inference_cls() -> type:
@@ -147,7 +147,17 @@ class TestVLLMInferenceGetEntryPrompt:
 
         result = v.get_entry_prompt({"text": "hi"})
         assert isinstance(result, list)
-        assert result[0]["role"] == "user"
+        assert result == []
+
+    def test_falls_back_to_entry_chat_with_chat_api(self, vllm_inference_cls: type) -> None:
+        v = vllm_inference_cls(prompt={"user": "{text}"}, model={"model": "m"}, use_chat_api=True)
+        mock_tokenizer = MagicMock()
+        mock_tokenizer.apply_chat_template.side_effect = RuntimeError("bad template")
+        v.tokenizer = mock_tokenizer
+
+        result = v.get_entry_prompt({"text": "hi"})
+        assert isinstance(result, list)
+        assert result[0] == {"role": "user", "content": "hi"}
 
 
 # ---------------------------------------------------------------------------

@@ -70,7 +70,7 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
         split_start = 0
         prev_end = 0
 
-        segments = sorted(metadata.get("segments", []), key=lambda s: s.get("end", 0))
+        segments = sorted(metadata.get("segments", []), key=lambda s: s.get("start", 0))
         for segment in segments:
             end = segment.get("end", 0)
 

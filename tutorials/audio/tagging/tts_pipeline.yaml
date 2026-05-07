@@ -84,9 +84,6 @@ sample_rate: 16000
 max_segment_length: 40
 execution_mode: streaming
 batch_size: 4
-# Default resources for CPU-only stages. GPU stages define their own resources inline.
-resources:
-  cpus: 2
 
 # =============================================================================
 # PIPELINE STAGES
@@ -104,7 +101,6 @@ stages:
     target_sample_rate: ${sample_rate}
     target_format: "wav"
     target_nchannels: 1
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
     name: "PyAnnoteDiarization"
@@ -115,7 +111,6 @@ stages:
     name: "SplitLongAudio"
     suggested_max_len: ${max_segment_length}
     min_len: 1.0
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
     name: "ASRAlignment"
@@ -125,17 +120,14 @@ stages:
 
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
     name: "JoinSplitMetadata"
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
     name: "MergeAlignmentDiar"
     text_key: "text"
     words_key: "words"
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
     name: "BandwidthEstimation"
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
     name: "SquimMetrics"
@@ -149,7 +141,6 @@ stages:
     terminal_punct_marks: ".!?。？！。"
     full_utterance_ratio: 1.0
     punctuation_split_only: false
-    resources: ${resources}
 
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     output_path: ${final_manifest}

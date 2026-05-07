@@ -68,7 +68,7 @@ def run_and_test_e2e(  # noqa: PLR0913
         cfg.hf_token = os.getenv("HF_TOKEN", "")
 
     pipeline = create_pipeline_from_yaml(cfg)
-    executor = XennaExecutor(config={"execution_mode": "batch"})
+    executor = XennaExecutor()
     pipeline.run(executor)
 
     ref_path = Path(reference_manifest_file)
@@ -130,8 +130,6 @@ def test_pnc_llm_simple(tmp_path: Path, pnc_simple_manifest: str) -> None:
 def test_pnc_llm_second_pass(tmp_path: Path) -> None:
     """2nd-pass ASR: Resample -> PrepareSegments -> ASR (segment-only) ->
     PNC -> Clean -> BERT -> WER -> Write.
-
-    Mirrors generic-sdp test_pnc_llm_1 / yt_pnc_with_llm_after_second_pass_asr.yaml.
     """
     config_path = CONFIGS_DIR / "pnc_llm_pipeline_second_pass.yaml"
     reference_manifest_file = str(REFERENCE_DIR / "pnc_llm" / "test_data_ref_pnc_llm_2.jsonl")
@@ -154,8 +152,6 @@ def test_pnc_llm_first_pass(tmp_path: Path, get_input_manifest: str) -> None:
     """1st-pass ASR: Resample -> Diarize -> Split -> ASR Align ->
     PNC (top-level) -> Clean (alignment update) -> BERT -> Join ->
     Merge -> SQUIM -> Bandwidth -> Write.
-
-    Mirrors generic-sdp test_pnc_llm_2 / yt_pnc_with_llm_after_first_pass_asr.yaml.
     """
     config_path = CONFIGS_DIR / "pnc_llm_pipeline_first_pass.yaml"
     reference_manifest_file = str(REFERENCE_DIR / "pnc_llm" / "test_data_ref_pnc_llm_1.jsonl")

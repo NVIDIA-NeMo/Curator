@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 from nemo.collections.asr.metrics.wer import word_error_rate_detail
 
-from nemo_curator.stages.audio.inference.llm.vllm_base import VLLMInference
+from nemo_curator.models.vllm_model import VLLMInference
 from nemo_curator.stages.audio.tagging.utils import load_vocab_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -80,7 +80,7 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     use_chat_api: bool = False
 
     inference_batch_size: int = 10000
-    batch_size: int = 500
+    batch_size: int = 64
 
     name: str = "PNCwithvLLMInference"
     resources: Resources = field(default_factory=lambda: Resources(gpus=1))
@@ -148,20 +148,7 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.generation_field]
 
     def process(self, task: AudioTask) -> AudioTask:
-        """Process a single AudioTask — collect prompts, run inference, write back."""
-        data = task.data
-        items = self._collect_prompts(data)
-
-        if not items:
-            return task
-
-        prompts = [p for p, _ in items]
-        outputs = self._vllm.process_batch(prompts)
-
-        for (_, key_path), output in zip(items, outputs, strict=True):
-            self._store_generation(data, key_path, output.outputs[0].text, self.generation_field)
-
-        return task
+        return self.process_batch([task])[0]
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Batch-process multiple AudioTasks with a single vLLM call for efficiency."""
@@ -252,9 +239,12 @@ class CleanLLMOutputStage(ProcessingStage[AudioTask, AudioTask]):
     _full_vocab_set: set[str] = field(default_factory=set, repr=False)
 
     def __post_init__(self) -> None:
+        self._cleaned_generation_field = f"{self.generation_field}_cleaned"
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        """Load vocabulary file on the worker (avoids file I/O during pickling)."""
         vocab = load_vocab_file(self.vocab_file) if self.vocab_file is not None else set(self.vocab_set)
         self._full_vocab_set = vocab | set(self.punct_marks)
-        self._cleaned_generation_field = f"{self.generation_field}_cleaned"
 
     @staticmethod
     def remove_pncs(text: str, punct_marks: str) -> str:

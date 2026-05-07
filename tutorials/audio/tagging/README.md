@@ -62,7 +62,7 @@ The dashed path shows that `ManifestWriter` can follow directly after `PrepareMo
 | 6 | **MergeAlignmentDiarizationStage** | Merge alignment with diarization segments | No |
 | 7 | **BandwidthEstimationStage** | Spectral bandwidth estimation per segment | No |
 | 8 | **TorchSquimQualityMetricsStage** | PESQ, STOI, SI-SDR quality metrics | Yes |
-| 9 | **PrepareModuleSegmentsStage** | Merge/split segments for the target modality by duration, pauses, and punctuation. Controlled by the `module` parameter (`tts`, `asr`, etc.) | No |
+| 9 | **PrepareModuleSegmentsStage** | Merge/split segments into training-ready chunks for the target modality. Uses `min_duration` and `max_duration` (in seconds) to form segments suitable for ASR/TTS training. Controlled by the `module` parameter (`tts`, `asr`, etc.) and also considers pauses and punctuation for splitting. | No |
 
 > **Punctuation matters**: `PrepareModuleSegmentsStage` relies heavily on punctuation marks (`.`, `!`, `?`) to identify natural utterance boundaries when forming segments. If the ASR model produces unpunctuated text, segments will be split purely by duration and pause heuristics, leading to mid-sentence breaks. To get high-quality segments you should either:
 > 1. Use a **unified ASR model** that outputs punctuated and capitalised text natively, or
@@ -231,7 +231,7 @@ source .venv/bin/activate
 
   ```
 - **GPU**: Required for diarization (PyAnnote), VAD (Pyannote), ASR alignment (NeMo)
-- **HuggingFace Token**: Required for PyAnnote model access. Request access at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1), [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0), [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1), [pyannote/voice-activity-detection](https://huggingface.co/pyannote/voice-activity-detection)
+- **HuggingFace Token**: Required for PyAnnote diarization model access. See [HuggingFace Access](#huggingface-access) for setup instructions.
 
 ## Quick Start
 
@@ -370,12 +370,11 @@ python tutorials/audio/tagging/main.py \
 |-----------|-------------|---------|
 | `input_manifest` | Path to input JSONL manifest | **Required** |
 | `final_manifest` | Path for output JSONL manifest | **Required** |
-| `hf_token` | HuggingFace token for PyAnnote access | `""` |
+| `hf_token` | HuggingFace token for PyAnnote access (see [HuggingFace Access](#huggingface-access) below) | `""` |
 | `sample_rate` | Target sample rate in Hz | `16000` |
 | `max_segment_length` | Maximum segment duration in seconds | `40` |
 | `workspace_dir` | Directory for intermediate files | `/tmp/tagging_workspace` |
 | `resampled_audio_dir` | Directory for resampled audio | `${workspace_dir}/audio_resampled` |
-| `resources.cpus` | CPUs per CPU-bound stage | `2` |
 
 ### Stage-Specific Overrides
 
@@ -554,11 +553,30 @@ tests/stages/audio/tagging/e2e/
 
 See the test file for detailed comments on the pipeline steps and configuration overrides.
 
+## HuggingFace Access
+
+The pipeline requires a HuggingFace token with accepted user agreements for the PyAnnote speaker diarization models. To set up access:
+
+1. Create a HuggingFace account at https://huggingface.co/join
+2. Generate an access token at https://huggingface.co/settings/tokens
+3. Accept the user agreements for the following models:
+   - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) — main diarization pipeline
+   - [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) — speaker segmentation model
+   - [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) — community diarization model
+   - [pyannote/voice-activity-detection](https://huggingface.co/pyannote/voice-activity-detection) — voice activity detection
+4. Pass the token via `hf_token=<your_token>` in the pipeline config or export it as an environment variable:
+
+```bash
+export HF_TOKEN=your_hf_token
+```
+
+> **Note:** Without accepted agreements, the pipeline will fail with a 401/403 error when attempting to download the PyAnnote models.
+
 ## Troubleshooting
 
 ### No Segments Produced
 
-- Ensure `hf_token` is set and has access to the PyAnnote model
+- Ensure `hf_token` is set and has access to the PyAnnote models (see [HuggingFace Access](#huggingface-access))
 - Verify input audio files exist at the paths in the manifest
 - Check that `audio_item_id` is unique per entry
 

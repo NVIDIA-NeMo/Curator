@@ -49,7 +49,7 @@ stages:
     hf_token: ${hf_token}
     max_length: ${max_segment_length}
     resources:
-      gpus: 0.75
+      gpus: 0.45
 
   - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
     name: "SplitLongAudio"
@@ -97,7 +97,7 @@ stages:
       tokenize: false
       add_generation_prompt: true
     resources:
-      gpus: 1
+      gpus: 0.8
 
   # Clean LLM output + update alignment words (cer_threshold=0 for exact match)
   - _target_: nemo_curator.stages.audio.tagging.text.pnc.CleanLLMOutputStage
@@ -107,7 +107,7 @@ stages:
     cer_threshold: 0
     punct_marks: ".,?"
     vocab_set: "abcdefghijklmnopqrstuvwxyz' "
-    segments_key: "__none__"
+    segments_key: "split_metadata"
     update_alignment: true
     alignment_key: "alignment"
     resources: ${resources}
