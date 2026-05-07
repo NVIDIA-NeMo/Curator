@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Any
@@ -80,6 +81,9 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
+    def is_source_stage(self) -> bool:
+        return True
+
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers_per_node": 1}
 
@@ -130,12 +134,20 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             batch = entries[i : i + self.pdfs_per_task]
             task_idx = i // self.pdfs_per_task
             task_id = f"pdf_batch_{task_idx:06d}"
+
+            raw_key = "|".join(sorted(batch)) + "::" + str(task_idx)
+            resumability_key = hashlib.sha256(raw_key.encode()).hexdigest()
+
             tasks.append(
                 FileGroupTask(
                     task_id=task_id,
                     dataset_name=self.dataset_name,
                     data=batch,
-                    _metadata={"source_files": batch, "partition_index": task_idx},
+                    _metadata={
+                        "source_files": batch,
+                        "partition_index": task_idx,
+                        "resumability_key": resumability_key,
+                    },
                 )
             )
 

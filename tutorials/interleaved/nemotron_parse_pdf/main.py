@@ -134,6 +134,11 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
     # Output
     parser.add_argument("--output-dir", required=True, help="Output directory for parquet files")
     parser.add_argument("--dataset-name", default="pdf_dataset", help="Dataset name for output tasks")
+    parser.add_argument(
+        "--checkpoint-path",
+        default=None,
+        help="Directory for LMDB resumability checkpoints. If set, completed PDFs are skipped on rerun.",
+    )
 
     # Model
     parser.add_argument(
@@ -298,7 +303,7 @@ def main() -> None:
         )
 
         t0 = time.perf_counter()
-        results = pipeline.run(executor=executor)
+        results = pipeline.run(executor=executor, checkpoint_path=args.checkpoint_path)
         wall_time = time.perf_counter() - t0
 
         n_valid = sum(1 for r in results if r is not None)

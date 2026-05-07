@@ -140,6 +140,25 @@ class TestPDFPartitioningStage:
         tasks = stage.process(_empty_task())
         assert sum(len(t.data) for t in tasks) == 1
 
+    def test_resumability_key_is_set_and_stable(self, tmp_path: Path):
+        """Each partition gets a deterministic resumability_key; reruns produce the same keys."""
+        manifest = tmp_path / "manifest.jsonl"
+        lines = [json.dumps({"file_name": f"{i}.pdf"}) for i in range(5)]
+        manifest.write_text("\n".join(lines) + "\n")
+
+        stage = PDFPartitioningStage(manifest_path=str(manifest), pdfs_per_task=2)
+        assert stage.is_source_stage() is True
+
+        tasks_a = stage.process(_empty_task())
+        tasks_b = stage.process(_empty_task())
+
+        keys_a = [t._metadata["resumability_key"] for t in tasks_a]
+        keys_b = [t._metadata["resumability_key"] for t in tasks_b]
+
+        assert all(isinstance(k, str) and len(k) == 64 for k in keys_a)
+        assert keys_a == keys_b
+        assert len(set(keys_a)) == len(keys_a)
+
 
 def _has_pypdfium2() -> bool:
     try:
