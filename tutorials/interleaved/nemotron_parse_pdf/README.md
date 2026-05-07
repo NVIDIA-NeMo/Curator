@@ -13,22 +13,24 @@ uv sync --extra interleaved_cuda12
 
 ## Quickstart
 
-**Step 1 — Create a manifest listing your PDFs:**
+**Step 1 — Download a few sample PDFs and generate the manifest:**
 
 ```bash
-# One JSON line per PDF
-for f in /path/to/pdfs/*.pdf; do
-    echo "{\"file_name\": \"$(basename $f)\"}" >> manifest.jsonl
-done
+python tutorials/interleaved/nemotron_parse_pdf/download_data.py --output-dir ./data
 ```
+
+This writes `./data/pdfs/*.pdf` and `./data/manifest.jsonl`, and prints the
+exact `main.py` command to run next. To use your own PDFs instead, point
+`--pdf-dir` and `--manifest` at any directory of PDFs plus a JSONL file with
+one `{"file_name": "<basename>.pdf"}` line per PDF.
 
 **Step 2 — Run the pipeline:**
 
 ```bash
 python tutorials/interleaved/nemotron_parse_pdf/main.py \
-    --manifest manifest.jsonl \
-    --pdf-dir /path/to/pdfs \
-    --output-dir /path/to/output \
+    --manifest ./data/manifest.jsonl \
+    --pdf-dir ./data/pdfs \
+    --output-dir ./data/output \
     --backend vllm \
     --enforce-eager
 ```
