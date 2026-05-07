@@ -42,7 +42,8 @@ stages:
     target_sample_rate: ${sample_rate}
     target_format: "wav"
     target_nchannels: 1
-    resources: ${resources}
+    resources:
+      cpus: 0.5
 
   - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
     name: "PyAnnoteDiarization"
@@ -115,13 +116,15 @@ stages:
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
     name: "JoinSplitMetadata"
     text_key: ${text_key}
-    resources: ${resources}
+    resources:
+      cpus: 0.5
 
   - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
     name: "MergeAlignmentDiar"
     text_key: ${text_key}
     words_key: "words"
-    resources: ${resources}
+    resources:
+      cpus: 0.5
 
   - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
     name: "SquimMetrics"
@@ -130,7 +133,8 @@ stages:
 
   - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
     name: "BandwidthEstimation"
-    resources: ${resources}
+    resources:
+      cpus: 0.5
 
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     name: "ManifestWriter"

@@ -302,6 +302,7 @@ class TestCleanLLMOutputStageProcess:
         vocab_path.write_text("a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\nm\nn\no\np\nq\nr\ns\nt\nu\nv\nw\nx\ny\nz\n \n")
 
         stage = CleanLLMOutputStage(vocab_file=str(vocab_path))
+        stage.setup()
         assert " " in stage._full_vocab_set
         assert "a" in stage._full_vocab_set
         assert "." in stage._full_vocab_set  # from punct_marks
@@ -314,6 +315,7 @@ class TestCleanLLMOutputStageProcess:
             vocab_set="abcdefghijklmnopqrstuvwxyz ",
             vocab_file=str(vocab_path),
         )
+        stage.setup()
         assert "a" not in stage._full_vocab_set
         assert "x" in stage._full_vocab_set
 
@@ -541,6 +543,7 @@ class TestCleanLLMOutputFirstPassASR:
             alignment_key="alignment",
             segments_key="__none__",
         )
+        stage.setup()
         with pytest.raises(ValueError, match="Cannot update alignment"):
             stage.process(AudioTask(data=data))
 

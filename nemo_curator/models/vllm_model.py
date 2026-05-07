@@ -346,6 +346,9 @@ class VLLMInference:
             logger.error(f"Error formatting prompt template: {e}")
             return []
 
+        if self.use_chat_api:
+            return entry_chat
+
         try:
             return self.tokenizer.apply_chat_template(entry_chat, **self.chat_template_params)
         except (TypeError, ValueError, KeyError, RuntimeError) as e:
