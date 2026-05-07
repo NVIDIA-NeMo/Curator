@@ -76,6 +76,7 @@ jobs:
       gh-release-use-changelog-builder: ${{ inputs.generate-changelog || true }}
       publish-docs: ${{ inputs.publish-docs || true }}
       docs-target-path: nemo/curator
+      docs-requirements-file: requirements-docs.txt
       restrict-to-admins: true
     secrets: inherit
 
