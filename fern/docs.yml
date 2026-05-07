@@ -145,13 +145,21 @@ title: NeMo Curator
 footer: ./components/CustomFooter.tsx
 
 versions:
-  - display-name: "Latest · v1.1.2 (26.04)"
+  # NOTE: v26.04 is temporarily held back from publish.
+  # `latest.yml` is repointed to `v26.02.yml` for this window.
+  # To restore: re-add the two entries below and run
+  #   `ln -sf v26.04.yml fern/versions/latest.yml`
+  #   - display-name: "Latest · v1.1.2 (26.04)"
+  #     path: versions/latest.yml
+  #     slug: latest
+  #     availability: stable
+  #   - display-name: "26.04 · v1.1.2"
+  #     path: versions/v26.04.yml
+  #     slug: v26.04
+  #     availability: stable
+  - display-name: "Latest · v1.1.0 (26.02)"
     path: versions/latest.yml
     slug: latest
-    availability: stable
-  - display-name: "26.04 · v1.1.2"
-    path: versions/v26.04.yml
-    slug: v26.04
     availability: stable
   - display-name: "26.02 · v1.1.0"
     path: versions/v26.02.yml
