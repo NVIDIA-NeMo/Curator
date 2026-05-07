@@ -58,7 +58,7 @@ concurrency:
 jobs:
   release:
     if: '!cancelled()'
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_release_library.yml@43d259e5b5f0a6cb4c14eefa04738a5bdf316fe1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_release_library.yml@d2f3dd32aad11b7034f3f1821174556507d61670
     with:
       release-ref: ${{ inputs.release-ref || github.sha }}
       python-package: nemo_curator
@@ -71,11 +71,7 @@ jobs:
       gh-release-use-changelog-builder: ${{ inputs.generate-changelog || true }}
       publish-docs: false
       restrict-to-admins: true
-    secrets:
-      TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
-      TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
-      BOT_KEY: ${{ secrets.BOT_KEY }}
+    secrets: inherit
 
   release-summary:
     needs: [release]
