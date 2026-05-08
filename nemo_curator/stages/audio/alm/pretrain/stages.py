@@ -1483,13 +1483,15 @@ def _merge_tar_shards(output_path: str) -> None:
     parent = os.path.dirname(output_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    # Read all (tarinfo, payload) pairs into memory before sorting and
-    # writing.  Snippet payloads are bounded by `max_duration_sec` (a few
-    # MB at 16 kHz mono FLAC for a 600s snippet); a typical run produces
-    # thousands of them and fits comfortably in worker RAM.  If this ever
-    # becomes a memory issue, switch to a two-pass approach (collect
-    # member names + offsets, then stream-copy in sorted order).
-    members: list[tuple[tarfile.TarInfo, bytes]] = []
+    # Two-pass streaming merge.  Pass 1 builds a small in-memory index of
+    # (member_name, shard_path, TarInfo) entries -- metadata only, no
+    # payload bytes.  Pass 2 walks the index in sorted name order and
+    # stream-copies each member from its source shard into the merged tar
+    # via `extractfile() -> addfile()` (internally `copyfileobj` with 16
+    # KB chunks), so peak memory is O(index_size + chunk_size) regardless
+    # of total snippet count.  At 500k snippets this is ~250 MB instead
+    # of ~300 GB when payloads were buffered alongside the index.
+    index: list[tuple[str, str, tarfile.TarInfo]] = []
     for s in shards:
         try:
             in_tar = tarfile.open(s, "r")
@@ -1518,30 +1520,49 @@ def _merge_tar_shards(output_path: str) -> None:
                     break
                 if not ti.isreg():
                     continue
-                try:
-                    f = in_tar.extractfile(ti)
-                    payload = f.read() if f is not None else b""
-                except tarfile.TarError as e:
-                    logger.warning(
-                        f"tar shard {s} member {ti.name!r} unreadable ({e}); "
-                        f"stopping at {kept_in_shard} kept member(s)"
-                    )
-                    break
-                members.append((ti, payload))
+                index.append((ti.name, s, ti))
                 kept_in_shard += 1
         finally:
             in_tar.close()
-    members.sort(key=lambda m: m[0].name)
-    with tarfile.open(output_path, "w") as out_tar:
-        for ti, payload in members:
-            ti.size = len(payload)
-            out_tar.addfile(ti, io.BytesIO(payload))
+    index.sort(key=lambda e: e[0])
+
+    # Pass 2: keep one open TarFile per source shard so we don't pay
+    # reopen cost per member, then stream each member into the merged
+    # tar in sorted order.
+    open_shards: dict[str, tarfile.TarFile] = {}
+    written = 0
+    try:
+        with tarfile.open(output_path, "w") as out_tar:
+            for name, s, ti in index:
+                in_tar = open_shards.get(s)
+                if in_tar is None:
+                    try:
+                        in_tar = tarfile.open(s, "r")
+                    except tarfile.TarError as e:
+                        logger.warning(
+                            f"cannot reopen tar shard {s} for streaming: {e}; skipping member {name!r}"
+                        )
+                        continue
+                    open_shards[s] = in_tar
+                try:
+                    f = in_tar.extractfile(ti)
+                    if f is None:
+                        continue
+                    out_tar.addfile(ti, f)
+                except tarfile.TarError as e:
+                    logger.warning(f"failed to stream member {name!r} from shard {s}: {e}; skipping")
+                    continue
+                written += 1
+    finally:
+        for in_tar in open_shards.values():
+            in_tar.close()
+
     for s in shards:
         try:
             os.remove(s)
         except OSError as e:
             logger.warning(f"failed to remove tar shard {s}: {e}")
-    logger.info(f"merged {len(shards)} tar shard(s) into {output_path} ({len(members)} member(s))")
+    logger.info(f"merged {len(shards)} tar shard(s) into {output_path} ({written} member(s))")
 
 
 def _reconcile_manifest_with_tar(manifest_path: str, tar_path: str) -> None:
