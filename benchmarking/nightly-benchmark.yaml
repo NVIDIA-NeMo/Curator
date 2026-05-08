@@ -1,14 +1,28 @@
-# These two paths must be defined and are used to resolve the results and
-# datasets paths. These must be existing paths on the host.
-# If running inside a Docker container started with tools/run.sh, the paths
-# will automatically be mapped to the appropriate volume mount.
-# If running on the host, the paths will remain as defined below.
-# Paths can be used in other values in this file by using their placeholder
-# (e.g. {datasets_path}/my/test/dataset.parquet) and will be resolved to the
-# appropriate path at runtime.
-results_path: /path/where/results/are/stored
-datasets_path: /path/to/datasets
-model_weights_path: /path/to/model_weights
+# The "paths" section defines files and directories used by the benchmarks.
+# Each entry requires a "name" and a "host_path". Paths must exist on the host.
+# If running inside a Docker container started with tools/run.sh, each path is
+# automatically mounted into the container. An optional "container_path" overrides
+# the default mount point (default is host_path prefixed with "/MOUNT").
+# The "name" can be used as a placeholder elsewhere in this file
+# (e.g. {datasets_path}) and will be substituted with either host_path or
+# container_path based on the environment.
+paths:
+  - name: "datasets_path"
+    host_path: "/path/to/datasets"
+    container_path: "/datasets"
+  - name: "model_weights_path"
+    host_path: "/path/to/model_weights"
+    container_path: "/model_weights"
+  - name: "results_path"
+    host_path: "/path/where/results/are/stored"
+    # container_path will default to "/MOUNT/path/where/results/are/stored".
+
+# The following path variables are deprecated. They will still work but will produce a warning.
+# Use the "paths" section above instead. These will be removed in a future release.
+#
+# results_path: "/path/where/results/are/stored"
+# datasets_path: "/path/to/datasets"
+# model_weights_path: "/path/to/model_weights"
 
 datasets:
   - name: "tinystories"
@@ -881,6 +895,37 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
+  - name: ndd_dynamo_dp4
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:ndd_gretel_symptoms,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=dynamo
+      --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
+      --executor=ray_data
+      --engine-kwargs='{"tensor_parallel_size": 1}'
+      --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
+    timeout_s: 2700  # 45 min — Dynamo's runtime_env rebuilds flash-attn from source on first launch (~10 min) plus 4-replica gpt-oss-20b weights load
+    ray:
+      num_cpus: 16
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - throughput_rows_per_sec
+          - serve_startup_s
+        ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
+    requirements:
+      - metric: output_row_count
+        exact_value: 853
+      - metric: throughput_rows_per_sec
+        min_value: 2.9
+
   - name: ndd_ray_serve_dp4
     enabled: true
     script: ndd_benchmark.py
@@ -890,6 +935,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --inference-server-type=ray-serve
       --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
@@ -908,6 +954,8 @@ entries:
     requirements:
       - metric: output_row_count
         exact_value: 853
+      - metric: throughput_rows_per_sec
+        min_value: 2.5
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings
     enabled: true

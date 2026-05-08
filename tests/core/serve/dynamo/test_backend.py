@@ -168,9 +168,14 @@ class TestDynamoBackendStart:
         backend = DynamoBackend(server)
         order: list[str] = []
 
+        mock_ctx = mock.Mock()
+        mock_ctx.get_temp_dir.return_value = "/tmp"  # noqa: S108
+        mock_ctx.get_session_name.return_value = "session_test"
+
         with (
             mock.patch.object(dynamo_backend.ray, "init", return_value=contextlib.nullcontext()),
-            mock.patch.object(dynamo_backend.tempfile, "mkdtemp", return_value="/tmp/dynamo-test-runtime"),  # noqa: S108
+            mock.patch.object(dynamo_backend.ray, "get_runtime_context", return_value=mock_ctx),
+            mock.patch.object(dynamo_backend.os, "makedirs"),
             mock.patch.object(backend, "_sweep_orphan_actors", side_effect=lambda: order.append("actors")),
             mock.patch.object(
                 dynamo_backend,
