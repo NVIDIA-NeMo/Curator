@@ -259,8 +259,9 @@ class TestExtractVideoMetadata:
         "stderr_signal",
         [
             b"[CUDA @ 0x0] cu->cuInit(0) failed -> CUDA_ERROR_NO_DEVICE: no CUDA-capable device is detected",
-            b"Could not open codec for input stream 0",
+            b"[h264_cuvid] no CUDA-capable device is detected",
             b"[h264_cuvid] Cannot load libnvcuvid.so.1",
+            b"[h264_cuvid] Failed loading nvcuvid.",
         ],
     )
     @patch("subprocess.run")
@@ -286,11 +287,24 @@ class TestExtractVideoMetadata:
         finally:
             pathlib.Path(tmp_path).unlink()
 
+    @pytest.mark.parametrize(
+        "stderr_signal",
+        [
+            # A generic "Could not open codec" without any CUDA signal must NOT
+            # be remapped — common cause is a corrupt file or unsupported codec
+            # profile, neither of which install_h264_support.sh fixes.
+            b"[vp9 @ 0x0] Could not open codec for input stream 0",
+            b"some other generic ffprobe failure",
+            b"Invalid data found when processing input",
+        ],
+    )
     @patch("subprocess.run")
-    def test_extract_video_metadata_reraises_unrelated_failure(self, mock_subprocess: Mock) -> None:
-        """ffprobe failures unrelated to codec/CUDA must not be remapped."""
+    def test_extract_video_metadata_reraises_unrelated_failure(
+        self, mock_subprocess: Mock, stderr_signal: bytes
+    ) -> None:
+        """ffprobe failures unrelated to NVDEC/CUDA must not be remapped."""
         mock_subprocess.side_effect = subprocess.CalledProcessError(
-            returncode=1, cmd=["ffprobe"], stderr=b"some other generic ffprobe failure"
+            returncode=1, cmd=["ffprobe"], stderr=stderr_signal
         )
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
             tmp_path = tmp.name

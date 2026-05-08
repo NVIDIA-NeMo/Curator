@@ -174,7 +174,7 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         try:
             video.populate_metadata()
         except SoftwareCodecMissingError as e:
-            logger.error(f"WARNING: Skipping {video.input_video}: software codec missing for this stage. {e}")
+            logger.error(f"Skipping {video.input_video}: software codec missing for this stage. {e}")
             return False
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to extract metadata for {video.input_video}: {e}")

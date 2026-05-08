@@ -86,7 +86,6 @@ def _detect_codec_from_mp4_header(path: Path, *, scan_bytes: int = 1_048_576) ->
 # Substrings in ffprobe's stderr that indicate the failure was a codec/CUDA
 # initialization problem rather than e.g. a missing/corrupt file.
 _CODEC_OPEN_FAILURE_SIGNALS: tuple[str, ...] = (
-    "Could not open codec",
     "CUDA_ERROR_NO_DEVICE",
     "no CUDA-capable device",
     "Failed loading nvcuvid",
