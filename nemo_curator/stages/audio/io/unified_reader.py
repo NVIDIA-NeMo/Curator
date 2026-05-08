@@ -12,16 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unified audio reader using lhotse CutSet as internal bridge.
+"""Unified audio reader using NeMo's lhotse adapters as internal bridge.
 
 Handles both NeMo tarred (Granary YAML) and non-tarred S3 (corpusview
-YAML) datasets through a single code path:
+YAML) datasets through a single code path using NeMo's
+``LazyNeMoIterator`` and ``LazyNeMoTarredIterator``:
 
-    manifest (local/S3) -> lhotse CutSet -> cut.load_audio() -> AudioTask
+    manifest (local/S3) -> NeMo lhotse adapter -> CutSet -> cut.load_audio() -> AudioTask
 
 Decomposes into:
 1. ``UnifiedDiscoveryStage`` — parses YAML, expands shards, checks .done
-2. ``UnifiedReaderStage`` — manifest -> CutSet -> AudioTask
+2. ``UnifiedReaderStage`` — manifest -> NeMo CutSet -> AudioTask
 """
 
 from __future__ import annotations
@@ -76,41 +77,48 @@ def _read_text(path: str, s3_config: dict[str, Any] | None = None) -> str:
         return f.read()
 
 
-def _manifest_to_shard_key(manifest_path: str, corpus: str, language: str = "", shard_type: str = "") -> str:
-    """Derive a unique shard key from a manifest path.
+def _manifest_to_shard_key(manifest_path: str, corpus: str) -> str:
+    """Derive a shard key from a manifest path starting at the corpus directory.
 
-    For tarred (Granary) data the key is extracted from the filesystem
-    path starting at the corpus directory — this matches the existing
-    ``NemoTarredAudioReader`` convention and requires the YAML ``corpus``
-    field to match a directory component (case-insensitive).
+    Matches the logic in ``NemoTarShardDiscoveryStage._manifest_to_rel_path``:
+    finds the corpus name (case-insensitive, must appear exactly once) in
+    the path components and returns everything from that point onward with
+    the file extension stripped.
 
-    For non-tarred (corpusview / S3) data the corpus name typically does
-    not appear in the path, so the key is constructed as
-    ``{corpus}/{language}/{manifest_stem}`` instead.
+    Works for both local and S3 paths as long as the YAML ``corpus`` field
+    matches a component in the path.
+
+    Example::
+
+        manifest_path = "s3://audio-riva-originals/manifests_raw/af/manifest_000000.jsonl"
+        corpus = "audio-riva-originals"
+        -> "audio-riva-originals/manifests_raw/af/manifest_000000"
     """
-    if shard_type == "nemo_tarred":
-        parts = manifest_path.replace("\\", "/").split("/")
-        parts_lower = [p.lower() for p in parts]
-        corpus_lower = corpus.lower()
-        matches = [i for i, p in enumerate(parts_lower) if p == corpus_lower]
-        if matches:
-            rel = "/".join(parts[matches[0]:])
-            for ext in (".jsonl", ".json", ".jsonl.gz"):
-                if rel.endswith(ext):
-                    rel = rel[: -len(ext)]
-                    break
-            return rel
-
-    basename = manifest_path.replace("\\", "/").rsplit("/", 1)[-1]
-    for ext in (".jsonl", ".json", ".jsonl.gz"):
-        if basename.endswith(ext):
-            basename = basename[: -len(ext)]
-            break
-    parts = [corpus]
-    if language:
-        parts.append(language)
-    parts.append(basename)
-    return "/".join(parts)
+    parts = manifest_path.replace("\\", "/").split("/")
+    parts_lower = [p.lower() for p in parts]
+    corpus_lower = corpus.lower()
+    matches = [i for i, p in enumerate(parts_lower) if p == corpus_lower]
+    if len(matches) == 0:
+        msg = (
+            f"Corpus name '{corpus}' not found in manifest path: {manifest_path}. "
+            f"The YAML 'corpus' field must match a directory component in the manifest path (case-insensitive)."
+        )
+        raise ValueError(msg)
+    if len(matches) > 1:
+        msg = (
+            f"Corpus name '{corpus}' appears {len(matches)} times in manifest path: {manifest_path}. "
+            f"It must appear exactly once for unambiguous path extraction."
+        )
+        raise ValueError(msg)
+    idx = matches[0]
+    rel = "/".join(parts[idx:])
+    if rel.endswith(".jsonl.gz"):
+        rel = rel[: -len(".jsonl.gz")]
+    elif rel.endswith(".jsonl"):
+        rel = rel[: -len(".jsonl")]
+    elif rel.endswith(".json"):
+        rel = rel[: -len(".json")]
+    return rel
 
 
 # ---------------------------------------------------------------------------
@@ -231,8 +239,7 @@ class UnifiedDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         skipped = 0
         for desc in shard_descs:
             corpus = desc["corpus"]
-            language = desc.get("language", "")
-            shard_key = _manifest_to_shard_key(desc["manifest_path"], corpus, language, desc["type"])
+            shard_key = _manifest_to_shard_key(desc["manifest_path"], corpus)
             if shard_key in completed:
                 skipped += 1
                 continue
@@ -264,19 +271,16 @@ class UnifiedDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
 @dataclass
 class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
-    """Read a manifest shard and emit AudioTasks.
+    """Read a manifest shard and emit AudioTasks via lhotse CutSet.
 
-    For tarred data (``task.data = [manifest, tar_path]``), streams the tar
-    via lhotse ``open_best`` and decodes audio with soundfile — same
-    approach as ``NemoTarShardReaderStage``.
-
-    For individual files (local or S3), builds a lhotse CutSet and uses
-    ``cut.load_audio()`` which natively handles S3 URLs via
-    ``AudioSource(type="url")``.
+    Uses ``LazyNeMoTarredIterator`` for tarred data (AIS via
+    ``pipe:curl``) and builds a CutSet directly for non-tarred data
+    (S3 individual files via ``AudioSource(type="url")``).  Both
+    produce a lhotse ``CutSet`` iterated to load audio and emit
+    ``AudioTask`` objects.
     """
 
     name: str = "unified_reader"
-    filepath_key: str = "audio_filepath"
     s3_config: dict[str, Any] | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -290,109 +294,93 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
         return {"is_fanout_stage": True}
 
-    # -- tarred path: stream tar, decode with soundfile -------------------
+    @staticmethod
+    def _s3_to_pipe(s3_path: str) -> str:
+        """Convert ``s3://BUCKET/KEY`` to a ``pipe:curl`` command for AIS."""
+        from urllib.parse import urlparse
 
-    def _process_tarred(  # noqa: PLR0913
-        self, entries: list[dict[str, Any]], tar_path: str,
-        corpus: str, shard_key: str, language: str, metadata: dict,
-    ) -> list[AudioTask]:
-        from io import BytesIO
+        parsed = urlparse(s3_path)
+        bucket, key = parsed.netloc, parsed.path.lstrip("/")
+        endpoint = os.environ.get("AIS_ENDPOINT", "")
+        if not endpoint:
+            msg = "AIS_ENDPOINT env var required for s3:// tar paths"
+            raise RuntimeError(msg)
+        url = f"{endpoint.rstrip('/')}/v1/objects/{bucket}/{key}?provider=s3"
+        token = os.environ.get("AIS_AUTHN_TOKEN", "")
+        if token:
+            return f"pipe:curl -sL -H 'Authorization: Bearer {token}' '{url}'"
+        return f"pipe:curl -sL '{url}'"
 
-        import soundfile as sf
+    def _make_cutset(self, manifest_path: str, tar_path: str | None) -> Any:  # noqa: ANN401
+        """Build a lhotse CutSet using NeMo adapters."""
+        from lhotse import CutSet
+        from nemo.collections.common.data.lhotse.nemo_adapters import LazyNeMoTarredIterator
 
-        from nemo_curator.stages.audio.io.nemo_tarred_reader import _open_tar
-
-        manifest = {e[self.filepath_key]: e for e in entries}
-        ais_endpoint = (self.s3_config or {}).get("ais_endpoint_url")
-        tar = _open_tar(tar_path, ais_endpoint)
-
-        results: list[AudioTask] = []
-        loaded = 0
-        for tar_info in tar:
-            if not tar_info.isfile() or tar_info.name not in manifest:
-                continue
-            raw = tar.extractfile(tar_info).read()
-            try:
-                audio, sr = sf.read(BytesIO(raw), dtype="float32")
-            except Exception:  # noqa: BLE001
-                logger.warning(f"Skipping corrupt audio {tar_info.name} in {tar_path}")
-                continue
-
-            if audio.ndim > 1:
-                audio = audio.mean(axis=1)
-
-            loaded += 1
-            if loaded % max(1, len(manifest) // 10) == 0 or loaded == 1:
-                logger.info(f"  [{shard_key}] loaded {loaded}/{len(manifest)}")
-
-            entry_data = dict(manifest[tar_info.name])
-            entry_data["waveform"] = audio
-            entry_data["sampling_rate"] = sr
-            entry_data["sample_rate"] = sr
-            entry_data["num_channels"] = 1
-            entry_data["corpus"] = corpus
-            if language and "source_lang" not in entry_data:
-                entry_data["source_lang"] = language
-
-            results.append(AudioTask(
-                task_id=f"{shard_key}_{tar_info.name}",
-                dataset_name=corpus,
-                data=entry_data,
-                _metadata={**metadata, "_shard_key": shard_key},
+        if tar_path:
+            resolved_tar = self._s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
+            return CutSet(LazyNeMoTarredIterator(
+                manifest_path=manifest_path,
+                tar_paths=resolved_tar,
+                skip_missing_manifest_entries=True,
             ))
 
-        tar.close()
-        return results
-
-    # -- individual files path: lhotse CutSet -----------------------------
-
-    def _build_cutset(self, entries: list[dict[str, Any]]) -> Any:  # noqa: ANN401
-        """Build a lhotse CutSet from manifest entries (individual files)."""
-        from lhotse import CutSet, MonoCut, Recording
+        # For non-tarred manifests, build CutSet directly since
+        # LazyNeMoIterator can't handle s3:// audio_filepath URLs
+        # (it tries soundfile.info() which fails on remote paths).
+        from lhotse import MonoCut, Recording
         from lhotse.audio import AudioSource
 
+        text = _read_text(manifest_path, self.s3_config)
+        entries = [json.loads(line) for line in text.splitlines() if line.strip()]
         cuts = []
         for i, entry in enumerate(entries):
-            audio_path = entry.get(self.filepath_key, "")
+            audio_path = entry.get("audio_filepath", "")
             duration = entry.get("duration", 0.0)
-            sr = entry.get("sample_rate", 16000)
+            sr = entry.get("sampling_rate", entry.get("sample_rate", 16000))
             sample_id = entry.get("id", str(i))
 
-            if audio_path.startswith("s3://"):
-                source = AudioSource(type="url", channels=[0], source=audio_path)
-            else:
-                source = AudioSource(type="file", channels=[0], source=audio_path)
-
+            source_type = "url" if audio_path.startswith(("s3://", "http://", "https://")) else "file"
+            source = AudioSource(type=source_type, channels=[0], source=audio_path)
             recording = Recording(
                 id=sample_id, sources=[source], sampling_rate=sr,
                 num_samples=int(duration * sr), duration=duration,
             )
-            cuts.append(MonoCut(id=sample_id, start=0.0, duration=duration, channel=0, recording=recording))
+            cut = MonoCut(id=sample_id, start=0.0, duration=duration, channel=0, recording=recording)
+            cut.custom = {k: v for k, v in entry.items() if k not in ("audio_filepath", "duration", "sampling_rate")}
+            cuts.append(cut)
 
         return CutSet.from_cuts(cuts)
 
-    def _process_individual(
-        self, entries: list[dict[str, Any]],
-        corpus: str, shard_key: str, language: str, metadata: dict,
-    ) -> list[AudioTask]:
-        cutset = self._build_cutset(entries)
-        results: list[AudioTask] = []
+    def process(self, task: FileGroupTask) -> list[AudioTask]:
+        manifest_path = task.data[0]
+        tar_path = task.data[1] if len(task.data) >= 2 else None  # noqa: PLR2004
+        corpus = task.reader_config.get("corpus", "unknown")
+        shard_key = task.reader_config.get("shard_key", task.task_id)
+        language = task.reader_config.get("language", "")
+        metadata = dict(task._metadata)
 
-        n_entries = len(entries)
-        for i, (cut, entry) in enumerate(zip(cutset, entries, strict=False)):
+        cutset = self._make_cutset(manifest_path, tar_path)
+
+        mode = "tarred" if tar_path else "CutSet"
+        logger.info(f"Reading shard {shard_key} via NeMo {mode} adapter")
+
+        results: list[AudioTask] = []
+        loaded = 0
+        for cut in cutset:
             try:
                 audio = cut.load_audio().squeeze()
             except Exception:  # noqa: BLE001
-                logger.warning(f"Skipping unreadable audio: {entry.get(self.filepath_key, cut.id)}")
+                logger.warning(f"Skipping unreadable audio: {cut.id}")
                 continue
-
-            if (i + 1) % max(1, n_entries // 10) == 0 or i == 0:
-                logger.info(f"  [{shard_key}] loaded {i + 1}/{n_entries}")
 
             if audio.ndim > 1:
                 audio = audio.mean(axis=0)
 
-            entry_data = dict(entry)
+            loaded += 1
+            if loaded % 100 == 0 or loaded == 1:
+                logger.info(f"  [{shard_key}] loaded {loaded}")
+
+            entry_data = dict(cut.custom) if cut.custom else {}
             entry_data["waveform"] = audio.astype(np.float32)
             entry_data["sampling_rate"] = cut.recording.sampling_rate
             entry_data["sample_rate"] = cut.recording.sampling_rate
@@ -406,32 +394,11 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 dataset_name=corpus,
                 data=entry_data,
                 _metadata={**metadata, "_shard_key": shard_key},
+                _stage_perf=list(task._stage_perf),
             ))
-
-        return results
-
-    # -- dispatch ---------------------------------------------------------
-
-    def process(self, task: FileGroupTask) -> list[AudioTask]:
-        manifest_path = task.data[0]
-        tar_path = task.data[1] if len(task.data) >= 2 else None  # noqa: PLR2004
-        corpus = task.reader_config.get("corpus", "unknown")
-        shard_key = task.reader_config.get("shard_key", task.task_id)
-        language = task.reader_config.get("language", "")
-
-        text = _read_text(manifest_path, self.s3_config)
-        entries = [json.loads(line) for line in text.splitlines() if line.strip()]
-
-        if tar_path:
-            logger.info(f"Reading shard {shard_key}: {len(entries)} entries via tar stream")
-            results = self._process_tarred(entries, tar_path, corpus, shard_key, language, dict(task._metadata))
-        else:
-            logger.info(f"Reading shard {shard_key}: {len(entries)} entries via CutSet")
-            results = self._process_individual(entries, corpus, shard_key, language, dict(task._metadata))
 
         for r in results:
             r._metadata["_shard_total"] = len(results)
-            r._stage_perf = list(task._stage_perf)
 
         logger.info(f"Shard {shard_key}: emitted {len(results)} AudioTasks")
         return results
@@ -446,7 +413,8 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 class UnifiedAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     """Unified reader for NeMo audio datasets from local or S3.
 
-    Auto-detects YAML format and data type.  Uses lhotse CutSet
+    Auto-detects YAML format and data type.  Uses NeMo's lhotse
+    adapters (``LazyNeMoIterator`` / ``LazyNeMoTarredIterator``)
     internally for audio loading.
     """
 
@@ -455,7 +423,6 @@ class UnifiedAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     site: str = "pdx"
     corpus_filter: list[str] | None = None
     output_dir: str | None = None
-    filepath_key: str = "audio_filepath"
     s3_config: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
@@ -470,7 +437,6 @@ class UnifiedAudioReader(CompositeStage[_EmptyTask, AudioTask]):
                 s3_config=self.s3_config,
             ),
             UnifiedReaderStage(
-                filepath_key=self.filepath_key,
                 s3_config=self.s3_config,
             ),
         ]
