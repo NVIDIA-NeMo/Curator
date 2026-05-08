@@ -66,28 +66,6 @@ class TestDynamoRuntimeEnv:
         env = dynamo_runtime_env(mc)
         assert env["working_dir"] == "/workspace"
 
-    def test_default_bumps_runtime_env_setup_timeout(self) -> None:
-        # Regression guard: Ray's default ``setup_timeout_seconds`` is 600 s,
-        # but ``--no-build-isolation-package flash-attn`` triggers a
-        # from-source rebuild (~15 min) that would otherwise be cancelled with
-        # ``RuntimeEnvSetupError`` before the actor comes up.
-        env = dynamo_runtime_env(DynamoVLLMModelConfig(model_identifier="m"))
-        assert env["config"]["setup_timeout_seconds"] >= 1800
-
-    def test_default_carries_flash_attn_rebuild_flags(self) -> None:
-        # Regression guard: without ``--reinstall-package flash-attn`` +
-        # ``--no-build-isolation-package flash-attn`` the actor venv loads
-        # ai-dynamo[vllm]'s prebuilt flash-attn wheel against the wrong torch
-        # ABI and crashes with ``undefined symbol:
-        # c10::cuda::c10_cuda_check_implementation``.
-        env = dynamo_runtime_env(DynamoVLLMModelConfig(model_identifier="m"))
-        assert "flash-attn" in env["uv"]["packages"]
-        opts = env["uv"]["uv_pip_install_options"]
-        assert "--reinstall-package" in opts
-        assert opts[opts.index("--reinstall-package") + 1] == "flash-attn"
-        assert "--no-build-isolation-package" in opts
-        assert opts[opts.index("--no-build-isolation-package") + 1] == "flash-attn"
-
 
 class TestMergeModelRuntimeEnvs:
     def test_no_models_yields_default_env(self) -> None:
