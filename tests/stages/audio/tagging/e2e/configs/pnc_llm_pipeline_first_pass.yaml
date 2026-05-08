@@ -56,7 +56,8 @@ stages:
     name: "SplitLongAudio"
     suggested_max_len: ${max_segment_length}
     min_len: 1.0
-    resources: ${resources}
+    resources:
+      cpus: 0.5
 
   # 1st pass ASR: full alignment with word timestamps
   - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage

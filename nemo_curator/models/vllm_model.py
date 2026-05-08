@@ -292,11 +292,14 @@ class VLLMInference:
 
         Called once per node before workers start.  Only downloads artifacts
         (no GPU memory used) so that :meth:`setup` can load instantly.
+        Stores the local snapshot path so subsequent ``setup()`` calls use
+        the cached path directly instead of resolving from HuggingFace.
         """
         model_name = self.model_params.get("model", "")
         if model_name:
-            snapshot_download(repo_id=model_name)
-            AutoTokenizer.from_pretrained(model_name)
+            local_path = snapshot_download(repo_id=model_name)
+            self.model_params["model"] = local_path
+            AutoTokenizer.from_pretrained(local_path)
 
     def setup(self) -> None:
         """Instantiate the vLLM engine on the target device.
@@ -359,7 +362,7 @@ class VLLMInference:
 
     def load_model(self) -> None:
         """Instantiate the ``vllm.LLM`` engine."""
-        os.environ["VLLM_USE_V1"] = "0"
+        os.environ.setdefault("VLLM_USE_V1", "0")
         start_time = time.time()
         try:
             self.llm = LLM(**self.model_params)

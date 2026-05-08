@@ -67,7 +67,7 @@ class TestPNCwithvLLMInferenceStage:
                 {"text": "how are you", "start": 1.0, "end": 2.0},
             ],
         )
-        result = stage.process(task)
+        result = stage.process_batch([task])[0]
 
         assert result.data["segments"][0]["generation"] == "Hello world."
         assert result.data["segments"][1]["generation"] == "How are you?"
@@ -77,7 +77,7 @@ class TestPNCwithvLLMInferenceStage:
         stage._vllm.process_batch.return_value = [_make_vllm_output("Hello.")]
 
         task = AudioTask(data={"text": "hello"})
-        result = stage.process(task)
+        result = stage.process_batch([task])[0]
 
         assert result.data["generation"] == "Hello."
 
@@ -90,14 +90,14 @@ class TestPNCwithvLLMInferenceStage:
                 {"start": 1.0, "end": 2.0},
             ],
         )
-        result = stage.process(task)
+        result = stage.process_batch([task])[0]
 
         stage._vllm.process_batch.assert_not_called()
         assert "generation" not in result.data["segments"][0]
 
     def test_process_no_segments_no_text(self, stage: PNCwithvLLMInferenceStage) -> None:
         task = AudioTask(data={"audio_filepath": "/a.wav"})
-        result = stage.process(task)
+        result = stage.process_batch([task])[0]
 
         stage._vllm.process_batch.assert_not_called()
         assert "generation" not in result.data
@@ -146,7 +146,7 @@ class TestPNCwithvLLMInferenceStage:
         mock_vllm.process_batch.return_value = [_make_vllm_output("Result.")]
 
         task = audio_task(text="test")
-        result = stage.process(task)
+        result = stage.process_batch([task])[0]
 
         assert result.data["pnc_output"] == "Result."
 
@@ -415,7 +415,7 @@ class TestCleanLLMOutputSecondPassASR:
                 {"text": "good morning", "start": 1.0, "end": 2.0},
             ],
         )
-        task = pnc_stage.process(task)
+        task = pnc_stage.process_batch([task])[0]
 
         assert task.data["segments"][0]["text_pnc"] == "Hello, world."
         assert task.data["segments"][1]["text_pnc"] == "Good morning."
@@ -585,7 +585,7 @@ class TestCleanLLMOutputFirstPassASR:
 
         data = self._first_pass_entry()
         task = AudioTask(data=data)
-        task = pnc_stage.process(task)
+        task = pnc_stage.process_batch([task])[0]
 
         assert task.data["text_pnc"] == "Hello, world. Good morning, everyone."
 

@@ -39,12 +39,20 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     Uses a pre-trained Squim model to calculate audio quality metrics like
     PESQ, STOI, and SI-SDR for each audio segment.
 
+    Args:
+        audio_filepath_key: Key for the audio file path in the manifest. Defaults to "resampled_audio_filepath".
+        target_sr: Target sample rate for SQUIM model input. Defaults to 16000.
+        batch_size: Number of audio tasks to be processed at once. Defaults to 32.
+        compute_batch_size: Number of waveforms to process per GPU inference call. Defaults to 64.
+
     Returns:
         The same data as in the input data, but with Squim quality metrics added to each segment.
     """
 
     audio_filepath_key: str = "resampled_audio_filepath"
     target_sr: int = 16000
+    batch_size: int = 32
+    compute_batch_size: int = 64
 
     # Stage metadata
     name: str = "TorchSquimQualityMetrics"
@@ -71,80 +79,129 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     def setup_on_node(
         self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
     ) -> None:
-        """Setup stage on node."""
-        if self.model is None:
-            self.model = SQUIM_OBJECTIVE.get_model()
+        """Pre-download SQUIM model weights (cache warming, no GPU allocation)."""
+        SQUIM_OBJECTIVE.get_model()
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        """Load model. Called once per worker before processing."""
-        if self.model is None:
-            self.model = SQUIM_OBJECTIVE.get_model()
-
+        """Load model onto the target device. Called once per worker."""
+        self.model = SQUIM_OBJECTIVE.get_model()
         if self._device == "cuda":
             self.model = self.model.cuda()
-
         logger.info(f"[{self.name}] Initialized SQUIM model on {self._device}")
 
-    def process(self, task: AudioTask) -> AudioTask:
-        """Calculate Squim quality metrics for audio entry."""
-        data_entry = task.data
+    def _compute_metrics_batched(self, waveforms: list[torch.Tensor]) -> list[tuple[float, float, float]]:
+        """Run SQUIM on a list of 1-D waveform tensors in batches."""
+        results: list[tuple[float, float, float]] = []
+        for i in range(0, len(waveforms), self.compute_batch_size):
+            batch = waveforms[i : i + self.compute_batch_size]
+            max_len = max(w.shape[0] for w in batch)
+            padded = torch.zeros(len(batch), max_len)
+            for j, w in enumerate(batch):
+                padded[j, : w.shape[0]] = w
+            padded = padded.to(self._device)
+            with torch.no_grad():
+                stoi, pesq, si_sdr = self.model(padded)
+            for j in range(len(batch)):
+                results.append(
+                    (
+                        round(pesq[j].item(), 3),
+                        round(stoi[j].item(), 3),
+                        round(si_sdr[j].item(), 3),
+                    )
+                )
+        return results
+
+    def _collect_waveforms_for_entry(self, task_idx: int, data_entry: dict) -> list[tuple[int, int, torch.Tensor]]:
+        """Extract valid segment waveforms from a single audio entry.
+
+        Returns a list of (task_idx, segment_idx, waveform) tuples.
+        """
         audio_path = data_entry.get(self.audio_filepath_key)
         if not audio_path:
             logger.error(
                 f"[{self.name}] Missing '{self.audio_filepath_key}' for entry: "
                 f"{data_entry.get('audio_item_id', 'unknown')}"
             )
-            return task
+            return []
+
         try:
             info = sf.info(audio_path)
             sr = info.samplerate
         except Exception as ex:  # noqa: BLE001
-            logger.error(f"Failed to read audio info: {audio_path}, exception={ex}")
-            return task
+            logger.error(f"[{self.name}] Failed to read audio info: {audio_path}, exception={ex}")
+            return []
 
         try:
             audio, _ = librosa.load(path=audio_path, sr=sr)
         except Exception as ex:  # noqa: BLE001
-            logger.error(f"Failed to load audio path: {audio_path}, exception={ex}")
-            return task
+            logger.error(f"[{self.name}] Failed to load audio: {audio_path}, exception={ex}")
+            return []
 
+        collected: list[tuple[int, int, torch.Tensor]] = []
         segments = data_entry.get("segments", [])
 
-        for segment in segments:
+        for seg_idx, segment in enumerate(segments):
             if segment.get("speaker") == "no-speaker" or segment.get("text", "").strip() == "":
                 continue
 
-            start = segment["start"]
-            end = segment["end"]
-
+            start = segment.get("start", 0)
+            end = segment.get("end", 0)
             start_frame = math.floor(start * sr)
             end_frame = math.floor(end * sr)
-            num_frames = end_frame - start_frame
 
-            if num_frames <= 0:
+            if end_frame - start_frame <= 0:
                 logger.warning(f"[{self.name}] Zero-length segment at {start}-{end}s in {audio_path}, skipping")
                 continue
 
-            y = audio[start_frame:end_frame]
-            y = torch.from_numpy(y).unsqueeze(0)
-
+            y = torch.from_numpy(audio[start_frame:end_frame])
             if sr != self.target_sr:
-                y = torchaudio_F.resample(y, sr, self.target_sr)
+                y = torchaudio_F.resample(y.unsqueeze(0), sr, self.target_sr).squeeze(0)
 
-            try:
-                with torch.no_grad():
-                    y_cuda = y.to(self._device)
-                    stoi_hyp, pesq_hyp, si_sdr_hyp = self.model(y_cuda)
+            collected.append((task_idx, seg_idx, y))
+
+        return collected
+
+    def process(self, task: AudioTask) -> AudioTask:
+        """Delegate single-task processing to process_batch."""
+        msg = f"[{self.name}] is a GPU/batched inference stage. Use process_batch() instead."
+        raise NotImplementedError(msg)
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Calculate Squim quality metrics across all tasks using batched GPU inference.
+
+        Collects waveforms from every valid segment across all tasks, sorts them
+        by duration so similarly-sized segments are padded together, runs SQUIM
+        in batches on GPU, then scatters results back to the originating
+        task's segment.
+        """
+        if not tasks:
+            return tasks
+
+        # Collect all valid waveforms with their origin (task_idx, segment_idx)
+        all_waveform_metadata: list[tuple[int, int, torch.Tensor]] = []
+        for task_idx, task in enumerate(tasks):
+            all_waveform_metadata.extend(self._collect_waveforms_for_entry(task_idx, task.data))
+
+        if not all_waveform_metadata:
+            return tasks
+
+        # Sort by waveform length so similarly-sized segments share a batch
+        sorted_indices = sorted(range(len(all_waveform_metadata)), key=lambda i: all_waveform_metadata[i][2].shape[0])
+        sorted_waveforms = [all_waveform_metadata[i][2] for i in sorted_indices]
+
+        try:
+            sorted_results = self._compute_metrics_batched(sorted_waveforms)
+            for rank, (pesq_val, stoi_val, sisdr_val) in enumerate(sorted_results):
+                orig_idx = sorted_indices[rank]
+                task_idx, seg_idx, _ = all_waveform_metadata[orig_idx]
+                segment = tasks[task_idx].data["segments"][seg_idx]
                 if "metrics" not in segment:
                     segment["metrics"] = {}
+                segment["metrics"]["pesq_squim"] = pesq_val
+                segment["metrics"]["stoi_squim"] = stoi_val
+                segment["metrics"]["sisdr_squim"] = sisdr_val
+        except Exception as e:  # noqa: BLE001
+            torch.cuda.empty_cache()
+            logger.error(f"[{self.name}] Failed to compute Squim metrics: {e}")
 
-                segment["metrics"]["pesq_squim"] = round(pesq_hyp.item(), 3)
-                segment["metrics"]["stoi_squim"] = round(stoi_hyp.item(), 3)
-                segment["metrics"]["sisdr_squim"] = round(si_sdr_hyp.item(), 3)
-
-            except Exception as e:  # noqa: BLE001
-                torch.cuda.empty_cache()
-                logger.error(
-                    f"Failed to compute Squim metrics: {e}, frame_offset={start}, num_frames={num_frames}, file={audio_path}"
-                )
-        return task
+        return tasks

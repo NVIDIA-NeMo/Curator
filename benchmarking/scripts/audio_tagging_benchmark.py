@@ -87,6 +87,9 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     )
 
     # Speaker diarization and overlap detection (PyAnnote)
+    # NOTE: Fractional GPU values below are benchmark-specific empirical settings
+    # tuned for a single-GPU setup. They are hardware/workload dependent and should
+    # not be copied as production defaults into other pipeline configs.
     pipeline.add_stage(
         PyAnnoteDiarizationStage(
             name="PyAnnoteDiarization",

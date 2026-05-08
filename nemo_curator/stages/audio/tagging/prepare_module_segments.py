@@ -415,7 +415,7 @@ class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
                 self.prepare_asr_segments(words, data_entry)
             elif self.module == "tts":
                 self.prepare_tts_segments(words, data_entry)
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"[{self.name}] Error processing entry: {e}")
-
+        except Exception as e:
+            msg = f"[{self.name}] Error processing entry {entry_id}: {e}"
+            raise RuntimeError(msg) from e
         return task

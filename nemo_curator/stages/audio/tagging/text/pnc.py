@@ -142,13 +142,28 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         target[gen_field] = text
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+        return [], [self.segments_key, self.text_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.generation_field]
 
     def process(self, task: AudioTask) -> AudioTask:
-        return self.process_batch([task])[0]
+        msg = f"{self.name} is a GPU/batched inference stage. Use process_batch() instead."
+        raise NotImplementedError(msg)
+
+    @staticmethod
+    def _extract_generated_text(output: Any, prompt_idx: int, key_path: list) -> str | None:  # noqa: ANN401
+        """Safely extract generated text from a vLLM RequestOutput.
+
+        Returns ``None`` if the output has no completions, logging a warning
+        with enough context to identify the failing prompt.
+        """
+        if not output.outputs:
+            logger.warning(
+                f"[PNCwithvLLMInference] Empty completion at prompt_idx={prompt_idx}, key_path={key_path}; skipping."
+            )
+            return None
+        return output.outputs[0].text
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Batch-process multiple AudioTasks with a single vLLM call for efficiency."""
@@ -170,8 +185,10 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
             batch = all_prompts[i : i + self.inference_batch_size]
             outputs.extend(self._vllm.process_batch(batch))
 
-        for (task_idx, key_path), output in zip(result_map, outputs, strict=True):
-            self._store_generation(tasks[task_idx].data, key_path, output.outputs[0].text, self.generation_field)
+        for idx, ((task_idx, key_path), output) in enumerate(zip(result_map, outputs, strict=True)):
+            text = self._extract_generated_text(output, idx, key_path)
+            if text is not None:
+                self._store_generation(tasks[task_idx].data, key_path, text, self.generation_field)
 
         self._log_metrics(
             {

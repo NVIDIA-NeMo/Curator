@@ -62,6 +62,14 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
     # Internal state
     _normalizer: Any = field(default=None, repr=False)
 
+    def __post_init__(self) -> None:
+        if self.num_words_look_back >= self.num_words_threshold:
+            msg = (
+                f"num_words_look_back ({self.num_words_look_back}) must be less than "
+                f"num_words_threshold ({self.num_words_threshold})"
+            )
+            raise ValueError(msg)
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], ["segments"]
 
