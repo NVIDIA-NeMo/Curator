@@ -134,6 +134,10 @@ versions:
     path: versions/latest.yml
     slug: latest
     availability: stable
+  - display-name: "Main (beta)"
+    path: versions/main.yml
+    slug: main
+    availability: beta
   - display-name: "26.04 · v1.1.2"
     path: versions/v26.04.yml
     slug: v26.04

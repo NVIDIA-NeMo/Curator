@@ -57,8 +57,10 @@ fern/
 ├── assets/                   # Logos, shared SVGs, page images
 ├── components/               # CurrentRelease, CustomFooter (TSX)
 ├── versions/
-│   ├── v26.04.yml            # Nav for the current train — paths point at ./v26.04/pages/
-│   ├── v26.04/pages/         # Bleeding-edge MDX content (every PR lands here)
+│   ├── main.yml              # Nav for the bleeding-edge train — paths point at ./main/pages/
+│   ├── main/pages/           # Bleeding-edge MDX (currently a stub; will be seeded from v26.04 — see below)
+│   ├── v26.04.yml            # Current train — until main/ is seeded, edits still land here
+│   ├── v26.04/pages/         # 26.04 content (today: also bleeding-edge until the seed lands)
 │   ├── v26.02.yml            # Frozen 26.02 GA snapshot — back-ports only
 │   ├── v26.02/pages/         # Frozen 26.02 content
 │   ├── v25.09.yml            # Frozen 25.09 GA snapshot
@@ -72,15 +74,24 @@ fern/
 ```
 File path                                              Published URL
 ─────────────────────────────────────────────────────  ─────────────────────────────────────────────────
+fern/versions/main/pages/get-started/index.mdx         docs.nvidia.com/nemo/curator/main/get-started
 fern/versions/v26.04/pages/get-started/index.mdx       docs.nvidia.com/nemo/curator/v26.04/get-started
                                                        docs.nvidia.com/nemo/curator/latest/get-started   (latest aliases v26.04)
 fern/versions/v26.02/pages/get-started/index.mdx       docs.nvidia.com/nemo/curator/v26.02/get-started
 fern/versions/v25.09/pages/get-started/index.mdx       docs.nvidia.com/nemo/curator/v25.09/get-started
 ```
 
-`v26.04/pages/` is the bleeding-edge tree — every PR lands here. `v26.02/` and `v25.09/` are frozen GA snapshots; they only change via deliberate back-port. `latest.yml` is a symlink to the current GA's nav (today: `v26.04.yml`), so `/latest/...` URLs serve the current train. At the next GA cut, retarget the symlink.
+**Transitional state (read this first):** `main/pages/` is reserved as the bleeding-edge tree but is currently a single placeholder index. Until it's seeded, **edits keep landing in `v26.04/pages/`**. Once the in-flight content changes against 26.04 settle, a follow-up commit will:
 
-`display-name` in `docs.yml` pairs the **NeMo calendar train** (e.g. `26.04`) with the **git release tag** (e.g. `v1.1.2`) so the version picker matches PyPI/GitHub. Align these with `CHANGELOG.md` and `nemo_curator/package_info.py` when you ship.
+```bash
+cp -r fern/versions/v26.04/pages/* fern/versions/main/pages/
+cp fern/versions/v26.04.yml        fern/versions/main.yml
+sed -i '' 's|\./v26\.04/|./main/|g' fern/versions/main.yml
+```
+
+After that seed, **every PR lands in `main/pages/`** (published at `/main/...` with `availability: beta`), `v26.04/pages/` becomes a frozen GA snapshot modified only via deliberate back-port from `main`, and `v26.02/` / `v25.09/` continue as older frozen GAs. `latest.yml` is a symlink to the current GA's nav (today: `v26.04.yml`), so `/latest/...` URLs serve the current train. At the next GA cut, snapshot `main/` to a new `vXX.YY/` and retarget the symlink.
+
+`display-name` in `docs.yml` pairs the **NeMo calendar train** (e.g. `26.04`) with the **git release tag** (e.g. `v1.1.2`) so the version picker matches PyPI/GitHub. Align these with `CHANGELOG.md` and `nemo_curator/package_info.py` when you ship. The `main` entry stays unpinned (`Main (beta)`) because it tracks unreleased work.
 
 ## Local development
 
@@ -99,12 +110,13 @@ For prose-only iteration, `fern docs dev` is enough. Library reference (`product
 CI runs `substitute_variables.py` before `fern generate` so `{{ container_version }}` and other tokens in MDX are replaced. To run locally (from repo root):
 
 ```bash
-python fern/substitute_variables.py versions/v25.09 --version 25.09
-python fern/substitute_variables.py versions/v26.02 --version 26.02
+python fern/substitute_variables.py versions/main   --version 26.04   # bleeding-edge — pass the *next* planned release
 python fern/substitute_variables.py versions/v26.04 --version 26.04
+python fern/substitute_variables.py versions/v26.02 --version 26.02
+python fern/substitute_variables.py versions/v25.09 --version 25.09
 ```
 
-Variables are defined at the top of `substitute_variables.py` (e.g. `{{ product_name }}`, `{{ github_repo }}`, `{{ container_version }}`).
+Variables are defined at the top of `substitute_variables.py` (e.g. `{{ product_name }}`, `{{ github_repo }}`, `{{ container_version }}`). For `main/`, pass whatever release is *next on the train* — pages there should display the version they will ship as, not literal `main`.
 
 ## Authoring conventions
 

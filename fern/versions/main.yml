@@ -1,0 +1,27 @@
+# Bleeding-edge nav for NeMo Curator's docs (`main` slug, `availability: beta`).
+#
+# This file is intentionally a stub. The full page tree will be seeded from the
+# current GA snapshot (v26.04) in a follow-up commit, after pending content
+# changes against v26.04 land. To seed:
+#
+#   cp -r fern/versions/v26.04/pages/* fern/versions/main/pages/
+#   cp fern/versions/v26.04.yml        fern/versions/main.yml
+#   sed -i '' 's|\./v26\.04/|./main/|g' fern/versions/main.yml
+#
+# After seeding, every PR lands in fern/versions/main/pages/ and ships under /main/.
+# v26.04/pages/ becomes a frozen GA snapshot, modified only via deliberate back-port.
+
+tabs:
+  docs:
+    display-name: Documentation
+    slug: ""
+
+navigation:
+  - tab: docs
+    layout:
+      - section: Home
+        slug: home
+        contents:
+          - page: Welcome
+            path: ./main/pages/index.mdx
+            slug: welcome
