@@ -41,24 +41,62 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     name: str = "alm_manifest_reader_stage"
 
+    @staticmethod
+    def _derive_shard_key(manifest_path: str, corpus: str = "") -> str:
+        """Derive a shard key from the manifest path starting at the corpus directory.
+
+        Looks for ``corpus`` in the path components (from the task data)
+        and returns everything from that point onward, stripping the
+        file extension.  Falls back to using the ``corpus`` field from
+        the first entry in the manifest if not provided.
+        """
+        import os
+        parts = manifest_path.replace("\\", "/").rstrip("/").split("/")
+        basename = parts[-1]
+        for ext in (".jsonl", ".json", ".jsonl.gz"):
+            if basename.endswith(ext):
+                basename = basename[: -len(ext)]
+                break
+        parts[-1] = basename
+
+        if corpus:
+            parts_lower = [p.lower() for p in parts]
+            corpus_lower = corpus.lower()
+            matches = [i for i, p in enumerate(parts_lower) if p == corpus_lower]
+            if matches:
+                return "/".join(parts[matches[0]:])
+
+        return "/".join(parts[-4:]) if len(parts) >= 4 else "/".join(parts)
+
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         paths = task.data
         results: list[AudioTask] = []
         for manifest in paths:
-            count = 0
+            entries = []
             fs, resolved = url_to_fs(manifest)
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
-                        results.append(
-                            AudioTask(
-                                data=json.loads(line.strip()),
-                                _metadata=task._metadata,
-                                _stage_perf=list(task._stage_perf),
-                            )
-                        )
-                        count += 1
-            logger.info(f"ALMManifestReaderStage: loaded {count} entries from {manifest}")
+                        entries.append(json.loads(line.strip()))
+
+            corpus = entries[0].get("corpus", "") if entries else ""
+            shard_key = self._derive_shard_key(manifest, corpus)
+            metadata = {**task._metadata, "_shard_key": shard_key}
+
+            for entry in entries:
+                results.append(
+                    AudioTask(
+                        data=entry,
+                        _metadata=metadata,
+                        _stage_perf=list(task._stage_perf),
+                    )
+                )
+            logger.info(f"ALMManifestReaderStage: loaded {len(entries)} entries from {manifest} (shard_key={shard_key})")
+
+        shard_total = len(results)
+        for r in results:
+            r._metadata["_shard_total"] = shard_total
+
         return results
 
     def ray_stage_spec(self) -> dict[str, Any]:
