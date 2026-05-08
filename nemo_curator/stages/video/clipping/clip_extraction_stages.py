@@ -33,8 +33,8 @@ from nemo_curator.utils.operation_utils import make_pipeline_temporary_dir
 SUPPORTED_ENCODERS = ("h264_nvenc", "libvpx-vp9", "libopenh264")
 
 _BYO_H264_DOCS_URL = (
-    "https://github.com/NVIDIA-NeMo/Curator/blob/main/docs/admin/installation.md"
-    "#bring-your-own-h264-software-encoder-advanced"
+    "https://github.com/NVIDIA-NeMo/Curator/blob/main/fern/versions/main/pages/get-started/installation.mdx"
+    "#software-h264hevcav1-codec-support-advanced"
 )
 
 
@@ -91,7 +91,10 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
         if not shutil.which("ffmpeg"):
-            msg = "ClipTranscodingStage requires 'ffmpeg' built with supported video encoders. See docker/common/install_ffmpeg.sh."
+            msg = (
+                "Could not find `ffmpeg` on PATH. ClipTranscodingStage requires "
+                "FFmpeg built with supported video encoders. See docker/common/install_ffmpeg.sh."
+            )
             raise RuntimeError(msg)
         if self.encoder not in SUPPORTED_ENCODERS:
             error_msg = f"Expected encoder in {SUPPORTED_ENCODERS}. Got {self.encoder}"

@@ -693,14 +693,14 @@ class TestClipTranscodingStage:
 
 class TestClipTranscodingStageRayDataResources:
     def test_cpu_path_sets_ray_data_num_cpus_to_1(self):
-        stage = ClipTranscodingStage()
+        stage = ClipTranscodingStage(encoder="libvpx-vp9")
         assert stage.ray_data_num_cpus == 1.0
         assert stage.resources.cpus == stage.num_cpus_per_worker
 
     def test_cpu_path_ray_stage_spec_includes_ray_num_cpus(self):
         from nemo_curator.backends.utils import RayStageSpecKeys
 
-        stage = ClipTranscodingStage()
+        stage = ClipTranscodingStage(encoder="libvpx-vp9")
         spec = stage.ray_stage_spec()
         assert spec[RayStageSpecKeys.RAY_NUM_CPUS] == 1.0
         assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True

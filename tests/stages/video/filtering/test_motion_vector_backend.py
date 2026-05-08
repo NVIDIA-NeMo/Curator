@@ -260,6 +260,8 @@ class TestDecodeForMotion:
 
             mock_open.return_value = mock_container
 
+            # PyAV >= 15 ships av.sidedata.sidedata.Type.MOTION_VECTORS as a real enum
+            # member, so we no longer need (and cannot) patch it in.
             result = decode_for_motion(mock_video)
 
             assert isinstance(result, DecodedData)
@@ -355,6 +357,8 @@ class TestDecodeForMotion:
 
             mock_open.return_value = mock_container
 
+            # PyAV >= 15 ships av.sidedata.sidedata.Type.MOTION_VECTORS as a real enum
+            # member, so we no longer need (and cannot) patch it in.
             result = decode_for_motion(mock_video, thread_count=8, target_fps=5.0, target_duration_ratio=0.3)
 
             assert isinstance(result, DecodedData)

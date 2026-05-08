@@ -139,11 +139,11 @@ sudo bash install_ffmpeg.sh
 
 <Tab title="Verify Installation">
 
-Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is available:
+Confirm that `FFmpeg` is on your `PATH` and that the expected video encoders are available:
 
 ```bash
 ffmpeg -hide_banner -version | head -n 5
-ffmpeg -encoders | grep -E "h264_nvenc|libvpx-vp9" | cat
+ffmpeg -encoders | grep -E "h264_nvenc|libvpx-vp9|libopenh264" | cat
 ```
 
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
@@ -153,6 +153,10 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 </Tabs>
 
 Refer to [Clip Encoding](/curate-video/process-data/transcoding) to choose encoders and verify NVENC support on your system.
+
+<Note>
+On GPUs without NVENC hardware, such as A100 and H100, use `--transcode-encoder libvpx-vp9` or install software H.264 support and use `--transcode-encoder libopenh264`.
+</Note>
 
 ### Available Models
 
