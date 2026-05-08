@@ -75,7 +75,7 @@ python -m ray_curator.examples.video.video_split_clip_example \
   - - VP9 software encoder. Use as a fallback on GPUs without NVENC silicon (e.g., A100/H100). Slower than NVENC; produces VP9 in `.mp4`. Emits a one-time performance advisory at construction.
 * - `libopenh264`
   - CPU
-  - H.264 software encoder. **Not bundled with Curator's FFmpeg build** — accepted only when a user-installed FFmpeg provides it. The stage probes at setup time and raises with a docs link if missing. See [Bring-Your-Own H.264 Software Encoder](../../admin/installation.md#bring-your-own-h264-software-encoder-advanced).
+  - H.264 software encoder. **Not bundled with Curator's default FFmpeg build** — opt-in by running `bash /opt/Curator/docker/common/install_h264_support.sh --with-libopenh264` inside the container, or providing a system FFmpeg that includes it. The stage probes at setup time and raises with a docs link if missing. See [Software H.264/HEVC/AV1 Codec Support](../../admin/installation.md#software-h264hevcav1-codec-support-advanced).
 ```
 
 ```{tip}
@@ -83,7 +83,17 @@ On systems with supported NVIDIA GPU hardware and an `ffmpeg` build with NVENC, 
 ```
 
 ```{note}
-**Need software H.264 (libopenh264 / libx264)?** Curator's default FFmpeg build excludes them for licensing reasons. See [Bring-Your-Own H.264 Software Encoder](../../admin/installation.md#bring-your-own-h264-software-encoder-advanced) for how to enable them yourself.
+**Need software H.264 (libopenh264 / libx264)?** Curator's default FFmpeg build excludes them for licensing reasons. The fastest path inside the container is the bundled installer:
+
+```bash
+bash /opt/Curator/docker/common/install_h264_support.sh --with-libopenh264
+```
+
+For other paths (system FFmpeg, custom image rebuild) see [Software H.264/HEVC/AV1 Codec Support](../../admin/installation.md#software-h264hevcav1-codec-support-advanced).
+```
+
+```{note}
+**Got `SoftwareCodecMissingError` on an h264 input?** Curator's CPU-only `VideoReader` and `ClipWriter` stages call `ffprobe`, which needs a software `h264` decoder — not available in the default NVDEC-only build. Install software decoder support with `bash /opt/Curator/docker/common/install_h264_support.sh`, or pick a transcode encoder whose output codec the system FFmpeg can software-decode (e.g., `--transcode-encoder libvpx-vp9`). See [Software H.264/HEVC/AV1 Codec Support](../../admin/installation.md#software-h264hevcav1-codec-support-advanced).
 ```
 
 ### Verify `ffmpeg`/NVENC Support
@@ -125,7 +135,7 @@ transcode = ClipTranscodingStage(
 * - Parameter
   - Description
 * - `encoder`
-  - Selects the encoding backend. Supported values: `h264_nvenc` (GPU, requires NVENC), `libvpx-vp9` (CPU fallback for non-NVENC GPUs such as A100/H100), and `libopenh264` (CPU, requires user-installed FFmpeg — see [BYO H.264](../../admin/installation.md#bring-your-own-h264-software-encoder-advanced)).
+  - Selects the encoding backend. Supported values: `h264_nvenc` (GPU, requires NVENC), `libvpx-vp9` (CPU fallback for non-NVENC GPUs such as A100/H100), and `libopenh264` (CPU; opt-in via `install_h264_support.sh --with-libopenh264` — see [Software H.264/HEVC/AV1 Codec Support](../../admin/installation.md#software-h264hevcav1-codec-support-advanced)).
 * - `use_hwaccel`
   - Enable when using `h264_nvenc`. Not valid with `libvpx-vp9` or `libopenh264`.
 * - `encoder_threads`

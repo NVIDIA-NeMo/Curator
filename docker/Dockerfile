@@ -56,6 +56,8 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_CACHE_DIR=/opt/uv_cache
 ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
+# Make the system FFmpeg discoverable by source-built Python deps (e.g. PyAV).
+ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages --seed
 
 FROM build AS nemo_curator_dep
@@ -80,9 +82,9 @@ COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_cur
 # Cap ninja parallelism for flash-attn's NVCC build at min(nproc, 16); default of nproc OOMs at ~2 GB/job.
 RUN export MAX_JOBS=$(( $(nproc) > 16 ? 16 : $(nproc) )) && \
     if [ -n "${CURATOR_EXTRA}" ]; then \
-        uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
+        uv sync --link-mode copy --locked --no-binary-package av --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
     else \
-        uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
+        uv sync --link-mode copy --locked --no-binary-package av ${CURATOR_GROUPS} --no-cache; \
     fi && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
     # Address GHSA-72hv-8253-57qq: jackson-core bundled in ray_dist.jar (jackson-core 2.16.1 < 2.18.6)
