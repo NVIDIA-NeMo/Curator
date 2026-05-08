@@ -94,13 +94,6 @@ jobs:
           python-version: "3.12"
           enable-cache: false  # We use isolated venvs with uv cache clean
 
-      - name: Install FFmpeg dev libraries (required for source-built PyAV)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libavformat-dev libavcodec-dev libavdevice-dev libavfilter-dev \
-            libavutil-dev libswresample-dev libswscale-dev pkg-config
-
       - name: Test each CPU extra (${{ matrix.installer }})
         id: test
         run: |
@@ -236,13 +229,6 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: false
-
-      - name: Install FFmpeg dev libraries (required for source-built PyAV)
-        run: |
-          apt-get update -qq
-          apt-get install -y --no-install-recommends \
-            libavformat-dev libavcodec-dev libavdevice-dev libavfilter-dev \
-            libavutil-dev libswresample-dev libswscale-dev pkg-config
 
       - name: Test each GPU extra (${{ matrix.installer }})
         id: test

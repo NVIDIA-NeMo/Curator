@@ -90,12 +90,6 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: false
-      - name: Install FFmpeg dev libraries (required for source-built PyAV)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libavformat-dev libavcodec-dev libavdevice-dev libavfilter-dev \
-            libavutil-dev libswresample-dev libswscale-dev pkg-config
       - name: Run CPU tests (Python 3.10)
         timeout-minutes: 40
         run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.10

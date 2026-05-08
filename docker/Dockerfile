@@ -82,9 +82,9 @@ COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_cur
 # Cap ninja parallelism for flash-attn's NVCC build at min(nproc, 16); default of nproc OOMs at ~2 GB/job.
 RUN export MAX_JOBS=$(( $(nproc) > 16 ? 16 : $(nproc) )) && \
     if [ -n "${CURATOR_EXTRA}" ]; then \
-        uv sync --link-mode copy --locked --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
+        uv sync --link-mode copy --locked --no-binary-package av --extra ${CURATOR_EXTRA} ${CURATOR_GROUPS} --no-cache; \
     else \
-        uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
+        uv sync --link-mode copy --locked --no-binary-package av ${CURATOR_GROUPS} --no-cache; \
     fi && \
     find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
     # Address GHSA-72hv-8253-57qq: jackson-core bundled in ray_dist.jar (jackson-core 2.16.1 < 2.18.6)
