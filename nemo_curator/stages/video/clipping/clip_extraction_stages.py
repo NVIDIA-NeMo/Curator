@@ -34,7 +34,7 @@ SUPPORTED_ENCODERS = ("h264_nvenc", "libvpx-vp9", "libopenh264")
 
 _BYO_H264_DOCS_URL = (
     "https://github.com/NVIDIA-NeMo/Curator/blob/main/docs/admin/installation.md"
-    "#bring-your-own-h264-software-encoder-advanced"
+    "#software-h264hevcav1-codec-support-advanced"
 )
 
 

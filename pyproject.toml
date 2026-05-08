@@ -164,7 +164,7 @@ text_cuda12 = [
 
 # Video Curation Dependencies
 video_cpu = [
-    "av==13.1.0",
+    "av==15.1.0",
     "opencv-python",
     "torchvision",
     "einops",
@@ -265,6 +265,7 @@ managed = true
 default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
 no-build-isolation-package = ["flash-attn"]
+no-binary-package = ["av"]
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
