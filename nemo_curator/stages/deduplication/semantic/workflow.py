@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -84,6 +84,7 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         n_init: int | Literal["auto"] = 1,
         oversampling_factor: float = 2.0,
         max_samples_per_batch: int = 1 << 15,
+        fit_data_fraction: float | None = None,
         # Pairwise similarity parameters
         distance_metric: Literal["cosine", "l2"] = "cosine",
         which_to_keep: Literal["hard", "easy", "random"] = "hard",
@@ -127,6 +128,8 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             oversampling_factor: K-means++ oversampling factor
             max_samples_per_batch: Max samples per batch for K-means
             distance_metric: Distance metric for similarity ("cosine" or "l2")
+            fit_data_fraction: Fraction of the dataset (in (0, 1)) used to fit the KMeans model.
+                If None, fit on the full dataset.
 
             # Pairwise similarity parameters
             which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
@@ -171,6 +174,7 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         self.n_init = n_init
         self.oversampling_factor = oversampling_factor
         self.max_samples_per_batch = max_samples_per_batch
+        self.fit_data_fraction = fit_data_fraction
 
         # Pairwise similarity parameters
         self.distance_metric = distance_metric
@@ -205,6 +209,11 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
                 "For large datasets, this may result in out-of-memory errors since "
                 f"each cluster must fit in memory. Consider using n_clusters >= {MIN_RECOMMENDED_N_CLUSTERS} for large datasets."
             )
+
+        # Validate fit_data_fraction
+        if self.fit_data_fraction is not None and not 0.0 < self.fit_data_fraction < 1.0:
+            msg = f"fit_data_fraction must be in (0, 1), got {self.fit_data_fraction}; pass None to fit on the full dataset"
+            raise ValueError(msg)
 
         # Validate distance_metric
         if self.ranking_strategy is None:
@@ -265,6 +274,8 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             n_init=self.n_init,
             oversampling_factor=self.oversampling_factor,
             max_samples_per_batch=self.max_samples_per_batch,
+            fit_data_fraction=self.fit_data_fraction,
+            cache_path=None,  # do not save KMeans centroids (user should run KMeansStage directly instead)
             read_kwargs=self.read_kwargs,
             write_kwargs=self.cache_kwargs,
         )

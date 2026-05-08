@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -150,6 +150,7 @@ class RayActorPoolRAFTAdapter(BaseStageAdapter):
             # Set the RAFT handle on the stage so it can access it
             self.stage._raft_handle = self._raft_handle
             self.stage._actor_pool_size = self._pool_size
+            self.stage._actor_index = self._index
             # This calls the stage's setup method
             super().setup(worker_metadata)
         except Exception as e:
