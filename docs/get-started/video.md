@@ -155,6 +155,20 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 
 ::::
 
+```{important}
+**Processing H.264/HEVC/AV1 inputs? You might still need a software decoder — even with NVENC/NVDEC.**
+
+Curator runs `ffprobe` inside CPU-only Ray actors (`VideoReader`, `ClipWriter`) for metadata extraction. Those actors can't open NVDEC decoders, so without a software h264/hevc/av1 decoder your inputs are silently skipped (`SoftwareCodecMissingError` in the logs).
+
+Run the bundled installer inside the container to add software decoder support — no image rebuild needed:
+
+```bash
+bash /opt/Curator/docker/common/install_h264_support.sh
+```
+
+See [Software H.264/HEVC/AV1 Codec Support](../admin/installation.md#software-h264hevcav1-codec-support-advanced) for the full picture.
+```
+
 Refer to [Clip Encoding](video-process-transcoding) to choose encoders and verify NVENC support on your system.
 
 ### Available Models
@@ -265,7 +279,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | **Embedding** |
 | `--embedding-algorithm` | `cosmos-embed1-224p`, `cosmos-embed1-336p`, `cosmos-embed1-448p` | Embedding model to use |
 | **Encoding** |
-| `--transcode-encoder` | `h264_nvenc`, `libvpx-vp9`, `libopenh264` | Video encoder for output clips. Use `libvpx-vp9` (CPU) on GPUs without NVENC such as A100/H100. `libopenh264` is accepted but requires a user-installed FFmpeg build — see [BYO H.264](../admin/installation.md#bring-your-own-h264-software-encoder-advanced). |
+| `--transcode-encoder` | `h264_nvenc`, `libvpx-vp9`, `libopenh264` | Video encoder for output clips. Use `libvpx-vp9` (CPU) on GPUs without NVENC such as A100/H100. `libopenh264` is opt-in — run `install_h264_support.sh --with-libopenh264` inside the container or provide a system FFmpeg that includes it. See [Software H.264/HEVC/AV1 Codec Support](../admin/installation.md#software-h264hevcav1-codec-support-advanced). |
 | `--transcode-use-hwaccel` | Flag | Enable hardware acceleration for encoding (only valid with `h264_nvenc`). |
 | **Optional Features** |
 | `--generate-captions` | Flag | Generate text captions for each clip |
