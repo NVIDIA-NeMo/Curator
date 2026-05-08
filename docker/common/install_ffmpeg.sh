@@ -56,8 +56,7 @@ cd /tmp/nv-codec-headers-${NVCODEC_VERSION}
 make
 make install
 
-# Build FFmpeg from upstream git, branch ${FFMPEG_BRANCH} (n8.0.1), with the
-# legal-approved tightly-scoped allowlist:
+# Build FFmpeg from upstream git, branch ${FFMPEG_BRANCH} (n8.0.1):
 #   - --disable-everything strips ALL components by default (encoders,
 #     decoders, muxers, demuxers, parsers, bsfs, hwaccels, filters, protocols)
 #     and we re-enable only what's needed.
