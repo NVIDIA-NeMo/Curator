@@ -13,11 +13,13 @@
 # limitations under the License.
 
 import os
+import re
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from nemo_curator.stages.text.utils.constants import regex_url
 from nemo_curator.stages.text.filters import DocumentFilter, Filter, Score, ScoreFilter
 from nemo_curator.stages.text.filters.heuristic import (
     BoilerPlateStringFilter,
@@ -559,8 +561,6 @@ class TestHeuristicFilters:
         # Regression for #1601: previously the `[$-_…]` range matched `<`,
         # `>`, `;`, `:`, etc., so a URL match bled past the URL into the
         # surrounding HTML/punctuation.
-        from nemo_curator.stages.text.utils.constants import regex_url
-
         assert regex_url.findall("see http://x.com<bad> for details") == ["http://x.com"]
         assert regex_url.findall("click http://example.com;next") == ["http://example.com"]
 
@@ -568,8 +568,6 @@ class TestHeuristicFilters:
         # The fix must not regress on characters the original character
         # class intended to allow: letters, digits, `$`, `_`, `@`, `.`,
         # `&`, `+`, `-`, `!`, `*`, `(`, `)`, `,`, and percent-encoded escapes.
-        from nemo_curator.stages.text.utils.constants import regex_url
-
         text = "ref https://A.B-C_D+E&f!*(g),h%2F end"
 
         assert regex_url.findall(text) == ["https://A.B-C_D+E&f!*(g),h%2F"]
@@ -600,8 +598,6 @@ class TestHeuristicFilters:
     def test_urls_filter_accepts_compiled_pattern(self) -> None:
         # The custom regex argument should also accept a pre-compiled
         # `re.Pattern` instance, not just a string.
-        import re
-
         compiled = re.compile(r"https?://[^\s]+")
         urls_filter = UrlsFilter(url_regex=compiled)
 
