@@ -156,8 +156,8 @@ uv run pytest
 # Run specific test modules
 uv run pytest tests/utils/test_nvcodec_utils.py
 
-# Build documentation (if working on docs)
-make docs-html
+# Local docs dev server (Fern; see fern/README.md)
+make docs
 
 # Check for dependency updates
 uv lock --upgrade
