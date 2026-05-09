@@ -1070,6 +1070,19 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
             tarinfo = tarfile.TarInfo(name=member_name)
             tarinfo.size = len(payload)
             self._tar.addfile(tarinfo, io.BytesIO(payload))
+            # Flush the tar's BufferedWriter so this member's bytes hit
+            # the kernel page cache. Cosmos-Xenna shuts actors down with
+            # `ray.kill()` (see lines 74, 1220, 1473 and
+            # cosmos_xenna/ray_utils/actor_pool.py), which does a Quick
+            # exit that bypasses Python cleanup. Anything still in the
+            # user-space buffer at kill time is lost. Page cache survives
+            # process death — the downstream merger reads back the same
+            # file and gets every fully-completed member regardless of
+            # whether teardown() ever ran. Without this flush, ~50%+ of
+            # snippets per shard get dropped during _merge_tar_shards's
+            # Pass 2 streaming because their data sections are truncated
+            # on disk.
+            self._tar.fileobj.flush()
         except Exception as e:  # noqa: BLE001
             logger.error(f"[{self.name}] failed to add {member_name} to tar shard {self._tar_shard_path}: {e}")
             return None
