@@ -38,7 +38,7 @@ from nemo_curator.stages.audio.alm.pretrain import (
     finalize_audio_pretrain_outputs,
     prepare_audio_pretrain_outputs,
 )
-from nemo_curator.stages.audio.alm.pretrain.stages import (
+from nemo_curator.stages.audio.alm.pretrain.utils import (
     _PLAN_DATA_KEY,
     _PRETRAIN_META_KEY,
     _make_shard_path,
@@ -411,7 +411,7 @@ class TestPrepareAndFinalize:
     def test_finalize_caps_filtered_examples_globally(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import nemo_curator.stages.audio.alm.pretrain.stages as m
+        import nemo_curator.stages.audio.alm.pretrain.finalize as m
 
         monkeypatch.setattr(m, "_MAX_FILTERED_TEXT_EXAMPLES", 5)
         manifest = str(tmp_path / "snippets.jsonl")
@@ -751,7 +751,7 @@ class TestSnippetRepetitionFilterStage:
 
     def test_per_source_example_cap(self, tokenizer_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The per-source filtered_repetition_texts list is capped."""
-        import nemo_curator.stages.audio.alm.pretrain.stages as m
+        import nemo_curator.stages.audio.alm.pretrain.planning as m
 
         monkeypatch.setattr(m, "_MAX_FILTERED_TEXT_EXAMPLES", 3)
         stage = SnippetRepetitionFilterStage(tokenizer_path=str(tokenizer_dir))

@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pure-helper unit tests for `audio.alm.pretrain.stages`.
+"""Pure-helper unit tests for the pretrain pipeline.
 
 No Curator stage machinery, no soundfile / torch.  These tests cover the
-algorithm code that the stages call into.
+algorithm helpers that the stages in ``planning`` / ``utils`` /
+``finalize`` call into.
 """
 
 from __future__ import annotations
@@ -26,24 +27,26 @@ import pytest
 
 from collections import Counter
 
-from nemo_curator.stages.audio.alm.pretrain.stages import (
-    _build_final_summary,
+from nemo_curator.stages.audio.alm.pretrain.finalize import _build_final_summary
+from nemo_curator.stages.audio.alm.pretrain.planning import (
     _count_ngrams,
-    _delete_shards,
     _find_offending_ngrams,
     _format_red,
-    _glob_shards,
     _locate_ngram_char_ranges,
-    _make_shard_path,
     _merge_char_ranges,
-    _resolve_audio_path,
-    _segment_text,
     filter_empty_segments,
     find_overlapping_indices,
-    histogram_30s,
-    make_snippet_id,
     plan_snippets,
     relativize_segments,
+)
+from nemo_curator.stages.audio.alm.pretrain.utils import (
+    _delete_shards,
+    _glob_shards,
+    _make_shard_path,
+    _resolve_audio_path,
+    _segment_text,
+    histogram_30s,
+    make_snippet_id,
 )
 
 # ----------------------------------------------------------------------

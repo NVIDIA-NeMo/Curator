@@ -31,7 +31,7 @@ import pytest
 import soundfile as sf
 
 from nemo_curator.stages.audio.alm.pretrain import SnippetExtractionStage
-from nemo_curator.stages.audio.alm.pretrain.stages import _PLAN_DATA_KEY
+from nemo_curator.stages.audio.alm.pretrain.utils import _PLAN_DATA_KEY
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
