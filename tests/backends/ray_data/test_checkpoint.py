@@ -186,6 +186,78 @@ class TestAreLeavesCompleted:
 
 
 # ---------------------------------------------------------------------------
+# reset_partition
+# ---------------------------------------------------------------------------
+
+
+class TestResetPartition:
+    def test_preserves_completions_and_unfinalizes(self, mgr: CheckpointManager) -> None:
+        """Reset must keep leaf entries so already-done leaves are skipped on resume."""
+        key = "k"
+        mgr.init_partition(key)
+        mgr.add_expected(key, 2)  # expected = 3
+        for i in range(3):
+            mgr.mark_completed(_task_key(key, i), key)
+        assert mgr.is_task_completed(key)
+
+        mgr.reset_partition(key)
+
+        # All three leaf entries survive
+        flags = mgr.are_leaves_completed([(key, _task_key(key, i)) for i in range(3)])
+        assert flags == [True, True, True]
+        # Partition is no longer finalized
+        assert not mgr.is_task_completed(key)
+
+    def test_does_not_falsely_complete_after_reset(self, mgr: CheckpointManager) -> None:
+        """The bug guard: with completions kept and expected rewound to 1, a crash
+        before fan-out re-fires must NOT make the next resume mistake the partition
+        for finished. Without an explicit ``finalized`` flag, ``count >= expected``
+        would be true post-reset and the partition would be incorrectly skipped.
+        """
+        key = "interrupted"
+        mgr.init_partition(key)
+        mgr.add_expected(key, 2)  # expected = 3
+        mgr.mark_completed(_task_key(key, 0), key)  # 1 of 3 leaves done
+
+        mgr.reset_partition(key)
+
+        # Even though count (1) >= expected (1) post-reset, the partition is NOT done.
+        assert not mgr.is_task_completed(key)
+
+    def test_partial_completion_resumes_correctly(self, mgr: CheckpointManager) -> None:
+        """End-to-end: partial completion → reset → re-fan-out → only missing leaves run."""
+        key = "partial"
+        # Simulate previous run: expected=3, 1 leaf done, crashed.
+        mgr.init_partition(key)
+        mgr.add_expected(key, 2)
+        mgr.mark_completed(_task_key(key, 0), key)
+        assert not mgr.is_task_completed(key)
+
+        # Resume: filter stage resets.
+        mgr.reset_partition(key)
+        # Fan-out re-fires.
+        mgr.add_expected(key, 2)  # expected back to 3, count still 1, not finalized
+        assert not mgr.is_task_completed(key)
+
+        # Only the missing leaves are recorded this run.
+        mgr.mark_completed(_task_key(key, 1), key)
+        mgr.mark_completed(_task_key(key, 2), key)
+        assert mgr.is_task_completed(key)
+
+    def test_no_completions_resets_to_clean_state(self, mgr: CheckpointManager) -> None:
+        """A partition that had no completions should still reset cleanly."""
+        key = "clean"
+        mgr.init_partition(key)
+        mgr.add_expected(key, 4)  # inflated by fanout
+
+        mgr.reset_partition(key)
+
+        # Clean run: 1 leaf marks it complete (expected back to 1, no prior leaves).
+        mgr.mark_completed(_task_key(key, 0), key)
+        assert mgr.is_task_completed(key)
+
+
+# ---------------------------------------------------------------------------
 # resumability_key construction for FilePartitioningStage
 # ---------------------------------------------------------------------------
 

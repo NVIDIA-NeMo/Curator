@@ -208,6 +208,85 @@ def test_fanout_resume_skips_completed_partitions(tmp_path: Path, shared_ray_cli
     assert len(out2) == 0
 
 
+class _ActorPassThroughStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Pass-through with an overridden ``setup`` so ``is_actor_stage()`` is True.
+
+    Ray-Data task-style stages skip ``BaseStageAdapter.setup``, which leaves
+    ``_checkpoint_actor`` unset and disables ``_drop_completed_inputs`` on the
+    last user stage. Forcing actor-style execution wires the actor up so the
+    leaf-skip path actually runs in this test.
+    """
+
+    name = "actor_passthrough"
+    resources = Resources(cpus=0.5)
+
+    def setup(self, _worker_metadata: object | None = None) -> None:
+        return
+
+    def process(self, task: DocumentBatch) -> DocumentBatch:
+        return task
+
+
+def test_resume_skips_completed_leaves_after_reset(tmp_path: Path, shared_ray_client: None) -> None:  # noqa: ARG001
+    """A partition with already-completed leaves must not re-run them on resume.
+
+    Pre-populates the checkpoint DB with state mimicking an interrupted run: each
+    partition has expected=factor (as if fan-out fired), one of the fan-out leaves
+    is already marked complete, and the partition is NOT finalized.  On resume,
+    ``reset_partition`` must preserve those leaf entries; the next run's fan-out
+    will re-register expected, and ``_drop_completed_inputs`` at the last user
+    stage will drop the pre-completed leaves.
+    """
+    checkpoint_dir = str(tmp_path / "ckpt")
+    factor = 3
+    initial = _make_tasks(2)
+
+    # Leaf-task_key shape produced by the propagation chain
+    # source -> _CheckpointFilterStage -> FanOutStage:
+    # each 1->1 stage appends "::0", and fan-out appends "::i".  The pre-completed
+    # leaf corresponds to fan-out index 0 ("_fan0").
+    def _preexisting_leaf_key(source_key: str) -> str:
+        return f"{source_key}::0::0::0"
+
+    mgr = CheckpointManager(checkpoint_dir)
+    try:
+        for task in initial:
+            source_key = f"source_partition_{task.task_id}"
+            mgr.init_partition(source_key)
+            mgr.add_expected(source_key, factor - 1)  # expected = factor
+            mgr.mark_completed(_preexisting_leaf_key(source_key), source_key)
+            assert not mgr.is_task_completed(source_key), (
+                "pre-populated state must look unfinalized so the filter stage routes "
+                "this partition through reset_partition on resume"
+            )
+    finally:
+        mgr.close()
+
+    # The last user stage must be actor-style so its adapter goes through
+    # BaseStageAdapter.setup and wires up ``_checkpoint_actor``; otherwise
+    # ``_drop_completed_inputs`` is skipped and pre-completed leaves are NOT dropped.
+    pipeline = _build_pipeline([SourceStage(), FanOutStage(factor), _ActorPassThroughStage()])
+    executor = RayDataExecutor()
+    out = pipeline.run(executor, initial_tasks=initial, checkpoint_path=checkpoint_dir)
+
+    # Per partition: 1 leaf already done, (factor - 1) leaves run this time.
+    assert len(out) == len(initial) * (factor - 1)
+
+    # The pre-completed _fan0 leaves must not appear in the surviving outputs.
+    surviving_task_ids = {t.task_id for t in out}
+    assert not any(tid.endswith("_fan0") for tid in surviving_task_ids), (
+        f"pre-completed _fan0 leaves should have been dropped, got {surviving_task_ids}"
+    )
+
+    # Both partitions should now be fully finalized.
+    mgr2 = CheckpointManager(checkpoint_dir)
+    try:
+        for task in initial:
+            assert mgr2.is_task_completed(f"source_partition_{task.task_id}")
+    finally:
+        mgr2.close()
+
+
 def test_missing_resumability_key_raises(tmp_path: Path, shared_ray_client: None) -> None:  # noqa: ARG001
     """A source stage that doesn't set resumability_key must cause a clear error."""
 

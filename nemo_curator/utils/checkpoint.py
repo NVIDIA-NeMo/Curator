@@ -15,8 +15,14 @@
 """Checkpoint manager for pipeline resumability.
 
 Uses a single LMDB environment with two named databases:
-  - partitions: resumability_key_hash → expected completion count
+  - partitions: resumability_key_hash → struct(<II?>: expected, count, finalized)
   - completions: resumability_key_hash:resumability_task_key_hash → b"1"
+
+A partition is considered done only when its ``finalized`` flag is set, which
+happens inside ``mark_completed`` once ``count`` catches up to ``expected``.
+Storing ``count`` denormalized lets ``mark_completed`` avoid an O(leaves) scan,
+and the explicit ``finalized`` flag prevents a false-completion window after
+``reset_partition`` rewrites ``expected`` back down to 1 on resume.
 
 All LMDB access is serialized through a singleton Ray actor so workers never
 open the database file directly (it lives on the driver/head node).
@@ -55,6 +61,18 @@ def _key_hash(resumability_key: str) -> bytes:
     return hashlib.sha256(resumability_key.encode()).hexdigest()[:16].encode()
 
 
+_PARTITION_STRUCT = struct.Struct("<II?")
+
+
+def _pack_partition(expected: int, count: int, finalized: bool) -> bytes:
+    return _PARTITION_STRUCT.pack(expected, count, finalized)
+
+
+def _unpack_partition(raw: bytes) -> tuple[int, int, bool]:
+    expected, count, finalized = _PARTITION_STRUCT.unpack(raw)
+    return expected, count, finalized
+
+
 class CheckpointManager:
     """Manages checkpoint state in a local LMDB database.
 
@@ -75,38 +93,45 @@ class CheckpointManager:
     # ------------------------------------------------------------------
 
     def init_partition(self, resumability_key: str) -> None:
-        """Register a new source partition with expected=1 (no-op if already present)."""
+        """Register a new source partition (no-op if already present)."""
         h = _key_hash(resumability_key)
         with self._env.begin(write=True) as txn:
             if txn.get(h, db=self._partitions_db) is None:
-                txn.put(h, struct.pack("<I", 1), db=self._partitions_db)
+                txn.put(h, _pack_partition(1, 0, False), db=self._partitions_db)
 
     def is_task_completed(self, resumability_key: str) -> bool:
-        """Return True if all expected leaf tasks for this partition have completed."""
+        """Return True if this partition was finalized (all expected leaves recorded)."""
         h = _key_hash(resumability_key)
         with self._env.begin() as txn:
             raw = txn.get(h, db=self._partitions_db)
             if raw is None:
                 return False
-            expected = struct.unpack("<I", raw)[0]
-
-            prefix = h + b":"
-            count = 0
-            cursor = txn.cursor(db=self._completions_db)
-            if cursor.set_range(prefix):
-                for k in cursor.iternext(keys=True, values=False):
-                    if not k.startswith(prefix):
-                        break
-                    count += 1
-
-        return count >= expected
+            _expected, _count, finalized = _unpack_partition(raw)
+        return finalized
 
     def mark_completed(self, resumability_task_key: str, resumability_key: str) -> None:
-        """Record a completed (or dropped) leaf task.  Idempotent."""
+        """Record a completed (or dropped) leaf task. Idempotent.
+
+        Increments the partition's denormalized ``count`` only on the first write
+        for a given leaf, and flips ``finalized`` once ``count >= expected``.
+        """
         h = _key_hash(resumability_key)
         entry_key = h + b":" + _key_hash(resumability_task_key)
         with self._env.begin(write=True) as txn:
+            if txn.get(entry_key, db=self._completions_db) is not None:
+                return
             txn.put(entry_key, b"1", db=self._completions_db)
+
+            raw = txn.get(h, db=self._partitions_db)
+            if raw is None:
+                # Partition was never registered; treat this leaf as a 1-of-1 partition.
+                txn.put(h, _pack_partition(1, 1, True), db=self._partitions_db)
+                return
+            expected, count, finalized = _unpack_partition(raw)
+            count += 1
+            if not finalized and count >= expected:
+                finalized = True
+            txn.put(h, _pack_partition(expected, count, finalized), db=self._partitions_db)
 
     def are_leaves_completed(self, pairs: list[tuple[str, str]]) -> list[bool]:
         """Batch-check whether each (resumability_key, resumability_task_key) leaf is recorded.
@@ -125,30 +150,39 @@ class CheckpointManager:
         h = _key_hash(resumability_key)
         with self._env.begin(write=True) as txn:
             raw = txn.get(h, db=self._partitions_db)
-            current = struct.unpack("<I", raw)[0] if raw else 1
-            txn.put(h, struct.pack("<I", current + increment), db=self._partitions_db)
+            if raw is None:
+                expected, count, finalized = 1, 0, False
+            else:
+                expected, count, finalized = _unpack_partition(raw)
+            expected += increment
+            if not finalized and count >= expected:
+                finalized = True
+            txn.put(h, _pack_partition(expected, count, finalized), db=self._partitions_db)
 
     def reset_partition(self, resumability_key: str) -> None:
-        """Reset a partition to its initial state (expected=1, no completions).
+        """Reset a partition's expected count for a fresh attempt while preserving completed leaves.
 
-        Called by the filter stage when a partition is determined to be incomplete
-        and is about to be reprocessed. A previous interrupted run may have called
-        add_expected (fan-out) without writing all completions, inflating the
-        expected count. Resetting ensures the count is correct for this attempt.
+        A previous interrupted run may have called add_expected (fan-out) without
+        writing all completions, inflating the expected count. We rewind expected
+        to 1 so the upcoming run's fan-outs re-register cleanly via add_expected.
+        Completion entries are kept so that ``_drop_completed_inputs`` can skip
+        leaves already finished in earlier runs. ``finalized`` is cleared and
+        ``count`` is recomputed from the surviving completion entries; without
+        the explicit flag, a crash between this reset and the first fan-out
+        would leave ``count >= expected=1`` and the next resume would falsely
+        treat the partition as done.
         """
         h = _key_hash(resumability_key)
         prefix = h + b":"
         with self._env.begin(write=True) as txn:
-            txn.put(h, struct.pack("<I", 1), db=self._partitions_db)
+            count = 0
             cursor = txn.cursor(db=self._completions_db)
             if cursor.set_range(prefix):
-                keys_to_delete = []
                 for k in cursor.iternext(keys=True, values=False):
                     if not k.startswith(prefix):
                         break
-                    keys_to_delete.append(k)
-                for k in keys_to_delete:
-                    txn.delete(k, db=self._completions_db)
+                    count += 1
+            txn.put(h, _pack_partition(1, count, False), db=self._partitions_db)
 
     def close(self) -> None:
         self._env.close()

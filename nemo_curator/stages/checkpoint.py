@@ -71,8 +71,10 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
             return None
 
         # A previous interrupted run may have called add_expected (fan-out) without
-        # writing all completions, inflating the expected count. Reset to 1 so
-        # this attempt starts with a clean slate before fan-out re-registers.
+        # writing all completions, inflating the expected count. Rewind expected to 1
+        # and clear the finalized flag so this attempt's fan-outs re-register cleanly.
+        # Completion entries from prior runs are preserved so _drop_completed_inputs
+        # can skip leaves that already finished.
         _checkpoint_get(self._actor.reset_partition.remote(key))
 
         return task
