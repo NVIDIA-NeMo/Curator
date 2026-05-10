@@ -19,7 +19,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nemo_curator.stages.text.utils.constants import regex_url
 from nemo_curator.stages.text.filters import DocumentFilter, Filter, Score, ScoreFilter
 from nemo_curator.stages.text.filters.heuristic import (
     BoilerPlateStringFilter,
@@ -59,6 +58,7 @@ from nemo_curator.stages.text.filters.heuristic.repetition import (
 )
 from nemo_curator.stages.text.filters.histogram import HistogramFilter
 from nemo_curator.stages.text.filters.token import TokenCountFilter
+from nemo_curator.stages.text.utils.constants import regex_url
 from nemo_curator.tasks import DocumentBatch
 
 
