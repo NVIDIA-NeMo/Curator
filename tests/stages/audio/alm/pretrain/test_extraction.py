@@ -12,19 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Real-extraction tests for ``SnippetExtractionStage`` (CPU only).
+"""Stage-level tests for ``nemo_curator.stages.audio.alm.pretrain.extraction``.
 
-Generates a short synthesized sine WAV (mono and stereo variants),
-feeds it through ``SnippetExtractionStage`` with a hand-rolled snippet
-plan, and checks the resulting tar shard's audio members match expected
-sample rate, channel count, and duration.
+Two complementary scenarios:
+
+* ``TestSnippetExtractionStageReal`` generates a short synthesized sine
+  WAV (mono and stereo variants), feeds it through
+  ``SnippetExtractionStage`` with a hand-rolled snippet plan, and checks
+  the resulting tar shard's audio members match expected sample rate,
+  channel count, and duration.
+* ``TestSnippetExtractionStageDryRun`` exercises ``dry_run=True``: no
+  audio I/O, no resampling, no tar writes -- only manifest metadata is
+  emitted.  Useful as a fast path that doesn't need real audio fixtures.
 """
 
 from __future__ import annotations
 
 import io
 import tarfile
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -33,9 +39,6 @@ import soundfile as sf
 from nemo_curator.stages.audio.alm.pretrain import SnippetExtractionStage
 from nemo_curator.stages.audio.alm.pretrain.utils import _PLAN_DATA_KEY
 from nemo_curator.tasks import AudioTask
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _open_member_as_audio(tar_path: str, member_name: str) -> tuple[np.ndarray, int, int]:
@@ -196,7 +199,6 @@ class TestSnippetExtractionStageReal:
             output_format="flac",
             dry_run=True,
         )
-        stage.__post_init__()
         stage.setup_on_node()
         stage.setup()
         out = stage.process(_task_with_plan(tmp_path / "missing.wav", plan))
@@ -207,3 +209,76 @@ class TestSnippetExtractionStageReal:
         # No tar file or tar shards on disk
         assert not (tmp_path / "snips.tar").exists()
         assert sorted(tmp_path.glob("snips.tar.shard-*.tar")) == []
+
+
+# ----------------------------------------------------------------------
+# Dry-run extraction (no audio I/O, no tar writes)
+# ----------------------------------------------------------------------
+
+
+class TestSnippetExtractionStageDryRun:
+    def test_emits_one_task_per_planned_snippet_no_audio_io(self, tmp_path: Path) -> None:
+        snippet1 = {"start": 0.0, "end": 5.0, "segments": [_seg(0.0, 5.0)]}
+        snippet2 = {"start": 5.0, "end": 12.5, "segments": [_seg(6.0, 12.0)]}
+        extras = {
+            "text": "WHOLE",
+            "audio_sample_rate": 22050,
+            "audio_num_channels": 2,
+            "audio_size": 999,
+            "actual_duration": 100.0,
+            "proposed_duration": 100.0,
+            "alignment": "STALE",
+        }
+        task = _task_with_plan(Path("/missing/source.wav"), [snippet1, snippet2], extras=extras)
+        stage = SnippetExtractionStage(
+            output_dir=str(tmp_path / "snips"),
+            output_audio_tar_path=str(tmp_path / "snips.tar"),
+            dry_run=True,
+        )
+        out = stage.process(task)
+        assert len(out) == 2
+
+        s0 = out[0].data
+        # Snippet ID + path pattern (WebDataset-friendly: dashes between
+        # fields, underscores instead of decimal points so the resulting
+        # filename has only one `.` before the extension).
+        assert s0["snippet_id"] == "X-0_000-5_000"
+        # In tar mode `audio_filepath` is the tar-internal basename,
+        # not a filesystem path -- no slashes.
+        assert s0["audio_filepath"] == "X-0_000-5_000.flac"
+        assert s0["duration"] == pytest.approx(5.0)
+        # Field cleanup
+        assert "alignment" not in s0
+        assert "audio_size" not in s0
+        # Audio-property fields updated
+        assert s0["audio_sample_rate"] == 16000
+        assert s0["audio_num_channels"] == 1
+        assert s0["actual_duration"] == pytest.approx(5.0)
+        assert s0["proposed_duration"] == pytest.approx(5.0)
+        # Top-level text recomputed from each segment's `text` field
+        # (text_ITN is unreliable in real data and is no longer consulted).
+        assert s0["text"] == "x"
+        # Segments relativized
+        assert s0["segments"][0]["start"] == pytest.approx(0.0)
+
+    def test_zero_planned_emits_stub(self, tmp_path: Path) -> None:
+        task = _task_with_plan(Path("/missing/source.wav"), [])
+        stage = SnippetExtractionStage(
+            output_dir=str(tmp_path / "snips"),
+            output_audio_tar_path=str(tmp_path / "snips.tar"),
+            dry_run=True,
+        )
+        out = stage.process(task)
+        assert len(out) == 1
+        assert out[0].data["snippet_id"] is None
+
+    def test_invalid_output_format_rejected(self, tmp_path: Path) -> None:
+        tar_path = str(tmp_path / "snips.tar")
+        with pytest.raises(ValueError, match="output_format"):
+            SnippetExtractionStage(
+                output_dir=str(tmp_path), output_audio_tar_path=tar_path, output_format="m4a"
+            )
+        with pytest.raises(ValueError, match="target_sample_rate"):
+            SnippetExtractionStage(
+                output_dir=str(tmp_path), output_audio_tar_path=tar_path, target_sample_rate=0
+            )

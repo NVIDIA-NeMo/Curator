@@ -43,6 +43,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
+from tokenizers import Tokenizer, models, pre_tokenizers
 
 from nemo_curator.stages.audio.alm.pretrain import (
     OverlapFilterStage,
@@ -84,8 +85,6 @@ def _build_tiny_tokenizer_dir(tmp_dir: Path) -> Path:
     real words to a single id, but n-gram detection still works on
     those ids without producing false positives at default thresholds.
     """
-    from tokenizers import Tokenizer, models, pre_tokenizers
-
     vocab = {"[UNK]": 0}
     tok = Tokenizer(models.WordLevel(vocab=vocab, unk_token="[UNK]"))
     tok.pre_tokenizer = pre_tokenizers.Whitespace()
