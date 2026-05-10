@@ -28,7 +28,9 @@ export RAY_MAX_LIMIT_FROM_API_SERVER=50000
       --audio-dir /tmp \
       --output-dir /tmp/dryrun_unused \
       --output-manifest /tmp/test_dryrun.jsonl \
+      --output-audio-tar-path /tmp/test_dryrun.tar \
       --metrics-path /tmp/test_metrics.json \
+      --tokenizer-path /path/to/hf_tokenizer_dir \
       --max-duration-sec 900 \
       --dry-run
 
