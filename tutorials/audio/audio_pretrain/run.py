@@ -55,7 +55,6 @@ from nemo_curator.stages.audio.alm.pretrain import (
 _EXECUTOR_FACTORIES = {
     "xenna": "nemo_curator.backends.xenna.executor:XennaExecutor",
     "ray_data": "nemo_curator.backends.ray_data.executor:RayDataExecutor",
-    "ray_actor_pool": "nemo_curator.backends.ray_actor_pool.executor:RayActorPoolExecutor",
 }
 
 

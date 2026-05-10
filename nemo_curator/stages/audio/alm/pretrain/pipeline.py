@@ -91,7 +91,7 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
     .. note::
        The writer and metrics aggregator stages each emit one shard file
        per replica, so the pipeline is safe under multi-replica backends
-       (Xenna, Ray Data, Ray Actor Pool).  Callers MUST run
+       (Xenna, Ray Data).  Callers MUST run
        :func:`prepare_audio_pretrain_outputs` once before
        :func:`Pipeline.run` and :func:`finalize_audio_pretrain_outputs`
        once after, on the driver, to clean up stale shards and merge

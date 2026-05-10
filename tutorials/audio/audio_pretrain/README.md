@@ -46,7 +46,7 @@ python -m tutorials.audio.audio_pretrain.run \
 
 `--tokenizer-path` is required: it points at a local directory loadable by `AutoTokenizer.from_pretrained` (e.g. a snapshot of an HF hub repo).
 
-By default the pipeline runs on the Xenna streaming executor; pass `--backend ray_data` or `--backend ray_actor_pool` to switch.
+By default the pipeline runs on the Xenna streaming executor; pass `--backend ray_data` to switch.
 
 ## Dry-run mode
 
