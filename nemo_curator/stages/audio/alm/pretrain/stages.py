@@ -1355,17 +1355,34 @@ def finalize_audio_pretrain_outputs(
     and removes the shards.
 
     After the audio tar is built, reconciles the manifest against the
-    tar: any manifest row whose ``audio_filepath`` is not a valid member
-    in the tar is dropped.  This guards against the Xenna failure mode
-    where a worker is ``ray.kill``-ed between writing a JSONL line for
-    a snippet and flushing the snippet's audio bytes to its tar shard,
-    which would otherwise leave consumers (WebDataset, Energon) with a
-    manifest entry pointing at a missing tar member.
+    tar.  A manifest row is dropped if either:
+
+    1. its ``audio_filepath`` is not a member of the tar, or
+    2. the corresponding tar member's audio header is unreadable or
+       reports zero frames / zero sample rate.
+
+    Check (1) guards against the Xenna failure mode where a worker is
+    ``ray.kill``-ed between writing a JSONL line for a snippet and
+    flushing the snippet's audio bytes to its tar shard.  Check (2)
+    guards against truncated members (worker killed mid-payload-write
+    with a header but no body) and corrupted writes that would surface
+    to downstream consumers (WebDataset / Energon) as a runtime decode
+    error instead of a clean filter.
+
+    Reconcile drops are surfaced in the merged metrics under
+    ``dropped.missing_audio`` (check 1) and ``dropped.corrupted_audio``
+    (check 2), so the user can attribute post-pipeline integrity drops
+    separately from worker-side filters (``empty``, ``overlap``, ...).
     """
     _merge_manifest_shards(output_manifest_path)
     _merge_metrics_shards(metrics_path)
     _merge_tar_shards(output_audio_tar_path)
-    _reconcile_manifest_with_tar(output_manifest_path, output_audio_tar_path)
+    dropped_missing, dropped_unreadable = _reconcile_manifest_with_tar(
+        output_manifest_path, output_audio_tar_path
+    )
+    _patch_metrics_with_reconcile_drops(
+        metrics_path, dropped_missing, dropped_unreadable
+    )
 
 
 def _merge_manifest_shards(output_path: str) -> None:
@@ -1578,50 +1595,153 @@ def _merge_tar_shards(output_path: str) -> None:
     logger.info(f"merged {len(shards)} tar shard(s) into {output_path} ({written} member(s))")
 
 
-def _reconcile_manifest_with_tar(manifest_path: str, tar_path: str) -> None:
-    """Drop manifest rows whose ``audio_filepath`` isn't in ``tar_path``.
+def _reconcile_manifest_with_tar(
+    manifest_path: str, tar_path: str
+) -> tuple[int, int]:
+    """Drop manifest rows whose ``audio_filepath`` isn't a valid, readable
+    tar member with a positive duration.
+
+    Two filters:
+      1. Membership: ``audio_filepath`` must be a regular member of the tar.
+      2. Header validity: ``soundfile.info`` must succeed on the member's
+         payload and report ``frames > 0`` and ``samplerate > 0``.
+
+    Returns ``(dropped_missing, dropped_unreadable)`` so the caller can
+    surface the counts (e.g. patch them into the merged metrics summary).
 
     A no-op when the tar file doesn't exist (dry-run, or all tar shards
     were empty).  See ``finalize_audio_pretrain_outputs`` for why this
     is needed even when the pipeline reports success.
+
+    The tar itself is left as-is.  Removing dropped members would
+    require rewriting the whole archive; downstream consumers iterate
+    the manifest and look up by ``audio_filepath``, so orphan members
+    are harmless.
     """
     if not os.path.exists(tar_path):
-        return
+        return (0, 0)
     if not os.path.exists(manifest_path):
-        return
+        return (0, 0)
+
+    import soundfile as sf  # local import: matches other audio stages here
+
     try:
-        with tarfile.open(tar_path, "r") as t:
-            valid_members = set(t.getnames())
+        tar = tarfile.open(tar_path, "r")
     except tarfile.TarError as e:
         logger.warning(f"cannot read merged tar {tar_path} for manifest reconciliation: {e}")
-        return
+        return (0, 0)
 
-    kept_lines: list[str] = []
-    dropped = 0
-    with open(manifest_path, encoding="utf-8") as f:
-        for raw in f:
-            line = raw.strip()
-            if not line:
-                continue
+    try:
+        members: dict[str, tarfile.TarInfo] = {
+            ti.name: ti for ti in tar.getmembers() if ti.isreg()
+        }
+        # Header-validity is sticky per member name.  A name only ever
+        # appears with one payload in the merged tar, but we cache anyway
+        # in case a manifest row points at the same audio twice.
+        header_ok: dict[str, bool] = {}
+
+        def _audio_ok(name: str) -> bool:
+            cached = header_ok.get(name)
+            if cached is not None:
+                return cached
+            ti = members.get(name)
+            if ti is None or ti.size == 0:
+                header_ok[name] = False
+                return False
             try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                # _merge_manifest_shards already filtered these; unreachable
-                # in practice, but keep the file usable if it ever happens.
-                continue
-            if row.get("audio_filepath") in valid_members:
+                stream = tar.extractfile(ti)
+                if stream is None:
+                    raise RuntimeError("extractfile returned None")
+                info = sf.info(stream)
+                ok = info.frames > 0 and info.samplerate > 0
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    f"audio header unreadable for {name!r} in {tar_path}: {exc}"
+                )
+                ok = False
+            header_ok[name] = ok
+            return ok
+
+        kept_lines: list[str] = []
+        dropped_missing = 0
+        dropped_unreadable = 0
+        with open(manifest_path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    # _merge_manifest_shards already filtered these; unreachable
+                    # in practice, but keep the file usable if it ever happens.
+                    continue
+                ap = row.get("audio_filepath")
+                if ap not in members:
+                    dropped_missing += 1
+                    continue
+                if not _audio_ok(ap):
+                    dropped_unreadable += 1
+                    continue
                 kept_lines.append(line)
-            else:
-                dropped += 1
+    finally:
+        tar.close()
+
+    dropped = dropped_missing + dropped_unreadable
     if dropped == 0:
-        return
+        return (0, 0)
     with open(manifest_path, "w", encoding="utf-8") as f:
         for line in kept_lines:
             f.write(line + "\n")
     logger.warning(
-        f"reconciled manifest {manifest_path}: dropped {dropped} row(s) whose "
-        f"audio_filepath is not a valid member of {tar_path} (likely truncated "
-        f"by a worker killed mid-write); {len(kept_lines)} row(s) kept"
+        f"reconciled manifest {manifest_path}: dropped {dropped} row(s) "
+        f"({dropped_missing} not in tar, {dropped_unreadable} unreadable / "
+        f"zero-duration); {len(kept_lines)} row(s) kept"
+    )
+    return (dropped_missing, dropped_unreadable)
+
+
+def _patch_metrics_with_reconcile_drops(
+    metrics_path: str, dropped_missing: int, dropped_unreadable: int
+) -> None:
+    """Surface reconcile-time drops in the merged metrics summary.
+
+    Increments ``dropped.missing_audio`` (manifest row had no
+    corresponding tar member) and ``dropped.corrupted_audio`` (tar
+    member existed but its audio header was unreadable or reported
+    zero frames / sample rate), so the user can distinguish reconcile
+    drops from worker-side drops (``empty``, ``overlap``, ...).
+
+    No-op when both counts are zero or when the metrics file doesn't
+    exist (the worker aggregator wrote no shards, e.g. a dry run or
+    tests that exercise reconcile in isolation).
+    """
+    if dropped_missing == 0 and dropped_unreadable == 0:
+        return
+    if not os.path.exists(metrics_path):
+        return
+    try:
+        with open(metrics_path, encoding="utf-8") as f:
+            summary = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(
+            f"cannot patch reconcile drops into metrics {metrics_path}: {exc}"
+        )
+        return
+    dropped = summary.setdefault("dropped", {})
+    if dropped_missing:
+        dropped["missing_audio"] = (
+            int(dropped.get("missing_audio", 0)) + dropped_missing
+        )
+    if dropped_unreadable:
+        dropped["corrupted_audio"] = (
+            int(dropped.get("corrupted_audio", 0)) + dropped_unreadable
+        )
+    with open(metrics_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+    logger.info(
+        f"patched metrics {metrics_path}: missing_audio+={dropped_missing}, "
+        f"corrupted_audio+={dropped_unreadable}"
     )
 
 

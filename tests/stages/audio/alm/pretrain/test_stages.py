@@ -486,9 +486,13 @@ class TestPrepareAndFinalize:
         assert sorted(tmp_path.glob("snippets.tar.shard-*.tar")) == []
 
     def test_finalize_drops_manifest_rows_missing_from_tar(self, tmp_path: Path) -> None:
-        """Manifest reconciliation: rows whose tar member is missing get dropped."""
+        """Manifest reconciliation: rows whose tar member is missing get dropped
+        and surfaced as `dropped.missing_audio` in the merged metrics."""
         import io
         import tarfile
+
+        import numpy as np
+        import soundfile as sf
 
         manifest = str(tmp_path / "snippets.jsonl")
         metrics = str(tmp_path / "metrics.json")
@@ -506,18 +510,121 @@ class TestPrepareAndFinalize:
                     )
                     + "\n"
                 )
+        # Metrics shard so finalize writes a merged metrics.json that
+        # _patch_metrics_with_reconcile_drops can update.
+        ms_metrics = _make_shard_path(metrics, "jsonl")
+        with open(ms_metrics, "w") as f:
+            for _ in range(3):
+                f.write(
+                    json.dumps(
+                        {
+                            "id": "X",
+                            "in_segments": 1,
+                            "in_duration_sec": 3.0,
+                            "dropped": {},
+                            "is_stub": False,
+                            "out_segments": 1,
+                            "out_duration_sec": 1.0,
+                        }
+                    )
+                    + "\n"
+                )
+        # Synthesize a real, decodable FLAC body so the kept members survive
+        # the header/duration check; only the missing member should be dropped.
+        flac_buf = io.BytesIO()
+        sf.write(flac_buf, np.zeros(160, dtype=np.float32), 16000, format="FLAC")
+        flac_bytes = flac_buf.getvalue()
         ts = _make_shard_path(tar_path, "tar")
         with tarfile.open(ts, "w") as t:
             for sid in ("X-0_000-1_000", "X-2_000-3_000"):
                 ti = tarfile.TarInfo(name=f"{sid}.flac")
-                ti.size = 4
-                t.addfile(ti, io.BytesIO(b"FAKE"))
+                ti.size = len(flac_bytes)
+                t.addfile(ti, io.BytesIO(flac_bytes))
 
         finalize_audio_pretrain_outputs(manifest, metrics, tar_path)
 
         # Manifest reduced to 2 rows matching the tar's members
         kept_paths = [json.loads(line)["audio_filepath"] for line in Path(manifest).read_text().splitlines() if line]
         assert sorted(kept_paths) == ["X-0_000-1_000.flac", "X-2_000-3_000.flac"]
+        # Metrics summary records the reconcile drop.
+        summary = json.loads(Path(metrics).read_text(encoding="utf-8"))
+        assert summary["dropped"]["missing_audio"] == 1
+        # corrupted_audio is only added when non-zero; absent here.
+        assert "corrupted_audio" not in summary["dropped"]
+
+    def test_finalize_drops_manifest_rows_with_unreadable_audio(self, tmp_path: Path) -> None:
+        """Manifest reconciliation: rows whose tar member fails the audio
+        header/duration check get dropped (e.g. truncated payload from a
+        worker killed mid-write) and counted under
+        `dropped.corrupted_audio` in the merged metrics."""
+        import io
+        import tarfile
+
+        import numpy as np
+        import soundfile as sf
+
+        manifest = str(tmp_path / "snippets.jsonl")
+        metrics = str(tmp_path / "metrics.json")
+        tar_path = str(tmp_path / "snippets.tar")
+
+        # Three entries: two with valid FLAC payloads, one with bogus bytes
+        # (header unreadable -> sf.info raises -> row dropped).
+        ms = _make_shard_path(manifest, "jsonl")
+        with open(ms, "w") as f:
+            for sid in ("X-0_000-1_000", "X-1_000-2_000", "X-2_000-3_000"):
+                f.write(
+                    json.dumps(
+                        {"id": "X", "snippet_id": sid, "audio_filepath": f"{sid}.flac", "duration": 1.0}
+                    )
+                    + "\n"
+                )
+        ms_metrics = _make_shard_path(metrics, "jsonl")
+        with open(ms_metrics, "w") as f:
+            for _ in range(3):
+                f.write(
+                    json.dumps(
+                        {
+                            "id": "X",
+                            "in_segments": 1,
+                            "in_duration_sec": 3.0,
+                            "dropped": {},
+                            "is_stub": False,
+                            "out_segments": 1,
+                            "out_duration_sec": 1.0,
+                        }
+                    )
+                    + "\n"
+                )
+
+        flac_buf = io.BytesIO()
+        sf.write(flac_buf, np.zeros(160, dtype=np.float32), 16000, format="FLAC")
+        flac_bytes = flac_buf.getvalue()
+
+        ts = _make_shard_path(tar_path, "tar")
+        with tarfile.open(ts, "w") as t:
+            # Two readable members.
+            for sid in ("X-0_000-1_000", "X-2_000-3_000"):
+                ti = tarfile.TarInfo(name=f"{sid}.flac")
+                ti.size = len(flac_bytes)
+                t.addfile(ti, io.BytesIO(flac_bytes))
+            # One member that's in the tar but whose payload won't decode.
+            bogus = b"NOT_A_FLAC_FILE"
+            ti = tarfile.TarInfo(name="X-1_000-2_000.flac")
+            ti.size = len(bogus)
+            t.addfile(ti, io.BytesIO(bogus))
+
+        finalize_audio_pretrain_outputs(manifest, metrics, tar_path)
+
+        kept_paths = [
+            json.loads(line)["audio_filepath"]
+            for line in Path(manifest).read_text().splitlines()
+            if line
+        ]
+        assert sorted(kept_paths) == ["X-0_000-1_000.flac", "X-2_000-3_000.flac"]
+        summary = json.loads(Path(metrics).read_text(encoding="utf-8"))
+        assert summary["dropped"]["corrupted_audio"] == 1
+        # missing_audio is only added when non-zero; absent here.
+        assert "missing_audio" not in summary["dropped"]
 
     def test_prepare_removes_only_matching_shards(self, tmp_path: Path) -> None:
         manifest = str(tmp_path / "snippets.jsonl")
