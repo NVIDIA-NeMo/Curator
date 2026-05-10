@@ -118,9 +118,29 @@ def _build_parser() -> argparse.ArgumentParser:
         "--tokenizer-path",
         required=True,
         help=(
-            "Local directory containing a HuggingFace fast tokenizer (loadable "
-            "via AutoTokenizer.from_pretrained), used by the snippet repetition "
-            "filter to detect Whisper-style looping hallucinations."
+            "Either a local directory containing a HuggingFace fast tokenizer "
+            "(loadable via AutoTokenizer.from_pretrained) or a HuggingFace Hub "
+            "repository id (e.g. 'openai/whisper-large-v3'); used by the snippet "
+            "repetition filter to detect Whisper-style looping hallucinations. "
+            "Repo ids are fetched once per node in setup_on_node."
+        ),
+    )
+    parser.add_argument(
+        "--tokenizer-cache-dir",
+        default=None,
+        help=(
+            "Optional cache directory for HuggingFace downloads (passed to "
+            "snapshot_download / AutoTokenizer.from_pretrained); default uses "
+            "the standard HF cache (~/.cache/huggingface/hub)."
+        ),
+    )
+    parser.add_argument(
+        "--hf-token",
+        default=None,
+        help=(
+            "Optional HuggingFace token for gated tokenizer repositories; "
+            "default uses the ambient HF auth state (HF_TOKEN env / "
+            "huggingface-cli login)."
         ),
     )
     parser.add_argument(
@@ -199,6 +219,8 @@ def main() -> None:
         max_segment_gap_in_snippet=args.max_segment_gap_in_snippet,
         ngram_n=args.ngram_n,
         ngram_max_count=args.ngram_max_count,
+        tokenizer_cache_dir=args.tokenizer_cache_dir,
+        hf_token=args.hf_token,
         target_sample_rate=args.target_sample_rate,
         output_format=args.output_format,
         audio_filepath_key=args.audio_filepath_key,

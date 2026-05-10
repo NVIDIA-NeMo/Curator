@@ -84,6 +84,8 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
     max_segment_gap_in_snippet: float = 30.0,
     ngram_n: int = 10,
     ngram_max_count: int = 3,
+    tokenizer_cache_dir: str | None = None,
+    hf_token: str | None = None,
     target_sample_rate: int = 16000,
     output_format: str = "flac",
     audio_filepath_key: str = "audio_filepath",
@@ -141,15 +143,24 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
             belong to semantically distinct conversations (topic change,
             ad break, recording boundary), which we don't want to bridge
             in a pretraining snippet.
-        tokenizer_path: Local directory containing a HuggingFace fast
-            tokenizer (loadable via ``AutoTokenizer.from_pretrained``).
-            Used by the snippet repetition filter to detect Whisper-style
-            looping hallucinations via n-gram frequency.
+        tokenizer_path: Either a local directory loadable by
+            ``AutoTokenizer.from_pretrained`` or a HuggingFace Hub repo
+            id (e.g. ``"openai/whisper-large-v3"``); when it's a repo
+            id, the tokenizer is fetched once per node in
+            ``setup_on_node`` so workers in ``setup`` only ever read
+            from the local cache.  Used by the snippet repetition
+            filter to detect Whisper-style looping hallucinations via
+            n-gram frequency.
         ngram_n: N-gram size for the repetition filter; default 10.
         ngram_max_count: A snippet is dropped if any token-id n-gram in
             its joined text appears strictly more than this many times;
             default 3 (drop on ≥4 occurrences).  Filtered snippets are
             logged with the offending text highlighted in red.
+        tokenizer_cache_dir: Optional ``cache_dir`` passed to
+            ``snapshot_download`` and ``AutoTokenizer.from_pretrained``;
+            ``None`` uses the HF default (``~/.cache/huggingface/hub``).
+        hf_token: Optional HuggingFace token for gated tokenizer
+            repositories; ``None`` uses the ambient HF auth state.
         target_sample_rate: Output snippet sample rate; the source audio
             is resampled with torchaudio if it differs.
         output_format: ``"wav"``, ``"flac"``, or ``"ogg"``.
@@ -185,6 +196,8 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
                 tokenizer_path=tokenizer_path,
                 ngram_n=ngram_n,
                 ngram_max_count=ngram_max_count,
+                cache_dir=tokenizer_cache_dir,
+                hf_token=hf_token,
             ),
             SnippetExtractionStage(
                 output_dir=output_dir,

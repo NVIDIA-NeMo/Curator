@@ -23,11 +23,13 @@ testable without Ray / soundfile / torch.
 
 from __future__ import annotations
 
+import os
 import time
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from huggingface_hub import snapshot_download
 from loguru import logger
 from transformers import AutoTokenizer
 
@@ -42,7 +44,7 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
-    from nemo_curator.backends.base import WorkerMetadata
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
 # ----------------------------------------------------------------------
@@ -467,11 +469,19 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
     Sits between :class:`SnippetCutPlannerStage` and
     :class:`SnippetExtractionStage` so filtered snippets never incur
     audio decode / resample / file-write cost.
+
+    ``tokenizer_path`` is either a local directory loadable by
+    ``AutoTokenizer.from_pretrained`` or a HuggingFace Hub repository id
+    (e.g. ``openai/whisper-large-v3``).  When it's a repo id, the
+    tokenizer is fetched once per node in :meth:`setup_on_node` so
+    workers in :meth:`setup` only ever read from the local cache.
     """
 
     tokenizer_path: str = ""
     ngram_n: int = 10
     ngram_max_count: int = 3
+    cache_dir: str | None = None
+    hf_token: str | None = None
 
     name: str = "SnippetRepetitionFilter"
     batch_size: int = 1
@@ -495,8 +505,37 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [_PLAN_DATA_KEY]
 
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        # If `tokenizer_path` is a local directory, skip the Hub fetch --
+        # the worker `setup()` will load straight from disk.  Otherwise
+        # treat it as an HF Hub repo id and pre-download once per node so
+        # workers don't race on the Hub.
+        if os.path.isdir(self.tokenizer_path):
+            return
+        try:
+            snapshot_download(
+                repo_id=self.tokenizer_path,
+                cache_dir=self.cache_dir,
+                token=self.hf_token,
+            )
+        except Exception as e:
+            msg = (
+                f"failed to download tokenizer {self.tokenizer_path!r} from HF Hub; "
+                f"pass a local directory or fix the repo id"
+            )
+            raise RuntimeError(msg) from e
+
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        self._tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, use_fast=True)
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            self.tokenizer_path,
+            use_fast=True,
+            cache_dir=self.cache_dir,
+            token=self.hf_token,
+        )
         if not getattr(self._tokenizer, "is_fast", False):
             msg = (
                 f"SnippetRepetitionFilterStage requires a fast tokenizer with offset mapping; "

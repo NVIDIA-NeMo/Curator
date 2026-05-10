@@ -44,7 +44,7 @@ python -m tutorials.audio.audio_pretrain.run \
     --max-duration-sec 30
 ```
 
-`--tokenizer-path` is required: it points at a local directory loadable by `AutoTokenizer.from_pretrained` (e.g. a snapshot of an HF hub repo).
+`--tokenizer-path` is required and accepts either a local directory loadable by `AutoTokenizer.from_pretrained` or a HuggingFace Hub repository id (e.g. `openai/whisper-large-v3`); when it's a repo id, the tokenizer is fetched once per node in `setup_on_node` so workers only ever load from the local cache. Use `--tokenizer-cache-dir` and `--hf-token` to override the cache location and provide a token for gated repos.
 
 By default the pipeline runs on the Xenna streaming executor; pass `--backend ray_data` to switch.
 
