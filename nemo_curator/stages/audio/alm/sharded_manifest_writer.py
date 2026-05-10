@@ -23,6 +23,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask
 
@@ -61,6 +62,49 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
     ) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"ShardedManifestWriterStage: output_dir={self.output_dir}")
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        """Recover ``_shard_counts`` from disk on every (re)start.
+
+        Ray and Xenna may kill and replace this actor at any time
+        (preemption, OOM, autoscaler scale-down, exception retry). A
+        fresh actor would otherwise start with an empty counter and
+        ``.done`` markers would never fire for shards that were partially
+        processed before the crash.
+
+        Strategy: walk ``output_dir`` once and seed
+        ``_shard_counts[shard_key]`` from the line count of every
+        ``*.jsonl`` that does not yet have a sibling ``*.jsonl.done``.
+        Shards with a ``.done`` marker are skipped — they are already
+        finalized and the reader will skip them on resume.
+        """
+        if not self.output_dir or not os.path.isdir(self.output_dir):
+            return
+
+        recovered = 0
+        for root, _dirs, files in os.walk(self.output_dir):
+            for fname in files:
+                if not fname.endswith(".jsonl"):
+                    continue
+                jsonl_path = os.path.join(root, fname)
+                if os.path.exists(jsonl_path + ".done"):
+                    continue
+                rel = os.path.relpath(jsonl_path, self.output_dir)
+                shard_key = rel[: -len(".jsonl")]
+                try:
+                    with open(jsonl_path, "rb") as f:
+                        self._shard_counts[shard_key] = sum(1 for _ in f)
+                except OSError as exc:
+                    logger.warning(
+                        f"ShardedManifestWriter: failed to recover line count for {jsonl_path}: {exc}"
+                    )
+                    continue
+                recovered += 1
+
+        if recovered:
+            logger.info(
+                f"ShardedManifestWriter: recovered partial counts for {recovered} shard(s) from {self.output_dir}"
+            )
 
     def process(self, task: AudioTask) -> FileGroupTask:
         shard_key = task._metadata.get("_shard_key", "unknown/shard_0")
@@ -104,3 +148,10 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
 
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers": 1}
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        # Force a single persistent actor so the in-memory `_shard_counts`
+        # accumulator sees every row for each shard. Without this, Ray Data
+        # runs the writer as parallel stateless tasks with fresh per-task
+        # state, and `.done` markers never get written.
+        return {RayStageSpecKeys.IS_ACTOR_STAGE: True}
