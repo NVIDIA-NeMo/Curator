@@ -52,6 +52,7 @@ from nemo_curator.stages.audio.alm.pretrain import (
     SnippetExtractionStage,
     SnippetManifestWriterStage,
     SnippetRepetitionFilterStage,
+    build_audio_pretrain_pipeline,
     finalize_audio_pretrain_outputs,
     prepare_audio_pretrain_outputs,
 )
@@ -98,6 +99,20 @@ def _build_tiny_tokenizer_dir(tmp_dir: Path) -> Path:
     return tok_dir
 
 
+# Stage classes the factory must wire up, in order, for the inline driver
+# below to make sense.  Asserting on this list also doubles as a unit test
+# against `build_audio_pretrain_pipeline`'s structure.
+_EXPECTED_STAGE_TYPES = (
+    ReadLongFormManifestStage,
+    OverlapFilterStage,
+    SnippetCutPlannerStage,
+    SnippetRepetitionFilterStage,
+    SnippetExtractionStage,
+    SnippetManifestWriterStage,
+    PretrainMetricsAggregatorStage,
+)
+
+
 def _run_pipeline_inline(  # noqa: PLR0913
     *,
     input_manifest: Path,
@@ -111,33 +126,41 @@ def _run_pipeline_inline(  # noqa: PLR0913
     tokenizer_path: Path,
     dry_run: bool = True,
 ) -> None:
-    """Run every stage in sequence on the same Python process (no executor)."""
-    prepare_audio_pretrain_outputs(str(output_manifest), str(metrics_path), str(output_audio_tar_path))
+    """Drive the factory-built pipeline stage-by-stage in-process (no Ray).
 
-    reader = ReadLongFormManifestStage(input_manifest=str(input_manifest), audio_dir=str(audio_dir))
-    reader.__post_init__()
-    overlap = OverlapFilterStage()
-    planner = SnippetCutPlannerStage(max_duration_sec=max_duration_sec)
-    planner.__post_init__()
-    rep_filter = SnippetRepetitionFilterStage(tokenizer_path=str(tokenizer_path))
-    rep_filter.__post_init__()
-    rep_filter.setup()
-    extractor = SnippetExtractionStage(
+    Builds the pipeline via :func:`build_audio_pretrain_pipeline` so the
+    factory's stage list / ordering is exercised end-to-end, then walks
+    ``pipeline.stages`` and dispatches the data flow inline.  Skips the
+    real executor since these tests don't need (or want) Ray.
+    """
+    pipeline = build_audio_pretrain_pipeline(
+        input_manifest=str(input_manifest),
+        audio_dir=str(audio_dir),
         output_dir=str(output_dir),
+        output_manifest_path=str(output_manifest),
         output_audio_tar_path=str(output_audio_tar_path),
+        metrics_path=str(metrics_path),
+        max_duration_sec=max_duration_sec,
+        tokenizer_path=str(tokenizer_path),
         target_sample_rate=target_sample_rate,
         output_format="flac",
         dry_run=dry_run,
     )
-    extractor.__post_init__()
+    actual_types = tuple(type(s) for s in pipeline.stages)
+    assert actual_types == _EXPECTED_STAGE_TYPES, (
+        f"build_audio_pretrain_pipeline returned unexpected stage list: {actual_types}"
+    )
+    reader, overlap, planner, rep_filter, extractor, writer, aggregator = pipeline.stages
+
+    prepare_audio_pretrain_outputs(str(output_manifest), str(metrics_path), str(output_audio_tar_path))
+
+    # Drive the per-stage lifecycle hooks Ray would normally invoke.
+    rep_filter.setup_on_node()
+    rep_filter.setup()
     extractor.setup_on_node()
     extractor.setup()
-    writer = SnippetManifestWriterStage(output_path=str(output_manifest))
-    writer.__post_init__()
     writer.setup_on_node()
     writer.setup()
-    aggregator = PretrainMetricsAggregatorStage(output_path=str(metrics_path))
-    aggregator.__post_init__()
     aggregator.setup_on_node()
     aggregator.setup()
 
