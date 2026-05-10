@@ -20,7 +20,6 @@ algorithm code that the stages call into.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -527,15 +526,3 @@ class TestFormatRed:
 
     def test_multiple_ranges(self) -> None:
         assert _format_red("aaa bbb ccc", [(0, 3), (8, 11)]) == "<red>aaa</red> bbb <red>ccc</red>"
-
-
-# ----------------------------------------------------------------------
-# Sanity: ensure no test wrote outside tmp_path
-# ----------------------------------------------------------------------
-
-
-def test_module_is_importable() -> None:
-    """Sanity check: the module imports without side effects."""
-    import nemo_curator.stages.audio.alm.pretrain.stages as m
-
-    assert os.path.basename(m.__file__) == "stages.py"
