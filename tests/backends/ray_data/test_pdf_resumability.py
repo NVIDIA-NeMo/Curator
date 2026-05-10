@@ -83,7 +83,51 @@ class _PassThroughInterleavedStage(ProcessingStage[InterleavedBatch, Interleaved
     name = "passthrough_interleaved"
     resources = Resources(cpus=0.5)
 
+    def setup(self, _worker_metadata: object | None = None) -> None:
+        # Overridden so is_actor_stage() returns True.  Ray-Data task-style stages
+        # never invoke BaseStageAdapter.setup, which means _checkpoint_actor is
+        # never wired up and _drop_completed_inputs gets skipped on the last user
+        # stage.  No actual setup work is needed here — the parent adapter's
+        # setup() handles the checkpoint actor.
+        return
+
     def process(self, task: InterleavedBatch) -> InterleavedBatch:
+        return task
+
+
+class _MarkFirstFanoutLeafStage(ProcessingStage[InterleavedBatch, InterleavedBatch]):
+    """Mark the i=0 fan-out leaf of each partition complete in the checkpoint DB.
+
+    Inserted between the fan-out and the last user stage to simulate partial
+    leaf completion: the next stage's adapter (``_is_last_user_stage=True``) will
+    consult the DB via ``_drop_completed_inputs`` and skip the marked leaves,
+    so only the unmarked ones reach the recorder.
+    """
+
+    name = "mark_first_fanout"
+    resources = Resources(cpus=0.5)
+
+    def __init__(self, checkpoint_path: str):
+        self._checkpoint_path = checkpoint_path
+        self._actor = None
+
+    def setup(self, _worker_metadata: object | None = None) -> None:
+        from nemo_curator.utils.checkpoint import get_or_create_checkpoint_actor
+
+        self._actor = get_or_create_checkpoint_actor(self._checkpoint_path)
+
+    def process(self, task: InterleavedBatch) -> InterleavedBatch:
+        if task.task_id.endswith("_fan0"):
+            from nemo_curator.utils.checkpoint import _checkpoint_get
+
+            key = task._metadata["resumability_key"]
+            cur = task._metadata["resumability_task_key"]
+            # This stage is 1->1, so the framework's _propagate_resumability_metadata
+            # will append "::0" to task_key before the next stage sees it.  Mark the
+            # post-propagation leaf key so _drop_completed_inputs at the last user
+            # stage finds and drops the task.
+            future_task_key = f"{cur}::0"
+            _checkpoint_get(self._actor.mark_completed.remote(future_task_key, key))
         return task
 
 
@@ -166,3 +210,69 @@ def test_pdf_tutorial_resumability_with_fanout(tmp_path: Path, shared_ray_client
         assert all(mgr2.are_leaves_completed(leaf_pairs))
     finally:
         mgr2.close()
+
+
+def test_pdf_tutorial_leaf_resumability_drops_completed_leaves(
+    tmp_path: Path,
+    shared_ray_client: None,  # noqa: ARG001
+) -> None:
+    """Leaves marked complete mid-pipeline are skipped by the last user stage.
+
+    Pipeline: Partitioning -> Preprocess -> FanOut(3) -> MarkFirstFanout -> PassThrough.
+
+    The marker pre-records the i=0 fan-out leaf of each partition in the checkpoint
+    DB.  Partitions are NOT fully complete at the source filter (no entries existed
+    when the run started, so init_partition + reset run normally), so the source
+    filter passes both source tasks through.  Each partition then fans out to 3
+    leaves; the marker records the i=0 leaf; the last user stage's adapter drops
+    those marked leaves via ``_drop_completed_inputs``; only (factor - 1) leaves
+    per partition reach the recorder.
+    """
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    ckpt_dir = tmp_path / "ckpt"
+
+    # ---- Download 2 real PDFs via the tutorial helper ---------------------
+    download_data = _load_download_data()
+    cfg = download_data.DownloadConfig(output_dir=data_dir, num_pdfs=2, force=False, workers=2)
+    successes = download_data.download_all(cfg)
+    if len(successes) < 2:
+        pytest.skip("network unavailable — could not download 2 PDFs")
+    manifest_path = data_dir / "manifest.jsonl"
+    download_data.write_manifest(successes, manifest_path)
+    pdfs_dir = data_dir / "pdfs"
+
+    fanout_factor = 3
+
+    pipeline = Pipeline(name="pdf_leaf_resumability_test")
+    pipeline.add_stage(PDFPartitioningStage(manifest_path=str(manifest_path), pdfs_per_task=1))
+    pipeline.add_stage(PDFPreprocessStage(pdf_dir=str(pdfs_dir), max_pages=2))
+    pipeline.add_stage(_FanOutInterleavedStage(factor=fanout_factor))
+    pipeline.add_stage(_MarkFirstFanoutLeafStage(str(ckpt_dir)))
+    pipeline.add_stage(_PassThroughInterleavedStage())
+
+    out = pipeline.run(RayDataExecutor(), checkpoint_path=str(ckpt_dir))
+
+    # 2 partitions x (fanout - 1 dropped) = 4 surviving tasks reach the recorder
+    assert out is not None
+    expected_count = 2 * (fanout_factor - 1)
+    assert len(out) == expected_count, f"expected {expected_count} surviving tasks, got {len(out)}"
+
+    # No surviving task should correspond to the i=0 fan-out leaf
+    surviving_task_ids = {t.task_id for t in out}
+    assert not any(tid.endswith("_fan0") for tid in surviving_task_ids), (
+        f"i=0 fan-out leaves should have been dropped at the last user stage, but found: {surviving_task_ids}"
+    )
+
+    # ---- Both partitions should be fully complete --------------------------
+    # Per partition: 1 leaf recorded by the marker + (fanout-1) leaves recorded by
+    # the recorder = fanout total, matching expected (set by fan-out's add_expected).
+    source_keys = {t._metadata["resumability_key"] for t in out}
+    assert len(source_keys) == 2
+
+    mgr = CheckpointManager(str(ckpt_dir))
+    try:
+        for key in source_keys:
+            assert mgr.is_task_completed(key), f"partition {key!r} not fully complete after run"
+    finally:
+        mgr.close()
