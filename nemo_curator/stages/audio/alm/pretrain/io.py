@@ -77,22 +77,14 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
         dataset_name: Optional dataset tag stamped on emitted tasks.
     """
 
-    input_manifest: str = ""
-    audio_dir: str = ""
+    input_manifest: str
+    audio_dir: str
     audio_filepath_key: str = "audio_filepath"
     dataset_name: str = "long_form_audio"
 
     name: str = "ReadLongFormManifest"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
-
-    def __post_init__(self) -> None:
-        if not self.input_manifest:
-            msg = "input_manifest is required for ReadLongFormManifestStage"
-            raise ValueError(msg)
-        if not self.audio_dir:
-            msg = "audio_dir is required for ReadLongFormManifestStage"
-            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -104,7 +96,7 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"max_workers_per_node": 1, "num_workers": 1}
+        return {"num_workers": 1}
 
     def process(self, _: _EmptyTask) -> list[AudioTask]:
         t0 = time.perf_counter()
@@ -164,16 +156,13 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
     aggregator can still see them.
     """
 
-    output_path: str = ""
+    output_path: str
 
     name: str = "SnippetManifestWriter"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self) -> None:
-        if not self.output_path:
-            msg = "output_path is required for SnippetManifestWriterStage"
-            raise ValueError(msg)
         self._shard_path: str | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -244,16 +233,13 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
     them as ``out_snippets``.
     """
 
-    output_path: str = ""
+    output_path: str
 
     name: str = "PretrainMetricsAggregator"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self) -> None:
-        if not self.output_path:
-            msg = "output_path is required for PretrainMetricsAggregatorStage"
-            raise ValueError(msg)
         self._shard_path: str | None = None
         self._seen_ids: set[str] = set()
 

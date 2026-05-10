@@ -89,8 +89,8 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     real data before committing to a full run.
     """
 
-    output_dir: str = ""
-    output_audio_tar_path: str = ""
+    output_dir: str
+    output_audio_tar_path: str
     target_sample_rate: int = 16000
     output_format: str = "flac"
     audio_filepath_key: str = "audio_filepath"
@@ -101,12 +101,6 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self) -> None:
-        if not self.output_dir:
-            msg = "output_dir is required for SnippetExtractionStage"
-            raise ValueError(msg)
-        if not self.output_audio_tar_path:
-            msg = "output_audio_tar_path is required for SnippetExtractionStage"
-            raise ValueError(msg)
         if self.output_format not in _SOUNDFILE_SUBTYPES:
             msg = f"output_format must be one of {sorted(_SOUNDFILE_SUBTYPES)}, got {self.output_format!r}"
             raise ValueError(msg)

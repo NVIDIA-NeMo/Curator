@@ -477,7 +477,7 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
     workers in :meth:`setup` only ever read from the local cache.
     """
 
-    tokenizer_path: str = ""
+    tokenizer_path: str
     ngram_n: int = 10
     ngram_max_count: int = 3
     cache_dir: str | None = None
@@ -488,9 +488,6 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self) -> None:
-        if not self.tokenizer_path:
-            msg = "tokenizer_path is required for SnippetRepetitionFilterStage"
-            raise ValueError(msg)
         if self.ngram_n < 1:
             msg = "ngram_n must be >= 1"
             raise ValueError(msg)
