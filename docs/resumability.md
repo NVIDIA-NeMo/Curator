@@ -1,5 +1,7 @@
 # Pipeline Resumability
 
+> **⚠️ Experimental** — Checkpointing and resumability are experimental. Support is currently limited to pipelines **without fan-in stages** (stages that merge multiple upstream tasks into one). Pipelines containing fan-in stages may produce incorrect resume behavior.
+
 When `pipeline.run(checkpoint_path=...)` is set, completed source partitions are tracked in an LMDB database and skipped on subsequent runs. This allows interrupted pipelines to continue from where they left off rather than reprocessing everything from scratch.
 
 ## How It Works

@@ -190,6 +190,12 @@ class Pipeline:
                 If set, completed source partitions are skipped on subsequent runs.
                 Relative paths are resolved to absolute on the driver. Defaults to None.
 
+                .. warning::
+                    Checkpointing and resumability are **experimental**. Support is currently
+                    limited to pipelines without fan-in stages (stages that merge multiple
+                    upstream tasks into one). Pipelines containing fan-in stages may produce
+                    incorrect resume behavior.
+
         Returns:
             list[Task] | None: List of tasks
         """
@@ -222,6 +228,11 @@ class Pipeline:
                 )
 
         if checkpoint_path:
+            logger.warning(
+                "Checkpointing and resumability are experimental. Support is currently limited to "
+                "pipelines without fan-in stages (stages that merge multiple upstream tasks into one). "
+                "Pipelines containing fan-in stages may produce incorrect resume behavior."
+            )
             if "://" not in checkpoint_path:
                 checkpoint_path = os.path.abspath(checkpoint_path)
             stages = self._with_checkpoint_stages(self.stages, checkpoint_path)
