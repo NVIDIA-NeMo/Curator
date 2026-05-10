@@ -172,12 +172,6 @@ class BaseStageAdapter:
 
         flags = _checkpoint_get(self._checkpoint_actor.are_leaves_completed.remote([p for _, p in queryable]))
         completed_indices = {idx for (idx, _), done in zip(queryable, flags, strict=True) if done}
-        print("")
-        print("---------------------------")
-
-        print(completed_indices)
-        print("---------------------------")
-        print("")
 
         if not completed_indices:
             return tasks
