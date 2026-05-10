@@ -20,6 +20,7 @@ from ray.data import DataContext, Dataset
 
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
+from nemo_curator.stages.checkpoint import _CheckpointRecorderStage
 from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayDataStageAdapter
@@ -82,6 +83,8 @@ class RayDataExecutor(BaseExecutor):
                 # TODO: add pipeline level config for verbosity
                 logger.info(f"Processing stage {i + 1}/{len(stages)}: {stage}")
                 logger.info(f"  CPU cores: {stage.resources.cpus}, GPU ratio: {stage.resources.gpus}")
+
+                stage._is_last_user_stage = i + 1 < len(stages) and stages[i + 1].name == _CheckpointRecorderStage.name
 
                 # Create adapter for this stage
                 adapter = RayDataStageAdapter(stage)

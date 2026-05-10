@@ -16,6 +16,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from loguru import logger
+
 from nemo_curator.core.utils import ignore_ray_head_node
 from nemo_curator.tasks import Task
 from nemo_curator.utils.performance_utils import StageTimer
@@ -62,6 +64,10 @@ class BaseStageAdapter:
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
         self._checkpoint_actor = None
+        # Stamped on the stage by each executor for the user stage immediately preceding
+        # _CheckpointRecorderStage; gates the leaf-level resumability filter.  Setting on
+        # the stage (not the adapter) lets the flag survive serialization to remote actors.
+        self._is_last_user_stage = getattr(stage, "_is_last_user_stage", False)
 
     def process_batch(self, tasks: list[Task]) -> list[Task]:
         """Process a batch of tasks.
@@ -72,6 +78,11 @@ class BaseStageAdapter:
         Returns:
             list[Task]: List of processed tasks
         """
+        if self._is_last_user_stage and self._checkpoint_actor is not None and tasks:
+            tasks = self._drop_completed_inputs(tasks)
+            if not tasks:
+                return []
+
         # Lazy initialize timer if needed
         if not hasattr(self, "_timer") or self._timer is None:
             self._timer = StageTimer(self.stage)
@@ -121,15 +132,58 @@ class BaseStageAdapter:
             self._checkpoint_actor = get_or_create_checkpoint_actor(checkpoint_path)
 
     def _propagate_resumability_metadata(self, input_tasks: list[Task], output_tasks: list[Task]) -> None:
-        """Copy resumability_key from inputs to outputs that lack it."""
+        """Propagate resumability_key and build per-task resumability_task_key paths.
+
+        ``resumability_key`` (partition identity) is copied from ``input_tasks[0]`` to
+        every output that lacks it. ``resumability_task_key`` (per-task path) is built
+        by appending ``::{i}`` to the parent's task_key for each output ``i``. The
+        per-output write is unconditional because some stages produce children via
+        ``_metadata=dict(parent._metadata)`` (a shallow copy, so children otherwise
+        inherit the parent's task_key verbatim).
+        """
         if not input_tasks:
             return
         source_key = input_tasks[0]._metadata.get("resumability_key", "")
         if not source_key:
             return
-        for task in output_tasks:
+        parent_task_key = input_tasks[0]._metadata.get("resumability_task_key", source_key)
+        for i, task in enumerate(output_tasks):
             if "resumability_key" not in task._metadata:
                 task._metadata["resumability_key"] = source_key
+            task._metadata["resumability_task_key"] = f"{parent_task_key}::{i}"
+
+    def _drop_completed_inputs(self, tasks: list[Task]) -> list[Task]:
+        """Drop input tasks whose ``resumability_task_key`` is already recorded as completed.
+
+        Only invoked on the user stage immediately preceding ``_CheckpointRecorderStage``
+        (gated by ``self._is_last_user_stage``).  One batched RPC to the checkpoint actor
+        regardless of input batch size.
+        """
+        from nemo_curator.utils.checkpoint import _checkpoint_get
+
+        queryable: list[tuple[int, tuple[str, str]]] = []
+        for i, t in enumerate(tasks):
+            key = t._metadata.get("resumability_key", "")
+            task_key = t._metadata.get("resumability_task_key", "")
+            if key and task_key:
+                queryable.append((i, (key, task_key)))
+        if not queryable:
+            return tasks
+
+        flags = _checkpoint_get(self._checkpoint_actor.are_leaves_completed.remote([p for _, p in queryable]))
+        completed_indices = {idx for (idx, _), done in zip(queryable, flags, strict=True) if done}
+        print("")
+        print("---------------------------")
+
+        print(completed_indices)
+        print("---------------------------")
+        print("")
+
+        if not completed_indices:
+            return tasks
+
+        logger.debug(f"Resumability: skipping {len(completed_indices)} already-completed leaves at last stage")
+        return [t for i, t in enumerate(tasks) if i not in completed_indices]
 
     def _record_checkpoint_events(self, input_tasks: list[Task], output_tasks: list[Task]) -> None:
         """Detect fan-out and full-drop events; update checkpoint state accordingly."""
@@ -142,15 +196,13 @@ class BaseStageAdapter:
         is_full_drop = len(output_tasks) == 0
 
         if is_fanout:
-            from nemo_curator.utils.checkpoint import _checkpoint_get, _resumability_uuid
+            from nemo_curator.utils.checkpoint import _checkpoint_get
 
             parent = input_tasks[0]
             key = parent._metadata.get("resumability_key", "")
             if not key:
                 return
             n = len(output_tasks)
-            for i, task in enumerate(output_tasks):
-                task._metadata["_resumability_uuid"] = _resumability_uuid(key, i + 1)
             # Commit increment synchronously so the recorder can't satisfy the check early.
             _checkpoint_get(self._checkpoint_actor.add_expected.remote(key, n - 1))
 
@@ -159,9 +211,9 @@ class BaseStageAdapter:
 
             for task in input_tasks:
                 key = task._metadata.get("resumability_key", "")
-                uuid = task._metadata.get("_resumability_uuid", "")
-                if key and uuid:
-                    _checkpoint_get(self._checkpoint_actor.mark_completed.remote(uuid, key))
+                task_key = task._metadata.get("resumability_task_key", "")
+                if key and task_key:
+                    _checkpoint_get(self._checkpoint_actor.mark_completed.remote(task_key, key))
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""

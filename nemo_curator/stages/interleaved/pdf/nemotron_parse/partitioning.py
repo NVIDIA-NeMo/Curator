@@ -147,6 +147,7 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                         "source_files": batch,
                         "partition_index": task_idx,
                         "resumability_key": resumability_key,
+                        "resumability_task_key": resumability_key,
                     },
                 )
             )

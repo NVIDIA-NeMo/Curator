@@ -27,8 +27,9 @@ def _key(s: str) -> str:
     return hashlib.sha256(s.encode()).hexdigest()[:16]
 
 
-def _uuid(key: str, pos: int) -> str:
-    return hashlib.sha256(f"{key}::{pos}".encode()).hexdigest()[:16]
+def _task_key(key: str, pos: int) -> str:
+    """Build a path-style resumability_task_key for tests (matches adapter convention)."""
+    return f"{key}::{pos}"
 
 
 # ---------------------------------------------------------------------------
@@ -55,8 +56,7 @@ class TestInitPartition:
         mgr.init_partition("key_a")
         mgr.add_expected("key_a", 2)  # expected → 3
         mgr.init_partition("key_a")  # must NOT reset to 1
-        uuid = _uuid("key_a", 0)
-        mgr.mark_completed(uuid, "key_a")
+        mgr.mark_completed(_task_key("key_a", 0), "key_a")
         assert not mgr.is_task_completed("key_a")  # still 1/3
 
     def test_unknown_key_not_completed(self, mgr: CheckpointManager) -> None:
@@ -76,7 +76,7 @@ class TestIsTaskCompleted:
     def test_completed_after_single_mark(self, mgr: CheckpointManager) -> None:
         key = "single"
         mgr.init_partition(key)
-        mgr.mark_completed(_uuid(key, 0), key)
+        mgr.mark_completed(_task_key(key, 0), key)
         assert mgr.is_task_completed(key)
 
     def test_fanout_needs_all_marks(self, mgr: CheckpointManager) -> None:
@@ -84,34 +84,34 @@ class TestIsTaskCompleted:
         mgr.init_partition(key)  # expected = 1
         mgr.add_expected(key, 2)  # expected = 3
 
-        mgr.mark_completed(_uuid(key, 1), key)
+        mgr.mark_completed(_task_key(key, 1), key)
         assert not mgr.is_task_completed(key)
 
-        mgr.mark_completed(_uuid(key, 2), key)
+        mgr.mark_completed(_task_key(key, 2), key)
         assert not mgr.is_task_completed(key)
 
-        mgr.mark_completed(_uuid(key, 3), key)
+        mgr.mark_completed(_task_key(key, 3), key)
         assert mgr.is_task_completed(key)
 
     def test_dropped_task_counts_as_completed(self, mgr: CheckpointManager) -> None:
         key = "drop"
         mgr.init_partition(key)
-        mgr.mark_completed(_uuid(key, 0), key)  # dropped → still counts
+        mgr.mark_completed(_task_key(key, 0), key)  # dropped → still counts
         assert mgr.is_task_completed(key)
 
     def test_idempotent_mark_does_not_overcount(self, mgr: CheckpointManager) -> None:
         key = "idem"
         mgr.init_partition(key)  # expected = 1
         mgr.add_expected(key, 1)  # expected = 2
-        same_uuid = _uuid(key, 1)
-        mgr.mark_completed(same_uuid, key)
-        mgr.mark_completed(same_uuid, key)  # duplicate — should not count twice
+        same_task_key = _task_key(key, 1)
+        mgr.mark_completed(same_task_key, key)
+        mgr.mark_completed(same_task_key, key)  # duplicate — should not count twice
         assert not mgr.is_task_completed(key)  # only 1 unique done, 2 expected
 
     def test_different_keys_isolated(self, mgr: CheckpointManager) -> None:
         mgr.init_partition("k1")
         mgr.init_partition("k2")
-        mgr.mark_completed(_uuid("k1", 0), "k1")
+        mgr.mark_completed(_task_key("k1", 0), "k1")
         assert mgr.is_task_completed("k1")
         assert not mgr.is_task_completed("k2")
 
@@ -127,9 +127,9 @@ class TestAddExpected:
         mgr.init_partition(key)  # expected = 1
         mgr.add_expected(key, 4)  # expected = 5
         for i in range(4):
-            mgr.mark_completed(_uuid(key, i + 1), key)
+            mgr.mark_completed(_task_key(key, i + 1), key)
         assert not mgr.is_task_completed(key)
-        mgr.mark_completed(_uuid(key, 0), key)
+        mgr.mark_completed(_task_key(key, 0), key)
         assert mgr.is_task_completed(key)
 
     def test_chained_fanout(self, mgr: CheckpointManager) -> None:
@@ -138,28 +138,51 @@ class TestAddExpected:
         mgr.add_expected(key, 2)  # first fan-out: 1→3, expected = 3
         mgr.add_expected(key, 3)  # second fan-out: one of those 3 fans to 4, expected = 6
         for i in range(6):
-            mgr.mark_completed(_uuid(key, i), key)
+            mgr.mark_completed(_task_key(key, i), key)
         assert mgr.is_task_completed(key)
 
 
 # ---------------------------------------------------------------------------
-# Deterministic _resumability_uuid
+# are_leaves_completed
 # ---------------------------------------------------------------------------
 
 
-class TestResumabilityUUID:
-    def test_same_inputs_same_uuid(self) -> None:
-        key = "k"
-        assert _uuid(key, 0) == _uuid(key, 0)
-        assert _uuid(key, 1) == _uuid(key, 1)
+class TestAreLeavesCompleted:
+    def test_empty_input(self, mgr: CheckpointManager) -> None:
+        assert mgr.are_leaves_completed([]) == []
 
-    def test_different_positions_different_uuids(self) -> None:
-        key = "k"
-        uuids = [_uuid(key, i) for i in range(5)]
-        assert len(set(uuids)) == 5
+    def test_returns_false_before_marks(self, mgr: CheckpointManager) -> None:
+        mgr.init_partition("p")
+        flags = mgr.are_leaves_completed([("p", _task_key("p", 0)), ("p", _task_key("p", 1))])
+        assert flags == [False, False]
 
-    def test_different_keys_different_uuids(self) -> None:
-        assert _uuid("key_a", 0) != _uuid("key_b", 0)
+    def test_returns_true_after_mark(self, mgr: CheckpointManager) -> None:
+        key = "p"
+        mgr.init_partition(key)
+        mgr.mark_completed(_task_key(key, 0), key)
+        flags = mgr.are_leaves_completed([(key, _task_key(key, 0)), (key, _task_key(key, 1))])
+        assert flags == [True, False]
+
+    def test_isolation_across_partitions(self, mgr: CheckpointManager) -> None:
+        mgr.init_partition("k1")
+        mgr.init_partition("k2")
+        mgr.mark_completed(_task_key("k1", 0), "k1")
+        flags = mgr.are_leaves_completed(
+            [
+                ("k1", _task_key("k1", 0)),  # marked
+                ("k2", _task_key("k1", 0)),  # same task_key, different partition → not marked
+                ("k1", _task_key("k2", 0)),  # different task_key under k1 → not marked
+            ]
+        )
+        assert flags == [True, False, False]
+
+    def test_mixed_batch_preserves_order(self, mgr: CheckpointManager) -> None:
+        key = "p"
+        mgr.init_partition(key)
+        for i in (1, 3):
+            mgr.mark_completed(_task_key(key, i), key)
+        flags = mgr.are_leaves_completed([(key, _task_key(key, i)) for i in range(5)])
+        assert flags == [False, True, False, True, False]
 
 
 # ---------------------------------------------------------------------------

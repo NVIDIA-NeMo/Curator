@@ -23,6 +23,7 @@ from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.utils import register_loguru_serializer
 from nemo_curator.backends.xenna.adapter import create_named_xenna_stage_adapter
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.checkpoint import _CheckpointRecorderStage
 from nemo_curator.tasks import EmptyTask, Task
 
 
@@ -75,9 +76,11 @@ class XennaExecutor(BaseExecutor):
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
         initial_tasks = initial_tasks if initial_tasks else [EmptyTask]
 
-        for stage in stages:
+        for i, stage in enumerate(stages):
             # Get stage configuration
             stage_config = stage.xenna_stage_spec()
+
+            stage._is_last_user_stage = i + 1 < len(stages) and stages[i + 1].name == _CheckpointRecorderStage.name
 
             # Create Xenna stage adapter with the original stage's name
             xenna_stage = create_named_xenna_stage_adapter(

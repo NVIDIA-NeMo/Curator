@@ -16,7 +16,7 @@
 
 Uses a single LMDB environment with two named databases:
   - partitions: resumability_key_hash → expected completion count
-  - completions: resumability_key_hash:task_uuid → b"1"
+  - completions: resumability_key_hash:resumability_task_key_hash → b"1"
 
 All LMDB access is serialized through a singleton Ray actor so workers never
 open the database file directly (it lives on the driver/head node).
@@ -53,10 +53,6 @@ def _checkpoint_get(ref: Any) -> Any:  # noqa: ANN401
 
 def _key_hash(resumability_key: str) -> bytes:
     return hashlib.sha256(resumability_key.encode()).hexdigest()[:16].encode()
-
-
-def _resumability_uuid(resumability_key: str, position: int) -> str:
-    return hashlib.sha256(f"{resumability_key}::{position}".encode()).hexdigest()[:16]
 
 
 class CheckpointManager:
@@ -105,12 +101,24 @@ class CheckpointManager:
 
         return count >= expected
 
-    def mark_completed(self, resumability_uuid: str, resumability_key: str) -> None:
+    def mark_completed(self, resumability_task_key: str, resumability_key: str) -> None:
         """Record a completed (or dropped) leaf task.  Idempotent."""
         h = _key_hash(resumability_key)
-        entry_key = h + b":" + resumability_uuid.encode()
+        entry_key = h + b":" + _key_hash(resumability_task_key)
         with self._env.begin(write=True) as txn:
             txn.put(entry_key, b"1", db=self._completions_db)
+
+    def are_leaves_completed(self, pairs: list[tuple[str, str]]) -> list[bool]:
+        """Batch-check whether each (resumability_key, resumability_task_key) leaf is recorded.
+
+        Single read transaction; one B-tree lookup per pair.  Returns a parallel
+        list of booleans aligned with ``pairs``.
+        """
+        with self._env.begin() as txn:
+            return [
+                txn.get(_key_hash(key) + b":" + _key_hash(task_key), db=self._completions_db) is not None
+                for key, task_key in pairs
+            ]
 
     def add_expected(self, resumability_key: str, increment: int) -> None:
         """Atomically increase the expected completion count for a partition."""
@@ -173,8 +181,11 @@ def get_or_create_checkpoint_actor(checkpoint_path: str) -> Any:  # noqa: ANN401
         def is_task_completed(self, resumability_key: str) -> bool:
             return self._mgr.is_task_completed(resumability_key)
 
-        def mark_completed(self, resumability_uuid: str, resumability_key: str) -> None:
-            self._mgr.mark_completed(resumability_uuid, resumability_key)
+        def mark_completed(self, resumability_task_key: str, resumability_key: str) -> None:
+            self._mgr.mark_completed(resumability_task_key, resumability_key)
+
+        def are_leaves_completed(self, pairs: list[tuple[str, str]]) -> list[bool]:
+            return self._mgr.are_leaves_completed(pairs)
 
         def add_expected(self, resumability_key: str, increment: int) -> None:
             self._mgr.add_expected(resumability_key, increment)

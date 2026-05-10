@@ -159,6 +159,10 @@ class TestPDFPartitioningStage:
         assert keys_a == keys_b
         assert len(set(keys_a)) == len(keys_a)
 
+        # Source tasks have resumability_task_key equal to resumability_key (root of path).
+        for t in tasks_a:
+            assert t._metadata["resumability_task_key"] == t._metadata["resumability_key"]
+
 
 def _has_pypdfium2() -> bool:
     try:

@@ -192,6 +192,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                     "total_partitions": len(partitions),
                     "source_files": file_group,
                     "resumability_key": resumability_key,
+                    "resumability_task_key": resumability_key,
                 },
                 reader_config={},  # Empty - will be populated by reader stage
             )

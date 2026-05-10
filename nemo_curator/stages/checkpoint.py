@@ -24,7 +24,7 @@ from loguru import logger
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task
-from nemo_curator.utils.checkpoint import _checkpoint_get, _resumability_uuid
+from nemo_curator.utils.checkpoint import _checkpoint_get
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
@@ -35,7 +35,8 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
 
     On each run, checks whether this source partition was already fully processed
     in a previous run.  If so, drops the task so no downstream work is repeated.
-    Also stamps the stable _resumability_uuid onto passing tasks (position 0).
+    Also defensively backfills resumability_task_key from resumability_key for
+    custom source stages that only set resumability_key.
     """
 
     name = "_checkpoint_filter"
@@ -60,12 +61,12 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
                 "See the resumability contract in nemo_curator/utils/checkpoint.py."
             )
             raise ValueError(msg)
-        # Assign the stable resumability UUID for this source task (position 0).
-        task._metadata["_resumability_uuid"] = _resumability_uuid(key, 0)
+        task._metadata.setdefault("resumability_task_key", key)
 
         # Register partition with expected=1 (no-op if already present from previous run).
         _checkpoint_get(self._actor.init_partition.remote(key))
 
+        
         if _checkpoint_get(self._actor.is_task_completed.remote(key)):
             logger.info(f"Resumability: skipping already-completed partition {key!r}")
             return None
@@ -74,6 +75,8 @@ class _CheckpointFilterStage(ProcessingStage[Task, Task]):
         # writing all completions, inflating the expected count. Reset to 1 so
         # this attempt starts with a clean slate before fan-out re-registers.
         _checkpoint_get(self._actor.reset_partition.remote(key))
+        
+
         return task
 
 
@@ -97,12 +100,12 @@ class _CheckpointRecorderStage(ProcessingStage[Task, Task]):
 
     def process(self, task: Task) -> Task:
         key = task._metadata.get("resumability_key", "")
-        uuid = task._metadata.get("_resumability_uuid", "")
-        if not key or not uuid:
+        task_key = task._metadata.get("resumability_task_key", "")
+        if not key or not task_key:
             logger.warning(
-                f"Task {task.task_id!r} reached checkpoint recorder without resumability metadata; "
-                "completion will not be recorded."
+                f"Task {task.task_id!r} reached checkpoint recorder without resumability metadata "
+                "(resumability_key and/or resumability_task_key missing); completion will not be recorded."
             )
             return task
-        _checkpoint_get(self._actor.mark_completed.remote(uuid, key))
+        _checkpoint_get(self._actor.mark_completed.remote(task_key, key))
         return task

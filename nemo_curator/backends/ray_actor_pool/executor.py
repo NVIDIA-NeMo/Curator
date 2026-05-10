@@ -24,6 +24,7 @@ from tqdm import tqdm
 
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.utils import RayStageSpecKeys, execute_setup_on_node, register_loguru_serializer
+from nemo_curator.stages.checkpoint import _CheckpointRecorderStage
 from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayActorPoolStageAdapter
@@ -109,6 +110,8 @@ class RayActorPoolExecutor(BaseExecutor):
             for i, stage in enumerate(stages):
                 logger.info(f"\nProcessing stage {i + 1}/{len(stages)}: {stage}")
                 logger.info(f"  Input tasks: {len(current_tasks)}")
+
+                stage._is_last_user_stage = i + 1 < len(stages) and stages[i + 1].name == _CheckpointRecorderStage.name
 
                 if not current_tasks:
                     msg = f"{stage} - No tasks to process, can't continue"

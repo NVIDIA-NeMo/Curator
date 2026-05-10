@@ -66,7 +66,8 @@ class RayDataStageAdapter(BaseStageAdapter):
         """
         tasks = batch["item"]
         results = self.process_batch(tasks)
-        self._propagate_resumability_metadata(tasks, results)
+        if not self._is_last_user_stage:
+            self._propagate_resumability_metadata(tasks, results)
         self._record_checkpoint_events(tasks, results)
         return {"item": results}
 
