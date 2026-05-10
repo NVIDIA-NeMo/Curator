@@ -43,7 +43,12 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+import soundfile as sf
+import torch
+import torchaudio.functional as taf
 from loguru import logger
+from transformers import AutoTokenizer
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
@@ -740,8 +745,6 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [_PLAN_DATA_KEY]
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        from transformers import AutoTokenizer
-
         self._tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, use_fast=True)
         if not getattr(self._tokenizer, "is_fast", False):
             msg = (
@@ -962,8 +965,6 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     def _extract_emit(
         self, task: AudioTask, plan: list[dict], original_id: str
     ) -> list[AudioTask]:
-        import soundfile as sf
-
         source_path = task.data.get(self.audio_filepath_key)
         if not source_path or not os.path.exists(source_path):
             logger.error(
@@ -1025,11 +1026,6 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         info: Any,  # noqa: ANN401  (soundfile._SoundFileInfo)
         original_id: str,
     ) -> AudioTask | None:
-        import numpy as np
-        import soundfile as sf
-        import torch
-        import torchaudio.functional as taf
-
         source_sr = info.samplerate
         start_sec = float(snippet["start"])
         end_sec = float(snippet["end"])
@@ -1622,8 +1618,6 @@ def _reconcile_manifest_with_tar(
         return (0, 0)
     if not os.path.exists(manifest_path):
         return (0, 0)
-
-    import soundfile as sf  # local import: matches other audio stages here
 
     try:
         tar = tarfile.open(tar_path, "r")
