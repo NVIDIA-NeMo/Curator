@@ -132,10 +132,10 @@ stages:
     text_key: ${text_key1}
     words_key: "words"
 
-  - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
+  - _target_: nemo_curator.stages.audio.metrics.bandwidth.BandwidthEstimationStage
     name: "BandwidthEstimation"
 
-  - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
+  - _target_: nemo_curator.stages.audio.metrics.squim.TorchSquimQualityMetricsStage
     name: "SquimMetrics"
 
   - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage

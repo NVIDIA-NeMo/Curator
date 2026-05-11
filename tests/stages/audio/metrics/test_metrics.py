@@ -18,9 +18,9 @@ from pathlib import Path
 import pytest
 import torch
 
-from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
-from nemo_curator.stages.audio.tagging.metrics.squim import TorchSquimQualityMetricsStage
-from nemo_curator.stages.audio.tagging.metrics.wer import ComputeWERStage
+from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage
+from nemo_curator.stages.audio.metrics.squim import TorchSquimQualityMetricsStage
+from nemo_curator.stages.audio.metrics.wer import ComputeWERStage, GetPairwiseWerStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
@@ -39,6 +39,17 @@ class TestBandwidthEstimationStage:
         out = result.data
         assert out["audio_filepath"] == str(audio_filepath)
         assert out["segments"][0]["metrics"]["bandwidth"] == 7500
+
+    def test_no_segments_computes_on_entry(self, audio_task: Callable[..., AudioTask], audio_filepath: Path) -> None:
+        """Without segments, bandwidth is computed on the full audio entry."""
+        stage = BandwidthEstimationStage()
+        stage.setup()
+        task = audio_task(audio_filepath=str(audio_filepath), duration=10.0)
+        result = stage.process(task)
+        assert result.data["audio_filepath"] == str(audio_filepath)
+        assert "metrics" in result.data
+        assert "bandwidth" in result.data["metrics"]
+        assert result.data["metrics"]["bandwidth"] > 0
 
 
 class TestComputeWERStage:
@@ -77,13 +88,21 @@ class TestComputeWERStage:
         out = stage.strip_spaces_before_punctuations("hello , world .")
         assert " ," not in out
 
-    def test_process_no_segments_passthrough(self, audio_task: Callable[..., AudioTask]) -> None:
-        """Entry without segments is returned unchanged."""
-        stage = ComputeWERStage(language="en")
+    def test_no_segments_computes_on_entry(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Without segments, WER is computed on the top-level entry."""
+        stage = ComputeWERStage(language="en", hypothesis_text_key="text", reference_text_key="reference")
         stage.setup()
-        task = audio_task(audio_item_id="x")
+        task = audio_task(audio_item_id="x", duration=10.0, text="hello world", reference="hello world")
         result = stage.process(task)
         assert result.data["audio_item_id"] == "x"
+        assert "metrics" in result.data
+        assert "wer" in result.data["metrics"]
+        assert "cer" in result.data["metrics"]
+        assert "char_rate" in result.data["metrics"]
+        assert "word_rate" in result.data["metrics"]
+        assert result.data["metrics"]["wer"]["wer"] == 0.0
+        assert result.data["metrics"]["cer"]["cer"] == 0.0
+        assert result.data["metrics"]["word_rate"] == 0.2
 
     def test_process_computes_wer_cer_for_segments(self, audio_task: Callable[..., AudioTask]) -> None:
         """Segments with hypothesis and reference get WER/CER metrics."""
@@ -136,6 +155,21 @@ class TestTorchSquimQualityMetricsStage:
         )
 
     @pytest.mark.gpu
+    def test_no_segments_computes_on_entry(self, audio_task: Callable[..., AudioTask], wav_filepath: Path) -> None:
+        """Without segments, squim metrics are computed on the full audio entry."""
+        stage = TorchSquimQualityMetricsStage(resources=Resources(cpus=1.0, gpus=1.0))
+        stage.setup()
+        task = audio_task(resampled_audio_filepath=str(wav_filepath), duration=60.0)
+        result = stage.process_batch([task])[0]
+        assert result.data["resampled_audio_filepath"] == str(wav_filepath)
+        assert "metrics" in result.data
+        assert "pesq_squim" in result.data["metrics"]
+        assert "stoi_squim" in result.data["metrics"]
+        assert "sisdr_squim" in result.data["metrics"]
+        assert 1.0 <= result.data["metrics"]["pesq_squim"] <= 5.0
+        assert 0.0 <= result.data["metrics"]["stoi_squim"] <= 1.0
+
+    @pytest.mark.gpu
     def test_process(self, audio_task: Callable[..., AudioTask], wav_filepath: Path) -> None:
         """TorchSquim produces valid metrics on GPU."""
         stage = TorchSquimQualityMetricsStage(resources=Resources(cpus=1.0, gpus=1.0))
@@ -148,10 +182,10 @@ class TestTorchSquimQualityMetricsStage:
             resampled_audio_filepath=str(wav_filepath),
             segments=[{"speaker": "s1", "start": 0.0, "end": 2.0, "text": "warmup"}],
         )
-        stage.process(warmup_task)
+        stage.process_batch([warmup_task])
         torch.cuda.synchronize()
 
-        result = stage.process(task)
+        result = stage.process_batch([task])[0]
 
         out = result.data
         for seg in out["segments"]:
@@ -161,3 +195,42 @@ class TestTorchSquimQualityMetricsStage:
             assert "sisdr_squim" in seg["metrics"]
             assert 1.0 <= seg["metrics"]["pesq_squim"] <= 5.0
             assert 0.0 <= seg["metrics"]["stoi_squim"] <= 1.0
+
+
+class TestGetPairwiseWerStage:
+    """Tests for GetPairwiseWerStage."""
+
+    def test_process(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Computes WER between text and pred_text."""
+        stage = GetPairwiseWerStage()
+        task = audio_task(text="a b c", pred_text="a x c")
+        result = stage.process(task)
+        assert isinstance(result, AudioTask)
+        assert result.data["wer"] == pytest.approx(0.3333, abs=0.001)
+
+    def test_validate_input_valid(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Valid task passes validation."""
+        stage = GetPairwiseWerStage()
+        assert stage.validate_input(audio_task(text="a b c", pred_text="a x c")) is True
+
+    def test_validate_input_missing_text(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Task missing text key fails validation."""
+        stage = GetPairwiseWerStage()
+        assert stage.validate_input(audio_task(pred_text="a x c")) is False
+
+    def test_validate_input_missing_pred_text(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Task missing pred_text key fails validation."""
+        stage = GetPairwiseWerStage()
+        assert stage.validate_input(audio_task(text="a b c")) is False
+
+    def test_process_batch_raises_on_missing_text(self, audio_task: Callable[..., AudioTask]) -> None:
+        """process_batch raises ValueError on missing text."""
+        stage = GetPairwiseWerStage()
+        with pytest.raises(ValueError, match="failed validation"):
+            stage.process_batch([audio_task(pred_text="a x c")])
+
+    def test_process_batch_raises_on_missing_pred_text(self, audio_task: Callable[..., AudioTask]) -> None:
+        """process_batch raises ValueError on missing pred_text."""
+        stage = GetPairwiseWerStage()
+        with pytest.raises(ValueError, match="failed validation"):
+            stage.process_batch([audio_task(text="a b c")])

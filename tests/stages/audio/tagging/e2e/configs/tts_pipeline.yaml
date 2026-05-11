@@ -73,12 +73,12 @@ stages:
       cpus: 0.5
 
   # 7. Estimate bandwidth
-  - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
+  - _target_: nemo_curator.stages.audio.metrics.bandwidth.BandwidthEstimationStage
     name: "BandwidthEstimation"
     resources: ${resources}
 
   # 8. Calculate audio quality metrics
-  - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
+  - _target_: nemo_curator.stages.audio.metrics.squim.TorchSquimQualityMetricsStage
     name: "SquimMetrics"
     resources:
       gpus: 0.05

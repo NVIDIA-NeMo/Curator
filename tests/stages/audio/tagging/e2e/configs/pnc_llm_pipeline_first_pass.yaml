@@ -127,12 +127,12 @@ stages:
     resources:
       cpus: 0.5
 
-  - _target_: nemo_curator.stages.audio.tagging.metrics.squim.TorchSquimQualityMetricsStage
+  - _target_: nemo_curator.stages.audio.metrics.squim.TorchSquimQualityMetricsStage
     name: "SquimMetrics"
     resources:
       gpus: 0.05
 
-  - _target_: nemo_curator.stages.audio.tagging.metrics.bandwidth.BandwidthEstimationStage
+  - _target_: nemo_curator.stages.audio.metrics.bandwidth.BandwidthEstimationStage
     name: "BandwidthEstimation"
     resources:
       cpus: 0.5

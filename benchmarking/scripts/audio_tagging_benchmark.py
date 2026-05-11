@@ -32,10 +32,10 @@ from utils import RepeatEntriesStage, setup_executor, write_benchmark_results
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
 from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
+from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage
+from nemo_curator.stages.audio.metrics.squim import TorchSquimQualityMetricsStage
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
-from nemo_curator.stages.audio.tagging.metrics.bandwidth import BandwidthEstimationStage
-from nemo_curator.stages.audio.tagging.metrics.squim import TorchSquimQualityMetricsStage
 from nemo_curator.stages.audio.tagging.prepare_module_segments import PrepareModuleSegmentsStage
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
 from nemo_curator.stages.audio.tagging.split import JoinSplitAudioMetadataStage, SplitLongAudioStage

@@ -15,6 +15,7 @@
 """Bandwidth estimation stage."""
 
 from dataclasses import dataclass
+from typing import Any
 
 import librosa
 import numpy as np
@@ -38,6 +39,8 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
         stride_seconds: Time between successive FFT windows in seconds. Defaults to 0.01.
         top_db: Maximum decibel value for power spectrum normalization. Defaults to 100.0.
         frequency_threshold: Threshold in dB below peak for bandwidth estimation. Defaults to -50.0.
+        audio_filepath_key: Key for the audio file path in the manifest. Defaults to "audio_filepath".
+        segments_key: Key for the segments in the manifest. Defaults to "segments".
 
     Returns:
         The same data as in the input data, but with bandwidth estimates added to each segment.
@@ -48,15 +51,16 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
     top_db: float = 100.0
     frequency_threshold: float = -50.0
     audio_filepath_key: str = "audio_filepath"
+    segments_key: str = "segments"
 
     # Stage metadata
     name: str = "BandwidthEstimation"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "segments"]
+        return [], [self.audio_filepath_key, self.segments_key, "duration"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "segments", "metrics"]
+        return [], [self.audio_filepath_key, self.segments_key, "duration"]
 
     def _estimate_bandwidth(self, audio: "np.ndarray", sample_rate: int) -> int:
         """Estimate the bandwidth of an audio signal."""
@@ -78,6 +82,27 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
 
         return bandwidth
 
+    def get_bandwidth(self, audio_segment: dict[str, Any], audio: "np.ndarray", sample_rate: int) -> None:
+        """Get the bandwidth of an audio segment."""
+        segment_speaker = audio_segment.get("speaker")
+        segment_text = audio_segment.get("text")
+
+        if (segment_speaker is not None and segment_speaker == "no-speaker") or (
+            segment_text is not None and segment_text.strip() == ""
+        ):
+            return
+
+        start = audio_segment.get("start", 0.0)
+        end = audio_segment.get("end", audio_segment.get("duration"))
+
+        segment_audio_array = audio[int(start * sample_rate) : int(end * sample_rate)]
+        bandwidth = self._estimate_bandwidth(segment_audio_array, sample_rate)
+
+        if "metrics" not in audio_segment:
+            audio_segment["metrics"] = {}
+
+        audio_segment["metrics"]["bandwidth"] = int(bandwidth)
+
     def process(self, task: AudioTask) -> AudioTask:
         """Estimate bandwidth for audio entry."""
         data_entry = task.data
@@ -93,19 +118,11 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
         except Exception as ex:  # noqa: BLE001
             logger.error(f"Failed to load audio path: {audio_path}, exception={ex}")
             return task
-        segments = data_entry.get("segments", [])
 
-        for segment in segments:
-            if segment.get("speaker") == "no-speaker" or segment.get("text", "").strip() == "":
-                continue
+        if self.segments_key in data_entry:
+            for segment in data_entry[self.segments_key]:
+                self.get_bandwidth(segment, audio, sample_rate)
+        else:
+            self.get_bandwidth(data_entry, audio, sample_rate)
 
-            start = segment["start"]
-            end = segment["end"]
-
-            audio_segment = audio[int(start * sample_rate) : int(end * sample_rate)]
-            bandwidth = self._estimate_bandwidth(audio_segment, sample_rate)
-
-            if "metrics" not in segment:
-                segment["metrics"] = {}
-            segment["metrics"]["bandwidth"] = int(bandwidth)
         return task

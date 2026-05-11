@@ -44,6 +44,7 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         target_sr: Target sample rate for SQUIM model input. Defaults to 16000.
         batch_size: Number of audio tasks to be processed at once. Defaults to 32.
         compute_batch_size: Number of waveforms to process per GPU inference call. Defaults to 64.
+        segments_key: Key for the segments in the manifest. Defaults to "segments".
 
     Returns:
         The same data as in the input data, but with Squim quality metrics added to each segment.
@@ -53,6 +54,7 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     target_sr: int = 16000
     batch_size: int = 32
     compute_batch_size: int = 64
+    segments_key: str = "segments"
 
     # Stage metadata
     name: str = "TorchSquimQualityMetrics"
@@ -61,10 +63,10 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     model: Any = field(default=None, repr=False)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "segments"]
+        return [], [self.audio_filepath_key, self.segments_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "segments", "metrics"]
+        return [], [self.audio_filepath_key, self.segments_key, "metrics"]
 
     @property
     def _device(self) -> str:
@@ -138,28 +140,42 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
             return []
 
         collected: list[tuple[int, int, torch.Tensor]] = []
-        segments = data_entry.get("segments", [])
+        if self.segments_key in data_entry:
+            segments = data_entry[self.segments_key]
+            for seg_idx, segment in enumerate(segments):
+                if segment.get("speaker") == "no-speaker" or segment.get("text", "").strip() == "":
+                    continue
 
-        for seg_idx, segment in enumerate(segments):
-            if segment.get("speaker") == "no-speaker" or segment.get("text", "").strip() == "":
-                continue
+                start = segment.get("start", 0)
+                end = segment.get("end", 0)
+                start_frame = math.floor(start * sr)
+                end_frame = math.floor(end * sr)
 
-            start = segment.get("start", 0)
-            end = segment.get("end", 0)
-            start_frame = math.floor(start * sr)
-            end_frame = math.floor(end * sr)
+                if end_frame - start_frame <= 0:
+                    logger.warning(f"[{self.name}] Zero-length segment at {start}-{end}s in {audio_path}, skipping")
+                    continue
 
-            if end_frame - start_frame <= 0:
-                logger.warning(f"[{self.name}] Zero-length segment at {start}-{end}s in {audio_path}, skipping")
-                continue
+                y = torch.from_numpy(audio[start_frame:end_frame])
+                if sr != self.target_sr:
+                    y = torchaudio_F.resample(y.unsqueeze(0), sr, self.target_sr).squeeze(0)
 
-            y = torch.from_numpy(audio[start_frame:end_frame])
+                collected.append((task_idx, seg_idx, y))
+        else:
+            y = torch.from_numpy(audio)
             if sr != self.target_sr:
                 y = torchaudio_F.resample(y.unsqueeze(0), sr, self.target_sr).squeeze(0)
-
-            collected.append((task_idx, seg_idx, y))
-
+            collected.append((task_idx, -1, y))
         return collected
+
+    def update_metrics(
+        self, audio_segment: dict[str, Any], pesq_val: float, stoi_val: float, sisdr_val: float
+    ) -> None:
+        """Update the metrics for an audio segment."""
+        if "metrics" not in audio_segment:
+            audio_segment["metrics"] = {}
+        audio_segment["metrics"]["pesq_squim"] = pesq_val
+        audio_segment["metrics"]["stoi_squim"] = stoi_val
+        audio_segment["metrics"]["sisdr_squim"] = sisdr_val
 
     def process(self, task: AudioTask) -> AudioTask:
         """Delegate single-task processing to process_batch."""
@@ -194,12 +210,11 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
             for rank, (pesq_val, stoi_val, sisdr_val) in enumerate(sorted_results):
                 orig_idx = sorted_indices[rank]
                 task_idx, seg_idx, _ = all_waveform_metadata[orig_idx]
-                segment = tasks[task_idx].data["segments"][seg_idx]
-                if "metrics" not in segment:
-                    segment["metrics"] = {}
-                segment["metrics"]["pesq_squim"] = pesq_val
-                segment["metrics"]["stoi_squim"] = stoi_val
-                segment["metrics"]["sisdr_squim"] = sisdr_val
+                if self.segments_key in tasks[task_idx].data:
+                    segment = tasks[task_idx].data[self.segments_key][seg_idx]
+                    self.update_metrics(segment, pesq_val, stoi_val, sisdr_val)
+                else:
+                    self.update_metrics(tasks[task_idx].data, pesq_val, stoi_val, sisdr_val)
         except Exception as e:  # noqa: BLE001
             torch.cuda.empty_cache()
             logger.error(f"[{self.name}] Failed to compute Squim metrics: {e}")
