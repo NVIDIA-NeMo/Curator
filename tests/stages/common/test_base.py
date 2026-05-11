@@ -51,6 +51,35 @@ class ConcreteProcessingStage(ProcessingStage[MockTask, MockTask]):
         return [], []
 
 
+class FanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
+    """Processing stage that emits multiple tasks."""
+
+    name = "FanoutProcessingStage"
+
+    def process(self, task: MockTask) -> list[MockTask]:
+        return [task]
+
+
+class OptionalFanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
+    """Processing stage that can emit one or multiple tasks."""
+
+    name = "OptionalFanoutProcessingStage"
+
+    def process(self, task: MockTask) -> MockTask | list[MockTask]:
+        return task
+
+
+class TestProcessingStageRayStageSpec:
+    """Test the default Ray stage spec for ProcessingStage."""
+
+    def test_single_output_process_is_not_fanout(self):
+        assert ConcreteProcessingStage().ray_stage_spec() == {}
+
+    @pytest.mark.parametrize("stage_cls", [FanoutProcessingStage, OptionalFanoutProcessingStage])
+    def test_list_output_process_is_fanout(self, stage_cls: type[ProcessingStage]) -> None:
+        assert stage_cls().ray_stage_spec() == {"is_fanout_stage": True}
+
+
 class TestProcessingStageWith:
     """Test the with_ method for ProcessingStage."""
 

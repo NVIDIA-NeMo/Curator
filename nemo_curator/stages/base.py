@@ -19,7 +19,7 @@ import copy
 import time
 from abc import ABC, ABCMeta, abstractmethod
 from inspect import isabstract
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, final, get_args, get_origin, get_type_hints
 
 from loguru import logger
 
@@ -294,6 +294,22 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             "supports_batch_processing": self.supports_batch_processing(),
         }
 
+    def _process_returns_list(self) -> bool:
+        """Return whether the process return annotation can produce a list."""
+        try:
+            return_hint = get_type_hints(type(self).process).get("return")
+        except (NameError, TypeError):
+            return_hint = type(self).process.__annotations__.get("return")
+
+        if return_hint is None:
+            return False
+
+        origin = get_origin(return_hint)
+        if origin is list:
+            return True
+
+        return any(get_origin(arg) is list for arg in get_args(return_hint))
+
     def ray_stage_spec(self) -> dict[str, Any]:
         """Get Ray configuration for this stage.
         Note : This is only used for Ray Data which is an experimental backend.
@@ -302,6 +318,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         Returns (dict[str, Any]):
             Dictionary containing Ray-specific configuration
         """
+        if self._process_returns_list():
+            return {"is_fanout_stage": True}
         return {}
 
     # --- Custom per-stage metrics helpers ---
