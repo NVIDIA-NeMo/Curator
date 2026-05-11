@@ -20,6 +20,8 @@ redirects:
   # Version-root index.html: explicit because :path* does not match the empty-path case.
   - source: "/nemo/curator/latest/index.html"
     destination: "/nemo/curator/latest"
+  - source: "/nemo/curator/main/index.html"
+    destination: "/nemo/curator/main"
   - source: "/nemo/curator/v26.04/index.html"
     destination: "/nemo/curator/v26.04"
   - source: "/nemo/curator/v26.02/index.html"
@@ -149,6 +151,10 @@ versions:
     path: versions/latest.yml
     slug: latest
     availability: stable
+  - display-name: "Main · preview"
+    path: versions/main.yml
+    slug: main
+    availability: beta
   - display-name: "26.04 · v1.1.2"
     path: versions/v26.04.yml
     slug: v26.04
