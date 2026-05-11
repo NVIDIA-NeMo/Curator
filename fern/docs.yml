@@ -151,7 +151,7 @@ versions:
     path: versions/latest.yml
     slug: latest
     availability: stable
-  - display-name: "Main (bleeding edge)"
+  - display-name: "Main · preview"
     path: versions/main.yml
     slug: main
     availability: beta
