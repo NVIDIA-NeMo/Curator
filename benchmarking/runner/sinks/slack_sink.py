@@ -575,15 +575,7 @@ class SlackSink(Sink):
         pings = [] if result_dict["success"] else sink_data.get("ping_on_failure", [])
         status_text = "✅ success" if result_dict["success"] else "❌ FAILED"
 
-        # Warn if any GPU had memory in use before the benchmark started.
-        # TODO: This could be made into a more generic check that can be configured in the sink config.
-        warnings = []
-        for gpu_id, stats in result_dict.get("gpu_stats", {}).items():
-            if stats.get("memory_used", 0) > 0:
-                pct_used = stats["memory_used"] / stats["memory_total"] * 100
-                warnings.append(
-                    f"GPU {gpu_id} had {stats['memory_used']} MiB ({pct_used:.1f}% of total) used before benchmark started"
-                )
+        warnings = result_dict.get("warnings", [])
 
         # Create a new message for the entry to post in the thread.
         msg = self._create_benchmark_entry_message(
