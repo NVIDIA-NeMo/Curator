@@ -70,7 +70,7 @@ source .venv/bin/activate
 ```
 
 ```{note}
-Replace `text_cuda12` with your desired extras: use `.` for CPU-only, `.[text_cpu]` for text processing only, or `.[all]` for all modules.
+Replace `text_cuda12` with your desired extras: use `.` for CPU-only, `text_cpu` for text processing only, `translation_all` for all translation backends and helpers, or `all` for all modules.
 ```
 
 :::
@@ -112,7 +112,7 @@ For this example, you need sample JSONL files in `~/nemo_curator/data/sample/`. 
 ```
 
 ```{tip}
-**Set your HuggingFace token** to avoid rate limiting when downloading models or datasets:
+**Set your Hugging Face token** to avoid rate limiting when downloading models or datasets:
 
     export HF_TOKEN="your_token_here"
 
@@ -174,4 +174,7 @@ print(f"Pipeline completed successfully! Processed {len(results) if results else
 
 ## Next Steps
 
-Explore the [Text Curation documentation](text-overview) for more advanced filtering techniques, GPU acceleration options, and large-scale processing workflows.
+Explore the [Text Curation documentation](text-overview) for more advanced filtering techniques, translation workflows, GPU acceleration options, and large-scale processing workflows.
+
+- For multilingual processing and translation, see {ref}`text-process-data-languages`
+- For translation-specific usage, see {ref}`text-process-data-translation`
