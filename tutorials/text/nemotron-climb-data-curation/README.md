@@ -134,15 +134,26 @@ python 3_prune.py \
 
 No GPUs are needed to run this step. Use the `--num-cpus` argument as desired to control the number of CPUs used by the Ray client; by default, all are used. However, because each FastText model is large, CPU out-of-memory errors may occur due to overhead between stage workers. Try decreasing the number of CPUs if needed.
 
-There are 5 FastText quality models that can be used for this step. Each can be pre-downloaded from Hugging Face:
+There are 5 FastText quality models that can be used for this step. Each is availble on Hugging Face under [nvidia/nemotron-climb-fasttext-classifiers](https://huggingface.co/nvidia/nemotron-climb-fasttext-classifiers):
 
-TODO: Update links when the models are published
+- [best_model_advertisement.bin](https://huggingface.co/nvidia/nemotron-climb-fasttext-classifiers/blob/main/best_model_advertisement.bin)
+- [best_model_cultural_value.bin](https://huggingface.co/nvidia/nemotron-climb-fasttext-classifiers/blob/main/best_model_cultural_value.bin)
+- [best_model_educational_value.bin](https://huggingface.co/nvidia/nemotron-climb-fasttext-classifiers/blob/main/best_model_educational_value.bin)
+- [best_model_informational_value.bin](https://huggingface.co/nvidia/nemotron-climb-fasttext-classifiers/blob/main/best_model_informational_value.bin)
+- [best_model_quality.bin](https://huggingface.co/nvidia/nemotron-climb-fasttext-classifiers/blob/main/best_model_quality.bin)
 
-- [best_model_advertisement.bin](https://huggingface.co/nvidia)
-- [best_model_cultural_value.bin](https://huggingface.co/nvidia)
-- [best_model_educational_value.bin](https://huggingface.co/nvidia)
-- [best_model_informational_value.bin](https://huggingface.co/nvidia)
-- [best_model_quality.bin](https://huggingface.co/nvidia)
+Download each file with the following pattern:
+
+```python
+from huggingface_hub import hf_hub_download
+
+path = hf_hub_download(
+    repo_id="nvidia/nemotron-climb-fasttext-classifiers",
+    filename="best_model_advertisement.bin",
+)
+
+print(path)
+```
 
 Users may opt to run the script with all 5 models as demonstrated above, or a subset of the models. For each path in `--fasttext-model-paths`, a unique score field must be set via the `--score-fields` argument. After the FastText scores are computed, clusters with an average score less than the corresponding pruning threshold are removed. For example, in the above snippet, the average advertisement score of a cluster must be 2.0 or larger; the rest of the cultural, educational, informational, and quality scores must be 1.0 or larger.
 
