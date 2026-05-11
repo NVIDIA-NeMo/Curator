@@ -112,7 +112,9 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         else:
             self._final_max_model_len = self.max_model_len
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         cache_dir = self._model_kwargs.get("cache_dir") if self._model is None else self._model.cache_dir
 
@@ -123,7 +125,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         """Load tokenizer per worker. Falls back to full init if setup_on_node was not called."""
-        if self._model is None or not hasattr(self._model, "_llm") or self._model._llm is None:
+        if self._model is None or not hasattr(self._model, "llm") or self._model.llm is None:
             self._initialize_model()
         self._tokenizer = self._model.get_tokenizer()
 

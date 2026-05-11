@@ -15,6 +15,7 @@
 """vLLM model wrappers for text generation.
 
 Provides:
+- :class:`VLLMBase` — shared base with engine, tokenizer, generation, and cleanup.
 - :class:`VLLMModel` — generic vLLM wrapper implementing :class:`ModelInterface`.
 - :class:`VLLMInference` — chat-template-aware helper with prompt formatting,
   batched generation, and GPU cleanup (used by audio PNC stages).
@@ -52,7 +53,79 @@ except ImportError:
         pass
 
 
-class VLLMModel(ModelInterface):
+class VLLMBase:
+    """Shared vLLM engine management: LLM creation, SamplingParams, tokenizer.
+
+    Provides protected helpers for subclasses to initialize the vLLM engine,
+    load a tokenizer, run generation, and release GPU resources.  Not intended
+    for direct instantiation.
+    """
+
+    llm: LLM | None = None
+    sampling_params: SamplingParams | None = None
+    tokenizer: AutoTokenizer | None = None
+
+    def _init_engine(self, model_kwargs: dict[str, Any], sampling_kwargs: dict[str, Any]) -> None:
+        """Create the vLLM ``LLM`` engine and ``SamplingParams``.
+
+        Args:
+            model_kwargs: Keyword arguments forwarded to ``vllm.LLM``.
+            sampling_kwargs: Keyword arguments forwarded to ``vllm.SamplingParams``.
+        """
+        os.environ.setdefault("VLLM_USE_V1", "0")
+        start_time = time.time()
+        try:
+            self.llm = LLM(**model_kwargs)
+        except Exception as e:
+            logger.error(f"Failed to load vLLM model: {e}")
+            msg = f"Model loading failed: {e}"
+            raise RuntimeError(msg) from e
+        logger.info(f"Time taken to load model: {round((time.time() - start_time) / 60, 2)} minutes")
+        self.sampling_params = SamplingParams(**sampling_kwargs)
+
+    def _init_tokenizer(self, model_name: str) -> None:
+        """Load a HuggingFace tokenizer from a model name or local path."""
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    def _generate(self, prompts: list, use_chat: bool = False) -> list:
+        """Run generation (or chat) on the loaded engine.
+
+        Args:
+            prompts: List of prompt strings (for generate) or message dicts (for chat).
+            use_chat: If True, use ``llm.chat()`` instead of ``llm.generate()``.
+
+        Returns:
+            List of vLLM ``RequestOutput`` objects.
+
+        Raises:
+            RuntimeError: If the engine is not initialized or generation fails.
+        """
+        if self.llm is None:
+            msg = "LLM not initialized. Call setup() first."
+            raise RuntimeError(msg)
+        try:
+            if use_chat:
+                return self.llm.chat(prompts, self.sampling_params)
+            return self.llm.generate(prompts, self.sampling_params)
+        except Exception as e:
+            logger.error(f"Failed to generate outputs: {e}")
+            msg = f"Generation failed: {e}"
+            raise RuntimeError(msg) from e
+
+    def _cleanup_gpu(self, device: str = "cuda") -> None:
+        """Release GPU memory: delete engine, destroy process group, empty cache."""
+        if self.llm is not None:
+            del self.llm
+            self.llm = None
+        if dist.is_initialized():
+            dist.destroy_process_group()
+        gc.collect()
+        if device == "cuda":
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+
+class VLLMModel(VLLMBase, ModelInterface):
     """Generic vLLM language model wrapper for text generation."""
 
     def __init__(  # noqa: PLR0913
@@ -96,8 +169,8 @@ class VLLMModel(ModelInterface):
         self.min_p = min_p
         self.max_tokens = max_tokens
         self.cache_dir = cache_dir
-        self._llm: LLM | None = None
-        self._sampling_params: SamplingParams | None = None
+        self.llm: LLM | None = None
+        self.sampling_params: SamplingParams | None = None
         self._final_max_model_len: int | None = None
         self._is_qwen3: bool = False
 
@@ -145,9 +218,6 @@ class VLLMModel(ModelInterface):
             f"max_num_batched_tokens={final_max_batched}"
         )
 
-        self._llm = LLM(**llm_kwargs)
-        self._final_max_model_len = final_max_model_len
-
         max_gen_tokens = self.max_tokens if self.max_tokens is not None else final_max_model_len
         if max_gen_tokens is None:
             logger.warning(
@@ -172,19 +242,16 @@ class VLLMModel(ModelInterface):
         else:
             sampling_kwargs["top_p"] = self.top_p
 
-        self._sampling_params = SamplingParams(**sampling_kwargs)
+        self._init_engine(llm_kwargs, sampling_kwargs)
+        self._final_max_model_len = final_max_model_len
         self._is_qwen3 = is_qwen3
 
-    def generate(
-        self,
-        prompts: list[str],
-    ) -> list[str]:
+    def generate(self, prompts: list[str]) -> list[str]:
         """
         Generate text from prompts.
 
         Args:
-            prompts: List of prompt strings or list of message dicts
-                (for chat template).
+            prompts: List of prompt strings.
 
         Returns:
             List of generated text strings.
@@ -192,30 +259,18 @@ class VLLMModel(ModelInterface):
         Raises:
             RuntimeError: If the model is not set up or generation fails.
         """
-        if self._llm is None or self._sampling_params is None:
-            msg = "Model not initialized. Call setup() first."
-            raise RuntimeError(msg)
-
-        try:
-            outputs = self._llm.generate(
-                prompts,
-                sampling_params=self._sampling_params,
-                use_tqdm=False,
-            )
-            return [out.outputs[0].text if out.outputs else "" for out in outputs]
-        except (RuntimeError, ValueError, TypeError) as e:
-            msg = f"Error generating text: {e}"
-            raise RuntimeError(msg) from e
+        outputs = self._generate(prompts)
+        return [out.outputs[0].text if out.outputs else "" for out in outputs]
 
     def get_tokenizer(self) -> Any:  # noqa: ANN401
         """Get the tokenizer from the LLM instance."""
-        if self._llm is None:
+        if self.llm is None:
             msg = "Model not initialized. Call setup() first."
             raise RuntimeError(msg)
-        return self._llm.get_tokenizer()
+        return self.llm.get_tokenizer()
 
 
-class VLLMInference:
+class VLLMInference(VLLMBase):
     """Chat-template-aware vLLM helper with prompt formatting and GPU cleanup.
 
     This is a plain (non-stage) class that wraps a vLLM ``LLM`` engine with
@@ -283,9 +338,9 @@ class VLLMInference:
         self.chat_template_params = apply_chat_template
         self.use_chat_api = use_chat_api or "tokenizer_mode" in model
 
+        self.llm: LLM | None = None
         self.sampling_params: SamplingParams | None = None
         self.tokenizer: AutoTokenizer | None = None
-        self.llm: LLM | None = None
 
     def setup_on_node(self) -> None:
         """Download model weights and tokenizer to the local cache.
@@ -321,12 +376,9 @@ class VLLMInference:
             if not model_name:
                 msg = "'model' key is required in model_params but was not provided."
                 raise ValueError(msg)
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        if self.sampling_params is None:
-            self.sampling_params = SamplingParams(**self.inference_params)
+            self._init_tokenizer(model_name)
 
-        if self.llm is None:
-            self.load_model()
+        self._init_engine(self.model_params, self.inference_params)
 
     @staticmethod
     def _read_prompt_file(prompt_filepath: str) -> dict:
@@ -360,29 +412,9 @@ class VLLMInference:
                 return entry_chat
             return []
 
-    def load_model(self) -> None:
-        """Instantiate the ``vllm.LLM`` engine."""
-        os.environ.setdefault("VLLM_USE_V1", "0")
-        start_time = time.time()
-        try:
-            self.llm = LLM(**self.model_params)
-        except Exception as e:
-            logger.error(f"Failed to load vLLM model: {e}")
-            msg = f"Model loading failed: {e}"
-            raise RuntimeError(msg) from e
-
-        logger.info(f"Time taken to load model: {round((time.time() - start_time) / 60, 2)} minutes")
-
     def process_batch(self, entry_prompts: list) -> list:
         """Run a single generation call on a batch of prompts."""
-        try:
-            if self.use_chat_api:
-                return self.llm.chat(entry_prompts, self.sampling_params)
-            return self.llm.generate(entry_prompts, self.sampling_params)
-        except Exception as e:
-            logger.error(f"Failed to generate outputs: {e}")
-            msg = f"Generation failed: {e}"
-            raise RuntimeError(msg) from e
+        return self._generate(entry_prompts, use_chat=self.use_chat_api)
 
     def process_entry_prompts(self, entry_prompts: list, batch_size: int = 10000) -> list:
         """Generate in batches, then clean up."""
@@ -401,12 +433,4 @@ class VLLMInference:
 
     def clean_up(self) -> None:
         """Release GPU memory occupied by the vLLM engine."""
-        if self.llm is not None:
-            del self.llm
-            self.llm = None
-        if dist.is_initialized():
-            dist.destroy_process_group()
-        gc.collect()
-        if self.device == "cuda":
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
+        self._cleanup_gpu(self.device)
