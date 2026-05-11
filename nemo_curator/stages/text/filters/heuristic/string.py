@@ -118,7 +118,7 @@ class UrlsFilter(DocumentFilter):
             characters before the document is dropped.
         url_regex: Optional URL regex (compiled pattern or string). When
             ``None`` the default project-wide regex is used. Useful when the
-            default is too strict or too permissive for a particular corpus —
+            default is too strict or too permissive for a particular corpus,
             e.g. ``r"https?://[^\\s]+"`` or ``r"https?://[^\\s\\\"'<>]+"``.
     """
 
