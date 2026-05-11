@@ -558,23 +558,22 @@ class TestHeuristicFilters:
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     def test_url_regex_does_not_swallow_html_tags(self) -> None:
-        # Regression for #1601: previously the `[$-_…]` range matched `<`,
-        # `>`, `;`, `:`, etc., so a URL match bled past the URL into the
+        # Regression for #1601. The old `[$-_...]` range silently matched
+        # `<`, `>`, `;`, `"`, etc., so a URL match bled past the URL into
         # surrounding HTML/punctuation.
         assert regex_url.findall("see http://x.com<bad> for details") == ["http://x.com"]
         assert regex_url.findall("click http://example.com;next") == ["http://example.com"]
 
-    def test_url_regex_still_matches_path_separator(self) -> None:
-        # `/` was previously matched only as a side effect of the broken
-        # `[$-_…]` range; it must remain in the character class after the
-        # fix or every URL with a path would be silently truncated.
+    def test_url_regex_matches_path_query_and_hash(self) -> None:
+        # Path `/`, query `?key=val`, and fragment `#section` were
+        # previously matched only as a side effect of the broken range.
         assert regex_url.findall("http://example.com/foo/bar baz") == ["http://example.com/foo/bar"]
+        assert regex_url.findall("https://x.com/path?q=foo#section here") == ["https://x.com/path?q=foo#section"]
 
     def test_url_regex_still_matches_allowed_characters(self) -> None:
-        # The fix must not regress on characters the original character
-        # class intended to allow: letters, digits, `$`, `_`, `@`, `.`,
-        # `&`, `+`, `-`, `!`, `*`, `(`, `)`, `,`, `/`, and percent-encoded
-        # escapes.
+        # Characters the original class intended to allow: letters,
+        # digits, `$`, `_`, `@`, `.`, `&`, `+`, `-`, `!`, `*`, `(`, `)`,
+        # `,`, `/`, and percent-encoded escapes.
         text = "ref https://A.B-C_D+E&f!*(g),h/i%2F end"
 
         assert regex_url.findall(text) == ["https://A.B-C_D+E&f!*(g),h/i%2F"]
