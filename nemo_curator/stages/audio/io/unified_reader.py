@@ -12,22 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unified audio reader using NeMo's lhotse adapters as internal bridge.
+"""Unified audio reader using NeMo's lhotse adapters.
 
-Handles both NeMo tarred (Granary YAML) and non-tarred S3 (corpusview
-YAML) datasets through a single code path using NeMo's
-``LazyNeMoIterator`` and ``LazyNeMoTarredIterator``:
+Handles NeMo ``input_cfg`` YAML configs (``nemo_tarred`` and ``nemo``
+types) through NeMo's ``LazyNeMoIterator`` and
+``LazyNeMoTarredIterator``:
 
-    manifest (local/S3) -> NeMo lhotse adapter -> CutSet -> cut.load_audio() -> AudioTask
+    YAML (input_cfg) -> discovery (shard expansion + checkpointing)
+                     -> NeMo lhotse adapter -> CutSet -> cut.load_audio() -> AudioTask
 
 Decomposes into:
-1. ``UnifiedDiscoveryStage`` — parses YAML, expands shards, checks .done
-2. ``UnifiedReaderStage`` — manifest -> NeMo CutSet -> AudioTask
+1. ``UnifiedDiscoveryStage`` — parses ``input_cfg`` YAML, expands shards, checks .done
+2. ``UnifiedReaderStage`` — manifest -> NeMo CutSet -> AudioTask (format-agnostic)
 """
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from dataclasses import dataclass
@@ -60,23 +60,6 @@ def _expand_nemo_path(pattern: str) -> list[str]:
     return [f"{prefix}{i}{suffix}" for i in range(start, end + 1)]
 
 
-def _read_text(path: str, s3_config: dict[str, Any] | None = None) -> str:
-    """Read text from a local path or S3 path."""
-    if path.startswith("s3://"):
-        from urllib.parse import urlparse
-
-        import boto3
-
-        cfg = s3_config or {}
-        session = boto3.Session(profile_name=cfg.get("profile", "maglev"))
-        client = session.client("s3", endpoint_url=cfg.get("endpoint_url", "https://pdx.s8k.io"))
-        parsed = urlparse(path)
-        resp = client.get_object(Bucket=parsed.netloc, Key=parsed.path.lstrip("/"))
-        return resp["Body"].read().decode("utf-8")
-    with open(path, encoding="utf-8") as f:
-        return f.read()
-
-
 def _manifest_to_shard_key(manifest_path: str, corpus: str) -> str:
     """Derive a shard key from a manifest path starting at the corpus directory.
 
@@ -84,15 +67,6 @@ def _manifest_to_shard_key(manifest_path: str, corpus: str) -> str:
     finds the corpus name (case-insensitive, must appear exactly once) in
     the path components and returns everything from that point onward with
     the file extension stripped.
-
-    Works for both local and S3 paths as long as the YAML ``corpus`` field
-    matches a component in the path.
-
-    Example::
-
-        manifest_path = "s3://audio-riva-originals/manifests_raw/af/manifest_000000.jsonl"
-        corpus = "audio-riva-originals"
-        -> "audio-riva-originals/manifests_raw/af/manifest_000000"
     """
     parts = manifest_path.replace("\\", "/").split("/")
     parts_lower = [p.lower() for p in parts]
@@ -121,66 +95,71 @@ def _manifest_to_shard_key(manifest_path: str, corpus: str) -> str:
     return rel
 
 
+def _s3_to_pipe(s3_path: str) -> str:
+    """Convert ``s3://BUCKET/KEY`` to a ``pipe:curl`` command for AIS.
+
+    Uses ``AIS_ENDPOINT`` and ``AIS_AUTHN_TOKEN`` environment variables.
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(s3_path)
+    bucket, key = parsed.netloc, parsed.path.lstrip("/")
+    endpoint = os.environ.get("AIS_ENDPOINT", "")
+    if not endpoint:
+        msg = "AIS_ENDPOINT env var required for s3:// tar paths"
+        raise RuntimeError(msg)
+    url = f"{endpoint.rstrip('/')}/v1/objects/{bucket}/{key}?provider=s3"
+    token = os.environ.get("AIS_AUTHN_TOKEN", "")
+    if token:
+        return f"pipe:curl -sL -H 'Authorization: Bearer {token}' '{url}'"
+    return f"pipe:curl -sL '{url}'"
+
+
 # ---------------------------------------------------------------------------
-# YAML parsing
+# YAML parsing (input_cfg format only)
 # ---------------------------------------------------------------------------
 
 
-def _parse_granary_yaml(config: list[dict], corpus_filter: list[str] | None) -> list[dict[str, Any]]:
-    """Parse Granary-style YAML (input_cfg with manifest + tar pairs)."""
-    shards = []
-    for group in config:
-        for cfg in group.get("input_cfg", []):
-            corpus = cfg.get("corpus", "unknown")
-            if corpus_filter and corpus not in corpus_filter:
-                continue
-            if cfg.get("type", "nemo_tarred") != "nemo_tarred":
-                continue
-            manifest_paths = _expand_nemo_path(cfg["manifest_filepath"])
-            tar_paths = _expand_nemo_path(cfg["tarred_audio_filepaths"])
-            if len(manifest_paths) != len(tar_paths):
-                msg = f"Manifest/tar count mismatch for {corpus}: {len(manifest_paths)} vs {len(tar_paths)}"
-                raise ValueError(msg)
-            for mp, tp in zip(manifest_paths, tar_paths, strict=False):
-                shards.append({"type": "nemo_tarred", "corpus": corpus, "manifest_path": mp, "tar_path": tp, "language": cfg.get("language", "")})
-    return shards
+def _parse_input_cfg(yaml_path: str, corpus_filter: list[str] | None) -> list[dict[str, Any]]:
+    """Parse a NeMo ``input_cfg`` YAML into shard descriptors.
 
+    Each descriptor has ``manifest_path``, optional ``tar_path``,
+    ``corpus``, and ``language``.
 
-def _parse_corpusview_yaml(
-    config: list[dict], corpus_filter: list[str] | None, site: str,
-) -> list[dict[str, Any]]:
-    """Parse corpusview-style YAML (flat list with paths.{site})."""
-    shards = []
-    for entry in config:
-        corpus = entry.get("corpus", "unknown")
-        if corpus_filter and corpus not in corpus_filter:
-            continue
-        paths = entry.get("paths", {})
-        site_paths = paths.get(site, paths.get("default", {}))
-        manifest_pattern = site_paths.get("manifest_filepath", "") if isinstance(site_paths, dict) else str(site_paths)
-        if not manifest_pattern or manifest_pattern == site:
-            default_ref = paths.get("default", {})
-            resolved_site = default_ref.get("manifest_filepath", site) if isinstance(default_ref, dict) else str(default_ref)
-            actual = paths.get(resolved_site, {})
-            manifest_pattern = actual.get("manifest_filepath", "") if isinstance(actual, dict) else str(actual)
-        if not manifest_pattern:
-            continue
-        for mp in _expand_nemo_path(manifest_pattern):
-            shards.append({"type": entry.get("type", "nemo"), "corpus": corpus, "manifest_path": mp, "language": entry.get("language", "")})
-    return shards
-
-
-def _detect_and_parse_yaml(yaml_text: str, corpus_filter: list[str] | None, site: str) -> list[dict[str, Any]]:
-    """Auto-detect YAML format and parse into shard descriptors."""
+    Only supports the standard NeMo config format with ``input_cfg``
+    entries of type ``nemo_tarred`` or ``nemo``.
+    """
     import yaml
 
-    config = yaml.safe_load(yaml_text)
+    with open(yaml_path, encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
     if not isinstance(config, list) or not config:
         msg = f"Expected a YAML list, got {type(config)}"
         raise ValueError(msg)
-    if "input_cfg" in config[0]:
-        return _parse_granary_yaml(config, corpus_filter)
-    return _parse_corpusview_yaml(config, corpus_filter, site)
+
+    shards: list[dict[str, Any]] = []
+    for group in config:
+        for cfg in group.get("input_cfg", [group]):
+            corpus = cfg.get("corpus", "unknown")
+            if corpus_filter and corpus not in corpus_filter:
+                continue
+
+            language = cfg.get("language", "")
+
+            if "tarred_audio_filepaths" in cfg:
+                manifest_paths = _expand_nemo_path(cfg["manifest_filepath"])
+                tar_paths = _expand_nemo_path(cfg["tarred_audio_filepaths"])
+                if len(manifest_paths) != len(tar_paths):
+                    msg = f"Manifest/tar count mismatch for {corpus}: {len(manifest_paths)} vs {len(tar_paths)}"
+                    raise ValueError(msg)
+                for mp, tp in zip(manifest_paths, tar_paths, strict=False):
+                    shards.append({"corpus": corpus, "manifest_path": mp, "tar_path": tp, "language": language})
+            elif "manifest_filepath" in cfg:
+                for mp in _expand_nemo_path(cfg["manifest_filepath"]):
+                    shards.append({"corpus": corpus, "manifest_path": mp, "language": language})
+
+    return shards
 
 
 # ---------------------------------------------------------------------------
@@ -190,17 +169,16 @@ def _detect_and_parse_yaml(yaml_text: str, corpus_filter: list[str] | None, site
 
 @dataclass
 class UnifiedDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
-    """Parse YAML config and emit one ``FileGroupTask`` per shard.
+    """Parse ``input_cfg`` YAML and emit one ``FileGroupTask`` per shard.
 
-    Auto-detects Granary (tarred) vs corpusview (S3 individual) format.
+    Supports NeMo ``input_cfg`` format with ``nemo_tarred`` and ``nemo``
+    types.  Handles shard expansion and ``.done``-file checkpointing.
     """
 
     name: str = "unified_discovery"
     yaml_path: str = ""
-    site: str = "pdx"
     corpus_filter: list[str] | None = None
     output_dir: str | None = None
-    s3_config: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.yaml_path:
@@ -228,8 +206,7 @@ class UnifiedDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         return completed
 
     def process(self, _task: _EmptyTask) -> list[FileGroupTask]:
-        yaml_text = _read_text(self.yaml_path, self.s3_config)
-        shard_descs = _detect_and_parse_yaml(yaml_text, self.corpus_filter, self.site)
+        shard_descs = _parse_input_cfg(self.yaml_path, self.corpus_filter)
 
         completed = self._scan_completed_shards()
         if completed:
@@ -257,7 +234,7 @@ class UnifiedDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 task_id=shard_key,
                 dataset_name=corpus,
                 data=data,
-                reader_config={"type": desc["type"], "corpus": corpus, "shard_key": shard_key, "language": desc.get("language", "")},
+                reader_config={"corpus": corpus, "shard_key": shard_key, "language": desc.get("language", "")},
             ))
 
         logger.info(f"UnifiedDiscovery: {len(tasks)} shards to process, {skipped} skipped")
@@ -265,23 +242,23 @@ class UnifiedDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
 
 # ---------------------------------------------------------------------------
-# Stage 2: Reader (CutSet bridge)
+# Stage 2: Reader (format-agnostic, converts CutSet -> AudioTask)
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
-    """Read a manifest shard and emit AudioTasks via lhotse CutSet.
+    """Read a manifest shard and emit AudioTasks via NeMo lhotse adapters.
 
-    Uses ``LazyNeMoTarredIterator`` for tarred data (AIS via
-    ``pipe:curl``) and builds a CutSet directly for non-tarred data
-    (S3 individual files via ``AudioSource(type="url")``).  Both
-    produce a lhotse ``CutSet`` iterated to load audio and emit
-    ``AudioTask`` objects.
+    Format-agnostic: uses ``LazyNeMoTarredIterator`` when a tar path
+    is present, ``LazyNeMoIterator`` otherwise.  Both produce a lhotse
+    ``CutSet`` iterated to load audio and emit ``AudioTask`` objects.
+
+    The reader does not parse manifests itself — NeMo's adapters handle
+    all I/O (including lazy line-by-line streaming for large files).
     """
 
     name: str = "unified_reader"
-    s3_config: dict[str, Any] | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -295,61 +272,20 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return {"is_fanout_stage": True}
 
     @staticmethod
-    def _s3_to_pipe(s3_path: str) -> str:
-        """Convert ``s3://BUCKET/KEY`` to a ``pipe:curl`` command for AIS."""
-        from urllib.parse import urlparse
-
-        parsed = urlparse(s3_path)
-        bucket, key = parsed.netloc, parsed.path.lstrip("/")
-        endpoint = os.environ.get("AIS_ENDPOINT", "")
-        if not endpoint:
-            msg = "AIS_ENDPOINT env var required for s3:// tar paths"
-            raise RuntimeError(msg)
-        url = f"{endpoint.rstrip('/')}/v1/objects/{bucket}/{key}?provider=s3"
-        token = os.environ.get("AIS_AUTHN_TOKEN", "")
-        if token:
-            return f"pipe:curl -sL -H 'Authorization: Bearer {token}' '{url}'"
-        return f"pipe:curl -sL '{url}'"
-
-    def _make_cutset(self, manifest_path: str, tar_path: str | None) -> Any:  # noqa: ANN401
+    def _make_cutset(manifest_path: str, tar_path: str | None) -> Any:  # noqa: ANN401
         """Build a lhotse CutSet using NeMo adapters."""
         from lhotse import CutSet
-        from nemo.collections.common.data.lhotse.nemo_adapters import LazyNeMoTarredIterator
+        from nemo.collections.common.data.lhotse.nemo_adapters import LazyNeMoIterator, LazyNeMoTarredIterator
 
         if tar_path:
-            resolved_tar = self._s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
+            resolved_tar = _s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
             return CutSet(LazyNeMoTarredIterator(
                 manifest_path=manifest_path,
                 tar_paths=resolved_tar,
                 skip_missing_manifest_entries=True,
             ))
 
-        # For non-tarred manifests, build CutSet directly since
-        # LazyNeMoIterator can't handle s3:// audio_filepath URLs
-        # (it tries soundfile.info() which fails on remote paths).
-        from lhotse import MonoCut, Recording
-        from lhotse.audio import AudioSource
-
-        text = _read_text(manifest_path, self.s3_config)
-        entries = [json.loads(line) for line in text.splitlines() if line.strip()]
-        cuts = []
-        for i, entry in enumerate(entries):
-            audio_path = entry.get("audio_filepath", "")
-            duration = entry.get("duration", 0.0)
-            sr = entry.get("sampling_rate", entry.get("sample_rate", 16000))
-            sample_id = entry.get("id", str(i))
-
-            source_type = "url" if audio_path.startswith(("s3://", "http://", "https://")) else "file"
-            source = AudioSource(type=source_type, channels=[0], source=audio_path)
-            recording = Recording(
-                id=sample_id, sources=[source], sampling_rate=sr,
-                num_samples=int(duration * sr), duration=duration,
-            )
-            cut = MonoCut(id=sample_id, start=0.0, duration=duration, channel=0, recording=recording)
-            cut.custom = {k: v for k, v in entry.items() if k not in ("audio_filepath", "duration", "sampling_rate")}
-            cuts.append(cut)
-
-        return CutSet.from_cuts(cuts)
+        return CutSet(LazyNeMoIterator(manifest_path))
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         manifest_path = task.data[0]
@@ -361,7 +297,7 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
         cutset = self._make_cutset(manifest_path, tar_path)
 
-        mode = "tarred" if tar_path else "CutSet"
+        mode = "tarred" if tar_path else "non-tarred"
         logger.info(f"Reading shard {shard_key} via NeMo {mode} adapter")
 
         results: list[AudioTask] = []
@@ -384,6 +320,7 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             entry_data["waveform"] = audio.astype(np.float32)
             entry_data["sampling_rate"] = cut.recording.sampling_rate
             entry_data["sample_rate"] = cut.recording.sampling_rate
+            entry_data["duration"] = cut.duration
             entry_data["num_channels"] = 1
             entry_data["corpus"] = corpus
             if language and "source_lang" not in entry_data:
@@ -411,19 +348,17 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
 @dataclass
 class UnifiedAudioReader(CompositeStage[_EmptyTask, AudioTask]):
-    """Unified reader for NeMo audio datasets from local or S3.
+    """Unified reader for NeMo audio datasets.
 
-    Auto-detects YAML format and data type.  Uses NeMo's lhotse
+    Reads NeMo ``input_cfg`` YAML configs and uses NeMo's lhotse
     adapters (``LazyNeMoIterator`` / ``LazyNeMoTarredIterator``)
-    internally for audio loading.
+    for audio loading.
     """
 
     name: str = "unified_audio_reader"
     yaml_path: str = ""
-    site: str = "pdx"
     corpus_filter: list[str] | None = None
     output_dir: str | None = None
-    s3_config: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -432,13 +367,11 @@ class UnifiedAudioReader(CompositeStage[_EmptyTask, AudioTask]):
             raise ValueError(msg)
         self._stages: list[ProcessingStage] = [
             UnifiedDiscoveryStage(
-                yaml_path=self.yaml_path, site=self.site,
-                corpus_filter=self.corpus_filter, output_dir=self.output_dir,
-                s3_config=self.s3_config,
+                yaml_path=self.yaml_path,
+                corpus_filter=self.corpus_filter,
+                output_dir=self.output_dir,
             ),
-            UnifiedReaderStage(
-                s3_config=self.s3_config,
-            ),
+            UnifiedReaderStage(),
         ]
 
     def inputs(self) -> tuple[list[str], list[str]]:
