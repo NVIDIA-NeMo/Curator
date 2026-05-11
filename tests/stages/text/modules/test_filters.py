@@ -564,13 +564,20 @@ class TestHeuristicFilters:
         assert regex_url.findall("see http://x.com<bad> for details") == ["http://x.com"]
         assert regex_url.findall("click http://example.com;next") == ["http://example.com"]
 
+    def test_url_regex_still_matches_path_separator(self) -> None:
+        # `/` was previously matched only as a side effect of the broken
+        # `[$-_…]` range; it must remain in the character class after the
+        # fix or every URL with a path would be silently truncated.
+        assert regex_url.findall("http://example.com/foo/bar baz") == ["http://example.com/foo/bar"]
+
     def test_url_regex_still_matches_allowed_characters(self) -> None:
         # The fix must not regress on characters the original character
         # class intended to allow: letters, digits, `$`, `_`, `@`, `.`,
-        # `&`, `+`, `-`, `!`, `*`, `(`, `)`, `,`, and percent-encoded escapes.
-        text = "ref https://A.B-C_D+E&f!*(g),h%2F end"
+        # `&`, `+`, `-`, `!`, `*`, `(`, `)`, `,`, `/`, and percent-encoded
+        # escapes.
+        text = "ref https://A.B-C_D+E&f!*(g),h/i%2F end"
 
-        assert regex_url.findall(text) == ["https://A.B-C_D+E&f!*(g),h%2F"]
+        assert regex_url.findall(text) == ["https://A.B-C_D+E&f!*(g),h/i%2F"]
 
     def test_urls_filter_accepts_custom_regex(self) -> None:
         # Per the discussion on #1601, the URL regex should be
