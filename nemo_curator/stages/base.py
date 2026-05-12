@@ -162,26 +162,31 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         """Process a task and return the result.
         Args:
             task (X): Input task to process
-        Returns (Y | list[Y]):
+        Returns (Y | list[Y] | None | TransientDrop):
             - Single task: For 1-to-1 transformations
             - List of tasks: For 1-to-many transformations (e.g., readers)
-            - None: If the task should be filtered out
+            - ``None``: Permanently filter the task out (marked complete in
+              the checkpoint; resume will NOT retry).
+            - ``TransientDrop``: Drop the task from this run but do NOT
+              mark it complete; resume will retry. Use for transient
+              external failures (server timeout, rate limit, etc.).
         """
 
     def process_batch(self, tasks: list[X]) -> list[Y]:
-        """Process a batch of tasks and return results.
-        Override this method to enable batch processing for your stage.
-        If not overridden, the stage will only support single-task processing.
+        """Process a batch of tasks and return a flat result list.
+
+        This is the legacy entry point. The default implementation calls
+        ``process()`` per input and drops ``None`` returns. Stages that
+        override it lose per-input lineage (which input produced which
+        output), which is incompatible with resumability when the stage
+        also drops or fans out. For checkpointed pipelines, prefer
+        ``process_batch_grouped``.
+
         Args:
             tasks (list[X]): List of input tasks to process
         Returns (list[Y]):
-            List of results, where each result can be:
-            - Single task: For 1-to-1 transformations
-            - List of tasks: For 1-to-many transformations
-            - None: If the task should be filtered out
-        Note: The returned list should have the same length as the input list,
-        with each element corresponding to the result of processing the task
-        at the same index.
+            Flat list of output tasks; may be shorter than the input (drops)
+            or longer (fan-out).
         """
         # Default implementation: process tasks one by one
         # This is only used as a fallback if a stage doesn't override this method
@@ -197,6 +202,100 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             elif result is not None:
                 results.append(result)
         return results
+
+    def process_batch_grouped(self, tasks: list[X]) -> list[list[Y]]:
+        """Resumability-friendly variant of ``process_batch``: per-input output groups.
+
+        The returned list has one inner list per input task (same index):
+            - ``[]``        -> the input was dropped
+            - ``[t]``       -> 1:1 transformation
+            - ``[t0, t1]``  -> fan-out
+
+        Adapter behaviour: when ``checkpoint_path`` is set on the pipeline,
+        the stage adapter calls this method instead of ``process_batch`` so
+        it can attribute every output to the correct parent for
+        ``resumability_task_key`` propagation and per-parent completion
+        accounting. Stages that drop or fan out **should** override this
+        method to support resumability cleanly — see the fallback path
+        below for what happens when only flat ``process_batch`` is
+        overridden.
+
+        Default behaviour:
+            - If the stage overrides flat ``process_batch`` (legacy
+              pattern), call it and attribute outputs back to inputs by
+              ``Task._uuid``. This works for pass-through-style stages
+              that mutate tasks in place — the common case. If some
+              outputs have UUIDs not present in the input set (e.g. the
+              stage constructs new ``Task`` objects via fan-out from
+              flat ``process_batch``), we fall back to positional
+              auto-wrap when ``len(output) == len(input)``; otherwise
+              we raise with a clear pointer to override
+              ``process_batch_grouped``.
+            - Otherwise (only ``process`` is overridden), iterate per
+              input. Each ``process()`` return becomes one group:
+              ``[]`` for ``None``, ``[t]`` for a single Task,
+              ``r`` for a list result.
+        """
+        cls = type(self)
+        flat_overridden = cls.process_batch is not ProcessingStage.process_batch
+        grouped_overridden = cls.process_batch_grouped is not ProcessingStage.process_batch_grouped
+
+        if flat_overridden and not grouped_overridden:
+            return self._group_flat_outputs(tasks, self.process_batch(tasks))
+
+        # Default: iterate per input. Preserves alignment.
+        from nemo_curator.tasks import TransientDrop
+
+        output_groups: list[list[Y]] = []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task!s} failed validation for stage {self}"
+                raise ValueError(msg)
+            result = self.process(task)
+            if result is None:
+                output_groups.append([])
+            elif isinstance(result, TransientDrop):
+                # Keep the sentinel in the group; the adapter inspects it
+                # for accounting and strips it from the downstream stream.
+                output_groups.append([result])
+            elif isinstance(result, list):
+                output_groups.append(result)
+            else:
+                output_groups.append([result])
+        return output_groups
+
+    def _group_flat_outputs(self, tasks: list[X], outputs: list[Y]) -> list[list[Y]]:
+        """Attribute a flat ``process_batch`` result back to its parent inputs.
+
+        Strategy: match outputs to inputs by ``Task._uuid``. This works for
+        pass-through-style stages that mutate the same task objects.
+        Falls back to positional auto-wrap when the shape is 1:1 and some
+        outputs are freshly constructed; raises with a migration hint when
+        the shape is non-1:1 and outputs aren't traceable.
+        """
+        input_uuid_to_idx = {t._uuid: i for i, t in enumerate(tasks)}
+        groups: list[list[Y]] = [[] for _ in tasks]
+        unattributable: list[Y] = []
+        for out in outputs:
+            idx = input_uuid_to_idx.get(out._uuid)
+            if idx is None:
+                unattributable.append(out)
+            else:
+                groups[idx].append(out)
+
+        if not unattributable:
+            return groups
+        if len(outputs) == len(tasks):
+            return [[o] for o in outputs]
+        msg = (
+            f"Stage {self.name!r} overrides process_batch (flat) and produced "
+            f"a non-1:1 result ({len(tasks)} inputs -> {len(outputs)} outputs) "
+            f"where some outputs aren't traceable to their input parents by "
+            f"Task._uuid. Override process_batch_grouped instead so the "
+            f"framework can attribute each output to its parent input for "
+            f"checkpoint accounting."
+        )
+        raise RuntimeError(msg)
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup method called once per node in distributed settings.

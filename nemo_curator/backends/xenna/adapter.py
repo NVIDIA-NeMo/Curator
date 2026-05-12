@@ -98,11 +98,10 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
         Returns:
             List of processed tasks or None
         """
-        results = self.process_batch(tasks)
-        if not self._is_last_user_stage:
-            self._propagate_resumability_metadata(tasks, results)
-        self._record_checkpoint_events(tasks, results)
-        return results
+        # Metadata propagation and checkpoint accounting now live inside
+        # BaseStageAdapter.process_batch (gated on the checkpoint actor),
+        # so callers don't need to invoke them.
+        return self.process_batch(tasks)
 
     def setup_on_node(self, node_info: XennaNodeInfo, worker_metadata: XennaWorkerMetadata) -> None:
         """Setup the stage on a node - Xenna-specific signature.

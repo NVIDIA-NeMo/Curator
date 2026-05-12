@@ -64,11 +64,10 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dictionary with arrays/lists representing processed Task objects
         """
-        tasks = batch["item"]
-        results = self.process_batch(tasks)
-        if not self._is_last_user_stage:
-            self._propagate_resumability_metadata(tasks, results)
-        self._record_checkpoint_events(tasks, results)
+        # ``batch["item"]`` is a numpy array of Task objects from Ray Data;
+        # the adapter's process_batch normalises it to a list internally so
+        # downstream truthiness checks work, but we forward unchanged here.
+        results = self.process_batch(batch["item"])
         return {"item": results}
 
     def process_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
