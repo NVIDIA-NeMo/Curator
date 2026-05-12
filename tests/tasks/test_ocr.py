@@ -16,48 +16,48 @@
 
 from pathlib import Path
 
-from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
+from nemo_curator.tasks.ocr import OCRData, OCRDenseItem
 
 # ---------------------------------------------------------------------------
-# OCRDenseWord.__post_init__
+# OCRDenseItem.__post_init__
 # ---------------------------------------------------------------------------
 
 
-class TestOCRDenseWordPostInit:
+class TestOCRDenseItemPostInit:
     def test_tuple_bbox_converted_to_list(self) -> None:
-        word = OCRDenseWord(bbox_2d=(10, 20, 100, 50), text_content="hi")
+        word = OCRDenseItem(bbox_2d=(10, 20, 100, 50), text_content="hi")
         assert isinstance(word.bbox_2d, list)
         assert word.bbox_2d == [10, 20, 100, 50]
 
     def test_list_bbox_unchanged(self) -> None:
-        word = OCRDenseWord(bbox_2d=[1, 2, 3, 4], text_content="x")
+        word = OCRDenseItem(bbox_2d=[1, 2, 3, 4], text_content="x")
         assert word.bbox_2d == [1, 2, 3, 4]
 
 
 # ---------------------------------------------------------------------------
-# OCRDenseWord.from_dict
+# OCRDenseItem.from_dict
 # ---------------------------------------------------------------------------
 
 
-class TestOCRDenseWordFromDict:
+class TestOCRDenseItemFromDict:
     def test_basic_round_trip(self) -> None:
-        word = OCRDenseWord.from_dict({"bbox_2d": [10, 20, 100, 50], "text_content": "HELLO"})
+        word = OCRDenseItem.from_dict({"bbox_2d": [10, 20, 100, 50], "text_content": "HELLO"})
         assert word.bbox_2d == [10, 20, 100, 50]
         assert word.text_content == "HELLO"
 
     def test_missing_bbox_defaults_to_zero(self) -> None:
-        word = OCRDenseWord.from_dict({"text_content": "x"})
+        word = OCRDenseItem.from_dict({"text_content": "x"})
         assert word.bbox_2d == [0, 0, 0, 0]
 
     def test_optional_fields_default_to_none(self) -> None:
-        word = OCRDenseWord.from_dict({"bbox_2d": [0, 0, 0, 0], "text_content": "x"})
+        word = OCRDenseItem.from_dict({"bbox_2d": [0, 0, 0, 0], "text_content": "x"})
         assert word.quad is None
         assert word.valid is True
         assert word.bbox_match is None
         assert word.text_errors is None
 
     def test_optional_fields_set(self) -> None:
-        word = OCRDenseWord.from_dict(
+        word = OCRDenseItem.from_dict(
             {
                 "bbox_2d": [0, 0, 0, 0],
                 "text_content": "x",
@@ -71,52 +71,52 @@ class TestOCRDenseWordFromDict:
         assert word.text_errors == 2
 
     def test_none_text_content_becomes_empty_string(self) -> None:
-        word = OCRDenseWord.from_dict({"bbox_2d": [0, 0, 0, 0], "text_content": None})
+        word = OCRDenseItem.from_dict({"bbox_2d": [0, 0, 0, 0], "text_content": None})
         assert word.text_content == ""
 
 
 # ---------------------------------------------------------------------------
-# OCRDenseWord.join
+# OCRDenseItem.join
 # ---------------------------------------------------------------------------
 
 
-class TestOCRDenseWordJoin:
+class TestOCRDenseItemJoin:
     def test_empty_iterator_returns_invalid_word(self) -> None:
-        result = OCRDenseWord.join([])
+        result = OCRDenseItem.join([])
         assert result.valid is False
         assert result.bbox_2d == [0, 0, 0, 0]
         assert result.text_content == ""
 
     def test_single_word_preserved(self) -> None:
-        w = OCRDenseWord(bbox_2d=[10, 20, 100, 50], text_content="HELLO")
-        result = OCRDenseWord.join([w])
+        w = OCRDenseItem(bbox_2d=[10, 20, 100, 50], text_content="HELLO")
+        result = OCRDenseItem.join([w])
         assert result.text_content == "HELLO"
         assert result.bbox_2d == [10, 20, 100, 50]
         assert result.valid is True
 
     def test_bbox_is_union_of_all(self) -> None:
-        w1 = OCRDenseWord(bbox_2d=[10, 20, 50, 40], text_content="A")
-        w2 = OCRDenseWord(bbox_2d=[60, 5, 120, 80], text_content="B")
-        result = OCRDenseWord.join([w1, w2])
+        w1 = OCRDenseItem(bbox_2d=[10, 20, 50, 40], text_content="A")
+        w2 = OCRDenseItem(bbox_2d=[60, 5, 120, 80], text_content="B")
+        result = OCRDenseItem.join([w1, w2])
         assert result.bbox_2d == [10, 5, 120, 80]
 
     def test_text_joined_with_space_by_default(self) -> None:
-        words = [OCRDenseWord(bbox_2d=[0, 0, 1, 1], text_content=t) for t in ["HELLO", "WORLD"]]
-        result = OCRDenseWord.join(words)
+        words = [OCRDenseItem(bbox_2d=[0, 0, 1, 1], text_content=t) for t in ["HELLO", "WORLD"]]
+        result = OCRDenseItem.join(words)
         assert result.text_content == "HELLO WORLD"
 
     def test_custom_separator(self) -> None:
-        words = [OCRDenseWord(bbox_2d=[0, 0, 1, 1], text_content=t) for t in ["A", "B", "C"]]
-        result = OCRDenseWord.join(words, separator="|")
+        words = [OCRDenseItem(bbox_2d=[0, 0, 1, 1], text_content=t) for t in ["A", "B", "C"]]
+        result = OCRDenseItem.join(words, separator="|")
         assert result.text_content == "A|B|C"
 
     def test_three_words_bbox_covers_all(self) -> None:
         words = [
-            OCRDenseWord(bbox_2d=[100, 200, 150, 250], text_content="X"),
-            OCRDenseWord(bbox_2d=[50, 300, 80, 400], text_content="Y"),
-            OCRDenseWord(bbox_2d=[200, 100, 300, 500], text_content="Z"),
+            OCRDenseItem(bbox_2d=[100, 200, 150, 250], text_content="X"),
+            OCRDenseItem(bbox_2d=[50, 300, 80, 400], text_content="Y"),
+            OCRDenseItem(bbox_2d=[200, 100, 300, 500], text_content="Z"),
         ]
-        result = OCRDenseWord.join(words)
+        result = OCRDenseItem.join(words)
         assert result.bbox_2d == [50, 100, 300, 500]
         assert result.text_content == "X Y Z"
 
@@ -160,9 +160,9 @@ class TestOCRDataFromDict:
         assert data.ocr_is_word_level is False
 
     def test_optional_scoring_fields(self) -> None:
-        d = {**self._base(), "ocr_scoring_model": "gemini", "ocr_scoring_mode": "word"}
+        d = {**self._base(), "ocr_scoring_model": "nemotron-nano-omni", "ocr_scoring_mode": "word"}
         data = OCRData.from_dict(d)
-        assert data.ocr_scoring_model == "gemini"
+        assert data.ocr_scoring_model == "nemotron-nano-omni"
         assert data.ocr_scoring_mode == "word"
 
     def test_error_field(self) -> None:

@@ -27,10 +27,10 @@ from PIL import Image
 
 from nemo_curator.stages.synthetic.omni.ocr_nemotron_v2 import (
     OCRNemotronV2Stage,
-    _to_ocr_dense_word,
+    _to_ocr_dense_item,
 )
 from nemo_curator.tasks.image import SingleDataTask
-from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
+from nemo_curator.tasks.ocr import OCRData, OCRDenseItem
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -62,22 +62,22 @@ def _mock_stage(model_dir: str = "/fake/model") -> OCRNemotronV2Stage:
 
 
 # ---------------------------------------------------------------------------
-# _to_ocr_dense_word
+# _to_ocr_dense_item
 # ---------------------------------------------------------------------------
 
 
 class TestToOcrDenseWord:
     def test_normal_prediction(self):
         pred = {"left": 0.1, "right": 0.5, "upper": 0.2, "lower": 0.4, "text": "HELLO"}
-        word = _to_ocr_dense_word(pred)
-        assert isinstance(word, OCRDenseWord)
+        word = _to_ocr_dense_item(pred)
+        assert isinstance(word, OCRDenseItem)
         assert word.text_content == "HELLO"
         assert word.bbox_2d == [100, 200, 500, 400]
 
     def test_inverted_upper_lower_sorted(self):
         # NemotronOCR-v2: "upper" may be > "lower" (inverted naming)
         pred = {"left": 0.0, "right": 1.0, "upper": 0.8, "lower": 0.2, "text": "WORD"}
-        word = _to_ocr_dense_word(pred)
+        word = _to_ocr_dense_item(pred)
         _x1, y1, _x2, y2 = word.bbox_2d
         assert y1 <= y2, "y1 must be <= y2 after sorting"
         assert y1 == 200  # min(0.8*1000, 0.2*1000) = 200
@@ -85,17 +85,17 @@ class TestToOcrDenseWord:
 
     def test_coordinates_scaled_to_0_1000(self):
         pred = {"left": 0.0, "right": 1.0, "upper": 0.0, "lower": 1.0, "text": "X"}
-        word = _to_ocr_dense_word(pred)
+        word = _to_ocr_dense_item(pred)
         assert word.bbox_2d == [0, 0, 1000, 1000]
 
     def test_empty_text(self):
         pred = {"left": 0.0, "right": 0.5, "upper": 0.0, "lower": 0.5, "text": ""}
-        word = _to_ocr_dense_word(pred)
+        word = _to_ocr_dense_item(pred)
         assert word.text_content == ""
 
     def test_word_is_valid_by_default(self):
         pred = {"left": 0.1, "right": 0.5, "upper": 0.1, "lower": 0.5, "text": "HI"}
-        word = _to_ocr_dense_word(pred)
+        word = _to_ocr_dense_item(pred)
         assert word.valid is True
 
 

@@ -2,12 +2,12 @@
 
 Reads images from a HuggingFace dataset (Hub or local), runs NemotronOCR-v2
 word-level OCR on every image, and optionally generates multi-turn QA
-conversations via Gemini bbox scoring.
+conversations via Nemotron-Nano-Omni bbox scoring.
 
 Stages:
   1. hf_dataset_image_reader   Extract images from HF dataset to local dir
   2. ocr_nemotron_v2           NemotronOCR-v2 word-level OCR
-  3. ocr_scoring_qa            Gemini bbox scoring + QA generation (optional)
+  3. ocr_scoring_qa            Nemotron-Nano-Omni bbox scoring + QA generation (optional)
   4. result_writer             Write output JSONL
 """
 
@@ -51,11 +51,11 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
     num_workers: int | None = None,
     nemotron_model_dir: Path | None = None,
     run_scoring_qa: bool = False,
-    scoring_qa_model_id: str = "gcp/google/gemini-3-flash-preview",
-    scoring_qa_min_bbox_match: int = 7,
+    scoring_qa_model_id: str = "nvidia/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    scoring_qa_min_bbox_match: int = 5,
     scoring_qa_max_text_errors: int = 0,
     scoring_qa_fail_on_missing_text: bool = False,
-    scoring_qa_dense_dump_prob: float = 0.10,
+    scoring_qa_dense_dump_prob: float = 0.05,
 ) -> Pipeline:
     """Create the OCR pipeline reading images from a HuggingFace dataset.
 
@@ -83,12 +83,12 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
         num_workers: Xenna worker count override for model stages.
         nemotron_model_dir: NemotronOCR-v2 model directory; downloads from HF
             Hub (``nvidia/nemotron-ocr-v2``) if None.
-        run_scoring_qa: Run Gemini bbox scoring + QA generation after OCR.
+        run_scoring_qa: Run Nemotron-Nano-Omni bbox scoring + QA generation after OCR.
         scoring_qa_model_id: NVIDIA Inference API model ID.
         scoring_qa_min_bbox_match: Minimum bbox_match (0-10) to keep a bbox.
         scoring_qa_max_text_errors: Maximum text_errors count to keep a bbox.
-        scoring_qa_fail_on_missing_text: Mark image invalid when Gemini reports
-            missing text regions.
+        scoring_qa_fail_on_missing_text: Mark image invalid when the verifier
+            reports missing text regions.
         scoring_qa_dense_dump_prob: Probability of dense-dump vs multi-turn QA.
 
     Returns:
@@ -150,7 +150,7 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="OCR pipeline for HuggingFace datasets (NemotronOCR-v2 + optional Gemini QA)",
+        description="OCR pipeline for HuggingFace datasets (NemotronOCR-v2 + optional Nemotron-Nano-Omni QA)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -243,18 +243,21 @@ def parse_args() -> argparse.Namespace:
         "--run-scoring-qa",
         action="store_true",
         default=False,
-        help=("Run Gemini bbox scoring + QA generation after OCR. Requires NVINFERENCE_API_KEY to be set."),
+        help=(
+            "Run verifier bbox scoring + QA generation after OCR. "
+            "Requires NVINFERENCE_API_KEY to be set."
+        ),
     )
     parser.add_argument(
         "--scoring-qa-model-id",
         type=str,
-        default="gcp/google/gemini-3-flash-preview",
+        default="nvidia/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         help="NVIDIA Inference API model ID for scoring QA",
     )
     parser.add_argument(
         "--scoring-qa-min-bbox-match",
         type=int,
-        default=7,
+        default=5,
         help="Minimum bbox_match score (0-10) to keep a bbox",
     )
     parser.add_argument(
@@ -267,12 +270,12 @@ def parse_args() -> argparse.Namespace:
         "--scoring-qa-fail-on-missing-text",
         action="store_true",
         default=False,
-        help="Mark image invalid when Gemini reports missing text regions",
+        help="Mark image invalid when the verifier reports missing text regions",
     )
     parser.add_argument(
         "--scoring-qa-dense-dump-prob",
         type=float,
-        default=0.10,
+        default=0.05,
         help="Probability of dense-dump conversation for complete-OCR images",
     )
 

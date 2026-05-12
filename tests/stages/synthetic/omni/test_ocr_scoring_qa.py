@@ -25,7 +25,7 @@ from nemo_curator.stages.synthetic.omni.ocr_scoring_qa import (
     _parse_json_object,
 )
 from nemo_curator.tasks.image import SingleDataTask
-from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
+from nemo_curator.tasks.ocr import OCRData, OCRDenseItem
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,12 +37,12 @@ def _make_word(
     text: str,
     *,
     valid: bool = True,
-) -> OCRDenseWord:
-    return OCRDenseWord(bbox_2d=bbox, text_content=text, valid=valid)
+) -> OCRDenseItem:
+    return OCRDenseItem(bbox_2d=bbox, text_content=text, valid=valid)
 
 
 def _make_task(
-    words: list[OCRDenseWord] | None = None,
+    words: list[OCRDenseItem] | None = None,
     *,
     task_id: str = "t0",
     image_path: Path | None = None,
@@ -60,15 +60,15 @@ def _make_task(
 
 
 def _make_stage(**kwargs) -> OCRScoringQAStage:
-    """Build a stage with the Gemini model mocked out (no network calls)."""
+    """Build a stage with the verifier model mocked out (no network calls)."""
     with patch(
-        "nemo_curator.stages.synthetic.omni.ocr_scoring_qa.Gemini3Pro",
+        "nemo_curator.stages.synthetic.omni.ocr_scoring_qa.NemotronNanoOmni",
         return_value=MagicMock(),
     ):
         return OCRScoringQAStage(**kwargs)
 
 
-def _gemini_response(
+def _verifier_response(
     *,
     ocr_mode: str = "word",
     items: list[dict] | None = None,
@@ -202,7 +202,7 @@ class TestHandleResponse:
         stage = _make_stage()
         words = [_make_word([0, 0, 100, 50], "HELLO")]
         task = _make_task(words=words)
-        response = _gemini_response(
+        response = _verifier_response(
             items=[{"idx": 0, "bbox_match": 9, "text_errors": 0, "is_word": True, "is_line": False}]
         )
         result = stage.handle_response(task, response)
@@ -215,7 +215,7 @@ class TestHandleResponse:
         stage = _make_stage(min_bbox_match=7)
         words = [_make_word([0, 0, 100, 50], "HELLO")]
         task = _make_task(words=words)
-        response = _gemini_response(
+        response = _verifier_response(
             items=[{"idx": 0, "bbox_match": 5, "text_errors": 0, "is_word": True, "is_line": False}]
         )
         result = stage.handle_response(task, response)
@@ -225,7 +225,7 @@ class TestHandleResponse:
         stage = _make_stage(max_text_errors=0)
         words = [_make_word([0, 0, 100, 50], "HELLO")]
         task = _make_task(words=words)
-        response = _gemini_response(
+        response = _verifier_response(
             items=[{"idx": 0, "bbox_match": 10, "text_errors": 1, "is_word": True, "is_line": False}]
         )
         result = stage.handle_response(task, response)
@@ -235,7 +235,7 @@ class TestHandleResponse:
         stage = _make_stage(min_bbox_match=7)
         words = [_make_word([0, 0, 100, 50], "HELLO")]
         task = _make_task(words=words)
-        response = _gemini_response(
+        response = _verifier_response(
             items=[{"idx": 0, "bbox_match": 3, "text_errors": 0, "is_word": True, "is_line": False}]
         )
         result = stage.handle_response(task, response)
@@ -247,7 +247,7 @@ class TestHandleResponse:
         words = [_make_word([0, 0, 100, 50], "HELLO")]
         task = _make_task(words=words)
         # Response with no matching idx entry
-        response = _gemini_response(items=[])
+        response = _verifier_response(items=[])
         result = stage.handle_response(task, response)
         assert result.data.ocr_dense[0].valid is False
 
@@ -255,7 +255,7 @@ class TestHandleResponse:
         stage = _make_stage(fail_on_missing_text=True)
         words = [_make_word([0, 0, 100, 50], "HELLO")]
         task = _make_task(words=words)
-        response = _gemini_response(
+        response = _verifier_response(
             items=[{"idx": 0, "bbox_match": 10, "text_errors": 0, "is_word": True, "is_line": False}],
             missing_text=[{"text": "MISSING", "bbox_2d": [10, 10, 50, 50]}],
         )
@@ -267,7 +267,7 @@ class TestHandleResponse:
         stage = _make_stage(fail_on_missing_text=False, dense_dump_prob=0.0)
         words = [_make_word([0, 0, 100, 50], "HELLO")]
         task = _make_task(words=words)
-        response = _gemini_response(
+        response = _verifier_response(
             items=[{"idx": 0, "bbox_match": 10, "text_errors": 0, "is_word": True, "is_line": False}],
             missing_text=[{"text": "MISSING", "bbox_2d": [10, 10, 50, 50]}],
         )
@@ -280,7 +280,7 @@ class TestHandleResponse:
         stage = _make_stage()
         words = [_make_word([0, 0, 100, 50], "HELLO")]
         task = _make_task(words=words)
-        response = _gemini_response(
+        response = _verifier_response(
             ocr_mode="word",
             items=[{"idx": 0, "bbox_match": 10, "text_errors": 0, "is_word": True, "is_line": False}],
         )
@@ -291,7 +291,7 @@ class TestHandleResponse:
         stage = _make_stage()
         words = [_make_word([0, 0, 100, 50], "HELLO WORLD")]
         task = _make_task(words=words)
-        response = _gemini_response(
+        response = _verifier_response(
             ocr_mode="line",
             items=[{"idx": 0, "bbox_match": 10, "text_errors": 0, "is_word": False, "is_line": True}],
         )
@@ -303,7 +303,7 @@ class TestHandleResponse:
         stage = _make_stage(dense_dump_prob=1.0)
         words = [_make_word([0, 0, 100, 50], "HELLO")]
         task = _make_task(words=words)
-        response = _gemini_response(
+        response = _verifier_response(
             items=[{"idx": 0, "bbox_match": 10, "text_errors": 0, "is_word": True, "is_line": False}],
             missing_text=[],
         )
@@ -319,7 +319,7 @@ class TestHandleResponse:
         words = [_make_word([i * 100, 0, (i + 1) * 100, 50], f"WORD{i}") for i in range(5)]
         task = _make_task(words=words)
         items = [{"idx": i, "bbox_match": 10, "text_errors": 0, "is_word": True, "is_line": False} for i in range(5)]
-        response = _gemini_response(items=items, missing_text=[])
+        response = _verifier_response(items=items, missing_text=[])
         result = stage.handle_response(task, response)
         assert result.data.conversation is not None
         # Multi-turn QA should have more than 2 messages (> 1 pair)
@@ -329,7 +329,7 @@ class TestHandleResponse:
         stage = _make_stage()
         words = [_make_word([0, 0, 100, 50], "HELLO")]
         task = _make_task(words=words)
-        response = _gemini_response(
+        response = _verifier_response(
             items=[{"idx": 0, "bbox_match": 10, "text_errors": 0, "is_word": True, "is_line": False}]
         )
         result = stage.handle_response(task, response)
