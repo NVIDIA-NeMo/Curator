@@ -22,6 +22,9 @@ include = [
     "nemo_curator.*",
 ]
 
+[tool.setuptools.package-data]
+"nemo_curator.stages.text.experimental.translation" = ["prompts/*.yaml"]
+
 [tool.setuptools.dynamic]
 version = { attr = "nemo_curator.package_info.__version__" }
 
