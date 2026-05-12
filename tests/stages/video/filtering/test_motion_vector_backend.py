@@ -13,12 +13,15 @@
 # limitations under the License.
 
 import io
+import types
 from unittest.mock import Mock, patch
 
+import av
 import numpy as np
 import pytest
 import torch
 
+from nemo_curator.stages.video.filtering import motion_vector_backend
 from nemo_curator.stages.video.filtering.motion_vector_backend import (
     DecodedData,
     MotionInfo,
@@ -363,6 +366,27 @@ class TestDecodeForMotion:
 
             assert isinstance(result, DecodedData)
             assert result.frame_size == torch.Size([480, 640, 3])
+
+
+class TestResolveExportMvsFlag:
+    """Pin PyAV API-drift compat for the EXPORT_MVS bitflag.
+
+    PyAV <=13 exposed it as ``Flags2.EXPORT_MVS``; PyAV >=15 renamed it to the
+    lowercase ``Flags2.export_mvs``. A future rename would silently produce
+    zero motion vectors at runtime; these tests catch it as a unit-test failure.
+    """
+
+    def test_prefers_lowercase_export_mvs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # PyAV >=15 path: only the lowercase name exists.
+        fake_flags2 = types.SimpleNamespace(export_mvs=42)
+        monkeypatch.setattr(av.codec.context, "Flags2", fake_flags2)
+        assert motion_vector_backend._resolve_export_mvs_flag() == 42
+
+    def test_falls_back_to_uppercase_export_mvs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # PyAV <=13 path: only the uppercase name exists.
+        fake_flags2 = types.SimpleNamespace(EXPORT_MVS=84)
+        monkeypatch.setattr(av.codec.context, "Flags2", fake_flags2)
+        assert motion_vector_backend._resolve_export_mvs_flag() == 84
 
 
 class TestCheckIfSmallMotion:

@@ -28,6 +28,21 @@ from torch import Tensor
 _MIN_SIDE_RESOLUTION = 256
 
 
+def _resolve_export_mvs_flag() -> int:
+    """Return the EXPORT_MVS bitflag, accepting either the PyAV >=15 lowercase
+    name (``export_mvs``) or the PyAV <=13 uppercase name (``EXPORT_MVS``).
+
+    The enum member was renamed between PyAV 13 and 15. Tests for both branches
+    pin this contract so a future PyAV bump that renames it again surfaces as
+    a failed unit test rather than silently zero motion vectors at runtime.
+    """
+    flags2 = av.codec.context.Flags2
+    flag = getattr(flags2, "export_mvs", None)
+    if flag is None:
+        flag = flags2.EXPORT_MVS  # type: ignore[attr-defined]
+    return flag
+
+
 class VideoResolutionTooSmallError(Exception):
     """Exception raised when video resolution is below the minimum required size.
 
@@ -161,7 +176,7 @@ def motion_vectors_to_flowfield(mvs: Tensor, size: list[int], flow: Tensor | Non
     return flow
 
 
-def decode_for_motion(  # noqa: C901, PLR0912
+def decode_for_motion(  # noqa: C901
     video: io.BytesIO,
     thread_count: int = 4,
     target_fps: float = 2.0,
@@ -184,13 +199,8 @@ def decode_for_motion(  # noqa: C901, PLR0912
     with cast("av.container.InputContainer", av.open(video, metadata_errors="ignore")) as input_container:
         stream = input_container.streams.video[0]
         ctx = stream.codec_context
-        # Set this flag to return motion vectors. PyAV renamed the enum member
-        # from EXPORT_MVS (PyAV <=13) to export_mvs (PyAV >=15); accept either.
-        _flags2 = av.codec.context.Flags2
-        export_mvs_flag = getattr(_flags2, "export_mvs", None)
-        if export_mvs_flag is None:
-            export_mvs_flag = _flags2.EXPORT_MVS  # type: ignore[attr-defined]
-        ctx.flags2 |= export_mvs_flag
+        # Request motion-vector side data from the decoder.
+        ctx.flags2 |= _resolve_export_mvs_flag()
         ctx.thread_type = av.codec.context.ThreadType.AUTO
         ctx.thread_count = thread_count
         mv_data = []
