@@ -184,8 +184,12 @@ def decode_for_motion(  # noqa: C901
     with cast("av.container.InputContainer", av.open(video, metadata_errors="ignore")) as input_container:
         stream = input_container.streams.video[0]
         ctx = stream.codec_context
-        # Set this flag to return motion vectors
-        ctx.flags2 |= av.codec.context.Flags2.EXPORT_MVS
+        # Set this flag to return motion vectors. PyAV renamed the enum member
+        # from EXPORT_MVS (PyAV <=13) to export_mvs (PyAV >=15); accept either.
+        export_mvs_flag = getattr(
+            av.codec.context.Flags2, "export_mvs", None
+        ) or getattr(av.codec.context.Flags2, "EXPORT_MVS")
+        ctx.flags2 |= export_mvs_flag
         ctx.thread_type = av.codec.context.ThreadType.AUTO
         ctx.thread_count = thread_count
         mv_data = []
