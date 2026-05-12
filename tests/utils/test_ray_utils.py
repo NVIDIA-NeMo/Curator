@@ -19,7 +19,7 @@ import pytest
 import ray
 
 from nemo_curator.utils import ray_utils
-from nemo_curator.utils.ray_utils import get_head_node_id, run_on_each_node
+from nemo_curator.utils.ray_utils import get_head_node_id, run_on_each_node, submit_on_each_node
 
 
 @contextmanager
@@ -63,3 +63,10 @@ class TestRunOnEachNode:
         assert head_id not in set(results)
         expected = {n["NodeID"] for n in ray.nodes() if n.get("Alive") and n["NodeID"] != head_id}
         assert set(results) == expected
+
+    def test_submit_returns_unresolved_refs(self, shared_ray_client: None) -> None:
+        """``submit_on_each_node`` returns ObjectRefs (not values) so callers can batch awaits."""
+        refs = submit_on_each_node(_node_id_remote)
+        assert all(isinstance(r, ray.ObjectRef) for r in refs)
+        alive_ids = {n["NodeID"] for n in ray.nodes() if n.get("Alive")}
+        assert set(ray.get(refs)) == alive_ids

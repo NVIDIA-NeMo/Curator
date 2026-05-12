@@ -23,7 +23,7 @@ from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.utils.ray_utils import get_head_node_id, run_on_each_node
+from nemo_curator.utils.ray_utils import get_head_node_id, submit_on_each_node
 
 if TYPE_CHECKING:
     import loguru
@@ -201,7 +201,13 @@ def _setup_stage_on_node(stage: ProcessingStage) -> None:
 
 
 def execute_setup_on_node(stages: list[ProcessingStage], ignore_head_node: bool = False) -> None:
-    """Execute setup on node for a stage."""
+    """Execute ``setup_on_node`` for every stage on every alive Ray node.
+
+    All ``(stage, node)`` setup tasks are submitted up front and awaited with a single
+    ``ray.get``, so total wall-clock time is bounded by the slowest stage rather than
+    the sum of per-stage times — important when setup is heavy (model downloads, weight
+    loads) and stages don't contend for the same resources.
+    """
     head_node_id = get_head_node_id() if ignore_head_node else None
     for node in ray.nodes():
         if not node.get("Alive"):
@@ -211,11 +217,15 @@ def execute_setup_on_node(stages: list[ProcessingStage], ignore_head_node: bool 
             continue
         logger.info(f"Executing setup on node {node_id} for {len(stages)} stages")
 
+    refs: list = []
     for stage in stages:
-        run_on_each_node(
-            _setup_stage_on_node,
-            stage,
-            ignore_head_node=ignore_head_node,
-            num_cpus=stage.resources.cpus if stage.resources is not None else 1,
-            num_gpus=stage.resources.gpus if stage.resources is not None else 0,
+        refs.extend(
+            submit_on_each_node(
+                _setup_stage_on_node,
+                stage,
+                ignore_head_node=ignore_head_node,
+                num_cpus=stage.resources.cpus if stage.resources is not None else 1,
+                num_gpus=stage.resources.gpus if stage.resources is not None else 0,
+            )
         )
+    ray.get(refs)

@@ -52,18 +52,20 @@ def get_head_node_id() -> str | None:
     return None
 
 
-def run_on_each_node(
+def submit_on_each_node(
     remote_fn: RemoteFunction,
     *args,
     ignore_head_node: bool = False,
     num_cpus: float = 0,
     num_gpus: float = 0,
 ) -> list[Any]:
-    """Submit ``remote_fn(*args)`` once per alive Ray node and return results in submission order.
+    """Submit ``remote_fn(*args)`` once per alive Ray node and return the ObjectRefs.
 
     Each invocation is pinned to its node via ``NodeAffinitySchedulingStrategy(soft=False)``,
     so the function runs on (and only on) the targeted node. Dead nodes are skipped; the
-    head node is also skipped when ``ignore_head_node`` is True.
+    head node is also skipped when ``ignore_head_node`` is True. The caller is responsible
+    for awaiting the returned refs (typically via ``ray.get``); use this when batching
+    multiple fan-outs into a single await preserves parallelism.
     """
     head_node_id = get_head_node_id() if ignore_head_node else None
     refs = []
@@ -81,4 +83,29 @@ def run_on_each_node(
                 scheduling_strategy=NodeAffinitySchedulingStrategy(node_id=node_id, soft=False),
             ).remote(*args)
         )
-    return ray.get(refs)
+    return refs
+
+
+def run_on_each_node(
+    remote_fn: RemoteFunction,
+    *args,
+    ignore_head_node: bool = False,
+    num_cpus: float = 0,
+    num_gpus: float = 0,
+) -> list[Any]:
+    """Submit ``remote_fn(*args)`` once per alive Ray node and return results in submission order.
+
+    Convenience wrapper that submits via :func:`submit_on_each_node` and awaits the
+    refs with a single ``ray.get``. For fan-outs across multiple submissions where
+    parallelism matters, call :func:`submit_on_each_node` directly and ``ray.get``
+    the combined ref list once.
+    """
+    return ray.get(
+        submit_on_each_node(
+            remote_fn,
+            *args,
+            ignore_head_node=ignore_head_node,
+            num_cpus=num_cpus,
+            num_gpus=num_gpus,
+        )
+    )
