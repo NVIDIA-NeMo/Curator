@@ -227,6 +227,25 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
             tasks[idx].data.error = f"{self.name}: {e}"
             tasks[idx].data.is_valid = False
 
+    def _dispatch_responses(
+        self,
+        tasks: list[SingleDataTask[T]],
+        valid_indices: list[int],
+        responses: list[str],
+    ) -> None:
+        """Hand each model response to its task after validating the length contract.
+
+        Raising on a length mismatch *before* any per-task write keeps the outer
+        batch-error handler from clobbering tasks that have already been
+        successfully scored — which a strict=True zip would not do, since it
+        only raises after the shorter sequence has been consumed.
+        """
+        if len(responses) != len(valid_indices):
+            msg = f"model returned {len(responses)} responses for {len(valid_indices)} prompts"
+            raise RuntimeError(msg)
+        for idx, response in zip(valid_indices, responses, strict=False):
+            self._handle_response_one(tasks, idx, response)
+
     def process_batch(self, tasks: list[SingleDataTask[T]]) -> list[SingleDataTask[T]]:
         """Process a batch of tasks.
 
@@ -270,10 +289,7 @@ class ModelProcessingStage(VLMProcessingStage[T], Generic[T]):
 
         try:
             responses = self.model.generate(prompts, images if self.multimodal else None, self.inference_config)
-
-            for idx, response in zip(valid_indices, responses, strict=True):
-                self._handle_response_one(tasks, idx, response)
-
+            self._dispatch_responses(tasks, valid_indices, responses)
             logger.info(f"{self.name}: processed batch of {len(valid_indices)} items")
 
         except Exception as e:  # noqa: BLE001

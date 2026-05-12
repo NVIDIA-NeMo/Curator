@@ -188,6 +188,23 @@ class TestModelProcessingStageProcessBatch:
         assert all(not r.data.is_valid for r in results)
         assert all("GPU OOM" in (r.data.error or "") for r in results)
 
+    def test_response_length_mismatch_fails_batch_without_partial_writes(self):
+        """A model that breaks the length contract must not produce partial writes.
+
+        Regression for a bug where strict=True zip processed the shorter sequence
+        before raising, then the outer except clobbered the already-handled tasks.
+        """
+        stage = _make_model_stage()
+        stage.model.generate.return_value = ["r0", "r1"]  # 2 responses, 3 prompts
+        handle_calls: list[int] = []
+        stage._handle_response_one = MagicMock(side_effect=lambda _tasks, idx, _resp: handle_calls.append(idx))
+
+        results = stage.process_batch([_make_task(task_id=f"t{i}") for i in range(3)])
+
+        assert handle_calls == [], "no per-task writes should happen on contract violation"
+        assert all(not r.data.is_valid for r in results)
+        assert any("returned 2 responses for 3 prompts" in (r.data.error or "") for r in results)
+
     def test_non_multimodal_passes_none_images_to_generate(self):
         stage = _make_model_stage()
         stage.multimodal = False
