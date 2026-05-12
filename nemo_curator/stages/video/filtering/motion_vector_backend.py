@@ -161,7 +161,7 @@ def motion_vectors_to_flowfield(mvs: Tensor, size: list[int], flow: Tensor | Non
     return flow
 
 
-def decode_for_motion(  # noqa: C901
+def decode_for_motion(  # noqa: C901, PLR0912
     video: io.BytesIO,
     thread_count: int = 4,
     target_fps: float = 2.0,
@@ -187,7 +187,9 @@ def decode_for_motion(  # noqa: C901
         # Set this flag to return motion vectors. PyAV renamed the enum member
         # from EXPORT_MVS (PyAV <=13) to export_mvs (PyAV >=15); accept either.
         _flags2 = av.codec.context.Flags2
-        export_mvs_flag = getattr(_flags2, "export_mvs", None) or _flags2.EXPORT_MVS  # type: ignore[attr-defined]
+        export_mvs_flag = getattr(_flags2, "export_mvs", None)
+        if export_mvs_flag is None:
+            export_mvs_flag = _flags2.EXPORT_MVS  # type: ignore[attr-defined]
         ctx.flags2 |= export_mvs_flag
         ctx.thread_type = av.codec.context.ThreadType.AUTO
         ctx.thread_count = thread_count
