@@ -272,6 +272,74 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return {"is_fanout_stage": True}
 
     @staticmethod
+    def _patch_nemo_adapters() -> None:
+        """Apply two NeMo fixes for S3-based non-tarred manifests.
+
+        Fix 1 (get_full_path): NeMo uses os.path.isabs() which returns False for
+        s3://, http://, gs:// URIs — causing them to be joined with the manifest
+        directory.  Adds NeMo's own is_datastore_path() check.
+
+        Fix 2 (sampling_rate field): LazyNeMoIterator expects "sampling_rate" in
+        manifest entries but many datasets use "sample_rate".  Without it, NeMo
+        calls Recording.from_file() which can't read S3 URIs.  With it, NeMo
+        creates Recording(source_type="url") using lhotse's native URL backend.
+        """
+        import nemo.collections.common.data.lhotse.nemo_adapters as _adapters
+        import nemo.collections.common.parts.preprocessing.manifest as _manifest
+
+        if getattr(_manifest, "_nemo_s3_patched", False):
+            return
+
+        from nemo.utils.data_utils import is_datastore_path
+
+        # --- Fix 1: get_full_path URI recognition ---
+        _original_get_full_path = _manifest.get_full_path
+
+        def _patched_get_full_path(
+            audio_file, manifest_file=None, data_dir=None, audio_file_len_limit=255, force_cache=True
+        ):
+            if isinstance(audio_file, str) and is_datastore_path(audio_file):
+                return audio_file
+            if isinstance(audio_file, list):
+                return [
+                    _patched_get_full_path(a, manifest_file, data_dir, audio_file_len_limit, force_cache)
+                    for a in audio_file
+                ]
+            return _original_get_full_path(audio_file, manifest_file, data_dir, audio_file_len_limit, force_cache)
+
+        _manifest.get_full_path = _patched_get_full_path
+        _adapters.get_full_path = _patched_get_full_path
+
+        # --- Fix 2: alias sample_rate -> sampling_rate in LazyNeMoIterator ---
+        # Wrap the source iterator to normalize field names before NeMo processes them.
+        _OriginalIterInit = _adapters.LazyNeMoIterator.__init__
+
+        def _patched_init(self, *args, **kwargs):
+            _OriginalIterInit(self, *args, **kwargs)
+            self.source = _FieldNormalizingSource(self.source)
+
+        class _FieldNormalizingSource:
+            """Wraps a lazy JSONL source to alias sample_rate -> sampling_rate."""
+
+            def __init__(self, source):
+                self._source = source
+
+            def __iter__(self):
+                for data in self._source:
+                    if "sampling_rate" not in data and "sample_rate" in data:
+                        data["sampling_rate"] = data["sample_rate"]
+                    yield data
+
+            def __len__(self):
+                return len(self._source)
+
+            def __add__(self, other):
+                return self._source.__add__(other)
+
+        _adapters.LazyNeMoIterator.__init__ = _patched_init
+        _manifest._nemo_s3_patched = True
+
+    @staticmethod
     def _make_cutset(manifest_path: str, tar_path: str | None) -> Any:  # noqa: ANN401
         """Build a lhotse CutSet using NeMo adapters."""
         from lhotse import CutSet
@@ -294,6 +362,8 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         shard_key = task.reader_config.get("shard_key", task.task_id)
         language = task.reader_config.get("language", "")
         metadata = dict(task._metadata)
+
+        self._patch_nemo_adapters()
 
         cutset = self._make_cutset(manifest_path, tar_path)
 
