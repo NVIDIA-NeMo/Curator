@@ -97,36 +97,31 @@ wheels = [
 
 [[package]]
 name = "ai-dynamo"
-version = "1.0.2"
+version = "1.1.0"
 source = { registry = "https://pypi.nvidia.com/" }
 dependencies = [
     { name = "ai-dynamo-runtime", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "click", version = "8.1.8", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "distro", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "fastapi", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "filelock", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "kubernetes", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "msgpack", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "msgspec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "prometheus-client", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pytest", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "setuptools", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "pyzmq", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "transformers", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "typer", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "types-psutil", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 wheels = [
-    { url = "https://pypi.nvidia.com/ai-dynamo/ai_dynamo-1.0.2-py3-none-any.whl", hash = "sha256:e20aebe4fd2c8376d7688d5502c3df6e65288c92c229aa4d0e20baad62adfe82" },
+    { url = "https://pypi.nvidia.com/ai-dynamo/ai_dynamo-1.1.0-py3-none-any.whl", hash = "sha256:588ab10664f54cb624deb34b888f1246a2e1f1cc0155d43de22fbbed54c7ad41" },
 ]
 
 [[package]]
 name = "ai-dynamo-runtime"
-version = "1.0.2"
+version = "1.1.0"
 source = { registry = "https://pypi.nvidia.com/" }
 dependencies = [
     { name = "pydantic", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "uvloop", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 wheels = [
-    { url = "https://pypi.nvidia.com/ai-dynamo-runtime/ai_dynamo_runtime-1.0.2-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:be1a6838bf90001b52900be3dd2466a4874700f1b81fa5f3ab82688a94fb77d5" },
+    { url = "https://pypi.nvidia.com/ai-dynamo-runtime/ai_dynamo_runtime-1.1.0-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:ac8d25d4fe281c0b88d353bf1ccd35b2064030b7ec43eed409c09874b50e01e2" },
 ]
 
 [[package]]
@@ -2845,15 +2840,15 @@ wheels = [
 
 [[package]]
 name = "google-cloud-core"
-version = "2.5.1"
+version = "2.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core" },
     { name = "google-auth" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dc/24/6ca08b0a03c7b0c620427503ab00353a4ae806b848b93bcea18b6b76fde6/google_cloud_core-2.5.1.tar.gz", hash = "sha256:3dc94bdec9d05a31d9f355045ed0f369fbc0d8c665076c734f065d729800f811", size = 36078, upload-time = "2026-03-30T22:50:08.057Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a8/dd/1eef226e470369b26824a505c34482c0b493bc35fe8e0c6b003b5feca21a/google_cloud_core-2.6.0.tar.gz", hash = "sha256:e76149739f90fac1fc6757c09f47eaccb3145b54adbd7759b0f7c4b235f46c83", size = 36001, upload-time = "2026-05-07T08:04:04.124Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/73/d9/5bb050cb32826466aa9b25f79e2ca2879fe66cb76782d4ed798dd7506151/google_cloud_core-2.5.1-py3-none-any.whl", hash = "sha256:ea62cdf502c20e3e14be8a32c05ed02113d7bef454e40ff3fab6fe1ec9f1f4e7", size = 29452, upload-time = "2026-03-30T22:48:31.567Z" },
+    { url = "https://files.pythonhosted.org/packages/84/4a/98da8930ab109c73d9a5d13782a9ebb81ea8c111f6d534a567b71d23e52b/google_cloud_core-2.6.0-py3-none-any.whl", hash = "sha256:6d63ac8e5eca6d9e4319d0a1e2265fadcd7f1049904378caecfa01cf52dd869e", size = 29390, upload-time = "2026-05-07T08:02:34.672Z" },
 ]
 
 [[package]]
@@ -5496,7 +5491,7 @@ test = [
 requires-dist = [
     { name = "absl-py", specifier = ">=2.0.0,<3.0.0" },
     { name = "accelerate", marker = "extra == 'audio-common'" },
-    { name = "ai-dynamo", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'inference-server'", specifier = "==1.0.2" },
+    { name = "ai-dynamo", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'inference-server'", specifier = "==1.1.0" },
     { name = "aiohttp", marker = "extra == 'translation-nmt'", specifier = ">=3.13.3" },
     { name = "albumentations", marker = "extra == 'interleaved-cpu'" },
     { name = "av", marker = "extra == 'video-cpu'", specifier = "==13.1.0" },
@@ -8468,11 +8463,11 @@ wheels = [
 
 [[package]]
 name = "python-multipart"
-version = "0.0.22"
+version = "0.0.27"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/94/01/979e98d542a70714b0cb2b6728ed0b7c46792b695e3eaec3e20711271ca3/python_multipart-0.0.22.tar.gz", hash = "sha256:7340bef99a7e0032613f56dc36027b959fd3b30a787ed62d310e951f7c3a3a58", size = 37612, upload-time = "2026-01-25T10:15:56.219Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/69/9b/f23807317a113dc36e74e75eb265a02dd1a4d9082abc3c1064acd22997c4/python_multipart-0.0.27.tar.gz", hash = "sha256:9870a6a8c5a20a5bf4f07c017bd1489006ff8836cff097b6933355ee2b49b602", size = 44043, upload-time = "2026-04-27T10:51:26.649Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1b/d0/397f9626e711ff749a95d96b7af99b9c566a9bb5129b8e4c10fc4d100304/python_multipart-0.0.22-py3-none-any.whl", hash = "sha256:2b2cd894c83d21bf49d702499531c7bafd057d730c201782048f7945d82de155", size = 24579, upload-time = "2026-01-25T10:15:54.811Z" },
+    { url = "https://files.pythonhosted.org/packages/99/78/4126abcbdbd3c559d43e0db7f7b9173fc6befe45d39a2856cc0b8ec2a5a6/python_multipart-0.0.27-py3-none-any.whl", hash = "sha256:6fccfad17a27334bd0193681b369f476eda3409f17381a2d65aa7df3f7275645", size = 29254, upload-time = "2026-04-27T10:51:24.997Z" },
 ]
 
 [[package]]
@@ -10918,15 +10913,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/6d/c1/933d30fd7a123ed981e2a1eedafceab63cb379db0402e438a13bc51bbb15/typer-0.20.1.tar.gz", hash = "sha256:68585eb1b01203689c4199bc440d6be616f0851e9f0eb41e4a778845c5a0fd5b", size = 105968, upload-time = "2025-12-19T16:48:56.302Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/52/1f2df7e7d1be3d65ddc2936d820d4a3d9777a54f4204f5ca46b8513eff77/typer-0.20.1-py3-none-any.whl", hash = "sha256:4b3bde918a67c8e03d861aa02deca90a95bbac572e71b1b9be56ff49affdb5a8", size = 47381, upload-time = "2025-12-19T16:48:53.679Z" },
-]
-
-[[package]]
-name = "types-psutil"
-version = "7.2.2.20260408"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/44/14/279fd5defebbd560ede04aecd38f7651cccee7336f2264d0889d8c9a9d43/types_psutil-7.2.2.20260408.tar.gz", hash = "sha256:e8053450685965b8cd52afb62569073d00ea9967ae78bb45dff5f606847f97f2", size = 26556, upload-time = "2026-04-08T04:27:44.349Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/40/2fd92a4a1ee088c4dbcc44c977908d9869838d9cd2a2fa2e001352f56694/types_psutil-7.2.2.20260408-py3-none-any.whl", hash = "sha256:0c334f6f6bc9e9c24fca5c7d1f0b6971c961a0a2e3956dc5ce704722c01f9762", size = 32861, upload-time = "2026-04-08T04:27:42.929Z" },
 ]
 
 [[package]]
