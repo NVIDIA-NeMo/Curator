@@ -35,7 +35,7 @@ from nemo_curator.stages.synthetic.omni.ocr_dense_qa import (
     build_qa_tagged,
 )
 from nemo_curator.stages.synthetic.omni.utils.conversation import ImageMedia
-from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
+from nemo_curator.tasks.ocr import OCRData, OCRDenseItem
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -49,8 +49,8 @@ def _make_word(
     valid: bool = True,
     bbox_match: int | None = None,
     text_errors: int | None = None,
-) -> OCRDenseWord:
-    return OCRDenseWord(
+) -> OCRDenseItem:
+    return OCRDenseItem(
         bbox_2d=bbox,
         text_content=text,
         valid=valid,
@@ -59,7 +59,7 @@ def _make_word(
     )
 
 
-def _make_ocr_data(words: list[OCRDenseWord]) -> OCRData:
+def _make_ocr_data(words: list[OCRDenseItem]) -> OCRData:
     return OCRData(
         image_path=Path("test.jpg"),
         image_id="test_id",

@@ -33,7 +33,7 @@ from nemo_curator.stages.synthetic.omni.io import (
     merge_output_shards,
 )
 from nemo_curator.tasks.image import ImageTaskData, SingleDataTask
-from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
+from nemo_curator.tasks.ocr import OCRData, OCRDenseItem
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -71,7 +71,7 @@ def _make_ocr_task(
     task_id: str = "t0",
     image_id: str = "img_0",
     is_valid: bool = True,
-    words: list[OCRDenseWord] | None = None,
+    words: list[OCRDenseItem] | None = None,
 ) -> SingleDataTask[OCRData]:
     data = OCRData(
         image_path=image_path,

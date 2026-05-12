@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Combined Gemini bbox scoring + dense QA generation stage.
+"""Combined bbox scoring + dense QA generation stage.
 
 Replaces running ``OCRScoringVerificationStage`` followed by
-``OCRDenseQAStage`` as two separate pipeline stages.  In a single Gemini
+``OCRDenseQAStage`` as two separate pipeline stages.  In a single verifier
 call per image it:
 
   1. Scores every bbox (``bbox_match`` 0-10, ``text_errors`` count).
@@ -24,8 +24,8 @@ call per image it:
   4. Generates up to 100 multi-turn QA pairs via ``build_qa_tagged`` /
      ``build_conversation`` from ``ocr_dense_qa``.
   5. Includes a dense-dump (list-all-bboxes) QA turn **only** when
-     ``ocr_scoring_missing`` is empty — Gemini predictions cannot be used
-     as training labels, only for filtering.
+     ``ocr_scoring_missing`` is empty — verifier predictions are used
+     for filtering, not as training labels.
 
 Output task data is ``OCRConversationData`` (``OCRData`` + ``conversation``).
 """
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from nemo_curator.tasks.image import SingleDataTask
 
 from nemo_curator.models.omni.base import InferenceConfig, NVInferenceModelConfig
-from nemo_curator.models.omni.gemini import Gemini3Pro
+from nemo_curator.models.omni.nemotron_omni import NemotronNanoOmni
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.synthetic.omni.base import ModelProcessingStage, SkipSample
 from nemo_curator.stages.synthetic.omni.ocr_conversationalize import OCRConversationData
@@ -133,18 +133,24 @@ def _copy_to_conversation_data(src: OCRData) -> OCRConversationData:
 
 
 class OCRScoringQAStage(ModelProcessingStage[OCRData]):
-    """Gemini bbox scoring + multi-turn QA generation in a single pipeline stage.
+    """Bbox scoring + multi-turn QA generation in a single pipeline stage.
 
-    * Calls Gemini once per image to score every bbox.
+    * Calls the verifier model once per image to score every bbox.
     * Marks low-quality bboxes ``valid=False`` (below ``min_bbox_match`` or
       above ``max_text_errors``).
     * Calls ``build_qa_tagged`` / ``build_conversation`` to produce up to 100
       multi-turn QA pairs.
-    * Adds a dense-dump turn only when ``ocr_scoring_missing`` is empty (Gemini
-      predictions are approved for filtering only, not for training labels).
+    * Adds a dense-dump turn only when ``ocr_scoring_missing`` is empty
+      (verifier predictions are used for filtering only, not as training
+      labels).
 
-    Unlike ``OCRScoringVerificationStage``, ``fail_on_missing_text`` defaults to
-    ``False`` here: missing text regions disable the dense dump but do not
+    Default verifier is ``NemotronNanoOmni`` (Nemotron-Nano-Omni reasoning
+    model on NVIDIA Inference API).  Defaults for ``max_tokens``,
+    ``min_bbox_match``, and ``dense_dump_prob`` are calibrated for that
+    verifier on a 500-image textvqa sample; revisit them if you swap models.
+
+    Unlike ``OCRScoringVerificationStage``, ``fail_on_missing_text`` defaults
+    to ``False`` here: missing text regions disable the dense dump but do not
     invalidate the whole image — the partial QA pairs are still useful.
 
     Reads:  ``ocr_dense``
@@ -160,13 +166,13 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
 
     def __init__(  # noqa: PLR0913
         self,
-        model_id: str = "gcp/google/gemini-3-flash-preview",
+        model_id: str = "nvidia/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         temperature: float = 1.0,
-        max_tokens: int = 4096,
-        min_bbox_match: int = 7,
+        max_tokens: int = 16384,
+        min_bbox_match: int = 5,
         max_text_errors: int = 0,
         fail_on_missing_text: bool = False,
-        dense_dump_prob: float = 0.10,
+        dense_dump_prob: float = 0.05,
         batch_size: int | None = None,
         priority_mode: bool = False,
         **kwargs: Any,  # noqa: ANN401
@@ -174,18 +180,26 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         """Initialise the combined scoring + QA stage.
 
         Args:
-            model_id: NVIDIA Inference API model to use for Gemini scoring.
-            temperature: Sampling temperature (keep at 1.0 for Gemini).
-            max_tokens: Max tokens for the Gemini response.
+            model_id: NVIDIA Inference API model to use as verifier.
+            temperature: Sampling temperature.
+            max_tokens: Max tokens for the verifier response.  Nemotron
+                reasoning consumes most of this budget before emitting the
+                final JSON; 16k leaves enough headroom for both.
             min_bbox_match: Minimum ``bbox_match`` score for a valid bbox.
+                Nemotron's near-trinary scoring (0/5/10) makes thresholds
+                1-5 essentially equivalent; 5 keeps a quality gate without
+                over-pruning short text.
             max_text_errors: Maximum ``text_errors`` count for a valid bbox.
             fail_on_missing_text: If ``True``, mark the whole image invalid
-                when Gemini reports missing text.  Defaults to ``False`` —
-                missing text only disables the dense-dump QA turn.
+                when the verifier reports missing text.  Defaults to
+                ``False`` — missing text only disables the dense-dump QA
+                turn.
             dense_dump_prob: Probability (0-1) of generating a single-turn
                 dense dump conversation instead of multi-turn QA, for images
-                where OCR is provably complete (no missing text).
-                Defaults to 0.10 (10%).
+                where OCR is provably complete (no missing text).  Tuned
+                low because the verifier tends to under-report missing
+                text, so "provably complete" fires more often than the
+                underlying coverage warrants.
             batch_size: Override the default batch size of 16.
             priority_mode: Use priority API queue (lower latency, higher cost).
         """
@@ -195,7 +209,7 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         self.fail_on_missing_text = fail_on_missing_text
         self.dense_dump_prob = dense_dump_prob
         super().__init__(
-            model=Gemini3Pro(
+            model=NemotronNanoOmni(
                 model_config=NVInferenceModelConfig(max_tokens=max_tokens),
                 model_id=model_id,
             ),

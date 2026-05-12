@@ -29,14 +29,14 @@ from loguru import logger
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.synthetic.omni.base import VLMProcessingStage
 from nemo_curator.stages.synthetic.omni.io import load_image_from_task
-from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
+from nemo_curator.tasks.ocr import OCRData, OCRDenseItem
 
 _HF_REPO_ID = "nvidia/nemotron-ocr-v2"
 _DEFAULT_SUBDIR = "v2_multilingual"
 
 
-def _to_ocr_dense_word(pred: dict[str, Any]) -> OCRDenseWord:
-    """Convert a NemotronOCR-v2 prediction dict to OCRDenseWord (0-1000 coords).
+def _to_ocr_dense_item(pred: dict[str, Any]) -> OCRDenseItem:
+    """Convert a NemotronOCR-v2 prediction dict to OCRDenseItem (0-1000 coords).
 
     NemotronOCR-v2 uses screen coordinates (y=0 at top) but with inverted naming:
     ``lower`` holds the *smaller* y value (top edge) and ``upper`` holds the
@@ -46,7 +46,7 @@ def _to_ocr_dense_word(pred: dict[str, Any]) -> OCRDenseWord:
     x2 = int(pred["right"] * 1000)
     y1 = int(min(pred["upper"], pred["lower"]) * 1000)
     y2 = int(max(pred["upper"], pred["lower"]) * 1000)
-    return OCRDenseWord(
+    return OCRDenseItem(
         bbox_2d=[x1, y1, x2, y2],
         text_content=str(pred["text"]),
     )
@@ -149,7 +149,7 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
         finally:
             os.unlink(tmp_path)
 
-        task.data.ocr_dense = [_to_ocr_dense_word(p) for p in preds]
+        task.data.ocr_dense = [_to_ocr_dense_item(p) for p in preds]
 
     def teardown(self) -> None:
         """Release GPU memory."""

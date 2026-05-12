@@ -121,9 +121,6 @@ class NVInferenceModelConfig(ModelConfig):
     base_url: str = "https://inference-api.nvidia.com"
     api_key_env_var: str = "NVINFERENCE_API_KEY"
 
-    def __post_init__(self) -> None:
-        pass
-
 
 class NVInferenceModel(VLMModel):
     """Base class for models using NVIDIA Inference API."""

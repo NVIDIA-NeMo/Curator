@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from nemo_curator.tasks.ocr import OCRData, OCRDenseWord
+    from nemo_curator.tasks.ocr import OCRData, OCRDenseItem
 
 from nemo_curator.stages.synthetic.omni.ocr_conversationalize import (
     SDG_PROMPT_VARIATIONS,
@@ -426,7 +426,7 @@ def _gen_text_to_point_multi(rng: random.Random, text: str, bboxes: list[list[in
     return (" ".join(p for p in parts if p), answer)
 
 
-def _gen_dense_dump(rng: random.Random, words: list[OCRDenseWord]) -> tuple[str, str]:
+def _gen_dense_dump(rng: random.Random, words: list[OCRDenseItem]) -> tuple[str, str]:
     """Generate a 'list all bboxes' QA pair (dense dump format)."""
     question_base = rng.choice(SDG_PROMPT_VARIATIONS)
     format_fn = rng.choice(WORD_OUTPUT_FORMATS)
@@ -525,7 +525,7 @@ def build_conversation(
 
 
 def build_dense_conversation(
-    words: list[OCRDenseWord],
+    words: list[OCRDenseItem],
     rng: random.Random,
     image_name: str,
 ) -> ConversationSample:

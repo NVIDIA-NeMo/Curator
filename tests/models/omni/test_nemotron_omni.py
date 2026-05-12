@@ -12,26 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for nemo_curator.models.omni.gemini."""
+"""Unit tests for nemo_curator.models.omni.nemotron_omni."""
 
 from nemo_curator.models.omni.base import NVInferenceModel, NVInferenceModelConfig
-from nemo_curator.models.omni.gemini import DEFAULT_MODEL_ID, Gemini3Pro
+from nemo_curator.models.omni.nemotron_omni import DEFAULT_MODEL_ID, NemotronNanoOmni
 
 
-class TestGemini3Pro:
+class TestNemotronNanoOmni:
     def test_default_model_id(self) -> None:
-        model = Gemini3Pro(model_config=NVInferenceModelConfig())
+        model = NemotronNanoOmni(model_config=NVInferenceModelConfig())
         assert model.model_id == DEFAULT_MODEL_ID
-        assert model.model_id == "gcp/google/gemini-3-pro"
+        assert model.model_id == "nvidia/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
 
     def test_custom_model_id(self) -> None:
-        model = Gemini3Pro(model_config=NVInferenceModelConfig(), model_id="gcp/google/gemini-3-flash")
-        assert model.model_id == "gcp/google/gemini-3-flash"
+        model = NemotronNanoOmni(
+            model_config=NVInferenceModelConfig(),
+            model_id="nvidia_dynamo/nvidia/nemotron-nano-30b-a3b-omni",
+        )
+        assert model.model_id == "nvidia_dynamo/nvidia/nemotron-nano-30b-a3b-omni"
 
     def test_is_nvinference_model(self) -> None:
-        model = Gemini3Pro(model_config=NVInferenceModelConfig())
+        model = NemotronNanoOmni(model_config=NVInferenceModelConfig())
         assert isinstance(model, NVInferenceModel)
 
     def test_not_loaded_initially(self) -> None:
-        model = Gemini3Pro(model_config=NVInferenceModelConfig())
+        model = NemotronNanoOmni(model_config=NVInferenceModelConfig())
         assert model.is_loaded is False

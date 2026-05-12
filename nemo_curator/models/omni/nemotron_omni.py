@@ -14,21 +14,20 @@
 
 from nemo_curator.models.omni.base import NVInferenceModel, NVInferenceModelConfig
 
-DEFAULT_MODEL_ID = "gcp/google/gemini-3-pro"
+DEFAULT_MODEL_ID = "nvidia/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
 
 
-class Gemini3Pro(NVInferenceModel):
-    """Gemini model using NVIDIA Inference API backend."""
+class NemotronNanoOmni(NVInferenceModel):
+    """Nemotron-Nano-Omni reasoning model via NVIDIA Inference API.
+
+    The API surfaces reasoning traces in ``delta.reasoning_content`` and the
+    final answer in ``delta.content`` — the stage's response collector reads
+    only ``content``, so chain-of-thought never leaks into the parsed JSON.
+    """
 
     def __init__(
         self,
         model_config: NVInferenceModelConfig,
         model_id: str = DEFAULT_MODEL_ID,
     ) -> None:
-        """Initialize Gemini with NVIDIA Inference API.
-
-        Args:
-            model_config: NVIDIA Inference API configuration.
-            model_id: Model identifier for NVIDIA Inference API.
-        """
         super().__init__(model_id, model_config)

@@ -36,15 +36,15 @@ from nemo_curator.stages.synthetic.omni.utils.conversation import (
     ImageMedia,
     Message,
 )
-from nemo_curator.tasks.ocr import OCRDenseWord
+from nemo_curator.tasks.ocr import OCRDenseItem
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_word(bbox: list[int], text: str) -> OCRDenseWord:
-    return OCRDenseWord(bbox_2d=bbox, text_content=text)
+def _make_word(bbox: list[int], text: str) -> OCRDenseItem:
+    return OCRDenseItem(bbox_2d=bbox, text_content=text)
 
 
 _WORD = _make_word([10, 20, 100, 50], "HELLO")
