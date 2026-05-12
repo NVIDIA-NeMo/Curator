@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -234,12 +234,13 @@ def get_all_file_paths_under(
     )
 
 
-def get_all_file_paths_and_size_under(
+def get_all_file_paths_and_size_under(  # noqa: PLR0913
     path: str,
     recurse_subdirectories: bool = False,
     keep_extensions: str | list[str] | None = None,
     storage_options: dict[str, str] | None = None,
     fs: fsspec.AbstractFileSystem | None = None,
+    sort_by_size: bool = True,
 ) -> list[tuple[str, int]]:
     """
     Get all file paths and their sizes under a given path.
@@ -249,10 +250,12 @@ def get_all_file_paths_and_size_under(
         keep_extensions: The extensions to keep.
         storage_options: The storage options to use.
         fs: The filesystem to use.
+        sort_by_size: Whether to sort the files by size.
+            If False, the files will be sorted by path instead.
     Returns:
         A list of tuples (file_path, file_size).
     """
-    # sort by size
+    # sort by size or path
     return sorted(
         [
             (p, int(s))
@@ -260,7 +263,7 @@ def get_all_file_paths_and_size_under(
                 path, recurse_subdirectories, keep_extensions, storage_options, fs, include_size=True
             )
         ],
-        key=lambda x: x[1],
+        key=lambda x: x[1] if sort_by_size else x[0],
     )
 
 
@@ -448,3 +451,82 @@ def tar_safe_extract(tar: tarfile.TarFile, path: str) -> None:
 
         # Extract the member
         tar.extract(member, path)
+
+
+def parse_bytes_string_to_int(size: float | str) -> int:
+    """
+    Taken from dask.utils.parse_bytes
+    https://github.com/dask/dask/blob/3801bedc7c71c83f37e836af71f740974c0434b3/dask/utils.py#L1585
+    Parse byte string to numbers.
+
+    >>> parse_bytes('100')
+    100
+    >>> parse_bytes('100 MB')
+    100000000
+    >>> parse_bytes('100M')
+    100000000
+    >>> parse_bytes('5kB')
+    5000
+    >>> parse_bytes('5.4 kB')
+    5400
+    >>> parse_bytes('1kiB')
+    1024
+    >>> parse_bytes('1e6')
+    1000000
+    >>> parse_bytes('1e6 kB')
+    1000000000
+    >>> parse_bytes('MB')
+    1000000
+    >>> parse_bytes(123)
+    123
+    >>> parse_bytes('5 foos')
+    Traceback (most recent call last):
+        ...
+    ValueError: Could not interpret 'foos' as a byte unit
+    """
+    byte_sizes = {
+        "kB": 10**3,
+        "MB": 10**6,
+        "GB": 10**9,
+        "TB": 10**12,
+        "PB": 10**15,
+        "KiB": 2**10,
+        "MiB": 2**20,
+        "GiB": 2**30,
+        "TiB": 2**40,
+        "PiB": 2**50,
+        "B": 1,
+        "": 1,
+    }
+    byte_sizes = {k.lower(): v for k, v in byte_sizes.items()}
+    byte_sizes.update({k[0]: v for k, v in byte_sizes.items() if k and "i" not in k})
+    byte_sizes.update({k[:-1]: v for k, v in byte_sizes.items() if k and "i" in k})
+
+    if isinstance(size, (int, float)):
+        return int(size)
+    size = size.replace(" ", "")
+    if not any(char.isdigit() for char in size):
+        size = "1" + size
+
+    for i in range(len(size) - 1, -1, -1):
+        if not size[i].isalpha():
+            break
+    index = i + 1
+
+    prefix = size[:index]
+    suffix = size[index:]
+
+    try:
+        n = float(prefix)
+    except ValueError as e:
+        msg = f"Could not interpret '{prefix}' as a number"
+        raise ValueError(msg) from e
+
+    try:
+        multiplier = byte_sizes[suffix.lower()]
+    except KeyError as e:
+        msg = f"Could not interpret '{suffix}' as a byte unit"
+        raise ValueError(msg) from e
+
+    result = n * multiplier
+    return int(result)

@@ -34,6 +34,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -106,7 +107,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Sortformer diarization on CallHome English + DER evaluation.")
     p.add_argument("--data-dir", type=Path, required=True, help="CallHome-eng0 dataset root.")
     p.add_argument("--output-dir", type=Path, default=Path("output"), help="Root directory for all outputs.")
-    p.add_argument("--model", default="nvidia/diar_streaming_sortformer_4spk-v2", help="HF Sortformer model id.")
+    p.add_argument("--model", default="nvidia/diar_streaming_sortformer_4spk-v2.1", help="HF Sortformer model id.")
     p.add_argument("--collar", type=float, default=COLLAR, help="Collar tolerance (seconds).")
     p.add_argument("--clean", action="store_true", help="Remove entire output directory before running.")
     p.add_argument("--chunk-len", type=int, default=340, help="Streaming chunk size in 80ms frames.")
@@ -144,6 +145,9 @@ class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.filepath_key]
 
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {"num_workers_per_node": 1}
+
     def process(self, task: _EmptyTask) -> list[AudioTask]:  # noqa: ARG002
         cha_path = Path(self.cha_dir)
         done = {p.stem for p in Path(self.rttm_out_dir).glob("*.rttm")} if self.rttm_out_dir else set()
@@ -164,7 +168,7 @@ class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioTask]):
 
 @dataclass
 class EnsureMonoStage(ProcessingStage[AudioTask, AudioTask]):
-    """Downmix stereo WAVs to mono 16 kHz via sox."""
+    """Downmix stereo WAVs to mono 16 kHz via ffmpeg."""
 
     mono_dir: str = "mono"
     filepath_key: str = "audio_filepath"
@@ -182,7 +186,7 @@ class EnsureMonoStage(ProcessingStage[AudioTask, AudioTask]):
             return mono_path
         os.makedirs(self.mono_dir, exist_ok=True)
         subprocess.run(  # noqa: S603
-            ["sox", wav_path, "-c", "1", "-r", "16000", mono_path],  # noqa: S607
+            ["ffmpeg", "-i", wav_path, "-ac", "1", "-ar", "16000", "-y", mono_path],  # noqa: S607
             check=True,
             capture_output=True,
         )

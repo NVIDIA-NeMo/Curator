@@ -206,6 +206,53 @@ class TestCLIPImageEmbeddings:
         norms = torch.linalg.vector_norm(out, dim=-1)
         assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5)
 
+    def test_encode_text_empty_raises(self) -> None:
+        """encode_text must reject an empty text list."""
+        self.model.clip = Mock()
+        self.model.processor = Mock()
+
+        with pytest.raises(ValueError, match="encode_text requires at least one text"):
+            self.model.encode_text([])
+
+        self.model.processor.assert_not_called()
+        self.model.clip.get_text_features.assert_not_called()
+
+    def test_encode_text_processor_clip_path_and_normalizes(self) -> None:
+        """encode_text should tokenize via processor, call get_text_features, and L2-normalize rows."""
+        with patch("nemo_curator.models.clip.torch.cuda.is_available", return_value=False):
+            model = CLIPImageEmbeddings(model_dir="test_models/clip")
+
+        mock_clip = Mock()
+        embed = torch.tensor([[3.0, 4.0], [1.0, 2.0]], dtype=torch.float32)
+        mock_clip.get_text_features.return_value = embed
+
+        mock_processor = Mock()
+        input_ids = torch.tensor([[1, 2, 3], [4, 5, 0]], dtype=torch.long)
+        attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]], dtype=torch.long)
+        mock_processor.return_value = {"input_ids": input_ids, "attention_mask": attention_mask}
+
+        model.clip = mock_clip
+        model.processor = mock_processor
+
+        texts = ["a cat", "a dog"]
+        out = model.encode_text(texts)
+
+        mock_processor.assert_called_once_with(
+            text=texts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+        )
+        mock_clip.get_text_features.assert_called_once()
+        call_kwargs = mock_clip.get_text_features.call_args.kwargs
+        assert torch.equal(call_kwargs["input_ids"], input_ids)
+        assert torch.equal(call_kwargs["attention_mask"], attention_mask)
+
+        norms = torch.linalg.vector_norm(out, dim=-1)
+        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5)
+        expected = embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)
+        assert torch.allclose(out, expected, atol=1e-5)
+
 
 class TestCLIPAestheticScorer:
     """Test cases for CLIPAestheticScorer model class."""

@@ -21,7 +21,7 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.column_utils import resolve_filename_column

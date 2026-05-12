@@ -41,7 +41,7 @@ jobs:
     with:
       release-ref: ${{ inputs.release-ref }}
       python-package: nemo_curator
-      python-version: "3.10"
+      python-version: "3.11"
       library-name: NeMo Curator
       dry-run: ${{ inputs.dry-run }}
       version-bump-branch: ${{ inputs.version-bump-branch }}

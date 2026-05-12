@@ -107,7 +107,7 @@ class TestClipTranscodingStage:
         spec = self.stage.ray_stage_spec()
 
         # Verify the expected keys and values based on the git diff
-        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+        from nemo_curator.backends.utils import RayStageSpecKeys
 
         assert RayStageSpecKeys.IS_FANOUT_STAGE in spec
         assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True

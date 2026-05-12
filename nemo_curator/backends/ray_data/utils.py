@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.backends.experimental.utils import get_available_cpu_gpu_resources
+from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 from nemo_curator.stages.base import ProcessingStage
 
 

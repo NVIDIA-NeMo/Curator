@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ from nemo_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
 )
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader, JsonlReaderStage
-from nemo_curator.tasks import FileGroupTask
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
 
 @pytest.fixture
@@ -176,3 +176,20 @@ class TestJsonlReaderWithIdGenerator:
 
         with pytest.raises(RuntimeError, match="actor 'id_generator' does not exist"):
             stage.setup()
+
+
+def test_jsonl_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    # Storage size is larger than 10 million bytes
+    # In-memory size is also larger than 10 million bytes
+    size = 1000
+    df = pd.DataFrame({"id": list(range(size)), "text": ["a" * 4000] * size, "other_field": ["b" * 10_000] * size})
+    df.to_json(tmp_path / "test.jsonl", orient="records", lines=True)
+
+    stage = JsonlReader(file_paths=str(tmp_path), blocksize=10_000_000)
+    assert len(stage.decompose()) == 2
+
+    # Since the storage size is larger than 10 million bytes, the FilePartitioningStage should warn
+    file_partitioning_stage = stage.decompose()[0]
+    with caplog.at_level("WARNING"):
+        file_partitioning_stage.process(_EmptyTask)
+    assert "File group task has exceeded the storage limit per partition" in caplog.text

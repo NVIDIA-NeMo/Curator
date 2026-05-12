@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,15 +17,15 @@ from typing import Any
 
 from loguru import logger
 
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
 from nemo_curator.utils.file_utils import (
     _split_files_as_per_blocksize,
     get_all_file_paths_and_size_under,
-    get_all_file_paths_under,
     infer_dataset_name_from_path,
+    parse_bytes_string_to_int,
 )
 
 
@@ -41,10 +41,13 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     file_paths: str | list[str]
         Path to the input files.
     files_per_partition: int | None = None
-        Number of files per partition. If provided, the blocksize is ignored.
-        Defaults to 1 if both files_per_partition and blocksize are not provided.
+        Number of files per partition.
+        If both files_per_partition and blocksize are not provided,
+        then default to files_per_partition = 1 and enforce a blocksize <= 512 MB per partition safeguard.
+        Errors if both files_per_partition and blocksize are provided.
     blocksize: int | str | None = None
-        Target size of the partitions.
+        Target size of the partitions. A blocksize of 512 MB or less is recommended.
+        Errors if both files_per_partition and blocksize are provided.
         Note: For compressed files, the compressed size is used for blocksize estimation.
     file_extensions: list[str] | None = None
         File extensions to filter.
@@ -65,17 +68,26 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     def __post_init__(self):
         """Initialize default values."""
         if self.files_per_partition is not None and self.blocksize is not None:
-            logger.warning(
-                "Both 'files_per_partition' and 'blocksize' were specified. "
-                "'files_per_partition' will take precedence and 'blocksize' will be ignored."
-            )
-            self.blocksize = None
+            msg = "Both 'files_per_partition' and 'blocksize' were specified, but only one is allowed"
+            raise ValueError(msg)
         if self.file_extensions is None:
             self.file_extensions = [".jsonl", ".json", ".parquet"]
         if self.storage_options is None:
             self.storage_options = {}
+
+        # self.blocksize is the value set by the user
+        # self._blocksize is the value used internally
         if self.blocksize is not None:
-            self._blocksize = self._parse_size(self.blocksize)
+            self._blocksize = parse_bytes_string_to_int(self.blocksize)
+        else:
+            self._blocksize = parse_bytes_string_to_int("512MB")
+
+        if self._blocksize > parse_bytes_string_to_int("512MB"):
+            msg = (
+                f"Blocksize is greater than 512 MB, which is not recommended: {self.blocksize} "
+                "Consider using a smaller blocksize to avoid potential memory issues."
+            )
+            logger.warning(msg)
 
         self.resources = Resources(cpus=0.5)
 
@@ -92,9 +104,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         }
 
     def xenna_stage_spec(self) -> dict[str, Any]:
-        return {
-            "num_workers_per_node": 1,
-        }
+        return {"num_workers_per_node": 1}
 
     def process(self, _: _EmptyTask) -> list[FileGroupTask]:
         """Process the initial task to create file group tasks.
@@ -102,20 +112,57 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         This stage expects a simple Task with file paths information
         and outputs multiple FileGroupTasks for parallel processing.
         """
-        files = self._get_file_list_with_sizes() if self.blocksize else self._get_file_list()
+        sort_by_size = self.blocksize is not None
+        files_with_sizes = self._get_file_list_with_sizes(sort_by_size)
+        # Extract list[str] from list[tuple[str, int]]
+        files = [file[0] for file in files_with_sizes]
+
         logger.info(f"Found {len(files)} files")
         if len(files) == 0:
             logger.warning(f"No files found under {self.file_paths}")
             return []
+
         # Partition files
         if self.files_per_partition:
             partitions = self._partition_by_count(files, self.files_per_partition)
         elif self.blocksize:
-            partitions = self._partition_by_size(files, self._blocksize)
+            partitions = self._partition_by_size(files_with_sizes, self._blocksize)
         else:
             # Default to one file per partition
             logger.info("No partitions specified, defaulting to one file per partition")
             partitions = self._partition_by_count(files, 1)
+
+        # Build a dictionary of path: size of all files
+        path_to_size: dict[str, int] = dict(files_with_sizes)
+
+        # Check that no files have size less than 0 (since -1 is used to indicate unknown size)
+        if any(size < 0 for size in path_to_size.values()):
+            msg = "Skipping storage limit check because some files have unknown size"
+            logger.warning(msg)
+        else:
+            # Verify storage size of input files is not greater than self._blocksize (512 MB by default)
+            # This should be a very quick check per file, so we do it first before reading the data
+            for partition in partitions:
+                total_storage_size = sum(path_to_size[path] for path in partition)
+                # Scenario 1: The user specified blocksize and the partition created is too large
+                # This means at least one file is larger than the blocksize
+                if self.blocksize is not None and total_storage_size > self._blocksize:
+                    msg = (
+                        f"File group task has exceeded the storage limit per partition: {partition}. "
+                        f"Total storage size is {total_storage_size} bytes (limit {self._blocksize} bytes). "
+                        "Please increase blocksize if possible (the maximum recommended blocksize is 512 MB). "
+                        "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
+                    )
+                    logger.warning(msg)
+                # Scenario 2: The user did not specify blocksize and the partition created is too large
+                elif total_storage_size > self._blocksize:
+                    msg = (
+                        f"File group task has exceeded the storage limit per partition: {partition}. "
+                        f"Total storage size is {total_storage_size} bytes (limit {self._blocksize} bytes). "
+                        "Please reduce files_per_partition if possible, or set blocksize instead (the maximum recommended blocksize is 512 MB). "
+                        "Any individual file(s) larger than the storage limit should be split into smaller chunks using nemo_curator.utils.split_large_files."
+                    )
+                    logger.warning(msg)
 
         # Create FileGroupTask for each partition
         tasks = []
@@ -143,7 +190,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         logger.info(f"Created {len(tasks)} file groups from {len(files)} files")
         return tasks
 
-    def _get_file_list_with_sizes(self) -> list[tuple[str, int]]:
+    def _get_file_list_with_sizes(self, sort_by_size: bool = True) -> list[tuple[str, int]]:
         """
         Get the list of files to process.
         """
@@ -155,6 +202,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 recurse_subdirectories=True,
                 keep_extensions=self.file_extensions,
                 storage_options=self.storage_options,
+                sort_by_size=sort_by_size,
             )
         elif isinstance(self.file_paths, list):
             output_ls = []
@@ -165,51 +213,20 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                         recurse_subdirectories=False,
                         keep_extensions=self.file_extensions,
                         storage_options=self.storage_options,
+                        sort_by_size=sort_by_size,
                     )
                 )
         else:
             msg = f"Invalid file paths: {self.file_paths}, must be a string or list of strings"
             raise TypeError(msg)
-        return sorted(output_ls, key=lambda x: x[1])
-
-    def _get_file_list(self) -> list[str]:
-        """
-        Get the list of files to process.
-        """
-        logger.debug(f"Getting file list for {self.file_paths}")
-        if isinstance(self.file_paths, str):
-            # Directory: list contents (recursively) and filter extensions
-            output_ls = get_all_file_paths_under(
-                self.file_paths,
-                recurse_subdirectories=True,
-                keep_extensions=self.file_extensions,
-                storage_options=self.storage_options,
-            )
-        elif isinstance(self.file_paths, list):
-            output_ls = []
-            for path in self.file_paths:
-                output_ls.extend(
-                    get_all_file_paths_under(
-                        path,
-                        recurse_subdirectories=False,
-                        keep_extensions=self.file_extensions,
-                        storage_options=self.storage_options,
-                    )
-                )
-        else:
-            msg = f"Invalid file paths: {self.file_paths}, must be a string or list of strings"
-            raise TypeError(msg)
-        return sorted(output_ls)
+        return sorted(output_ls, key=lambda x: x[1] if sort_by_size else x[0])
 
     def _get_dataset_name(self, files: list[str]) -> str:
         """Extract dataset name from file paths (fsspec-compatible)."""
         if not files:
             return "dataset"
 
-        if isinstance(files[0], tuple):
-            return infer_dataset_name_from_path(files[0][0])
-        else:
-            return infer_dataset_name_from_path(files[0])
+        return infer_dataset_name_from_path(files[0])
 
     def _partition_by_count(self, files: list[str], count: int) -> list[list[str]]:
         """Partition files by count."""
@@ -228,81 +245,3 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         """
         sorted_files = sorted(files, key=lambda x: x[1])
         return _split_files_as_per_blocksize(sorted_files, blocksize)
-
-    def _parse_size(self, s: float | str) -> int:
-        """
-        Taken from dask.utils.parse_bytes
-        https://github.com/dask/dask/blob/3801bedc7c71c83f37e836af71f740974c0434b3/dask/utils.py#L1585
-        Parse byte string to numbers.
-
-        >>> parse_bytes('100')
-        100
-        >>> parse_bytes('100 MB')
-        100000000
-        >>> parse_bytes('100M')
-        100000000
-        >>> parse_bytes('5kB')
-        5000
-        >>> parse_bytes('5.4 kB')
-        5400
-        >>> parse_bytes('1kiB')
-        1024
-        >>> parse_bytes('1e6')
-        1000000
-        >>> parse_bytes('1e6 kB')
-        1000000000
-        >>> parse_bytes('MB')
-        1000000
-        >>> parse_bytes(123)
-        123
-        >>> parse_bytes('5 foos')
-        Traceback (most recent call last):
-            ...
-        ValueError: Could not interpret 'foos' as a byte unit
-        """
-        byte_sizes = {
-            "kB": 10**3,
-            "MB": 10**6,
-            "GB": 10**9,
-            "TB": 10**12,
-            "PB": 10**15,
-            "KiB": 2**10,
-            "MiB": 2**20,
-            "GiB": 2**30,
-            "TiB": 2**40,
-            "PiB": 2**50,
-            "B": 1,
-            "": 1,
-        }
-        byte_sizes = {k.lower(): v for k, v in byte_sizes.items()}
-        byte_sizes.update({k[0]: v for k, v in byte_sizes.items() if k and "i" not in k})
-        byte_sizes.update({k[:-1]: v for k, v in byte_sizes.items() if k and "i" in k})
-
-        if isinstance(s, (int, float)):
-            return int(s)
-        s = s.replace(" ", "")
-        if not any(char.isdigit() for char in s):
-            s = "1" + s
-
-        for i in range(len(s) - 1, -1, -1):
-            if not s[i].isalpha():
-                break
-        index = i + 1
-
-        prefix = s[:index]
-        suffix = s[index:]
-
-        try:
-            n = float(prefix)
-        except ValueError as e:
-            msg = f"Could not interpret '{prefix}' as a number"
-            raise ValueError(msg) from e
-
-        try:
-            multiplier = byte_sizes[suffix.lower()]
-        except KeyError as e:
-            msg = f"Could not interpret '{suffix}' as a byte unit"
-            raise ValueError(msg) from e
-
-        result = n * multiplier
-        return int(result)

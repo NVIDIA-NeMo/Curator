@@ -24,7 +24,7 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.tasks import FileGroupTask
@@ -203,10 +203,7 @@ class TestBackendIntegrations:
         # Tasks can get fused with Actors, but Actors can't get fused with Tasks or Actors
         # StreamingRepartition should never get fused
 
-        if ray.__version__ >= "2.53.0":
-            streaming_repartition = "StreamingRepartition[num_rows_per_block=1]"
-        else:
-            streaming_repartition = "StreamingRepartition"
+        streaming_repartition = "StreamingRepartition[num_rows_per_block=1,strict=False]"
         expected_stages = [
             "InputDataBuffer[Input]",
             "TaskPoolMapOperator[MapBatches(FilePartitioningStageTask)]",

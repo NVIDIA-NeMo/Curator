@@ -34,7 +34,7 @@ def _import_stage_module() -> tuple[Any, Any]:
 
 
 def test_ray_stage_spec(tmp_path: Path) -> None:
-    from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+    from nemo_curator.backends.utils import RayStageSpecKeys
 
     stage_cls, _ = _import_stage_module()
     stage = stage_cls(lang="hy_am", split="dev", raw_data_dir=str(tmp_path / "fleurs"))

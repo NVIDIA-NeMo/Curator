@@ -19,8 +19,7 @@ from loguru import logger
 from ray.data import DataContext, Dataset
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.experimental.utils import execute_setup_on_node
-from nemo_curator.backends.utils import register_loguru_serializer
+from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayDataStageAdapter
@@ -59,8 +58,11 @@ class RayDataExecutor(BaseExecutor):
         # This prevents verbose logging from Ray Data about serialization of the dataclass
         DataContext.get_current().enable_fallback_to_arrow_object_ext_type = True
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
-        tasks: list[Task] = initial_tasks if initial_tasks else [EmptyTask]
+        tasks: list[Task] = initial_tasks or [EmptyTask]
         output_tasks: list[Task] = []
+        # When runtime_env with pip is used, Ray's pip plugin sets up per-stage virtualenvs
+        # lazily on first task dispatch by cloning the current virtualenv. The NeMo Curator
+        # container's /opt/venv is created with `uv venv --seed` so pip is available in clones.
         try:
             # Initialize ray and explicitly set NOSET to empty
             # This ensures if Xenna was used before which was setting NOSET, we end up overriding it.

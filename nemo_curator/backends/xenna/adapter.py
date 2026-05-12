@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any
+
+import ray.runtime_env
 from cosmos_xenna.pipelines import v1 as pipelines_v1
 from cosmos_xenna.pipelines.private.resources import NodeInfo as XennaNodeInfo
 from cosmos_xenna.pipelines.private.resources import Resources as XennaResources
@@ -21,6 +24,31 @@ from loguru import logger
 from nemo_curator.backends.base import BaseStageAdapter, NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import Task
+
+
+class CuratorRuntimeEnv:
+    """Duck-typed replacement for Xenna's RuntimeEnv that supports the full Ray runtime_env dict.
+
+    Xenna's RuntimeEnv only supports conda + env_vars. This class accepts a raw
+    Ray-format runtime_env dict and implements the interface Xenna calls:
+    ``to_ray_runtime_env()``, ``format()``, and ``extra_env_vars``.
+    """
+
+    def __init__(self, runtime_env: dict[str, Any]) -> None:
+        self._runtime_env = runtime_env
+        # Xenna's actor pool both reads and writes extra_env_vars on the runtime env object,
+        # so this must be a plain settable attribute, not a read-only property.
+        self.extra_env_vars: dict[str, str] = dict(runtime_env.get("env_vars", {}))
+
+    def to_ray_runtime_env(self) -> ray.runtime_env.RuntimeEnv:
+        # Merge self.extra_env_vars (which Xenna may have mutated with per-actor env vars
+        # such as CUDA_VISIBLE_DEVICES) back into the runtime_env dict before handing it
+        # to Ray, so those injected vars are not silently dropped.
+        merged = {**self._runtime_env, "env_vars": self.extra_env_vars}
+        return ray.runtime_env.RuntimeEnv(**merged)
+
+    def format(self) -> str:
+        return f"runtime_env_keys: {', '.join(self._runtime_env.keys())}"
 
 
 class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
@@ -54,9 +82,14 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
 
     @property
     def env_info(self) -> pipelines_v1.RuntimeEnv | None:
-        """Runtime environment for this stage."""
-        # Can be customized per stage if needed
-        return None
+        """Runtime environment for this stage.
+
+        Converts the ProcessingStage.runtime_env dict (Ray-format) to a
+        CuratorRuntimeEnv that Xenna can forward to Ray actors.
+        """
+        if not self.processing_stage.runtime_env:
+            return None
+        return CuratorRuntimeEnv(self.processing_stage.runtime_env)
 
     def process_data(self, tasks: list[Task]) -> list[Task] | None:
         """Process batch of tasks with automatic performance tracking.

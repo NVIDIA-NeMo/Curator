@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -195,7 +195,6 @@ class TestClientPartitioningStage:
         """Test that ClientPartitioningStage inherits from FilePartitioningStage."""
         stage = ClientPartitioningStage(file_paths="/test/path")
         assert hasattr(stage, "_partition_by_count")
-        assert hasattr(stage, "_parse_size")
         assert hasattr(stage, "_get_dataset_name")
 
 

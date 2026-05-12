@@ -5,7 +5,7 @@ A dedicated benchmark for measuring the performance of the ALM (Audio Language M
 ## How It Works
 
 The benchmark script:
-1. Loads a JSONL manifest via `ALMManifestReader` (CompositeStage: FilePartitioningStage + ALMManifestReaderStage)
+1. Loads a JSONL manifest via `ManifestReader` (CompositeStage: FilePartitioningStage + ManifestReaderStage)
 2. Optionally multiplies entries with `--repeat-factor` via `_RepeatEntriesStage`
 3. Runs `ALMDataBuilderStage` (windowing) + `ALMDataOverlapStage` (filtering)
 4. Executes through XennaExecutor, RayDataExecutor, or RayActorPoolExecutor
@@ -214,7 +214,7 @@ Results from running on a single workstation:
 | Throughput (entries/sec) | 108.08 |
 | Throughput (windows/sec) | 3,912.36 |
 
-The `repeat-factor` multiplies entries in-memory after reading (via `_RepeatEntriesStage`), so the manifest file is read only once. The pipeline scales well with XennaExecutor auto-allocating workers per stage via the CompositeStage reader (FilePartitioningStage + ALMManifestReaderStage).
+The `repeat-factor` multiplies entries in-memory after reading (via `RepeatEntriesStage`), so the manifest file is read only once. The pipeline scales well with XennaExecutor auto-allocating workers per stage via the CompositeStage reader (FilePartitioningStage + ManifestReaderStage).
 
 ## Output Files
 

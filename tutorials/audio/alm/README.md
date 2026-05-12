@@ -76,7 +76,7 @@ Expected output:
 PIPELINE COMPLETE
 ==================================================
   Output entries: 5
-  [alm_manifest_reader]
+  [manifest_reader]
     process_time: mean=0.0030s, total=0.01s
     items_processed: 0
   [alm_data_builder]
@@ -88,7 +88,7 @@ PIPELINE COMPLETE
     items_processed: 5
     output_windows (after overlap): 25
     filtered_audio_duration: 3035.5s
-  [alm_manifest_writer]
+  [manifest_writer]
     process_time: mean=0.0001s, total=0.00s
     items_processed: 5
 ```
@@ -181,10 +181,10 @@ python tutorials/audio/alm/main.py \
 ### Override Notes
 
 Match indices in `stages` list in `pipeline.yaml`:
-- `stages.0.*`: ALMManifestReaderStage parameters
+- `stages.0.*`: ManifestReader parameters
 - `stages.1.*`: ALMDataBuilderStage parameters
 - `stages.2.*`: ALMDataOverlapStage parameters
-- `stages.3.*`: ALMManifestWriterStage parameters
+- `stages.3.*`: ManifestWriterStage parameters
 
 ## Input Format
 
@@ -366,14 +366,14 @@ PIPELINE COMPLETE
 ==================================================
   [file_partitioning]
     items_processed: 0
-  [alm_manifest_reader]
+  [manifest_reader]
     items_processed: 20
   [alm_data_builder]
     windows_created: 724
   [alm_data_overlap]
     output_windows (after overlap): 100
     filtered_audio_duration: 12142.0s
-  [alm_manifest_writer]
+  [manifest_writer]
     items_processed: 20
 ```
 
@@ -383,38 +383,52 @@ See [benchmarking/ALM_BENCHMARK.md](../../../benchmarking/ALM_BENCHMARK.md) for 
 
 ## Testing
 
-The ALM pipeline has comprehensive unit and integration tests in `tests/stages/audio/alm/`.
+The ALM pipeline has comprehensive unit and integration tests:
+- Manifest reader/writer tests: `tests/stages/audio/test_common.py`
+- ALM builder/overlap tests: `tests/stages/audio/alm/`
 
 ### Running Tests
 
 From the Curator repository root:
 
 ```bash
+# ALM-specific stages (builder + overlap)
 pytest tests/stages/audio/alm/ -v
+
+# Common stages (manifest reader/writer + utilities)
+pytest tests/stages/audio/test_common.py -v
 ```
 
 ### Test Structure
 
 ```
-tests/stages/audio/alm/
-├── conftest.py                    # Shared fixtures
-├── test_alm_manifest_reader.py    # 14 tests (3 classes)
-├── test_alm_manifest_writer.py    # 11 tests (2 classes)
-├── test_alm_data_builder.py       # 13 tests (2 classes)
-└── test_alm_data_overlap.py       # 10 tests (2 classes)
+tests/stages/audio/
+├── conftest.py                    # Shared fixtures (sample_entries, wav_filepath, etc.)
+├── test_common.py                 # ManifestReaderStage, ManifestReader, ManifestWriterStage tests
+└── alm/
+    ├── conftest.py                # ALM-specific fixtures (sample_entry, entry_with_windows)
+    ├── test_alm_data_builder.py   # 13 tests (2 classes)
+    └── test_alm_data_overlap.py   # 10 tests (2 classes)
 ```
 
-### Shared Fixtures (`conftest.py`)
+### Shared Fixtures
+
+**`tests/stages/audio/conftest.py`**:
 
 | Fixture | Description |
 |---------|-------------|
 | `sample_entries` | Loads all 5 entries from `tests/fixtures/audio/alm/sample_input.jsonl` |
+
+**`tests/stages/audio/alm/conftest.py`**:
+
+| Fixture | Description |
+|---------|-------------|
 | `sample_entry` | First entry from `sample_entries` |
 | `entry_with_windows` | `sample_entry` processed through `ALMDataBuilderStage` (pre-built windows for overlap tests) |
 
-### ALMManifestReaderStage Tests
+### ManifestReaderStage Tests (in `test_common.py`)
 
-**`TestALMManifestReaderStage`** (unit tests):
+**`TestManifestReaderStage`** (unit tests):
 
 | Test | What it verifies |
 |------|-----------------|
@@ -426,7 +440,7 @@ tests/stages/audio/alm/
 | `test_preserves_nested_data` | Nested `segments[].metrics.bandwidth` survives round-trip |
 | `test_duplicate_manifests_for_repeat` | Same path repeated 3x produces 3 batches (repeat-factor pattern) |
 
-**`TestALMManifestReaderDirectory`**:
+**`TestManifestReaderDirectory`**:
 
 | Test | What it verifies |
 |------|-----------------|
@@ -436,31 +450,31 @@ tests/stages/audio/alm/
 | `test_composite_discovers_nested_directory` | Composite stage discovers nested directories end-to-end |
 | `test_ignores_non_jsonl_files` | Non-JSONL files in the directory are skipped |
 
-**`TestALMManifestReaderIntegration`**:
+**`TestManifestReaderIntegration`**:
 
 | Test | What it verifies |
 |------|-----------------|
 | `test_reads_sample_fixture` | Reads the real `sample_input.jsonl` fixture, verifies 5 entries with segments |
 | `test_composite_end_to_end_with_directory` | Composite reader processes a directory of manifests end-to-end |
 
-### ALMManifestWriterStage Tests
+### ManifestWriterStage Tests (in `test_common.py`)
 
-**`TestALMManifestWriter`** (unit tests):
+**`TestManifestWriterStage`** (unit tests):
 
 | Test | What it verifies |
 |------|-----------------|
 | `test_writes_entry_to_jsonl` | Entry written as JSONL line with correct `audio_filepath` |
-| `test_returns_file_group_task` | Returns `FileGroupTask` with output path, task_id, dataset_name |
+| `test_returns_audio_task` | Returns `AudioTask` with correct data, task_id, dataset_name |
 | `test_propagates_metadata_and_stage_perf` | `_metadata` and `_stage_perf` pass through to output task |
 | `test_appends_across_multiple_process_calls` | 3 sequential `process()` calls produce 3 lines |
-| `test_setup_on_node_truncates_existing_file` | `setup_on_node()` clears pre-existing file content |
+| `test_setup_truncates_existing_file` | `setup()` clears pre-existing file content |
 | `test_setup_on_node_creates_parent_directories` | `setup_on_node()` creates nested directories for output path |
 | `test_handles_unicode_content` | Japanese and accented characters survive write/read |
 | `test_preserves_nested_structures` | `windows[].segments[]` and `stats` dict survive serialization |
 | `test_num_workers_returns_one` | `num_workers()` returns 1 (single-writer constraint) |
 | `test_xenna_stage_spec` | Returns `{"num_workers": 1}` |
 
-**`TestALMManifestWriterRoundTrip`**:
+**`TestManifestWriterRoundTrip`**:
 
 | Test | What it verifies |
 |------|-----------------|
@@ -521,6 +535,10 @@ tests/stages/audio/alm/
 - For large manifests, consider processing in batches or using `--repeat-factor` for scale testing
 
 ## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| SIGSEGV / actor crash during model load | See [Known Issues](../README.md#known-issues) — set `OTEL_SDK_DISABLED=true` |
 
 ### No Windows Generated
 

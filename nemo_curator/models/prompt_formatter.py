@@ -18,12 +18,15 @@ import numpy as np
 import torch
 from transformers import AutoProcessor
 
+from nemo_curator.models.nemotron_3_nano_omni import _HF_MODEL_ID as _NEMOTRON_3_NANO_OMNI_HF_ID
 from nemo_curator.models.nemotron_h_vl import _NEMOTRON_VARIANTS_INFO
 
 # Mapping of variants to their HuggingFace model IDs
 VARIANT_MAPPING: dict[str, str] = {
-    "qwen": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "qwen2.5": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "qwen3": "Qwen/Qwen3-VL-8B-Instruct",
     **_NEMOTRON_VARIANTS_INFO,
+    "nemotron-3-nano-omni": _NEMOTRON_3_NANO_OMNI_HF_ID,
 }
 
 
@@ -31,14 +34,14 @@ class PromptFormatter:
     """Unified prompt formatter for VLM models using HuggingFace AutoProcessor.
 
     Supports both Qwen and Nemotron model variants. Uses AutoProcessor.from_pretrained()
-    to load the appropriate tokenizer and chat template from HuggingFace Hub.
+    to load the appropriate tokenizer and chat template from HuggingFace Hub or a local path.
     """
 
     def __init__(self, prompt_variant: str):
         """Initialize the prompt formatter.
 
         Args:
-            prompt_variant: Model variant to use (e.g., "qwen", "nemotron", "nemotron-fp8").
+            prompt_variant: Model variant to use (e.g., "qwen", "nemotron", "nemotron-fp8", "nemotron-3-nano-omni").
         """
         if prompt_variant not in VARIANT_MAPPING:
             msg = f"Invalid prompt variant: {prompt_variant}. Valid variants are: {', '.join(VARIANT_MAPPING.keys())}"
@@ -73,8 +76,8 @@ class PromptFormatter:
                 - "multi_modal_data": Dictionary containing processed "video" inputs
 
         """
-        if self.prompt_variant == "qwen":
-            return self._generate_qwen_inputs(prompt, video_inputs, override_text_prompt)
+        if self.prompt_variant in {"qwen2.5", "qwen3"}:
+            return self._generate_qwen_inputs(prompt, video_inputs, override_text_prompt, fps)
 
         if self.prompt_variant.startswith("nemotron"):
             return self._generate_nemotron_inputs(prompt, video_inputs, fps)
@@ -87,6 +90,7 @@ class PromptFormatter:
         prompt: str,
         video_inputs: torch.Tensor | None,
         override_text_prompt: bool,
+        fps: float = 2.0,
     ) -> dict[str, Any]:
         """Generate inputs for Qwen models."""
         message = self._create_qwen_message(prompt)
@@ -96,9 +100,17 @@ class PromptFormatter:
                 tokenize=False,
                 add_generation_prompt=True,
             )
+        video_data = video_inputs
+        if video_inputs is not None:
+            video_np = self._convert_to_numpy(video_inputs)
+            num_frames = video_np.shape[0]
+            video_data = (
+                video_np,
+                {"fps": fps, "frames_indices": list(range(num_frames)), "total_num_frames": num_frames},
+            )
         return {
             "prompt": self.text_prompt,
-            "multi_modal_data": {"video": video_inputs},
+            "multi_modal_data": {"video": video_data},
         }
 
     def _generate_nemotron_inputs(
@@ -111,16 +123,21 @@ class PromptFormatter:
 
         Nemotron requires video metadata (fps, frames_indices) for vLLM processing.
         """
-        # Format messages for Nemotron
         messages = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": [{"type": "text", "text": f"<video>\n{prompt}"}]},
         ]
 
+        # Omni model has a thinking-enabled chat template; disable it for captioning
+        template_kwargs: dict[str, Any] = {}
+        if self.prompt_variant == "nemotron-3-nano-omni":
+            template_kwargs["enable_thinking"] = False
+
         formatted_prompt = self.processor.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True,
+            **template_kwargs,
         )
 
         # Handle video metadata (vLLM's Nemotron processor requires this tuple format)

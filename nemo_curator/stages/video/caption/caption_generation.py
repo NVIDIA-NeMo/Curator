@@ -13,14 +13,15 @@
 # limitations under the License.
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models.nemotron_3_nano_omni import Nemotron3NanoOmni
 from nemo_curator.models.nemotron_h_vl import NemotronHVL
-from nemo_curator.models.qwen_vl import QwenVL
+from nemo_curator.models.qwen_vl import _QWEN_VARIANTS_INFO, QwenVL
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import Video, VideoTask
@@ -35,12 +36,13 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     """
 
     model_dir: str = "models/qwen"
-    model_variant: str = "qwen"
+    model_variant: str = "qwen2.5"
     caption_batch_size: int = 16
     fp8: bool = False
     max_output_tokens: int = 512
     model_does_preprocess: bool = False
     disable_mmcache: bool = False
+    vllm_kwargs: dict[str, Any] = field(default_factory=dict)
     verbose: bool = False
     generate_stage2_caption: bool = False
     stage2_prompt_text: str | None = None
@@ -53,7 +55,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], ["clips"]
 
     def _initialize_model(self) -> None:
-        if self.model_variant == "qwen":
+        if self.model_variant in _QWEN_VARIANTS_INFO:
             self.model = QwenVL(
                 model_dir=self.model_dir,
                 model_variant=self.model_variant,
@@ -62,6 +64,15 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 max_output_tokens=self.max_output_tokens,
                 model_does_preprocess=self.model_does_preprocess,
                 disable_mmcache=self.disable_mmcache,
+                **self.vllm_kwargs,
+            )
+        elif self.model_variant == "nemotron-3-nano-omni":
+            self.model = Nemotron3NanoOmni(
+                model_dir=self.model_dir,
+                caption_batch_size=self.caption_batch_size,
+                max_output_tokens=self.max_output_tokens,
+                stage2_prompt_text=self.stage2_prompt_text,
+                verbose=self.verbose,
             )
         elif self.model_variant.startswith("nemotron"):
             self.model = NemotronHVL(
@@ -77,10 +88,12 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
             raise ValueError(msg)
         self.model.setup()
 
-    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+    def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
-        if self.model_variant == "qwen":
-            QwenVL.download_weights_on_node(self.model_dir)
+        if self.model_variant in _QWEN_VARIANTS_INFO:
+            QwenVL.download_weights_on_node(self.model_dir, variant=self.model_variant)
+        elif self.model_variant == "nemotron-3-nano-omni":
+            Nemotron3NanoOmni.download_weights_on_node(self.model_dir)
         elif self.model_variant.startswith("nemotron"):
             NemotronHVL.download_weights_on_node(self.model_dir, variant=self.model_variant)
         self._initialize_model()

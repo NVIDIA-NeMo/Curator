@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import argparse
-import re
 from pathlib import Path
 
 from ruamel.yaml import YAML
@@ -40,45 +39,6 @@ def seconds_to_time(seconds: int) -> str:
     minutes, secs = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-
-def get_required_datasets(entry: dict) -> set:
-    """
-    Parse {dataset:NAME,FORMAT} patterns from entry args.
-
-    Args:
-        entry: Dictionary from nightly-benchmark.yaml entries list
-
-    Returns:
-        datasets: Set of (name, format) tuples required by the entry
-    """
-    args = entry.get("args", "")
-    # Find all {dataset:NAME,FORMAT} references in args
-    all_datasets = set(re.findall(r"\{dataset:([^,}]+),([^}]+)\}", args))
-    # Cache dirs are downloaded at runtime, so they don't need to be pre-available
-    cache_datasets = set(re.findall(r"--cache-dir=\{dataset:([^,}]+),([^}]+)\}", args))
-    # Only require datasets that are not cache dirs
-    return all_datasets - cache_datasets
-
-
-def load_available_datasets(test_paths_file: str) -> set:
-    """
-    Load available (name, format) pairs from a test-paths YAML file.
-
-    Args:
-        test_paths_file: Path to the test-paths YAML file
-
-    Returns:
-        available: Set of (name, format) tuples available for testing
-    """
-    with open(test_paths_file, encoding="utf-8") as f:
-        config = yaml.load(f)
-
-    available = set()
-    for ds in config.get("datasets", []):
-        name = ds["name"]
-        for fmt in ds.get("formats", []):
-            available.add((name, fmt["type"]))
-    return available
 
 
 def generate_job(entry: dict, scope: str) -> dict:
@@ -109,14 +69,13 @@ def generate_job(entry: dict, scope: str) -> dict:
     }
 
 
-def generate_pipeline(curator_dir: str, scope: str, test_paths: str) -> dict:
+def generate_pipeline(curator_dir: str, scope: str) -> dict:
     """
     Generate a GitLab CI pipeline from Curator benchmark entries.
 
     Args:
         curator_dir: Path to the Curator repository
         scope: Scope of the testing (nightly, release, test)
-        test_paths: Path to test-paths.yaml for dataset filtering
 
     Returns:
         pipeline: Dictionary defining the GitLab CI pipeline
@@ -128,8 +87,6 @@ def generate_pipeline(curator_dir: str, scope: str, test_paths: str) -> dict:
     if scope == "NONE":
         scope = "nightly"
 
-    available_datasets = load_available_datasets(test_paths)
-
     pipeline = {
         "include": ["curator/curator_ci_template.yml"],
     }
@@ -138,13 +95,6 @@ def generate_pipeline(curator_dir: str, scope: str, test_paths: str) -> dict:
     job_count = 0
     for entry in entries:
         if not entry.get("enabled", True):
-            continue
-
-        required = get_required_datasets(entry)
-        missing = required - available_datasets
-        if missing:
-            missing_str = ", ".join(f"{n}:{f}" for n, f in sorted(missing))
-            print(f"Skipping '{entry['name']}': unavailable dataset(s): {missing_str}")
             continue
 
         pipeline[entry["name"]] = generate_job(entry, scope)
@@ -173,16 +123,10 @@ def main() -> None:
         required=True,
         help="Scope of the tests (nightly, release, test)",
     )
-    parser.add_argument(
-        "--test-paths",
-        type=str,
-        required=True,
-        help="Path to test-paths.yaml for dataset availability filtering",
-    )
 
     args = parser.parse_args()
 
-    pipeline = generate_pipeline(args.curator_dir, args.scope, args.test_paths)
+    pipeline = generate_pipeline(args.curator_dir, args.scope)
 
     output_file = "generated_curator_benchmark_tests.yml"
     with open(output_file, "w") as f:

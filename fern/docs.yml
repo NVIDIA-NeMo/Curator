@@ -17,6 +17,23 @@ redirects:
   # https://www.buildwithfern.com/learn/docs/configuration/site-level-settings#redirects-configuration
   - source: "/nemo/curator/index.html"
     destination: "/nemo/curator/home/welcome"
+  # Version-root index.html: explicit because :path* does not match the empty-path case.
+  - source: "/nemo/curator/latest/index.html"
+    destination: "/nemo/curator/latest"
+  - source: "/nemo/curator/main/index.html"
+    destination: "/nemo/curator/main"
+  - source: "/nemo/curator/v26.04/index.html"
+    destination: "/nemo/curator/v26.04"
+  - source: "/nemo/curator/v26.02/index.html"
+    destination: "/nemo/curator/v26.02"
+  - source: "/nemo/curator/v25.09/index.html"
+    destination: "/nemo/curator/v25.09"
+  - source: "/nemo/curator/26.04/index.html"
+    destination: "/nemo/curator/v26.04"
+  - source: "/nemo/curator/26.02/index.html"
+    destination: "/nemo/curator/v26.02"
+  - source: "/nemo/curator/25.09/index.html"
+    destination: "/nemo/curator/v25.09"
   - source: "/nemo/curator/latest/:path*/index.html"
     destination: "/nemo/curator/latest/:path*"
   - source: "/nemo/curator/26.04/:path*/index.html"
@@ -51,10 +68,26 @@ redirects:
   - source: "/nemo/curator/:path*.html"
     destination: "/nemo/curator/:path*"
   # Audio concepts: legacy nested nav URLs → flat slugs (aligned with Sphinx filenames)
+  - source: "/about/concepts/audio/curation/pipeline"
+    destination: "/about/concepts/audio/curation-pipeline"
+  - source: "/about/concepts/audio/audio/batch"
+    destination: "/about/concepts/audio/audio-task"
+  - source: "/about/concepts/audio/audio-batch"
+    destination: "/about/concepts/audio/audio-task"
+  - source: "/about/concepts/audio/asr/pipeline"
+    destination: "/about/concepts/audio/asr-pipeline"
+  - source: "/about/concepts/audio/quality/metrics"
+    destination: "/about/concepts/audio/quality-metrics"
+  - source: "/about/concepts/audio/manifests/ingest"
+    destination: "/about/concepts/audio/manifests-ingest"
+  - source: "/about/concepts/audio/text/integration"
+    destination: "/about/concepts/audio/text-integration"
   - source: "/nemo/curator/about/concepts/audio/curation/pipeline"
     destination: "/nemo/curator/about/concepts/audio/curation-pipeline"
   - source: "/nemo/curator/about/concepts/audio/audio/batch"
-    destination: "/nemo/curator/about/concepts/audio/audio-batch"
+    destination: "/nemo/curator/about/concepts/audio/audio-task"
+  - source: "/nemo/curator/about/concepts/audio/audio-batch"
+    destination: "/nemo/curator/about/concepts/audio/audio-task"
   - source: "/nemo/curator/about/concepts/audio/asr/pipeline"
     destination: "/nemo/curator/about/concepts/audio/asr-pipeline"
   - source: "/nemo/curator/about/concepts/audio/quality/metrics"
@@ -79,15 +112,52 @@ redirects:
     destination: "/nemo/curator/about/concepts/video/data-flow"
   - source: "/nemo/curator/admin/deployment/slurm/image"
     destination: "/nemo/curator/admin/deployment/slurm-image"
+  # API reference: AudioBatch was renamed to AudioTask in v26.04
+  - source: "/nemo/curator/api/reference/api-reference/tasks/audio-batch"
+    destination: "/nemo/curator/v26.04/api/reference/api-reference/tasks/audio-task"
+  # Library reference: experimental backend was promoted to stable in v26.04.
+  # RayDataExecutor moved from backends.experimental.ray_data → backends.ray_data;
+  # ray_actor_pool was likewise promoted out of experimental.
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_data"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/utils"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_data/utils"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/adapter"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/adapter"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/executor"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/executor"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/raft_adapter"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/raft_adapter"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/shuffle_adapter"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/shuffle_adapter"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/utils"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/utils"
+  # Install moved from Setup & Deployment into Get Started (26.04)
+  - source: "/nemo/curator/latest/admin/installation"
+    destination: "/nemo/curator/latest/get-started/installation"
+  - source: "/nemo/curator/v26.04/admin/installation"
+    destination: "/nemo/curator/v26.04/get-started/installation"
+  - source: "/nemo/curator/admin/installation"
+    destination: "/nemo/curator/get-started/installation"
 
 title: NeMo Curator
 
 footer: ./components/CustomFooter.tsx
 
 versions:
-  - display-name: "Latest · v1.1.0 (26.02)"
+  - display-name: "Latest · v1.1.2 (26.04)"
     path: versions/latest.yml
     slug: latest
+    availability: stable
+  - display-name: "Main · preview"
+    path: versions/main.yml
+    slug: main
+    availability: beta
+  - display-name: "26.04 · v1.1.2"
+    path: versions/v26.04.yml
+    slug: v26.04
     availability: stable
   - display-name: "26.02 · v1.1.0"
     path: versions/v26.02.yml
@@ -130,6 +200,7 @@ favicon: ./assets/NVIDIA_symbol.svg
 js:
   - url: https://assets.adobedtm.com/5d4962a43b79/c1061d2c5e7b/launch-191c2462b890.min.js
     strategy: beforeInteractive
+
 
 css:
   - ./main.css

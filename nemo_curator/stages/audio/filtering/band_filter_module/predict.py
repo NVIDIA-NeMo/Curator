@@ -99,9 +99,7 @@ class BandPredictor:
 
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error processing audio for features: {e}")
-            sample_dict = AudioFeatureExtractor.get_empty_feature_dict()
-            sample_vector, _ = AudioFeatureExtractor.features_dict_to_vector(sample_dict)
-            return np.zeros_like(sample_vector)
+            return None
         else:
             return feature_vector
 
@@ -124,6 +122,8 @@ class BandPredictor:
 
         try:
             features = self.extract_features_from_audio(waveform, sample_rate)
+            if features is None:
+                return None
             prediction = self.model.predict(features.reshape(1, -1))[0]
         except Exception as e:  # noqa: BLE001
             return f"Error during prediction: {e}"

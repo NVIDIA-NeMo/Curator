@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 from runner.datasets import DatasetResolver
 from runner.entry import Entry
 from runner.path_resolver import PathResolver
-from runner.utils import get_total_memory_bytes
+from runner.utils import assert_valid_config_dict, get_total_memory_bytes
 
 
 @dataclass(kw_only=True)
@@ -46,6 +46,8 @@ class Session:
     object_store_size: int | float | str | None = 0.5
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
+    # Global ray settings inherited by all entries; per-entry ray sections override these values.
+    ray: dict = field(default_factory=dict)
     path_resolver: PathResolver = None
     dataset_resolver: DatasetResolver = None
 
@@ -76,14 +78,9 @@ class Session:
             if entry.object_store_size is None:
                 entry.object_store_size = self.object_store_size
 
-    @classmethod
-    def assert_valid_config_dict(cls, data: dict) -> None:
-        """Assert that the configuration contains the minimum required config values."""
-        required_fields = ["results_path", "datasets_path", "model_weights_path", "entries"]
-        missing_fields = [k for k in required_fields if k not in data]
-        if missing_fields:
-            msg = f"Invalid configuration: missing required fields: {missing_fields}"
-            raise ValueError(msg)
+        # Apply global ray defaults to each entry, with per-entry ray values taking precedence.
+        for entry in self.entries:
+            entry.ray = {**self.ray, **entry.ray}
 
     @classmethod
     def from_dict(cls, data: dict, entry_filter_expr: str | None = None) -> Session:
@@ -95,7 +92,7 @@ class Session:
         entry dicts to Entry objects, and returns a new Session
         object.
         """
-        cls.assert_valid_config_dict(data)
+        assert_valid_config_dict(data)
         path_resolver = PathResolver(data)
         dataset_resolver = DatasetResolver(data.get("datasets", []))
 
