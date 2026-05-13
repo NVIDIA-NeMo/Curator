@@ -24,10 +24,12 @@ from __future__ import annotations
 import glob
 import os
 import uuid
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from nemo_curator.tasks import AudioTask
+if TYPE_CHECKING:
+    from nemo_curator.tasks import AudioTask
 
 # soundfile encoding subtype for each output format.
 _SOUNDFILE_SUBTYPES = {
@@ -147,10 +149,17 @@ def make_snippet_id(original_id: str, start_sec: float, end_sec: float) -> str:
     WebDataset as a multi-piece compound key with extensions ``708``,
     ``970``, ``flac``. Using ``-`` as the field separator and ``_`` as
     the decimal mark keeps both human readability and tar-friendliness.
+
+    ``original_id`` is also sanitized for the same reason: input
+    manifests sometimes carry ids that include a ``.`` (e.g. a source
+    filename like ``meeting.wav`` or a versioned id ``session.1.2``),
+    and passing those through would re-introduce the same WebDataset
+    misparse the timestamp sanitization avoids.
     """
+    safe_id = original_id.replace(".", "_")
     start_str = f"{start_sec:.3f}".replace(".", "_")
     end_str = f"{end_sec:.3f}".replace(".", "_")
-    return f"{original_id}-{start_str}-{end_str}"
+    return f"{safe_id}-{start_str}-{end_str}"
 
 
 def histogram_30s(durations: list[float]) -> dict[str, int]:

@@ -21,11 +21,10 @@ algorithm helpers that the stages in ``planning`` / ``utils`` /
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 
 import pytest
-
-from collections import Counter
 
 from nemo_curator.stages.audio.alm.pretrain.finalize import _build_final_summary
 from nemo_curator.stages.audio.alm.pretrain.planning import (
@@ -330,6 +329,19 @@ class TestMakeSnippetId:
         sid = make_snippet_id("source-id_with-dashes", 3101.250, 3109.940)
         assert "." not in sid
         assert sid == "source-id_with-dashes-3101_250-3109_940"
+
+    def test_dots_in_original_id_are_sanitized(self) -> None:
+        # Input manifests sometimes carry an id like a source filename
+        # ("meeting.wav") or a versioned id ("session.1.2"). Those dots
+        # would otherwise survive into the snippet id and break the same
+        # WebDataset contract as dotted timestamps.
+        sid = make_snippet_id("meeting.wav", 0.0, 30.0)
+        assert "." not in sid
+        assert sid == "meeting_wav-0_000-30_000"
+
+        sid = make_snippet_id("session.1.2", 1.0, 2.5)
+        assert "." not in sid
+        assert sid == "session_1_2-1_000-2_500"
 
 
 # ----------------------------------------------------------------------
