@@ -442,6 +442,13 @@ fixable = ["ALL"]
 ".github/scripts/**" = [
     "INP001", # CI scripts; not an installable package
 ]
+".claude/skills/**/scripts/**" = [
+    "INP001", # skill verification scripts; not an installable package
+    "F401",   # imports are intentionally present to verify modules load
+    "EXE001", # invoked via `python3 verify_*.py`; shebang is informational
+    "ANN001", # type annotations not required for one-shot verification scripts
+    "ANN201", # type annotations not required for one-shot verification scripts
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

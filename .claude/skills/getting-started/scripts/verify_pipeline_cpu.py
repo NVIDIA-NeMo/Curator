@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Verify CPU-only pipeline execution works (no GPU required)."""
-import pandas as pd
+
 from dataclasses import dataclass, field
 
+import pandas as pd
+
+from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task, _EmptyTask
