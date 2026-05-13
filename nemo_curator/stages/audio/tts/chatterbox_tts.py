@@ -144,6 +144,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         self.conversation_exaggeration: dict[str, float] = {}
 
         self.temp_dir: str | None = None
+        self._rng = random.Random()
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002
         """Load the TTS model and discover reference audio files."""
@@ -285,7 +286,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         if not available:
             available = self.reference_wavs_list
 
-        selected = random.choice(available)
+        selected = self._rng.choice(available)
 
         parts = selected.split(os.sep)
         dialog_id = parts[-2]
@@ -304,9 +305,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         if not available:
             available = list(self._speaker_audio_map.keys())
 
-        chosen = random.choice(available)
-        files = self._speaker_audio_map[chosen]
-        random.shuffle(files)
+        chosen = self._rng.choice(available)
+        files = list(self._speaker_audio_map[chosen])
+        self._rng.shuffle(files)
 
         chunks: list[torch.Tensor] = []
         total_dur = 0.0
@@ -368,7 +369,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
         if conversation_id not in self.conversation_exaggeration:
             lo, hi = self.exaggeration_range
-            self.conversation_exaggeration[conversation_id] = random.uniform(lo, hi)
+            self.conversation_exaggeration[conversation_id] = self._rng.uniform(lo, hi)
         return self.conversation_exaggeration[conversation_id]
 
     def _generate_turn_audio(
@@ -423,9 +424,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     def _ensure_ready(self) -> None:
         """Lazy-init fallback when setup() was not called."""
         if self.model is None:
-            self._init_temp_dir()
-            self._load_model()
-            self._load_reference_audio_files()
+            self.setup()
 
     def process(self, task: AudioTask) -> AudioTask:
         """Generate audio for a single conversation turn."""
