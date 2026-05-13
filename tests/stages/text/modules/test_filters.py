@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import re
 
 import numpy as np
 import pandas as pd
@@ -57,6 +58,7 @@ from nemo_curator.stages.text.filters.heuristic.repetition import (
 )
 from nemo_curator.stages.text.filters.histogram import HistogramFilter
 from nemo_curator.stages.text.filters.token import TokenCountFilter
+from nemo_curator.stages.text.utils.constants import regex_url
 from nemo_curator.tasks import DocumentBatch
 
 
@@ -554,6 +556,59 @@ class TestHeuristicFilters:
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_url_regex_does_not_swallow_html_tags(self) -> None:
+        # Regression for #1601. The old `[$-_...]` range silently matched
+        # `<`, `>`, `;`, `"`, etc., so a URL match bled past the URL into
+        # surrounding HTML/punctuation.
+        assert regex_url.findall("see http://x.com<bad> for details") == ["http://x.com"]
+        assert regex_url.findall("click http://example.com;next") == ["http://example.com"]
+
+    def test_url_regex_matches_path_query_and_hash(self) -> None:
+        # Path `/`, query `?key=val`, and fragment `#section` were
+        # previously matched only as a side effect of the broken range.
+        assert regex_url.findall("http://example.com/foo/bar baz") == ["http://example.com/foo/bar"]
+        assert regex_url.findall("https://x.com/path?q=foo#section here") == ["https://x.com/path?q=foo#section"]
+
+    def test_url_regex_still_matches_allowed_characters(self) -> None:
+        # Characters the original class intended to allow: letters,
+        # digits, `$`, `_`, `@`, `.`, `&`, `+`, `-`, `!`, `*`, `(`, `)`,
+        # `,`, `/`, and percent-encoded escapes.
+        text = "ref https://A.B-C_D+E&f!*(g),h/i%2F end"
+
+        assert regex_url.findall(text) == ["https://A.B-C_D+E&f!*(g),h/i%2F"]
+
+    def test_urls_filter_accepts_custom_regex(self) -> None:
+        # Per the discussion on #1601, the URL regex should be
+        # customizable on the filter so callers can swap in a stricter or
+        # looser pattern (e.g. `r"https?://[^\s]+"`).
+        dataset = list_to_dataset(
+            [
+                "ftp://files.example.com/archive.tar.gz",
+                "no urls here!",
+                "https://www.nvidia.com/en-us/",
+            ]
+        )
+        # Custom regex matches `ftp://` URLs that the default does not.
+        filters = ScoreFilter(UrlsFilter(url_regex=r"ftp://[^\s]+"))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": ["no urls here!", "https://www.nvidia.com/en-us/"]}),
+            task_id="batch_1_urls_ratio",
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_urls_filter_accepts_compiled_pattern(self) -> None:
+        # The custom regex argument should also accept a pre-compiled
+        # `re.Pattern` instance, not just a string.
+        compiled = re.compile(r"https?://[^\s]+")
+        urls_filter = UrlsFilter(url_regex=compiled)
+
+        # The constructor stores the same compiled object, not a re-compile.
+        assert urls_filter._url_regex is compiled
 
     def test_bullets(self) -> None:
         dataset = list_to_dataset(
