@@ -12,34 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""vLLM model wrappers for text generation.
-
-Provides:
-- :class:`VLLMBase` — shared base with engine, tokenizer, generation, and cleanup.
-- :class:`VLLMModel` — generic vLLM wrapper implementing :class:`ModelInterface`.
-- :class:`VLLMInference` — chat-template-aware helper with prompt formatting,
-  batched generation, and GPU cleanup (used by audio PNC stages).
-"""
-
-from __future__ import annotations
-
-import gc
-import os
-import time
 from typing import Any
 
-import torch
-import torch.distributed as dist
-import yaml
-from huggingface_hub import snapshot_download
 from loguru import logger
-from transformers import AutoTokenizer
 
 from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils.gpu_utils import get_gpu_count, get_max_model_len_from_config
 
 try:
-    os.environ.setdefault("VLLM_USE_V1", "0")
     from vllm import LLM, SamplingParams
 
     VLLM_AVAILABLE = True
@@ -53,79 +33,7 @@ except ImportError:
         pass
 
 
-class VLLMBase:
-    """Shared vLLM engine management: LLM creation, SamplingParams, tokenizer.
-
-    Provides protected helpers for subclasses to initialize the vLLM engine,
-    load a tokenizer, run generation, and release GPU resources.  Not intended
-    for direct instantiation.
-    """
-
-    llm: LLM | None = None
-    sampling_params: SamplingParams | None = None
-    tokenizer: AutoTokenizer | None = None
-
-    def _init_engine(self, model_kwargs: dict[str, Any], sampling_kwargs: dict[str, Any]) -> None:
-        """Create the vLLM ``LLM`` engine and ``SamplingParams``.
-
-        Args:
-            model_kwargs: Keyword arguments forwarded to ``vllm.LLM``.
-            sampling_kwargs: Keyword arguments forwarded to ``vllm.SamplingParams``.
-        """
-        os.environ.setdefault("VLLM_USE_V1", "0")
-        start_time = time.time()
-        try:
-            self.llm = LLM(**model_kwargs)
-        except Exception as e:
-            logger.error(f"Failed to load vLLM model: {e}")
-            msg = f"Model loading failed: {e}"
-            raise RuntimeError(msg) from e
-        logger.info(f"Time taken to load model: {round((time.time() - start_time) / 60, 2)} minutes")
-        self.sampling_params = SamplingParams(**sampling_kwargs)
-
-    def _init_tokenizer(self, model_name: str) -> None:
-        """Load a HuggingFace tokenizer from a model name or local path."""
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-    def _generate(self, prompts: list, use_chat: bool = False) -> list:
-        """Run generation (or chat) on the loaded engine.
-
-        Args:
-            prompts: List of prompt strings (for generate) or message dicts (for chat).
-            use_chat: If True, use ``llm.chat()`` instead of ``llm.generate()``.
-
-        Returns:
-            List of vLLM ``RequestOutput`` objects.
-
-        Raises:
-            RuntimeError: If the engine is not initialized or generation fails.
-        """
-        if self.llm is None:
-            msg = "LLM not initialized. Call setup() first."
-            raise RuntimeError(msg)
-        try:
-            if use_chat:
-                return self.llm.chat(prompts, self.sampling_params)
-            return self.llm.generate(prompts, self.sampling_params)
-        except Exception as e:
-            logger.error(f"Failed to generate outputs: {e}")
-            msg = f"Generation failed: {e}"
-            raise RuntimeError(msg) from e
-
-    def _cleanup_gpu(self, device: str = "cuda") -> None:
-        """Release GPU memory: delete engine, destroy process group, empty cache."""
-        if self.llm is not None:
-            del self.llm
-            self.llm = None
-        if dist.is_initialized():
-            dist.destroy_process_group()
-        gc.collect()
-        if device == "cuda":
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-
-
-class VLLMModel(VLLMBase, ModelInterface):
+class VLLMModel(ModelInterface):
     """Generic vLLM language model wrapper for text generation."""
 
     def __init__(  # noqa: PLR0913
@@ -169,8 +77,8 @@ class VLLMModel(VLLMBase, ModelInterface):
         self.min_p = min_p
         self.max_tokens = max_tokens
         self.cache_dir = cache_dir
-        self.llm: LLM | None = None
-        self.sampling_params: SamplingParams | None = None
+        self._llm: LLM | None = None
+        self._sampling_params: SamplingParams | None = None
         self._final_max_model_len: int | None = None
         self._is_qwen3: bool = False
 
@@ -218,6 +126,9 @@ class VLLMModel(VLLMBase, ModelInterface):
             f"max_num_batched_tokens={final_max_batched}"
         )
 
+        self._llm = LLM(**llm_kwargs)
+        self._final_max_model_len = final_max_model_len
+
         max_gen_tokens = self.max_tokens if self.max_tokens is not None else final_max_model_len
         if max_gen_tokens is None:
             logger.warning(
@@ -242,16 +153,19 @@ class VLLMModel(VLLMBase, ModelInterface):
         else:
             sampling_kwargs["top_p"] = self.top_p
 
-        self._init_engine(llm_kwargs, sampling_kwargs)
-        self._final_max_model_len = final_max_model_len
+        self._sampling_params = SamplingParams(**sampling_kwargs)
         self._is_qwen3 = is_qwen3
 
-    def generate(self, prompts: list[str]) -> list[str]:
+    def generate(
+        self,
+        prompts: list[str],
+    ) -> list[str]:
         """
         Generate text from prompts.
 
         Args:
-            prompts: List of prompt strings.
+            prompts: List of prompt strings or list of message dicts
+                (for chat template).
 
         Returns:
             List of generated text strings.
@@ -259,178 +173,24 @@ class VLLMModel(VLLMBase, ModelInterface):
         Raises:
             RuntimeError: If the model is not set up or generation fails.
         """
-        outputs = self._generate(prompts)
-        return [out.outputs[0].text if out.outputs else "" for out in outputs]
+        if self._llm is None or self._sampling_params is None:
+            msg = "Model not initialized. Call setup() first."
+            raise RuntimeError(msg)
+
+        try:
+            outputs = self._llm.generate(
+                prompts,
+                sampling_params=self._sampling_params,
+                use_tqdm=False,
+            )
+            return [out.outputs[0].text if out.outputs else "" for out in outputs]
+        except (RuntimeError, ValueError, TypeError) as e:
+            msg = f"Error generating text: {e}"
+            raise RuntimeError(msg) from e
 
     def get_tokenizer(self) -> Any:  # noqa: ANN401
         """Get the tokenizer from the LLM instance."""
-        if self.llm is None:
+        if self._llm is None:
             msg = "Model not initialized. Call setup() first."
             raise RuntimeError(msg)
-        return self.llm.get_tokenizer()
-
-
-class VLLMInference(VLLMBase):
-    """Chat-template-aware vLLM helper with prompt formatting and GPU cleanup.
-
-    This is a plain (non-stage) class that wraps a vLLM ``LLM`` engine with
-    chat-template prompt formatting, model loading, batched generation, and
-    GPU cleanup.  Stage subclasses (e.g. ``PNCwithvLLMInferenceStage``) compose
-    or inherit from it to get inference capabilities while plugging into the
-    Curator pipeline lifecycle.
-
-    Supports three prompt configuration modes:
-    - a static prompt template (``prompt``)
-    - a per-entry field containing the prompt (``prompt_field``)
-    - a YAML file containing the prompt structure (``prompt_file``)
-    """
-
-    def __init__(  # noqa: PLR0913
-        self,
-        prompt: dict[str, str] | None = None,
-        prompt_field: str | None = None,
-        prompt_file: str | None = None,
-        generation_field: str = "generation",
-        model: dict[str, Any] | None = None,
-        inference: dict[str, Any] | None = None,
-        apply_chat_template: dict[str, Any] | None = None,
-        use_chat_api: bool = False,
-        device: str = "cpu",
-    ):
-        if model is None:
-            model = {}
-        if inference is None:
-            inference = {}
-        if apply_chat_template is None:
-            apply_chat_template = {}
-
-        self.generation_field = generation_field
-        self.prompt = prompt
-        self.prompt_field = prompt_field
-        self.device = device
-
-        prompt_args_counter = sum(
-            [
-                prompt is not None,
-                prompt_field is not None,
-                prompt_file is not None,
-            ]
-        )
-        if prompt_args_counter < 1:
-            msg = "One of `prompt`, `prompt_field` or `prompt_file` should be provided."
-            raise ValueError(msg)
-        if prompt_args_counter > 1:
-            err: list[str] = []
-            if prompt:
-                err.append(f"`prompt` ({prompt})")
-            if prompt_field:
-                err.append(f"`prompt_field` ({prompt_field})")
-            if prompt_file:
-                err.append(f"`prompt_file` ({prompt_file})")
-            msg = f"Found more than one prompt values: {', '.join(err)}."
-            raise ValueError(msg)
-
-        if prompt_file:
-            self.prompt = self._read_prompt_file(prompt_file)
-
-        self.model_params = model
-        self.inference_params = inference
-        self.chat_template_params = apply_chat_template
-        self.use_chat_api = use_chat_api or "tokenizer_mode" in model
-
-        self.llm: LLM | None = None
-        self.sampling_params: SamplingParams | None = None
-        self.tokenizer: AutoTokenizer | None = None
-
-    def setup_on_node(self) -> None:
-        """Download model weights and tokenizer to the local cache.
-
-        Called once per node before workers start.  Only downloads artifacts
-        (no GPU memory used) so that :meth:`setup` can load instantly.
-        Stores the local snapshot path so subsequent ``setup()`` calls use
-        the cached path directly instead of resolving from HuggingFace.
-        """
-        model_name = self.model_params.get("model", "")
-        if model_name:
-            local_path = snapshot_download(repo_id=model_name)
-            self.model_params["model"] = local_path
-            AutoTokenizer.from_pretrained(local_path)
-
-    def setup(self) -> None:
-        """Instantiate the vLLM engine on the target device.
-
-        Called once per worker.  Detects CUDA availability, then loads the
-        model.  If :meth:`setup_on_node` was not called first, the tokenizer
-        and sampling params are created here as well.
-        """
-        if self.device == "cuda" and not torch.cuda.is_available():
-            msg = "CUDA is not available, but CUDA device is requested"
-            raise RuntimeError(msg)
-
-        if self.device == "cuda":
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-
-        if self.tokenizer is None:
-            model_name = self.model_params.get("model")
-            if not model_name:
-                msg = "'model' key is required in model_params but was not provided."
-                raise ValueError(msg)
-            self._init_tokenizer(model_name)
-
-        self._init_engine(self.model_params, self.inference_params)
-
-    @staticmethod
-    def _read_prompt_file(prompt_filepath: str) -> dict:
-        """Read a YAML file with a chat-style prompt template."""
-        with open(prompt_filepath) as f:
-            return yaml.safe_load(f)
-
-    def get_entry_prompt(self, data_entry: dict) -> str | list[dict]:
-        """Format the prompt for a single data entry using the chat template."""
-        prompt = self.prompt
-        if self.prompt_field:
-            prompt = data_entry.get(self.prompt_field)
-            if prompt is None:
-                logger.warning(f"prompt_field '{self.prompt_field}' missing from entry; skipping.")
-                return []
-
-        try:
-            entry_chat = [{"role": role, "content": prompt[role].format(**data_entry)} for role in prompt]
-        except (KeyError, TypeError, ValueError) as e:
-            logger.error(f"Error formatting prompt template: {e}")
-            return []
-
-        if self.use_chat_api:
-            return entry_chat
-
-        try:
-            return self.tokenizer.apply_chat_template(entry_chat, **self.chat_template_params)
-        except (TypeError, ValueError, KeyError, RuntimeError) as e:
-            logger.error(f"Error applying chat template: {e}")
-            if self.use_chat_api:
-                return entry_chat
-            return []
-
-    def process_batch(self, entry_prompts: list) -> list:
-        """Run a single generation call on a batch of prompts."""
-        return self._generate(entry_prompts, use_chat=self.use_chat_api)
-
-    def process_entry_prompts(self, entry_prompts: list, batch_size: int = 10000) -> list:
-        """Generate in batches, then clean up."""
-        if self.llm is None:
-            msg = "VLLMInference.setup() must be called before process_entry_prompts()."
-            raise RuntimeError(msg)
-        start_time = time.time()
-        outputs: list = []
-        for i in range(0, len(entry_prompts), batch_size):
-            batch = entry_prompts[i : i + batch_size]
-            outputs.extend(self.process_batch(batch))
-        logger.info(f"Time taken to generate outputs: {round((time.time() - start_time) / 60, 2)} minutes")
-        logger.info("Cleaning up!")
-        self.clean_up()
-        return outputs
-
-    def clean_up(self) -> None:
-        """Release GPU memory occupied by the vLLM engine."""
-        self._cleanup_gpu(self.device)
+        return self._llm.get_tokenizer()

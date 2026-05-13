@@ -15,10 +15,10 @@ The audio tagging pipeline is a generic processing framework that takes raw audi
  └──────────────────┘    └──────────────────┘    └──────────────────┘    └────────┬─────────┘
                                                                                   │
                                                                                   ▼
- ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
- │      Merge       │◀───│    Join Split    │◀───│ PNC + Clean LLM  │◀───│    ASR Align     │
- │    Align+Diar    │    │     Metadata     │    │ (optional)       │    │   (1st pass)     │
- └────────┬─────────┘    └──────────────────┘    └──────────────────┘    └──────────────────┘
+ ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+ │      Merge       │◀───│    Join Split    │◀───│    ASR Align     │
+ │    Align+Diar    │    │     Metadata     │    │   (1st pass)     │
+ └────────┬─────────┘    └──────────────────┘    └──────────────────┘
           │
           ▼
  ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
@@ -27,25 +27,25 @@ The audio tagging pipeline is a generic processing framework that takes raw audi
  └──────────────────┘    └──────────────────┘    └────────┬─────────┘                            │
                                                           │
                                                           ▼                                      │
-                                                 ┌──────────────────┐    ┌────────────────┐
-                                                 │    ASR Align     │───▶│ PNC + Clean LLM│      │
-                                                 │    (2nd pass)    │    │  (optional)    │
-                                                 └──────────────────┘    └───────┬────────┘      │
-                                                                                 │
-                                                                                 ▼               │
-                                                                         ┌────────────────┐
-                                                                         │  Compute WER   │      │
-                                                                         │                │
-                                                                         └───────┬────────┘      │
-                                                                                 │
-                                                                                 ▼               │
-                                                                         ┌────────────────┐
-                                                                         │    Manifest    │◀─────┘
-                                                                         │     Writer     │
-                                                                         └────────────────┘
+                                                 ┌──────────────────┐
+                                                 │    ASR Align     │                            │
+                                                 │    (2nd pass)    │
+                                                 └────────┬─────────┘                            │
+                                                          │
+                                                          ▼                                      │
+                                                 ┌────────────────┐
+                                                 │  Compute WER   │                              │
+                                                 │                │
+                                                 └───────┬────────┘                              │
+                                                         │
+                                                         ▼                                       │
+                                                 ┌────────────────┐
+                                                 │    Manifest    │◀─────────────────────────────┘
+                                                 │     Writer     │
+                                                 └────────────────┘
 ```
 
-The dashed path shows that `ManifestWriter` can follow directly after `PrepareModuleSegments` (e.g. the default TTS config) or after the optional second-pass ASR + WER stages (e.g. the ASR config). The **PNC + Clean LLM** blocks (labelled "optional") show where LLM-based punctuation and capitalization can be inserted — after 1st-pass ASR (to improve segmentation) and/or after 2nd-pass ASR (to improve final transcripts).
+The dashed path shows that `ManifestWriter` can follow directly after `PrepareModuleSegments` (e.g. the default TTS config) or after the optional second-pass ASR + WER stages (e.g. the ASR config).
 
 ### Pipeline Stages
 
@@ -64,9 +64,7 @@ The dashed path shows that `ManifestWriter` can follow directly after `PrepareMo
 | 8 | **TorchSquimQualityMetricsStage** | PESQ, STOI, SI-SDR quality metrics | Yes |
 | 9 | **PrepareModuleSegmentsStage** | Merge/split segments into training-ready chunks for the target modality. Uses `min_duration` and `max_duration` (in seconds) to form segments suitable for ASR/TTS training. Controlled by the `module` parameter (`tts`, `asr`, etc.) and also considers pauses and punctuation for splitting. | No |
 
-> **Punctuation matters**: `PrepareModuleSegmentsStage` relies heavily on punctuation marks (`.`, `!`, `?`) to identify natural utterance boundaries when forming segments. If the ASR model produces unpunctuated text, segments will be split purely by duration and pause heuristics, leading to mid-sentence breaks. To get high-quality segments you should either:
-> 1. Use a **unified ASR model** that outputs punctuated and capitalised text natively, or
-> 2. Apply **LLM-based PNC** (`PNCwithvLLMInferenceStage` + `CleanLLMOutputStage`) after ASR — see [PNC with LLM](#pnc-with-llm-punctuation--capitalization) below.
+> **Punctuation matters**: `PrepareModuleSegmentsStage` relies heavily on punctuation marks (`.`, `!`, `?`) to identify natural utterance boundaries when forming segments. If the ASR model produces unpunctuated text, segments will be split purely by duration and pause heuristics, leading to mid-sentence breaks. Use an ASR model that outputs punctuated and capitalised text natively for best results.
 
 #### Optional Second-Pass ASR & WER Stages
 
@@ -77,17 +75,6 @@ These stages can be appended after `PrepareModuleSegments` in any modality confi
 | 10 | **NeMoASRAlignerStage** (2nd pass) | Second-pass ASR transcription (e.g. CTC Conformer) | Yes |
 | 11 | **ComputeWERStage** | Word/character error rate between first and second ASR transcripts | No |
 
-#### Optional PNC with LLM Stages
-
-Punctuation and capitalization (PNC) via a vLLM language model can be inserted at one or both of these points in the pipeline to add punctuation and proper casing to ASR transcripts. This improves downstream segmentation quality for TTS and ASR training data, since `PrepareModuleSegmentsStage` uses punctuation to find natural utterance boundaries.
-
-| Stage | Description | GPU |
-|-------|-------------|-----|
-| **PNCwithvLLMInferenceStage** | Generate punctuated/capitalised text using a vLLM-backed LLM (e.g. `Qwen/Qwen2.5-1.5B-Instruct`). Processes segments or top-level text depending on configuration. | Yes |
-| **CleanLLMOutputStage** | Post-process LLM output: strip artefacts, validate against allowed vocabulary, compare CER with original ASR text, and optionally update word-level alignment. Entries exceeding the CER threshold are flagged with `use_bert_pnc=True`. | No |
-
-See [PNC with LLM](#pnc-with-llm-punctuation--capitalization) below for detailed usage.
-
 #### Optional Text Normalization Stages
 
 These stages can be inserted after merging (stage 6) for language-specific text processing:
@@ -96,122 +83,6 @@ These stages can be inserted after merging (stage 6) for language-specific text 
 |-------|-------------|-----|
 | **InverseTextNormalizationStage** | Inverse text normalization (spoken → written) | No |
 | **ChineseConversionStage** | Traditional → Simplified Chinese conversion | No |
-
-## PNC with LLM (Punctuation & Capitalization)
-
-Raw ASR output is typically unpunctuated lowercase text. Adding punctuation and capitalization improves segment boundaries (for TTS and ASR training) and transcript readability. The PNC with LLM block uses a vLLM-backed language model to add punctuation and capitalization, followed by a cleaning stage that validates the output.
-
-### Where to Insert PNC
-
-The PNC block (`PNCwithvLLMInferenceStage` → `CleanLLMOutputStage`) can be inserted at two points:
-
-**After 1st-pass ASR** (recommended for TTS/ASR pipelines):
-- Inserted between `NeMoASRAlignerStage` and `JoinSplitAudioMetadataStage`
-- Operates on the top-level `text` field (set `segments_key: "split_metadata"`)
-- Uses `cer_threshold: 0` and `update_alignment: true` so that word-level alignment timestamps are updated with punctuated words only when character sequences match exactly
-- Improves segmentation quality in `PrepareModuleSegmentsStage` since it uses punctuation marks to find natural utterance boundaries
-
-**After 2nd-pass ASR** (for transcript quality):
-- Inserted between `ComputeWER` and `ManifestWriterStage`
-- Operates per-segment on the `text_2` field
-- Uses `cer_threshold: 0.01` with no alignment update
-- Improves final transcript quality for downstream training
-
-Both insertion points can be used together in the same pipeline.
-
-### Pipeline Configurations
-
-Three test configurations demonstrate the different usage patterns:
-
-| Config | Description | Key Settings |
-|--------|-------------|--------------|
-| `pnc_llm_pipeline.yaml` | Standalone: apply PNC to any manifest with a text field | `text_key: text_2`, no alignment update |
-| `pnc_llm_pipeline_first_pass.yaml` | Full pipeline with PNC after 1st-pass ASR | `segments_key: "split_metadata"`, `update_alignment: true`, `cer_threshold: 0` |
-| `pnc_llm_pipeline_second_pass.yaml` | Full pipeline with PNC after 2nd-pass ASR | Per-segment PNC, `cer_threshold: 0.01`, no alignment update |
-
-### Standalone PNC Usage
-
-The PNC block can also be applied to **any manifest containing a text field**, independent of the audio tagging pipeline. This is useful for adding punctuation to existing ASR transcripts or any text dataset. Adjust `text_key`, `prompt`, and `vocab_set`/`vocab_file` to match your data:
-
-```yaml
-stages:
-  - _target_: nemo_curator.stages.audio.common.ManifestReader
-    manifest_path: ${input_manifest}
-
-  - _target_: nemo_curator.stages.audio.tagging.text.pnc.PNCwithvLLMInferenceStage
-    text_key: "text"                    # key holding your text
-    prompt_file: "prompts/pnc_en.yaml"  # your prompt template
-    generation_field: "text_pnc"
-    model_params:
-      model: "Qwen/Qwen2.5-1.5B-Instruct"
-      dtype: float16
-      gpu_memory_utilization: 0.9
-    sampling_params:
-      temperature: 0.0
-      max_tokens: 512
-    resources:
-      gpus: 1
-
-  - _target_: nemo_curator.stages.audio.tagging.text.pnc.CleanLLMOutputStage
-    generation_field: "text_pnc"
-    asr_pred_text_key: "text"
-    cer_threshold: 0.01
-    punct_marks: ".,?"
-    vocab_set: "abcdefghijklmnopqrstuvwxyz' "  # adjust for your language
-
-  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
-    output_path: ${final_manifest}
-```
-
-For other languages, provide a `vocab_file` path instead of `vocab_set` and customize the prompt to match. The `prompt_file` YAML contains the chat-format instructions for the LLM (e.g. "Add punctuation and capitalization to the following text").
-
-### Recommended Model: Qwen3-32B
-
-The open-source **Qwen/Qwen3-32B** model performs well on punctuation and capitalization tasks across multiple languages and produces reliable, low-hallucination output. For production workloads with multi-GPU nodes, use the following configuration:
-
-```yaml
-- _target_: nemo_curator.stages.audio.tagging.text.pnc.PNCwithvLLMInferenceStage
-    text_key: "${text_key}"
-    prompt_file: "prompts/pnc_en.yaml"
-    generation_field: "${pnc_text_key}"
-    inference_batch_size: 20000
-    model_params:
-      model: Qwen/Qwen3-32B
-      tensor_parallel_size: 2        # shard across 2 GPUs
-      max_model_len: 1024
-      max_num_batched_tokens: 8192
-      enable_chunked_prefill: true
-      dtype: float16
-      gpu_memory_utilization: 0.95
-      max_num_seqs: 32
-      enforce_eager: false
-    sampling_params:
-      temperature: 0.7
-      top_p: 0.8
-      repetition_penalty: 1.05
-      max_tokens: 512
-    chat_template_params:
-      tokenize: false
-      add_generation_prompt: true
-      enable_thinking: false          # disable chain-of-thought for faster inference
-    resources:
-      gpus: 2
-```
-
-For smaller-scale or single-GPU setups, `Qwen/Qwen2.5-1.5B-Instruct` (shown in the standalone example above) provides a good balance between quality and resource usage.
-
-### CleanLLMOutputStage Behavior
-
-The cleaning stage performs these checks on each LLM output:
-
-1. **Strip artefacts**: Removes brackets, special characters, markdown formatting, and common LLM prefixes like "The input text is"
-2. **CER comparison**: Computes Character Error Rate between the cleaned LLM output and original ASR text (after stripping punctuation from both)
-3. **Validity check**: Ensures all characters are in the allowed vocabulary set
-4. **Digit check**: Flags outputs containing digits (LLMs sometimes hallucinate numbers)
-
-If any check fails, the entry is flagged with `use_bert_pnc=True` for downstream handling.
-
-When `update_alignment: true` (1st-pass ASR mode), the stage writes the punctuated words back into the word-level alignment entries, preserving the original timestamps. This only happens when the character sequences match exactly (`cer_threshold: 0`).
 
 ## Installation
 
@@ -268,10 +139,9 @@ python tutorials/audio/tagging/main.py \
 For ASR training data, combine these optional blocks to maximise transcript quality:
 
 1. **Filter by WER**: After the second-pass ASR and `ComputeWERStage`, filter segments with `wer <= 10%` to keep only samples where the two ASR passes agree closely. This is a strong signal that the transcript is correct.
-2. **Add PNC**: Insert the [PNC with LLM](#pnc-with-llm-punctuation--capitalization) block after 1st-pass ASR (to improve segmentation boundaries) and/or after 2nd-pass ASR (to produce properly punctuated and capitalised final transcripts).
-3. **Apply ITN**: Insert `InverseTextNormalizationStage` to convert spoken-form text (e.g. "twenty three") to written form (e.g. "23") for training data that requires normalised text.
+2. **Apply ITN**: Insert `InverseTextNormalizationStage` to convert spoken-form text (e.g. "twenty three") to written form (e.g. "23") for training data that requires normalised text.
 
-These blocks compose naturally — PNC, ITN, and WER filtering each address a different axis of data quality and can all be enabled in a single pipeline run.
+These blocks compose naturally — ITN and WER filtering each address a different axis of data quality and can both be enabled in a single pipeline run.
 
 ## Input Format
 
@@ -345,9 +215,6 @@ The output manifest is a JSONL file where each line contains the fully processed
 | `segments[].si_sdr`       | Core                    | SI-SDR quality score (via TorchSQUIM)                                |
 | `segments[].text_2`       | Optional (2nd-pass ASR) | Second-pass ASR transcript (e.g. CTC Conformer)                     |
 | `segments[].wer`          | Optional (ComputeWER)   | Word error rate between first and second ASR transcripts             |
-| `segments[].pnc`          | Optional (PNC with LLM) | Raw LLM-generated punctuated text (e.g. `text_2_pnc`)               |
-| `segments[].pnc_cleaned`  | Optional (PNC with LLM) | Cleaned and validated punctuated text (e.g. `text_2_pnc_cleaned`)   |
-| `segments[].use_bert_pnc` | Optional (PNC with LLM) | `true` if LLM output failed validation  |
 
 ## Configuration
 
@@ -429,14 +296,13 @@ The pipeline loads two GPU models simultaneously at peak:
 | PyAnnote speaker diarization | ~2–3 GB | Stage 2 |
 | PyAnnote segmentation | ~1–2 GB | Stage 2 |
 | NeMo FastConformer (1.1B, CTC) | ~3–4 GB | Stage 4 |
-| vLLM LLM (e.g. Qwen2.5-1.5B) | ~3–6 GB | PNC with LLM (optional) |
 
-**Total peak VRAM**: ~6–9 GB without PNC, ~9–15 GB with PNC (models are loaded sequentially by default, not concurrently). The vLLM `gpu_memory_utilization` parameter controls how much GPU memory the LLM reserves.
+**Total peak VRAM**: ~6–9 GB (models are loaded sequentially by default, not concurrently).
 
 | GPU | Fits? | Notes |
 |-----|-------|-------|
-| T4 (16 GB) | Yes | Reduce `segmentation_batch_size` to 32 and `transcribe_batch_size` to 8. PNC with LLM may require lowering `gpu_memory_utilization`. |
-| A10G (24 GB) | Yes | Default settings work, including PNC with LLM |
+| T4 (16 GB) | Yes | Reduce `segmentation_batch_size` to 32 and `transcribe_batch_size` to 8 |
+| A10G (24 GB) | Yes | Default settings work |
 | A100 (40/80 GB) | Yes | Can increase batch sizes for throughput |
 
 ## Timing Estimates
@@ -448,9 +314,8 @@ Approximate wall-clock time per hour of input audio on a single A100-40GB:
 | Resample | ~10s | CPU-bound, I/O limited |
 | PyAnnote Diarization | ~2–4 min | GPU, depends on speaker count |
 | Split + ASR Alignment | ~3–5 min | GPU, depends on segment count |
-| PNC with LLM | ~1–3 min | GPU, optional, depends on segment count and model size |
 | Merge + Write | ~5s | CPU-only |
-| **Total** | **~6–10 min / hr of audio** | ~7–13 min with PNC |
+| **Total** | **~6–10 min / hr of audio** | |
 
 > **First run is slower**: model weights (~1.3 GB total) are downloaded on the first execution. See [Troubleshooting](#first-run-appears-hung) below.
 
@@ -501,20 +366,15 @@ tests/stages/audio/tagging/
 │   └── test_metrics.py
 ├── text/
 │   ├── test_itn.py
-│   ├── test_text.py
-│   └── test_pnc_vllm.py          # Unit tests for PNC with vLLM stages
+│   └── test_text.py
 └── e2e/
     ├── test_tts_e2e.py
     ├── test_asr_e2e.py
-    ├── test_pnc_llm_e2e.py        # E2E tests for PNC with LLM pipelines
     ├── conftest.py
     ├── utils.py
     └── configs/
         ├── tts_pipeline.yaml
-        ├── asr_pipeline.yaml
-        ├── pnc_llm_pipeline.yaml             # Standalone PNC
-        ├── pnc_llm_pipeline_first_pass.yaml  # PNC after 1st-pass ASR
-        └── pnc_llm_pipeline_second_pass.yaml # PNC after 2nd-pass ASR
+        └── asr_pipeline.yaml
 ```
 
 ### End-to-End Pipeline Test
@@ -533,15 +393,11 @@ pytest tests/stages/audio/tagging/e2e/ -v
 tests/stages/audio/tagging/e2e/
 ├── test_tts_e2e.py             # End-to-end TTS tagging pipeline test
 ├── test_asr_e2e.py             # End-to-end ASR tagging pipeline test
-├── test_pnc_llm_e2e.py         # End-to-end PNC with LLM tests (standalone, 1st-pass, 2nd-pass)
 ├── conftest.py                 # Test fixtures (manifests, input data)
 ├── utils.py                    # Output validation helpers
 └── configs/
     ├── tts_pipeline.yaml               # TTS pipeline configuration
-    ├── asr_pipeline.yaml               # ASR pipeline configuration
-    ├── pnc_llm_pipeline.yaml           # Standalone PNC pipeline
-    ├── pnc_llm_pipeline_first_pass.yaml  # PNC after 1st-pass ASR
-    └── pnc_llm_pipeline_second_pass.yaml # PNC after 2nd-pass ASR
+    └── asr_pipeline.yaml               # ASR pipeline configuration
 ```
 
 > **Note:** A valid HuggingFace token (`HF_TOKEN`) is required for diarization tests.
@@ -587,13 +443,6 @@ export HF_TOKEN=your_hf_token
 - Reduce `stages.10.batch_size` (second-pass ASR, when present)
 - Process fewer files per manifest
 - See [GPU Memory Requirements](#gpu-memory-requirements) for per-model VRAM usage
-
-### PNC with LLM Issues
-
-- **High `use_bert_pnc` rate**: Lower `cer_threshold` or try a larger LLM model. Check that the prompt instructions match your language and domain. Consider re-running flagged entries with a different prompt or model.
-- **Alignment update errors**: When using `update_alignment: true`, set `cer_threshold: 0` so alignment is only updated when character sequences match exactly.
-- **vLLM engine conflicts with Ray**: Ensure `VLLM_USE_V1=0` is set in your environment. The stage sets this automatically, but it must be set before any vLLM import.
-- **GPU OOM during PNC**: Reduce `gpu_memory_utilization` in `model_params` (e.g. from `0.9` to `0.5`) or use a smaller model.
 
 ### Slow Processing
 

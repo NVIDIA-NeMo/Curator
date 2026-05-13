@@ -94,7 +94,7 @@ class MockVLLMModel:
         self.min_p = kwargs.get("min_p", 0.0)
         self.max_tokens = kwargs.get("max_tokens")
         self.cache_dir = kwargs.get("cache_dir")
-        self.llm = None
+        self._llm = None
         self._sampling_params = None
 
     def model_id_names(self):
@@ -102,7 +102,8 @@ class MockVLLMModel:
 
     def setup(self):
         """Mock setup that initializes mock LLM - never calls real vLLM."""
-        self.llm = MockLLM(model=self.model, max_model_len=self.max_model_len)
+        # Initialize mocks directly without calling real vLLM
+        self._llm = MockLLM(model=self.model, max_model_len=self.max_model_len)
         # Create sampling params with all parameters that might be set
         sampling_kwargs = {
             "temperature": self.temperature,
@@ -124,15 +125,15 @@ class MockVLLMModel:
 
     def generate(self, prompts: list[str]) -> list[str]:
         """Mock generate method that returns cleaned text."""
-        if self.llm is None or self._sampling_params is None:
+        if self._llm is None or self._sampling_params is None:
             msg = "Model not initialized. Call setup() first."
             raise RuntimeError(msg)
-        outputs = self.llm.generate(prompts, self._sampling_params, use_tqdm=False)
+        outputs = self._llm.generate(prompts, self._sampling_params, use_tqdm=False)
         return [out.outputs[0].text for out in outputs]
 
     def get_tokenizer(self):
         """Mock get_tokenizer method that returns a mock tokenizer."""
-        if self.llm is None:
+        if self._llm is None:
             msg = "Model not initialized. Call setup() first."
             raise RuntimeError(msg)
 
