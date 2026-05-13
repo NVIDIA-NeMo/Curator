@@ -215,8 +215,9 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
                     self.update_metrics(segment, pesq_val, stoi_val, sisdr_val)
                 else:
                     self.update_metrics(tasks[task_idx].data, pesq_val, stoi_val, sisdr_val)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             torch.cuda.empty_cache()
-            logger.error(f"[{self.name}] Failed to compute Squim metrics: {e}")
+            msg = f"[{self.name}] Failed to compute Squim metrics: {e}"
+            raise RuntimeError(msg) from e
 
         return tasks

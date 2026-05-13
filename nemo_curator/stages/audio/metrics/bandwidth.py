@@ -93,7 +93,10 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
             return
 
         start = audio_segment.get("start", 0.0)
-        end = audio_segment.get("end", audio_segment.get("duration"))
+        end = audio_segment.get("end", audio_segment.get("duration", 0.0))
+        if end is None or start >= end:
+            msg = f"[{self.name}] Invalid segment time range: start={start}, end={end}"
+            raise ValueError(msg)
 
         segment_audio_array = audio[int(start * sample_rate) : int(end * sample_rate)]
         bandwidth = self._estimate_bandwidth(segment_audio_array, sample_rate)

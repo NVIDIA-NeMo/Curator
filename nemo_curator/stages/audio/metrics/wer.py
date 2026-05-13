@@ -53,7 +53,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
 
     language: str = "en"
     hypothesis_text_key: str = "text"
-    reference_text_key: str = "text"
+    reference_text_key: str = "text_ref"
     num_words_threshold: int = 200
     num_words_look_back: int = 5
     compute_pnc_wer: bool = False
@@ -77,10 +77,10 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.segments_key]
+        return [], [self.segments_key, self.hypothesis_text_key, self.reference_text_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.segments_key, "metrics"]
+        return [], [self.segments_key, self.hypothesis_text_key, self.reference_text_key, "metrics"]
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
@@ -293,7 +293,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
 
 @dataclass
 class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
-    """Count pairwise word-error-rate (WER) * 100% for each pair of text and pred_text.
+    """Compute pairwise word-error-rate (WER) as a ratio in [0, 1].
 
     WER is measured between ``data[self.text_key]`` and ``data[self.pred_text_key]``.
 
@@ -315,9 +315,13 @@ class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.text_key, self.pred_text_key, self.wer_key]
 
     def process(self, task: AudioTask) -> AudioTask:
+        hypothesis = task.data.get(self.pred_text_key)
+        reference = task.data.get(self.text_key)
+        if hypothesis is None or reference is None:
+            return task
         wer_val, _, _, _, _ = word_error_rate_detail(
-            hypotheses=[task.data[self.pred_text_key]],
-            references=[task.data[self.text_key]],
+            hypotheses=[hypothesis],
+            references=[reference],
             use_cer=False,
         )
         task.data[self.wer_key] = round(wer_val, 4)

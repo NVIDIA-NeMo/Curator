@@ -133,6 +133,8 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=1)))
 
     # Audio quality metrics (PESQ, STOI, SI-SDR)
+    # NOTE: gpus=0.05 is a benchmark-specific empirical value for this single-GPU
+    # setup and should not be used as a production default.
     pipeline.add_stage(TorchSquimQualityMetricsStage(name="SquimMetrics").with_(resources=Resources(gpus=0.05)))
 
     # Prepare TTS segments
