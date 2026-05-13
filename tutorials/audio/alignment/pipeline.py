@@ -42,6 +42,7 @@ from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alignment import MFAAlignmentStage
+from nemo_curator.stages.audio.common import ManifestReader
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
@@ -51,6 +52,8 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
         name="mfa_alignment",
         description="Forced alignment with Montreal Forced Aligner",
     )
+
+    pipeline.add_stage(ManifestReader(manifest_path=args.input_manifest))
 
     pipeline.add_stage(
         MFAAlignmentStage(

@@ -45,8 +45,11 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
         name="mfa_alignment",
         description="MFA forced alignment pipeline (YAML config)",
     )
+    batch_size = cfg.get("batch_size", None)
     for p in cfg.processors:
         stage = hydra.utils.instantiate(p)
+        if batch_size and hasattr(stage, "with_"):
+            stage = stage.with_(batch_size=batch_size)
         pipeline.add_stage(stage)
     return pipeline
 

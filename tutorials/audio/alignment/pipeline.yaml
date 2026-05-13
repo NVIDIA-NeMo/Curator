@@ -51,7 +51,6 @@ processors:
     retry_beam: 400
     create_rttm: true
     create_ctm: true
-    batch_size: ${batch_size}
 
   - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
 

@@ -264,6 +264,14 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                 raise FileNotFoundError(msg)
 
             file_stem = audio_path.stem
+            if file_stem in stem_to_task:
+                original_stem = file_stem
+                file_stem = f"{file_stem}_{uuid.uuid4().hex[:8]}"
+                logger.warning(
+                    f"Duplicate stem '{original_stem}' — renamed to "
+                    f"'{file_stem}' to avoid silent data loss"
+                )
+                task.data["_mfa_stem"] = file_stem
             if not task.data.get(self.duration_key):
                 task.data[self.duration_key] = self._get_audio_duration(
                     str(audio_path)
@@ -278,15 +286,15 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
         with tempfile.TemporaryDirectory(prefix="mfa_corpus_") as corpus_dir:
             corpus_path = Path(corpus_dir)
-            for file_stem, task in stem_to_task.items():
+            for corpus_stem, task in stem_to_task.items():
                 audio_path = Path(task.data[self.audio_filepath_key])
-                corpus_wav = corpus_path / f"{file_stem}.wav"
+                corpus_wav = corpus_path / f"{corpus_stem}.wav"
                 if not corpus_wav.exists() and not corpus_wav.is_symlink():
                     try:
                         corpus_wav.symlink_to(audio_path.resolve())
                     except OSError:
                         shutil.copy2(audio_path, corpus_wav)
-                corpus_txt = corpus_path / f"{file_stem}.txt"
+                corpus_txt = corpus_path / f"{corpus_stem}.txt"
                 corpus_txt.write_text(
                     task.data[self.text_key].strip(), encoding="utf-8"
                 )
@@ -430,6 +438,12 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                 )
                 if g2p_alt.exists():
                     cmd.extend(["--g2p_model_path", str(g2p_alt)])
+                else:
+                    logger.warning(
+                        f"G2P model '{self.g2p_model}' not found at "
+                        f"{g2p_path} or {g2p_alt}. MFA will run without "
+                        f"G2P — OOV words may fail alignment."
+                    )
 
         logger.info(f"Running MFA align: {' '.join(cmd)}")
 
