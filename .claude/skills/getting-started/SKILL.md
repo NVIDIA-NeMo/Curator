@@ -317,7 +317,7 @@ These download to `~/.cache/huggingface/` by default. Ensure you have disk space
 
 ## Step 13: Recommend Tutorial
 
-Based on modality selection, recommend the most relevant tutorial from https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/:
+Based on modality selection, recommend the most relevant tutorial from https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/:
 
 | Selection | Recommended Tutorial | Description |
 |-----------|---------------------|-------------|
