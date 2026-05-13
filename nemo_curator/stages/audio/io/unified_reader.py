@@ -50,14 +50,17 @@ from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 
 
 def _expand_nemo_path(pattern: str) -> list[str]:
-    """Expand NeMo brace patterns like ``__OP_0..N_CL_``."""
+    """Expand **all** NeMo brace patterns like ``_OP_0..N_CL_`` recursively."""
     match = re.search(r"_OP_(\d+)\.\.(\d+)_CL_", pattern)
     if not match:
         return [pattern]
     start, end = int(match.group(1)), int(match.group(2))
     prefix = pattern[: match.start()]
     suffix = pattern[match.end() :]
-    return [f"{prefix}{i}{suffix}" for i in range(start, end + 1)]
+    results: list[str] = []
+    for i in range(start, end + 1):
+        results.extend(_expand_nemo_path(f"{prefix}{i}{suffix}"))
+    return results
 
 
 def _manifest_to_shard_key(manifest_path: str, corpus: str) -> str:
