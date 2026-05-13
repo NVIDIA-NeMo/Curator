@@ -41,8 +41,13 @@ export HF_TOKEN=""
 export WORK_BASE_DIR=/path/to/megatron_exps
 export MEGATRON_PATH=/path/to/Megatron-LM
 export TOKENIZER_MODEL=/path/to/tokenizer.model
-export PRETRAINED_MODEL_PATH=/path/to/pretrained_model
+# Optional: path to a Megatron checkpoint to fine-tune from. Leave empty to train from scratch.
+export PRETRAINED_MODEL_PATH=""
 export LM_EVAL_PATH=/path/to/lm-evaluation-harness
+
+# Build optional 5th positional arg for 6_train.sh; omitted entirely when PRETRAINED_MODEL_PATH is empty.
+PRETRAIN_ARGS=()
+[ -n "${PRETRAINED_MODEL_PATH}" ] && PRETRAIN_ARGS=("${PRETRAINED_MODEL_PATH}")
 
 # -----------------------------------------------------------------------------
 # Run Python scripts: 1_embed.py, 2_cluster.py, 3_prune.py, 4_tokenize.py, 5_mixture.py
@@ -135,7 +140,7 @@ for MIXTURE_SCRIPT in "${MIXTURE_SCRIPTS[@]}"; do
             "${MIXTURE_SCRIPT}" \
             "${WORK_PATH}" \
             "${TOKENIZER_MODEL}" \
-            "${PRETRAINED_MODEL_PATH}"
+            "${PRETRAIN_ARGS[@]}"
     fi
 done
 
@@ -178,7 +183,7 @@ for MIXTURE_SCRIPT in "${MIXTURE_SCRIPTS[@]}"; do
             "${MIXTURE_SCRIPT}" \
             "${WORK_PATH}" \
             "${TOKENIZER_MODEL}" \
-            "${PRETRAINED_MODEL_PATH}"
+            "${PRETRAIN_ARGS[@]}"
     fi
 done
 
@@ -221,7 +226,7 @@ for MIXTURE_SCRIPT in "${MIXTURE_SCRIPTS[@]}"; do
             "${MIXTURE_SCRIPT}" \
             "${WORK_PATH}" \
             "${TOKENIZER_MODEL}" \
-            "${PRETRAINED_MODEL_PATH}"
+            "${PRETRAIN_ARGS[@]}"
     fi
 done
 
