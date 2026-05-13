@@ -58,10 +58,10 @@ fern/
 ├── components/               # CurrentRelease, CustomFooter (TSX)
 ├── versions/
 │   ├── main.yml              # Nav for the bleeding-edge train — paths point at ./main/pages/
-│   ├── main/pages/           # Bleeding-edge MDX (currently a stub; will be seeded from v26.04 — see below)
-│   ├── v26.04.yml            # Current train — until main/ is seeded, edits still land here
-│   ├── v26.04/pages/         # 26.04 content (today: also bleeding-edge until the seed lands)
-│   ├── v26.02.yml            # Frozen 26.02 GA snapshot — back-ports only
+│   ├── main/pages/           # Bleeding-edge MDX (every PR lands here; published at /main/...)
+│   ├── v26.04.yml            # Current GA snapshot — back-ports only
+│   ├── v26.04/pages/         # Frozen 26.04 content
+│   ├── v26.02.yml            # Frozen 26.02 GA snapshot
 │   ├── v26.02/pages/         # Frozen 26.02 content
 │   ├── v25.09.yml            # Frozen 25.09 GA snapshot
 │   ├── v25.09/pages/         # Frozen 25.09 content
@@ -81,17 +81,9 @@ fern/versions/v26.02/pages/get-started/index.mdx       docs.nvidia.com/nemo/cura
 fern/versions/v25.09/pages/get-started/index.mdx       docs.nvidia.com/nemo/curator/v25.09/get-started
 ```
 
-**Transitional state (read this first):** `main/pages/` is reserved as the bleeding-edge tree but is currently a single placeholder index. Until it's seeded, **edits keep landing in `v26.04/pages/`**. Once the in-flight content changes against 26.04 settle, a follow-up commit will:
+**`main/pages/` is the bleeding-edge tree** — every PR lands here and publishes under the `main` slug (`availability: beta`, shown as `Main · preview` in the picker). **`v26.04/pages/` is the current GA snapshot**; it changes only via deliberate back-port from `main`. `v26.02/` and `v25.09/` are older frozen GAs. `latest.yml` is a symlink to the current GA's nav (today: `v26.04.yml`), so `/latest/...` URLs serve the current train. At the next GA cut, snapshot `main/` to a new `vXX.YY/` and retarget the symlink.
 
-```bash
-cp -r fern/versions/v26.04/pages/* fern/versions/main/pages/
-cp fern/versions/v26.04.yml        fern/versions/main.yml
-sed -i '' 's|\./v26\.04/|./main/|g' fern/versions/main.yml
-```
-
-After that seed, **every PR lands in `main/pages/`** (published at `/main/...` with `availability: beta`), `v26.04/pages/` becomes a frozen GA snapshot modified only via deliberate back-port from `main`, and `v26.02/` / `v25.09/` continue as older frozen GAs. `latest.yml` is a symlink to the current GA's nav (today: `v26.04.yml`), so `/latest/...` URLs serve the current train. At the next GA cut, snapshot `main/` to a new `vXX.YY/` and retarget the symlink.
-
-`display-name` in `docs.yml` pairs the **NeMo calendar train** (e.g. `26.04`) with the **git release tag** (e.g. `v1.1.2`) so the version picker matches PyPI/GitHub. Align these with `CHANGELOG.md` and `nemo_curator/package_info.py` when you ship. The `main` entry stays unpinned (`Main (beta)`) because it tracks unreleased work.
+`display-name` in `docs.yml` pairs the **NeMo calendar train** (e.g. `26.04`) with the **git release tag** (e.g. `v1.1.2`) so the version picker matches PyPI/GitHub. Align these with `CHANGELOG.md` and `nemo_curator/package_info.py` when you ship. The `main` entry stays unpinned (`Main · preview`) because it tracks unreleased work.
 
 ## Local development
 

@@ -80,7 +80,7 @@ inference_server = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
     "vllm<0.19; (platform_machine == 'x86_64' and platform_system != 'Darwin')", # Ray Serve LLM 2.55.1 isn't compatible with vllm 0.19+
-    "ai-dynamo==1.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')", # pin so the Dynamo actor venv resolves to the same release we test against; gated to x86_64 since vllm wheels are x86_64-only
+    "ai-dynamo==1.1.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')", # pin so the Dynamo actor venv resolves to the same release we test against; gated to x86_64 since vllm wheels are x86_64-only
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "ray[serve,llm]>=2.55.1",

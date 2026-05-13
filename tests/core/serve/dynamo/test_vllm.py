@@ -15,10 +15,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest import mock
 
 import pytest
+import ray
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from nemo_curator.core.serve import DynamoVLLMModelConfig
 from nemo_curator.core.serve.dynamo import vllm as dynamo_vllm
@@ -335,3 +339,19 @@ class TestLaunchDisaggReplicas:
             assert args[args.index("--kv-transfer-config") + 1] == json.dumps(
                 {"kv_connector": "CustomConnector", "kv_role": "kv_producer"}
             )
+
+
+class TestEnsureActorOverridesOnAllNodes:
+    """Tests for the multi-node fan-out that materializes the actor-venv
+    ``--override`` constraints file before workers are spawned."""
+
+    def test_writes_current_ray_version_at_path(self, shared_ray_client: None, tmp_path: Path) -> None:
+        """The fan-out writes ``ray=={ray.__version__}`` at the configured
+        path on every alive node. Catches regressions where the content is
+        hardcoded and silently drifts after a Curator ray bump.
+        """
+        override_path = tmp_path / "override.txt"
+        with mock.patch.object(dynamo_vllm, "_ACTOR_VENV_OVERRIDES_PATH", override_path):
+            dynamo_vllm.ensure_actor_overrides_on_all_nodes()
+
+        assert override_path.read_text() == f"ray=={ray.__version__}\n"
