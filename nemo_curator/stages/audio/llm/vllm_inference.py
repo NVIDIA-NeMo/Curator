@@ -172,16 +172,16 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):
             next_prompts: list[str] = []
             next_indices: list[int] = []
 
-            for output, original_idx in zip(outputs, current_indices):
+            for local_idx, (output, original_idx) in enumerate(
+                zip(outputs, current_indices)
+            ):
                 generated_text = output.outputs[0].text
                 validated = self.validate_json_output(generated_text)
 
                 if validated:
                     validated_outputs[original_idx] = validated
                 else:
-                    next_prompts.append(
-                        current_prompts[current_indices.index(original_idx)]
-                    )
+                    next_prompts.append(current_prompts[local_idx])
                     next_indices.append(original_idx)
 
             if next_prompts:
@@ -245,14 +245,8 @@ class vLLMInference(ProcessingStage[AudioTask, AudioTask]):
 
     def _ensure_llm(self) -> None:
         """Lazy-init fallback when setup() was not called by the executor."""
-        if not hasattr(self, "llm") or self.llm is None:
-            from transformers import AutoTokenizer
-            from vllm import LLM
-
-            self.llm = LLM(**self.model_params)
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_params["model"], trust_remote_code=True
-            )
+        if self.llm is None:
+            self.setup()
 
     def process(self, task: AudioTask) -> list[AudioTask]:
         """Generate a conversation from a single topic entry.
@@ -359,9 +353,7 @@ class TopicExpander(ProcessingStage):
         super().__init__()
         self.num_conversations = num_conversations
         self.seed = seed
-
-        if seed is not None:
-            random.seed(seed)
+        self._rng = random.Random(seed)
 
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers": 1}
@@ -420,7 +412,7 @@ class TopicExpander(ProcessingStage):
             output_tasks.append(
                 AudioTask(
                     data={
-                        "topic": random.choice(topics),
+                        "topic": self._rng.choice(topics),
                         "conversation_index": i,
                     },
                     task_id=f"conversation_{i}",
