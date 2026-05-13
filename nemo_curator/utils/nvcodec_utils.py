@@ -268,8 +268,7 @@ class NvVideoDecoder:
         for packet in self.nvDemux:
             list_frames = self.nvDec.Decode(packet)
             for decoded_frame in list_frames:
-                # TODO: Remove the use of nvcv_image. It's deprecated
-                cvcuda_tensor = cvcuda.as_tensor(cvcuda.as_image(decoded_frame.nvcv_image(), cvcuda.Format.U8))
+                cvcuda_tensor = cvcuda.as_tensor(decoded_frame, "NCHW")
                 if cvcuda_tensor.layout == "NCHW":
                     nchw_shape = cvcuda_tensor.shape
                     nhwc_shape = (nchw_shape[0], nchw_shape[2], nchw_shape[3], nchw_shape[1])
