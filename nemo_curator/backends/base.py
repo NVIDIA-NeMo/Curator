@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from nemo_curator.core.utils import ignore_ray_head_node
-from nemo_curator.tasks import Task
-from nemo_curator.utils.performance_utils import StageTimer
+from nemo_curator.tasks import Task, TransientDrop
+from nemo_curator.utils.performance_utils import StagePerfStats, StageTimer
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
@@ -64,6 +64,7 @@ class BaseStageAdapter:
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
         self._checkpoint_actor = None
+        self._timer: StageTimer | None = None
         # Stamped on the stage by each executor for the user stage immediately preceding
         # _CheckpointRecorderStage; gates the leaf-level resumability filter.  Setting on
         # the stage (not the adapter) lets the flag survive serialization to remote actors.
@@ -94,21 +95,19 @@ class BaseStageAdapter:
         # Lazy-attach the checkpoint actor for adapters that never have
         # ``setup`` called (Ray Data task-style UDFs). The actor is a
         # singleton named Ray actor, so this is idempotent across workers.
-        if self._checkpoint_actor is None:
-            checkpoint_path = getattr(self.stage, "_checkpoint_path", None)
-            if checkpoint_path is not None:
+        checkpoint_path = getattr(self.stage, "_checkpoint_path", None)
+        if checkpoint_path is not None:
+            if self._checkpoint_actor is None:
                 from nemo_curator.utils.checkpoint import get_or_create_checkpoint_actor
 
                 self._checkpoint_actor = get_or_create_checkpoint_actor(checkpoint_path)
-
-        if self._checkpoint_actor is None:
+            return self._run_grouped_and_account(tasks)
+        else:
             return self._run_flat(tasks)
-        return self._run_grouped_and_account(tasks)
 
     def _run_flat(self, tasks: list[Task]) -> list[Task]:
         """Legacy non-checkpointed path: call the stage's flat process_batch."""
-        if not hasattr(self, "_timer") or self._timer is None:
-            self._timer = StageTimer(self.stage)
+        self._ensure_timer()
         input_size = sum(task.num_items for task in tasks)
         self._timer.reinit(input_size)
 
@@ -126,70 +125,79 @@ class BaseStageAdapter:
 
     def _run_grouped_and_account(self, tasks: list[Task]) -> list[Task]:
         """Checkpointed path: per-input groups, propagation, and per-parent recording."""
-        # Drop inputs whose leaf is already recorded as completed.
-        if self._is_last_user_stage and len(tasks) > 0:
-            kept_tasks, kept_mask = self._drop_completed_inputs_with_mask(tasks)
-        else:
-            kept_tasks = tasks
-            kept_mask = [True] * len(tasks)
+        kept_tasks, already_completed = self._select_inputs_to_run(tasks)
+        groups_kept, stage_perf_stats = self._run_user_stage_grouped(kept_tasks)
+        groups_full = self._realign_groups(groups_kept, tasks, already_completed, stage_perf_stats)
+        if not self._is_last_user_stage:
+            self._propagate_resumability_metadata(tasks, groups_full)
+        self._record_checkpoint_events(tasks, groups_full, already_completed)
+        return self._flatten_dropping_transient_groups(groups_full)
 
-        if not hasattr(self, "_timer") or self._timer is None:
+    def _ensure_timer(self) -> None:
+        if self._timer is None:
             self._timer = StageTimer(self.stage)
-        input_size = sum(task.num_items for task in kept_tasks)
+
+    def _select_inputs_to_run(self, tasks: list[Task]) -> tuple[list[Task], set[str]]:
+        """Drop inputs whose leaf is already recorded as completed; pass-through otherwise.
+
+        Returns ``(kept_tasks, already_completed)`` where ``already_completed`` is the
+        set of ``task_id``s dropped this call (empty if none).
+        """
+        if self._is_last_user_stage and tasks:
+            return self._drop_completed_inputs(tasks)
+        return tasks, set()
+
+    def _run_user_stage_grouped(self, kept_tasks: list[Task]) -> tuple[list[list[Task]], StagePerfStats]:
+        """Time the user stage's grouped call and detect resumability_key stripping.
+
+        ``keys_before`` snapshots ``resumability_key`` per input so we can detect a stage
+        that mutates ``task._metadata`` in place to remove the key — that silently breaks
+        downstream completion accounting. We warn loudly when this happens but cannot recover.
+        """
+        self._ensure_timer()
+        input_size = sum(t.num_items for t in kept_tasks)
         self._timer.reinit(input_size)
 
-        # Snapshot resumability keys before the user stage runs so we can detect
-        # the Obs 6 footgun: a stage that mutates ``task._metadata`` in place to
-        # remove ``resumability_key`` silently breaks downstream completion
-        # accounting. We warn loudly when this happens but cannot recover.
         keys_before = [t._metadata.get("resumability_key", "") for t in kept_tasks]
-
         with self._timer.time_process(input_size):
             groups_kept = self.stage.process_batch_grouped(kept_tasks) if kept_tasks else []
-
         self._warn_if_metadata_stripped(kept_tasks, keys_before)
 
         _, stage_perf_stats = self._timer.log_stats()
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
+        return groups_kept, stage_perf_stats
 
-        from nemo_curator.tasks import TransientDrop
+    def _realign_groups(
+        self,
+        groups_kept: list[list[Task]],
+        input_tasks: list[Task],
+        already_completed: set[str],
+        stage_perf_stats: StagePerfStats,
+    ) -> list[list[Task]]:
+        """Map kept groups back to the original input order and stamp perf.
 
-        # Re-align groups with the ORIGINAL ``tasks`` list (pre-drop). Dropped
-        # inputs map to an empty group; the recorder will treat that as a
-        # no-op for them (they were already finalised in a prior run).
+        Inputs in ``already_completed`` map to ``[]`` (no-op for the recorder; they
+        were finalised in a prior run). TransientDrop sentinels are not Tasks and
+        are not perf-stamped.
+        """
         groups_full: list[list[Task]] = []
         kept_iter = iter(groups_kept)
-        for is_kept in kept_mask:
-            if is_kept:
-                grp = next(kept_iter)
-                for t in grp:
-                    # TransientDrop sentinels are not Tasks; skip perf stamping.
-                    if not isinstance(t, TransientDrop):
-                        t.add_stage_perf(stage_perf_stats)
-                groups_full.append(grp)
-            else:
+        for parent in input_tasks:
+            if parent.task_id in already_completed:
                 groups_full.append([])
+                continue
+            group = next(kept_iter)
+            for t in group:
+                if not isinstance(t, TransientDrop):
+                    t.add_stage_perf(stage_perf_stats)
+            groups_full.append(group)
+        return groups_full
 
-        # Propagate metadata to outputs (skipped at the last user stage so the
-        # recorder records the exact key the user stage emitted) and record
-        # per-parent completion / fan-out events.
-        if not self._is_last_user_stage:
-            self._propagate_resumability_metadata(tasks, groups_full)
-        self._record_checkpoint_events(tasks, groups_full, kept_mask)
-
-        # Drop entire groups that contain any TransientDrop (the warning for
-        # "mixed group" was logged by _record_checkpoint_events above). Strip
-        # any stray TransientDrop sentinels from the remaining groups before
-        # handing the flat list downstream.
-        return [
-            t
-            for g in groups_full
-            if not any(isinstance(o, TransientDrop) for o in g)
-            for t in g
-            if not isinstance(t, TransientDrop)
-        ]
+    def _flatten_dropping_transient_groups(self, groups_full: list[list[Task]]) -> list[Task]:
+        """Drop any group containing a TransientDrop sentinel and flatten the rest."""
+        return [t for group in groups_full if not any(isinstance(o, TransientDrop) for o in group) for t in group]
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup the stage on a node.
@@ -230,8 +238,6 @@ class BaseStageAdapter:
         and stamped every output with that parent's key, collapsing the
         parent-child relationship for any batched stage with ``batch_size > 1``.
         """
-        from nemo_curator.tasks import TransientDrop
-
         for parent, group in zip(input_tasks, output_groups, strict=True):
             # Transient groups produce no downstream tasks; nothing to propagate to.
             if any(isinstance(t, TransientDrop) for t in group):
@@ -245,8 +251,9 @@ class BaseStageAdapter:
                     task._metadata["resumability_key"] = source_key
                 task._metadata["resumability_task_key"] = f"{parent_task_key}::{i}"
 
-    def _drop_completed_inputs_with_mask(self, tasks: list[Task]) -> tuple[list[Task], list[bool]]:
-        """Return ``(kept_tasks, kept_mask)`` — ``kept_mask[i]`` is True iff ``tasks[i]`` was kept.
+    def _drop_completed_inputs(self, tasks: list[Task]) -> tuple[list[Task], set[str]]:
+        """Return ``(kept_tasks, already_completed)`` — ``already_completed`` holds the
+        ``task_id``s of inputs whose leaves are already recorded as completed.
 
         Only invoked on the user stage immediately preceding ``_CheckpointRecorderStage``
         (gated by ``self._is_last_user_stage``). One batched RPC to the checkpoint actor
@@ -254,37 +261,34 @@ class BaseStageAdapter:
         """
         from nemo_curator.utils.checkpoint import _checkpoint_get
 
-        queryable: list[tuple[int, tuple[str, str]]] = []
-        for i, t in enumerate(tasks):
+        queryable: list[tuple[Task, tuple[str, str]]] = []
+        for t in tasks:
             key = t._metadata.get("resumability_key", "")
             task_key = t._metadata.get("resumability_task_key", "")
             if key and task_key:
-                queryable.append((i, (key, task_key)))
+                queryable.append((t, (key, task_key)))
 
-        kept_mask = [True] * len(tasks)
         if not queryable:
-            return tasks, kept_mask
+            return tasks, set()
 
         flags = _checkpoint_get(self._checkpoint_actor.are_leaves_completed.remote([p for _, p in queryable]))
-        completed_indices = {idx for (idx, _), done in zip(queryable, flags, strict=True) if done}
-        if not completed_indices:
-            return tasks, kept_mask
+        already_completed = {t.task_id for (t, _), done in zip(queryable, flags, strict=True) if done}
+        if not already_completed:
+            return tasks, set()
 
-        for idx in completed_indices:
-            kept_mask[idx] = False
-        logger.debug(f"Resumability: skipping {len(completed_indices)} already-completed leaves at last stage")
-        return [t for i, t in enumerate(tasks) if i not in completed_indices], kept_mask
+        logger.debug(f"Resumability: skipping {len(already_completed)} already-completed leaves at last stage")
+        return [t for t in tasks if t.task_id not in already_completed], already_completed
 
     def _record_checkpoint_events(
         self,
         input_tasks: list[Task],
         output_groups: list[list[Task]],
-        kept_mask: list[bool] | None = None,
+        already_completed: set[str],
     ) -> None:
         """Per-parent fan-out / drop accounting (Obs 1 fix).
 
-        For each ``(parent, group)`` pair where the parent was processed this
-        run (``kept_mask[i]`` is True):
+        For each ``(parent, group)`` pair where the parent was processed this run
+        (``parent.task_id`` not in ``already_completed``):
             - len(group) == 0 -> the stage dropped this parent; mark its
               ``resumability_task_key`` complete so resume doesn't replay it.
             - len(group) > 1  -> fan-out; bump ``expected`` for the parent's
@@ -293,21 +297,17 @@ class BaseStageAdapter:
             - len(group) == 1 -> 1:1 transformation; no checkpoint event
               needed at this stage (the recorder handles it downstream).
 
-        ``kept_mask`` distinguishes "stage dropped this input" (record it
-        complete) from "we skipped this input because it was already
-        complete in a prior run" (do not re-record — already done).
+        ``already_completed`` distinguishes "stage dropped this input" (record it
+        complete) from "we skipped this input because a prior run already finalised
+        it" (do not re-record).
         """
         if self._checkpoint_actor is None:
             return
 
-        from nemo_curator.tasks import TransientDrop
         from nemo_curator.utils.checkpoint import _checkpoint_get
 
-        if kept_mask is None:
-            kept_mask = [True] * len(input_tasks)
-
-        for parent, group, was_kept in zip(input_tasks, output_groups, kept_mask, strict=True):
-            if not was_kept:
+        for parent, group in zip(input_tasks, output_groups, strict=True):
+            if parent.task_id in already_completed:
                 continue
             key = parent._metadata.get("resumability_key", "")
             if not key:
@@ -353,8 +353,6 @@ class BaseStageAdapter:
 
     def _log_transient_drop(self, parent: Task, group: list[Task]) -> None:
         """Log diagnostics for a parent whose group contained a TransientDrop sentinel."""
-        from nemo_curator.tasks import TransientDrop
-
         transient = next(o for o in group if isinstance(o, TransientDrop))
         if any(not isinstance(o, TransientDrop) for o in group):
             logger.warning(
