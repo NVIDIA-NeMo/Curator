@@ -21,6 +21,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 import fasttext
+import fsspec
 import numpy as np
 import ray
 from loguru import logger
@@ -101,7 +102,7 @@ class JsonlClusterWriter(JsonlWriter):
             assert len(source_files) == 1, "Only one source file is allowed"  # noqa: S101
             source_file = source_files[0]
 
-            centroid = centroid_id(os.path.dirname(source_file))
+            centroid = centroid_id(self.fs._parent(source_file))
             if centroid is None:
                 msg = f"source_file {source_file} parent dir is not centroid=<int>"
                 raise RuntimeError(msg)
@@ -138,16 +139,16 @@ class JsonlClusterWriter(JsonlWriter):
 
 @ray.remote
 def compute_average_score_per_cluster(cluster_path: str, score_field: str, threshold: float = 1.0) -> str | None:
+    fs, fs_path = fsspec.core.url_to_fs(cluster_path)
+
     total = 0.0
     count = 0
 
-    for fname in os.listdir(cluster_path):
-        if not fname.endswith(".jsonl"):
+    for file_path in fs.ls(fs_path, detail=False):
+        if not file_path.endswith(".jsonl"):
             continue
 
-        file_path = os.path.join(cluster_path, fname)
-
-        with open(file_path) as f:
+        with fs.open(file_path) as f:
             for line in f:
                 obj = json.loads(line)
                 total += obj[score_field]

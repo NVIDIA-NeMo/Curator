@@ -61,13 +61,13 @@ python 1_embed.py \
     --input-filetype "jsonl" \
     --output-path /path/to/computed_embeddings \
     --text-field "text" \
-    --id-field "climb_id" \
+    --id-field "_curator_climb_id" \
     --use-sentence-transformer
 ```
 
 At least 1 GPU is required to run this step. Use the `--num-cpus` and `--num-gpus` arguments as desired to control the number of CPUs and GPUs used by the Ray client. The script uses all available resources by default.
 
-The script uses the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) embedding model by default:
+To match the [Nemotron-CLIMB paper](https://arxiv.org/pdf/2504.13161), the script uses the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) embedding model by default:
 
 - The [xFormers](https://github.com/facebookresearch/xformers) library is required to run the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model and should be installed via `uv pip install xformers` before running the script.
 - The [SentenceTransformers](https://huggingface.co/sentence-transformers) library is used via the `use-sentence-transformer` flag to enhance performance. It is already included as a dependency in Curator and does not need to be manually installed.
@@ -76,7 +76,6 @@ Some of the default parameters in the script include:
 
 - Use `--model_inference_batch_size 1024` to create digestible batch sizes for the model forward pass. Adjust as necessary; decrease the size to address memory issues and increase the size to improve performance.
 - Use [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5)'s `max_length` of 512 via the `--max-seq-length` argument.
-- Use `--padding-side "right"` and `--embedding_pooling="mean_pooling"` defaults as appropriate for the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model.
 - Use `--transformers-init-kwargs '{"trust_remote_code": true}'` as required to load the [NovaSearch/stella_en_400M_v5](https://huggingface.co/NovaSearch/stella_en_400M_v5) model.
 
 See script for full list of parameters.
@@ -90,7 +89,7 @@ python 2_cluster.py \
     --input-path /path/to/computed_embeddings \
     --output-path /path/to/clusters \
     --text-field "text" \
-    --id-field "climb_id" \
+    --id-field "_curator_climb_id" \
     --embedding-dim 3072 \
     --centroids-path /path/to/centroids
 ```
@@ -168,6 +167,7 @@ python 4_tokenize.py \
     --input-path /path/to/pruned_clusters \
     --output-path /path/to/domains \
     --hf-token "hf_XXX" \
+    --text-field "text" \
     --append-eod
 ```
 
@@ -251,7 +251,7 @@ bash 7_evaluate.sh \
     /path/to/Megatron-LM \
     /path/to/megatron_exp \
     /path/to/lm_eval_results \
-    /path/to/Llama-2-7b/tokenizer.model \
+    /path/to/Llama-2-7b/tokenizer.model
 ```
 
 LM Evaluation Harness can be installed with:
@@ -318,6 +318,12 @@ python 8_predict.py \
     --metric "valid_avg" \
     --num-mixtures 16
 ```
+
+## End-to-End Script
+
+The `e2e.sh` script contains a full end-to-end example for how to run the Nemotron-CLIMB curation loop. It assumes all installation requirements as listed in previous sections are met.
+
+The proxy model training jobs are executed serially in the end-to-end script. It is recommended to use a workload manager like Slurm to run proxy model training jobs in parallel.
 
 ## Conclusion
 

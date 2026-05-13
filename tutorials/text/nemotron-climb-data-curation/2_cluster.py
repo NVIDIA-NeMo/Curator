@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import argparse
-import os
 
 from utils import attach_ray_client_args, create_ray_client
 
@@ -28,8 +27,6 @@ def main(args: argparse.Namespace) -> None:
 
     kmeans_executor = RayActorPoolExecutor()
     pipeline = Pipeline(name="2_cluster")
-
-    os.makedirs(args.centroids_path, exist_ok=True)
 
     kmeans_stage = KMeansStage(
         n_clusters=args.n_clusters,
