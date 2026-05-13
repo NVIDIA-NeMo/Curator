@@ -45,13 +45,30 @@ _LAZY = {
     "VADSegmentationStage": "nemo_curator.stages.audio.segmentation",
 }
 
-__all__ = sorted(_LAZY)
+__all__ = [
+    "ALMDataBuilderStage",
+    "ALMDataOverlapStage",
+    "AudioDataFilterStage",
+    "BandFilterStage",
+    "GetAudioDurationStage",
+    "ManifestReader",
+    "ManifestWriterStage",
+    "MonoConversionStage",
+    "PreserveByValueStage",
+    "SIGMOSFilterStage",
+    "SegmentConcatenationStage",
+    "SpeakerSeparationStage",
+    "TimestampMapperStage",
+    "UTMOSFilterStage",
+    "VADSegmentationStage",
+]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     target = _LAZY.get(name)
     if target is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
     return getattr(import_module(target), name)
 
 

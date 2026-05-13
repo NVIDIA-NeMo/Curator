@@ -141,7 +141,7 @@ def _merge_manifest_shards(output_path: str) -> None:
     logger.info(f"merged {len(shards)} manifest shard(s) into {output_path}")
 
 
-def _merge_metrics_shards(metrics_path: str) -> None:
+def _merge_metrics_shards(metrics_path: str) -> None:  # noqa: C901
     shards = _glob_shards(metrics_path, _METRICS_SHARD_EXT)
     # Same re-run-safety guard as _merge_manifest_shards: skip when no
     # shards exist so an early failure on a re-run can't overwrite a
@@ -209,7 +209,7 @@ def _merge_metrics_shards(metrics_path: str) -> None:
     logger.info(f"merged {len(shards)} metrics shard(s) into {metrics_path}")
 
 
-def _merge_tar_shards(output_path: str) -> None:
+def _merge_tar_shards(output_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
     """Merge per-replica audio tar shards into ``output_path``.
 
     Reads every ``<output_path>.shard-*.tar`` written by the extractor
@@ -243,7 +243,7 @@ def _merge_tar_shards(output_path: str) -> None:
     index: list[tuple[str, str, tarfile.TarInfo]] = []
     for s in shards:
         try:
-            in_tar = tarfile.open(s, "r")
+            in_tar = tarfile.open(s, "r")  # noqa: SIM115  -- closed via finally; need try/except above for unreadable shards
         except tarfile.TarError as e:
             # An empty or non-tar file written by a worker killed before
             # the first `addfile()` -- nothing recoverable in this shard.
@@ -286,7 +286,7 @@ def _merge_tar_shards(output_path: str) -> None:
                 in_tar = open_shards.get(s)
                 if in_tar is None:
                     try:
-                        in_tar = tarfile.open(s, "r")
+                        in_tar = tarfile.open(s, "r")  # noqa: SIM115  -- cached in open_shards and closed in finally below
                     except tarfile.TarError as e:
                         logger.warning(
                             f"cannot reopen tar shard {s} for streaming: {e}; skipping member {name!r}"
@@ -314,7 +314,7 @@ def _merge_tar_shards(output_path: str) -> None:
     logger.info(f"merged {len(shards)} tar shard(s) into {output_path} ({written} member(s))")
 
 
-def _reconcile_manifest_with_tar(
+def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
     manifest_path: str, tar_path: str
 ) -> tuple[int, int]:
     """Drop manifest rows whose ``audio_filepath`` isn't a valid, readable
@@ -343,7 +343,7 @@ def _reconcile_manifest_with_tar(
         return (0, 0)
 
     try:
-        tar = tarfile.open(tar_path, "r")
+        tar = tarfile.open(tar_path, "r")  # noqa: SIM115  -- closed in finally below; need a try/except here for unreadable archives
     except tarfile.TarError as e:
         logger.warning(f"cannot read merged tar {tar_path} for manifest reconciliation: {e}")
         return (0, 0)
@@ -365,17 +365,20 @@ def _reconcile_manifest_with_tar(
             if ti is None or ti.size == 0:
                 header_ok[name] = False
                 return False
+            ok = False
             try:
                 stream = tar.extractfile(ti)
                 if stream is None:
-                    raise RuntimeError("extractfile returned None")
-                info = sf.info(stream)
-                ok = info.frames > 0 and info.samplerate > 0
+                    logger.warning(
+                        f"audio header unreadable for {name!r} in {tar_path}: extractfile returned None"
+                    )
+                else:
+                    info = sf.info(stream)
+                    ok = info.frames > 0 and info.samplerate > 0
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     f"audio header unreadable for {name!r} in {tar_path}: {exc}"
                 )
-                ok = False
             header_ok[name] = ok
             return ok
 

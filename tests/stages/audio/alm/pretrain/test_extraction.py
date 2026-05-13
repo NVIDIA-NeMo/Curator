@@ -97,7 +97,7 @@ class TestSnippetExtractionStageReal:
             {"start": 0.0, "end": 3.0, "segments": [_seg(0.0, 3.0)]},
             {"start": 4.0, "end": 8.0, "segments": [_seg(4.0, 8.0)]},
         ]
-        stage, tar_path = self._make_stage(tmp_path, output_format="wav")
+        stage, _tar_path = self._make_stage(tmp_path, output_format="wav")
 
         out = stage.process(_task_with_plan(src, plan))
         stage.teardown()

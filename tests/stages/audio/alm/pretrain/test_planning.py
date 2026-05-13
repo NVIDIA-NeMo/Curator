@@ -21,7 +21,7 @@ filter.
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from tokenizers import Tokenizer, models, pre_tokenizers
@@ -36,6 +36,9 @@ from nemo_curator.stages.audio.alm.pretrain.utils import (
     _PRETRAIN_META_KEY,
 )
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_audio_task(data: dict | None = None, *, task_id: str = "t1") -> AudioTask:
@@ -126,10 +129,8 @@ class TestSnippetCutPlannerStage:
 
 def _build_tiny_word_tokenizer(tmp_dir: Path, words: list[str]) -> Path:
     """Save a WordLevel HF fast tokenizer covering ``words`` to ``tmp_dir``."""
-    vocab = {"[UNK]": 0}
-    for i, w in enumerate(words, start=1):
-        vocab[w] = i
-    tok = Tokenizer(models.WordLevel(vocab=vocab, unk_token="[UNK]"))
+    vocab = {"[UNK]": 0, **{w: i for i, w in enumerate(words, start=1)}}
+    tok = Tokenizer(models.WordLevel(vocab=vocab, unk_token="[UNK]"))  # noqa: S106  -- tokenizer special token, not a credential
     tok.pre_tokenizer = pre_tokenizers.Whitespace()
     tok_dir = tmp_dir / "tok"
     tok_dir.mkdir()

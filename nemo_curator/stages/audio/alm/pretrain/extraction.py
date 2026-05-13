@@ -137,7 +137,11 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         if self.dry_run:
             return
         self._tar_shard_path = _make_shard_path(self.output_audio_tar_path, _TAR_SHARD_EXT)
-        self._tar = tarfile.open(self._tar_shard_path, "w")
+        # The TarFile stays open for the worker's lifetime and is closed in
+        # teardown(); a context manager isn't usable here without making every
+        # snippet write re-open the archive (forces tarfile to re-scan to the
+        # end-of-archive marker, making writes O(n^2)).
+        self._tar = tarfile.open(self._tar_shard_path, "w")  # noqa: SIM115
         logger.info(f"[{self.name}] writing audio tar shard to {self._tar_shard_path}")
 
     def teardown(self) -> None:

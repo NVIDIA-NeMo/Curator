@@ -174,32 +174,32 @@ class TestPrepareAndFinalize:
         # never adding it to the tar at all).
         ms = _make_shard_path(manifest, "jsonl")
         with open(ms, "w") as f:
-            for sid in ("X-0_000-1_000", "X-1_000-2_000", "X-2_000-3_000"):
-                f.write(
-                    json.dumps(
-                        {"id": "X", "snippet_id": sid, "audio_filepath": f"{sid}.flac", "duration": 1.0}
-                    )
-                    + "\n"
+            f.writelines(
+                json.dumps(
+                    {"id": "X", "snippet_id": sid, "audio_filepath": f"{sid}.flac", "duration": 1.0}
                 )
+                + "\n"
+                for sid in ("X-0_000-1_000", "X-1_000-2_000", "X-2_000-3_000")
+            )
         # Metrics shard so finalize writes a merged metrics.json that
         # _patch_metrics_with_reconcile_drops can update.
         ms_metrics = _make_shard_path(metrics, "jsonl")
         with open(ms_metrics, "w") as f:
-            for _ in range(3):
-                f.write(
-                    json.dumps(
-                        {
-                            "id": "X",
-                            "in_segments": 1,
-                            "in_duration_sec": 3.0,
-                            "dropped": {},
-                            "is_stub": False,
-                            "out_segments": 1,
-                            "out_duration_sec": 1.0,
-                        }
-                    )
-                    + "\n"
+            f.writelines(
+                json.dumps(
+                    {
+                        "id": "X",
+                        "in_segments": 1,
+                        "in_duration_sec": 3.0,
+                        "dropped": {},
+                        "is_stub": False,
+                        "out_segments": 1,
+                        "out_duration_sec": 1.0,
+                    }
                 )
+                + "\n"
+                for _ in range(3)
+            )
         # Synthesize a real, decodable FLAC body so the kept members survive
         # the header/duration check; only the missing member should be dropped.
         flac_buf = io.BytesIO()
@@ -236,30 +236,30 @@ class TestPrepareAndFinalize:
         # (header unreadable -> sf.info raises -> row dropped).
         ms = _make_shard_path(manifest, "jsonl")
         with open(ms, "w") as f:
-            for sid in ("X-0_000-1_000", "X-1_000-2_000", "X-2_000-3_000"):
-                f.write(
-                    json.dumps(
-                        {"id": "X", "snippet_id": sid, "audio_filepath": f"{sid}.flac", "duration": 1.0}
-                    )
-                    + "\n"
+            f.writelines(
+                json.dumps(
+                    {"id": "X", "snippet_id": sid, "audio_filepath": f"{sid}.flac", "duration": 1.0}
                 )
+                + "\n"
+                for sid in ("X-0_000-1_000", "X-1_000-2_000", "X-2_000-3_000")
+            )
         ms_metrics = _make_shard_path(metrics, "jsonl")
         with open(ms_metrics, "w") as f:
-            for _ in range(3):
-                f.write(
-                    json.dumps(
-                        {
-                            "id": "X",
-                            "in_segments": 1,
-                            "in_duration_sec": 3.0,
-                            "dropped": {},
-                            "is_stub": False,
-                            "out_segments": 1,
-                            "out_duration_sec": 1.0,
-                        }
-                    )
-                    + "\n"
+            f.writelines(
+                json.dumps(
+                    {
+                        "id": "X",
+                        "in_segments": 1,
+                        "in_duration_sec": 3.0,
+                        "dropped": {},
+                        "is_stub": False,
+                        "out_segments": 1,
+                        "out_duration_sec": 1.0,
+                    }
                 )
+                + "\n"
+                for _ in range(3)
+            )
 
         flac_buf = io.BytesIO()
         sf.write(flac_buf, np.zeros(160, dtype=np.float32), 16000, format="FLAC")

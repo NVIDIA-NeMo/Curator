@@ -86,7 +86,7 @@ def _build_tiny_tokenizer_dir(tmp_dir: Path) -> Path:
     those ids without producing false positives at default thresholds.
     """
     vocab = {"[UNK]": 0}
-    tok = Tokenizer(models.WordLevel(vocab=vocab, unk_token="[UNK]"))
+    tok = Tokenizer(models.WordLevel(vocab=vocab, unk_token="[UNK]"))  # noqa: S106  -- tokenizer special token, not a credential
     tok.pre_tokenizer = pre_tokenizers.Whitespace()
     tok_dir = tmp_dir / "tok"
     tok_dir.mkdir()
