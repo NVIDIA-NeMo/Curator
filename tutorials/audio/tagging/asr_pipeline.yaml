@@ -160,7 +160,7 @@ stages:
     infer_segment_only: True
     compute_timestamps: False
 
-  - _target_: nemo_curator.stages.audio.tagging.ComputeWERStage
+  - _target_: nemo_curator.stages.audio.metrics.wer.ComputeWERStage
     name: "ComputeWER"
     language: ${language_short}
     hypothesis_text_key: ${text_key2}
