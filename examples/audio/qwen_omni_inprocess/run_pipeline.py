@@ -224,7 +224,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def main() -> None:  # noqa: C901, PLR0912, PLR0915
+def main() -> None:  # noqa: C901
     args = _build_arg_parser().parse_args()
 
     prompt = args.ml_prompt
