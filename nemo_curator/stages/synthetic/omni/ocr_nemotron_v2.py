@@ -19,16 +19,14 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from nemo_curator.tasks.image import SingleDataTask
+from typing import Any
 
 from loguru import logger
+from PIL import Image
 
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.stages.synthetic.omni.base import VLMProcessingStage
-from nemo_curator.stages.synthetic.omni.io import load_image_from_task
+from nemo_curator.tasks.image import SingleDataTask
 from nemo_curator.tasks.ocr import OCRData, OCRDenseItem
 
 _HF_REPO_ID = "nvidia/nemotron-ocr-v2"
@@ -52,12 +50,12 @@ def _to_ocr_dense_item(pred: dict[str, Any]) -> OCRDenseItem:
     )
 
 
-class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
+class OCRNemotronV2Stage(ProcessingStage[SingleDataTask[OCRData], SingleDataTask[OCRData]]):
     """Word-level dense OCR using NemotronOCR-v2 (multilingual).
 
-    Processes every valid task in the pipeline.  The ``model_dir`` parameter
+    Processes every valid task in the pipeline. The ``model_dir`` parameter
     should point to the ``v2_multilingual`` directory inside the NemotronOCR-v2
-    model checkout.  If ``model_dir`` is None the stage downloads the model
+    model checkout. If ``model_dir`` is None the stage downloads the model
     from HuggingFace on first use (``nvidia/nemotron-ocr-v2``).
 
     Output field ``ocr_dense`` is populated with a list of
@@ -65,7 +63,9 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
     (normalized 0-1000 coordinates, y=0 at top).
 
     Note: The ``nemotron-ocr`` package must be installed in the runtime
-    environment.  See installation instructions in the project SKILL.md.
+    environment. GPU placement is delegated to the executor via the
+    ``resources`` declaration — override ``num_workers()`` in a subclass if
+    you need to pin worker count instead of letting the autoscaler decide.
     """
 
     name = "ocr_nemotron_v2"
@@ -75,24 +75,17 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
     def __init__(
         self,
         model_dir: str | Path | None = None,
-        num_workers: int | None = None,
         merge_level: str = "word",
-        **kwargs: Any,  # noqa: ANN401
     ) -> None:
         """Initialize the NemotronOCR-v2 stage.
 
         Args:
             model_dir: Path to the model directory (e.g. ``<repo>/v2_multilingual``).
                 If None, the model is downloaded from HuggingFace on ``setup()``.
-            num_workers: If set, the number of Xenna workers for this stage.
-                If None, the Xenna autoscaler decides.
             merge_level: NemotronOCR merge level — "word", "sentence", or
-                "paragraph".  Defaults to "word".
-            **kwargs: Additional arguments forwarded to VLMProcessingStage.
+                "paragraph". Defaults to "word".
         """
-        super().__init__(**kwargs)
         self.model_dir = Path(model_dir) if model_dir is not None else None
-        self.num_workers = num_workers
         self.merge_level = merge_level
         self._model: Any = None  # NemotronOCRV2, loaded in setup()
 
@@ -104,21 +97,17 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
         snapshot = snapshot_download(repo_id=_HF_REPO_ID)
         return str(Path(snapshot) / _DEFAULT_SUBDIR)
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        spec: dict[str, Any] = {}
-        if self.num_workers is not None:
-            spec["num_workers"] = self.num_workers
-        return spec
-
     def setup(self, _worker_metadata: dict | None = None) -> None:
         """Load NemotronOCRV2 onto the GPU."""
-        self._maybe_set_cuda_device()
         from nemotron_ocr.inference.pipeline_v2 import NemotronOCRV2
 
         model_dir = self._resolve_model_dir()
         logger.info(f"{self.name}: loading model from {model_dir}")
         self._model = NemotronOCRV2(model_dir=model_dir)
         logger.info(f"{self.name}: model loaded")
+
+    def process(self, task: SingleDataTask[OCRData]) -> SingleDataTask[OCRData]:
+        return self.process_batch([task])[0]
 
     def process_batch(self, tasks: list[SingleDataTask[OCRData]]) -> list[SingleDataTask[OCRData]]:
         """Run NemotronOCR-v2 on eligible tasks in the batch."""
@@ -136,7 +125,7 @@ class OCRNemotronV2Stage(VLMProcessingStage[OCRData]):
 
     def _process_one(self, task: SingleDataTask[OCRData]) -> None:
         """Run inference on a single image task (mutates task in-place)."""
-        image = load_image_from_task(task)
+        image = Image.open(task.data.image_path)
 
         # NemotronOCRV2 takes a file path — write to a temp file.
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:

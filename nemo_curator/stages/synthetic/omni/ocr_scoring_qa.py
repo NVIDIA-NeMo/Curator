@@ -39,12 +39,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from PIL import Image
-
     from nemo_curator.tasks.image import SingleDataTask
 
-from nemo_curator.models.omni.base import InferenceConfig, NVInferenceModelConfig
-from nemo_curator.models.omni.nemotron_omni import NemotronNanoOmni
+from nemo_curator.models.omni.base import NVInferenceModel
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.synthetic.omni.base import ModelProcessingStage, SkipSample
 from nemo_curator.stages.synthetic.omni.ocr_conversationalize import OCRConversationData
@@ -209,27 +206,16 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         self.fail_on_missing_text = fail_on_missing_text
         self.dense_dump_prob = dense_dump_prob
         super().__init__(
-            model=NemotronNanoOmni(
-                model_config=NVInferenceModelConfig(max_tokens=max_tokens),
+            model=NVInferenceModel(
                 model_id=model_id,
-            ),
-            inference_config=InferenceConfig(
+                max_tokens=max_tokens,
                 temperature=temperature,
                 top_p=1.0,
-                do_sample=False,
                 priority_mode=priority_mode,
             ),
             batch_size=batch_size or self.batch_size,
             **kwargs,
         )
-
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {}
-
-    def load_image(self, task: SingleDataTask[OCRData]) -> Image.Image:
-        from nemo_curator.stages.synthetic.omni.io import load_image_from_task
-
-        return load_image_from_task(task)
 
     def build_prompt(self, task: SingleDataTask[OCRData]) -> str:
         ocr_items = task.data.ocr_dense

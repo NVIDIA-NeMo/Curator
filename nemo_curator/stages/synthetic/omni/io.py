@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import io
 import json
-from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
@@ -225,150 +224,6 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
         return tasks
 
 
-class SkipProcessedStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTask[T_TaskData]], Generic[T_TaskData]):
-    """Skip tasks that have already been processed in a prior run.
-
-    This stage is intended for a simple "resume" mode: it reads an existing JSONL
-    output (written by `ResultWriterStage`) and drops any incoming tasks whose
-    `image_path` is already present in that file.
-
-    Notes:
-    - Skipping is keyed by the serialized `image_path` string in the JSONL.
-    - If `image_parent` was used when writing outputs, the same `image_parent`
-      must be provided here to normalize task keys consistently.
-    """
-
-    name: str = "skip_processed"
-    resources = Resources(cpus=1.0)
-
-    batch_size: int = 1
-
-    def __init__(
-        self,
-        output_path: str | Path,
-        *,
-        image_parent: str | Path | None = None,
-        require_exists: bool = True,
-    ) -> None:
-        self.output_path = Path(output_path)
-        self.image_parent = Path(image_parent) if image_parent else None
-        self.require_exists = require_exists
-
-        self._processed: set[str] = set()
-        self._seen_in_run: set[str] = set()
-
-        self._loaded_count: int = 0
-        self._skipped_existing: int = 0
-        self._skipped_duplicate: int = 0
-        self._passed: int = 0
-
-    def setup(self, _worker_metadata: WorkerMetadata) -> None:
-        # Determine which files to read:
-        #   1. Merged file exists (output_path itself) — normal completed-run case.
-        #   2. Only _worker* shards exist — pipeline was killed before merge ran.
-        #   3. Neither exists — first run or require_exists controls the error.
-        files_to_read: list[Path] = []
-
-        if self.output_path.exists() and not self.output_path.is_dir():
-            files_to_read = [self.output_path]
-        else:
-            suffix = self.output_path.suffix or ".jsonl"
-            pattern = f"{self.output_path.stem}_worker*{suffix}"
-            shard_files = sorted(self.output_path.parent.glob(pattern))
-            if shard_files:
-                logger.info(
-                    f"SkipProcessed: merged file not found; reading {len(shard_files)} worker shards from "
-                    f"{self.output_path.parent}"
-                )
-                files_to_read = shard_files
-            elif self.require_exists:
-                msg = f"SkipProcessed: output path does not exist: {self.output_path}"
-                raise FileNotFoundError(msg)
-            else:
-                logger.info(f"SkipProcessed: no existing output at {self.output_path}; nothing to skip")
-                return
-
-        processed: set[str] = set()
-        bad_json: int = 0
-        missing_key: int = 0
-
-        for path in files_to_read:
-            with path.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    try:
-                        record = json.loads(stripped)
-                    except json.JSONDecodeError:
-                        bad_json += 1
-                        continue
-                    if not isinstance(record, dict):
-                        missing_key += 1
-                        continue
-                    image_path = record.get("image_path")
-                    if not isinstance(image_path, str) or not image_path:
-                        missing_key += 1
-                        continue
-                    processed.add(image_path)
-
-        self._processed = processed
-        self._loaded_count = len(self._processed)
-
-        logger.info(
-            f"SkipProcessed: loaded {self._loaded_count} processed keys from {len(files_to_read)} file(s) "
-            f"(bad_json={bad_json}, missing_image_path={missing_key})"
-        )
-
-    def _get_image_path_key(self, image_path: Path | None) -> str | None:
-        """Get the task key used for resume comparison."""
-        if image_path is None:
-            return None
-        if self.image_parent is not None:
-            try:
-                return str(image_path.relative_to(self.image_parent))
-            except ValueError:
-                pass
-        return str(image_path)
-
-    def process(self, task: SingleDataTask[T_TaskData]) -> list[SingleDataTask[T_TaskData]]:
-        return self.process_batch([task])
-
-    def process_batch(self, tasks: list[SingleDataTask[T_TaskData]]) -> list[SingleDataTask[T_TaskData]]:
-        results = []
-        for task in tasks:
-            key = self._get_image_path_key(getattr(task.data, "image_path", None))
-            if key is None:
-                self._passed += 1
-                results.append(task)
-                continue
-            if key in self._processed:
-                self._skipped_existing += 1
-                continue
-            if key in self._seen_in_run:
-                self._skipped_duplicate += 1
-                continue
-            self._seen_in_run.add(key)
-            self._passed += 1
-            results.append(task)
-        return results
-
-    def teardown(self) -> None:
-        logger.info(
-            f"SkipProcessed: loaded={self._loaded_count}, passed={self._passed}, "
-            f"skipped_existing={self._skipped_existing}, skipped_duplicate={self._skipped_duplicate}"
-        )
-
-    @property
-    def stats(self) -> dict[str, int]:
-        return {
-            "loaded": self._loaded_count,
-            "passed": self._passed,
-            "skipped_existing": self._skipped_existing,
-            "skipped_duplicate": self._skipped_duplicate,
-        }
-
-
 class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTask[T_TaskData]], Generic[T_TaskData]):
     """Stage for writing pipeline results to JSONL file.
 
@@ -386,7 +241,6 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
         valid_only: bool = True,
         image_parent: str | None = None,
         single_file: bool = False,
-        append: bool = False,
     ) -> None:
         """Initialize the result writer stage.
 
@@ -395,13 +249,11 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
             valid_only: If True, only write valid records.
             image_parent: If provided, make image paths relative to this directory.
             single_file: If True, write to exactly output_path without worker_id suffix.
-            append: If True, append to existing output file (resume mode).
         """
         self.output_path = output_path
         self.valid_only = valid_only
         self.image_parent = Path(image_parent) if image_parent else None
         self.single_file = single_file
-        self.append = append
         self._file: Any = None
         self._saved_count: int = 0
         self._skipped_count: int = 0
@@ -430,11 +282,10 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
             output = base_path
 
         output.parent.mkdir(parents=True, exist_ok=True)
-        mode = "a" if self.append else "w"
-        self._file = open(output, mode, encoding="utf-8")  # noqa: SIM115
+        self._file = open(output, "w", encoding="utf-8")  # noqa: SIM115
         self._saved_count = 0
         self._skipped_count = 0
-        logger.info(f"ResultWriter: opened {output} for writing (mode={mode})")
+        logger.info(f"ResultWriter: opened {output} for writing")
 
     def _get_image_path_str(self, image_path: Path | None) -> str | None:
         """Get image path string, optionally relative to image_parent."""
@@ -493,7 +344,7 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
         }
 
 
-def merge_output_shards(output_path: Path, *, delete_shards: bool = True, append: bool = False) -> Path:
+def merge_output_shards(output_path: Path, *, delete_shards: bool = True) -> Path:
     """Merge per-worker JSONL shards from ResultWriterStage into a single file.
 
     ResultWriterStage writes one shard per worker named
@@ -504,8 +355,6 @@ def merge_output_shards(output_path: Path, *, delete_shards: bool = True, append
     Args:
         output_path: The base output path passed to ResultWriterStage.
         delete_shards: Remove shard files after a successful merge (default True).
-        append: If True, append shards to an existing merged file (resume mode).
-            Defaults to False — the merged file is overwritten on each call.
 
     Returns:
         Path to the merged file (``<stem><suffix>`` in the same directory).
@@ -521,8 +370,7 @@ def merge_output_shards(output_path: Path, *, delete_shards: bool = True, append
         return output_path
 
     merged = output_path.parent / f"{output_path.stem}{suffix}"
-    mode = "a" if append and merged.exists() else "w"
-    with open(merged, mode, encoding="utf-8") as fout:
+    with open(merged, "w", encoding="utf-8") as fout:
         for shard in shards:
             with open(shard, encoding="utf-8") as fin:
                 shutil.copyfileobj(fin, fout)
@@ -533,82 +381,3 @@ def merge_output_shards(output_path: Path, *, delete_shards: bool = True, append
 
     logger.info(f"merge_output_shards: merged {len(shards)} shards → {merged}")
     return merged
-
-
-class FileReader(ABC):
-    """Abstract base class for reading files from various sources."""
-
-    @abstractmethod
-    def can_read(self, path: Path) -> bool:
-        """Check if this reader can handle the given path.
-
-        Args:
-            path: Path to check.
-
-        Returns:
-            True if this reader can handle the path.
-        """
-
-    @abstractmethod
-    def read_bytes(self, path: Path) -> bytes:
-        """Read raw bytes from the given path.
-
-        Args:
-            path: Path to read from.
-
-        Returns:
-            Raw bytes of the file.
-
-        Raises:
-            FileNotFoundError: If the file doesn't exist.
-            ValueError: If the path format is invalid.
-        """
-
-    def open_image(self, path: Path) -> Image.Image:
-        """Open a PIL Image from the given path.
-
-        Args:
-            path: Path to read from.
-
-        Returns:
-            PIL Image object.
-
-        Raises:
-            FileNotFoundError: If the file doesn't exist.
-            ValueError: If the path format is invalid.
-        """
-        image_bytes = self.read_bytes(path)
-        return Image.open(io.BytesIO(image_bytes))
-
-
-class RegularFileReader(FileReader):
-    """Reader for regular file system files."""
-
-    def can_read(self, path: Path) -> bool:
-        """Check if path is a regular file."""
-        return path.exists() and path.is_file()
-
-    def open_image(self, path: Path) -> Image.Image:
-        return Image.open(path)
-
-    def read_bytes(self, path: Path) -> bytes:
-        """Read bytes from a regular file."""
-        if not path.exists():
-            msg = f"Image not found: {path}"
-            raise FileNotFoundError(msg)
-        return path.read_bytes()
-
-
-_file_reader = RegularFileReader()
-
-
-def load_image_from_task(task: SingleDataTask[ImageTaskData]) -> Image.Image:
-    """Load PIL Image from an ``ImageTaskData`` task.
-
-    Args:
-        task: Task whose ``data.image_path`` points to a regular image file on disk.
-
-    Returns:
-        PIL Image object.
-    """
-    return _file_reader.open_image(task.data.image_path)

@@ -12,7 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for nemo_curator.models.omni.base."""
+"""Unit tests for nemo_curator.models.omni.base.
+
+The OpenAI client + ``stream_chat_completion_text`` are mocked because the
+class is a thin wrapper over the NVIDIA Inference HTTP API; what these tests
+verify is that the wrapper composes the right request and threads kwargs and
+errors through correctly.
+"""
 
 import base64
 from unittest.mock import MagicMock, patch
@@ -20,268 +26,75 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
-from nemo_curator.models.omni.base import (
-    InferenceConfig,
-    ModelConfig,
-    NVInferenceModel,
-    NVInferenceModelConfig,
-    VLMModel,
-)
-
-# ---------------------------------------------------------------------------
-# Concrete VLMModel subclass for testing the abstract base
-# ---------------------------------------------------------------------------
+from nemo_curator.models.omni.base import NVInferenceModel
 
 
-class _ConcreteVLMModel(VLMModel):
-    def load(self) -> None:
-        self._model = "loaded"
+class TestNVInferenceModel:
+    def _model(self, **kwargs: object) -> NVInferenceModel:
+        return NVInferenceModel("test/model", **kwargs)
 
-    def preload(self) -> None:
-        pass
+    def test_setup_creates_client_via_factory(self) -> None:
+        with (
+            patch("nemo_curator.models.client.nvinference_client.create_openai_client") as create,
+            patch(
+                "nemo_curator.models.client.nvinference_client.get_nvinference_api_key",
+                return_value="key-xyz",  # pragma: allowlist secret
+            ),
+        ):
+            m = self._model(base_url="https://example.test")
+            m.setup()
+            m.setup()  # idempotent — should only build the client once
+            create.assert_called_once_with(
+                api_key="key-xyz", base_url="https://example.test"
+            )  # pragma: allowlist secret
+            assert m.is_loaded
 
-    def generate(
-        self,
-        prompts: list[str],
-        images: list[Image.Image] | None,
-        inference_config: InferenceConfig,
-    ) -> list[str]:
-        return [""] * len(prompts)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_nv_model(model_id: str = "test/model") -> NVInferenceModel:
-    return NVInferenceModel(model_id, NVInferenceModelConfig())
-
-
-# ---------------------------------------------------------------------------
-# InferenceConfig defaults
-# ---------------------------------------------------------------------------
-
-
-class TestInferenceConfig:
-    def test_defaults(self) -> None:
-        cfg = InferenceConfig()
-        assert cfg.temperature == 0.0
-        assert cfg.top_p == 1.0
-        assert cfg.repetition_penalty == 1.0
-        assert cfg.do_sample is False
-        assert cfg.priority_mode is False
-
-
-# ---------------------------------------------------------------------------
-# ModelConfig validation
-# ---------------------------------------------------------------------------
-
-
-class TestModelConfig:
-    def test_valid_defaults(self) -> None:
-        cfg = ModelConfig()
-        assert cfg.tensor_parallel_size == 1
-        assert cfg.gpu_memory_utilization == pytest.approx(0.9)
-
-    def test_gpu_memory_below_zero_raises(self) -> None:
-        with pytest.raises(ValueError, match=r"0\.0 and 1\.0"):
-            ModelConfig(gpu_memory_utilization=-0.1)
-
-    def test_gpu_memory_above_one_raises(self) -> None:
-        with pytest.raises(ValueError, match=r"0\.0 and 1\.0"):
-            ModelConfig(gpu_memory_utilization=1.1)
-
-    def test_gpu_memory_boundary_values_valid(self) -> None:
-        ModelConfig(gpu_memory_utilization=0.0)
-        ModelConfig(gpu_memory_utilization=1.0)
-
-    def test_tensor_parallel_size_zero_raises(self) -> None:
-        with pytest.raises(ValueError, match="greater than 0"):
-            ModelConfig(tensor_parallel_size=0)
-
-    def test_tensor_parallel_size_negative_raises(self) -> None:
-        with pytest.raises(ValueError, match="greater than 0"):
-            ModelConfig(tensor_parallel_size=-1)
-
-
-# ---------------------------------------------------------------------------
-# VLMModel is_loaded / unload
-# ---------------------------------------------------------------------------
-
-
-class TestVLMModelIsLoaded:
-    def test_not_loaded_initially(self) -> None:
-        model = _ConcreteVLMModel("test-model", ModelConfig())
-        assert model.is_loaded is False
-
-    def test_loaded_after_load_call(self) -> None:
-        model = _ConcreteVLMModel("test-model", ModelConfig())
-        model.load()
-        assert model.is_loaded is True
-
-    def test_unload_clears_model(self) -> None:
-        model = _ConcreteVLMModel("test-model", ModelConfig())
-        model.load()
-        model.unload()
-        assert model.is_loaded is False
-
-
-# ---------------------------------------------------------------------------
-# NVInferenceModel.is_loaded
-# ---------------------------------------------------------------------------
-
-
-class TestNVInferenceModelIsLoaded:
-    def test_not_loaded_initially(self) -> None:
-        assert _make_nv_model().is_loaded is False
-
-
-# ---------------------------------------------------------------------------
-# NVInferenceModel.load / unload
-# ---------------------------------------------------------------------------
-
-
-class TestNVInferenceModelLoad:
-    @patch("nemo_curator.models.client.nvinference_client.create_openai_client")
-    @patch("nemo_curator.models.client.nvinference_client.get_nvinference_api_key")
-    def test_load_initializes_client(
-        self, mock_get_key: MagicMock, mock_create: MagicMock
-    ) -> None:
-        mock_get_key.return_value = "key"
-        mock_create.return_value = MagicMock()
-        model = _make_nv_model()
-        model.load()
-        assert model.is_loaded is True
-        mock_get_key.assert_called_once()
-        mock_create.assert_called_once_with(api_key="key", base_url="https://inference-api.nvidia.com")  # pragma: allowlist secret
-
-    @patch("nemo_curator.models.client.nvinference_client.create_openai_client")
-    @patch("nemo_curator.models.client.nvinference_client.get_nvinference_api_key")
-    def test_load_is_idempotent(
-        self, mock_get_key: MagicMock, mock_create: MagicMock
-    ) -> None:
-        mock_get_key.return_value = "key"
-        mock_create.return_value = MagicMock()
-        model = _make_nv_model()
-        model.load()
-        model.load()
-        mock_create.assert_called_once()
-
-
-class TestNVInferenceModelUnload:
-    def test_unload_clears_client(self) -> None:
-        model = _make_nv_model()
-        model._client = MagicMock()
-        model.unload()
-        assert model.is_loaded is False
-
-
-# ---------------------------------------------------------------------------
-# NVInferenceModel._encode_image_to_base64
-# ---------------------------------------------------------------------------
-
-
-class TestNVInferenceModelEncodeImage:
-    def test_returns_valid_base64_png(self) -> None:
-        model = _make_nv_model()
+    def test_encode_image_to_base64_produces_real_png(self) -> None:
         img = Image.new("RGB", (4, 4), color=(255, 0, 0))
-        result = model._encode_image_to_base64(img)
-        decoded = base64.b64decode(result)
+        decoded = base64.b64decode(self._model()._encode_image_to_base64(img))
         assert decoded[:8] == b"\x89PNG\r\n\x1a\n"
 
+    def test_build_message_content_handles_pil_image_and_url_string(self) -> None:
+        # PIL image → real PNG → real base64 → data URL prefix
+        pil_content = self._model()._build_message_content("describe", Image.new("RGB", (4, 4)))
+        assert pil_content[0]["type"] == "image_url"
+        assert pil_content[0]["image_url"]["url"].startswith("data:image/png;base64,")
+        assert pil_content[1] == {"type": "text", "text": "describe"}
 
-# ---------------------------------------------------------------------------
-# NVInferenceModel._build_message_content
-# ---------------------------------------------------------------------------
+        # Pre-built URL string passes through untouched (no re-encoding)
+        url = "https://example.com/img.jpg"
+        url_content = self._model()._build_message_content("describe", url)
+        assert url_content[0]["image_url"]["url"] == url
 
-
-class TestNVInferenceModelBuildMessageContent:
-    def test_text_only(self) -> None:
-        model = _make_nv_model()
-        content = model._build_message_content("hello", None)
-        assert len(content) == 1
-        assert content[0] == {"type": "text", "text": "hello"}
-
-    def test_with_pil_image_produces_data_url(self) -> None:
-        model = _make_nv_model()
-        img = Image.new("RGB", (4, 4))
-        content = model._build_message_content("describe", img)
-        assert len(content) == 2
-        assert content[0]["type"] == "image_url"
-        assert content[1]["type"] == "text"
-        url = content[0]["image_url"]["url"]
-        assert url.startswith("data:image/png;base64,")
-
-    def test_with_uri_string_passed_as_is(self) -> None:
-        model = _make_nv_model()
-        uri = "https://example.com/img.jpg"
-        content = model._build_message_content("describe", uri)
-        assert content[0]["image_url"]["url"] == uri
-
-
-# ---------------------------------------------------------------------------
-# NVInferenceModel.generate
-# ---------------------------------------------------------------------------
-
-
-class TestNVInferenceModelGenerate:
-    def test_raises_when_not_loaded(self) -> None:
-        model = _make_nv_model()
+    def test_generate_requires_setup(self) -> None:
         with pytest.raises(RuntimeError, match="not loaded"):
-            model.generate(["prompt"], None, InferenceConfig())
+            self._model().generate(["prompt"])
 
     @patch("nemo_curator.models.client.nvinference_client.stream_chat_completion_text")
-    def test_calls_stream_per_prompt(self, mock_stream: MagicMock) -> None:
-        mock_stream.return_value = "response"
-        model = _make_nv_model()
-        model._client = MagicMock()
-        results = model.generate(["p1", "p2"], None, InferenceConfig())
+    def test_generate_dispatches_one_call_per_prompt_with_image(self, mock_stream: MagicMock) -> None:
+        mock_stream.side_effect = ["r0", "r1"]
+        m = self._model()
+        m._client = MagicMock()
+        results = m.generate(["p0", "p1"], [Image.new("RGB", (4, 4)), Image.new("RGB", (4, 4))])
+        assert results == ["r0", "r1"]
         assert mock_stream.call_count == 2
-        assert results == ["response", "response"]
+        # First call's message has the right role and embeds an image part.
+        first_msg = mock_stream.call_args_list[0].kwargs["messages"][0]
+        assert first_msg["role"] == "user"
+        assert any(part["type"] == "image_url" for part in first_msg["content"])
 
     @patch("nemo_curator.models.client.nvinference_client.stream_chat_completion_text")
-    def test_error_returns_empty_string(self, mock_stream: MagicMock) -> None:
-        mock_stream.side_effect = RuntimeError("API error")
-        model = _make_nv_model()
-        model._client = MagicMock()
-        results = model.generate(["p"], None, InferenceConfig())
-        assert results == [""]
+    def test_generate_swallows_per_prompt_errors_as_empty_string(self, mock_stream: MagicMock) -> None:
+        mock_stream.side_effect = [RuntimeError("transient"), "ok"]
+        m = self._model()
+        m._client = MagicMock()
+        assert m.generate(["a", "b"]) == ["", "ok"]
 
     @patch("nemo_curator.models.client.nvinference_client.stream_chat_completion_text")
-    def test_priority_mode_adds_header(self, mock_stream: MagicMock) -> None:
+    def test_priority_mode_adds_vertex_header(self, mock_stream: MagicMock) -> None:
         mock_stream.return_value = "ok"
-        model = _make_nv_model()
-        model._client = MagicMock()
-        model.generate(["p"], None, InferenceConfig(priority_mode=True))
-        kwargs = mock_stream.call_args[1]
-        assert kwargs["extra_headers"] == {"X-Vertex-AI-LLM-Shared-Request-Type": "priority"}
-
-    @patch("nemo_curator.models.client.nvinference_client.stream_chat_completion_text")
-    def test_no_priority_mode_no_header(self, mock_stream: MagicMock) -> None:
-        mock_stream.return_value = "ok"
-        model = _make_nv_model()
-        model._client = MagicMock()
-        model.generate(["p"], None, InferenceConfig(priority_mode=False))
-        kwargs = mock_stream.call_args[1]
-        assert kwargs["extra_headers"] is None
-
-    @patch("nemo_curator.models.client.nvinference_client.stream_chat_completion_text")
-    def test_image_included_in_message_content(self, mock_stream: MagicMock) -> None:
-        mock_stream.return_value = "ok"
-        model = _make_nv_model()
-        model._client = MagicMock()
-        imgs = [Image.new("RGB", (4, 4)), Image.new("RGB", (4, 4))]
-        model.generate(["p1", "p2"], imgs, InferenceConfig())
-        first_call_kwargs = mock_stream.call_args_list[0][1]
-        content = first_call_kwargs["messages"][0]["content"]
-        assert len(content) == 2  # image + text
-        assert content[0]["type"] == "image_url"
-
-    @patch("nemo_curator.models.client.nvinference_client.stream_chat_completion_text")
-    def test_empty_response_becomes_empty_string(self, mock_stream: MagicMock) -> None:
-        mock_stream.return_value = ""
-        model = _make_nv_model()
-        model._client = MagicMock()
-        results = model.generate(["p"], None, InferenceConfig())
-        assert results == [""]
+        for flag, expected in [(True, {"X-Vertex-AI-LLM-Shared-Request-Type": "priority"}), (False, None)]:
+            m = self._model(priority_mode=flag)
+            m._client = MagicMock()
+            m.generate(["p"])
+            assert mock_stream.call_args.kwargs["extra_headers"] == expected

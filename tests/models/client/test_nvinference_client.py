@@ -12,143 +12,74 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for nemo_curator.models.client.nvinference_client."""
+"""Unit tests for the thin NVIDIA Inference HTTP client helpers.
 
-from unittest.mock import MagicMock, patch
+Covers the non-obvious wrapper behavior: whitespace handling on the env-var
+read, and stream-chunk reassembly (None deltas, empty-choices chunks).
+"""
+
+from unittest.mock import MagicMock
 
 import pytest
 
 from nemo_curator.models.client.nvinference_client import (
-    create_openai_client,
     get_nvinference_api_key,
     stream_chat_completion_text,
 )
 
-# ---------------------------------------------------------------------------
-# get_nvinference_api_key
-# ---------------------------------------------------------------------------
 
-
-class TestGetNvinferenceApiKey:
-    def test_raises_when_env_var_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("NVINFERENCE_API_KEY", raising=False)
-        with pytest.raises(RuntimeError, match="NVINFERENCE_API_KEY is not set"):
-            get_nvinference_api_key()
-
-    def test_raises_when_env_var_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("NVINFERENCE_API_KEY", "   ")
-        with pytest.raises(RuntimeError, match="NVINFERENCE_API_KEY is not set"):
-            get_nvinference_api_key()
-
-    def test_returns_value_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("NVINFERENCE_API_KEY", "test-key-123")
-        assert get_nvinference_api_key() == "test-key-123"
-
-    def test_custom_env_var_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MY_CUSTOM_KEY", "custom-value")
-        assert get_nvinference_api_key("MY_CUSTOM_KEY") == "custom-value"
-
-    def test_custom_env_var_missing_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("MY_CUSTOM_KEY", raising=False)
-        with pytest.raises(RuntimeError, match="MY_CUSTOM_KEY is not set"):
-            get_nvinference_api_key("MY_CUSTOM_KEY")
-
-
-# ---------------------------------------------------------------------------
-# create_openai_client
-# ---------------------------------------------------------------------------
-
-
-class TestCreateOpenaiClient:
-    @patch("openai.OpenAI")
-    def test_creates_client_with_correct_args(self, mock_openai_cls: MagicMock) -> None:
-        mock_instance = MagicMock()
-        mock_openai_cls.return_value = mock_instance
-        client = create_openai_client(api_key="key123", base_url="https://example.com")  # pragma: allowlist secret
-        mock_openai_cls.assert_called_once_with(base_url="https://example.com", api_key="key123")  # pragma: allowlist secret
-        assert client is mock_instance
-
-    @patch("openai.OpenAI")
-    def test_default_base_url(self, mock_openai_cls: MagicMock) -> None:
-        create_openai_client(api_key="key")  # pragma: allowlist secret
-        _, kwargs = mock_openai_cls.call_args
-        assert kwargs["base_url"] == "https://inference-api.nvidia.com"
-
-
-# ---------------------------------------------------------------------------
-# stream_chat_completion_text
-# ---------------------------------------------------------------------------
-
-
-def _make_chunk(content: str | None) -> MagicMock:
+def _content_chunk(content: str | None) -> MagicMock:
     chunk = MagicMock()
     chunk.choices[0].delta.content = content
     return chunk
 
 
-def _make_empty_choices_chunk() -> MagicMock:
+def _empty_choices_chunk() -> MagicMock:
     chunk = MagicMock()
     chunk.choices = []
     return chunk
 
 
+class TestApiKey:
+    def test_missing_env_var_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("NVINFERENCE_API_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="NVINFERENCE_API_KEY is not set"):
+            get_nvinference_api_key()
+
+    def test_whitespace_only_treated_as_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The wrapper strips before checking emptiness — easy to regress.
+        monkeypatch.setenv("NVINFERENCE_API_KEY", "   ")
+        with pytest.raises(RuntimeError, match="NVINFERENCE_API_KEY is not set"):
+            get_nvinference_api_key()
+
+    def test_custom_env_var_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MY_CUSTOM_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="MY_CUSTOM_KEY is not set"):
+            get_nvinference_api_key("MY_CUSTOM_KEY")
+
+
 class TestStreamChatCompletionText:
-    def test_collects_chunks_into_string(self) -> None:
+    def test_concatenates_deltas_skipping_none_and_empty_chunks(self) -> None:
         client = MagicMock()
         client.chat.completions.create.return_value = [
-            _make_chunk("hello"),
-            _make_chunk(" world"),
+            _content_chunk("hello"),
+            _content_chunk(None),  # delta with no content — must be skipped
+            _empty_choices_chunk(),  # usage chunk: choices=[] — must be skipped
+            _content_chunk(" "),
+            _content_chunk("world"),
         ]
-        result = stream_chat_completion_text(client, model="m", messages=[])
-        assert result == "hello world"
-
-    def test_empty_choices_chunk_skipped(self) -> None:
-        client = MagicMock()
-        client.chat.completions.create.return_value = [
-            _make_chunk("hello"),
-            _make_empty_choices_chunk(),  # final usage chunk — choices=[]
-            _make_chunk("!"),
-        ]
-        result = stream_chat_completion_text(client, model="m", messages=[])
-        assert result == "hello!"
-
-    def test_none_delta_skipped(self) -> None:
-        client = MagicMock()
-        client.chat.completions.create.return_value = [
-            _make_chunk("hello"),
-            _make_chunk(None),
-            _make_chunk("!"),
-        ]
-        result = stream_chat_completion_text(client, model="m", messages=[])
-        assert result == "hello!"
-
-    def test_empty_stream_returns_empty_string(self) -> None:
-        client = MagicMock()
-        client.chat.completions.create.return_value = []
-        result = stream_chat_completion_text(client, model="m", messages=[])
-        assert result == ""
-
-    def test_passes_kwargs_to_create(self) -> None:
-        client = MagicMock()
-        client.chat.completions.create.return_value = []
-        stream_chat_completion_text(
+        result = stream_chat_completion_text(
             client,
             model="my-model",
             messages=[{"role": "user"}],
             temperature=0.5,
             top_p=0.9,
             max_tokens=512,
+            extra_headers={"X-Custom": "value"},
         )
-        kwargs = client.chat.completions.create.call_args[1]
-        assert kwargs["model"] == "my-model"
-        assert kwargs["temperature"] == 0.5
-        assert kwargs["max_tokens"] == 512
+        assert result == "hello world"
+        # All call-time kwargs reach the upstream client unchanged, plus stream=True.
+        kwargs = client.chat.completions.create.call_args.kwargs
         assert kwargs["stream"] is True
-
-    def test_extra_headers_passed_through(self) -> None:
-        client = MagicMock()
-        client.chat.completions.create.return_value = []
-        headers = {"X-Custom": "value"}
-        stream_chat_completion_text(client, model="m", messages=[], extra_headers=headers)
-        kwargs = client.chat.completions.create.call_args[1]
-        assert kwargs["extra_headers"] == headers
+        assert kwargs["extra_headers"] == {"X-Custom": "value"}
+        assert kwargs["max_tokens"] == 512

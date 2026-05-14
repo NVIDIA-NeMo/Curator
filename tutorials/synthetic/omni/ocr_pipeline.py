@@ -28,7 +28,6 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.omni.io import (
     HFDatasetImageReaderStage,
     ResultWriterStage,
-    SkipProcessedStage,
     merge_output_shards,
 )
 from nemo_curator.stages.synthetic.omni.ocr_nemotron_v2 import OCRNemotronV2Stage
@@ -46,9 +45,7 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
     hf_id_column: str | None = None,
     hf_limit: int | None = None,
     image_parent: Path | None = None,
-    resume: bool = False,
     valid_only: bool = False,
-    num_workers: int | None = None,
     nemotron_model_dir: Path | None = None,
     run_scoring_qa: bool = False,
     scoring_qa_model_id: str = "nvidia/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
@@ -78,9 +75,7 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
             (e.g. ``"train[:1000]"``) so only those records are fetched.
         image_parent: If set, image paths in the output are made relative to
             this directory.
-        resume: Skip images already written to ``output_path``.
         valid_only: Exclude invalid records from the output.
-        num_workers: Xenna worker count override for model stages.
         nemotron_model_dir: NemotronOCR-v2 model directory; downloads from HF
             Hub (``nvidia/nemotron-ocr-v2``) if None.
         run_scoring_qa: Run Nemotron-Nano-Omni bbox scoring + QA generation after OCR.
@@ -109,20 +104,7 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
         )
     )
 
-    if resume:
-        pipeline.add_stage(
-            SkipProcessedStage(
-                output_path=output_path,
-                image_parent=image_parent,
-            )
-        )
-
-    pipeline.add_stage(
-        OCRNemotronV2Stage(
-            model_dir=nemotron_model_dir,
-            num_workers=num_workers,
-        )
-    )
+    pipeline.add_stage(OCRNemotronV2Stage(model_dir=nemotron_model_dir))
 
     if run_scoring_qa:
         pipeline.add_stage(
@@ -141,7 +123,6 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
             valid_only=valid_only,
             image_parent=str(image_parent) if image_parent else None,
             single_file=False,
-            append=resume,
         )
     )
 
@@ -212,12 +193,6 @@ def parse_args() -> argparse.Namespace:
         help="Make image paths in output relative to this directory",
     )
     parser.add_argument(
-        "--resume",
-        action="store_true",
-        default=False,
-        help="Skip images already present in the output directory",
-    )
-    parser.add_argument(
         "--valid-only",
         action="store_true",
         default=False,
@@ -225,12 +200,6 @@ def parse_args() -> argparse.Namespace:
     )
 
     # --- Model ---
-    parser.add_argument(
-        "--num-workers",
-        type=int,
-        default=None,
-        help="Xenna worker count for model stages (default: autoscaler decides)",
-    )
     parser.add_argument(
         "--nemotron-model-dir",
         type=str,
@@ -243,10 +212,7 @@ def parse_args() -> argparse.Namespace:
         "--run-scoring-qa",
         action="store_true",
         default=False,
-        help=(
-            "Run verifier bbox scoring + QA generation after OCR. "
-            "Requires NVINFERENCE_API_KEY to be set."
-        ),
+        help=("Run verifier bbox scoring + QA generation after OCR. Requires NVINFERENCE_API_KEY to be set."),
     )
     parser.add_argument(
         "--scoring-qa-model-id",
@@ -295,9 +261,7 @@ def main() -> None:
         hf_id_column=args.hf_id_column,
         hf_limit=args.hf_limit,
         image_parent=Path(args.image_parent) if args.image_parent else None,
-        resume=args.resume,
         valid_only=args.valid_only,
-        num_workers=args.num_workers,
         nemotron_model_dir=Path(args.nemotron_model_dir) if args.nemotron_model_dir else None,
         run_scoring_qa=args.run_scoring_qa,
         scoring_qa_model_id=args.scoring_qa_model_id,
@@ -324,7 +288,7 @@ def main() -> None:
     logger.info(f"Pipeline completed in {elapsed:.1f}s ({elapsed / 60:.1f} min)")
     logger.info(f"Tasks processed: {len(output_tasks)}")
 
-    merged = merge_output_shards(Path(args.output_path), append=args.resume)
+    merged = merge_output_shards(Path(args.output_path))
     logger.info(f"Output: {merged}")
 
 
