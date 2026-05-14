@@ -105,7 +105,31 @@ class NemoASRModel(ModelInterface):
             self.asr_model.eval()
         except AttributeError:
             pass
+        self._disable_cuda_graphs()
         logger.info(f"NeMo ASR model loaded: {self.model_name}")
+
+    def _disable_cuda_graphs(self) -> None:
+        # CUDA graphs in NeMo's RNN-T / TDT greedy decoders crash with
+        # cudaErrorIllegalAddress when the GPU memory pool layout changes
+        # between capture and replay — which happens whenever a co-tenant
+        # (vLLM) on the same device allocates/frees.
+        if self.asr_model is None:
+            return
+        from omegaconf import OmegaConf, open_dict
+
+        decoding_cfg = getattr(self.asr_model.cfg, "decoding", None)
+        if decoding_cfg is None:
+            return
+        with open_dict(self.asr_model.cfg):
+            greedy_cfg = OmegaConf.select(self.asr_model.cfg, "decoding.greedy")
+            if greedy_cfg is None:
+                self.asr_model.cfg.decoding.greedy = OmegaConf.create({})
+            self.asr_model.cfg.decoding.greedy.use_cuda_graph_decoder = False
+            self.asr_model.cfg.decoding.greedy.allow_cuda_graphs = False
+        try:
+            self.asr_model.change_decoding_strategy(self.asr_model.cfg.decoding)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"change_decoding_strategy failed when disabling CUDA graphs: {e}")
 
     def teardown(self) -> None:
         """Release the model and clear CUDA cache."""
