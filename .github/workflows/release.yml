@@ -44,7 +44,7 @@ on:
       publish-docs:
         description: Publish docs
         required: false
-        default: true
+        default: false
         type: boolean
 
 defaults:
