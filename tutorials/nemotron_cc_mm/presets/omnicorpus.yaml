@@ -1,0 +1,167 @@
+# OmniCorpus recipe  —  Li et al. 2024, arXiv:2406.08418
+# ----------------------------------------------------------------------
+# Audit against the paper (Section 3 + Appendix C, D).  OmniCorpus runs
+# five stages in order ①②④③⑤ (Appendix C.1, Table 10 — optimal).
+#
+#   ① Main Body Extraction          ← modified Trafilatura
+#   ② Preliminary Text Filtering    ← Gopher + C4 + extra heuristics
+#   ③ Document Deduplication        ← MinHash threshold 0.8
+#   ④ Image Downloading & Filtering ← MMC4 + LAION-5B + pHash/dHash + Bloom
+#   ⑤ Detailed Text Filtering       ← BERT ensemble + ~30 human-feedback rules
+#
+# This preset configures what our Phase-1 pipeline already implements.
+# Items marked  📌 TODO  are not yet wired up and are called out below
+# so the comparison numbers stay interpretable.
+
+name: omnicorpus
+description: OmniCorpus paper (arXiv:2406.08418); Phase-1 subset — see TODOs below
+
+# ======================================================================
+# ① Main Body Extraction          (paper §3.1 "Main Body Extraction")
+# ======================================================================
+# Paper:  "We extract primary content from each web document using an
+#  improved version of Trafilatura, which can more accurately and
+#  efficiently extract main content and images …"
+#
+# magic-html *is* the prod-scale evolution of OmniCorpus's modified
+# Trafilatura (same code lineage, Apache-2.0).  We pick `hybrid`
+# (magic-html with naive-walker fallback on empty output) so we keep
+# magic-html's main-content cleaning without dropping the ~15 % of pages
+# where it returns nothing.
+extractor: hybrid
+min_text_chars: 1
+#
+# 📌 TODO: implement "Drop HTML documents without images" at extraction
+#    time.  Today we emit metadata-only rows for image-less docs and
+#    rely on the later InterleavedImageCountFilter to drop them — same
+#    outcome, different stage.
+
+# ======================================================================
+# ② Preliminary Text Filtering    (paper §3.1)
+# ======================================================================
+# Paper:  "preliminary text filtering by employing strategies from
+#  Gopher [83] and C4 [84] to eliminate extremely low-quality content …
+#  Additionally, we introduce some heuristic rules to further filter the
+#  text, such as removing documents with too many continuous line breaks
+#  or documents where a single word's frequency is excessively high."
+#
+# Thresholds are Gopher §A.1.1 defaults (the paper cites Gopher directly).
+url_substr_nsfw: true
+lorem_ipsum: true
+word_count: true
+mean_word_length: true
+symbol_ratio: true
+stopword_count: true
+ngram_repetition: true
+alpha_ratio: true
+ellipsis_line: true
+bullet_line: true
+dup_line: true
+top_word: true
+continuous_line_breaks: true     # No-op vs our extractor (it normalizes whitespace);
+                                 # kept wired so a future paragraph-preserving
+                                 # extractor can opt in without code changes.
+bad_words: false                 # OmniCorpus's wordlist isn't released; enable
+                                 # by also setting bad_words_path to e.g. LDNOOBW.
+lang_id: true
+
+word_count_min: 50
+word_count_max: 100000
+mean_word_length_min: 3.0
+mean_word_length_max: 10.0
+symbol_ratio_max: 0.1
+stopword_count_min: 2
+alpha_ratio_min: 0.8
+ellipsis_line_max: 0.3
+bullet_line_max: 0.9
+dup_line_max: 0.3
+top_word_max: 0.30               # Paper doesn't give a threshold; 0.30 ≈ 4× the
+                                 # natural rate of "the" in English prose.
+continuous_line_breaks_max: 0.05
+lang_id_target: en
+lang_id_min_score: 0.65          # Paper doesn't specify; 0.65 matches MINT-1T.
+bad_words_path: ""
+
+# ======================================================================
+# ③ Document Deduplication        (paper §3.1)
+# ======================================================================
+# Paper:  "We remove duplicate documents by comparing their text content
+#  using minhash [11] values with a threshold of 0.8 and retaining the
+#  latest version.  This step significantly reduces redundancy,
+#  discarding approximately 90 % of duplicates."
+#
+# 📌 TODO: implement document dedup.
+#    Plan:  reuse Curator's MinHashDeduplicationStage at Jaccard=0.8,
+#    add the 80%-paragraph rule, add the CCNet 2%-sample boilerplate
+#    finisher.
+
+# ======================================================================
+# ④ Image Downloading & Filtering  (paper §3.1 + §3.2)
+# ======================================================================
+# Paper §3.1: "we discard invalid images that were not successfully
+#  downloaded. Adhering to MMC4 [134] guidelines, we filter out images
+#  with a height or width of fewer than 150 pixels and an aspect ratio
+#  greater than 2 or less than 0.5.  Following LAION-5B [88], we exclude
+#  images with an aesthetic score below 3.7 or a Not Safe for Work (NSFW)
+#  score above 0.8.  Additionally, we identify and remove images that
+#  appear more than 10 times across HTML documents by computing
+#  perceptual hash (phash) and difference hash (dhash) values."
+#
+# Paper §3.2 ("Tweakings"): "We integrate efficient download task
+#  scheduling and resource allocation while employing Bloom filtering
+#  technology [10] to deduplicate URLs of images that have been
+#  downloaded or are pending processing. … reduces URL download requests
+#  from 30 billion to 9.65 billion and accelerates the downloading
+#  process by a factor of 1.5."
+image_download: true
+image_concurrency: 500
+image_timeout_s: 20.0
+image_retries: 1
+image_max_bytes: 20971520
+image_url_dedup: true            # ✅ OmniCorpus §3.2 Bloom-filter (within-batch)
+image_geometry: true
+image_min_dim: 150               # MMC4 guideline; OmniCorpus inherits it.
+image_max_dim: 20000
+image_aspect_ratio: true
+image_aspect_min: 0.5
+image_aspect_max: 2.0
+image_nsfw: true
+image_nsfw_max_score: 0.8        # LAION-5B cutoff
+image_aesthetic: true            # ✅ LAION-5B aesthetic predictor
+image_aesthetic_min_score: 3.7   # OmniCorpus cutoff (paper §3.1)
+image_count: true
+image_count_min: 1               # Strict OmniCorpus drops these at Stage ①
+image_count_max: 30              # Our cap; paper doesn't state one
+#
+# 📌 TODO: implement pHash/dHash image dedup with > 10× corpus cap.
+# 📌 TODO: extend the within-batch URL pre-dedup (already on; ~7 %
+#    savings) to corpus-wide via a Ray-shared Bloom actor.  OmniCorpus
+#    reports ~3× request reduction at full scale.
+#
+# ℹ️  URL pre-dedup inside the downloader IS kept on — it's a pure
+#    bandwidth optimization (same URL fetched once, broadcast to all
+#    rows that share it).  No rows are dropped from the output.
+
+# ======================================================================
+# ⑤ Detailed Text Filtering       (paper §3.1 + §3.3 + Appendix C.2)
+# ======================================================================
+# Paper §3.1: "We finetune models based on BERT [28] for scoring
+#  advertisement content, political content, toxic content, NSFW
+#  material, and document fluency.  Using these models, we discard
+#  documents containing excessive ads, inappropriate content, or poor
+#  language quality."
+#
+# Paper §3.3: human-feedback iterative loop produces ~30 English + 40
+#  Chinese paragraph-level filtering rules; full list in Appendix
+#  Table 11 (e.g., "Remove incomplete sentences at ends" 16.7 % FP,
+#  "Remove citation and related content" 6.0 %, "Remove overly short
+#  paragraphs" 8.3 %, etc.).
+#
+# 📌 TODO: implement BERT ensemble (ad / political / toxic / NSFW /
+#    fluency).  Stage 7 in our 8-stage scheme.
+# 📌 TODO: implement the ~30 English human-feedback paragraph-level
+#    rules (Appendix Table 11).  Partial overlap with what we already
+#    have at the doc level (URL-NSFW, lorem-ipsum, alpha-ratio, dup-line).
+# 📌 TODO: implement the meta-annotation pass (paper §3.4): write
+#    image-aesthetic, image-NSFW, text-NSFW, political, toxic, fluency
+#    scores as columns on the streaming data instead of dropping rows.
