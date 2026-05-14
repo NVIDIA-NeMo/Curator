@@ -3,9 +3,17 @@
 Implements the codebase's :class:`ModelInterface` contract (``setup()`` +
 ``model_id_names``). All sampling and connection kwargs live on the instance;
 ``generate`` takes only the per-call inputs.
+
+Built on top of :class:`OpenAIClient` from ``nemo_curator.models.client`` —
+the only piece this layer adds is streaming-chunk reassembly (the underlying
+``query_model`` returns the raw stream object, not the concatenated text).
+Streaming is required because the non-stream response shape from reasoning
+models on NVIDIA Inference (e.g. Nemotron-Nano-Omni-Reasoning) is not
+deserialized cleanly by the OpenAI SDK.
 """
 
 import base64
+import os
 from io import BytesIO
 from typing import Any
 
@@ -13,6 +21,7 @@ from loguru import logger
 from PIL import Image
 
 from nemo_curator.models.base import ModelInterface
+from nemo_curator.models.client import OpenAIClient
 
 
 class NVInferenceModel(ModelInterface):
@@ -36,7 +45,7 @@ class NVInferenceModel(ModelInterface):
         self.temperature = temperature
         self.top_p = top_p
         self.priority_mode = priority_mode
-        self._client: Any = None
+        self._client: OpenAIClient | None = None
 
     @property
     def model_id_names(self) -> list[str]:
@@ -50,14 +59,14 @@ class NVInferenceModel(ModelInterface):
         if self.is_loaded:
             return
 
-        from nemo_curator.models.client.nvinference_client import (
-            create_openai_client,
-            get_nvinference_api_key,
-        )
+        api_key = os.environ.get(self.api_key_env_var, "").strip()
+        if not api_key:
+            msg = f"{self.api_key_env_var} is not set"
+            raise RuntimeError(msg)
 
         logger.info(f"Initializing NVIDIA Inference client for model {self.model_id}")
-        api_key = get_nvinference_api_key(self.api_key_env_var)
-        self._client = create_openai_client(api_key=api_key, base_url=self.base_url)
+        self._client = OpenAIClient(base_url=self.base_url, api_key=api_key)
+        self._client.setup()
         logger.info("NVIDIA Inference client initialized")
 
     def unload(self) -> None:
@@ -83,6 +92,34 @@ class NVInferenceModel(ModelInterface):
         content.append({"type": "text", "text": prompt})
         return content
 
+    def _stream_completion_text(self, messages: list[dict[str, Any]]) -> str:
+        """Issue one streaming chat completion and reassemble ``delta.content`` into a string.
+
+        Reasoning models on NV Inference split output: ``delta.content`` carries
+        the final answer, ``delta.reasoning_content`` carries chain-of-thought.
+        We read only ``content``, which keeps the thinking out of the parsed
+        response without any prompt-side stripping. Also handles the final
+        usage-stats chunk (``choices == []``) and ``content is None`` chunks.
+        """
+        extra_headers = {"X-Vertex-AI-LLM-Shared-Request-Type": "priority"} if self.priority_mode else None
+        completion = self._client.client.chat.completions.create(
+            model=self.model_id,
+            messages=messages,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            max_tokens=self.max_tokens,
+            stream=True,
+            extra_headers=extra_headers,
+        )
+        parts: list[str] = []
+        for chunk in completion:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta.content
+            if delta is not None:
+                parts.append(delta)
+        return "".join(parts)
+
     def generate(
         self,
         prompts: list[str],
@@ -92,29 +129,13 @@ class NVInferenceModel(ModelInterface):
             msg = "Model not loaded. Call setup() first."
             raise RuntimeError(msg)
 
-        from nemo_curator.models.client.nvinference_client import stream_chat_completion_text
-
-        extra_headers = {"X-Vertex-AI-LLM-Shared-Request-Type": "priority"} if self.priority_mode else None
-
-        results = []
+        results: list[str] = []
         for i, prompt in enumerate(prompts):
             image = images[i] if images else None
-            content = self._build_message_content(prompt, image)
-            messages = [{"role": "user", "content": content}]
-
+            messages = [{"role": "user", "content": self._build_message_content(prompt, image)}]
             try:
-                response = stream_chat_completion_text(
-                    self._client,
-                    model=self.model_id,
-                    messages=messages,
-                    temperature=self.temperature,
-                    top_p=self.top_p,
-                    max_tokens=self.max_tokens,
-                    extra_headers=extra_headers,
-                )
-                results.append(response if response else "")
+                results.append(self._stream_completion_text(messages))
             except Exception as e:  # noqa: BLE001
                 logger.error(f"Error generating response for prompt {i}: {e}")
                 results.append("")
-
         return results
