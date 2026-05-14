@@ -19,7 +19,7 @@ from loguru import logger
 from ray.data import DataContext, Dataset
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.experimental.utils import execute_setup_on_node
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys, execute_setup_on_node
 from nemo_curator.backends.utils import register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -60,8 +60,9 @@ class RayDataExecutor(BaseExecutor):
         # This prevents verbose logging from Ray Data about serialization of the dataclass
         DataContext.get_current().enable_fallback_to_arrow_object_ext_type = True
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
-        tasks: list[Task] = initial_tasks if initial_tasks else [EmptyTask]
+        tasks: list[Task] = initial_tasks or [EmptyTask]
         output_tasks: list[Task] = []
+        stages_to_run = stages
         try:
             # Initialize ray and explicitly set NOSET to empty
             # This ensures if Xenna was used before which was setting NOSET, we end up overriding it.
@@ -69,17 +70,23 @@ class RayDataExecutor(BaseExecutor):
                 ignore_reinit_error=True, runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": ""}}
             )
 
+            if self._starts_with_empty_task(tasks) and self._is_fanout_stage(stages[0]):
+                tasks = self._get_initial_fanout_tasks(stages[0])
+                stages_to_run = stages[1:]
+
             # Convert tasks to dataset
             current_dataset = self._tasks_to_dataset(tasks)
 
             # Execute setup on node for all stages
-            execute_setup_on_node(stages, ignore_head_node=self.ignore_head_node)
-            logger.info(f"Setup on node complete for all stages. Starting Ray Data pipeline with {len(stages)} stages")
+            execute_setup_on_node(stages_to_run, ignore_head_node=self.ignore_head_node)
+            logger.info(
+                f"Setup on node complete for all stages. Starting Ray Data pipeline with {len(stages_to_run)} stages"
+            )
 
             # Process through each stage
-            for i, stage in enumerate(stages):
+            for i, stage in enumerate(stages_to_run):
                 # TODO: add pipeline level config for verbosity
-                logger.info(f"Processing stage {i + 1}/{len(stages)}: {stage}")
+                logger.info(f"Processing stage {i + 1}/{len(stages_to_run)}: {stage}")
                 logger.info(f"  CPU cores: {stage.resources.cpus}, GPU ratio: {stage.resources.gpus}")
 
                 # Create adapter for this stage
@@ -99,6 +106,26 @@ class RayDataExecutor(BaseExecutor):
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
             ray.shutdown()
         return output_tasks
+
+    def _get_initial_fanout_tasks(self, stage: "ProcessingStage") -> list[Task]:
+        """Run the first fanout stage eagerly so empty input fails before Ray Data execution."""
+        execute_setup_on_node([stage], ignore_head_node=self.ignore_head_node)
+        tasks = stage.process(EmptyTask)
+        if not tasks:
+            msg = (
+                f"No tasks produced by {stage.__class__.__name__}. "
+                "Check that the input path exists and contains files matching the reader extensions."
+            )
+            raise ValueError(msg)
+        return tasks
+
+    def _starts_with_empty_task(self, tasks: list[Task]) -> bool:
+        """Return True when execution starts from the default EmptyTask sentinel."""
+        return len(tasks) == 1 and tasks[0] is EmptyTask
+
+    def _is_fanout_stage(self, stage: "ProcessingStage") -> bool:
+        """Return True for stages that expand one input task into many output tasks."""
+        return bool(stage.ray_stage_spec().get(RayStageSpecKeys.IS_FANOUT_STAGE, False))
 
     def _tasks_to_dataset(self, tasks: list[Task]) -> Dataset:
         """Convert list of tasks to Ray Data dataset.

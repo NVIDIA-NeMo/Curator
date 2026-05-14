@@ -16,6 +16,7 @@ import math
 import os
 import re
 import tempfile
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -26,6 +27,7 @@ from nemo_curator.backends.experimental.ray_data.executor import RayDataExecutor
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.core.client import RayClient
 from nemo_curator.stages.base import ProcessingStage, Resources
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import DocumentBatch, EmptyTask
 from tests.backends.utils import capture_logs
 
@@ -267,3 +269,14 @@ def test_max_calls_not_fused_with_task_stage(max_calls_per_worker: int | None):
             f"Expected fused operator with 2 MapBatches, got: {map_batches_stages[0]}. "
             f"Full execution plan: {matches[-1]}"
         )
+
+
+@pytest.mark.usefixtures("single_cpu_ray_client")
+def test_file_partitioning_fails_fast_when_no_files_match(tmp_path: Path):
+    """RayDataExecutor should fail before building a Ray Data pipeline with no file tasks."""
+    (tmp_path / "data.parquet").write_text("not jsonl")
+    stage = FilePartitioningStage(str(tmp_path), file_extensions=[".jsonl"])
+    executor = RayDataExecutor()
+
+    with pytest.raises(ValueError, match="No tasks produced by FilePartitioningStage"):
+        executor.execute([stage])
