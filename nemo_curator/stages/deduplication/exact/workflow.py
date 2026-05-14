@@ -30,6 +30,7 @@ from nemo_curator.stages.deduplication.id_generator import (
 )
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import FileGroupTask
+from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
 
 ID_GENERATOR_OUTPUT_FILENAME = "exact_id_generator.json"
 
@@ -151,7 +152,9 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             stages=[
                 FilePartitioningStage(
                     file_paths=self.input_path,
-                    file_extensions=self.input_file_extensions,
+                    file_extensions=(
+                        self.input_file_extensions or FILETYPE_TO_DEFAULT_EXTENSIONS[self.input_filetype]
+                    ),
                     blocksize=self.input_blocksize,
                     storage_options=self.read_kwargs.get("storage_options") if self.read_kwargs is not None else None,
                 ),
