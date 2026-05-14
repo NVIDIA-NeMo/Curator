@@ -269,10 +269,16 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["waveform", "sampling_rate", "sample_rate", "corpus", "num_channels"]
 
+    def setup(self, _worker_metadata: Any = None) -> None:
+        self._patch_nemo_adapters()
+
     def ray_stage_spec(self) -> dict[str, Any]:
         if RayStageSpecKeys is not None:
-            return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
-        return {"is_fanout_stage": True}
+            return {
+                RayStageSpecKeys.IS_FANOUT_STAGE: True,
+                RayStageSpecKeys.IS_ACTOR_STAGE: True,
+            }
+        return {"is_fanout_stage": True, "is_actor_stage": True}
 
     @staticmethod
     def _patch_nemo_adapters() -> None:
@@ -365,8 +371,6 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         shard_key = task.reader_config.get("shard_key", task.task_id)
         language = task.reader_config.get("language", "")
         metadata = dict(task._metadata)
-
-        self._patch_nemo_adapters()
 
         cutset = self._make_cutset(manifest_path, tar_path)
 
