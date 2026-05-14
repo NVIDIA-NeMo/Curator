@@ -237,6 +237,13 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             return
         source_key = task._metadata.get("resumability_key", "")
         if not source_key:
+            if getattr(self, "_checkpoint_path", None) and not getattr(self, "_resumability_strip_warned", False):
+                logger.warning(
+                    f"Stage {self.name!r} produced an output without 'resumability_key' in "
+                    f"_metadata; resumability will not be tracked for downstream stages. "
+                    f"Ensure process()/process_batch preserves task._metadata."
+                )
+                self._resumability_strip_warned = True
             return
         parent_task_key = task._metadata.get("resumability_task_key", source_key)
         for i, child in enumerate(group):

@@ -46,21 +46,21 @@ Findings from the teammate's review (status under this PR):
      task_key to ``input_tasks[0]`` and appended ``::{i}`` by output
      position.  Correct for 1->N fan-out, wrong for an N->N batched
      stage -- output ``i`` should derive from input ``i``, not input 0.
-     **FIXED** -- the function now takes per-parent output groups
-     (``list[list[Task]]``) and propagates lineage per-parent. Stages
-     opt in via the new ``ProcessingStage.process_batch_grouped``
-     method.  Regression coverage:
+     **FIXED** -- the function is now per-(parent, result) and the
+     default ``process_batch`` loop calls it once per parent. Stages
+     that override ``process_batch`` for vectorized execution must
+     invoke ``self._propagate_resumability_metadata(parent, result)``
+     themselves per parent. Regression coverage:
      ``test_resumability_full_coverage_batch4`` on both executors.
 
   3. The framework couldn't distinguish "filtered out" from
      "transiently failed".  ``None`` returned from ``process`` marks the
      task COMPLETED in the checkpoint DB, so resume saw the partition
-     as done and never retried.  **FIXED** -- ``process`` /
-     ``process_batch_grouped`` may return ``TransientDrop`` (see
-     ``nemo_curator.tasks.TransientDrop``) to drop the task this run
-     without marking it complete; resume retries. ``None`` keeps its
-     existing "permanent filter" meaning. Regression coverage:
-     ``test_transient_drop_not_marked_permanent``.
+     as done and never retried.  **FIXED** -- ``process`` may return
+     ``TransientDrop`` (see ``nemo_curator.tasks.TransientDrop``) to
+     drop the task this run without marking it complete; resume
+     retries. ``None`` keeps its existing "permanent filter" meaning.
+     Regression coverage: ``test_transient_drop_not_marked_permanent``.
 
 Tests in this file:
 
@@ -78,10 +78,11 @@ Tests in this file:
   * ``test_transient_drop_not_marked_permanent`` -- the regression for
     finding #3: a stage returning ``TransientDrop`` must NOT finalise
     the partition; resume rescues it.
-  * ``test_metadata_strip_partitions_do_not_finalize`` -- documents
+  * ``test_metadata_strip_partitions_emits_warning`` -- documents
     that stripping ``resumability_*`` keys from ``task._metadata``
-    mid-pipeline is unsupported: the framework warns at the stripping
-    point but cannot recover; affected partitions do not finalize.
+    mid-pipeline is rescued by the ``_uuid`` fallback for in-place
+    mutation (so partitions still finalize), but the framework emits
+    a WARNING at the stripping point so operators have a breadcrumb.
 """
 
 from __future__ import annotations
@@ -203,7 +204,12 @@ class PassThroughStage(ProcessingStage[RowTask, RowTask]):
 
 
 class PassThroughBatchedStage(ProcessingStage[RowTask, RowTask]):
-    """Same logic as PassThroughStage but overrides ``process_batch_grouped``."""
+    """Same logic as PassThroughStage but overrides ``process_batch``.
+
+    Stages that override ``process_batch`` for vectorized execution must
+    call ``self._propagate_resumability_metadata(parent, result)`` per
+    parent so the checkpoint system can attribute outputs to inputs.
+    """
 
     resources = Resources(cpus=0.5)
 
@@ -214,18 +220,19 @@ class PassThroughBatchedStage(ProcessingStage[RowTask, RowTask]):
     def process(self, task: RowTask) -> RowTask:  # required by ABC; unused
         return task
 
-    def process_batch_grouped(self, tasks: list[RowTask]) -> list[list[RowTask]]:
-        groups: list[list[RowTask]] = []
+    def process_batch(self, tasks: list[RowTask]) -> list[RowTask]:
+        out: list[RowTask] = []
         for task in tasks:
             mode = task._metadata.get("mode", MODE_ALL)
             if mode == MODE_ALWAYS_FAIL:
-                groups.append([])
+                self._propagate_resumability_metadata(task, None)
                 continue
             if mode == MODE_FILTER:
                 n = len(task.data)
                 task.data = task.data.iloc[: max(1, n // 2)].reset_index(drop=True)
-            groups.append([task])
-        return groups
+            self._propagate_resumability_metadata(task, task)
+            out.append(task)
+        return out
 
 
 class FanOutStage(ProcessingStage[RowTask, RowTask]):
@@ -582,10 +589,10 @@ def test_transient_drop_not_marked_permanent(
 class _MetadataStripperStage(ProcessingStage[RowTask, RowTask]):
     """Pops resumability_* keys from ``task._metadata`` in-place.
 
-    Stripping resumability metadata mid-pipeline is documented as
-    unsupported: the framework warns at the stripping point but cannot
-    recover, and the affected partitions will not finalize in the
-    checkpoint DB.
+    The framework's ``_uuid`` fallback re-stamps ``resumability_key`` on
+    in-place outputs (same Task object as input), so partitions still
+    finalize. To give operators a breadcrumb, the framework logs a
+    WARNING when it detects the strip via ``_propagate_resumability_metadata``.
     """
 
     name = "metadata_stripper"
@@ -598,22 +605,21 @@ class _MetadataStripperStage(ProcessingStage[RowTask, RowTask]):
 
 
 @pytest.mark.parametrize("executor_kind", EXECUTORS)
-def test_metadata_strip_partitions_do_not_finalize(
+def test_metadata_strip_partitions_emits_warning(
     tmp_path: Path,
     shared_ray_client: None,  # noqa: ARG001
+    caplog: pytest.LogCaptureFixture,
     executor_kind: str,
 ) -> None:
-    """A stage stripping resumability_* from _metadata is unsupported.
+    """Stripping resumability_* mid-pipeline must emit a warning.
 
-    Documents the contract: when a stage in the middle of the pipeline
-    strips resumability metadata, downstream stages can't propagate
-    keys, the recorder can't record completions, and the partition
-    therefore won't finalize. The framework emits a WARNING at the
-    stripping point so operators have a breadcrumb; this test confirms
-    the downstream consequence (no finalization).
-
-    To enable resumability, stages must preserve
-    ``task._metadata['resumability_key']`` and ``'resumability_task_key'``.
+    The ``_uuid`` fallback in ``BaseStageAdapter._fallback_stamp_parent_task_key``
+    rescues in-place mutation stages by re-stamping ``resumability_key`` on
+    outputs that share ``Task._uuid`` with the snapshot parent, so partitions
+    still finalize. But silently rescuing is dangerous — a stage that creates
+    NEW tasks (different ``_uuid``) gets no rescue and resumability silently
+    breaks downstream. The framework therefore logs a WARNING at the strip
+    point so operators see the breadcrumb.
     """
     out_dir = tmp_path / "out"
     ckpt_dir = tmp_path / "ckpt"
@@ -621,19 +627,25 @@ def test_metadata_strip_partitions_do_not_finalize(
     modes = (MODE_ALL, MODE_ALL, MODE_ALL, MODE_ALL)
     extra = [_MetadataStripperStage()]
 
-    _build_pipeline(out_dir, batched_size=1, modes=modes, extra_stages_after_fanout=extra).run(
-        _make_executor(executor_kind),
-        checkpoint_path=str(ckpt_dir),
-    )
+    with caplog.at_level("WARNING"):
+        _build_pipeline(out_dir, batched_size=1, modes=modes, extra_stages_after_fanout=extra).run(
+            _make_executor(executor_kind),
+            checkpoint_path=str(ckpt_dir),
+        )
 
+    # _uuid fallback rescues in-place mutation, so partitions DO finalize.
     keys_by_partition = _partition_keys(modes)
     mgr = CheckpointManager(str(ckpt_dir))
     try:
         for partition_id, key in keys_by_partition.items():
-            assert not mgr.is_task_completed(key), (
-                f"partition {partition_id!r} unexpectedly finalized despite metadata "
-                f"having been stripped mid-pipeline; the framework cannot recover from "
-                f"this state, so non-finalization is the expected outcome."
+            assert mgr.is_task_completed(key), (
+                f"partition {partition_id!r} should have finalized via the _uuid fallback "
+                f"despite the mid-pipeline strip"
             )
     finally:
         mgr.close()
+
+    # And the framework should have logged a warning at the strip point.
+    assert any("resumability_key" in rec.message for rec in caplog.records), (
+        "expected a WARNING mentioning 'resumability_key' from the strip detection path"
+    )

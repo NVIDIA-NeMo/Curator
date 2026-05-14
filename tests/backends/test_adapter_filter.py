@@ -104,12 +104,25 @@ def _make_task(task_id: str, key: str, task_key: str) -> DocumentBatch:
     )
 
 
+def _wire_checkpoint(stage: ProcessingStage, adapter: BaseStageAdapter, actor: _FakeCheckpointActor | None) -> None:
+    """Route ``process_batch`` to ``_process_batch_with_resume`` without a real cluster.
+
+    The dispatcher in ``BaseStageAdapter.process_batch`` keys off
+    ``stage._checkpoint_path`` (stamped by ``Pipeline._with_checkpoint_stages``).
+    Set a non-None sentinel so the checkpointed path is taken; the actor is the
+    fake we already injected onto the adapter.
+    """
+    stage._checkpoint_path = "/unused"  # type: ignore[attr-defined]
+    if actor is not None:
+        adapter._checkpoint_actor = actor
+
+
 class TestDropCompletedInputs:
     def test_no_filtering_when_flag_is_false(self) -> None:
         stage = _RecordingStage()
         adapter = BaseStageAdapter(stage)
         actor = _FakeCheckpointActor(completed_pairs={("k", "k::0")})
-        adapter._checkpoint_actor = actor
+        _wire_checkpoint(stage, adapter, actor)
         # _is_last_user_stage left at default False
 
         tasks = [_make_task("t0", "k", "k::0"), _make_task("t1", "k", "k::1")]
@@ -123,8 +136,9 @@ class TestDropCompletedInputs:
         stage = _RecordingStage()
         stage._is_last_user_stage = True
         adapter = BaseStageAdapter(stage)
+        adapter._is_last_user_stage = True
         actor = _FakeCheckpointActor(completed_pairs={("k", "k::1")})
-        adapter._checkpoint_actor = actor
+        _wire_checkpoint(stage, adapter, actor)
 
         tasks = [
             _make_task("t0", "k", "k::0"),
@@ -141,8 +155,9 @@ class TestDropCompletedInputs:
         stage = _RecordingStage()
         stage._is_last_user_stage = True
         adapter = BaseStageAdapter(stage)
+        adapter._is_last_user_stage = True
         actor = _FakeCheckpointActor(completed_pairs={("k", "k::0"), ("k", "k::1")})
-        adapter._checkpoint_actor = actor
+        _wire_checkpoint(stage, adapter, actor)
 
         tasks = [_make_task("t0", "k", "k::0"), _make_task("t1", "k", "k::1")]
         out = adapter.process_batch(tasks)
@@ -154,7 +169,7 @@ class TestDropCompletedInputs:
         stage = _RecordingStage()
         stage._is_last_user_stage = True
         adapter = BaseStageAdapter(stage)
-        # _checkpoint_actor stays None
+        # _checkpoint_actor stays None; no _checkpoint_path either → non-checkpoint path.
 
         tasks = [_make_task("t0", "k", "k::0")]
         out = adapter.process_batch(tasks)
@@ -168,8 +183,12 @@ class TestDropCompletedInputs:
         stage = _RecordingStage()
         stage._is_last_user_stage = True
         adapter = BaseStageAdapter(stage)
+        adapter._is_last_user_stage = True
         actor = _FakeCheckpointActor(completed_pairs=set())
-        adapter._checkpoint_actor = actor
+        _wire_checkpoint(stage, adapter, actor)
+        # Source-style: skip the resumability_key validation that would otherwise fire
+        # for non-source stages with a missing key.
+        stage.is_source_stage = lambda: True  # type: ignore[method-assign]
 
         # Task with no resumability metadata at all — should pass through without an RPC.
         bare = DocumentBatch(task_id="bare", dataset_name="test", data=pd.DataFrame({"x": [1]}), _metadata={})

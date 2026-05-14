@@ -92,9 +92,6 @@ class BaseStageAdapter:
         if not isinstance(tasks, list):
             tasks = list(tasks)
 
-        # Lazy-attach the checkpoint actor for adapters that never have
-        # ``setup`` called (Ray Data task-style UDFs). The actor is a
-        # singleton named Ray actor, so this is idempotent across workers.
         checkpoint_path = getattr(self.stage, "_checkpoint_path", None)
         if checkpoint_path is not None:
             if self._checkpoint_actor is None:
@@ -106,7 +103,15 @@ class BaseStageAdapter:
             return self._process_batch(tasks)
 
     def _process_batch(self, tasks: list[Task]) -> list[Task]:
-        """Legacy non-checkpointed path: call the stage's flat process_batch."""
+        """Process a batch of tasks.
+
+        Args:
+            tasks (list[Task]): List of tasks to process
+
+        Returns:
+            list[Task]: List of processed tasks
+        """
+        # Lazy initialize timer if needed
         if not hasattr(self, "_timer") or self._timer is None:
             self._timer = StageTimer(self.stage)
 
@@ -126,6 +131,9 @@ class BaseStageAdapter:
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
         for task in results:
+            # TransientDrop is a sentinel, not a Task; it has no add_stage_perf.
+            if isinstance(task, TransientDrop):
+                continue
             task.add_stage_perf(stage_perf_stats)
 
         return results
@@ -164,7 +172,10 @@ class BaseStageAdapter:
         self._fallback_stamp_parent_task_key(parent_snapshot, results)
         self._record_checkpoint_events(parent_snapshot, results, already_completed)
 
-        return results
+        # Strip TransientDrop sentinels: they participate in checkpoint accounting
+        # (handled above) but must not flow downstream — they are not Tasks and the
+        # next stage's resumability validation would crash on the missing _metadata.
+        return [t for t in results if not isinstance(t, TransientDrop)]
 
     @staticmethod
     def _fallback_stamp_parent_task_key(
