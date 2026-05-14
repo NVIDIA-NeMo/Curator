@@ -249,9 +249,6 @@ navigation:
                   - page: Stopwords
                     path: ./v26.04/pages/curate-text/process-data/language-management/stopwords.mdx
                     slug: stopwords
-                  - page: Translation
-                    path: ./v26.04/pages/curate-text/process-data/language-management/translation.mdx
-                    slug: translation
               - section: Quality Assessment
                 slug: quality-assessment
                 contents:

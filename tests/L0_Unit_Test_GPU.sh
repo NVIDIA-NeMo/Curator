@@ -22,7 +22,7 @@ for extra in $GPU_TEST_EXTRAS; do
   EXTRA_FLAGS="$EXTRA_FLAGS --extra $extra"
 done
 
-uv sync --link-mode copy --locked $EXTRA_FLAGS --group test
+uv sync --no-progress --link-mode copy --locked $EXTRA_FLAGS --group test
 
 export CUSTOM_HF_DATASET=/home/TestData/HF_HOME
 

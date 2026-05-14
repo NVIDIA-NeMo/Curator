@@ -1,0 +1,124 @@
+---
+description: "How to scale NeMo Curator from a single GPU to multi-node clusters for maximum throughput"
+categories: ["architecture"]
+tags: ["deep-dive", "throughput", "scaling", "multi-node", "performance"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "universal"
+---
+
+# Maximizing Throughput
+
+NeMo Curator is designed to scale from a single GPU to multi-node clusters with near-linear performance gains. This guide covers why data curation is a throughput problem, how Curator solves it, and the key levers for maximizing performance.
+
+## Data Curation as a Throughput Problem
+
+Data curation pipelines process large numbers of samples. The goal is to **minimize total runtime** across all samples — not just the latency of a single sample. This means throughput (samples processed per unit time) matters more than per-sample latency.
+
+### Illustrative Example
+
+Consider a pipeline that processes 1,000 questions through three stages on a single GPU (102 GB memory):
+
+| Stage | Model Size | GPU Memory | Runtime (batch size = 1) |
+|-------|-----------|-----------|-------------------------|
+| Language Identification | 0.5B | 1 GB | 2 seconds |
+| Tokenization | — | None (CPU) | 1 second |
+| Answer Model | 5B | 10 GB | 10 seconds |
+
+**Naive sequential approach:** Process each question through all three stages one at a time: 1,000 × (2 + 1 + 10) = **13,000 seconds**.
+
+This has three problems:
+1. During tokenization, GPU resources are completely idle.
+2. Language identification is idle for 11 seconds while tokenization and the answer model run.
+3. Total GPU memory usage is only 11 GB out of 102 GB — there's room for multiple model replicas.
+
+**NeMo Curator's approach:** Stream batches through the pipeline, auto-scale replicas per stage based on throughput, and overlap CPU/GPU work:
+
+| Stage | Autoscaling Factor | Throughput |
+|-------|-------------------|------------|
+| Language Identification | 2× | 1 task/second |
+| Tokenization | 1× | 1 task/second |
+| Answer Model | 10× | 1 task/second |
+
+By running 10 replicas of the bottleneck stage (answer model, using 10 × 10 GB = 100 GB) and 2 replicas of language identification (2 × 1 GB = 2 GB), the full 102 GB GPU memory is utilized and every stage achieves the same throughput of 1 task/second. Streaming enables this by passing batches between stages concurrently — while the answer model processes batch N, language identification processes batch N+1, and tokenization runs on CPU in parallel. After an initial warm-up period, Curator rearranges resources so GPU workers are **kept busy over 99% of the time**. Result: **~1,000 seconds** — a 13× improvement on the same hardware.
+
+<Note>
+This is an illustrative example to demonstrate the principles. Actual speedups depend on your specific pipeline, hardware, and data characteristics. The key insight is that Curator's streaming and auto-balancing automatically solve the throughput optimization problem that would otherwise require manual tuning.
+</Note>
+
+## Multi-Node Scaling Results
+
+Benchmarks on an 8 TB RedPajama v2 dataset (1.78 trillion tokens) demonstrate near-linear scaling:
+
+| Configuration | Fuzzy Dedup Time | Speedup |
+|---------------|------------------|---------|
+| 1× H100 80 GB node | 2.05 hours | 1× |
+| 2× H100 80 GB nodes | 1.01 hours | 2.0× |
+| 4× H100 80 GB nodes | 0.50 hours | 4.1× |
+
+This near-linear scaling holds because NeMo Curator partitions work across nodes with minimal cross-node communication for most pipeline stages.
+
+## Key Levers
+
+### 1. Add More Nodes
+
+The most straightforward way to increase throughput. When you add nodes to your Ray cluster, the executor automatically distributes pipeline stages across the expanded cluster.
+
+Use `RayClient` for single-node setups or `RaySlurmClient` for multi-node SLURM clusters:
+
+```python
+from nemo_curator.core.client import RayClient, RaySlurmClient
+
+# Single-node
+client = RayClient()
+client.start()
+
+# Multi-node via SLURM
+client = RaySlurmClient()
+client.start()
+```
+
+### 2. Tune Batch Size
+
+Larger batches amortize fixed costs (model loading, scheduling overhead) but use more memory. Find the largest batch size that fits in your hardware:
+
+```python
+# Configure batch size on a stage
+sentiment_stage = SentimentStage(model_name="model", batch_size=2).with_(batch_size=512)
+```
+
+### 3. Match Stage Resources to Hardware
+
+Ensure GPU-heavy stages request enough GPU resources, and CPU-heavy stages don't unnecessarily block GPU workers:
+
+```python
+# GPU-heavy: give it full GPU access
+model_stage = ModelStage(model_path="path/to/model").with_(resources=Resources(gpus=1))
+
+# CPU-heavy: no GPU needed
+# ScoreFilter uses Resources(cpus=1) by default
+filter_stage = ScoreFilter(
+    filter_obj=WordCountFilter(min_words=80),
+)
+```
+
+If a stage is consistently slower than others, Curator's auto-balancing will automatically assign more workers to it. You can also proactively assign more GPU resources to a stage you know will be a bottleneck.
+
+### 4. Use Pipeline Parallelism
+
+The streaming architecture means multiple stages run concurrently on different batches. Ensure your pipeline has enough stages to keep all hardware busy — a two-stage pipeline (read → write) won't saturate a large cluster.
+
+### 5. Profile and Iterate
+
+Use Ray Dashboard to identify bottlenecks. Common issues:
+
+- **I/O bound reader**: Increase reader parallelism or use faster storage (NVMe, parallel file system).
+- **Single slow stage**: Check if the stage can use more GPU memory or workers.
+- **Network bottleneck**: For multi-node setups, ensure nodes are connected with high-bandwidth networking (InfiniBand or high-speed Ethernet).
+
+## Best Practices
+
+- **Start small, scale up.** Validate your pipeline on a subset of data before scaling to the full dataset.
+- **Monitor GPU utilization.** Low GPU utilization often indicates an upstream bottleneck (I/O, CPU processing) rather than insufficient GPU resources.
+- **Use the NeMo Curator container.** The [NGC container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) includes optimized dependencies and drivers for maximum performance.
