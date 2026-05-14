@@ -98,9 +98,7 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
         Returns:
             List of processed tasks or None
         """
-        # Metadata propagation and checkpoint accounting now live inside
-        # BaseStageAdapter.process_batch (gated on the checkpoint actor),
-        # so callers don't need to invoke them.
+        # Use the base stage's monitoring capability
         return self.process_batch(tasks)
 
     def setup_on_node(self, node_info: XennaNodeInfo, worker_metadata: XennaWorkerMetadata) -> None:

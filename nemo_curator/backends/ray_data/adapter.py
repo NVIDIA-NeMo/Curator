@@ -39,6 +39,7 @@ class RayDataStageAdapter(BaseStageAdapter):
 
     def __init__(self, stage: ProcessingStage):
         super().__init__(stage)
+
         self._batch_size = self.stage.batch_size
         if self._batch_size is None and self.stage.resources.gpus > 0:
             logger.warning(f"When using Ray Data, batch size is not set for GPU stage {self.stage}. Setting it to 1.")
@@ -64,10 +65,10 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dictionary with arrays/lists representing processed Task objects
         """
-        # ``batch["item"]`` is a numpy array of Task objects from Ray Data;
-        # the adapter's process_batch normalises it to a list internally so
-        # downstream truthiness checks work, but we forward unchanged here.
-        results = self.process_batch(batch["item"])
+        tasks = batch["item"]
+        results = self.process_batch(tasks)
+        # Return the results as Ray Data expects them
+        # For Task objects, we return them in the 'item' column
         return {"item": results}
 
     def process_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
