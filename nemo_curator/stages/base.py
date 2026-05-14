@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, final
 from loguru import logger
 
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import Task
+from nemo_curator.tasks import Task, TransientDrop
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -175,18 +175,21 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     def process_batch(self, tasks: list[X]) -> list[Y]:
         """Process a batch of tasks and return a flat result list.
 
-        This is the legacy entry point. The default implementation calls
-        ``process()`` per input and drops ``None`` returns. Stages that
-        override it lose per-input lineage (which input produced which
-        output), which is incompatible with resumability when the stage
-        also drops or fans out. For checkpointed pipelines, prefer
-        ``process_batch_grouped``.
-
         Args:
             tasks (list[X]): List of input tasks to process
         Returns (list[Y]):
             Flat list of output tasks; may be shorter than the input (drops)
             or longer (fan-out).
+
+        Resumability:
+            The default implementation calls
+            ``_propagate_resumability_metadata`` per parent so the
+            ``resumability_key`` / ``resumability_task_key`` pair flows
+            through automatically. Stages that override ``process_batch``
+            for vectorized execution bypass this and must invoke
+            ``self._propagate_resumability_metadata(parent, result)``
+            themselves if they need to participate in the checkpoint
+            system.
         """
         # Default implementation: process tasks one by one
         # This is only used as a fallback if a stage doesn't override this method
@@ -197,105 +200,50 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
                 raise ValueError(msg)
 
             result = self.process(task)
+            self._propagate_resumability_metadata(task, result)
             if isinstance(result, list):
                 results.extend(result)
             elif result is not None:
                 results.append(result)
         return results
 
-    def process_batch_grouped(self, tasks: list[X]) -> list[list[Y]]:
-        """Resumability-friendly variant of ``process_batch``: per-input output groups.
+    def _propagate_resumability_metadata(self, task: X, result: Y | list[Y] | None) -> None:
+        """Propagate ``resumability_key`` from a parent task onto its outputs
+        and generate per-child ``resumability_task_key`` paths.
 
-        The returned list has one inner list per input task (same index):
-            - ``[]``        -> the input was dropped
-            - ``[t]``       -> 1:1 transformation
-            - ``[t0, t1]``  -> fan-out
+        Called once per parent in the default ``process_batch`` loop. The
+        parent's ``resumability_key`` is copied onto any child that lacks
+        one, each child's ``resumability_task_key`` is rewritten as
+        ``<parent_task_key>::<i>``, and the parent's own
+        ``resumability_task_key`` is stamped on each child as
+        ``parent_resumability_task_key`` so the backend adapter can
+        reconstruct the (parent -> children) grouping from the flat output
+        list for fan-out / drop accounting. Root partitions, whose parent
+        has no ``resumability_task_key`` yet, fall back to the partition key.
 
-        Adapter behaviour: when ``checkpoint_path`` is set on the pipeline,
-        the stage adapter calls this method instead of ``process_batch`` so
-        it can attribute every output to the correct parent for
-        ``resumability_task_key`` propagation and per-parent completion
-        accounting. Stages that drop or fan out **should** override this
-        method to support resumability cleanly — see the fallback path
-        below for what happens when only flat ``process_batch`` is
-        overridden.
-
-        Default behaviour:
-            - If the stage overrides flat ``process_batch`` (legacy
-              pattern), call it and attribute outputs back to inputs by
-              ``Task._uuid``. This works for pass-through-style stages
-              that mutate tasks in place — the common case. If some
-              outputs have UUIDs not present in the input set (e.g. the
-              stage constructs new ``Task`` objects via fan-out from
-              flat ``process_batch``), we fall back to positional
-              auto-wrap when ``len(output) == len(input)``; otherwise
-              we raise with a clear pointer to override
-              ``process_batch_grouped``.
-            - Otherwise (only ``process`` is overridden), iterate per
-              input. Each ``process()`` return becomes one group:
-              ``[]`` for ``None``, ``[t]`` for a single Task,
-              ``r`` for a list result.
+        No-op when:
+          - ``result`` is ``None`` (filtered task; no children).
+          - the result group contains a ``TransientDrop`` (transient
+            failure; the leaf will be retried later). The parent is
+            stamped with ``_resumability_transient_drop`` so the adapter
+            does not mistake the empty group for a permanent drop.
+          - the parent has no ``resumability_key`` (checkpoint-off path).
         """
-        cls = type(self)
-        flat_overridden = cls.process_batch is not ProcessingStage.process_batch
-        grouped_overridden = cls.process_batch_grouped is not ProcessingStage.process_batch_grouped
-
-        if flat_overridden and not grouped_overridden:
-            return self._group_flat_outputs(tasks, self.process_batch(tasks))
-
-        # Default: iterate per input. Preserves alignment.
-        from nemo_curator.tasks import TransientDrop
-
-        output_groups: list[list[Y]] = []
-        for task in tasks:
-            if not self.validate_input(task):
-                msg = f"Task {task!s} failed validation for stage {self}"
-                raise ValueError(msg)
-            result = self.process(task)
-            if result is None:
-                output_groups.append([])
-            elif isinstance(result, TransientDrop):
-                # Keep the sentinel in the group; the adapter inspects it
-                # for accounting and strips it from the downstream stream.
-                output_groups.append([result])
-            elif isinstance(result, list):
-                output_groups.append(result)
-            else:
-                output_groups.append([result])
-        return output_groups
-
-    def _group_flat_outputs(self, tasks: list[X], outputs: list[Y]) -> list[list[Y]]:
-        """Attribute a flat ``process_batch`` result back to its parent inputs.
-
-        Strategy: match outputs to inputs by ``Task._uuid``. This works for
-        pass-through-style stages that mutate the same task objects.
-        Falls back to positional auto-wrap when the shape is 1:1 and some
-        outputs are freshly constructed; raises with a migration hint when
-        the shape is non-1:1 and outputs aren't traceable.
-        """
-        input_uuid_to_idx = {t._uuid: i for i, t in enumerate(tasks)}
-        groups: list[list[Y]] = [[] for _ in tasks]
-        unattributable: list[Y] = []
-        for out in outputs:
-            idx = input_uuid_to_idx.get(out._uuid)
-            if idx is None:
-                unattributable.append(out)
-            else:
-                groups[idx].append(out)
-
-        if not unattributable:
-            return groups
-        if len(outputs) == len(tasks):
-            return [[o] for o in outputs]
-        msg = (
-            f"Stage {self.name!r} overrides process_batch (flat) and produced "
-            f"a non-1:1 result ({len(tasks)} inputs -> {len(outputs)} outputs) "
-            f"where some outputs aren't traceable to their input parents by "
-            f"Task._uuid. Override process_batch_grouped instead so the "
-            f"framework can attribute each output to its parent input for "
-            f"checkpoint accounting."
-        )
-        raise RuntimeError(msg)
+        if result is None:
+            return
+        group = result if isinstance(result, list) else [result]
+        if any(isinstance(t, TransientDrop) for t in group):
+            task._metadata["_resumability_transient_drop"] = True
+            return
+        source_key = task._metadata.get("resumability_key", "")
+        if not source_key:
+            return
+        parent_task_key = task._metadata.get("resumability_task_key", source_key)
+        for i, child in enumerate(group):
+            if "resumability_key" not in child._metadata:
+                child._metadata["resumability_key"] = source_key
+            child._metadata["resumability_task_key"] = f"{parent_task_key}::{i}"
+            child._metadata["parent_resumability_task_key"] = parent_task_key
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup method called once per node in distributed settings.

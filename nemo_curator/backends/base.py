@@ -20,7 +20,7 @@ from loguru import logger
 
 from nemo_curator.core.utils import ignore_ray_head_node
 from nemo_curator.tasks import Task, TransientDrop
-from nemo_curator.utils.performance_utils import StagePerfStats, StageTimer
+from nemo_curator.utils.performance_utils import StageTimer
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
@@ -77,12 +77,12 @@ class BaseStageAdapter:
         ``checkpoint_path`` (stamped onto every user stage by
         ``Pipeline._with_checkpoint_stages``):
             - No checkpoint: flat path (legacy behaviour, identical to before).
-            - With checkpoint: routes through ``stage.process_batch_grouped``
-              so per-input lineage is preserved end-to-end. Propagation and
-              completion accounting happen inside this method; the backend
-              adapters no longer need to call
-              ``_propagate_resumability_metadata`` /
-              ``_record_checkpoint_events`` themselves.
+            - With checkpoint: validates each input carries a
+              ``resumability_key`` and drops any leaves already recorded as
+              completed before invoking the stage. Per-parent propagation
+              of ``resumability_key`` / ``resumability_task_key`` happens
+              inside ``ProcessingStage.process_batch`` itself, so backend
+              adapters no longer need to do it here.
 
         Returns the flat list of output tasks for downstream consumption.
         """
@@ -101,20 +101,27 @@ class BaseStageAdapter:
                 from nemo_curator.utils.checkpoint import get_or_create_checkpoint_actor
 
                 self._checkpoint_actor = get_or_create_checkpoint_actor(checkpoint_path)
-            return self._run_grouped_and_account(tasks)
+            return self._process_batch_with_resume(tasks)
         else:
-            return self._run_flat(tasks)
+            return self._process_batch(tasks)
 
-    def _run_flat(self, tasks: list[Task]) -> list[Task]:
+    def _process_batch(self, tasks: list[Task]) -> list[Task]:
         """Legacy non-checkpointed path: call the stage's flat process_batch."""
-        self._ensure_timer()
+        if not hasattr(self, "_timer") or self._timer is None:
+            self._timer = StageTimer(self.stage)
+
+        # Calculate input data size for timer
         input_size = sum(task.num_items for task in tasks)
+        # Initialize performance timer for this batch
         self._timer.reinit(input_size)
 
         with self._timer.time_process(input_size):
+            # Use the batch processing logic
             results = self.stage.process_batch(tasks)
 
+        # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
+        # Consume and attach any custom metrics recorded by the stage during this call
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
@@ -123,19 +130,72 @@ class BaseStageAdapter:
 
         return results
 
-    def _run_grouped_and_account(self, tasks: list[Task]) -> list[Task]:
+    def _process_batch_with_resume(self, tasks: list[Task]) -> list[Task]:
         """Checkpointed path: per-input groups, propagation, and per-parent recording."""
         kept_tasks, already_completed = self._select_inputs_to_run(tasks)
-        groups_kept, stage_perf_stats = self._run_user_stage_grouped(kept_tasks)
-        groups_full = self._realign_groups(groups_kept, tasks, already_completed, stage_perf_stats)
-        if not self._is_last_user_stage:
-            self._propagate_resumability_metadata(tasks, groups_full)
-        self._record_checkpoint_events(tasks, groups_full, already_completed)
-        return self._flatten_dropping_transient_groups(groups_full)
 
-    def _ensure_timer(self) -> None:
-        if self._timer is None:
-            self._timer = StageTimer(self.stage)
+        # Source stages receive a synthetic EmptyTask placeholder as input and emit
+        # tasks stamped with a fresh resumability_key; validating their inputs would
+        # always fail. Downstream stages must inherit resumability_key from upstream.
+        if not self.stage.is_source_stage():
+            for t in kept_tasks:
+                if not t._metadata.get("resumability_key"):
+                    msg = (
+                        f"Task {t.task_id} is missing 'resumability_key' in _metadata at stage "
+                        f"'{self.stage.name}'. Source stages must stamp a stable, unique "
+                        "resumability_key per partition when running with checkpoint_path."
+                    )
+                    raise ValueError(msg)
+
+        # Snapshot each parent's (resumability_key, resumability_task_key) BEFORE
+        # process_batch runs. 1:1 stages typically return the same task object, so
+        # propagation overwrites the input's resumability_task_key with the child's
+        # extended path; reading from parent._metadata after the fact would yield
+        # the child path and mis-account fan-out / drop events.
+        parent_snapshot: list[tuple[Task, str, str]] = [
+            (t, t._metadata.get("resumability_key", ""), t._metadata.get("resumability_task_key", ""))
+            for t in kept_tasks
+        ]
+
+        results = self._process_batch(kept_tasks)
+        # Fallback for stages that override process_batch but don't call
+        # _propagate_resumability_metadata themselves: attribute outputs to parents
+        # by Task._uuid match (typical for in-place-mutation pass-through stages).
+        self._fallback_stamp_parent_task_key(parent_snapshot, results)
+        self._record_checkpoint_events(parent_snapshot, results, already_completed)
+
+        return results
+
+    @staticmethod
+    def _fallback_stamp_parent_task_key(
+        parent_snapshot: list[tuple[Task, str, str]],
+        output_tasks: list[Task],
+    ) -> None:
+        """Re-stamp ``parent_resumability_task_key`` on outputs from this stage via UUID match.
+
+        Stages that override the flat ``process_batch`` may forget to call
+        ``_propagate_resumability_metadata``. For the in-place-mutation pattern
+        (the output task IS the input), the input and output share
+        ``Task._uuid``, so we can recover the (parent -> child) attribution
+        post-hoc. Even when an output already carries a
+        ``parent_resumability_task_key`` (left by an upstream propagate), we
+        OVERWRITE it: the field must reflect THIS stage's parent for
+        ``_record_checkpoint_events`` to attribute fan-out / drop events
+        correctly. We do NOT extend ``resumability_task_key`` — downstream
+        stages that follow the contract will do that on their next call.
+        """
+        parents_by_uuid: dict[str, tuple[str, str]] = {
+            p[0]._uuid: (p[1], p[2]) for p in parent_snapshot if p[1] and p[2]
+        }
+        for out in output_tasks:
+            if isinstance(out, TransientDrop):
+                continue
+            record = parents_by_uuid.get(out._uuid)
+            if record is None:
+                continue
+            key, parent_task_key = record
+            out._metadata.setdefault("resumability_key", key)
+            out._metadata["parent_resumability_task_key"] = parent_task_key
 
     def _select_inputs_to_run(self, tasks: list[Task]) -> tuple[list[Task], set[str]]:
         """Drop inputs whose leaf is already recorded as completed; pass-through otherwise.
@@ -145,59 +205,8 @@ class BaseStageAdapter:
         """
         if self._is_last_user_stage and tasks:
             return self._drop_completed_inputs(tasks)
-        return tasks, set()
-
-    def _run_user_stage_grouped(self, kept_tasks: list[Task]) -> tuple[list[list[Task]], StagePerfStats]:
-        """Time the user stage's grouped call and detect resumability_key stripping.
-
-        ``keys_before`` snapshots ``resumability_key`` per input so we can detect a stage
-        that mutates ``task._metadata`` in place to remove the key — that silently breaks
-        downstream completion accounting. We warn loudly when this happens but cannot recover.
-        """
-        self._ensure_timer()
-        input_size = sum(t.num_items for t in kept_tasks)
-        self._timer.reinit(input_size)
-
-        keys_before = [t._metadata.get("resumability_key", "") for t in kept_tasks]
-        with self._timer.time_process(input_size):
-            groups_kept = self.stage.process_batch_grouped(kept_tasks) if kept_tasks else []
-        self._warn_if_metadata_stripped(kept_tasks, keys_before)
-
-        _, stage_perf_stats = self._timer.log_stats()
-        custom_metrics = self.stage._consume_custom_metrics()
-        if custom_metrics:
-            stage_perf_stats.custom_metrics.update(custom_metrics)
-        return groups_kept, stage_perf_stats
-
-    def _realign_groups(
-        self,
-        groups_kept: list[list[Task]],
-        input_tasks: list[Task],
-        already_completed: set[str],
-        stage_perf_stats: StagePerfStats,
-    ) -> list[list[Task]]:
-        """Map kept groups back to the original input order and stamp perf.
-
-        Inputs in ``already_completed`` map to ``[]`` (no-op for the recorder; they
-        were finalised in a prior run). TransientDrop sentinels are not Tasks and
-        are not perf-stamped.
-        """
-        groups_full: list[list[Task]] = []
-        kept_iter = iter(groups_kept)
-        for parent in input_tasks:
-            if parent.task_id in already_completed:
-                groups_full.append([])
-                continue
-            group = next(kept_iter)
-            for t in group:
-                if not isinstance(t, TransientDrop):
-                    t.add_stage_perf(stage_perf_stats)
-            groups_full.append(group)
-        return groups_full
-
-    def _flatten_dropping_transient_groups(self, groups_full: list[list[Task]]) -> list[Task]:
-        """Drop any group containing a TransientDrop sentinel and flatten the rest."""
-        return [t for group in groups_full if not any(isinstance(o, TransientDrop) for o in group) for t in group]
+        else:
+            return tasks, set()
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup the stage on a node.
@@ -222,34 +231,6 @@ class BaseStageAdapter:
             from nemo_curator.utils.checkpoint import get_or_create_checkpoint_actor
 
             self._checkpoint_actor = get_or_create_checkpoint_actor(checkpoint_path)
-
-    def _propagate_resumability_metadata(
-        self,
-        input_tasks: list[Task],
-        output_groups: list[list[Task]],
-    ) -> None:
-        """Propagate resumability_key and per-task resumability_task_key paths.
-
-        Operates per parent: each input maps to its own group of outputs (one
-        group per index). For each ``(parent, group)`` pair we copy the
-        partition key from the parent to any output that lacks one and
-        rewrite the per-task path as ``<parent_task_key>::<i>``. This is the
-        Obs 2 fix — the prior implementation read only ``input_tasks[0]``
-        and stamped every output with that parent's key, collapsing the
-        parent-child relationship for any batched stage with ``batch_size > 1``.
-        """
-        for parent, group in zip(input_tasks, output_groups, strict=True):
-            # Transient groups produce no downstream tasks; nothing to propagate to.
-            if any(isinstance(t, TransientDrop) for t in group):
-                continue
-            source_key = parent._metadata.get("resumability_key", "")
-            if not source_key:
-                continue
-            parent_task_key = parent._metadata.get("resumability_task_key", source_key)
-            for i, task in enumerate(group):
-                if "resumability_key" not in task._metadata:
-                    task._metadata["resumability_key"] = source_key
-                task._metadata["resumability_task_key"] = f"{parent_task_key}::{i}"
 
     def _drop_completed_inputs(self, tasks: list[Task]) -> tuple[list[Task], set[str]]:
         """Return ``(kept_tasks, already_completed)`` — ``already_completed`` holds the
@@ -281,88 +262,75 @@ class BaseStageAdapter:
 
     def _record_checkpoint_events(
         self,
-        input_tasks: list[Task],
-        output_groups: list[list[Task]],
+        parent_snapshot: list[tuple[Task, str, str]],
+        output_tasks: list[Task],
         already_completed: set[str],
     ) -> None:
-        """Per-parent fan-out / drop accounting (Obs 1 fix).
+        """Per-parent fan-out / drop accounting against the flat output list.
 
-        For each ``(parent, group)`` pair where the parent was processed this run
-        (``parent.task_id`` not in ``already_completed``):
-            - len(group) == 0 -> the stage dropped this parent; mark its
-              ``resumability_task_key`` complete so resume doesn't replay it.
-            - len(group) > 1  -> fan-out; bump ``expected`` for the parent's
-              partition by ``len(group) - 1`` so the recorder can't satisfy
+        Reconstructs the (parent -> children) grouping from
+        ``parent_resumability_task_key`` (stamped by
+        ``ProcessingStage._propagate_resumability_metadata``). For each input
+        parent processed this run:
+            - flagged transient (``_resumability_transient_drop``) -> no-op;
+              resume will retry.
+            - len(group) == 0 -> permanent drop (``process`` returned ``None``);
+              mark the parent's ``resumability_task_key`` complete so resume
+              does not replay it.
+            - len(group) >  1 -> fan-out; bump ``expected`` for the partition by
+              ``len(group) - 1`` synchronously so the recorder cannot satisfy
               the partition's completion check before the new leaves land.
-            - len(group) == 1 -> 1:1 transformation; no checkpoint event
-              needed at this stage (the recorder handles it downstream).
+            - len(group) == 1 -> 1:1; the recorder handles it downstream.
 
-        ``already_completed`` distinguishes "stage dropped this input" (record it
-        complete) from "we skipped this input because a prior run already finalised
-        it" (do not re-record).
+        ``parent_snapshot`` carries the parent's ``resumability_key`` and
+        ``resumability_task_key`` captured before ``process_batch`` ran;
+        relying on the live task metadata is unsafe because 1:1 stages
+        return the same object and the propagation step rewrites its
+        ``resumability_task_key`` to the child path.
         """
         if self._checkpoint_actor is None:
             return
 
+        by_parent = self._count_outputs_by_parent(output_tasks)
+        for parent, key, parent_task_key in parent_snapshot:
+            self._record_parent_event(parent, key, parent_task_key, by_parent, already_completed)
+
+    @staticmethod
+    def _count_outputs_by_parent(output_tasks: list[Task]) -> dict[str, int]:
+        from collections import defaultdict
+
+        by_parent: dict[str, int] = defaultdict(int)
+        for o in output_tasks:
+            if isinstance(o, TransientDrop):
+                continue
+            ptk = o._metadata.get("parent_resumability_task_key", "")
+            if ptk:
+                by_parent[ptk] += 1
+        return by_parent
+
+    def _record_parent_event(
+        self,
+        parent: Task,
+        key: str,
+        parent_task_key: str,
+        by_parent: dict[str, int],
+        already_completed: set[str],
+    ) -> None:
+        if parent.task_id in already_completed:
+            return
+        if not key or not parent_task_key:
+            return
+        # Transient drop: parent will be retried on resume; do not record.
+        if parent._metadata.pop("_resumability_transient_drop", False):
+            return
+
         from nemo_curator.utils.checkpoint import _checkpoint_get
 
-        for parent, group in zip(input_tasks, output_groups, strict=True):
-            if parent.task_id in already_completed:
-                continue
-            key = parent._metadata.get("resumability_key", "")
-            if not key:
-                continue
-
-            # Obs 3: a TransientDrop sentinel anywhere in the group means
-            # this parent failed transiently this run; do NOT mark it
-            # complete so resume retries it.
-            if any(isinstance(o, TransientDrop) for o in group):
-                self._log_transient_drop(parent, group)
-                continue
-
-            n_out = len(group)
-            if n_out == 0:
-                task_key = parent._metadata.get("resumability_task_key", "")
-                if task_key:
-                    _checkpoint_get(self._checkpoint_actor.mark_completed.remote(task_key, key))
-            elif n_out > 1:
-                # Commit increment synchronously so the recorder can't satisfy the check early.
-                _checkpoint_get(self._checkpoint_actor.add_expected.remote(key, n_out - 1))
-
-    def _warn_if_metadata_stripped(self, kept_tasks: list[Task], keys_before: list[str]) -> None:
-        """Detect Obs 6: user stage stripped resumability_key from _metadata.
-
-        Compares per-input resumability_key snapshots taken before the stage
-        ran against the post-run state. If any input that had a key now lacks
-        one, the stage mutated _metadata in place. Resumability cannot
-        recover; we warn once per adapter so the user has a clear breadcrumb.
-        """
-        if getattr(self, "_warned_metadata_strip", False):
-            return
-        for task, key_before in zip(kept_tasks, keys_before, strict=True):
-            if key_before and not task._metadata.get("resumability_key", ""):
-                logger.warning(
-                    f"Stage {self.stage.name!r} stripped 'resumability_key' from "
-                    f"task {task.task_id!r}._metadata. Resumability/checkpoint "
-                    f"recording is not supported for affected tasks; partitions "
-                    f"involving them will not finalize. Stages must preserve "
-                    f"task._metadata['resumability_key'] and 'resumability_task_key'."
-                )
-                self._warned_metadata_strip = True
-                return
-
-    def _log_transient_drop(self, parent: Task, group: list[Task]) -> None:
-        """Log diagnostics for a parent whose group contained a TransientDrop sentinel."""
-        transient = next(o for o in group if isinstance(o, TransientDrop))
-        if any(not isinstance(o, TransientDrop) for o in group):
-            logger.warning(
-                f"Stage {self.stage.name!r} returned a group mixing TransientDrop "
-                f"with real outputs for parent {parent.task_id!r}; treating as "
-                f"transient (real outputs are discarded)."
-            )
-        logger.debug(
-            f"Resumability: transient drop for {parent.task_id!r} (reason: {transient.reason!r}); resume will retry."
-        )
+        n_out = by_parent.get(parent_task_key, 0)
+        if n_out == 0:
+            _checkpoint_get(self._checkpoint_actor.mark_completed.remote(parent_task_key, key))
+        elif n_out > 1:
+            _checkpoint_get(self._checkpoint_actor.add_expected.remote(key, n_out - 1))
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""
