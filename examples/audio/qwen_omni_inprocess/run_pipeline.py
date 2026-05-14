@@ -224,8 +224,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Path to PANNs CNN14 .pth checkpoint. Enables SED stages when set.")
     sed.add_argument("--sed_model_type", type=str, default="Cnn14_DecisionLevelMax",
                      help="CNN14 variant name (see sed_models.MODEL_REGISTRY).")
-    sed.add_argument("--sed_speech_threshold", type=float, default=0.5,
-                     help="Speech probability threshold for event detection.")
+    sed.add_argument("--sed_speech_threshold", type=float, default=0.4,
+                     help="Probability threshold for event detection (applied per-class).")
     sed.add_argument("--sed_min_duration", type=float, default=0.3,
                      help="Minimum speech event duration in seconds.")
     sed.add_argument("--sed_merge_gap", type=float, default=0.0,
@@ -234,8 +234,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Batch size for SED GPU inference.")
     sed.add_argument("--sed_gpu_memory_gb", type=float, default=4.0,
                      help="GPU memory in GB for SED inference stage.")
-    sed.add_argument("--sed_subcategories", action="store_true", default=False,
-                     help="Emit per-class subcategory events instead of aggregated superclass events.")
+    sed.add_argument("--sed_superclasses", action="store_true", default=False,
+                     help="Emit aggregated superclass events (noisy-or per group) instead of per-class subcategory events.")
     sed.add_argument("--sed_num_workers", type=int, default=None,
                      help="Fixed actor count for SED stage.")
 
@@ -426,7 +426,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 threshold=args.sed_speech_threshold,
                 min_duration_sec=args.sed_min_duration,
                 merge_gap_sec=args.sed_merge_gap,
-                emit_subcategories=args.sed_subcategories,
+                emit_superclasses=args.sed_superclasses,
             ),
         ])
 

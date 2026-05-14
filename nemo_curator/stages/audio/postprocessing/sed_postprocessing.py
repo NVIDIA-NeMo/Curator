@@ -51,16 +51,18 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         agg_mode: Aggregation mode for class groups. Default ``"noisy_or"``.
-        threshold: Probability threshold for event detection. Default 0.5.
+        threshold: Probability threshold for event detection. Default 0.4.
         min_duration_sec: Minimum event duration. Default 0.3.
         smoothing_window_sec: Median filter window in seconds (0 = disabled).
         hysteresis_low: Low threshold for hysteresis (None = simple threshold).
         hysteresis_high: High threshold for hysteresis (None = simple threshold).
         merge_gap_sec: Merge events with gaps smaller than this (0 = disabled).
-        emit_subcategories: If True, detect events per individual AudioSet class
-            instead of aggregating per superclass group.  Each event carries
-            ``label`` (subcategory name, e.g. ``"electric_guitar"``) and
-            ``superclass`` (parent group, e.g. ``"music"``). Default False.
+        emit_superclasses: If True, aggregate probabilities per superclass group
+            (noisy-or across member class indices) and emit one event series per
+            superclass (e.g. ``"speech"``, ``"music"``).  Default False.
+            When False (default), every AudioSet class index is thresholded
+            independently; each event carries ``label`` (e.g. ``"electric_guitar"``)
+            and ``superclass`` (e.g. ``"music"``).
         framewise_key: Key in task data for in-memory framewise array. Default ``"_sed_framewise"``.
         npz_filepath_key: Key in task data for NPZ path (fallback). Default ``"npz_filepath"``.
         events_key: Key for output events list. Default ``"sed_events"``.
@@ -73,7 +75,7 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
     hysteresis_low: float | None = None
     hysteresis_high: float | None = None
     merge_gap_sec: float = 0.0
-    emit_subcategories: bool = False
+    emit_superclasses: bool = False
     framewise_key: str = "_sed_framewise"
     npz_filepath_key: str = "npz_filepath"
     events_key: str = "sed_events"
@@ -134,7 +136,14 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
 
         all_events: list[dict] = []
 
-        if self.emit_subcategories:
+        if self.emit_superclasses:
+            for label, class_indices in SUPERCLASS_GROUPS.items():
+                probs = aggregate_speech_probs(framewise, class_indices, mode=self.agg_mode)
+                events = framewise_to_events(probs=probs, **common_kwargs)
+                for evt in events:
+                    evt["label"] = label
+                all_events.extend(events)
+        else:
             for superclass, class_indices in SUPERCLASS_GROUPS.items():
                 for idx in class_indices:
                     probs = framewise[:, idx]
@@ -144,13 +153,6 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
                         evt["label"] = subcategory_name
                         evt["superclass"] = superclass
                     all_events.extend(events)
-        else:
-            for label, class_indices in SUPERCLASS_GROUPS.items():
-                probs = aggregate_speech_probs(framewise, class_indices, mode=self.agg_mode)
-                events = framewise_to_events(probs=probs, **common_kwargs)
-                for evt in events:
-                    evt["label"] = label
-                all_events.extend(events)
 
         all_events.sort(key=lambda e: e["start_time"])
         return all_events
