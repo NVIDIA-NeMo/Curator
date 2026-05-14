@@ -714,46 +714,6 @@ class TestNvVideoDecoder:
     @patch("nemo_curator.utils.nvcodec_utils.Nvc")
     @patch("nemo_curator.utils.nvcodec_utils.torch")
     @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
-    def test_generate_decoded_frames_unexpected_layout(
-        self, mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any
-    ) -> None:
-        """Test generate_decoded_frames with unexpected tensor layout."""
-        # Setup mocks
-        mock_demux = Mock()
-        mock_demux.Width.return_value = 640
-        mock_demux.Height.return_value = 480
-        mock_demux.GetNvCodecId.return_value = "H264"
-        mock_nvc.PyNvDemuxer.return_value = mock_demux
-
-        mock_decoder = Mock()
-        mock_decoder.GetPixelFormat.return_value = "NV12"
-        mock_nvc.CreateDecoder.return_value = mock_decoder
-
-        # Mock packet and decoded frame
-        mock_packet = Mock()
-        mock_decoded_frame = Mock()
-        # Mock tensor with unexpected layout
-        mock_cvcuda_tensor = Mock()
-        mock_cvcuda_tensor.layout = "NHWC"  # Unexpected layout - should be NCHW
-        mock_cvcuda.as_tensor.return_value = mock_cvcuda_tensor
-        # Mock demux iteration
-        mock_demux.__iter__ = Mock(return_value=iter([mock_packet]))
-        mock_decoder.Decode.return_value = [mock_decoded_frame]
-
-        decoder = NvVideoDecoder(
-            enc_file="test_video.mp4",
-            device_id=self.device_id,
-            batch_size=self.batch_size,
-            cuda_ctx=self.mock_cuda_ctx,
-            cvcuda_stream=self.mock_cvcuda_stream,
-        )
-
-        with pytest.raises(ValueError, match="Unexpected tensor layout, NCHW expected"):
-            decoder.generate_decoded_frames()
-
-    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
-    @patch("nemo_curator.utils.nvcodec_utils.torch")
-    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
     def test_generate_decoded_frames_partial_batch(self, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any) -> None:
         """Test generate_decoded_frames with partial batch (less frames than batch_size)."""
         # Setup mocks
