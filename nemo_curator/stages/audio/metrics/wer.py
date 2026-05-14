@@ -64,6 +64,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Stage metadata
     name: str = "ComputeWER"
+    batch_size: int = 32
 
     # Internal state
     _normalizer: Any = field(default=None, repr=False)
@@ -76,11 +77,11 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
             )
             raise ValueError(msg)
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.segments_key, self.hypothesis_text_key, self.reference_text_key]
+    def inputs(self) -> tuple[list[str], list[list[str]]]:
+        return [], [[self.segments_key], [self.hypothesis_text_key, self.reference_text_key]]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.segments_key, self.hypothesis_text_key, self.reference_text_key, "metrics"]
+        return [], ["metrics"]
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
@@ -177,12 +178,20 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
         duration = end - start
 
         if self.hypothesis_text_key not in audio_segment or self.reference_text_key not in audio_segment:
-            return
+            msg = f"Segment missing WER keys: {self.hypothesis_text_key}, {self.reference_text_key}"
+            raise ValueError(msg)
 
         metrics = audio_segment.get("metrics", {})
 
         hypothesis_pnc, hypothesis_clean = self.normalize_and_clean_text(audio_segment[self.hypothesis_text_key])
         reference_pnc, reference_clean = self.normalize_and_clean_text(audio_segment[self.reference_text_key])
+
+        if not reference_clean:
+            metrics["wer"] = None
+            metrics["cer"] = None
+            metrics["metric_skip_reason"] = "empty_reference"
+            audio_segment["metrics"] = metrics
+            return
 
         metrics["char_rate"] = self.get_char_rate(audio_segment[self.hypothesis_text_key], duration)
         metrics["word_rate"] = self.get_word_rate(audio_segment[self.hypothesis_text_key], duration)

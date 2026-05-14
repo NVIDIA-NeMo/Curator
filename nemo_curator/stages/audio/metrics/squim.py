@@ -63,7 +63,7 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     model: Any = field(default=None, repr=False)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, self.segments_key]
+        return [], [[self.audio_filepath_key, self.segments_key], [self.audio_filepath_key]]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.segments_key, "metrics"]
@@ -199,6 +199,10 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
             all_waveform_metadata.extend(self._collect_waveforms_for_entry(task_idx, task.data))
 
         if not all_waveform_metadata:
+            logger.warning(
+                f"[{self.name}] No valid waveforms collected from {len(tasks)} task(s). "
+                "All tasks returned without SQUIM metrics."
+            )
             return tasks
 
         # Sort by waveform length so similarly-sized segments share a batch

@@ -130,6 +130,16 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
     def validate_input(self, task: Task) -> bool:
         """Validate input task meets requirements.
+
+        ``inputs()`` returns ``(required_top_level_attrs, required_data_attrs)``.
+
+        *required_data_attrs* supports two shapes:
+
+        - **Flat list** ``["a", "b"]``: all keys must be present (AND semantics).
+        - **Nested list** ``[["segments"], ["text", "pred_text"]]``: at least one
+          inner group must be fully satisfied (OR-of-ANDs semantics).  Each inner
+          list is a group of keys that must ALL be present together.
+
         Args:
             task: Task to validate
         Returns:
@@ -137,25 +147,43 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         """
         required_top_level_attrs, required_data_attrs = self.inputs()
 
-        # Check required attributes exist
+        # Check required top-level attributes exist
         missing_top_level_attrs = []
         for attr in required_top_level_attrs:
             if not hasattr(task, attr):
                 missing_top_level_attrs.append(attr)
 
-        # Check required columns exist
-        missing_data_attrs = []
-        for attr in required_data_attrs:
-            if not hasattr(task.data, attr):
-                missing_data_attrs.append(attr)
+        # Check required data attributes — support flat list or nested OR-groups
+        data_valid = True
+        missing_data_attrs: list[str] | list[list[str]] = []
 
-        # Log warning with missing attributes
-        if missing_top_level_attrs or missing_data_attrs:
+        if required_data_attrs and isinstance(required_data_attrs[0], list):
+            # Nested list: OR-of-ANDs — at least one group must be fully present
+            satisfied = False
+            all_group_missing: list[list[str]] = []
+            for group in required_data_attrs:
+                group_missing = [attr for attr in group if not hasattr(task.data, attr)]
+                if not group_missing:
+                    satisfied = True
+                    break
+                all_group_missing.append(group_missing)
+            if not satisfied:
+                data_valid = False
+                missing_data_attrs = all_group_missing
+        else:
+            # Flat list: AND semantics — all keys must be present
+            flat_missing = [attr for attr in required_data_attrs if not hasattr(task.data, attr)]
+            if flat_missing:
+                data_valid = False
+                missing_data_attrs = flat_missing
+
+        if missing_top_level_attrs or not data_valid:
             logger.error(
-                f"Task {task.task_id} missing required attributes: {missing_top_level_attrs} {missing_data_attrs}"
+                f"Task {task.task_id} missing required attributes: "
+                f"top_level={missing_top_level_attrs} data={missing_data_attrs}"
             )
 
-        return not missing_top_level_attrs and not missing_data_attrs
+        return not missing_top_level_attrs and data_valid
 
     @abstractmethod
     def process(self, task: X) -> Y | list[Y]:

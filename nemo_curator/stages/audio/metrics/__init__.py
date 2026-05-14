@@ -12,14 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio quality and accuracy metrics stages."""
+"""Audio quality and accuracy metrics stages (lazy imports)."""
 
-from nemo_curator.stages.audio.metrics.bandwidth import BandwidthEstimationStage
-from nemo_curator.stages.audio.metrics.squim import TorchSquimQualityMetricsStage
-from nemo_curator.stages.audio.metrics.wer import ComputeWERStage
+import importlib
+from typing import Any
 
-__all__ = [
-    "BandwidthEstimationStage",
-    "ComputeWERStage",
-    "TorchSquimQualityMetricsStage",
-]
+_LAZY_IMPORTS = {
+    "BandwidthEstimationStage": "nemo_curator.stages.audio.metrics.bandwidth",
+    "ComputeWERStage": "nemo_curator.stages.audio.metrics.wer",
+    "GetPairwiseWerStage": "nemo_curator.stages.audio.metrics.wer",
+    "TorchSquimQualityMetricsStage": "nemo_curator.stages.audio.metrics.squim",
+}
+
+_cache: dict[str, Any] = {}
+
+
+def __getattr__(name: str) -> Any:  # noqa: ANN401
+    if name in _cache:
+        return _cache[name]
+
+    if name in _LAZY_IMPORTS:
+        module = importlib.import_module(_LAZY_IMPORTS[name])
+        attr = getattr(module, name)
+        _cache[name] = attr
+        return attr
+
+    msg = f"module 'nemo_curator.stages.audio.metrics' has no attribute '{name}'"
+    raise AttributeError(msg)
+
+
+def __dir__() -> list[str]:
+    return list(_LAZY_IMPORTS.keys())
+
+
+__all__ = list(_LAZY_IMPORTS.keys())
