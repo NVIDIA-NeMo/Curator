@@ -66,7 +66,7 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [[self.audio_filepath_key, self.segments_key], [self.audio_filepath_key]]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, self.segments_key, "metrics"]
+        return [], [[self.audio_filepath_key, self.segments_key], [self.audio_filepath_key, "metrics"]]
 
     @property
     def _device(self) -> str:

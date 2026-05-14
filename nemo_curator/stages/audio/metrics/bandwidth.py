@@ -60,7 +60,7 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [[self.audio_filepath_key, self.segments_key], [self.audio_filepath_key, "duration"]]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, "metrics"]
+        return [], [[self.audio_filepath_key, self.segments_key], [self.audio_filepath_key, "metrics"]]
 
     def _estimate_bandwidth(self, audio: "np.ndarray", sample_rate: int) -> int:
         """Estimate the bandwidth of an audio signal."""

@@ -64,7 +64,6 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Stage metadata
     name: str = "ComputeWER"
-    batch_size: int = 32
 
     # Internal state
     _normalizer: Any = field(default=None, repr=False)
@@ -81,7 +80,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [[self.segments_key], [self.hypothesis_text_key, self.reference_text_key]]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["metrics"]
+        return [], [[self.segments_key], [self.hypothesis_text_key, self.reference_text_key, "metrics"]]
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
