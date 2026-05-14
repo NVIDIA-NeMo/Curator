@@ -35,12 +35,13 @@ Architecture:
         → flags hallucination patterns, sets _skipme
     InferenceLanguageRoutedAsrStage (GPU)
         → always-on recovery ASR routed by ``source_lang``: Indic Conformer
-          for Indic codes (``--indic_conformer_model_id``), Faster-Whisper for
-          Whisper-routed codes (``--whisper_model_size_or_path``), Qwen3-ASR
-          for everything else (``--asr_model_id``). All three default to
-          hardcoded model IDs; the omni prediction remains the primary winner
-          unless flagged as hallucinated. Writes ``additional_notes["asr_model"]``
-          per sample.
+          for Indic codes (``--indic_conformer_model_id``), NVIDIA Parakeet-TDT
+          v3 for ``lv``/``hr``/``et``/``bg``/``sk``/``sl``/``mt``/``uk``/``lt``
+          (``--parakeet_model_id``), Faster-Whisper for Whisper-routed codes
+          (``--whisper_model_size_or_path``), Qwen3-ASR for everything else
+          (``--asr_model_id``). All four default to hardcoded model IDs; the
+          omni prediction remains the primary winner unless flagged as
+          hallucinated. Writes ``additional_notes["asr_model"]`` per sample.
     WhisperHallucinationStage (CPU)
         → checks recovery-ASR output; recovers or confirms hallucination
     SelectBestPredictionStage (CPU)
@@ -79,6 +80,7 @@ from nemo_curator.pipeline import Pipeline
 QWEN_ASR_DEFAULT_MODEL_ID = "Qwen/Qwen3-ASR-0.6B"
 INDIC_CONFORMER_DEFAULT_MODEL_ID = "ai4bharat/indic-conformer-600m-multilingual"
 WHISPER_DEFAULT_MODEL = "large-v3"
+PARAKEET_DEFAULT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.stages.audio.inference.language_routed_asr import InferenceLanguageRoutedAsrStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
@@ -302,9 +304,45 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         default=None,
         help="Optional cache directory for faster-whisper downloads.",
     )
+    asr.add_argument(
+        "--parakeet_model_id",
+        type=str,
+        default=PARAKEET_DEFAULT_MODEL_ID,
+        metavar="HF_REPO_OR_PATH",
+        help=(
+            f"NVIDIA Parakeet-TDT v3 model ID (default: {PARAKEET_DEFAULT_MODEL_ID}). "
+            "Routes Latvian/Croatian/Estonian/Bulgarian/Slovak/Slovenian/Maltese/"
+            "Ukrainian/Lithuanian source_lang codes to Parakeet; see "
+            "PARAKEET_LANGUAGE_CODES in pipeline_utils."
+        ),
+    )
+    asr.add_argument("--no_parakeet", action="store_true", default=False,
+                     help="Disable the Parakeet-TDT v3 backend in the language-routed ASR stage.")
+    asr.add_argument(
+        "--parakeet_cache_dir",
+        type=str,
+        default=None,
+        help="Optional NeMo cache directory for Parakeet downloads.",
+    )
+    asr.add_argument(
+        "--parakeet_inference_batch_size",
+        type=int,
+        default=16,
+        help="Batch size passed to Parakeet ASRModel.transcribe().",
+    )
     asr.add_argument("--asr_batch_size", type=int, default=128)
     asr.add_argument("--asr_gpu_memory_utilization", type=float, default=0.95)
     asr.add_argument("--asr_max_new_tokens", type=int, default=4096)
+    asr.add_argument(
+        "--asr_all_resident_models",
+        action="store_true",
+        default=False,
+        help=(
+            "Legacy mode: keep every enabled ASR backend (Qwen, Indic, Whisper, Parakeet) "
+            "loaded on the GPU for the worker's lifetime. Default is single-resident: only "
+            "the backend needed for the current batch is loaded; others are evicted."
+        ),
+    )
 
     scaling = ap.add_argument_group("multi-node scaling")
     scaling.add_argument("--omni_num_workers", type=int, default=None,
@@ -432,10 +470,12 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     qwen_asr_id = None if args.no_qwen_asr else args.asr_model_id
     indic_conformer_id = None if args.no_indic_conformer else args.indic_conformer_model_id
     whisper_model = None if args.no_whisper else args.whisper_model_size_or_path
-    if not (qwen_asr_id or indic_conformer_id or whisper_model):
+    parakeet_id = None if args.no_parakeet else args.parakeet_model_id
+    if not (qwen_asr_id or indic_conformer_id or whisper_model or parakeet_id):
         msg = (
-            "All three ASR backends are disabled (--no_qwen_asr, --no_indic_conformer, --no_whisper). "
-            "Enable at least one or remove the InferenceLanguageRoutedAsrStage."
+            "All four ASR backends are disabled (--no_qwen_asr, --no_indic_conformer, "
+            "--no_whisper, --no_parakeet). Enable at least one or remove the "
+            "InferenceLanguageRoutedAsrStage."
         )
         raise SystemExit(msg)
 
@@ -448,12 +488,16 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             whisper_device=args.whisper_device,
             whisper_compute_type=args.whisper_compute_type,
             whisper_download_root=args.whisper_download_root,
+            parakeet_model_id=parakeet_id,
+            parakeet_cache_dir=args.parakeet_cache_dir,
+            parakeet_inference_batch_size=args.parakeet_inference_batch_size,
             source_lang_key=args.source_lang_key,
             batch_size=args.asr_batch_size,
             gpu_memory_utilization=args.asr_gpu_memory_utilization,
             max_new_tokens=args.asr_max_new_tokens,
             max_inference_batch_size=args.asr_batch_size,
             num_workers_override=args.asr_num_workers,
+            single_resident_models=not args.asr_all_resident_models,
         ),
         WhisperHallucinationStage(
             name="WhisperHallucination_asr",

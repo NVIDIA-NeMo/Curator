@@ -18,8 +18,10 @@ Provides:
 - ``set_note`` — per-stage decision tracking via an ``additional_notes`` dict
 - ``LANG_CODE_TO_NAME`` — ISO 639-1 code to full English name mapping
 - ``INDIC_CONFORMER_LANGUAGE_CODES`` — languages supported by AI4Bharat Indic Conformer (ISO codes)
+- ``PARAKEET_LANGUAGE_CODES`` — languages routed to NVIDIA Parakeet-TDT v3 in recovery ASR
 - ``WHISPER_ROUTED_LANGUAGE_CODES`` — languages routed to Faster-Whisper in recovery ASR
 - ``resolve_indic_language_code`` — normalize ``source_lang`` to an Indic Conformer code when applicable
+- ``resolve_parakeet_language_code`` — normalize ``source_lang`` to a Parakeet-routed code when applicable
 - ``resolve_whisper_language_code`` — normalize ``source_lang`` to a faster-whisper ``language`` code when applicable
 """
 
@@ -48,6 +50,15 @@ LANG_CODE_TO_NAME: dict[str, str] = {
 INDIC_CONFORMER_LANGUAGE_CODES: frozenset[str] = frozenset({
     "as", "bn", "brx", "doi", "gu", "hi", "kn", "kok", "ks", "mai", "ml", "mni",
     "mr", "ne", "or", "pa", "sa", "sat", "sd", "ta", "te", "ur",
+})
+
+# Manifest/source_lang codes routed to NVIDIA Parakeet-TDT v3 recovery ASR
+# (https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3). Parakeet-v3 supports 25
+# European languages; we only route those that are not already covered by a
+# more specialised backend (Indic Conformer, Faster-Whisper) and that benefit
+# most from Parakeet's coverage.
+PARAKEET_LANGUAGE_CODES: frozenset[str] = frozenset({
+    "lv", "hr", "et", "bg", "sk", "sl", "mt", "uk", "lt",
 })
 
 # Manifest/source_lang codes covered by language-routed Faster-Whisper recovery (see MODEL_LANG_CODE_TO_WHISPER).
@@ -79,6 +90,27 @@ def resolve_indic_language_code(
         return s
     for code, name in LANG_CODE_TO_NAME.items():
         if code in indic_codes and name.lower() == s:
+            return code
+    return None
+
+
+def resolve_parakeet_language_code(
+    raw: str | None,
+    *,
+    parakeet_codes: frozenset[str] = PARAKEET_LANGUAGE_CODES,
+) -> str | None:
+    """If ``raw`` denotes a Parakeet-routed language, return its ISO code; else ``None``.
+
+    Accepts ISO codes (e.g. ``lv``, ``hr``) or full English names from
+    ``LANG_CODE_TO_NAME`` (e.g. ``Latvian``, ``latvian``).
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip().lower()
+    if s in parakeet_codes:
+        return s
+    for code, name in LANG_CODE_TO_NAME.items():
+        if code in parakeet_codes and name.lower() == s:
             return code
     return None
 
