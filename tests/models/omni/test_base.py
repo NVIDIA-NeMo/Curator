@@ -75,8 +75,9 @@ class TestNVInferenceModel:
             m = self._model(base_url="https://example.test")
             m.setup()
             m.setup()  # idempotent — second call should not reconstruct.
-            Client.assert_called_once_with(  # pragma: allowlist secret
-                base_url="https://example.test", api_key="key-xyz"
+            Client.assert_called_once_with(
+                base_url="https://example.test",
+                api_key="key-xyz",  # pragma: allowlist secret
             )
             Client.return_value.setup.assert_called_once()
             assert m.is_loaded
