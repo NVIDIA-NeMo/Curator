@@ -103,7 +103,7 @@ class _DropAllStage(ProcessingStage[RowTask, RowTask]):
     name = "drop_all"
     resources = Resources(cpus=0.5)
 
-    def process(self, task: RowTask) -> RowTask | None:  # noqa: ARG002
+    def process(self, task: RowTask) -> RowTask | None:
         return None
 
 
@@ -117,7 +117,7 @@ class _DropAllBatchedStage(ProcessingStage[RowTask, RowTask]):
     def process(self, task: RowTask) -> RowTask:  # required by ABC; unused
         return task
 
-    def process_batch(self, tasks: list[RowTask]) -> list[RowTask]:  # noqa: ARG002
+    def process_batch(self, tasks: list[RowTask]) -> list[RowTask]:
         return []
 
 
