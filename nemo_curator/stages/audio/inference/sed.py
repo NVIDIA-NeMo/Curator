@@ -100,7 +100,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "SEDInference"
     batch_size: int = 32
     num_workers_override: int | None = None
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpus=1.0))
 
     def num_workers(self) -> int | None:
         return self.num_workers_override

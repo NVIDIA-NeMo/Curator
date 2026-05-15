@@ -310,7 +310,6 @@ def main() -> None:  # noqa: C901
                 model_type=args.sed_model_type,
                 batch_size=args.sed_batch_size,
                 num_workers_override=args.sed_num_workers,
-                resources=Resources(cpus=1.0, gpu_memory_gb=args.sed_gpu_memory_gb),
             ),
             SEDPostprocessingStage(
                 threshold=args.sed_speech_threshold,
