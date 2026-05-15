@@ -22,11 +22,13 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.interleaved.utils import materialize_task_binary_content
+from nemo_curator.stages.interleaved.utils import image_bytes_to_array, materialize_task_binary_content
 from nemo_curator.tasks import InterleavedBatch
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    import numpy as np
 
 try:
     from PIL import Image
@@ -89,6 +91,32 @@ class BaseInterleavedAnnotatorStage(ProcessingStage[InterleavedBatch, Interleave
         for i, idx in enumerate(masked_indices):
             row_bytes = materialized_df.iloc[i]["binary_content"]
             yield idx, bytes(row_bytes) if isinstance(row_bytes, (bytes, bytearray)) else None
+
+    def iter_decoded_images(
+        self, task: InterleavedBatch, df: pd.DataFrame, row_mask: pd.Series
+    ) -> Iterator[tuple[int, np.ndarray | None]]:
+        """Yield ``(row_index, array)`` for masked rows, caching decoded arrays in ``task._metadata``.
+
+        Decoded arrays are keyed by row index in ``task._metadata["_image_array_cache"]``.
+        Cache hits skip both file I/O and decode; only misses are passed to
+        ``iter_materialized_bytes``.
+        """
+        cache: dict[int, np.ndarray | None] = task._metadata.setdefault("_image_array_cache", {})
+
+        miss_mask = pd.Series(False, index=df.index, dtype=bool)
+        for idx in df[row_mask].index:
+            if idx in cache:
+                yield idx, cache[idx]
+            else:
+                miss_mask.loc[idx] = True
+
+        if not miss_mask.any():
+            return
+
+        for idx, image_bytes in self.iter_materialized_bytes(task=task, df=df, row_mask=miss_mask):
+            array = None if image_bytes is None else image_bytes_to_array(image_bytes, row_index=idx)
+            cache[idx] = array
+            yield idx, array
 
 
 @dataclass

@@ -23,7 +23,6 @@ import pandas as pd
 from loguru import logger
 
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
-from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 
 if TYPE_CHECKING:
     from collections.abc import Hashable
@@ -73,11 +72,7 @@ class InterleavedQRCodeFilterStage(BaseInterleavedFilterStage):
         image_mask = df["modality"] == "image"
         if not image_mask.any():
             return keep_mask
-        for idx, image_bytes in self.iter_materialized_bytes(task=task, df=df, row_mask=image_mask):
-            if image_bytes is None:
-                keep_mask.loc[idx] = False
-                continue
-            image = image_bytes_to_array(image_bytes, row_index=idx)
+        for idx, image in self.iter_decoded_images(task=task, df=df, row_mask=image_mask):
             if image is None:
                 keep_mask.loc[idx] = False
                 continue
