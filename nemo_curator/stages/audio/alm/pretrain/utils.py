@@ -118,21 +118,58 @@ def _segment_text(seg: dict) -> str:
     return (seg.get("text") or "").strip()
 
 
-def _resolve_audio_path(audio_dir: str, value: str) -> str:
-    """Resolve a manifest's audio path against ``audio_dir`` by basename.
+AUDIO_PATH_RESOLUTION_BASENAME = "basename"
+AUDIO_PATH_RESOLUTION_RELATIVE = "relative"
+AUDIO_PATH_RESOLUTION_AS_IS = "as_is"
+_AUDIO_PATH_RESOLUTION_MODES = (
+    AUDIO_PATH_RESOLUTION_BASENAME,
+    AUDIO_PATH_RESOLUTION_RELATIVE,
+    AUDIO_PATH_RESOLUTION_AS_IS,
+)
 
-    The pipeline accepts a directory of audio files plus a JSONL whose
-    ``audio_filepath`` may be relative (``./foo.m4a``) or absolute; we
-    always re-anchor to ``audio_dir`` using the basename so manifests
-    stay portable across hosts.
+
+def _resolve_audio_path(audio_dir: str, value: str, mode: str = AUDIO_PATH_RESOLUTION_BASENAME) -> str:
+    """Resolve a manifest's ``audio_filepath`` against ``audio_dir``.
+
+    The default ``"basename"`` mode is convenient for flat staging
+    directories but can silently point at the wrong audio when the
+    manifest preserves subdirectories or when two source rows share a
+    basename across shards; ``"relative"`` and ``"as_is"`` are exposed
+    so the user can opt in to subdirectory-preserving or
+    fully-explicit resolution when that matters.
+
+    Modes:
+
+    * ``"basename"`` (default): ``audio_dir / basename(value)``.
+      Manifests stay portable across hosts; pair with the duplicate-
+      basename check in :class:`ReadLongFormManifestStage` to surface
+      collisions explicitly.
+    * ``"relative"``: ``audio_dir / value`` (preserves subdirectories).
+      Absolute paths in the manifest are taken as-is (Python's
+      ``os.path.join`` semantics).
+    * ``"as_is"``: ``value`` returned unchanged.  The caller is
+      responsible for making sure it points at the right audio file.
     """
-    return os.path.join(audio_dir, os.path.basename(value))
+    if mode == AUDIO_PATH_RESOLUTION_BASENAME:
+        return os.path.join(audio_dir, os.path.basename(value))
+    if mode == AUDIO_PATH_RESOLUTION_RELATIVE:
+        return os.path.join(audio_dir, value)
+    if mode == AUDIO_PATH_RESOLUTION_AS_IS:
+        return value
+    msg = (
+        f"unknown audio_path_resolution {mode!r}; "
+        f"expected one of {_AUDIO_PATH_RESOLUTION_MODES}"
+    )
+    raise ValueError(msg)
 
 
 def _is_origin_stub(task: AudioTask) -> bool:
     """A stub task from the extractor that carries per-original metrics for an
     input that produced zero snippets.  Has no snippet_id."""
     return task.data.get("snippet_id") is None
+
+
+_SNIPPET_ID_RESERVED_CHARS = (".", "/", "\\")
 
 
 def make_snippet_id(original_id: str, start_sec: float, end_sec: float) -> str:
@@ -154,9 +191,15 @@ def make_snippet_id(original_id: str, start_sec: float, end_sec: float) -> str:
     manifests sometimes carry ids that include a ``.`` (e.g. a source
     filename like ``meeting.wav`` or a versioned id ``session.1.2``),
     and passing those through would re-introduce the same WebDataset
-    misparse the timestamp sanitization avoids.
+    misparse the timestamp sanitization avoids.  Path separators (``/``
+    and ``\\``) are also stripped: a path-like input id such as
+    ``shard1/utt001`` would otherwise turn ``<snippet_id>.<ext>`` into a
+    nested tar path, breaking the "members live at the tar root"
+    contract documented for the output archive.
     """
-    safe_id = original_id.replace(".", "_")
+    safe_id = original_id
+    for ch in _SNIPPET_ID_RESERVED_CHARS:
+        safe_id = safe_id.replace(ch, "_")
     start_str = f"{start_sec:.3f}".replace(".", "_")
     end_str = f"{end_sec:.3f}".replace(".", "_")
     return f"{safe_id}-{start_str}-{end_str}"

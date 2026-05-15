@@ -85,6 +85,107 @@ class TestReadLongFormManifestStage:
         with pytest.raises(FileNotFoundError):
             stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
+    def test_skips_rows_missing_id(self, tmp_path: Path) -> None:
+        # `id` is required: the metrics aggregator keys per-source records on
+        # it and snippet ids embed it.  Missing/empty ids must be filtered
+        # at read time rather than silently propagated as `line_N` fallbacks.
+        p = tmp_path / "in.jsonl"
+        rows = [
+            {"audio_filepath": "./a.wav", "segments": []},  # no id
+            {"id": "", "audio_filepath": "./b.wav", "segments": []},  # empty id
+            {"id": "  ", "audio_filepath": "./c.wav", "segments": []},  # whitespace id
+            {"id": "OK", "audio_filepath": "./d.wav", "segments": []},
+        ]
+        with p.open("w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
+        out = stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
+        assert [t.data["id"] for t in out] == ["OK"]
+
+    def test_skips_duplicate_ids(self, tmp_path: Path) -> None:
+        # Duplicate ids silently collapse per_original metrics and can
+        # collide tar member names (snippet_id embeds the source id).
+        # First occurrence wins; later duplicates are skipped with a warning.
+        p = tmp_path / "in.jsonl"
+        rows = [
+            {"id": "A", "audio_filepath": "./a.wav", "segments": []},
+            {"id": "A", "audio_filepath": "./a2.wav", "segments": []},
+            {"id": "B", "audio_filepath": "./b.wav", "segments": []},
+        ]
+        with p.open("w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
+        out = stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
+        assert [t.data["id"] for t in out] == ["A", "B"]
+        # The kept "A" row is the first one, not the duplicate.
+        assert out[0].data["audio_filepath"] == "/data/a.wav"
+
+    def test_basename_mode_rejects_duplicate_basenames(self, tmp_path: Path) -> None:
+        # In basename mode, two different source rows whose audio_filepath
+        # values share a basename would silently route to the same audio.
+        # Surface that as a hard error rather than corrupt outputs.
+        p = tmp_path / "in.jsonl"
+        rows = [
+            {"id": "A", "audio_filepath": "./shard1/foo.wav", "segments": []},
+            {"id": "B", "audio_filepath": "./shard2/foo.wav", "segments": []},
+        ]
+        with p.open("w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
+        with pytest.raises(ValueError, match="duplicate audio basename"):
+            stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
+
+    def test_relative_mode_preserves_subdirectories(self, tmp_path: Path) -> None:
+        # 'relative' joins audio_dir / audio_filepath verbatim and so does
+        # NOT trip the duplicate-basename guard.
+        p = tmp_path / "in.jsonl"
+        rows = [
+            {"id": "A", "audio_filepath": "shard1/foo.wav", "segments": []},
+            {"id": "B", "audio_filepath": "shard2/foo.wav", "segments": []},
+        ]
+        with p.open("w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        stage = ReadLongFormManifestStage(
+            input_manifest=str(p), audio_dir="/data", audio_path_resolution="relative"
+        )
+        out = stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
+        assert [t.data["audio_filepath"] for t in out] == [
+            "/data/shard1/foo.wav",
+            "/data/shard2/foo.wav",
+        ]
+
+    def test_as_is_mode_returns_value_unchanged(self, tmp_path: Path) -> None:
+        p = tmp_path / "in.jsonl"
+        rows = [
+            {"id": "A", "audio_filepath": "/absolute/a.wav", "segments": []},
+            {"id": "B", "audio_filepath": "relative/b.wav", "segments": []},
+        ]
+        with p.open("w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        stage = ReadLongFormManifestStage(
+            input_manifest=str(p), audio_dir="/ignored", audio_path_resolution="as_is"
+        )
+        out = stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
+        assert [t.data["audio_filepath"] for t in out] == [
+            "/absolute/a.wav",
+            "relative/b.wav",
+        ]
+
+    def test_unknown_resolution_mode_raises(self, tmp_path: Path) -> None:
+        p = tmp_path / "in.jsonl"
+        with p.open("w", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "A", "audio_filepath": "./a.wav", "segments": []}) + "\n")
+        stage = ReadLongFormManifestStage(
+            input_manifest=str(p), audio_dir="/data", audio_path_resolution="not_a_mode"
+        )
+        with pytest.raises(ValueError, match="unknown audio_path_resolution"):
+            stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
+
 
 # ----------------------------------------------------------------------
 # SnippetManifestWriterStage

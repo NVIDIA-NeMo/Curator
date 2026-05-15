@@ -164,6 +164,18 @@ def _build_parser() -> argparse.ArgumentParser:
         default="audio_filepath",
         help="JSONL field naming the source audio path (default 'audio_filepath')",
     )
+    parser.add_argument(
+        "--audio-path-resolution",
+        choices=["basename", "relative", "as_is"],
+        default="basename",
+        help=(
+            "How the reader maps each row's 'audio_filepath' to an on-disk "
+            "path: 'basename' (default; audio_dir/basename(value), also "
+            "rejects manifests with duplicate basenames), 'relative' "
+            "(audio_dir/value; preserves subdirectories) or 'as_is' (trust "
+            "the manifest's value)."
+        ),
+    )
     parser.add_argument("--dataset-name", default="long_form_audio", help="Tag attached to emitted AudioTasks")
     parser.add_argument(
         "--backend",
@@ -224,6 +236,7 @@ def main() -> None:
         target_sample_rate=args.target_sample_rate,
         output_format=args.output_format,
         audio_filepath_key=args.audio_filepath_key,
+        audio_path_resolution=args.audio_path_resolution,
         dataset_name=args.dataset_name,
         dry_run=args.dry_run,
     )

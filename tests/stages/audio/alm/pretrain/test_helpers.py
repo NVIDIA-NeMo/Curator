@@ -151,6 +151,34 @@ class TestFindOverlappingIndices:
         # Indices 1 and 2 overlap (1.0s); index 0 is fine
         assert find_overlapping_indices(segs, 0.5) == {1, 2}
 
+    def test_empty_input(self) -> None:
+        assert find_overlapping_indices([], 0.5) == set()
+
+    def test_single_segment(self) -> None:
+        assert find_overlapping_indices([_seg(0, 5)], 0.5) == set()
+
+    def test_identical_intervals(self) -> None:
+        # Sweep-line + heap edge case: equal start AND end. Both should
+        # be flagged via containment (each "contains" the other).
+        segs = [_seg(0, 5), _seg(0, 5)]
+        assert find_overlapping_indices(segs, 0.5) == {0, 1}
+
+    def test_long_non_overlapping_chain(self) -> None:
+        # 200 strictly non-overlapping intervals. With the old O(n^2) pair
+        # scan this is ~20k comparisons; with the sweep-line each new
+        # interval finds the heap empty after eviction, so the inner loop
+        # is never entered. Asserts the result is empty regardless.
+        segs = [_seg(i * 2.0, i * 2.0 + 1.0) for i in range(200)]
+        assert find_overlapping_indices(segs, 0.5) == set()
+
+    def test_two_speakers_alternating_overlap(self) -> None:
+        # Simulate two interleaved speakers (A: 0-5, B: 4-9, A: 8-13,
+        # B: 12-17). Adjacent pairs overlap by 1.0s; far pairs don't.
+        # Sweep-line must evict the trailing A/B from the heap as the
+        # cursor moves forward so the active set stays bounded.
+        segs = [_seg(0, 5), _seg(4, 9), _seg(8, 13), _seg(12, 17)]
+        assert find_overlapping_indices(segs, 0.5) == {0, 1, 2, 3}
+
 
 # ----------------------------------------------------------------------
 # plan_snippets
@@ -343,6 +371,19 @@ class TestMakeSnippetId:
         assert "." not in sid
         assert sid == "session_1_2-1_000-2_500"
 
+    def test_path_separators_in_original_id_are_sanitized(self) -> None:
+        # Path-like ids would otherwise turn `<snippet_id>.<ext>` into a
+        # nested tar path, breaking the "members live at the tar root"
+        # contract.  Both POSIX and Windows separators are stripped so the
+        # output stays portable.
+        sid = make_snippet_id("shard1/utt001", 0.0, 5.0)
+        assert "/" not in sid and "\\" not in sid
+        assert sid == "shard1_utt001-0_000-5_000"
+
+        sid = make_snippet_id("dirA\\sub\\utt", 1.0, 2.0)
+        assert "/" not in sid and "\\" not in sid
+        assert sid == "dirA_sub_utt-1_000-2_000"
+
 
 # ----------------------------------------------------------------------
 # histogram_30s
@@ -380,6 +421,31 @@ class TestResolveAudioPath:
 
     def test_simple_basename(self) -> None:
         assert _resolve_audio_path("/data", "baz.flac") == "/data/baz.flac"
+
+    def test_relative_mode_preserves_subdirectories(self) -> None:
+        # 'relative' joins audio_dir / value verbatim, so a manifest that
+        # carries a relative sub-path stays under that sub-path on disk.
+        assert (
+            _resolve_audio_path("/data", "shard1/foo.wav", "relative") == "/data/shard1/foo.wav"
+        )
+
+    def test_relative_mode_absolute_value_wins(self) -> None:
+        # os.path.join semantics: an absolute right-hand side discards the
+        # left-hand side. Documented in the docstring as the way 'relative'
+        # mode handles absolute manifest paths.
+        assert (
+            _resolve_audio_path("/data", "/elsewhere/bar.wav", "relative") == "/elsewhere/bar.wav"
+        )
+
+    def test_as_is_mode_returns_value_unchanged(self) -> None:
+        assert (
+            _resolve_audio_path("/data", "/elsewhere/bar.wav", "as_is") == "/elsewhere/bar.wav"
+        )
+        assert _resolve_audio_path("/data", "rel/foo.wav", "as_is") == "rel/foo.wav"
+
+    def test_unknown_mode_raises(self) -> None:
+        with pytest.raises(ValueError, match="unknown audio_path_resolution"):
+            _resolve_audio_path("/data", "foo.wav", "not_a_mode")
 
 
 # ----------------------------------------------------------------------

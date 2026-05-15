@@ -35,9 +35,11 @@ from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.alm.pretrain.utils import (
+    _AUDIO_PATH_RESOLUTION_MODES,
     _MANIFEST_SHARD_EXT,
     _METRICS_SHARD_EXT,
     _PRETRAIN_META_KEY,
+    AUDIO_PATH_RESOLUTION_BASENAME,
     _is_origin_stub,
     _make_shard_path,
     _resolve_audio_path,
@@ -63,6 +65,15 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
     an ``AudioTask`` whose ``data`` is the parsed dict with its audio
     path re-anchored to ``audio_dir``.
 
+    Per the pipeline contract, every row must carry a non-empty ``id``
+    that is unique within the manifest: downstream snippet ids embed it,
+    the metrics aggregator keys per-source records on it, and tar
+    members are named with it.  Rows that are missing ``id``, have an
+    empty ``id``, or repeat an already-seen ``id`` are skipped with a
+    warning rather than silently propagated as ``line_N`` fallbacks (the
+    fallback collapsed per-source metrics and could collide tar member
+    names when source times matched).
+
     This is the entry-point ``_EmptyTask -> list[AudioTask]`` fan-out
     stage following the same pattern as
     ``CreateInitialManifestReadSpeechStage``.
@@ -70,16 +81,26 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
     Args:
         input_manifest: Path to the JSONL file.
         audio_dir: Directory containing the source audio files; the row's
-            ``audio_filepath`` value is replaced with
-            ``audio_dir / basename(audio_filepath)``.
+            ``audio_filepath`` value is re-anchored to this directory
+            according to ``audio_path_resolution`` (default basename).
         audio_filepath_key: JSONL field that holds the path to the audio
             file (default ``"audio_filepath"``).
+        audio_path_resolution: How to map ``audio_filepath`` to a usable
+            on-disk path.  ``"basename"`` (default) replaces with
+            ``audio_dir / basename(value)`` and is convenient for flat
+            staging dirs; in this mode the reader also rejects manifests
+            with duplicate basenames so a hidden collision between two
+            different source recordings can't silently route them to the
+            same audio.  ``"relative"`` joins as ``audio_dir / value``
+            (preserves subdirectories).  ``"as_is"`` uses the manifest's
+            value unchanged.
         dataset_name: Optional dataset tag stamped on emitted tasks.
     """
 
     input_manifest: str
     audio_dir: str
     audio_filepath_key: str = "audio_filepath"
+    audio_path_resolution: str = AUDIO_PATH_RESOLUTION_BASENAME
     dataset_name: str = "long_form_audio"
 
     name: str = "ReadLongFormManifest"
@@ -100,11 +121,23 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
 
     def process(self, _: _EmptyTask) -> list[AudioTask]:
         t0 = time.perf_counter()
+        if self.audio_path_resolution not in _AUDIO_PATH_RESOLUTION_MODES:
+            msg = (
+                f"unknown audio_path_resolution {self.audio_path_resolution!r}; "
+                f"expected one of {_AUDIO_PATH_RESOLUTION_MODES}"
+            )
+            raise ValueError(msg)
         if not os.path.isfile(self.input_manifest):
             msg = f"Manifest not found: {self.input_manifest}"
             raise FileNotFoundError(msg)
 
         tasks: list[AudioTask] = []
+        seen_ids: set[str] = set()
+        # In basename mode, two source rows whose `audio_filepath` differ only
+        # by their parent directory both resolve to the same on-disk file and
+        # would silently route to the same audio.  Track the basename ->
+        # first-seen-id mapping and fail fast when a collision shows up.
+        seen_basenames: dict[str, str] = {}
         with open(self.input_manifest, encoding="utf-8") as f:
             for lineno, raw in enumerate(f, 1):
                 line = raw.strip()
@@ -116,15 +149,47 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
                     logger.error(f"[{self.name}] line {lineno}: invalid JSON ({e}); skipping")
                     continue
 
+                # `id` is required by the pipeline contract: downstream
+                # snippet ids embed it, the metrics aggregator keys
+                # per-source records on it, and tar members are named with
+                # it. A row without a usable id can't be safely processed,
+                # and a duplicate id silently collapses per-source metrics
+                # and can produce colliding snippet/tar member names.
+                row_id = entry.get("id")
+                if row_id is None or (isinstance(row_id, str) and not row_id.strip()):
+                    logger.warning(f"[{self.name}] line {lineno}: missing or empty 'id'; skipping")
+                    continue
+                row_id = str(row_id)
+                if row_id in seen_ids:
+                    logger.warning(f"[{self.name}] line {lineno}: duplicate id {row_id!r}; skipping")
+                    continue
+                seen_ids.add(row_id)
+                entry["id"] = row_id
+
                 original_path = entry.get(self.audio_filepath_key)
                 if not original_path:
                     logger.warning(f"[{self.name}] line {lineno}: missing {self.audio_filepath_key!r}; skipping")
                     continue
-                entry[self.audio_filepath_key] = _resolve_audio_path(self.audio_dir, original_path)
+                if self.audio_path_resolution == AUDIO_PATH_RESOLUTION_BASENAME:
+                    basename = os.path.basename(original_path)
+                    prior_id = seen_basenames.get(basename)
+                    if prior_id is not None:
+                        msg = (
+                            f"[{self.name}] line {lineno}: duplicate audio basename {basename!r} "
+                            f"(first seen for id {prior_id!r}, repeated for id {row_id!r}); "
+                            f"two source rows would resolve to the same on-disk audio under "
+                            f"audio_path_resolution={AUDIO_PATH_RESOLUTION_BASENAME!r}. Switch to "
+                            f"'relative' (preserves subdirs) or 'as_is' if this is intentional."
+                        )
+                        raise ValueError(msg)
+                    seen_basenames[basename] = row_id
+                entry[self.audio_filepath_key] = _resolve_audio_path(
+                    self.audio_dir, original_path, self.audio_path_resolution
+                )
 
                 tasks.append(
                     AudioTask(
-                        task_id=f"{entry.get('id', f'line_{lineno}')}",
+                        task_id=row_id,
                         dataset_name=self.dataset_name,
                         data=entry,
                         filepath_key=self.audio_filepath_key,

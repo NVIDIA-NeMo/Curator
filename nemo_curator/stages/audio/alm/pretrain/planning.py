@@ -23,6 +23,7 @@ testable without Ray / soundfile / torch.
 
 from __future__ import annotations
 
+import heapq
 import os
 import time
 from collections import Counter
@@ -75,21 +76,50 @@ def find_overlapping_indices(segments: list[dict], min_overlap_sec: float) -> se
     intersection OR one fully contains the other.  Brief touch-ups
     smaller than ``min_overlap_sec`` where neither covers the other are
     not flagged.
+
+    Implementation is a sweep-line scan over segments sorted by
+    ``(start, end)``.  An end-time-keyed min-heap holds the currently
+    active intervals (those whose ``end`` is still beyond the cursor's
+    ``start``); each new segment evicts the heap prefix it can no longer
+    intersect and is then compared only against the survivors.  For
+    typical diarized audio (a handful of overlapping speakers at any
+    instant) this is effectively ``O(n log n)``, vs the pairwise ``O(n^2)``
+    of comparing every pair; the worst case where all intervals overlap
+    each other is still ``O(n^2)`` because the overlap relation itself
+    is dense in that case.
     """
     n = len(segments)
+    if n < 2:
+        return set()
+    # Sort indirectly so we can return indices into the caller's list.
+    order = sorted(
+        range(n), key=lambda i: (segments[i]["start"], segments[i]["end"])
+    )
     bad: set[int] = set()
-    for i in range(n):
-        si, ei = segments[i]["start"], segments[i]["end"]
-        for j in range(i + 1, n):
-            sj, ej = segments[j]["start"], segments[j]["end"]
-            if ej <= si or sj >= ei:
+    # Active interval heap, keyed by end time so the smallest-end interval
+    # (the next to fall out of the active window) is always at the root.
+    # Entries: (end, start, original_index).
+    active: list[tuple[float, float, int]] = []
+    for k in order:
+        si, ei = segments[k]["start"], segments[k]["end"]
+        # Evict every active interval that ends at or before our start --
+        # it can't overlap us or any later (sorted-order) segment.
+        while active and active[0][0] <= si:
+            heapq.heappop(active)
+        for ej, sj, j in active:
+            # Sorted order guarantees sj <= si; a still-active interval
+            # has ej > si.  The remaining no-overlap case is sj >= ei
+            # (current ends at or before active's start), which can only
+            # happen when sj == si and ei <= ej -- handle it explicitly.
+            if sj >= ei:
                 continue
             overlap = min(ei, ej) - max(si, sj)
             i_contains_j = si <= sj and ei >= ej
             j_contains_i = sj <= si and ej >= ei
             if overlap >= min_overlap_sec or i_contains_j or j_contains_i:
-                bad.add(i)
+                bad.add(k)
                 bad.add(j)
+        heapq.heappush(active, (ei, si, k))
     return bad
 
 

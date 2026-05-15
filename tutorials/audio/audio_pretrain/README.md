@@ -11,8 +11,9 @@ The output snippet manifest is intentionally generic. Each row keeps a snippet-r
 
 ## Inputs
 
-- `--input-manifest`: a JSONL file, one row per long-form audio. Required fields per row: an `id`, an `audio_filepath` (only the basename is used), and a `segments` list. Each segment has `speaker`, `start`, `end`, `text`, `text_ITN`, and a `words` list of `{word, start, end}`.
-- `--audio-dir`: directory holding the source audio files. Each row's audio is resolved as `audio_dir / basename(audio_filepath)`.
+- `--input-manifest`: a JSONL file, one row per long-form audio. Required fields per row: an `id` (non-empty; must be unique within the manifest — duplicates are skipped with a warning), an `audio_filepath` (only the basename is used), and a `segments` list. Each segment has `speaker`, `start`, `end`, `text`, `text_ITN`, and a `words` list of `{word, start, end}`.
+- `--audio-dir`: directory holding the source audio files. By default each row's audio is resolved as `audio_dir / basename(audio_filepath)` (see `--audio-path-resolution`).
+- `--audio-path-resolution`: how the reader maps a row's `audio_filepath` to an on-disk path. Choices: `basename` (default; flat staging dir, also rejects manifests with duplicate basenames so a hidden collision can't silently route two different source recordings to the same file), `relative` (`audio_dir / value`; preserves subdirectories), `as_is` (trust the manifest's path verbatim).
 
 ## Outputs
 
@@ -28,7 +29,7 @@ The output snippet manifest is intentionally generic. Each row keeps a snippet-r
 3. **Greedy contiguous packing** — surviving segments are walked in start-time order. The current snippet grows while (a) `last.end - first.start <= --max-duration-sec` AND (b) the gap from the current snippet's last accepted segment's `end` to the next segment's `start` is at most `--max-segment-gap-in-snippet`. Either constraint failing closes the snippet and opens a new one starting from the current segment. Segments are never split.
 4. **Drop snippets that don't fit** — a snippet whose span exceeds `--max-duration-sec` (which only happens when a single segment alone is too long), is shorter than `--min-duration-sec`, or has empty concatenated text is dropped and counted under `too_long` / `too_short` / `no_text`.
 5. **Drop snippets with repetitive text** — for each candidate snippet the joined text is tokenized with the HuggingFace fast tokenizer at `--tokenizer-path` and any snippet whose token-id n-gram histogram has an entry above the configured threshold is dropped (default `--ngram-n 10 --ngram-max-count 3`). This catches Whisper-style decoding loops without paying audio I/O cost on filtered snippets.
-6. **Audio extraction** — for each surviving snippet the source audio is sliced, channel-averaged to mono if needed, resampled to `--target-sample-rate` (default 16000), and written to `--output-dir`. Snippet `segments` (and word timestamps) are shifted so the snippet starts at `0.0`.
+6. **Audio extraction** — for each surviving snippet the source audio is sliced, channel-averaged to mono if needed, resampled to `--target-sample-rate` (default 16000), and written as a member of the tar archive at `--output-audio-tar-path` named `<snippet_id>.<output_format>`. Snippet `segments` (and word timestamps) are shifted so the snippet starts at `0.0`.
 
 ## Example
 

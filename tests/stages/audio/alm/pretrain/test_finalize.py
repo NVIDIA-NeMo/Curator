@@ -176,13 +176,19 @@ class TestPrepareAndFinalize:
         with open(ms, "w") as f:
             f.writelines(
                 json.dumps(
-                    {"id": "X", "snippet_id": sid, "audio_filepath": f"{sid}.flac", "duration": 1.0}
+                    {
+                        "id": "X",
+                        "snippet_id": sid,
+                        "audio_filepath": f"{sid}.flac",
+                        "duration": 1.0,
+                        "segments": [{"start": 0.0, "end": 1.0, "text": "x"}],
+                    }
                 )
                 + "\n"
                 for sid in ("X-0_000-1_000", "X-1_000-2_000", "X-2_000-3_000")
             )
         # Metrics shard so finalize writes a merged metrics.json that
-        # _patch_metrics_with_reconcile_drops can update.
+        # _patch_metrics_post_reconcile can update.
         ms_metrics = _make_shard_path(metrics, "jsonl")
         with open(ms_metrics, "w") as f:
             f.writelines(
@@ -222,6 +228,17 @@ class TestPrepareAndFinalize:
         assert summary["dropped"]["missing_audio"] == 1
         # corrupted_audio is only added when non-zero; absent here.
         assert "corrupted_audio" not in summary["dropped"]
+        # Output totals are rebuilt from the post-reconcile manifest, so the
+        # dropped row no longer counts toward the snippet/segment/duration
+        # tallies or the per-original out_* fields.
+        assert summary["num_output_snippets"] == 2
+        assert summary["output_total_segments"] == 2
+        assert summary["output_total_duration_sec"] == 2.0
+        assert summary["snippet_duration_histogram_30s"] == {"0-30": 2}
+        per_x = next(e for e in summary["per_original"] if e["id"] == "X")
+        assert per_x["out_snippets"] == 2
+        assert per_x["out_segments"] == 2
+        assert per_x["out_duration_sec"] == 2.0
 
     def test_finalize_drops_manifest_rows_with_unreadable_audio(self, tmp_path: Path) -> None:
         """Manifest reconciliation: rows whose tar member fails the audio
@@ -238,7 +255,13 @@ class TestPrepareAndFinalize:
         with open(ms, "w") as f:
             f.writelines(
                 json.dumps(
-                    {"id": "X", "snippet_id": sid, "audio_filepath": f"{sid}.flac", "duration": 1.0}
+                    {
+                        "id": "X",
+                        "snippet_id": sid,
+                        "audio_filepath": f"{sid}.flac",
+                        "duration": 1.0,
+                        "segments": [{"start": 0.0, "end": 1.0, "text": "x"}],
+                    }
                 )
                 + "\n"
                 for sid in ("X-0_000-1_000", "X-1_000-2_000", "X-2_000-3_000")
@@ -290,6 +313,83 @@ class TestPrepareAndFinalize:
         assert summary["dropped"]["corrupted_audio"] == 1
         # missing_audio is only added when non-zero; absent here.
         assert "missing_audio" not in summary["dropped"]
+        # Output totals reflect the post-reconcile manifest, not the
+        # pre-reconcile shard records.
+        assert summary["num_output_snippets"] == 2
+        assert summary["output_total_duration_sec"] == 2.0
+        per_x = next(e for e in summary["per_original"] if e["id"] == "X")
+        assert per_x["out_snippets"] == 2
+        assert per_x["out_duration_sec"] == 2.0
+
+    def test_finalize_rebuilds_per_original_when_all_snippets_dropped(self, tmp_path: Path) -> None:
+        """Reconcile drops every snippet of source ``Y`` (no tar members) but
+        keeps both of source ``X``.  Post-rebuild, ``X`` keeps its 2 snippets
+        and ``Y`` reads 0 across the board, even though both sources had
+        non-stub metrics shard records before reconcile."""
+        manifest = str(tmp_path / "snippets.jsonl")
+        metrics = str(tmp_path / "metrics.json")
+        tar_path = str(tmp_path / "snippets.tar")
+
+        ms = _make_shard_path(manifest, "jsonl")
+        with open(ms, "w") as f:
+            for pid, sid, dur in (
+                ("X", "X-0_000-1_000", 1.0),
+                ("X", "X-1_000-2_000", 1.0),
+                ("Y", "Y-0_000-1_000", 1.0),
+            ):
+                f.write(
+                    json.dumps(
+                        {
+                            "id": pid,
+                            "snippet_id": sid,
+                            "audio_filepath": f"{sid}.flac",
+                            "duration": dur,
+                            "segments": [{"start": 0.0, "end": dur, "text": "x"}],
+                        }
+                    )
+                    + "\n"
+                )
+        ms_metrics = _make_shard_path(metrics, "jsonl")
+        with open(ms_metrics, "w") as f:
+            for pid in ("X", "X", "Y"):
+                f.write(
+                    json.dumps(
+                        {
+                            "id": pid,
+                            "in_segments": 1,
+                            "in_duration_sec": 1.0,
+                            "dropped": {},
+                            "is_stub": False,
+                            "out_segments": 1,
+                            "out_duration_sec": 1.0,
+                        }
+                    )
+                    + "\n"
+                )
+
+        flac_buf = io.BytesIO()
+        sf.write(flac_buf, np.zeros(160, dtype=np.float32), 16000, format="FLAC")
+        flac_bytes = flac_buf.getvalue()
+        ts = _make_shard_path(tar_path, "tar")
+        with tarfile.open(ts, "w") as t:
+            # Only X's snippets are written to the tar; Y is missing entirely.
+            for sid in ("X-0_000-1_000", "X-1_000-2_000"):
+                ti = tarfile.TarInfo(name=f"{sid}.flac")
+                ti.size = len(flac_bytes)
+                t.addfile(ti, io.BytesIO(flac_bytes))
+
+        finalize_audio_pretrain_outputs(manifest, metrics, tar_path)
+
+        summary = json.loads(Path(metrics).read_text(encoding="utf-8"))
+        assert summary["dropped"]["missing_audio"] == 1
+        # X kept both snippets, Y was fully dropped.
+        assert summary["num_output_snippets"] == 2
+        per_x = next(e for e in summary["per_original"] if e["id"] == "X")
+        per_y = next(e for e in summary["per_original"] if e["id"] == "Y")
+        assert per_x["out_snippets"] == 2
+        assert per_x["out_duration_sec"] == 2.0
+        assert per_y["out_snippets"] == 0
+        assert per_y["out_duration_sec"] == 0.0
 
     def test_prepare_removes_only_matching_shards(self, tmp_path: Path) -> None:
         manifest = str(tmp_path / "snippets.jsonl")

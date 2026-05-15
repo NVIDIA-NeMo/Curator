@@ -99,8 +99,8 @@ def finalize_audio_pretrain_outputs(
     dropped_missing, dropped_unreadable = _reconcile_manifest_with_tar(
         output_manifest_path, output_audio_tar_path
     )
-    _patch_metrics_with_reconcile_drops(
-        metrics_path, dropped_missing, dropped_unreadable
+    _patch_metrics_post_reconcile(
+        metrics_path, output_manifest_path, dropped_missing, dropped_unreadable
     )
 
 
@@ -421,20 +421,34 @@ def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
     return (dropped_missing, dropped_unreadable)
 
 
-def _patch_metrics_with_reconcile_drops(
-    metrics_path: str, dropped_missing: int, dropped_unreadable: int
+def _patch_metrics_post_reconcile(  # noqa: C901, PLR0912
+    metrics_path: str,
+    manifest_path: str,
+    dropped_missing: int,
+    dropped_unreadable: int,
 ) -> None:
-    """Surface reconcile-time drops in the merged metrics summary.
+    """Reconcile the merged metrics summary against the post-reconcile manifest.
 
-    Increments ``dropped.missing_audio`` (manifest row had no
-    corresponding tar member) and ``dropped.corrupted_audio`` (tar
-    member existed but its audio header was unreadable or reported
-    zero frames / sample rate), so the user can distinguish reconcile
-    drops from worker-side drops (``empty``, ``overlap``, ...).
+    Worker shards are written before ``_reconcile_manifest_with_tar`` can
+    prune manifest rows whose audio is missing or unreadable, so the
+    initial ``_merge_metrics_shards`` summary overcounts on the output
+    side by exactly the number of rows the reconcile pass removed.  This
+    helper:
 
-    No-op when both counts are zero or when the metrics file doesn't
-    exist (the worker aggregator wrote no shards, e.g. a dry run or
-    tests that exercise reconcile in isolation).
+    1. Increments ``dropped.missing_audio`` and ``dropped.corrupted_audio``
+       with the reconcile pass's drop counts (so reconcile drops are
+       attributable separately from worker-side filters like ``empty`` /
+       ``overlap``).
+    2. Rebuilds the output-side counters -- ``num_output_snippets``,
+       ``output_total_segments``, ``output_total_duration_sec``,
+       ``snippet_duration_histogram_30s``, and each
+       ``per_original[*].out_*`` field -- by walking the now-authoritative
+       (post-reconcile) manifest.  Input-side and worker-side dropped
+       counters are left untouched.
+
+    No-op when both reconcile counts are zero (the merged metrics already
+    match the manifest) or when the metrics file doesn't exist (dry run
+    / reconcile-in-isolation tests).
     """
     if dropped_missing == 0 and dropped_unreadable == 0:
         return
@@ -448,6 +462,7 @@ def _patch_metrics_with_reconcile_drops(
             f"cannot patch reconcile drops into metrics {metrics_path}: {exc}"
         )
         return
+
     dropped = summary.setdefault("dropped", {})
     if dropped_missing:
         dropped["missing_audio"] = (
@@ -457,11 +472,66 @@ def _patch_metrics_with_reconcile_drops(
         dropped["corrupted_audio"] = (
             int(dropped.get("corrupted_audio", 0)) + dropped_unreadable
         )
+
+    # Rebuild output-side counters from the reconciled manifest.  After
+    # _reconcile_manifest_with_tar drops a row the worker-emitted shard
+    # record for that snippet is still summed into the pre-reconcile
+    # totals, so we recompute against what survived.
+    out_per_id: dict[str, dict[str, Any]] = {}
+    durations: list[float] = []
+    if os.path.exists(manifest_path):
+        with open(manifest_path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    # `_merge_manifest_shards` already filtered these; if a
+                    # stray line slips through, skip rather than crash the
+                    # finalize step.
+                    continue
+                pid = str(row.get("id") or "")
+                if not pid:
+                    continue
+                dur = float(row.get("duration", 0.0))
+                seg_count = len(row.get("segments") or [])
+                entry = out_per_id.setdefault(
+                    pid,
+                    {"out_snippets": 0, "out_segments": 0, "out_duration_sec": 0.0},
+                )
+                entry["out_snippets"] += 1
+                entry["out_segments"] += seg_count
+                entry["out_duration_sec"] += dur
+                durations.append(dur)
+
+    total_snippets = sum(v["out_snippets"] for v in out_per_id.values())
+    total_segments = sum(v["out_segments"] for v in out_per_id.values())
+    total_duration = sum(v["out_duration_sec"] for v in out_per_id.values())
+    summary["num_output_snippets"] = int(total_snippets)
+    summary["output_total_segments"] = int(total_segments)
+    summary["output_total_duration_sec"] = round(float(total_duration), 3)
+    summary["snippet_duration_histogram_30s"] = histogram_30s(durations)
+
+    for entry in summary.get("per_original", []):
+        pid = entry.get("id")
+        if pid is None:
+            continue
+        out = out_per_id.get(
+            str(pid),
+            {"out_snippets": 0, "out_segments": 0, "out_duration_sec": 0.0},
+        )
+        entry["out_snippets"] = int(out["out_snippets"])
+        entry["out_segments"] = int(out["out_segments"])
+        entry["out_duration_sec"] = round(float(out["out_duration_sec"]), 3)
+
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
     logger.info(
         f"patched metrics {metrics_path}: missing_audio+={dropped_missing}, "
-        f"corrupted_audio+={dropped_unreadable}"
+        f"corrupted_audio+={dropped_unreadable}, "
+        f"rebuilt output totals from {len(out_per_id)} source(s) / {total_snippets} snippet(s)"
     )
 
 

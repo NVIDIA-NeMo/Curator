@@ -18,7 +18,9 @@ Builds a Curator ``Pipeline`` that takes a JSONL manifest of long-form
 diarized + transcribed audio files plus a directory of source audio
 files and produces:
 
-* a directory of snippet audio files (mono, resampled), one per snippet
+* a tar archive of snippet audio files (mono, resampled), one tar
+  member per snippet, stored at the tar root with no subdirectories
+  (WebDataset/Energon-friendly)
 * a JSONL manifest with one row per snippet (``snippet_id`` + segments
   with timestamps shifted to be snippet-relative)
 * a metrics summary JSON with input/output counts, dropped-segment
@@ -55,6 +57,7 @@ from .planning import (
     SnippetCutPlannerStage,
     SnippetRepetitionFilterStage,
 )
+from .utils import AUDIO_PATH_RESOLUTION_BASENAME
 
 __all__ = [
     "build_audio_pretrain_pipeline",
@@ -89,6 +92,7 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
     target_sample_rate: int = 16000,
     output_format: str = "flac",
     audio_filepath_key: str = "audio_filepath",
+    audio_path_resolution: str = AUDIO_PATH_RESOLUTION_BASENAME,
     dataset_name: str = "long_form_audio",
     dry_run: bool = False,
 ) -> Pipeline:
@@ -108,8 +112,8 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
         input_manifest: Path to the input JSONL manifest, one row per
             long-form audio.
         audio_dir: Directory containing the source audio files.  Each
-            row's ``audio_filepath`` is re-anchored to this directory by
-            basename.
+            row's ``audio_filepath`` is re-anchored to this directory
+            according to ``audio_path_resolution`` (default basename).
         output_dir: Directory where pipeline outputs are written.  The
             audio tar, manifest JSONL, and metrics JSON typically live
             here, though each has its own explicit path argument.
@@ -166,6 +170,11 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
         output_format: ``"wav"``, ``"flac"``, or ``"ogg"``.
         audio_filepath_key: JSONL field that holds the path to the audio
             file (default ``"audio_filepath"``).
+        audio_path_resolution: How ``ReadLongFormManifestStage`` maps a
+            row's ``audio_filepath`` to an on-disk path: ``"basename"``
+            (default, with duplicate-basename detection), ``"relative"``
+            (preserves subdirectories under ``audio_dir``), or
+            ``"as_is"`` (trust the manifest's value).
         dataset_name: Tag stamped on emitted ``AudioTask`` objects.
         dry_run: If True, the extractor stage skips audio reads and
             writes -- no snippet audio files are produced -- but the
@@ -184,6 +193,7 @@ def build_audio_pretrain_pipeline(  # noqa: PLR0913
                 input_manifest=input_manifest,
                 audio_dir=audio_dir,
                 audio_filepath_key=audio_filepath_key,
+                audio_path_resolution=audio_path_resolution,
                 dataset_name=dataset_name,
             ),
             OverlapFilterStage(min_overlap_sec=min_overlap_sec),
