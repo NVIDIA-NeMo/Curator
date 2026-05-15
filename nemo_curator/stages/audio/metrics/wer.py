@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from loguru import logger
 from nemo.collections.asr.metrics.wer import word_error_rate_detail
 from nemo_text_processing.text_normalization import Normalizer
 
@@ -76,11 +77,24 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
             )
             raise ValueError(msg)
 
-    def inputs(self) -> tuple[list[str], list[list[str]]]:
-        return [], [[self.segments_key], [self.hypothesis_text_key, self.reference_text_key]]
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [[self.segments_key], [self.hypothesis_text_key, self.reference_text_key, "metrics"]]
+        return [], ["metrics"]
+
+    def validate_input(self, task: AudioTask) -> bool:
+        """OR-shaped validation: segments OR top-level text keys must be present."""
+        data = task.data
+        if hasattr(data, self.segments_key):
+            return True
+        if hasattr(data, self.hypothesis_text_key) and hasattr(data, self.reference_text_key):
+            return True
+        logger.error(
+            f"Task {task.task_id} missing required attributes: "
+            f"need '{self.segments_key}' OR both '{self.hypothesis_text_key}' and '{self.reference_text_key}'"
+        )
+        return False
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
@@ -177,8 +191,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
         duration = end - start
 
         if self.hypothesis_text_key not in audio_segment or self.reference_text_key not in audio_segment:
-            msg = f"Segment missing WER keys: {self.hypothesis_text_key}, {self.reference_text_key}"
-            raise ValueError(msg)
+            return
 
         metrics = audio_segment.get("metrics", {})
 

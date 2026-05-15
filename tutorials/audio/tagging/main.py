@@ -92,17 +92,13 @@ def main(cfg: DictConfig) -> None:
     logger.info("Starting audio tagging pipeline...")
     results = pipeline.run(executor)
 
-    output_files = []
-    for task in results or []:
-        output_files.extend(task.data)
-    unique_files = sorted(set(output_files))
+    num_tasks = len(results) if results else 0
 
     logger.info("\n" + "=" * 50)
     logger.info("PIPELINE COMPLETE")
     logger.info("=" * 50)
-    logger.info(f"  Output files written: {len(unique_files)}")
-    for fp in unique_files:
-        logger.info(f"    - {fp}")
+    logger.info(f"  Tasks processed: {num_tasks}")
+    logger.info(f"  Output manifest: {cfg.final_manifest}")
 
     stage_metrics = TaskPerfUtils.collect_stage_metrics(results)
     for stage_name, metrics in stage_metrics.items():

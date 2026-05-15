@@ -63,10 +63,23 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     model: Any = field(default=None, repr=False)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [[self.audio_filepath_key, self.segments_key], [self.audio_filepath_key]]
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [[self.audio_filepath_key, self.segments_key], [self.audio_filepath_key, "metrics"]]
+        return [], []
+
+    def validate_input(self, task: AudioTask) -> bool:
+        """OR-shaped validation: segments OR top-level audio_filepath keys must be present."""
+        data = task.data
+        if hasattr(data, self.segments_key):
+            return True
+        if hasattr(data, self.audio_filepath_key):
+            return True
+        logger.error(
+            f"Task {task.task_id} missing required attributes: "
+            f"need '{self.segments_key}' OR '{self.audio_filepath_key}'"
+        )
+        return False
 
     @property
     def _device(self) -> str:
@@ -120,24 +133,24 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         """
         audio_path = data_entry.get(self.audio_filepath_key)
         if not audio_path:
-            logger.error(
+            msg = (
                 f"[{self.name}] Missing '{self.audio_filepath_key}' for entry: "
                 f"{data_entry.get('audio_item_id', 'unknown')}"
             )
-            return []
+            raise ValueError(msg)
 
         try:
             info = sf.info(audio_path)
             sr = info.samplerate
-        except Exception as ex:  # noqa: BLE001
-            logger.error(f"[{self.name}] Failed to read audio info: {audio_path}, exception={ex}")
-            return []
+        except Exception as ex:
+            msg = f"[{self.name}] Failed to read audio info: {audio_path}"
+            raise RuntimeError(msg) from ex
 
         try:
             audio, _ = librosa.load(path=audio_path, sr=sr)
-        except Exception as ex:  # noqa: BLE001
-            logger.error(f"[{self.name}] Failed to load audio: {audio_path}, exception={ex}")
-            return []
+        except Exception as ex:
+            msg = f"[{self.name}] Failed to load audio: {audio_path}"
+            raise RuntimeError(msg) from ex
 
         collected: list[tuple[int, int, torch.Tensor]] = []
         if self.segments_key in data_entry:
