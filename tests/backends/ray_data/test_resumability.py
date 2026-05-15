@@ -287,6 +287,82 @@ def test_resume_skips_completed_leaves_after_reset(tmp_path: Path, shared_ray_cl
         mgr2.close()
 
 
+class _RaiseOncePerKeyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """1->1 stage that raises the first time it sees a target task, then succeeds.
+
+    Uses a marker file on disk so "first time" is durable across runs: the first
+    in-run encounter touches the marker and raises; the second encounter (or any
+    later run) sees the marker and passes the task through.
+    """
+
+    name = "raise_once"
+    resources = Resources(cpus=0.5)
+
+    def __init__(self, marker_dir: str, target_task_id: str):
+        self._marker_dir = marker_dir
+        self._target = target_task_id
+
+    def setup(self, _worker_metadata: object | None = None) -> None:
+        Path(self._marker_dir).mkdir(parents=True, exist_ok=True)
+
+    def process(self, task: DocumentBatch) -> DocumentBatch:
+        if task.task_id.startswith(self._target):
+            marker = Path(self._marker_dir) / f"{self._target}.raised"
+            if not marker.exists():
+                marker.touch()
+                msg = f"injected failure for {self._target}"
+                raise RuntimeError(msg)
+        return task
+
+
+def test_raise_mid_run_resumes(tmp_path: Path, shared_ray_client: None) -> None:  # noqa: ARG001
+    """Stage raises once mid-run; resume must finalize every partition.
+
+    A one-off error during run 1 (think: network blip, OOM) must not pollute the
+    checkpoint, and the next run must complete the affected partition without
+    re-doing the partitions that already finalized.
+    """
+    checkpoint_dir = str(tmp_path / "ckpt_raise")
+    marker_dir = str(tmp_path / "markers")
+    factor = 2
+    initial = _make_tasks(3)
+    target = "t1"
+
+    # Run 1: must raise (the raise stage sits after fan-out, so it sees per-leaf inputs).
+    pipeline = _build_pipeline(
+        [
+            SourceStage(),
+            FanOutStage(factor),
+            _RaiseOncePerKeyStage(marker_dir, target_task_id=target),
+            AppendColumnStage("col_a", "A"),
+        ],
+    )
+    executor = RayDataExecutor()
+    with pytest.raises(Exception):  # noqa: B017, PT011 — backends wrap exceptions differently
+        pipeline.run(executor, initial_tasks=initial, checkpoint_path=checkpoint_dir)
+
+    # Run 2: marker exists, no raise; resume completes the affected partition.
+    pipeline2 = _build_pipeline(
+        [
+            SourceStage(),
+            FanOutStage(factor),
+            _RaiseOncePerKeyStage(marker_dir, target_task_id=target),
+            AppendColumnStage("col_a", "A"),
+        ],
+    )
+    executor2 = RayDataExecutor()
+    pipeline2.run(executor2, initial_tasks=_make_tasks(3), checkpoint_path=checkpoint_dir)
+
+    # Every source partition must be finalized after resume.
+    mgr = CheckpointManager(checkpoint_dir)
+    try:
+        for task in initial:
+            key = f"source_partition_{task.task_id}"
+            assert mgr.is_task_completed(key), f"partition {key!r} not finalized after resume"
+    finally:
+        mgr.close()
+
+
 def test_missing_resumability_key_raises(tmp_path: Path, shared_ray_client: None) -> None:  # noqa: ARG001
     """A source stage that doesn't set resumability_key must cause a clear error."""
 
