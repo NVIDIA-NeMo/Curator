@@ -79,19 +79,27 @@ class _FanOutInterleavedStage(ProcessingStage[InterleavedBatch, InterleavedBatch
         ]
 
 
-class _PassThroughInterleavedStage(ProcessingStage[InterleavedBatch, InterleavedBatch]):
-    name = "passthrough_interleaved"
+class _WriteInterleavedStage(ProcessingStage[InterleavedBatch, InterleavedBatch]):
+    """Simulated writer at the tail of the pipeline.
+
+    Mirrors the ``WriteParquetStage`` pattern in
+    ``test_resumability_mock_pipeline.py``: overriding ``setup`` forces
+    ``is_actor_stage()`` to True, which lets the adapter treat this as the
+    last user stage and wire up ``_drop_completed_inputs``. The write itself
+    is just a marker file per task so partitions are visible on disk.
+    """
+
+    name = "write_interleaved"
     resources = Resources(cpus=0.5)
 
+    def __init__(self, out_dir: str):
+        self._out_dir = out_dir
+
     def setup(self, _worker_metadata: object | None = None) -> None:
-        # Overridden so is_actor_stage() returns True.  Ray-Data task-style stages
-        # never invoke BaseStageAdapter.setup, which means _checkpoint_actor is
-        # never wired up and _drop_completed_inputs gets skipped on the last user
-        # stage.  No actual setup work is needed here — the parent adapter's
-        # setup() handles the checkpoint actor.
-        return
+        Path(self._out_dir).mkdir(parents=True, exist_ok=True)
 
     def process(self, task: InterleavedBatch) -> InterleavedBatch:
+        (Path(self._out_dir) / f"{task.task_id}.done").touch()
         return task
 
 
@@ -136,6 +144,7 @@ def test_pdf_tutorial_resumability_with_fanout(tmp_path: Path, shared_ray_client
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     ckpt_dir = tmp_path / "ckpt"
+    out_dir = tmp_path / "out"
 
     # ---- Download 2 real PDFs via the tutorial helper ----------------------
     download_data = _load_download_data()
@@ -161,7 +170,7 @@ def test_pdf_tutorial_resumability_with_fanout(tmp_path: Path, shared_ray_client
         p.add_stage(PDFPartitioningStage(manifest_path=str(manifest_path), pdfs_per_task=1))
         p.add_stage(PDFPreprocessStage(pdf_dir=str(pdfs_dir), max_pages=2))
         p.add_stage(_FanOutInterleavedStage(factor=fanout_factor))
-        p.add_stage(_PassThroughInterleavedStage())
+        p.add_stage(_WriteInterleavedStage(out_dir=str(out_dir)))
         return p
 
     # ---- First run: process both PDFs end-to-end --------------------------
@@ -231,6 +240,7 @@ def test_pdf_tutorial_leaf_resumability_drops_completed_leaves(
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     ckpt_dir = tmp_path / "ckpt"
+    out_dir = tmp_path / "out"
 
     # ---- Download 2 real PDFs via the tutorial helper ---------------------
     download_data = _load_download_data()
@@ -249,7 +259,7 @@ def test_pdf_tutorial_leaf_resumability_drops_completed_leaves(
     pipeline.add_stage(PDFPreprocessStage(pdf_dir=str(pdfs_dir), max_pages=2))
     pipeline.add_stage(_FanOutInterleavedStage(factor=fanout_factor))
     pipeline.add_stage(_MarkFirstFanoutLeafStage(str(ckpt_dir)))
-    pipeline.add_stage(_PassThroughInterleavedStage())
+    pipeline.add_stage(_WriteInterleavedStage(out_dir=str(out_dir)))
 
     out = pipeline.run(RayDataExecutor(), checkpoint_path=str(ckpt_dir))
 

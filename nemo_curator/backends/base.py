@@ -192,8 +192,14 @@ class BaseStageAdapter:
         ``parent_resumability_task_key`` (left by an upstream propagate), we
         OVERWRITE it: the field must reflect THIS stage's parent for
         ``_record_checkpoint_events`` to attribute fan-out / drop events
-        correctly. We do NOT extend ``resumability_task_key`` — downstream
-        stages that follow the contract will do that on their next call.
+        correctly. ``resumability_task_key`` is restored via ``setdefault`` so
+        downstream stages can extend the parent's path; without this, a stage
+        that pops ``resumability_task_key`` (e.g. a metadata stripper) would
+        cause every sibling to fall back to ``source_key`` in the next
+        propagate, collapsing distinct leaves to the same path and breaking
+        partition finalization. We do NOT extend ``resumability_task_key``
+        here — downstream stages that follow the contract will do that on
+        their next call.
         """
         parents_by_uuid: dict[str, tuple[str, str]] = {
             p[0]._uuid: (p[1], p[2]) for p in parent_snapshot if p[1] and p[2]
@@ -206,6 +212,7 @@ class BaseStageAdapter:
                 continue
             key, parent_task_key = record
             out._metadata.setdefault("resumability_key", key)
+            out._metadata.setdefault("resumability_task_key", parent_task_key)
             out._metadata["parent_resumability_task_key"] = parent_task_key
 
     def _select_inputs_to_run(self, tasks: list[Task]) -> tuple[list[Task], set[str]]:

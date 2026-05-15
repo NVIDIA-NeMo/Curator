@@ -608,18 +608,21 @@ class _MetadataStripperStage(ProcessingStage[RowTask, RowTask]):
 def test_metadata_strip_partitions_emits_warning(
     tmp_path: Path,
     shared_ray_client: None,  # noqa: ARG001
-    caplog: pytest.LogCaptureFixture,
+    capfd: pytest.CaptureFixture[str],
     executor_kind: str,
 ) -> None:
     """Stripping resumability_* mid-pipeline must emit a warning.
 
     The ``_uuid`` fallback in ``BaseStageAdapter._fallback_stamp_parent_task_key``
-    rescues in-place mutation stages by re-stamping ``resumability_key`` on
-    outputs that share ``Task._uuid`` with the snapshot parent, so partitions
-    still finalize. But silently rescuing is dangerous — a stage that creates
-    NEW tasks (different ``_uuid``) gets no rescue and resumability silently
-    breaks downstream. The framework therefore logs a WARNING at the strip
-    point so operators see the breadcrumb.
+    rescues in-place mutation stages by re-stamping ``resumability_key`` and
+    ``resumability_task_key`` on outputs that share ``Task._uuid`` with the
+    snapshot parent, so partitions still finalize. But silently rescuing is
+    dangerous — a stage that creates NEW tasks (different ``_uuid``) gets no
+    rescue and resumability silently breaks downstream. The framework
+    therefore logs a WARNING at the strip point so operators see the
+    breadcrumb. The warning is produced via loguru inside Ray workers and
+    relayed to the driver's stderr, so we read it through ``capfd`` rather
+    than ``caplog`` (which only captures stdlib logging in-process).
     """
     out_dir = tmp_path / "out"
     ckpt_dir = tmp_path / "ckpt"
@@ -627,11 +630,10 @@ def test_metadata_strip_partitions_emits_warning(
     modes = (MODE_ALL, MODE_ALL, MODE_ALL, MODE_ALL)
     extra = [_MetadataStripperStage()]
 
-    with caplog.at_level("WARNING"):
-        _build_pipeline(out_dir, batched_size=1, modes=modes, extra_stages_after_fanout=extra).run(
-            _make_executor(executor_kind),
-            checkpoint_path=str(ckpt_dir),
-        )
+    _build_pipeline(out_dir, batched_size=1, modes=modes, extra_stages_after_fanout=extra).run(
+        _make_executor(executor_kind),
+        checkpoint_path=str(ckpt_dir),
+    )
 
     # _uuid fallback rescues in-place mutation, so partitions DO finalize.
     keys_by_partition = _partition_keys(modes)
@@ -646,6 +648,11 @@ def test_metadata_strip_partitions_emits_warning(
         mgr.close()
 
     # And the framework should have logged a warning at the strip point.
-    assert any("resumability_key" in rec.message for rec in caplog.records), (
-        "expected a WARNING mentioning 'resumability_key' from the strip detection path"
+    captured = capfd.readouterr()
+    combined = captured.out + captured.err
+    assert "metadata_stripper" in combined, (
+        "expected a WARNING from the strip detection path mentioning 'metadata_stripper'"
+    )
+    assert "resumability_key" in combined, (
+        "expected a WARNING from the strip detection path mentioning 'resumability_key'"
     )
