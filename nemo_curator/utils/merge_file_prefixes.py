@@ -102,7 +102,9 @@ def _kernel_copy(src_fd: int, dst_fd: int, dst_offset: int, size: int) -> None:
                 if n == 0:
                     break
                 sent += n
-            return
+            if sent == size:
+                return
+            # Short copy (some backends return 0 prematurely) - fall through
         except OSError:
             pass
 
@@ -115,7 +117,9 @@ def _kernel_copy(src_fd: int, dst_fd: int, dst_offset: int, size: int) -> None:
                 if n == 0:
                     break
                 sent += n
-            return
+            if sent == size:
+                return
+            # Short copy - fall through to the chunked read/write path
         except OSError:
             pass
 
@@ -129,6 +133,9 @@ def _kernel_copy(src_fd: int, dst_fd: int, dst_offset: int, size: int) -> None:
             break
         os.write(dst_fd, buf)
         remaining -= len(buf)
+    if remaining > 0:
+        msg = f"premature EOF: copied {size - remaining} of {size} bytes"
+        raise OSError(msg)
 
 
 def _copy_bin_at_offset(src_path: str, dst_path: str, dst_offset: int, size: int) -> None:
