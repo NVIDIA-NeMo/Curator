@@ -210,7 +210,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             List of results, where each result can be:
             - Single task: For 1-to-1 transformations
             - List of tasks: For 1-to-many transformations
-            - None: If the task should be filtered out        
+            - None: If the task should be filtered out
         """
         # Default implementation: process tasks one by one
         # This is only used as a fallback if a stage doesn't override this method
@@ -222,7 +222,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
             result = self.process(task)
             # Do not forget to call the assign_child_lineage if you have overwritten
-            # the process_batch funtion. This function generates unique and 
+            # the process_batch funtion. This function generates unique and
             # deterministic keys.
             children = assign_child_lineage([task._lineage_path], result)
             # If you pass a checkpoint_path to the executor, call the record_lineage
