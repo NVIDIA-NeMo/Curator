@@ -35,6 +35,37 @@ Y = TypeVar("Y", bound=Task)  # Output task type
 _STAGE_REGISTRY: dict[str, type[ProcessingStage]] = {}
 
 
+def assign_child_lineage(
+    parent_paths: list[str],
+    result: Task | list[Task] | None,
+) -> list[Task]:
+    """Normalize a stage's ``process()`` result and assign deterministic lineage.
+
+    Each surviving ``children[i]`` gets ``_lineage_path`` and ``_uuid`` derived
+    from ``(parent_paths, i)`` so that the same pipeline run twice on the same
+    inputs produces byte-identical task IDs. Call this from any custom
+    ``process_batch`` override to keep outputs consistent with the rest of the
+    pipeline.
+
+    Args:
+        parent_paths: One element per logical parent (typically
+            ``[task._lineage_path]`` for 1:N stages, or multiple paths for
+            join/aggregate stages).
+        result: Whatever ``process()`` (or your custom batch logic) returned for
+            this parent set — a single task, a list, or ``None``.
+
+    Returns:
+        The normalized list of children with lineage assigned. May be empty.
+    """
+    if result is None:
+        return []
+    children = result if isinstance(result, list) else [result]
+    children = [c for c in children if c is not None]
+    for i, child in enumerate(children):
+        child._set_lineage(parent_paths, i)
+    return children
+
+
 class StageMeta(ABCMeta):
     """Metaclass that automatically registers concrete Stage subclasses.
     A class is considered *concrete* if it directly inherits from
@@ -179,9 +210,21 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             - Single task: For 1-to-1 transformations
             - List of tasks: For 1-to-many transformations
             - None: If the task should be filtered out
-        Note: The returned list should have the same length as the input list,
-        with each element corresponding to the result of processing the task
-        at the same index.
+
+        Lineage contract: every emitted child must have its ``_lineage_path``
+        and ``_uuid`` set so the pipeline produces deterministic IDs. The
+        default implementation below delegates to
+        :func:`assign_child_lineage` per input task. If you override this
+        method, you are responsible for calling ``assign_child_lineage`` on
+        each chunk of outputs that share parentage, e.g.::
+
+            outputs = []
+            for task in tasks:
+                raw = self.my_batched_process(task)
+                outputs.extend(assign_child_lineage([task._lineage_path], raw))
+            return outputs
+
+        Outputs that skip this step will carry empty ``_uuid``/``_lineage_path``.
         """
         # Default implementation: process tasks one by one
         # This is only used as a fallback if a stage doesn't override this method
@@ -192,10 +235,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
                 raise ValueError(msg)
 
             result = self.process(task)
-            if isinstance(result, list):
-                results.extend(result)
-            else:
-                results.append(result)
+            results.extend(assign_child_lineage([task._lineage_path], result))
         return results
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:

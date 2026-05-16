@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -40,10 +41,22 @@ class Task(ABC, Generic[T]):
     _stage_perf: list[StagePerfStats] = field(default_factory=list)
     _metadata: dict[str, Any] = field(default_factory=dict)
     _uuid: str = field(init=False, default_factory=lambda: str(uuid.uuid4()))
+    # `_lineage_path` is the index-based path of this task through the pipeline
+    # DAG (e.g. "3_0_7" = 4th root task, then 1st child, then 8th grandchild).
+    # It is propagated to children and hashed into `_udid`, the deterministic
+    # task id.
+    _lineage_path: str = field(init=False, default="")
+    _udid: str = field(init=False, default="")
 
     def __post_init__(self) -> None:
         """Post-initialization hook."""
         self.validate()
+
+    def _set_lineage(self, parent_lineage_paths: list[str], child_index: int) -> None:
+        # DAG structure does. Clear cache directories when changing config.
+        parts = [*[p for p in parent_lineage_paths if p], str(child_index)]
+        self._lineage_path = "_".join(parts)
+        self._udid = hashlib.sha256(self._lineage_path.encode()).hexdigest()[:32]
 
     @property
     @abstractmethod
