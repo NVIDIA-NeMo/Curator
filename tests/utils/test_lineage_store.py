@@ -242,6 +242,112 @@ def test_path_to_udid_matches_task_set_lineage() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# BFS completion-propagation tests.
+# --------------------------------------------------------------------------- #
+
+
+def test_propagate_linear_chain(store: LineageStore) -> None:
+    """A→B→C→D: propagating from D rolls up to A."""
+    a, b, c, d = "a" * 32, "b" * 32, "c" * 32, "d" * 32
+    store.record_emission([a], [b])
+    store.record_emission([b], [c])
+    store.record_emission([c], [d])
+
+    newly = store.mark_completed_and_propagate([d])
+    assert set(newly) == {a, b, c, d}
+    for udid in (a, b, c, d):
+        assert store.is_completed(udid)
+
+
+def test_propagate_diamond_partial(store: LineageStore) -> None:
+    """A→{B,C}; propagating only from B does not mark A because C is still pending.
+    A second pass that completes C then rolls up to A."""
+    a, b, c = "a" * 32, "b" * 32, "c" * 32
+    store.record_emission([a], [b])
+    store.record_emission([a], [c])
+
+    newly_first = store.mark_completed_and_propagate([b])
+    assert newly_first == [b]
+    assert store.is_completed(b)
+    assert not store.is_completed(a)
+    assert not store.is_completed(c)
+
+    newly_second = store.mark_completed_and_propagate([c])
+    assert set(newly_second) == {a, c}
+    assert store.is_completed(a)
+
+
+def test_propagate_diamond_full_batch(store: LineageStore) -> None:
+    """A→{B,C}→D: batch-propagate from D marks all four; A appears once (visited dedup)."""
+    a, b, c, d = "a" * 32, "b" * 32, "c" * 32, "d" * 32
+    store.record_emission([a], [b])
+    store.record_emission([a], [c])
+    store.record_emission([b], [d])
+    store.record_emission([c], [d])
+
+    newly = store.mark_completed_and_propagate([d])
+    assert set(newly) == {a, b, c, d}
+    assert newly.count(a) == 1
+    for udid in (a, b, c, d):
+        assert store.is_completed(udid)
+
+
+def test_propagate_idempotent(store: LineageStore) -> None:
+    """Calling propagate twice returns empty the second time; state unchanged."""
+    a, b = "a" * 32, "b" * 32
+    store.record_emission([a], [b])
+
+    newly_first = store.mark_completed_and_propagate([b])
+    assert set(newly_first) == {a, b}
+
+    newly_second = store.mark_completed_and_propagate([b])
+    assert newly_second == []
+    assert store.is_completed(a)
+    assert store.is_completed(b)
+
+
+def test_propagate_stops_at_incomplete_sibling(store: LineageStore) -> None:
+    """Fan-out A→{C1,C2,C3}: completing only C1 must not mark A because C2 and
+    C3 are still pending children. A second pass completing C2 still leaves A
+    blocked. Only after C3 is also completed does A get rolled up."""
+    a, c1, c2, c3 = "a" * 32, "1" * 32, "2" * 32, "3" * 32
+    store.record_emission([a], [c1])
+    store.record_emission([a], [c2])
+    store.record_emission([a], [c3])
+
+    first = store.mark_completed_and_propagate([c1])
+    assert first == [c1]
+    assert store.is_completed(c1)
+    assert not store.is_completed(a)
+    assert not store.is_completed(c2)
+    assert not store.is_completed(c3)
+
+    second = store.mark_completed_and_propagate([c2])
+    assert set(second) == {c2}
+    assert not store.is_completed(a)
+
+    third = store.mark_completed_and_propagate([c3])
+    assert set(third) == {a, c3}
+    assert store.is_completed(a)
+
+
+def test_propagate_unknown_udid_is_noop(store: LineageStore) -> None:
+    """An unknown but non-empty udid is silently skipped."""
+    newly = store.mark_completed_and_propagate(["u" * 32])
+    assert newly == []
+
+
+def test_propagate_empty_udid_raises(store: LineageStore) -> None:
+    """An empty udid means the caller forgot ``assign_child_lineage`` — raise loudly.
+    The known leaf in the same batch must NOT be marked, since the call aborts."""
+    leaf = "x" * 32
+    store.record_emission([], [leaf])
+    with pytest.raises(ValueError, match="empty udid"):
+        store.mark_completed_and_propagate(["", leaf])
+    assert not store.is_completed(leaf)
+
+
+# --------------------------------------------------------------------------- #
 # Actor-routed tests — verify record_lineage → LineageWriterActor → LMDB.
 # --------------------------------------------------------------------------- #
 
@@ -330,3 +436,16 @@ def test_record_lineage_is_noop_without_actor(shared_ray_client: None) -> None: 
     # there's literally nowhere for it to write — successful return is the assertion.
     child = _make_child("", 0)
     record_lineage([""], [child._udid])
+
+
+def test_mark_completed_and_propagate_actor_passthrough(actor: tuple[object, Path]) -> None:
+    """Drive a small DAG via the actor and confirm propagation through ``ray.get``."""
+    actor_handle, _ = actor
+    a, b, c = "a" * 32, "b" * 32, "c" * 32
+    ray.get(actor_handle.record_emission.remote([a], [b]))
+    ray.get(actor_handle.record_emission.remote([b], [c]))
+
+    newly = ray.get(actor_handle.mark_completed_and_propagate.remote([c]))
+    assert set(newly) == {a, b, c}
+    for udid in (a, b, c):
+        assert ray.get(actor_handle.is_completed.remote(udid))

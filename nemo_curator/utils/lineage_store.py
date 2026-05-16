@@ -162,6 +162,70 @@ class LineageStore:
         with self._env.begin() as txn:
             return txn.get(_udid_to_key(udid), db=self._completed_db) is not None
 
+    @staticmethod
+    def _all_children_completed(txn: lmdb.Transaction, db: lmdb._Database, completed_db: lmdb._Database, key: bytes) -> bool:
+        with txn.cursor(db=db) as cur:
+            if not cur.set_key(key):
+                return True
+            for child_key in cur.iternext_dup():
+                if txn.get(child_key, db=completed_db) is None:
+                    return False
+        return True
+
+    def _mark_completed_and_propagate_once(self, udids: list[str]) -> list[str]:
+        keys: deque[bytes] = deque(_udid_to_key(u) for u in udids)
+        visited: set[bytes] = set()
+        newly_marked: list[str] = []
+        with self._env.begin(write=True) as txn:
+            while keys:
+                key = keys.popleft()
+                if key in visited:
+                    continue
+                visited.add(key)
+
+                if txn.get(key, db=self._type_db) is None:
+                    continue
+                if txn.get(key, db=self._completed_db) is not None:
+                    continue
+                if not self._all_children_completed(txn, self._out_db, self._completed_db, key):
+                    continue
+
+                txn.put(key, b"1", db=self._completed_db, overwrite=True)
+                newly_marked.append(_key_to_udid(key))
+
+                with txn.cursor(db=self._in_db) as cur:
+                    if cur.set_key(key):
+                        keys.extend(pk for pk in cur.iternext_dup() if pk not in visited)
+        return newly_marked
+
+    def mark_completed_and_propagate(self, udids: list[str]) -> list[str]:
+        """Mark each udid completed iff all its children are completed, then walk
+        to parents and apply the same rule. Returns the udids whose ``completed``
+        flag transitioned 0→1 in this call.
+
+        Intended to be seeded with the final-stage leaf udids at end of pipeline.
+        The BFS stops along any branch whose current node is not yet eligible,
+        so partial fan-in (some siblings still pending) blocks the rollup
+        correctly.
+
+        Raises ``ValueError`` if any input udid is the empty string — a missing
+        ``_udid`` on a task means a stage forgot to call
+        :func:`nemo_curator.stages.base.assign_child_lineage` and the caller
+        deserves a loud failure rather than a silent skip. Unknown-but-non-empty
+        udids are skipped silently."""
+        if any(not u for u in udids):
+            msg = "mark_completed_and_propagate received an empty udid; tasks must have lineage assigned via assign_child_lineage"
+            raise ValueError(msg)
+        if not udids:
+            return []
+        try:
+            return self._mark_completed_and_propagate_once(udids)
+        except lmdb.MapFullError:
+            new_size = self._env.info()["map_size"] * 2
+            logger.warning(f"LMDB map full at {self._path}; growing to {new_size} bytes")
+            self._env.set_mapsize(new_size)
+            return self._mark_completed_and_propagate_once(udids)
+
     def get(self, udid: str) -> LineageRecord | None:
         key = _udid_to_key(udid)
         with self._env.begin() as txn:
@@ -252,6 +316,9 @@ class LineageWriterActor:
 
     def is_completed(self, udid: str) -> bool:
         return self._store.is_completed(udid)
+
+    def mark_completed_and_propagate(self, udids: list[str]) -> list[str]:
+        return self._store.mark_completed_and_propagate(udids)
 
     def get(self, udid: str) -> LineageRecord | None:
         return self._store.get(udid)

@@ -33,6 +33,7 @@ from nemo_curator.stages.base import ProcessingStage, assign_child_lineage
 from nemo_curator.tasks import Task
 from nemo_curator.utils.lineage_store import (
     LINEAGE_ACTOR_NAME,
+    LineageStore,
     LineageWriterActor,
     _path_to_udid,
     record_lineage,
@@ -79,6 +80,49 @@ class _Passthrough(ProcessingStage[_SimpleTask, _SimpleTask]):
 
     def process(self, task: _SimpleTask) -> _SimpleTask:
         return _SimpleTask(task_id=f"{task.task_id}_pt", dataset_name=task.dataset_name, data=task.data)
+
+
+@dataclass
+class _Writer(ProcessingStage[_SimpleTask, _SimpleTask]):
+    """Stand-in for a real sink stage: emits one child per input. Lineage-wise
+    indistinguishable from a passthrough but named separately so the 4-stage
+    end-to-end test reads like a real ``passthrough → fanout → fanin → writer``
+    pipeline."""
+
+    name: str = "writer"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def process(self, task: _SimpleTask) -> _SimpleTask:
+        return _SimpleTask(task_id=f"{task.task_id}_w", dataset_name=task.dataset_name, data=task.data)
+
+
+@dataclass
+class _FailAfterN(ProcessingStage[_SimpleTask, _SimpleTask]):
+    """Test-only stage that emits children for the first ``fail_after`` inputs and
+    raises on the next one. Lets us drive a pipeline to a known partial-DAG state
+    so we can assert "no spurious completions" after a mid-run abort."""
+
+    fail_after: int = 1
+    name: str = "fail_after_n"
+    _seen: int = 0
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def process(self, task: _SimpleTask) -> _SimpleTask:
+        if self._seen >= self.fail_after:
+            msg = f"_FailAfterN exploding after {self.fail_after} inputs"
+            raise RuntimeError(msg)
+        self._seen += 1
+        return _SimpleTask(task_id=f"{task.task_id}_x", dataset_name=task.dataset_name, data=task.data)
 
 
 @dataclass
@@ -244,3 +288,82 @@ def test_no_lineage_recording_when_actor_absent(tmp_path: Path, shared_ray_clien
     assert len(out) == 2
     # No files created anywhere by the lineage subsystem.
     assert list(tmp_path.iterdir()) == []
+
+
+def test_full_run_marks_entire_dag_completed(actor: tuple[object, Path]) -> None:
+    """End-to-end ``passthrough → fanout → fanin → writer``: after a successful run,
+    propagating from the writer's outputs must mark every DAG node completed."""
+    actor_handle, _ = actor
+    pipeline = Pipeline(
+        name="four_stage",
+        stages=[_Passthrough(name="pt0"), _FanOut(times=3), _FanIn(), _Writer()],
+    )
+    pipeline.build()
+    root = _SimpleTask(task_id="r", dataset_name="d", data=[1])
+    final = _drive(pipeline, [root])
+
+    udids = [t._udid for t in final]
+    newly = ray.get(actor_handle.mark_completed_and_propagate.remote(udids))
+    records = dict(ray.get(actor_handle.iter_records.remote()))
+
+    # Every recorded node must now be completed.
+    assert all(rec.completed for rec in records.values())
+    # newly_marked must cover every recorded udid exactly once (visited dedup).
+    assert set(newly) == set(records.keys())
+    assert len(newly) == len(records)
+
+
+def test_kill_midrun_leaves_partial_dag_with_no_completions(
+    tmp_path: Path,
+    shared_ray_client: None,  # noqa: ARG001
+) -> None:
+    """Drive ``passthrough → fanout → fail_after_n → writer`` so the third stage
+    explodes mid-batch. Verify that:
+
+    1. The actor persisted edges for the stages that did run (passthrough + the
+       partial fanout outputs the failing stage consumed before raising).
+    2. No node is marked ``completed`` — the pipeline never finished, so the BFS
+       was never seeded, and the rollup must not spuriously fire."""
+    _kill_actor_if_present()
+    path = tmp_path / "lineage_midkill.mdb"
+    actor_handle = LineageWriterActor.options(
+        name=LINEAGE_ACTOR_NAME,
+        get_if_exists=True,
+    ).remote(path=str(path))
+
+    try:
+        pipeline = Pipeline(
+            name="four_stage_flaky",
+            stages=[
+                _Passthrough(name="pt0"),
+                _FanOut(times=5),
+                _FailAfterN(fail_after=2),
+                _Writer(),
+            ],
+        )
+        pipeline.build()
+        root = _SimpleTask(task_id="r", dataset_name="d", data=[1])
+
+        with pytest.raises(RuntimeError, match="exploding"):
+            _drive(pipeline, [root])
+
+        # Close the actor cleanly so we can re-open the LMDB file from this process.
+        ray.get(actor_handle.close.remote())
+    finally:
+        ray.kill(actor_handle)
+
+    # Re-open the LMDB store directly to inspect the partial DAG.
+    store = LineageStore(str(path))
+    try:
+        records = dict(store.iter_records())
+
+        # We made progress: pt0 + at least 2 fanout outputs + 2 fail_after outputs were recorded.
+        assert len(records) > 0
+        # NOT every node should be present (writer never ran for some fanout outputs).
+        # And critically, nothing must be marked completed — the rollup is gated on
+        # output_tasks marking, which requires a successful pipeline finish.
+        assert all(not rec.completed for rec in records.values()), (
+            f"unexpected completions in partial DAG: {[u for u, r in records.items() if r.completed]}"
+        )
+    finally:
+        store.close()
