@@ -14,6 +14,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from nemo_curator.core.utils import ignore_ray_head_node
@@ -52,8 +53,22 @@ class BaseExecutor(ABC):
         self.ignore_head_node = ignore_head_node or ignore_ray_head_node()
 
     @abstractmethod
-    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
-        """Execute the pipeline."""
+    def execute(
+        self,
+        stages: list["ProcessingStage"],
+        initial_tasks: list[Task] | None = None,
+        checkpoint_path: str | Path | None = None,
+    ) -> None:
+        """Execute the pipeline.
+
+        Args:
+            stages: Execution stages to run.
+            initial_tasks: Initial tasks. Empty list / ``EmptyTask`` is used when ``None``.
+            checkpoint_path: If provided, lineage records (parents, children, type,
+                completed flag) for every task that flows through the pipeline are
+                persisted to an LMDB file at this path. The file is owned by a
+                single Ray actor and is safe to place on NFS/Lustre.
+        """
 
 
 class BaseStageAdapter:

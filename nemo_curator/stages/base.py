@@ -25,6 +25,7 @@ from loguru import logger
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task
+from nemo_curator.utils.lineage_store import record_lineage
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -209,22 +210,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             List of results, where each result can be:
             - Single task: For 1-to-1 transformations
             - List of tasks: For 1-to-many transformations
-            - None: If the task should be filtered out
-
-        Lineage contract: every emitted child must have its ``_lineage_path``
-        and ``_uuid`` set so the pipeline produces deterministic IDs. The
-        default implementation below delegates to
-        :func:`assign_child_lineage` per input task. If you override this
-        method, you are responsible for calling ``assign_child_lineage`` on
-        each chunk of outputs that share parentage, e.g.::
-
-            outputs = []
-            for task in tasks:
-                raw = self.my_batched_process(task)
-                outputs.extend(assign_child_lineage([task._lineage_path], raw))
-            return outputs
-
-        Outputs that skip this step will carry empty ``_uuid``/``_lineage_path``.
+            - None: If the task should be filtered out        
         """
         # Default implementation: process tasks one by one
         # This is only used as a fallback if a stage doesn't override this method
@@ -235,7 +221,14 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
                 raise ValueError(msg)
 
             result = self.process(task)
-            results.extend(assign_child_lineage([task._lineage_path], result))
+            # Do not forget to call the assign_child_lineage if you have overwritten
+            # the process_batch funtion. This function generates unique and 
+            # deterministic keys.
+            children = assign_child_lineage([task._lineage_path], result)
+            # If you pass a checkpoint_path to the executor, call the record_lineage
+            # function to build the DAG for resumability.
+            record_lineage([task._udid], [c._udid for c in children])
+            results.extend(children)
         return results
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:

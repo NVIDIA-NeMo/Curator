@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -174,17 +175,30 @@ class Pipeline:
 
         return "\n".join(lines)
 
-    def run(self, executor: BaseExecutor | None = None, initial_tasks: list[Task] | None = None) -> list[Task] | None:
+    def run(
+        self,
+        executor: BaseExecutor | None = None,
+        initial_tasks: list[Task] | None = None,
+        checkpoint_path: str | Path | None = None,
+    ) -> list[Task] | None:
         """Run the pipeline.
 
         Args:
             executor (BaseExecutor): Executor to use
             initial_tasks (list[Task], optional): Initial tasks to start the pipeline with. Defaults to None.
+            checkpoint_path (str | Path, optional): If provided, a single LMDB file at this path
+                records lineage (parents, children, task type, completed flag) for every task that
+                flows through the pipeline, keyed by ``_udid``. Owned by one Ray actor, so the file
+                may live on NFS/Lustre. When omitted, no lineage is persisted.
 
         Returns:
             list[Task] | None: List of tasks
         """
         self.build()
+
+        if checkpoint_path is not None:
+            checkpoint_path = Path(checkpoint_path).absolute()
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
         if executor is None:
             from nemo_curator.backends.xenna import XennaExecutor
@@ -212,4 +226,4 @@ class Pipeline:
                     "The executor will schedule GPU stages on GPUs not held by Serve."
                 )
 
-        return executor.execute(self.stages, initial_tasks)
+        return executor.execute(self.stages, initial_tasks, checkpoint_path=checkpoint_path)

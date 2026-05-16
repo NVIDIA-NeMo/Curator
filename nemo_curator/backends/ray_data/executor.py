@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import ray
@@ -21,6 +22,7 @@ from ray.data import DataContext, Dataset
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
+from nemo_curator.utils.lineage_store import LINEAGE_ACTOR_NAME, LineageWriterActor
 
 from .adapter import RayDataStageAdapter
 
@@ -41,12 +43,19 @@ class RayDataExecutor(BaseExecutor):
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         super().__init__(config, ignore_head_node)
 
-    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:
+    def execute(
+        self,
+        stages: list["ProcessingStage"],
+        initial_tasks: list[Task] | None = None,
+        checkpoint_path: str | Path | None = None,
+    ) -> list[Task]:
         """Execute the pipeline stages using Ray Data.
 
         Args:
             stages (list[ProcessingStage]): List of processing stages to execute
             initial_tasks (list[Task], optional): Initial tasks to process (can be None for empty start)
+            checkpoint_path (str | Path, optional): If provided, spawn a :class:`LineageWriterActor`
+                that records the task DAG to LMDB at this path for the duration of the run.
 
         Returns:
             list[Task]: List of final processed tasks
@@ -60,6 +69,7 @@ class RayDataExecutor(BaseExecutor):
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
         tasks: list[Task] = initial_tasks or [EmptyTask]
         output_tasks: list[Task] = []
+        lineage_actor = None
         # When runtime_env with pip is used, Ray's pip plugin sets up per-stage virtualenvs
         # lazily on first task dispatch by cloning the current virtualenv. The NeMo Curator
         # container's /opt/venv is created with `uv venv --seed` so pip is available in clones.
@@ -69,6 +79,14 @@ class RayDataExecutor(BaseExecutor):
             ray.init(
                 ignore_reinit_error=True, runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": ""}}
             )
+            if checkpoint_path is not None:
+                absolute_checkpoint_path = str(Path(checkpoint_path).absolute())
+                lineage_actor = LineageWriterActor.options(
+                    name=LINEAGE_ACTOR_NAME,
+                    lifetime="detached",
+                    get_if_exists=True,
+                ).remote(path=absolute_checkpoint_path)
+                logger.info(f"Spawned LineageWriterActor; checkpoint at {absolute_checkpoint_path}")
 
             # Convert tasks to dataset
             current_dataset = self._tasks_to_dataset(tasks)
@@ -97,6 +115,12 @@ class RayDataExecutor(BaseExecutor):
             output_tasks = self._dataset_to_tasks(current_dataset)
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
         finally:
+            if lineage_actor is not None:
+                try:
+                    ray.get(lineage_actor.close.remote())
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"Failed to close LineageWriterActor: {e}")
+                ray.kill(lineage_actor)
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
             ray.shutdown()
         return output_tasks

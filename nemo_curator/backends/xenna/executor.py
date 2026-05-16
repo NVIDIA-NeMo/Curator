@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from typing import Any
 
 import ray
@@ -24,6 +25,7 @@ from nemo_curator.backends.utils import register_loguru_serializer
 from nemo_curator.backends.xenna.adapter import create_named_xenna_stage_adapter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
+from nemo_curator.utils.lineage_store import LINEAGE_ACTOR_NAME, LineageWriterActor
 
 
 class XennaExecutor(BaseExecutor):
@@ -59,12 +61,20 @@ class XennaExecutor(BaseExecutor):
             "autoscale_interval_s": 180,
         }
 
-    def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
+    def execute(
+        self,
+        stages: list[ProcessingStage],
+        initial_tasks: list[Task] | None = None,
+        checkpoint_path: str | Path | None = None,
+    ) -> list[Task]:
         """Execute the pipeline using Cosmos-Xenna.
 
         Args:
             stages (list[ProcessingStage]): The stages to run
             initial_tasks (list[Task], optional): The initial tasks to run. Empty list of Task is used if not provided.
+            checkpoint_path (str | Path, optional): If provided, spawn a :class:`LineageWriterActor`
+                that records the task DAG (parents, children, type, completed flag) to LMDB at
+                this path for the duration of the run.
 
         Returns:
             list[Task]: List of output tasks from the pipeline
@@ -134,6 +144,7 @@ class XennaExecutor(BaseExecutor):
         # Log pipeline configuration
         logger.info(f"Execution mode: {exec_mode.name}")
 
+        lineage_actor = None
         try:
             register_loguru_serializer()
             # Prevent Ray from overriding accelerator env vars when num_gpus=0, letting Xenna manage them instead.
@@ -146,6 +157,14 @@ class XennaExecutor(BaseExecutor):
                     }
                 },
             )
+            if checkpoint_path is not None:
+                absolute_checkpoint_path = str(Path(checkpoint_path).absolute())
+                lineage_actor = LineageWriterActor.options(
+                    name=LINEAGE_ACTOR_NAME,
+                    lifetime="detached",
+                    get_if_exists=True,
+                ).remote(path=absolute_checkpoint_path)
+                logger.info(f"Spawned LineageWriterActor; checkpoint at {absolute_checkpoint_path}")
             # Run the pipeline (this will re-initialize ray but that'll be a no-op and the ray.init above will take precedence)
             results = pipelines_v1.run_pipeline(pipeline_spec)
             logger.info(f"Pipeline completed successfully with {len(results) if results else 0} output tasks")
@@ -153,6 +172,12 @@ class XennaExecutor(BaseExecutor):
             logger.error(f"Pipeline execution failed: {e}")
             raise
         finally:
+            if lineage_actor is not None:
+                try:
+                    ray.get(lineage_actor.close.remote())
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"Failed to close LineageWriterActor: {e}")
+                ray.kill(lineage_actor)
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
             ray.shutdown()
         return results if results else []

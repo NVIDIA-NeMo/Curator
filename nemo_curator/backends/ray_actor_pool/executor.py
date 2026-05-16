@@ -14,6 +14,7 @@
 
 import uuid
 from copy import deepcopy
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -25,6 +26,7 @@ from tqdm import tqdm
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.utils import RayStageSpecKeys, execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
+from nemo_curator.utils.lineage_store import LINEAGE_ACTOR_NAME, LineageWriterActor
 
 from .adapter import RayActorPoolStageAdapter
 from .raft_adapter import RayActorPoolRAFTAdapter
@@ -78,12 +80,19 @@ class RayActorPoolExecutor(BaseExecutor):
         self.show_progress = show_progress
         self.progress_interval = progress_interval
 
-    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:  # noqa: PLR0912
+    def execute(  # noqa: PLR0912, PLR0915, C901
+        self,
+        stages: list["ProcessingStage"],
+        initial_tasks: list[Task] | None = None,
+        checkpoint_path: str | Path | None = None,
+    ) -> list[Task]:
         """Execute the pipeline stages using ActorPool.
 
         Args:
             stages: List of processing stages to execute
             initial_tasks: Initial tasks to process (can be None for empty start)
+            checkpoint_path: If provided, spawn a :class:`LineageWriterActor` that
+                records the task DAG to LMDB at this path for the duration of the run.
 
         Returns:
             List of final processed tasks
@@ -93,10 +102,19 @@ class RayActorPoolExecutor(BaseExecutor):
 
         session_id = uuid.uuid4().bytes
 
+        lineage_actor = None
         try:
             # Initialize Ray and register loguru serializer
             register_loguru_serializer()
             ray.init(ignore_reinit_error=True, runtime_env=_parse_runtime_env(self.config.get("runtime_env", {})))
+            if checkpoint_path is not None:
+                absolute_checkpoint_path = str(Path(checkpoint_path).absolute())
+                lineage_actor = LineageWriterActor.options(
+                    name=LINEAGE_ACTOR_NAME,
+                    lifetime="detached",
+                    get_if_exists=True,
+                ).remote(path=absolute_checkpoint_path)
+                logger.info(f"Spawned LineageWriterActor; checkpoint at {absolute_checkpoint_path}")
 
             # Execute setup on node for all stages BEFORE processing begins
             execute_setup_on_node(stages, ignore_head_node=self.ignore_head_node)
@@ -160,6 +178,12 @@ class RayActorPoolExecutor(BaseExecutor):
 
             return final_results
         finally:
+            if lineage_actor is not None:
+                try:
+                    ray.get(lineage_actor.close.remote())
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"Failed to close LineageWriterActor: {e}")
+                ray.kill(lineage_actor)
             # Clean up all Ray resources including named actors
             logger.info("Shutting down Ray to clean up all resources...")
             ray.shutdown()
