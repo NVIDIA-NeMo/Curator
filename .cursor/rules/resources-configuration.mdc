@@ -1,0 +1,45 @@
+---
+alwaysApply: true
+---
+
+# Resources Configuration
+
+## Resources Class
+
+The `Resources` dataclass defines compute requirements for stages:
+
+```python
+from nemo_curator.stages.resources import Resources
+
+# CPU-only stage
+resources = Resources(cpus=2.0)
+
+# GPU stage (single GPU)
+resources = Resources(
+    cpus=4.0,
+    gpu_memory_gb=16.0  # Automatically calculates GPU fraction
+)
+
+# Multi-GPU stage
+resources = Resources(
+    cpus=8.0,
+    gpus=2.0  # Explicit GPU count
+)
+```
+
+## Resource Attributes
+
+- `cpus`: Number of CPU cores (default: 1.0)
+- `gpu_memory_gb`: GPU memory in GB for single-GPU stages (default: 0.0)
+- `gpus`: Number of GPUs for single- or multi-GPU stages (default: 0.0)
+
+## Important Constraints
+
+- **Cannot specify both** `gpus` and `gpu_memory_gb`
+- Use `gpu_memory_gb` for single-GPU stages (< 1 GPU)
+- Use `gpus` for multi-GPU stages (>= 1 GPU)
+- `gpu_memory_gb` automatically calculates required GPU fraction based on available GPU memory
+
+## Properties
+
+- `requires_gpu`: Returns True if any GPU resources are requested

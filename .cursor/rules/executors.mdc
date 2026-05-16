@@ -1,0 +1,98 @@
+---
+alwaysApply: true
+---
+
+# Executors
+
+Executors are the runtime engines that execute NeMo Curator pipelines. They handle distributed task orchestration, resource allocation, and worker management.
+
+## Role of Executors
+
+Executors translate the high-level pipeline definition (a sequence of `ProcessingStage` instances) into actual distributed execution:
+
+- **Orchestrate stage execution**: Run stages in sequence, passing tasks between them
+- **Distribute work**: Parallelize task processing across workers/nodes
+- **Manage resources**: Allocate CPUs, GPUs, memory according to stage requirements
+- **Handle batching**: Group tasks into batches for efficient processing
+- **Track performance**: Collect timing and throughput metrics
+- **Manage lifecycle**: Setup and teardown workers/resources
+
+## Available Executors
+
+### `XennaExecutor` (Default)
+
+Production executor using Cosmos-Xenna for distributed execution:
+
+```python
+from nemo_curator.backends.xenna import XennaExecutor
+
+executor = XennaExecutor(config={
+    "logging_interval": 60,
+    "ignore_failures": False,
+    "execution_mode": "streaming",  # or "batch"
+    "cpu_allocation_percentage": 0.95,
+    "autoscale_interval_s": 180,
+})
+```
+
+### Experimental Executors
+
+Located in `nemo_curator.backends.experimental`:
+
+- **RayDataExecutor**: Ray Data backend (supports `ignore_head_node`)
+- **RayActorPoolExecutor**: Ray Actor Pool backend (supports `ignore_head_node`)
+
+## `BaseExecutor` Interface
+
+All executors inherit from `BaseExecutor` and implement:
+
+```python
+class BaseExecutor(ABC):
+    def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
+        """Initialize executor with configuration.
+        
+        Args:
+            config: Executor-specific configuration dictionary
+            ignore_head_node: Whether to exclude head node from execution (not supported by XennaExecutor)
+        """
+        
+    @abstractmethod
+    def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
+        """Execute the pipeline stages.
+        
+        Args:
+            stages: List of processing stages to execute
+            initial_tasks: Initial tasks to start pipeline (defaults to EmptyTask)
+            
+        Returns:
+            List of output tasks from final stage
+        """
+```
+
+## Stage Adapters
+
+Executors use `BaseStageAdapter` to wrap stages for execution:
+
+- Implements batching logic via `process_batch()`
+- Calls stage lifecycle methods (`setup_on_node()`, `setup()`, `teardown()`)
+- Tracks performance metrics with `StageTimer`
+- Attaches performance statistics to output tasks
+
+## Usage in Pipelines
+
+Executors are passed to `pipeline.run()`:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+
+
+pipeline = Pipeline(name="my_pipeline", stages=[...])
+
+# Explicit executor
+executor = XennaExecutor(config={"execution_mode": "streaming"})
+results = pipeline.run(executor=executor)
+
+# Default executor (XennaExecutor)
+results = pipeline.run()
+```

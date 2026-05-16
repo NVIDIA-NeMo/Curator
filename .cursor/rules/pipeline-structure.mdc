@@ -1,0 +1,57 @@
+---
+alwaysApply: true
+---
+
+# Pipeline Structure
+
+## Creating Pipelines
+
+Pipelines compose `ProcessingStage` instances into an executable workflow:
+
+```python
+from nemo_curator.pipeline import Pipeline
+
+pipeline = Pipeline(
+    name="my_pipeline",
+    description="My data processing pipeline",
+    stages=[stage1, stage2, stage3],
+)
+```
+
+## Adding Stages
+
+Stages can be added during initialization or via `add_stage()`:
+
+```python
+# Method 1: During initialization
+pipeline = Pipeline(name="my_pipeline", stages=[stage1, stage2])
+
+# Method 2: Add stages individually
+pipeline = Pipeline(name="my_pipeline")
+pipeline.add_stage(stage1)
+pipeline.add_stage(stage2)
+```
+
+## Running Pipelines
+
+```python
+pipeline.run()
+```
+
+The `run()` method accepts 2 optional parameters:
+
+- `executor`: Executor to use. If None, defaults to `XennaExecutor`
+- `initial_tasks` Initial `Task`s to start the pipeline with. Defaults to None.
+
+Before executing, the `run()` method calls `self.build()` to build an execution plan from the pipeline (e.g., decomposes composite stages).
+
+## Composite Stage Decomposition
+
+When a pipeline is built, any `CompositeStage` instances are automatically decomposed into their constituent execution stages. The decomposition info is stored in `pipeline.decomposition_info`.
+
+## Pipeline Methods
+
+- `add_stage(stage)`: Add a stage to the pipeline (returns self for chaining)
+- `build()`: Decompose composite stages into execution stages
+- `describe()`: Get detailed description of pipeline stages and requirements
+- `run(executor, initial_tasks)`: Execute the pipeline
