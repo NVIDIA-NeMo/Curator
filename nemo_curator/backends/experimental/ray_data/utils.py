@@ -48,9 +48,11 @@ def calculate_concurrency_for_actors_for_stage(
     if stage.resources.gpus > 0:
         max_gpu_actors = available_gpus // stage.resources.gpus
 
-    # Take the minimum of CPU and GPU constraints
+    # Take the minimum of CPU and GPU constraints. Allow Ray Data to scale
+    # the actor pool down to zero so constrained clusters can free resources
+    # for other stages instead of pinning one actor indefinitely.
     max_actors = min(max_cpu_actors, max_gpu_actors)
-    return (1, int(max_actors))
+    return (0, int(max_actors))
 
 
 def is_actor_stage(stage: ProcessingStage) -> bool:

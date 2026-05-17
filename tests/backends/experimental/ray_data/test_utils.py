@@ -77,7 +77,7 @@ class TestCalculateConcurrencyForActorsForStage:
     def test_calculate_concurrency_explicit_num_workers_zero_or_negative(self, mock_get_resources: MagicMock):
         """Test calculate_concurrency when num_workers is explicitly set to 0 or negative."""
         mock_stage = Mock(num_workers=lambda: 0, resources=Resources(cpus=2.0, gpus=0.0))
-        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (1, 4)
+        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (0, 4)
         mock_get_resources.assert_called_once()
 
     @patch(
@@ -86,7 +86,7 @@ class TestCalculateConcurrencyForActorsForStage:
     def test_calculate_concurrency_cpu_only_constraint(self, mock_get_resources: MagicMock):
         """Test calculate_concurrency with CPU-only constraint."""
         mock_stage = Mock(num_workers=lambda: None, resources=Resources(cpus=2.0, gpus=0.0))
-        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (1, 4)
+        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (0, 4)
         mock_get_resources.assert_called_once()
 
     @patch(
@@ -95,7 +95,7 @@ class TestCalculateConcurrencyForActorsForStage:
     def test_calculate_concurrency_gpu_only_constraint(self, mock_get_resources: MagicMock):
         """Test calculate_concurrency with GPU-only constraint."""
         mock_stage = Mock(num_workers=lambda: None, resources=Resources(cpus=0.0, gpus=1.0))
-        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (1, 4)
+        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (0, 4)
         mock_get_resources.assert_called_once()
 
     @patch(
@@ -104,7 +104,7 @@ class TestCalculateConcurrencyForActorsForStage:
     def test_calculate_concurrency_both_cpu_gpu_constraints(self, mock_get_resources: MagicMock):
         """Test calculate_concurrency with both CPU and GPU constraints."""
         mock_stage = Mock(num_workers=lambda: None, resources=Resources(cpus=2.0, gpus=1.0))
-        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (1, 4)
+        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (0, 4)
         mock_get_resources.assert_called_once()
 
     @patch(
@@ -113,7 +113,7 @@ class TestCalculateConcurrencyForActorsForStage:
     def test_calculate_concurrency_cpu_more_limiting(self, mock_get_resources: MagicMock):
         """Test calculate_concurrency when CPU is more limiting than GPU."""
         mock_stage = Mock(num_workers=lambda: None, resources=Resources(cpus=2.0, gpus=1.0))
-        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (1, 2)
+        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (0, 2)
         mock_get_resources.assert_called_once()
 
     @patch(
@@ -122,7 +122,7 @@ class TestCalculateConcurrencyForActorsForStage:
     def test_calculate_concurrency_gpu_more_limiting(self, mock_get_resources: MagicMock):
         """Test calculate_concurrency when GPU is more limiting than CPU."""
         mock_stage = Mock(num_workers=lambda: None, resources=Resources(cpus=2.0, gpus=1.0))
-        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (1, 2)
+        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (0, 2)
         mock_get_resources.assert_called_once()
 
     @patch(
@@ -142,7 +142,7 @@ class TestCalculateConcurrencyForActorsForStage:
     def test_calculate_concurrency_insufficient_resources(self, mock_get_resources: MagicMock):
         """Test calculate_concurrency when there are insufficient resources."""
         mock_stage = Mock(num_workers=lambda: None, resources=Resources(cpus=4.0, gpus=2.0))
-        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (1, 0)
+        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (0, 0)
         mock_get_resources.assert_called_once()
 
     @patch(
@@ -151,5 +151,5 @@ class TestCalculateConcurrencyForActorsForStage:
     def test_calculate_concurrency_fractional_resources(self, mock_get_resources: MagicMock):
         """Test calculate_concurrency with fractional resource requirements."""
         mock_stage = Mock(num_workers=lambda: None, resources=Resources(cpus=0.5, gpus=0.25))
-        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (1, 8)
+        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (0, 8)
         mock_get_resources.assert_called_once()
