@@ -168,9 +168,6 @@ class XennaExecutor(BaseExecutor):
             # Run the pipeline (this will re-initialize ray but that'll be a no-op and the ray.init above will take precedence)
             results = pipelines_v1.run_pipeline(pipeline_spec)
             logger.info(f"Pipeline completed successfully with {len(results) if results else 0} output tasks")
-            if lineage_actor is not None and results:
-                udids = [t._udid for t in results]
-                ray.get(lineage_actor.mark_completed_and_propagate.remote(udids))
         except Exception as e:
             logger.error(f"Pipeline execution failed: {e}")
             raise

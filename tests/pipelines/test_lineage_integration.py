@@ -292,7 +292,11 @@ def test_no_lineage_recording_when_actor_absent(tmp_path: Path, shared_ray_clien
 
 def test_full_run_marks_entire_dag_completed(actor: tuple[object, Path]) -> None:
     """End-to-end ``passthrough → fanout → fanin → writer``: after a successful run,
-    propagating from the writer's outputs must mark every DAG node completed."""
+    every DAG node must be marked completed.
+
+    ``_Writer`` (terminal) calls :func:`mark_leaves_completed` from inside its
+    default ``process_batch``, which rolls completion up to the full DAG before
+    ``_drive`` returns."""
     actor_handle, _ = actor
     pipeline = Pipeline(
         name="four_stage",
@@ -300,17 +304,10 @@ def test_full_run_marks_entire_dag_completed(actor: tuple[object, Path]) -> None
     )
     pipeline.build()
     root = _SimpleTask(task_id="r", dataset_name="d", data=[1])
-    final = _drive(pipeline, [root])
+    _drive(pipeline, [root])
 
-    udids = [t._udid for t in final]
-    newly = ray.get(actor_handle.mark_completed_and_propagate.remote(udids))
     records = dict(ray.get(actor_handle.iter_records.remote()))
-
-    # Every recorded node must now be completed.
     assert all(rec.completed for rec in records.values())
-    # newly_marked must cover every recorded udid exactly once (visited dedup).
-    assert set(newly) == set(records.keys())
-    assert len(newly) == len(records)
 
 
 def test_kill_midrun_leaves_partial_dag_with_no_completions(
@@ -318,12 +315,15 @@ def test_kill_midrun_leaves_partial_dag_with_no_completions(
     shared_ray_client: None,  # noqa: ARG001
 ) -> None:
     """Drive ``passthrough → fanout → fail_after_n → writer`` so the third stage
-    explodes mid-batch. Verify that:
+    explodes mid-batch, before the terminal ``_Writer`` stage runs at all.
+    Verify that:
 
     1. The actor persisted edges for the stages that did run (passthrough + the
        partial fanout outputs the failing stage consumed before raising).
-    2. No node is marked ``completed`` — the pipeline never finished, so the BFS
-       was never seeded, and the rollup must not spuriously fire."""
+    2. No node is marked ``completed`` — the terminal stage never ran, so
+       incremental marking never fired, and no leaves exist to seed the rollup.
+       Companion test :func:`test_terminal_stage_partial_failure_marks_processed_leaves`
+       covers the case where the terminal stage itself fails mid-batch."""
     _kill_actor_if_present()
     path = tmp_path / "lineage_midkill.mdb"
     actor_handle = LineageWriterActor.options(
@@ -360,10 +360,92 @@ def test_kill_midrun_leaves_partial_dag_with_no_completions(
         # We made progress: pt0 + at least 2 fanout outputs + 2 fail_after outputs were recorded.
         assert len(records) > 0
         # NOT every node should be present (writer never ran for some fanout outputs).
-        # And critically, nothing must be marked completed — the rollup is gated on
-        # output_tasks marking, which requires a successful pipeline finish.
+        # And critically, nothing must be marked completed — the terminal stage
+        # (_Writer) never ran, so mark_leaves_completed was never invoked.
         assert all(not rec.completed for rec in records.values()), (
             f"unexpected completions in partial DAG: {[u for u, r in records.items() if r.completed]}"
         )
+    finally:
+        store.close()
+
+
+def test_incremental_marking_inside_terminal_process_batch(
+    actor: tuple[object, Path],
+) -> None:
+    """Drive ``passthrough → fanout → writer`` one stage at a time and peek at the
+    LMDB between stages. Until the terminal ``_Writer`` stage runs, nothing is
+    completed; once it does, every recorded node rolls up via BFS.
+
+    This proves the marking happens inside the terminal stage's
+    ``process_batch`` (via :func:`mark_leaves_completed`), not at end-of-pipeline.
+    """
+    actor_handle, _ = actor
+    pipeline = Pipeline(
+        name="incremental_marking",
+        stages=[_Passthrough(name="pt0"), _FanOut(times=2), _Writer()],
+    )
+    pipeline.build()
+    root = _SimpleTask(task_id="r", dataset_name="d", data=[1])
+
+    # Drive stage-by-stage, peeking after each.
+    current: list[Task] = [root]
+    completion_history: list[bool] = []
+    for stage in pipeline.stages:
+        current = BaseStageAdapter(stage).process_batch(current)
+        records = dict(ray.get(actor_handle.iter_records.remote()))
+        completion_history.append(any(rec.completed for rec in records.values()))
+
+    # Stages 0 (passthrough) and 1 (fanout) record edges but never complete anything;
+    # only stage 2 (terminal writer) triggers incremental marking.
+    assert completion_history == [False, False, True]
+
+    final_records = dict(ray.get(actor_handle.iter_records.remote()))
+    assert all(rec.completed for rec in final_records.values())
+
+
+def test_terminal_stage_partial_failure_marks_processed_leaves(
+    actor: tuple[object, Path],
+) -> None:
+    """Place ``_FailAfterN`` as the terminal stage so it processes ``fail_after``
+    inputs (marking each emitted leaf and rolling up its fully-completed ancestor
+    chain) before exploding on the next input. Verify the partial completions
+    landed in LMDB even though the pipeline aborted — the resumability story."""
+    actor_handle, path = actor
+    pipeline = Pipeline(
+        name="terminal_fails_midbatch",
+        stages=[_Passthrough(name="pt0"), _FanOut(times=5), _FailAfterN(fail_after=2)],
+    )
+    pipeline.build()
+    root = _SimpleTask(task_id="r", dataset_name="d", data=[1])
+
+    with pytest.raises(RuntimeError, match="exploding"):
+        _drive(pipeline, [root])
+
+    # Lineage paths for this topology (root has empty lineage_path):
+    #   pt0 output:         "0"
+    #   fanout(5) outputs:  "0_0" ... "0_4"
+    #   fail_after outputs: "0_0_0", "0_1_0" (only first two processed successfully)
+    pt0_udid = _path_to_udid("0")
+    fanout_udids = [_path_to_udid(f"0_{i}") for i in range(5)]
+    leaf_udids = [_path_to_udid("0_0_0"), _path_to_udid("0_1_0")]
+
+    # Close the actor cleanly so we can re-open the LMDB file from this process.
+    ray.get(actor_handle.close.remote())
+    store = LineageStore(str(path))
+    try:
+        records = dict(store.iter_records())
+
+        # Leaves emitted before the crash are completed.
+        for udid in leaf_udids:
+            assert records[udid].completed, f"leaf {udid} should be completed"
+
+        # The two fanout outputs whose only child reached the terminal stage roll
+        # up; the remaining three fanout outputs (no children produced) do not.
+        completed_fanouts = [u for u in fanout_udids if records[u].completed]
+        assert len(completed_fanouts) == 2
+
+        # pt0 has 5 fanout children but only 2 completed — the BFS gate blocks
+        # rollup at pt0, matching the partial-fan-in contract.
+        assert not records[pt0_udid].completed
     finally:
         store.close()

@@ -33,6 +33,7 @@ from nemo_curator.utils.lineage_store import (
     LineageWriterActor,
     _classify,
     _path_to_udid,
+    mark_leaves_completed,
     record_lineage,
 )
 
@@ -449,3 +450,38 @@ def test_mark_completed_and_propagate_actor_passthrough(actor: tuple[object, Pat
     assert set(newly) == {a, b, c}
     for udid in (a, b, c):
         assert ray.get(actor_handle.is_completed.remote(udid))
+
+
+def test_mark_leaves_completed_routes_through_actor(actor: tuple[object, Path]) -> None:
+    """The :func:`mark_leaves_completed` helper looks up the named actor and forwards
+    to its ``mark_completed_and_propagate`` method, rolling completion up the DAG."""
+    actor_handle, _ = actor
+    a, b, c = "a" * 32, "b" * 32, "c" * 32
+    ray.get(actor_handle.record_emission.remote([a], [b]))
+    ray.get(actor_handle.record_emission.remote([b], [c]))
+
+    mark_leaves_completed([c])
+
+    for udid in (a, b, c):
+        assert ray.get(actor_handle.is_completed.remote(udid))
+
+
+def test_mark_leaves_completed_noop_without_actor(shared_ray_client: None) -> None:  # noqa: ARG001
+    """When no LineageWriterActor is registered, :func:`mark_leaves_completed` must
+    return silently — mirrors the :func:`record_lineage` no-op contract."""
+    _kill_actor_if_present()
+    # No actor, no destination — successful return is the assertion.
+    mark_leaves_completed(["x" * 32])
+
+
+def test_mark_leaves_completed_filters_empty_udids(actor: tuple[object, Path]) -> None:
+    """Empty udids in the input list are filtered (parity with :func:`record_lineage`)
+    rather than triggering the underlying ``ValueError``; non-empty udids still get
+    marked."""
+    actor_handle, _ = actor
+    leaf = "z" * 32
+    ray.get(actor_handle.record_emission.remote([], [leaf]))
+
+    # Mixing an empty udid in must not raise; the real leaf still gets marked.
+    mark_leaves_completed(["", leaf])
+    assert ray.get(actor_handle.is_completed.remote(leaf))

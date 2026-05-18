@@ -114,9 +114,6 @@ class RayDataExecutor(BaseExecutor):
             # TODO: add pipeline configuration to check if user wants to return last stages output to driver
             output_tasks = self._dataset_to_tasks(current_dataset)
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
-            if lineage_actor is not None and output_tasks:
-                udids = [t._udid for t in output_tasks]
-                ray.get(lineage_actor.mark_completed_and_propagate.remote(udids))
         finally:
             if lineage_actor is not None:
                 try:

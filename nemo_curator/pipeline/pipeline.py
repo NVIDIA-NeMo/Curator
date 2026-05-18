@@ -81,6 +81,15 @@ class Pipeline:
         self.stages = execution_stages
         self.decomposition_info = decomposition_info
 
+        # 3. Flag the terminal execution stage so its default process_batch can
+        #    incrementally mark emitted leaves completed via the lineage store.
+        #    Reset all stages first so re-builds and instances reused across
+        #    pipelines do not leak a stale True.
+        for stage in self.stages:
+            stage._is_terminal_stage = False
+        if self.stages:
+            self.stages[-1]._is_terminal_stage = True
+
     def _decompose_stages(
         self, stages: list[ProcessingStage | CompositeStage]
     ) -> tuple[list[ProcessingStage], dict[str, list[str]]]:

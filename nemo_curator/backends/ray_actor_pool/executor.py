@@ -175,11 +175,6 @@ class RayActorPoolExecutor(BaseExecutor):
             # Return final results directly - no need for ray.get()
             final_results = current_tasks or []
             logger.info(f"\nPipeline completed. Final results: {len(final_results)} tasks")
-
-            if lineage_actor is not None and final_results:
-                udids = [t._udid for t in final_results]
-                ray.get(lineage_actor.mark_completed_and_propagate.remote(udids))
-
             return final_results
         finally:
             if lineage_actor is not None:

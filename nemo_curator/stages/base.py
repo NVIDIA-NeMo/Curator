@@ -25,7 +25,7 @@ from loguru import logger
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task
-from nemo_curator.utils.lineage_store import record_lineage
+from nemo_curator.utils.lineage_store import mark_leaves_completed, record_lineage
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -118,6 +118,9 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     resources = Resources(cpus=1.0)
     batch_size = 1
     runtime_env: ClassVar[dict[str, Any] | None] = None
+    # Set by Pipeline.build() on the final execution stage so the default
+    # process_batch can incrementally mark leaves completed. Do not set manually.
+    _is_terminal_stage: bool = False
 
     @property
     @final
@@ -226,8 +229,13 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             # deterministic keys.
             children = assign_child_lineage([task._lineage_path], result)
             # If you pass a checkpoint_path to the executor, call the record_lineage
-            # function to build the DAG for resumability.
+            # function to build the DAG for resumability. If your stage is the
+            # terminal stage in a pipeline AND you override process_batch, also
+            # call mark_leaves_completed([c._udid for c in children]) after
+            # record_lineage for incremental completion marking.
             record_lineage([task._udid], [c._udid for c in children])
+            if self._is_terminal_stage and children:
+                mark_leaves_completed([c._udid for c in children])
             results.extend(children)
         return results
 

@@ -18,7 +18,10 @@ Stores, per task ``_udid``:
 - parent ``_udid``s
 - child ``_udid``s
 - ``task_type`` ("source" | "middle" | "leaf" | "source_leaf")
-- ``completed`` flag (reserved for future resumability work; never auto-set today)
+- ``completed`` flag — set incrementally by :func:`mark_leaves_completed` as
+  terminal-stage leaves finish, then rolled up to ancestors by
+  :meth:`LineageStore.mark_completed_and_propagate` (a parent is marked only
+  when all its children are completed).
 
 Architecture:
 
@@ -203,7 +206,12 @@ class LineageStore:
         to parents and apply the same rule. Returns the udids whose ``completed``
         flag transitioned 0→1 in this call.
 
-        Intended to be seeded with the final-stage leaf udids at end of pipeline.
+        Seeded from terminal-stage leaves via :func:`mark_leaves_completed`,
+        called from inside :meth:`ProcessingStage.process_batch` right after
+        :func:`record_lineage`. Stages that override ``process_batch`` are
+        responsible for calling :func:`mark_leaves_completed` themselves when
+        they are the terminal stage — same contract as :func:`record_lineage`.
+
         The BFS stops along any branch whose current node is not yet eligible,
         so partial fan-in (some siblings still pending) blocks the rollup
         correctly.
@@ -365,3 +373,31 @@ def record_lineage(parent_udids: list[str], child_udids: list[str]) -> None:
         return
 
     ray.get(actor.record_emission.remote(parent_udids, child_udids))
+
+
+def mark_leaves_completed(udids: list[str]) -> None:
+    """Seed :meth:`LineageStore.mark_completed_and_propagate` with leaves that just
+    exited a terminal stage.
+
+    No-op when Ray is not initialized or no :class:`LineageWriterActor` is
+    registered — same gating as :func:`record_lineage`, so pipelines run without
+    a ``checkpoint_path`` pay nothing. Empty udids are filtered out (parity with
+    :func:`record_lineage`) rather than raising; the underlying actor method
+    would otherwise fail loudly on ``""``.
+
+    Intended to be called from inside :meth:`ProcessingStage.process_batch` of
+    the terminal stage, immediately after :func:`record_lineage`, with the
+    emitted children's ``_udid``s.
+    """
+    if not ray.is_initialized():
+        return
+    try:
+        actor = ray.get_actor(LINEAGE_ACTOR_NAME)
+    except ValueError:
+        return
+
+    udids = [u for u in udids if u]
+    if not udids:
+        return
+
+    ray.get(actor.mark_completed_and_propagate.remote(udids))
