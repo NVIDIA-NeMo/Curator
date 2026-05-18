@@ -129,6 +129,9 @@ class LineageStore:
         with self._env.begin(write=True) as txn:
             for child_key in child_keys:
                 for parent_key in parent_keys:
+                    if parent_key == child_key:
+                        # In-place return: don't add a node as its own parent/child.
+                        continue
                     # In dupsort dbs, the default flags allow multiple distinct values
                     # per key and silently drop exact (key, value) duplicates. We
                     # deliberately do NOT pass overwrite=False — that maps to
