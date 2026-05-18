@@ -289,3 +289,57 @@ def test_pipeline_udid_fanout_passthrough_fanin_passthrough():
     second_run = _drive(pipeline2, [_SimpleTask(task_id="r", dataset_name="d", data=[1])])
     assert [t._lineage_path for t in second_run] == [t._lineage_path for t in after_passthrough_2]
     assert [t._udid for t in second_run] == [t._udid for t in after_passthrough_2]
+
+
+# ---------------------------------------------------------------------------
+# In-place stages (process() returns the same task) preserve lineage
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _InPlace(ProcessingStage[_SimpleTask, _SimpleTask]):
+    """Mutates the input task and returns the same instance — the pattern used
+    by ImageEmbeddingStage and ~28 other stages across audio/image/video."""
+
+    name: str = "inplace"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def process(self, task: _SimpleTask) -> _SimpleTask:
+        task.data = [*(task.data or []), 0]
+        return task
+
+
+def test_inplace_stage_preserves_lineage():
+    pipeline = Pipeline(
+        name="inplace",
+        stages=[_Repeat(times=2), _InPlace(name="ip1"), _InPlace(name="ip2")],
+    )
+    pipeline.build()
+
+    root = _SimpleTask(task_id="r", dataset_name="d", data=[1])
+    after_fanout = BaseStageAdapter(pipeline.stages[0]).process_batch([root])
+    after_ip1 = BaseStageAdapter(pipeline.stages[1]).process_batch(after_fanout)
+    after_ip2 = BaseStageAdapter(pipeline.stages[2]).process_batch(after_ip1)
+
+    # Fan-out gave the children paths "0" and "1". The two in-place stages
+    # must NOT extend the lineage path — same instances come back unchanged.
+    assert [t._lineage_path for t in after_fanout] == ["0", "1"]
+    assert [t._lineage_path for t in after_ip1] == ["0", "1"]
+    assert [t._lineage_path for t in after_ip2] == ["0", "1"]
+
+    def udid(path: str) -> str:
+        return hashlib.sha256(path.encode()).hexdigest()[:32]
+
+    expected_udids = [udid("0"), udid("1")]
+    assert [t._udid for t in after_fanout] == expected_udids
+    assert [t._udid for t in after_ip1] == expected_udids
+    assert [t._udid for t in after_ip2] == expected_udids
+
+    # Identity check: the in-place stages return the same task instances.
+    assert all(a is b for a, b in zip(after_fanout, after_ip1, strict=True))
+    assert all(a is b for a, b in zip(after_ip1, after_ip2, strict=True))

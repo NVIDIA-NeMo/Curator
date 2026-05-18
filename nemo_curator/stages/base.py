@@ -41,11 +41,16 @@ def assign_child_lineage(
 ) -> list[Task]:
     """Normalize a stage's ``process()`` result and assign deterministic lineage.
 
-    Each surviving ``children[i]`` gets ``_lineage_path`` and ``_uuid`` derived
+    Each surviving ``children[i]`` gets ``_lineage_path`` and ``_udid`` derived
     from ``(parent_paths, i)`` so that the same pipeline run twice on the same
     inputs produces byte-identical task IDs. Call this from any custom
     ``process_batch`` override to keep outputs consistent with the rest of the
     pipeline.
+
+    Children whose ``_udid`` is already set are passed through unchanged. This
+    happens when a stage mutates and returns the same task instance it received
+    (e.g. an embedder that writes results onto the input task): the framework
+    must not treat such a task as a new child of itself.
 
     Args:
         parent_paths: One element per logical parent (typically
@@ -212,7 +217,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             - None: If the task should be filtered out
 
         Lineage contract: every emitted child must have its ``_lineage_path``
-        and ``_uuid`` set so the pipeline produces deterministic IDs. The
+        and ``_udid`` set so the pipeline produces deterministic IDs. The
         default implementation below delegates to
         :func:`assign_child_lineage` per input task. If you override this
         method, you are responsible for calling ``assign_child_lineage`` on
@@ -224,7 +229,12 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
                 outputs.extend(assign_child_lineage([task._lineage_path], raw))
             return outputs
 
-        Outputs that skip this step will carry empty ``_uuid``/``_lineage_path``.
+        In-place returns are supported: if ``process()`` mutates and returns the
+        same task it received, ``assign_child_lineage`` will preserve that
+        task's existing ``_lineage_path`` / ``_udid`` rather than treating it as
+        a new child of itself.
+
+        Outputs that skip this step will carry empty ``_udid``/``_lineage_path``.
         """
         # Default implementation: process tasks one by one
         # This is only used as a fallback if a stage doesn't override this method

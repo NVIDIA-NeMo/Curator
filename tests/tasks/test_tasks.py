@@ -110,6 +110,20 @@ def test_fanout_udid_from_empty_root():
     assert len({t._uuid for t in output}) == 3
 
 
+def test_set_lineage_is_idempotent():
+    # First assignment fills in path/udid and returns True.
+    task = SimpleTask(task_id="t", dataset_name="d", data=[])
+    assert task._set_lineage(["3"], 0) is True
+    assert task._lineage_path == "3_0"
+    assert task._udid == _sha256_32("3_0")
+
+    # Re-assigning with different parent/index is a no-op and returns False.
+    # This is how the framework detects that a stage returned a task in place.
+    assert task._set_lineage(["7"], 4) is False
+    assert task._lineage_path == "3_0"
+    assert task._udid == _sha256_32("3_0")
+
+
 def test_udid_deterministic_across_runs():
     # Same pipeline run twice over the same input must yield byte-identical
     # _udid / _lineage_path sequences. (`_uuid` will differ because it's a
