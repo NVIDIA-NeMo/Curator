@@ -142,7 +142,8 @@ class TestCalculateConcurrencyForActorsForStage:
     def test_calculate_concurrency_insufficient_resources(self, mock_get_resources: MagicMock):
         """Test calculate_concurrency when there are insufficient resources."""
         mock_stage = Mock(num_workers=lambda: None, resources=Resources(cpus=4.0, gpus=2.0))
-        assert calculate_concurrency_for_actors_for_stage(mock_stage) == (0, 0)
+        with pytest.raises(RuntimeError, match="Insufficient available resources to schedule an actor"):
+            calculate_concurrency_for_actors_for_stage(mock_stage)
         mock_get_resources.assert_called_once()
 
     @patch(

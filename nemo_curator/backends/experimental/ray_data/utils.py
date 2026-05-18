@@ -26,8 +26,11 @@ def calculate_concurrency_for_actors_for_stage(
         int | tuple[int, int]: Number of actors to use.
             int: Explicit number of workers to use.
             tuple[int, int]: Resource-derived ``(min_actors, max_actors)`` range.
-                For resource-derived actor pools, the minimum is now ``0`` so Ray Data
+                For resource-derived actor pools, the minimum is ``0`` so Ray Data
                 can scale the pool down fully when resources are constrained.
+
+    Raises:
+        RuntimeError: If available resources cannot schedule at least one actor.
     """
     # If explicitly set, use the specified number of workers
     num_workers = stage.num_workers()
@@ -54,6 +57,15 @@ def calculate_concurrency_for_actors_for_stage(
     # the actor pool down to zero so constrained clusters can free resources
     # for other stages instead of pinning one actor indefinitely.
     max_actors = min(max_cpu_actors, max_gpu_actors)
+    if max_actors < 1:
+        msg = (
+            "Insufficient available resources to schedule an actor for "
+            f"{stage.__class__.__name__}: available_cpus={available_cpus}, "
+            f"available_gpus={available_gpus}, required_cpus={stage.resources.cpus}, "
+            f"required_gpus={stage.resources.gpus}."
+        )
+        raise RuntimeError(msg)
+
     return (0, int(max_actors))
 
 
