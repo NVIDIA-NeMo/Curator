@@ -21,12 +21,29 @@ The following Python libraries are needed to run this tutorial:
 
 - `nemo-curator`
 - `xformers`
-- `matplotlib`
 - `megatron-core`
 - `lm-eval`
 - `lightgbm`
 
 NeMo Curator should be installed with the `text_cuda12` extra. See the installation options on the [Text Quickstart](https://docs.nvidia.com/nemo/curator/get-started/text) for more information. Installation commands for the other libraries above are included within their respective sections.
+
+As an example, Curator can be installed from source and additional dependencies can be installed with:
+
+```bash
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
+uv sync --extra text_cuda12 --all-groups
+source .venv/bin/activate
+cd ..
+uv pip install xformers
+git clone --depth 1 https://github.com/EleutherAI/lm-evaluation-harness
+cd lm-evaluation-harness
+uv pip install -e .
+cd ..
+uv pip install lightgbm
+```
+
+The above installation commands were used for testing this tutorial and include all dependencies needed for running steps 1-5 and 7-8 of the tutorial.
 
 To run NeMo Curator, the following system requirements are needed:
 
@@ -35,7 +52,7 @@ To run NeMo Curator, the following system requirements are needed:
   - Volta™ or higher (compute capability 7.0+)
   - CUDA 12.x
 
-Refer to the [Megatron Core Installation documentation](https://docs.nvidia.com/megatron-core/developer-guide/latest/get-started/install.html) for information about the system requirements for running Megatron-LM, which is used in step 6 of this tutorial.
+For step 6 (proxy model training with Megatron-LM), refer to the [Megatron Core Installation documentation](https://docs.nvidia.com/megatron-core/developer-guide/latest/get-started/install.html) for information about the system requirements for running Megatron-LM; the [NeMo Framework container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo) was used for testing this step.
 
 If any of the individual input JSONL or Parquet files are greater than 2 GB, it is recommended to use the `nemo_curator/utils/split_large_files.py` helper script to split them into more manageable sizes and prevent out-of-memory issues. For example:
 
@@ -266,7 +283,7 @@ LM Evaluation Harness can be installed with:
 ```bash
 git clone --depth 1 https://github.com/EleutherAI/lm-evaluation-harness
 cd lm-evaluation-harness
-pip install -e .
+uv pip install -e .
 ```
 
 The script requires Megatron to be installed. Here is an example for how to set up and run the evaluation step:
