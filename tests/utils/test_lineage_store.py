@@ -234,6 +234,56 @@ def test_transitive_excludes_self(store: LineageStore) -> None:
         assert udid not in store.get_all_children(udid)
 
 
+def test_record_emission_skips_self_loop_in_place_return(store: LineageStore) -> None:
+    """In-place return: parent and child udids match. No self-edge is recorded
+    and the node stays ``source_leaf`` rather than getting promoted to ``middle``."""
+    a = "a" * 32
+    store.record_emission([a], [a])
+
+    rec = store.get(a)
+    assert rec is not None
+    assert rec.parents == []
+    assert rec.children == []
+    assert rec.task_type == "source_leaf"
+
+
+def test_record_emission_keeps_cross_edges_when_one_child_is_self(store: LineageStore) -> None:
+    """``parents=[a]``, ``children=[a, b]``: only ``a→a`` is dropped; ``a→b`` is kept."""
+    a, b = "a" * 32, "b" * 32
+    store.record_emission([a], [a, b])
+
+    a_rec = store.get(a)
+    b_rec = store.get(b)
+    assert a_rec is not None
+    assert b_rec is not None
+    assert a_rec.parents == []
+    assert a_rec.children == [b]
+    assert a_rec.task_type == "source"
+    assert b_rec.parents == [a]
+    assert b_rec.children == []
+    assert b_rec.task_type == "leaf"
+
+
+def test_record_emission_keeps_cross_edges_in_multi_parent_self(store: LineageStore) -> None:
+    """``parents=[a, b]``, ``children=[a, c]``: edges are ``b→a``, ``a→c``, ``b→c``;
+    only ``a→a`` is dropped."""
+    a, b, c = "a" * 32, "b" * 32, "c" * 32
+    store.record_emission([a, b], [a, c])
+
+    a_rec = store.get(a)
+    b_rec = store.get(b)
+    c_rec = store.get(c)
+    assert a_rec is not None
+    assert b_rec is not None
+    assert c_rec is not None
+    assert a_rec.parents == [b]
+    assert set(a_rec.children) == {c}
+    assert b_rec.parents == []
+    assert set(b_rec.children) == {a, c}
+    assert set(c_rec.parents) == {a, b}
+    assert c_rec.children == []
+
+
 def test_path_to_udid_matches_task_set_lineage() -> None:
     """Mirror invariant: hashing a lineage path with ``_path_to_udid`` yields the same
     ``_udid`` that ``Task._set_lineage`` would assign."""

@@ -52,11 +52,19 @@ class Task(ABC, Generic[T]):
         """Post-initialization hook."""
         self.validate()
 
-    def _set_lineage(self, parent_lineage_paths: list[str], child_index: int) -> None:
-        # DAG structure does. Clear cache directories when changing config.
+    def _set_lineage(self, parent_lineage_paths: list[str], child_index: int) -> bool:
+        """Assign deterministic lineage to this task.
+
+        Returns ``True`` if lineage was newly assigned, ``False`` if ``_udid``
+        was already set — which signals the task was returned in place by an
+        earlier stage and its existing lineage must be preserved.
+        """
+        if self._udid:
+            return False
         parts = [*[p for p in parent_lineage_paths if p], str(child_index)]
         self._lineage_path = "_".join(parts)
         self._udid = hashlib.sha256(self._lineage_path.encode()).hexdigest()[:32]
+        return True
 
     @property
     @abstractmethod
