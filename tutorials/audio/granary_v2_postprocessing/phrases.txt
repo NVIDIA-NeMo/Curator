@@ -24,7 +24,7 @@ Gracias
 четириста петдесет и пет
 Трябва да се върнем
 Ahoj, tady je Petr
-Tässä on kaksi
+Tässä
 Hvordan
 ¿Y qué tal?
 Hvad
@@ -63,3 +63,18 @@ Een
 Ez
 Deze koffie
 Dzisiaj
+Nem
+Nej
+Не
+pre ospravedlnenie
+Ei, ei
+Tästä voi olla
+On niin 
+Siinä ei saa olla samaa
+Istuuksesta myöten
+Silloin vasta myöhemmin
+And to all
+Näkyy jonkinlaisia 
+an effect on chains
+Welcome all
+vaikka niin
