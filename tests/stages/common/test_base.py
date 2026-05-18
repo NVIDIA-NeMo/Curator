@@ -12,11 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
+from pathlib import Path
+
 import pytest
+import ray
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task
+from nemo_curator.utils.lineage_store import (
+    LINEAGE_ACTOR_NAME,
+    LineageWriterActor,
+)
 
 
 class MockTask(Task[dict]):
@@ -655,3 +663,121 @@ class TestCompositeStageWith:
 
         # outputs() should return the last stage's outputs
         assert composite.outputs() == composite.decompose()[-1].outputs()
+
+
+# --------------------------------------------------------------------------- #
+# Completed-task filtering tests.
+# --------------------------------------------------------------------------- #
+
+
+def _kill_lineage_actor_if_present() -> None:
+    with contextlib.suppress(ValueError):
+        handle = ray.get_actor(LINEAGE_ACTOR_NAME)
+        ray.kill(handle)
+
+
+@pytest.fixture
+def lineage_actor(tmp_path: Path, shared_ray_client: None) -> tuple[object, Path]:  # noqa: ARG001
+    _kill_lineage_actor_if_present()
+    path = tmp_path / "lineage_filter.mdb"
+    handle = LineageWriterActor.options(
+        name=LINEAGE_ACTOR_NAME,
+        get_if_exists=True,
+    ).remote(path=str(path))
+    try:
+        yield handle, path
+    finally:
+        with contextlib.suppress(Exception):
+            ray.get(handle.close.remote())
+        ray.kill(handle)
+
+
+class CountingStage(ProcessingStage[MockTask, MockTask]):
+    """ProcessingStage that records every task it processed via ``process``.
+    Returns a *new* task each call so the default ``process_batch``'s
+    in-place ``assign_child_lineage`` doesn't clobber the input task's udid."""
+
+    name = "CountingStage"
+    resources = Resources(cpus=1.0)
+    batch_size = 1
+
+    def __init__(self) -> None:
+        self.seen_udids: list[str] = []
+
+    def process(self, task: MockTask) -> MockTask:
+        self.seen_udids.append(task._udid)
+        return MockTask(data=dict(task.data))
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+
+def _make_lineage_task(parent_path: str, index: int) -> MockTask:
+    t = MockTask(data={})
+    t._set_lineage([parent_path], index)
+    return t
+
+
+class TestFilterCompletedTasks:
+    """Behavior of :meth:`ProcessingStage._filter_completed_tasks` and the
+    default :meth:`process_batch` filter integration."""
+
+    def test_filter_with_no_actor_returns_input_unchanged(self) -> None:
+        """No actor registered → filter is a no-op even if Ray itself isn't up."""
+        stage = CountingStage()
+        tasks = [_make_lineage_task("", i) for i in range(3)]
+        assert stage._filter_completed_tasks(tasks) == tasks
+
+    def test_filter_drops_completed_tasks(self, lineage_actor: tuple[object, Path]) -> None:
+        actor_handle, _ = lineage_actor
+        stage = CountingStage()
+        tasks = [_make_lineage_task("", i) for i in range(3)]
+        for t in tasks:
+            ray.get(actor_handle.record_emission.remote([], [t._udid]))
+        ray.get(actor_handle.mark_completed.remote(tasks[1]._udid))
+
+        survivors = stage._filter_completed_tasks(tasks)
+        assert [t._udid for t in survivors] == [tasks[0]._udid, tasks[2]._udid]
+
+    def test_filter_preserves_empty_udid_tasks(self, lineage_actor: tuple[object, Path]) -> None:
+        """Tasks with empty ``_udid`` (source / unassigned) are never filtered."""
+        _ = lineage_actor
+        stage = CountingStage()
+        tasks = [MockTask(data={}), MockTask(data={})]  # _udid == "" by default
+        assert stage._filter_completed_tasks(tasks) == tasks
+
+    def test_filter_empty_input(self, lineage_actor: tuple[object, Path]) -> None:
+        _ = lineage_actor
+        stage = CountingStage()
+        assert stage._filter_completed_tasks([]) == []
+
+    def test_process_batch_skips_completed_tasks(self, lineage_actor: tuple[object, Path]) -> None:
+        """Completed tasks must not reach ``process``; survivors are returned."""
+        actor_handle, _ = lineage_actor
+        stage = CountingStage()
+        tasks = [_make_lineage_task("", i) for i in range(3)]
+        for t in tasks:
+            ray.get(actor_handle.record_emission.remote([], [t._udid]))
+        ray.get(actor_handle.mark_completed.remote(tasks[0]._udid))
+        ray.get(actor_handle.mark_completed.remote(tasks[2]._udid))
+
+        results = stage.process_batch(tasks)
+
+        assert stage.seen_udids == [tasks[1]._udid]
+        assert len(results) == 1
+
+    def test_process_batch_all_completed_returns_empty(self, lineage_actor: tuple[object, Path]) -> None:
+        """Marking every task completed makes ``process_batch`` a no-op."""
+        actor_handle, _ = lineage_actor
+        stage = CountingStage()
+        tasks = [_make_lineage_task("", i) for i in range(3)]
+        for t in tasks:
+            ray.get(actor_handle.record_emission.remote([], [t._udid]))
+            ray.get(actor_handle.mark_completed.remote(t._udid))
+
+        results = stage.process_batch(tasks)
+        assert results == []
+        assert stage.seen_udids == []

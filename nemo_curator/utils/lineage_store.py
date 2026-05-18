@@ -165,6 +165,18 @@ class LineageStore:
         with self._env.begin() as txn:
             return txn.get(_udid_to_key(udid), db=self._completed_db) is not None
 
+    def are_completed(self, udids: list[str]) -> list[bool]:
+        """Bulk variant of :meth:`is_completed`. Single read txn, snapshot-consistent.
+        Returns one bool per input udid, in the same order. Empty strings and
+        unknown udids return ``False``."""
+        if not udids:
+            return []
+        with self._env.begin() as txn:
+            return [
+                bool(u) and txn.get(_udid_to_key(u), db=self._completed_db) is not None
+                for u in udids
+            ]
+
     @staticmethod
     def _all_children_completed(txn: lmdb.Transaction, db: lmdb._Database, completed_db: lmdb._Database, key: bytes) -> bool:
         with txn.cursor(db=db) as cur:
@@ -325,6 +337,9 @@ class LineageWriterActor:
     def is_completed(self, udid: str) -> bool:
         return self._store.is_completed(udid)
 
+    def are_completed(self, udids: list[str]) -> list[bool]:
+        return self._store.are_completed(udids)
+
     def mark_completed_and_propagate(self, udids: list[str]) -> list[str]:
         return self._store.mark_completed_and_propagate(udids)
 
@@ -401,3 +416,22 @@ def mark_leaves_completed(udids: list[str]) -> None:
         return
 
     ray.get(actor.mark_completed_and_propagate.remote(udids))
+
+
+def are_completed(udids: list[str]) -> list[bool]:
+    """Bulk completion check via the named :class:`LineageWriterActor`.
+
+    Returns ``[False] * len(udids)`` when Ray is not initialized or no actor
+    is registered — same gating as :func:`record_lineage`, so pipelines run
+    without ``checkpoint_path`` skip nothing. Empty udids map to ``False``.
+    Order preserved.
+    """
+    if not udids:
+        return []
+    if not ray.is_initialized():
+        return [False] * len(udids)
+    try:
+        actor = ray.get_actor(LINEAGE_ACTOR_NAME)
+    except ValueError:
+        return [False] * len(udids)
+    return ray.get(actor.are_completed.remote(udids))

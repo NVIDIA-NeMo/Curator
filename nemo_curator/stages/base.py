@@ -25,7 +25,7 @@ from loguru import logger
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task
-from nemo_curator.utils.lineage_store import mark_leaves_completed, record_lineage
+from nemo_curator.utils.lineage_store import are_completed, mark_leaves_completed, record_lineage
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -203,6 +203,23 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             - None: If the task should be filtered out
         """
 
+    def _filter_completed_tasks(self, tasks: list[X]) -> list[X]:
+        """Drop tasks whose ``_udid`` is already marked completed in the lineage
+        store. No-op when no :class:`LineageWriterActor` is registered.
+
+        Tasks with empty ``_udid`` (sources / unassigned) are never filtered.
+        Order is preserved for survivors.
+
+        Stages that override :meth:`process_batch` should call this themselves
+        at the top of their override — same contract as
+        :func:`nemo_curator.utils.lineage_store.record_lineage` and
+        :func:`nemo_curator.utils.lineage_store.mark_leaves_completed`.
+        """
+        if not tasks:
+            return tasks
+        flags = are_completed([t._udid for t in tasks])
+        return [t for t, done in zip(tasks, flags, strict=True) if not done]
+
     def process_batch(self, tasks: list[X]) -> list[Y]:
         """Process a batch of tasks and return results.
         Override this method to enable batch processing for your stage.
@@ -217,6 +234,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         """
         # Default implementation: process tasks one by one
         # This is only used as a fallback if a stage doesn't override this method
+        tasks = self._filter_completed_tasks(tasks)
         results = []
         for task in tasks:
             if not self.validate_input(task):
@@ -232,7 +250,9 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             # function to build the DAG for resumability. If your stage is the
             # terminal stage in a pipeline AND you override process_batch, also
             # call mark_leaves_completed([c._udid for c in children]) after
-            # record_lineage for incremental completion marking.
+            # record_lineage for incremental completion marking. Overrides should
+            # also call self._filter_completed_tasks(tasks) at the top to honor
+            # resumability — same contract as the other helpers.
             record_lineage([task._udid], [c._udid for c in children])
             if self._is_terminal_stage and children:
                 mark_leaves_completed([c._udid for c in children])

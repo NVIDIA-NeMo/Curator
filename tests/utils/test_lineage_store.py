@@ -33,6 +33,7 @@ from nemo_curator.utils.lineage_store import (
     LineageWriterActor,
     _classify,
     _path_to_udid,
+    are_completed,
     mark_leaves_completed,
     record_lineage,
 )
@@ -349,6 +350,52 @@ def test_propagate_empty_udid_raises(store: LineageStore) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Bulk are_completed tests — single read txn over many udids.
+# --------------------------------------------------------------------------- #
+
+
+def test_are_completed_empty_input(store: LineageStore) -> None:
+    assert store.are_completed([]) == []
+
+
+def test_are_completed_all_completed(store: LineageStore) -> None:
+    udids = ["a" * 32, "b" * 32, "c" * 32]
+    for u in udids:
+        store.record_emission([], [u])
+        store.mark_completed(u)
+    assert store.are_completed(udids) == [True, True, True]
+
+
+def test_are_completed_none_completed(store: LineageStore) -> None:
+    udids = ["a" * 32, "b" * 32, "c" * 32]
+    for u in udids:
+        store.record_emission([], [u])
+    assert store.are_completed(udids) == [False, False, False]
+
+
+def test_are_completed_mixed_preserves_order(store: LineageStore) -> None:
+    udids = ["a" * 32, "b" * 32, "c" * 32, "d" * 32]
+    for u in udids:
+        store.record_emission([], [u])
+    store.mark_completed(udids[0])
+    store.mark_completed(udids[2])
+    assert store.are_completed(udids) == [True, False, True, False]
+
+
+def test_are_completed_unknown_udids_return_false(store: LineageStore) -> None:
+    """Never-recorded udids return False (no key in completed_db)."""
+    assert store.are_completed(["u" * 32, "v" * 32]) == [False, False]
+
+
+def test_are_completed_empty_string_returns_false(store: LineageStore) -> None:
+    """Empty udid short-circuits to False without an LMDB lookup."""
+    udid = "a" * 32
+    store.record_emission([], [udid])
+    store.mark_completed(udid)
+    assert store.are_completed(["", udid]) == [False, True]
+
+
+# --------------------------------------------------------------------------- #
 # Actor-routed tests — verify record_lineage → LineageWriterActor → LMDB.
 # --------------------------------------------------------------------------- #
 
@@ -485,3 +532,33 @@ def test_mark_leaves_completed_filters_empty_udids(actor: tuple[object, Path]) -
     # Mixing an empty udid in must not raise; the real leaf still gets marked.
     mark_leaves_completed(["", leaf])
     assert ray.get(actor_handle.is_completed.remote(leaf))
+
+
+def test_module_are_completed_without_ray() -> None:
+    """No Ray initialized → bulk helper returns all False (filter no-op)."""
+    if ray.is_initialized():
+        pytest.skip("ray already initialized by another test in this session")
+    assert are_completed(["a" * 32, "b" * 32]) == [False, False]
+
+
+def test_module_are_completed_no_actor(shared_ray_client: None) -> None:  # noqa: ARG001
+    """Ray up but no LineageWriterActor registered → all False."""
+    _kill_actor_if_present()
+    assert are_completed(["a" * 32, "b" * 32]) == [False, False]
+
+
+def test_module_are_completed_with_actor(actor: tuple[object, Path]) -> None:
+    """Module-level helper routes through the registered actor and preserves order."""
+    actor_handle, _ = actor
+    udids = ["a" * 32, "b" * 32, "c" * 32, "d" * 32]
+    for u in udids:
+        ray.get(actor_handle.record_emission.remote([], [u]))
+    ray.get(actor_handle.mark_completed.remote(udids[1]))
+    ray.get(actor_handle.mark_completed.remote(udids[3]))
+
+    assert are_completed(udids) == [False, True, False, True]
+
+
+def test_module_are_completed_empty_input(actor: tuple[object, Path]) -> None:  # noqa: ARG001
+    """Empty input short-circuits before any actor call."""
+    assert are_completed([]) == []

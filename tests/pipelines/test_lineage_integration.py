@@ -21,6 +21,11 @@ true no-op.
 """
 
 import contextlib
+import os
+import signal
+import subprocess
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -449,3 +454,126 @@ def test_terminal_stage_partial_failure_marks_processed_leaves(
         assert not records[pt0_udid].completed
     finally:
         store.close()
+
+
+def _launch_runner(checkpoint: Path, n_tasks: int, fanin_size: int, writer_sleep_s: float) -> subprocess.Popen[str]:
+    runner = Path(__file__).parent / "_resumability_runner.py"
+    repo_root = Path(__file__).resolve().parents[2]
+    env = {**os.environ, "PYTHONPATH": f"{repo_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"}
+    return subprocess.Popen(  # noqa: S603
+        [
+            sys.executable,
+            str(runner),
+            "--checkpoint-path",
+            str(checkpoint),
+            "--n-tasks",
+            str(n_tasks),
+            "--fanin-size",
+            str(fanin_size),
+            "--writer-sleep-s",
+            str(writer_sleep_s),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+        env=env,
+    )
+
+
+def _wait_for_completions_then_sigint(proc: subprocess.Popen[str], threshold: int, max_wait_s: float) -> None:
+    """Read stdout until ``threshold`` ``completed`` lines have been emitted,
+    then send SIGINT and wait for the runner to exit. Raises ``pytest.fail``
+    on premature exit, no progress, or hang."""
+    completed_seen = 0
+    deadline = time.monotonic() + max_wait_s
+    while completed_seen < threshold:
+        line = proc.stdout.readline()
+        if line == "":
+            _, stderr_tail = proc.communicate(timeout=10)
+            pytest.fail(
+                f"runner exited before reaching threshold (saw {completed_seen} completions). "
+                f"stderr:\n{stderr_tail}"
+            )
+        if line.strip() == "completed":
+            completed_seen += 1
+        if time.monotonic() > deadline:
+            proc.kill()
+            proc.wait()
+            pytest.fail(f"runner only reached {completed_seen}/{threshold} completions in {max_wait_s}s")
+
+    proc.send_signal(signal.SIGINT)
+    try:
+        proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        pytest.fail("runner did not exit within 60s of SIGINT")
+
+
+def _drain_proc(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is None:
+        proc.kill()
+        proc.wait()
+    with contextlib.suppress(Exception):
+        proc.stdout.close()
+    with contextlib.suppress(Exception):
+        proc.stderr.close()
+
+
+def _read_records(checkpoint: Path) -> dict[str, object]:
+    _kill_actor_if_present()
+    store = LineageStore(str(checkpoint))
+    try:
+        return dict(store.iter_records())
+    finally:
+        store.close()
+
+
+def test_resumable_after_sigint(tmp_path: Path, shared_ray_cluster: str) -> None:  # noqa: ARG001
+    """Drive a 4-stage 2000-task pipeline (fanout -> passthrough -> chunked-fanin
+    -> slow_writer) in a subprocess, SIGINT it mid-run, and verify partial
+    completion. Relaunch with the same checkpoint path and verify full
+    completion. The shared Ray cluster (autouse session fixture) is what the
+    runner subprocess connects to via ``RAY_ADDRESS``."""
+    checkpoint = tmp_path / "lineage_resume.mdb"
+    n_tasks = 2000
+    fanin_size = 20
+    writer_sleep_s = 0.05
+    expected_total = 2 * n_tasks + 2 * (n_tasks // fanin_size)  # 4200
+    threshold = 5
+
+    # --- Run 1: launch, interrupt after some leaves complete ---
+    _kill_actor_if_present()
+    proc = _launch_runner(checkpoint, n_tasks, fanin_size, writer_sleep_s)
+    try:
+        _wait_for_completions_then_sigint(proc, threshold=threshold, max_wait_s=120)
+    finally:
+        _drain_proc(proc)
+
+    records = _read_records(checkpoint)
+    completed = [u for u, r in records.items() if r.completed]
+    assert len(completed) >= threshold, (
+        f"expected at least {threshold} completions after SIGINT, found {len(completed)}"
+    )
+    assert len(completed) < expected_total, (
+        f"all {expected_total} nodes should not be completed after mid-run SIGINT (saw {len(completed)})"
+    )
+
+    # --- Run 2: relaunch with same checkpoint, run to natural completion ---
+    _kill_actor_if_present()
+    proc2 = _launch_runner(checkpoint, n_tasks, fanin_size, writer_sleep_s)
+    try:
+        _, stderr_tail = proc2.communicate(timeout=300)
+    except subprocess.TimeoutExpired:
+        proc2.kill()
+        proc2.wait()
+        pytest.fail("runner did not finish within 300s on resume")
+    assert proc2.returncode == 0, f"runner exited with {proc2.returncode}; stderr:\n{stderr_tail}"
+
+    records = _read_records(checkpoint)
+    assert len(records) == expected_total, (
+        f"expected {expected_total} recorded nodes after full run, found {len(records)}"
+    )
+    unfinished = [u for u, r in records.items() if not r.completed]
+    assert not unfinished, f"unfinished after resume: {unfinished[:5]} ({len(unfinished)} total)"
