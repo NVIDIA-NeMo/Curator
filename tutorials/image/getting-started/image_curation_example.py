@@ -101,6 +101,8 @@ def main(args: argparse.Namespace) -> None:
     print(f"Model directory: {args.model_dir}")
     print(f"Tar files per partition: {args.tar_files_per_partition}")
     print(f"Task batch size: {args.batch_size}")
+    if args.checkpoint_path:
+        print(f"Checkpoint path (resumability enabled): {args.checkpoint_path}")
     print("\n" + "=" * 50 + "\n")
 
     # Step 1: Download and prepare webdataset from parquet file
@@ -141,7 +143,7 @@ def main(args: argparse.Namespace) -> None:
     executor = XennaExecutor()
 
     # Execute pipeline
-    pipeline.run(executor)
+    pipeline.run(executor, checkpoint_path=args.checkpoint_path)
 
     end_time = time.time()
 
@@ -228,6 +230,16 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
         help="Enable verbose logging for all stages"
+    )
+    parser.add_argument(
+        "--checkpoint-path",
+        type=str,
+        default=None,
+        help=(
+            "Optional path to an LMDB file used to record task lineage and completion "
+            "state. When provided, rerunning the same command will skip tasks that "
+            "completed successfully in a previous run. Omit to disable resumability."
+        ),
     )
 
     # Embedding stage arguments

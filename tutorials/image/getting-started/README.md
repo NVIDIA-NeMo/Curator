@@ -68,8 +68,18 @@ python tutorials/image/getting-started/image_curation_example.py \
     --nsfw-batch-size 32 \
     --aesthetic-threshold 0.9 \
     --nsfw-threshold 0.9 \
-    --images-per-tar 32
+    --images-per-tar 32 \
+    --checkpoint-path ./example_data/checkpoint.mdb
 ```
+
+### Resumability
+
+Passing `--checkpoint-path <file>` enables resumable execution. The pipeline writes task lineage and per-task completion state to an LMDB database at the given path. If the run is interrupted (Ctrl+C, node failure, etc.), rerunning the *same command* with the *same checkpoint path* will skip every task that already finished and resume from where it left off.
+
+- Omit `--checkpoint-path` to disable resumability (the default — no checkpoint file is written).
+- A fully successful rerun against an up-to-date checkpoint is a no-op: every task is filtered as already completed.
+- To start fresh, delete the LMDB file before rerunning.
+- The checkpoint file is written by a single Ray actor, so it is safe to place on shared storage (NFS, Lustre).
 
 Run the image deduplication pipeline on GPUs (extracting embeddings, running semantic deduplication, removing duplicated samples):
 

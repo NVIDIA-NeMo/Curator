@@ -173,6 +173,16 @@ def create_nemotron_parse_pdf_argparser() -> argparse.ArgumentParser:
         choices=["streaming", "batch"],
         help="XennaExecutor execution mode",
     )
+    parser.add_argument(
+        "--checkpoint-path",
+        type=str,
+        default=None,
+        help=(
+            "Optional path to an LMDB file used to record task lineage and completion "
+            "state. When provided, rerunning the same command will skip tasks that "
+            "completed successfully in a previous run. Omit to disable resumability."
+        ),
+    )
 
     # Manifest field names
     parser.add_argument("--file-name-field", default="file_name", help="JSONL field for single PDF filename")
@@ -297,8 +307,11 @@ def main() -> None:
             }
         )
 
+        if args.checkpoint_path:
+            logger.info(f"Checkpoint path (resumability enabled): {args.checkpoint_path}")
+
         t0 = time.perf_counter()
-        results = pipeline.run(executor=executor)
+        results = pipeline.run(executor=executor, checkpoint_path=args.checkpoint_path)
         wall_time = time.perf_counter() - t0
 
         n_valid = sum(1 for r in results if r is not None)

@@ -87,3 +87,23 @@ images = [Image.open(io.BytesIO(b)) for b in df[df["modality"] == "image"]["bina
 | `--dpi` | 300 | PDF rendering resolution |
 | `--max-pages` | 50 | Max pages per PDF |
 | `--text-in-pic` | off | Predict text inside images (v1.2+ feature) |
+| `--checkpoint-path` | — | LMDB file enabling resumable runs (see below) |
+
+## Resumability
+
+Passing `--checkpoint-path <file>` enables resumable execution. The pipeline writes task lineage and per-task completion state to an LMDB database at the given path. If the run is interrupted (Ctrl+C, Slurm time limit, node failure, etc.), rerunning the *same command* with the *same checkpoint path* will skip every task that already finished and resume from where it left off.
+
+```bash
+python tutorials/interleaved/nemotron_parse_pdf/main.py \
+    --manifest manifest.jsonl \
+    --pdf-dir /path/to/pdfs \
+    --output-dir /path/to/output \
+    --backend vllm \
+    --enforce-eager \
+    --checkpoint-path /path/to/output/checkpoint.mdb
+```
+
+- Omit `--checkpoint-path` to disable resumability (the default — no checkpoint file is written).
+- A fully successful rerun against an up-to-date checkpoint is a no-op: every task is filtered as already completed.
+- To start fresh, delete the LMDB file before rerunning.
+- The checkpoint file is written by a single Ray actor, so it is safe to place on shared storage (NFS, Lustre).
