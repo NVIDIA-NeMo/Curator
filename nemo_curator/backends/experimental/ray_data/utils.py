@@ -23,9 +23,11 @@ def calculate_concurrency_for_actors_for_stage(
     Calculate concurrency if we want to spin up actors based on available resources and stage requirements.
 
     Returns:
-        int | tuple[int, int]: Number of actors to use
-            int: Number of workers to use
-            tuple[int, int]: tuple of min / max actors to use and number of workers to use
+        int | tuple[int, int]: Number of actors to use.
+            int: Explicit number of workers to use.
+            tuple[int, int]: Resource-derived ``(min_actors, max_actors)`` range.
+                For resource-derived actor pools, the minimum is now ``0`` so Ray Data
+                can scale the pool down fully when resources are constrained.
     """
     # If explicitly set, use the specified number of workers
     num_workers = stage.num_workers()
