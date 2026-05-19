@@ -236,7 +236,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         :func:`nemo_curator.utils.lineage_store.record_lineage` and
         :func:`nemo_curator.utils.lineage_store.mark_leaves_completed`.
         """
-        if not tasks:
+        if len(tasks) == 0:
             return tasks
         flags = are_completed([t._udid for t in tasks])
         return [t for t, done in zip(tasks, flags, strict=True) if not done]
