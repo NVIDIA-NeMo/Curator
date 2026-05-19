@@ -206,7 +206,7 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
         _node_info: NodeInfo | None = None,
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
-        self._init_model()
+        pass
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         if self._llm is None:
@@ -261,7 +261,7 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
         return self.process_batch([task])[0]
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        if not tasks:
+        if len(tasks) == 0:
             return []
         if self._llm is None:
             msg = "Model not initialised — setup() was not called"

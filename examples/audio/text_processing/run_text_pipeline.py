@@ -180,12 +180,8 @@ def main() -> None:
 
     pipeline = Pipeline(name="text_post_processing", stages=stages)
 
-    try:
-        from nemo_curator.backends.xenna import XennaExecutor
-        executor = XennaExecutor(config={"execution_mode": args.execution_mode})
-    except ImportError:
-        from nemo_curator.backends.ray_data import RayDataExecutor
-        executor = RayDataExecutor()
+    from nemo_curator.backends.ray_data import RayDataExecutor
+    executor = RayDataExecutor()
 
     logger.info(f"Running text pipeline: {len(stages)} stages, mode={args.execution_mode}")
     pipeline.run(executor=executor)

@@ -146,6 +146,9 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
     def num_workers(self) -> int | None:
         return 1
 
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_actor_stage": True}
+
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers": 1}
 
