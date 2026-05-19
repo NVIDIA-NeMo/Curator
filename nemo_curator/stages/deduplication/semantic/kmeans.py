@@ -19,13 +19,14 @@ import cupy as cp
 import numpy as np
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.base import CompositeStage, ProcessingStage, assign_child_lineage
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, check_disallowed_kwargs
+from nemo_curator.utils.lineage_store import mark_leaves_completed, record_lineage
 
 from .utils import break_parquet_partition_into_groups, get_array_from_df
 
@@ -143,6 +144,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         Otherwise, loads all groups simultaneously (original behavior).
         """
 
+        tasks = self._filter_completed_tasks(tasks)
         if not tasks:
             return []
 
@@ -160,8 +162,15 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             raise ValueError(msg)
 
         if self.fit_data_fraction is not None:
-            return self._process_batch_two_pass(tasks, groups)
-        return self._process_batch_single_pass(tasks, groups)
+            raw = self._process_batch_two_pass(tasks, groups)
+        else:
+            raw = self._process_batch_single_pass(tasks, groups)
+
+        children = assign_child_lineage([t._lineage_path for t in tasks], raw)
+        record_lineage([t._udid for t in tasks], [c._udid for c in children])
+        if self._is_terminal_stage and children:
+            mark_leaves_completed([c._udid for c in children])
+        return children
 
     def _read_group(self, group: list[str], columns: list[str]) -> "cudf.DataFrame":
         """Read a group of files into a cudf DataFrame."""

@@ -22,6 +22,7 @@ This module contains the complete semantic deduplication workflow:
 
 import os
 import time
+from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
@@ -245,7 +246,11 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             if self.eps is not None:
                 create_or_overwrite_dir(self.duplicates_output_path, storage_options=storage_options)
 
-    def _run_kmeans_stage(self, kmeans_executor: RayActorPoolExecutor) -> list[Any]:
+    def _run_kmeans_stage(
+        self,
+        kmeans_executor: RayActorPoolExecutor,
+        checkpoint_path: str | Path | None = None,
+    ) -> list[Any]:
         """Run K-means clustering stage (always uses RayActorPoolExecutor)."""
         if not isinstance(kmeans_executor, RayActorPoolExecutor):
             msg = "K-means executor must be a RayActorPoolExecutor"
@@ -281,9 +286,13 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         )
         pipeline.add_stage(kmeans_stage)
 
-        return pipeline.run(kmeans_executor)
+        return pipeline.run(kmeans_executor, checkpoint_path=checkpoint_path)
 
-    def _run_pairwise_stage(self, pairwise_executor: BaseExecutor | None = None) -> list[Any]:
+    def _run_pairwise_stage(
+        self,
+        pairwise_executor: BaseExecutor | None = None,
+        checkpoint_path: str | Path | None = None,
+    ) -> list[Any]:
         """Run pairwise similarity + duplicate identification stage."""
         logger.info(f"Starting pairwise similarity stage ({pairwise_executor})...")
 
@@ -322,7 +331,7 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             )
             pipeline.add_stage(identify_duplicates_stage)
 
-        return pipeline.run(pairwise_executor)
+        return pipeline.run(pairwise_executor, checkpoint_path=checkpoint_path)
 
     def _log_configuration(self, pairwise_executor: BaseExecutor | None = None) -> None:
         """Log workflow configuration."""
@@ -349,8 +358,11 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         logger.info(f"Random state: {self.random_state}")
         logger.info("=" * 60)
 
-    def run(
-        self, kmeans_executor: BaseExecutor | None = None, pairwise_executor: BaseExecutor | None = None
+    def run(  # noqa: PLR0915
+        self,
+        kmeans_executor: BaseExecutor | None = None,
+        pairwise_executor: BaseExecutor | None = None,
+        checkpoint_path: str | Path | None = None,
     ) -> WorkflowRunResult:
         """
         Run the complete semantic deduplication pipeline.
@@ -358,6 +370,10 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         Args:
             kmeans_executor: Executor for kmeans stage. Defaults to RayActorPoolExecutor().
             pairwise_executor: Executor for pairwise stage. Defaults to XennaExecutor().
+            checkpoint_path: Optional base path for an LMDB checkpoint. When provided,
+                the kmeans and pairwise sub-pipelines each write to a derived file
+                (``<stem>_kmeans<suffix>`` and ``<stem>_pairwise<suffix>``) so their
+                udids don't collide. Omit to disable resumability.
 
         Returns:
             WorkflowRunResult object containing the results and timing information
@@ -370,6 +386,13 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
         kmeans_executor = kmeans_executor or RayActorPoolExecutor()
         pairwise_executor = pairwise_executor or XennaExecutor()
 
+        kmeans_checkpoint: str | Path | None = None
+        pairwise_checkpoint: str | Path | None = None
+        if checkpoint_path is not None:
+            base = Path(checkpoint_path)
+            kmeans_checkpoint = base.with_name(f"{base.stem}_kmeans{base.suffix}")
+            pairwise_checkpoint = base.with_name(f"{base.stem}_pairwise{base.suffix}")
+
         try:
             # Setup
             self._setup_directories()
@@ -377,7 +400,7 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
 
             # Stage 1: K-means clustering
             kmeans_start_time = time.time()
-            kmeans_results = self._run_kmeans_stage(kmeans_executor)
+            kmeans_results = self._run_kmeans_stage(kmeans_executor, checkpoint_path=kmeans_checkpoint)
             kmeans_end_time = time.time()
             kmeans_time = kmeans_end_time - kmeans_start_time
             workflow_result.add_pipeline_tasks("kmeans", kmeans_results)
@@ -387,7 +410,7 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
 
             # Stage 2: Pairwise similarity + duplicate identification
             pairwise_start_time = time.time()
-            pairwise_results = self._run_pairwise_stage(pairwise_executor)
+            pairwise_results = self._run_pairwise_stage(pairwise_executor, checkpoint_path=pairwise_checkpoint)
             pairwise_end_time = time.time()
             pairwise_time = pairwise_end_time - pairwise_start_time
             workflow_result.add_pipeline_tasks("pairwise", pairwise_results)

@@ -120,7 +120,7 @@ def create_image_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
     return pipeline
 
 
-def main(args: argparse.Namespace) -> None:
+def main(args: argparse.Namespace) -> None:  # noqa: PLR0915
     """Main execution function for image curation pipeline."""
 
     ray_client = RayClient()
@@ -133,6 +133,12 @@ def main(args: argparse.Namespace) -> None:
     print(f"Model directory: {args.model_dir}")
     print(f"Tar files per partition: {args.tar_files_per_partition}")
     print(f"Task batch size: {args.batch_size}")
+    if args.embedding_checkpoint_path:
+        print(f"Embedding checkpoint path (resumability enabled): {args.embedding_checkpoint_path}")
+    if args.semdedup_checkpoint_path:
+        print(f"Semantic dedup checkpoint path (resumability enabled): {args.semdedup_checkpoint_path}")
+    if args.removal_checkpoint_path:
+        print(f"Removal checkpoint path (resumability enabled): {args.removal_checkpoint_path}")
     print("\n" + "=" * 50 + "\n")
 
     # Step 1: Download and prepare webdataset from parquet file
@@ -167,14 +173,14 @@ def main(args: argparse.Namespace) -> None:
     pipeline = create_image_embedding_pipeline(args)
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
-    pipeline.run()
+    pipeline.run(checkpoint_path=args.embedding_checkpoint_path)
 
     # Step 2.2: Create image deduplication pipeline (pairwise executor is XennaExecutor by default)
     print("Step 2.2: Running image deduplication pipeline...")
     start_time = time.time()
     pipeline = create_embedding_deduplication_workflow(args)
     print("\n" + "=" * 50 + "\n")
-    pipeline.run()
+    pipeline.run(checkpoint_path=args.semdedup_checkpoint_path)
 
     # Step 2.3: Create image deduplication pipeline
     print("Step 2.3: Running image deduplication pipeline...")
@@ -182,7 +188,7 @@ def main(args: argparse.Namespace) -> None:
     pipeline = create_image_deduplication_pipeline(args)
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
-    pipeline.run()
+    pipeline.run(checkpoint_path=args.removal_checkpoint_path)
 
     end_time = time.time()
 
@@ -281,6 +287,39 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
         help="Enable verbose logging for all stages"
+    )
+    parser.add_argument(
+        "--embedding-checkpoint-path",
+        type=str,
+        default=None,
+        help=(
+            "Optional path to an LMDB file used to record task lineage and completion "
+            "state for the image embedding pipeline. When provided, rerunning the same "
+            "command will skip tasks that completed successfully in a previous run. "
+            "Omit to disable resumability for this stage."
+        ),
+    )
+    parser.add_argument(
+        "--semdedup-checkpoint-path",
+        type=str,
+        default=None,
+        help=(
+            "Optional base path for an LMDB checkpoint covering the semantic deduplication "
+            "workflow. The workflow derives ``<stem>_kmeans<suffix>`` and "
+            "``<stem>_pairwise<suffix>`` from this path so each sub-pipeline gets its own "
+            "file. Omit to disable resumability for this stage."
+        ),
+    )
+    parser.add_argument(
+        "--removal-checkpoint-path",
+        type=str,
+        default=None,
+        help=(
+            "Optional path to an LMDB file used to record task lineage and completion "
+            "state for the image deduplication / removal pipeline. When provided, "
+            "rerunning the same command will skip tasks that completed successfully in "
+            "a previous run. Omit to disable resumability for this stage."
+        ),
     )
 
     # Embedding stage arguments
