@@ -49,10 +49,6 @@ Architecture:
         → restores punctuation/capitalisation, writes pnc_text
     [optional] PnCContentGuardStage (CPU)
         → reverts pnc_text when the LLM changed words
-    [optional] ITNRestorationStage (GPU, text-only LLM)
-        → converts spoken-form to written form (numbers, dates, symbols)
-        → validates output, falls back to input on hallucination
-        → writes itn_text
     ShardedManifestWriterStage (CPU)
         → writes per-shard JSONL output with .done markers
 """
@@ -78,7 +74,6 @@ from nemo_curator.stages.audio.text_filtering import (
     DisfluencyWerGuardStage,
     FastTextLIDStage,
     InitializeFieldsStage,
-    ITNRestorationStage,
     PnCContentGuardStage,
     PnCRestorationStage,
     RegexSubstitutionStage,
@@ -183,27 +178,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     pnc.add_argument("--skip_pnc", action="store_true", default=False,
                      help="Skip PnC restoration stage entirely.")
 
-    itn = ap.add_argument_group("ITN (inverse text normalization)")
-    itn.add_argument("--enable_itn", action="store_true", help="Enable ITN stage after PnC restoration.")
-    itn.add_argument("--itn_model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8", help="Model for ITN inference.")
-    itn.add_argument("--itn_prompt_file", type=str, default=None,
-                     help="ITN system prompt file. Uses bundled default if not set.")
-    itn.add_argument("--itn_text_key", type=str, default=None,
-                     help="Input key for ITN (default: pnc_text if PnC enabled, abbreviated_text otherwise).")
-    itn.add_argument("--itn_output_key", type=str, default="itn_text", help="Output key for ITN result.")
-    itn.add_argument("--itn_batch_size", type=int, default=64, help="Batch size for ITN inference.")
-    itn.add_argument("--itn_tensor_parallel_size", type=int, default=None,
-                     help="TP size for ITN model (None = auto-detect).")
-    itn.add_argument("--itn_max_output_tokens", type=int, default=512,
-                     help="Max tokens to generate per ITN sample.")
-    itn.add_argument("--itn_max_model_len", type=int, default=4096,
-                     help="Max context length for ITN vLLM engine.")
-    itn.add_argument("--itn_max_num_seqs", type=int, default=16,
-                     help="Max concurrent sequences for ITN vLLM engine.")
-    itn.add_argument("--itn_gpu_memory_utilization", type=float, default=0.95,
-                     help="Fraction of GPU memory for ITN vLLM engine.")
-    itn.add_argument("--itn_no_validation", action="store_true", help="Disable ITN output validation.")
-
     sed = ap.add_argument_group("SED (sound event detection)")
     sed.add_argument("--sed_checkpoint", type=str, default=None,
                      help="Path to PANNs CNN14 .pth checkpoint. Enables SED stages when set.")
@@ -223,7 +197,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                      help="Emit per-class subcategory events instead of aggregated superclass events.")
     sed.add_argument("--sed_num_workers", type=int, default=None,
                      help="Fixed actor count for SED stage.")
-
     asr = ap.add_argument_group("QwenASR hallucination recovery")
     asr.add_argument("--asr_model_id", type=str, default=None,
                      help="QwenASR model ID or local path. If set, enables hallucination recovery.")
@@ -274,10 +247,6 @@ def main() -> None:  # noqa: C901
         with open(args.pnc_prompt_file, encoding="utf-8") as f:
             pnc_prompt_text = f.read().strip()
 
-    itn_prompt_text = None
-    if args.itn_prompt_file:
-        with open(args.itn_prompt_file, encoding="utf-8") as f:
-            itn_prompt_text = f.read().strip()
 
     omni_text_key = "qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1"
 
@@ -418,22 +387,6 @@ def main() -> None:  # noqa: C901
                 rejected_text_key="rejected_pnc_text",
             ),
         ])
-
-    if args.enable_itn:
-        stages.append(ITNRestorationStage(
-            model_id=args.itn_model_id,
-            prompt_text=itn_prompt_text,
-            text_key=args.itn_text_key or ("pnc_text" if not args.skip_pnc else "abbreviated_text"),
-            output_text_key=args.itn_output_key,
-            tensor_parallel_size=args.itn_tensor_parallel_size,
-            max_output_tokens=args.itn_max_output_tokens,
-            max_model_len=args.itn_max_model_len,
-            max_num_seqs=args.itn_max_num_seqs,
-            gpu_memory_utilization=args.itn_gpu_memory_utilization,
-            batch_size=args.itn_batch_size,
-            enable_validation=not args.itn_no_validation,
-            num_workers_override=args.itn_num_workers,
-        ))
 
     stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
 
