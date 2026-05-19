@@ -56,7 +56,7 @@ class Task(ABC, Generic[T]):
         """Assign deterministic lineage to this task.
 
         Returns ``True`` if lineage was newly assigned, ``False`` if ``_udid``
-        was already set — which signals the task was returned in place by an
+        was already set - which signals the task was returned in place by an
         earlier stage and its existing lineage must be preserved.
         """
         if self._udid:
