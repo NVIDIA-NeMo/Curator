@@ -72,6 +72,22 @@ def assign_child_lineage(
     return children
 
 
+def assign_root_lineage(tasks: list[Task]) -> list[Task]:
+    """Assign deterministic root-level lineage to initial pipeline tasks.
+
+    Each ``tasks[i]`` gets ``_lineage_path = str(i)`` and the corresponding
+    ``_udid``. Tasks whose ``_udid`` is already set are left untouched
+    (``_set_lineage`` early-returns), so calling this twice is a no-op.
+
+    Without this step every root carries ``_lineage_path = ""``, and the
+    empty-string filter in ``_set_lineage`` collapses first-stage children of
+    different roots onto the same lineage path, producing identical ``_udid``.
+    """
+    for i, task in enumerate(tasks):
+        task._set_lineage([], i)
+    return tasks
+
+
 class StageMeta(ABCMeta):
     """Metaclass that automatically registers concrete Stage subclasses.
     A class is considered *concrete* if it directly inherits from

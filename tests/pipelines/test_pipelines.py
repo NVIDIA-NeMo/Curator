@@ -20,7 +20,7 @@ import pytest
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.pipeline.pipeline import Pipeline
-from nemo_curator.stages.base import ProcessingStage, assign_child_lineage
+from nemo_curator.stages.base import ProcessingStage, assign_child_lineage, assign_root_lineage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task
 
@@ -116,6 +116,7 @@ def _drive(pipeline: Pipeline, initial_tasks: list[Task]) -> list[Task]:
     """Walk a built pipeline by hand, threading tasks through BaseStageAdapter
     for each stage. This is what every real executor does internally; using it
     here lets us exercise the determinism contract without needing Ray."""
+    assign_root_lineage(initial_tasks)
     current = initial_tasks
     for stage in pipeline.stages:
         current = BaseStageAdapter(stage).process_batch(current)
@@ -134,10 +135,10 @@ def test_pipeline_udid_deterministic_across_runs():
     paths_b, udids_b = run_once()
     assert paths_a == paths_b
     assert udids_a == udids_b
-    # First-generation outputs use index-only paths because the root task has
-    # an empty _lineage_path. After the second stage the paths should match
-    # the documented "{parent_idx}_{child_idx}" shape.
-    assert paths_a == [f"{i}_{j}" for i in range(2) for j in range(3)]
+    # Root index "0" is prepended by `assign_root_lineage`; subsequent fan-outs
+    # extend the path one segment at a time per the documented
+    # "{root_idx}_{child_idx}_{grandchild_idx}" shape.
+    assert paths_a == [f"0_{i}_{j}" for i in range(2) for j in range(3)]
     assert udids_a == [hashlib.sha256(p.encode()).hexdigest()[:32] for p in paths_a]
 
 
@@ -224,13 +225,13 @@ def test_pipeline_udid_fanout_passthrough_fanin_passthrough():
 
         Input ─▶ FanOut(3) ─▶ Passthrough ─▶ FanIn ─▶ Passthrough ─▶ Output
 
-    Starting from one root task (with `_lineage_path = ""`), the framework
-    should produce the following paths:
+    Starting from one root task assigned ``_lineage_path = "0"`` by
+    ``assign_root_lineage``, the framework should produce the following paths:
 
-        After FanOut:      ["0", "1", "2"]
-        After Passthrough: ["0_0", "1_0", "2_0"]
-        After FanIn:       ["0_0_1_0_2_0_0"]      (all 3 parents + idx 0)
-        After Passthrough: ["0_0_1_0_2_0_0_0"]
+        After FanOut:      ["0_0", "0_1", "0_2"]
+        After Passthrough: ["0_0_0", "0_1_0", "0_2_0"]
+        After FanIn:       ["0_0_0_0_1_0_0_2_0_0"]   (all 3 parents + idx 0)
+        After Passthrough: ["0_0_0_0_1_0_0_2_0_0_0"]
     """
     pipeline = Pipeline(
         name="fanout_fanin",
@@ -244,6 +245,7 @@ def test_pipeline_udid_fanout_passthrough_fanin_passthrough():
     pipeline.build()
 
     root = _SimpleTask(task_id="r", dataset_name="d", data=[1])
+    assign_root_lineage([root])
 
     # Drive stage-by-stage so we can inspect each intermediate set of tasks.
     after_fanout = BaseStageAdapter(pipeline.stages[0]).process_batch([root])
@@ -252,19 +254,19 @@ def test_pipeline_udid_fanout_passthrough_fanin_passthrough():
     after_passthrough_2 = BaseStageAdapter(pipeline.stages[3]).process_batch(after_fanin)
 
     # Expected paths at every level.
-    assert [t._lineage_path for t in after_fanout] == ["0", "1", "2"]
-    assert [t._lineage_path for t in after_passthrough_1] == ["0_0", "1_0", "2_0"]
-    assert [t._lineage_path for t in after_fanin] == ["0_0_1_0_2_0_0"]
-    assert [t._lineage_path for t in after_passthrough_2] == ["0_0_1_0_2_0_0_0"]
+    assert [t._lineage_path for t in after_fanout] == ["0_0", "0_1", "0_2"]
+    assert [t._lineage_path for t in after_passthrough_1] == ["0_0_0", "0_1_0", "0_2_0"]
+    assert [t._lineage_path for t in after_fanin] == ["0_0_0_0_1_0_0_2_0_0"]
+    assert [t._lineage_path for t in after_passthrough_2] == ["0_0_0_0_1_0_0_2_0_0_0"]
 
     # Expected _udid values are exactly sha256(lineage_path)[:32].
     def udid(path: str) -> str:
         return hashlib.sha256(path.encode()).hexdigest()[:32]
 
-    assert [t._udid for t in after_fanout] == [udid("0"), udid("1"), udid("2")]
-    assert [t._udid for t in after_passthrough_1] == [udid("0_0"), udid("1_0"), udid("2_0")]
-    assert [t._udid for t in after_fanin] == [udid("0_0_1_0_2_0_0")]
-    assert [t._udid for t in after_passthrough_2] == [udid("0_0_1_0_2_0_0_0")]
+    assert [t._udid for t in after_fanout] == [udid("0_0"), udid("0_1"), udid("0_2")]
+    assert [t._udid for t in after_passthrough_1] == [udid("0_0_0"), udid("0_1_0"), udid("0_2_0")]
+    assert [t._udid for t in after_fanin] == [udid("0_0_0_0_1_0_0_2_0_0")]
+    assert [t._udid for t in after_passthrough_2] == [udid("0_0_0_0_1_0_0_2_0_0_0")]
 
     # Uniqueness: every task emitted anywhere in the pipeline has a distinct
     # _udid (and a distinct _lineage_path).
@@ -322,20 +324,21 @@ def test_inplace_stage_preserves_lineage():
     pipeline.build()
 
     root = _SimpleTask(task_id="r", dataset_name="d", data=[1])
+    assign_root_lineage([root])
     after_fanout = BaseStageAdapter(pipeline.stages[0]).process_batch([root])
     after_ip1 = BaseStageAdapter(pipeline.stages[1]).process_batch(after_fanout)
     after_ip2 = BaseStageAdapter(pipeline.stages[2]).process_batch(after_ip1)
 
-    # Fan-out gave the children paths "0" and "1". The two in-place stages
+    # Fan-out gave the children paths "0_0" and "0_1". The two in-place stages
     # must NOT extend the lineage path — same instances come back unchanged.
-    assert [t._lineage_path for t in after_fanout] == ["0", "1"]
-    assert [t._lineage_path for t in after_ip1] == ["0", "1"]
-    assert [t._lineage_path for t in after_ip2] == ["0", "1"]
+    assert [t._lineage_path for t in after_fanout] == ["0_0", "0_1"]
+    assert [t._lineage_path for t in after_ip1] == ["0_0", "0_1"]
+    assert [t._lineage_path for t in after_ip2] == ["0_0", "0_1"]
 
     def udid(path: str) -> str:
         return hashlib.sha256(path.encode()).hexdigest()[:32]
 
-    expected_udids = [udid("0"), udid("1")]
+    expected_udids = [udid("0_0"), udid("0_1")]
     assert [t._udid for t in after_fanout] == expected_udids
     assert [t._udid for t in after_ip1] == expected_udids
     assert [t._udid for t in after_ip2] == expected_udids
@@ -343,3 +346,31 @@ def test_inplace_stage_preserves_lineage():
     # Identity check: the in-place stages return the same task instances.
     assert all(a is b for a, b in zip(after_fanout, after_ip1, strict=True))
     assert all(a is b for a, b in zip(after_ip1, after_ip2, strict=True))
+
+
+# ---------------------------------------------------------------------------
+# Multiple root tasks must produce distinct _udid through a 1:1 first stage
+# ---------------------------------------------------------------------------
+
+
+def test_pipeline_udid_no_collision_across_multiple_roots():
+    """Multiple root tasks through a 1:1 first stage must produce distinct _udid.
+
+    Without ``assign_root_lineage`` every root carries ``_lineage_path = ""``;
+    the empty-string filter in ``_set_lineage`` then collapses all first-stage
+    children onto the same path ("0"), so their ``_udid`` collides.
+    """
+    pipeline = Pipeline(name="multi_root", stages=[_Passthrough(name="pt")])
+    pipeline.build()
+
+    roots = [
+        _SimpleTask(task_id="r0", dataset_name="d", data=[1]),
+        _SimpleTask(task_id="r1", dataset_name="d", data=[2]),
+        _SimpleTask(task_id="r2", dataset_name="d", data=[3]),
+    ]
+    out = _drive(pipeline, roots)
+
+    paths = [t._lineage_path for t in out]
+    udids = [t._udid for t in out]
+    assert paths == ["0_0", "1_0", "2_0"]
+    assert len(set(udids)) == len(udids)

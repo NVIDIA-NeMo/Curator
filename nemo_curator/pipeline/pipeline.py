@@ -18,7 +18,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.base import CompositeStage, ProcessingStage, assign_root_lineage
 from nemo_curator.tasks import Task
 
 
@@ -226,4 +226,6 @@ class Pipeline:
                     "The executor will schedule GPU stages on GPUs not held by Serve."
                 )
 
+        if initial_tasks:
+            assign_root_lineage(initial_tasks)
         return executor.execute(self.stages, initial_tasks, checkpoint_path=checkpoint_path)
