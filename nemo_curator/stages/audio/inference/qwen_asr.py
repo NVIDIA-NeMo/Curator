@@ -29,6 +29,12 @@ from nemo_curator.tasks import AudioTask
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
+QWEN3_ASR_0_6B_LANGS: frozenset[str] = frozenset({
+    "zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it",
+    "ko", "ru", "th", "vi", "ja", "tr", "hi", "ms", "nl", "sv",
+    "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro",
+})
+
 
 @dataclass
 class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
@@ -64,7 +70,6 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     sample_rate_key: str = "sampling_rate"
     pred_text_key: str = "asr_prediction"
     language_key: str = "asr_language"
-    asr_model_key: str = "asr_model"
     context_key: str | None = None
     run_only_if_key: str | None = None
     run_only_if_prefix: str = "Hallucination"
@@ -76,20 +81,8 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
 
-    _supported_langs: set[str] = field(default_factory=set, init=False, repr=False)
-
     def __post_init__(self) -> None:
         self._model: QwenASR | None = None
-
-    def _get_supported_languages(self) -> set[str]:
-        """Return the set of language names supported by QwenASR."""
-        if not self._supported_langs:
-            try:
-                from qwen_asr.inference.utils import SUPPORTED_LANGUAGES
-                self._supported_langs = set(SUPPORTED_LANGUAGES)
-            except ImportError:
-                pass
-        return self._supported_langs
 
     def num_workers(self) -> int | None:
         return self.num_workers_override
@@ -139,7 +132,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.waveform_key, self.sample_rate_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.pred_text_key, self.language_key, self.asr_model_key]
+        return [], [self.pred_text_key, self.language_key]
 
     # ------------------------------------------------------------------
     # Processing
@@ -160,7 +153,6 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         for task in tasks:
             task.data.setdefault(self.pred_text_key, "")
             task.data.setdefault(self.language_key, "")
-            task.data.setdefault(self.asr_model_key, "")
 
         if self.run_only_if_key:
             run_indices = [
@@ -176,15 +168,14 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             logger.info(f"QwenASR: skipped entire batch of {len(tasks)} (none matched run_only_if_key)")
             return tasks
 
-        # Filter out samples with unsupported languages
-        supported = self._get_supported_languages()
+        # Filter out samples with unsupported languages using the model's ISO-code list.
         eligible_indices: list[int] = []
         for i in run_indices:
-            if self.source_lang_key and supported:
-                code = tasks[i].data.get(self.source_lang_key, "")
-                lang_name = _LANG_CODE_TO_NAME.get(code, code) if code else None
-                if lang_name and lang_name not in supported:
-                    set_note(tasks[i].data, self.name, f"skipped (unsupported language: {lang_name})", self.notes_key)
+            if self.source_lang_key:
+                code = str(tasks[i].data.get(self.source_lang_key, "") or "").strip().lower()
+                if code not in QWEN3_ASR_0_6B_LANGS:
+                    set_note(tasks[i].data, self.name, f"skipped (unsupported language: {code})", self.notes_key)
+                    set_note(tasks[i].data, self.pred_text_key, f"lang_not_supported:{code}", self.notes_key)
                     continue
             eligible_indices.append(i)
 
@@ -212,7 +203,6 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         for idx, pred, lang in zip(eligible_indices, pred_texts, detected_langs, strict=True):
             tasks[idx].data[self.pred_text_key] = pred
             tasks[idx].data[self.language_key] = lang
-            set_note(tasks[idx].data, self.asr_model_key, "qwen3_asr", self.notes_key)
 
         for task in tasks:
             task.data.pop(self.waveform_key, None)

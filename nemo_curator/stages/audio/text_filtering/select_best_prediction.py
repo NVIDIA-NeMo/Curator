@@ -51,23 +51,21 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     produced the final text.
 
     The model that produced the final text is recorded in
-    ``source_key`` (default ``best_prediction_source``): the primary
-    model's label (default ``omni``) when the omni prediction is kept,
-    or the per-sample value stored in
-    ``additional_notes[asr_model_key]`` (e.g. ``indic_conformer``,
-    ``faster_whisper``, ``qwen3_asr``) when the ASR prediction is chosen.
+    ``source_key`` (default ``best_prediction_source``): ``"primary"``
+    when the primary model's prediction is kept, or ``"fallback"``
+    when the recovery model's prediction is chosen.
     """
 
     primary_text_key: str = "qwen3_prediction_s1"
     asr_text_key: str = "asr_prediction"
-    asr_model_key: str = "asr_model"
     output_key: str = "best_prediction"
     source_key: str = "best_prediction_source"
     notes_key: str = "additional_notes"
     skip_me_key: str = "_skipme"
     min_agreement_pct: float = 80.0
     agreement_wer_key: str = "omni_asr_agreement_wer"
-    primary_source_label: str = "omni"
+    primary_source_label: str = "primary"
+    fallback_source_label: str = "fallback"
     name: str = "SelectBestPrediction"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -81,17 +79,36 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
         primary_pred = task.data.get(self.primary_text_key, "")
         asr_pred = task.data.get(self.asr_text_key, "")
         notes = task.data.get(self.notes_key, {})
-        notes_dict = notes if isinstance(notes, dict) else {}
-        asr_model = str(notes_dict.get(self.asr_model_key, "") or "asr")
         skip_me = str(task.data.get(self.skip_me_key, ""))
 
-        has_recovery = any("recovered" in str(v).lower() for v in (notes.values() if isinstance(notes, dict) else [notes]))
-        if has_recovery and asr_pred:
-            task.data[self.output_key] = asr_pred
-            task.data[self.source_key] = asr_model
-            set_note(task.data, self.name, f"used asr ({asr_model})", self.notes_key)
+        notes_dict = notes if isinstance(notes, dict) else {}
+        primary_lang_skipped = "lang_not_supported" in str(notes_dict.get(self.primary_text_key, ""))
+        fallback_lang_skipped = "lang_not_supported" in str(notes_dict.get(self.asr_text_key, ""))
+
+        # Case 3: both models skipped (language not supported by either)
+        if primary_lang_skipped and fallback_lang_skipped:
+            task.data[self.output_key] = ""
+            task.data[self.source_key] = "none"
+            task.data[self.skip_me_key] = "not_supported"
+            set_note(task.data, self.name, "skipped:both_models_lang_not_supported", self.notes_key)
             return task
 
+        # Case 1: primary skipped (lang unsupported), fallback has a transcription
+        if primary_lang_skipped and asr_pred:
+            task.data[self.output_key] = asr_pred
+            task.data[self.source_key] = self.fallback_source_label
+            set_note(task.data, self.name, f"used {self.fallback_source_label} (primary lang unsupported)", self.notes_key)
+            return task
+
+        # Hallucination recovery: primary was hallucinated, fallback available
+        has_recovery = any("recovered" in str(v).lower() for v in notes_dict.values())
+        if has_recovery and asr_pred:
+            task.data[self.output_key] = asr_pred
+            task.data[self.source_key] = self.fallback_source_label
+            set_note(task.data, self.name, f"used {self.fallback_source_label}", self.notes_key)
+            return task
+
+        # Cross-model agreement: both hallucinated but texts match
         both_hallucinated = skip_me.startswith("Hallucination") and asr_pred
         if both_hallucinated and primary_pred:
             wer = get_wer(_normalize_for_wer(primary_pred), _normalize_for_wer(asr_pred))
@@ -107,7 +124,8 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                 set_note(task.data, self.name, f"recovered:cross_model_agreement (wer={wer:.1f}%)", self.notes_key)
                 return task
 
+        # Case 2 (default): primary OK (fallback may have been skipped or is irrelevant)
         task.data[self.output_key] = primary_pred
         task.data[self.source_key] = self.primary_source_label
-        set_note(task.data, self.name, "used omni", self.notes_key)
+        set_note(task.data, self.name, f"used {self.primary_source_label}", self.notes_key)
         return task

@@ -30,6 +30,12 @@ from nemo_curator.tasks import AudioTask
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
+INDIC_CONFORMER_600M_MULTILINGUAL_LANGS: frozenset[str] = frozenset({
+    "as", "bn", "brx", "doi", "gu", "hi", "kn", "kok", "ks", "mai",
+    "ml", "mni", "mr", "ne", "or", "pa", "sa", "sat", "sd", "ta",
+    "te", "ur",
+})
+
 
 @dataclass
 class InferenceIndicConformerStage(ProcessingStage[AudioTask, AudioTask]):
@@ -51,7 +57,6 @@ class InferenceIndicConformerStage(ProcessingStage[AudioTask, AudioTask]):
         sample_rate_key: Task data key for the integer sample rate.
         pred_text_key: Output key for the predicted transcription.
         language_key: Output key storing the source language code (passed through).
-        asr_model_key: Key written into ``additional_notes`` identifying the backend.
         notes_key: Top-level key used for ``additional_notes`` metadata.
         keep_waveform: When True the waveform stays on the task so a downstream
             stage can re-use it.
@@ -66,7 +71,6 @@ class InferenceIndicConformerStage(ProcessingStage[AudioTask, AudioTask]):
     sample_rate_key: str = "sampling_rate"
     pred_text_key: str = "asr_prediction"
     language_key: str = "asr_language"
-    asr_model_key: str = "asr_model"
     notes_key: str = "additional_notes"
     keep_waveform: bool = False
     num_workers_override: int | None = None
@@ -145,24 +149,43 @@ class InferenceIndicConformerStage(ProcessingStage[AudioTask, AudioTask]):
             task.data.setdefault(self.pred_text_key, "")
             task.data.setdefault(self.language_key, "")
 
-        waveforms = [t.data[self.waveform_key] for t in tasks]
-        sample_rates = [t.data[self.sample_rate_key] for t in tasks]
-        # Use source_lang directly as the Indic ISO language code (e.g. "hi", "ur").
+        eligible_indices: list[int] = []
+        for i, task in enumerate(tasks):
+            lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
+            if lang not in INDIC_CONFORMER_600M_MULTILINGUAL_LANGS:
+                set_note(task.data, self.name, f"skipped (unsupported language: {lang})", self.notes_key)
+                set_note(task.data, self.pred_text_key, f"lang_not_supported:{lang}", self.notes_key)
+            else:
+                eligible_indices.append(i)
+
+        lang_skipped = len(tasks) - len(eligible_indices)
+        if not eligible_indices:
+            if not self.keep_waveform:
+                for task in tasks:
+                    task.data.pop(self.waveform_key, None)
+            logger.info(f"IndicConformer: skipped entire batch of {len(tasks)} (no supported languages)")
+            return tasks
+
+        eligible_tasks = [tasks[i] for i in eligible_indices]
+        waveforms = [t.data[self.waveform_key] for t in eligible_tasks]
+        sample_rates = [t.data[self.sample_rate_key] for t in eligible_tasks]
         lang_codes = [
             str(t.data.get(self.source_lang_key, "") or "").strip().lower()
-            for t in tasks
+            for t in eligible_tasks
         ]
 
         pred_texts, langs_out = self._model.generate(waveforms, sample_rates, lang_codes)
 
-        for task, pred, lang in zip(tasks, pred_texts, langs_out, strict=True):
-            task.data[self.pred_text_key] = pred
-            task.data[self.language_key] = lang
-            set_note(task.data, self.asr_model_key, "indic_conformer", self.notes_key)
+        for task_idx, pred, lang in zip(eligible_indices, pred_texts, langs_out, strict=True):
+            tasks[task_idx].data[self.pred_text_key] = pred
+            tasks[task_idx].data[self.language_key] = lang
 
         if not self.keep_waveform:
             for task in tasks:
                 task.data.pop(self.waveform_key, None)
 
-        logger.info(f"IndicConformer: generated {len(tasks)} predictions")
+        logger.info(
+            f"IndicConformer: generated {len(eligible_indices)} predictions, "
+            f"skipped {lang_skipped} (unsupported language)"
+        )
         return tasks

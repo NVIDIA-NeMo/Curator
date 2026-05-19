@@ -45,7 +45,7 @@ Architecture:
     [optional] SEDPostprocessingStage (CPU)
         → labels entries with detected sound events (speech, music, noise, etc.)
     Primary ASR stage (GPU) — model chosen via --primary_model or --language
-        → outputs primary_prediction (and primary_prediction_s2 for Omni with followup)
+        → outputs primary_model_prediction (and primary_model_prediction_s2 for Omni with followup)
     [optional] DisfluencyWerGuardStage (CPU)
         → compares Turn 1 vs Turn 2 WER (Omni + followup_prompt only)
     WhisperHallucinationStage (CPU)
@@ -92,15 +92,16 @@ INDIC_CONFORMER_DEFAULT_MODEL_ID = "ai4bharat/indic-conformer-600m-multilingual"
 WHISPER_DEFAULT_MODEL = "large-v3"
 PARAKEET_DEFAULT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 
-# Language codes that define which primary inference model is used per invocation.
-OMNI_PRIMARY_LANGUAGE_CODES     = {"en", "de", "es", "fr", "it", "pt", "ru", "nl", "ur"}
-QWEN_ASR_PRIMARY_LANGUAGE_CODES = {"pl", "cs", "ro", "hu", "el", "fi", "da", "sv", "hi"}
-WHISPER_PRIMARY_LANGUAGE_CODES  = {"lt", "lv", "hr", "et", "bg", "sk", "sl", "mt", "uk"}
+# Recommended language codes for each primary inference model (used for auto-selection via --language).
+QWEN_OMNI_RECOMMENDED_LANGS     = {"en", "de", "es", "fr", "it", "pt", "ru", "nl", "ur"}
+QWEN_ASR_RECOMMENDED_LANGS      = {"pl", "cs", "ro", "hu", "el", "fi", "da", "sv", "hi"}
+WHISPER_RECOMMENDED_LANGS       = {"lt", "lv", "hr", "et", "bg", "sk", "sl", "mt", "uk"}
 
 # Default recovery model paired with each primary (when --recovery_model is not set):
 #   qwen_omni → qwen_asr;  qwen_asr → whisper;  whisper → parakeet
 # Indic languages override recovery to indic_conformer automatically via --language.
-INDIC_LANGUAGE_CODES = {"hi", "ur"}
+INDIC_CONFORMER_RECOMMENDED_LANGS = {"hi", "ur"}
+
 from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.stages.audio.inference.faster_whisper import InferenceFasterWhisperStage
 from nemo_curator.stages.audio.inference.indic_conformer import InferenceIndicConformerStage
@@ -173,10 +174,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         help=(
             "ISO 639-1 language code for this pipeline invocation. "
             "Auto-selects --primary_model and --recovery_model when they are not set explicitly: "
-            f"{sorted(OMNI_PRIMARY_LANGUAGE_CODES)} → primary=qwen_omni, recovery=qwen_asr; "
-            f"{sorted(QWEN_ASR_PRIMARY_LANGUAGE_CODES)} → primary=qwen_asr, recovery=whisper; "
-            f"{sorted(WHISPER_PRIMARY_LANGUAGE_CODES)} → primary=whisper, recovery=parakeet. "
-            f"Indic languages {sorted(INDIC_LANGUAGE_CODES)} set recovery=indic_conformer "
+            f"{sorted(QWEN_OMNI_RECOMMENDED_LANGS)} → primary=qwen_omni, recovery=qwen_asr; "
+            f"{sorted(QWEN_ASR_RECOMMENDED_LANGS)} → primary=qwen_asr, recovery=whisper; "
+            f"{sorted(WHISPER_RECOMMENDED_LANGS)} → primary=whisper, recovery=parakeet. "
+            f"Indic languages {sorted(INDIC_CONFORMER_RECOMMENDED_LANGS)} set recovery=indic_conformer "
             "(unless --recovery_model is set explicitly)."
         ),
     )
@@ -422,7 +423,7 @@ def _resolve_language_flags(args: argparse.Namespace) -> None:
     if args.language is None:
         return
     lang = args.language.lower().strip()
-    all_known = OMNI_PRIMARY_LANGUAGE_CODES | QWEN_ASR_PRIMARY_LANGUAGE_CODES | WHISPER_PRIMARY_LANGUAGE_CODES
+    all_known = QWEN_OMNI_RECOMMENDED_LANGS | QWEN_ASR_RECOMMENDED_LANGS | WHISPER_RECOMMENDED_LANGS
     if lang not in all_known:
         raise SystemExit(
             f"Unknown --language '{lang}'. Supported codes: {sorted(all_known)}. "
@@ -430,13 +431,13 @@ def _resolve_language_flags(args: argparse.Namespace) -> None:
         )
     primary_was_explicit = args.primary_model is not None
     if not primary_was_explicit:
-        if lang in OMNI_PRIMARY_LANGUAGE_CODES:
+        if lang in QWEN_OMNI_RECOMMENDED_LANGS:
             args.primary_model = "qwen_omni"
-        elif lang in QWEN_ASR_PRIMARY_LANGUAGE_CODES:
+        elif lang in QWEN_ASR_RECOMMENDED_LANGS:
             args.primary_model = "qwen_asr"
         else:
             args.primary_model = "whisper"
-    if args.recovery_model is None and lang in INDIC_LANGUAGE_CODES:
+    if args.recovery_model is None and lang in INDIC_CONFORMER_RECOMMENDED_LANGS:
         args.recovery_model = "indic_conformer"
     logger.info(
         "Language '{}' → primary_model={} ({}), recovery_model={}",
@@ -501,19 +502,23 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
 
     # Key that holds the primary model's transcription used by all downstream stages.
     # Omni with a disfluency follow-up produces two turns; we use the second (s2).
-    # All other primary models produce a single output written to "primary_prediction".
-    primary_text_key = "primary_prediction_s2" if (args.primary_model == "qwen_omni" and followup_prompt) else "primary_prediction"
+    # All other primary models produce a single output written to "primary_model_prediction".
+    primary_text_key = "primary_model_prediction_s2" if (args.primary_model == "qwen_omni" and followup_prompt) else "primary_model_prediction"
+
+    language_filter = [args.language] if args.language else None
 
     stages = [
         UnifiedAudioReader(
             yaml_path=args.data_config,
             corpus_filter=args.corpus,
+            language_filter=language_filter,
             output_dir=args.output_dir,
         )
         if args.use_unified_reader else
         NemoTarredAudioReader(
             yaml_path=args.data_config,
             corpus_filter=args.corpus,
+            language_filter=language_filter,
             s3_endpoint_url=args.s3_endpoint_url,
             output_dir=args.output_dir,
         ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
@@ -560,8 +565,8 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             gpu_memory_utilization=args.gpu_memory_utilization,
             prep_workers=args.prep_workers,
             source_lang_key=args.source_lang_key,
-            pred_text_key="primary_prediction",
-            disfluency_text_key="primary_prediction_s2",
+            pred_text_key="primary_model_prediction",
+            disfluency_text_key="primary_model_prediction_s2",
             keep_waveform=True,
             num_workers_override=args.omni_num_workers,
         ))
@@ -570,7 +575,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         stages.append(InferenceQwenASRStage(
             name="QwenASR_primary",
             model_id=args.asr_model_id,
-            pred_text_key="primary_prediction",
+            pred_text_key="primary_model_prediction",
             keep_waveform=True,
             source_lang_key=args.source_lang_key,
             batch_size=args.asr_batch_size,
@@ -587,7 +592,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             device=args.whisper_device,
             compute_type=args.whisper_compute_type,
             download_root=args.whisper_download_root,
-            pred_text_key="primary_prediction",
+            pred_text_key="primary_model_prediction",
             keep_waveform=True,
             source_lang_key=args.source_lang_key,
             batch_size=args.asr_batch_size,
@@ -596,8 +601,8 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
 
     if args.primary_model == "qwen_omni" and followup_prompt:
         stages.append(DisfluencyWerGuardStage(
-            ref_text_key="primary_prediction",
-            hyp_text_key="primary_prediction_s2",
+            ref_text_key="primary_model_prediction",
+            hyp_text_key="primary_model_prediction_s2",
             max_wer_pct=50.0,
         ))
 
@@ -616,6 +621,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             model_id=args.indic_conformer_model_id,
             decode_mode=args.indic_conformer_decode,
             source_lang_key=args.source_lang_key,
+            pred_text_key="fallback_model_prediction",
             batch_size=args.asr_batch_size,
             num_workers_override=args.asr_num_workers,
         )
@@ -624,6 +630,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             name="QwenASR_recovery",
             model_id=args.asr_model_id,
             source_lang_key=args.source_lang_key,
+            pred_text_key="fallback_model_prediction",
             batch_size=args.asr_batch_size,
             gpu_memory_utilization=args.asr_gpu_memory_utilization,
             max_new_tokens=args.asr_max_new_tokens,
@@ -638,6 +645,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             compute_type=args.whisper_compute_type,
             download_root=args.whisper_download_root,
             source_lang_key=args.source_lang_key,
+            pred_text_key="fallback_model_prediction",
             batch_size=args.asr_batch_size,
             num_workers_override=args.asr_num_workers,
         )
@@ -648,6 +656,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             cache_dir=args.parakeet_cache_dir,
             inference_batch_size=args.parakeet_inference_batch_size,
             source_lang_key=args.source_lang_key,
+            pred_text_key="fallback_model_prediction",
             batch_size=args.asr_batch_size,
             num_workers_override=args.asr_num_workers,
         )
@@ -657,7 +666,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         WhisperHallucinationStage(
             name="WhisperHallucination_asr",
             common_hall_file=args.hall_phrases,
-            text_key="asr_prediction",
+            text_key="fallback_model_prediction",
             overwrite=True,
             recovery_value="Recovered:ASR",
             unique_words_threshold=args.unique_words_threshold,
@@ -669,7 +678,8 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
 
     stages.append(SelectBestPredictionStage(
         primary_text_key=primary_text_key,
-        asr_text_key="asr_prediction",
+        asr_text_key="fallback_model_prediction",
+        primary_source_label="primary",
     ))
 
     stages.extend([

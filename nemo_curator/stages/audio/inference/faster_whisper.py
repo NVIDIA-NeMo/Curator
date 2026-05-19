@@ -30,6 +30,19 @@ from nemo_curator.tasks import AudioTask
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
+WHISPER_LARGE_V3_LANGS: frozenset[str] = frozenset({
+    "en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr",
+    "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi",
+    "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no",
+    "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk",
+    "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk",
+    "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw",
+    "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc",
+    "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo",
+    "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl",
+    "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue",
+})
+
 
 @dataclass
 class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
@@ -52,7 +65,6 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
         sample_rate_key: Task data key for the integer sample rate.
         pred_text_key: Output key for the predicted transcription.
         language_key: Output key for the detected/forced language code.
-        asr_model_key: Key written into ``additional_notes`` identifying the backend.
         notes_key: Top-level key used for ``additional_notes`` metadata.
         keep_waveform: When True the waveform stays on the task (needed when a
             downstream stage re-uses it, e.g. a recovery ASR stage).
@@ -71,7 +83,6 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
     sample_rate_key: str = "sampling_rate"
     pred_text_key: str = "asr_prediction"
     language_key: str = "asr_language"
-    asr_model_key: str = "asr_model"
     notes_key: str = "additional_notes"
     keep_waveform: bool = False
     num_workers_override: int | None = None
@@ -154,24 +165,43 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
             task.data.setdefault(self.pred_text_key, "")
             task.data.setdefault(self.language_key, "")
 
-        waveforms = [t.data[self.waveform_key] for t in tasks]
-        sample_rates = [t.data[self.sample_rate_key] for t in tasks]
-        # Pass source_lang directly as the forced Whisper ISO language code.
+        eligible_indices: list[int] = []
+        for i, task in enumerate(tasks):
+            lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
+            if lang not in WHISPER_LARGE_V3_LANGS:
+                set_note(task.data, self.name, f"skipped (unsupported language: {lang})", self.notes_key)
+                set_note(task.data, self.pred_text_key, f"lang_not_supported:{lang}", self.notes_key)
+            else:
+                eligible_indices.append(i)
+
+        lang_skipped = len(tasks) - len(eligible_indices)
+        if not eligible_indices:
+            if not self.keep_waveform:
+                for task in tasks:
+                    task.data.pop(self.waveform_key, None)
+            logger.info(f"FasterWhisper: skipped entire batch of {len(tasks)} (no supported languages)")
+            return tasks
+
+        eligible_tasks = [tasks[i] for i in eligible_indices]
+        waveforms = [t.data[self.waveform_key] for t in eligible_tasks]
+        sample_rates = [t.data[self.sample_rate_key] for t in eligible_tasks]
         lang_codes = [
             str(t.data.get(self.source_lang_key, "") or "").strip().lower()
-            for t in tasks
+            for t in eligible_tasks
         ]
 
         pred_texts, langs_out = self._model.generate(waveforms, sample_rates, lang_codes)
 
-        for task, pred, lang in zip(tasks, pred_texts, langs_out, strict=True):
-            task.data[self.pred_text_key] = pred
-            task.data[self.language_key] = lang
-            set_note(task.data, self.asr_model_key, "faster_whisper", self.notes_key)
+        for task_idx, pred, lang in zip(eligible_indices, pred_texts, langs_out, strict=True):
+            tasks[task_idx].data[self.pred_text_key] = pred
+            tasks[task_idx].data[self.language_key] = lang
 
         if not self.keep_waveform:
             for task in tasks:
                 task.data.pop(self.waveform_key, None)
 
-        logger.info(f"FasterWhisper: generated {len(tasks)} predictions")
+        logger.info(
+            f"FasterWhisper: generated {len(eligible_indices)} predictions, "
+            f"skipped {lang_skipped} (unsupported language)"
+        )
         return tasks
