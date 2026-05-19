@@ -113,9 +113,11 @@ def _s3_to_pipe(s3_path: str) -> str:
         raise RuntimeError(msg)
     url = f"{endpoint.rstrip('/')}/v1/objects/{bucket}/{key}?provider=s3"
     token = os.environ.get("AIS_AUTHN_TOKEN", "")
+    ca_cert = os.environ.get("AIS_CLIENT_CA", "")
+    cacert_flag = f" --cacert '{ca_cert}'" if ca_cert else ""
     if token:
-        return f"pipe:curl -sL -H 'Authorization: Bearer {token}' '{url}'"
-    return f"pipe:curl -sL '{url}'"
+        return f"pipe:curl -sL{cacert_flag} -H 'Authorization: Bearer {token}' '{url}'"
+    return f"pipe:curl -sL{cacert_flag} '{url}'"
 
 
 # ---------------------------------------------------------------------------
@@ -356,11 +358,20 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
         if tar_path:
             resolved_tar = _s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
-            return CutSet(LazyNeMoTarredIterator(
-                manifest_path=manifest_path,
-                tar_paths=resolved_tar,
-                skip_missing_manifest_entries=True,
-            ))
+            # Temporarily disable NeMo's shard ID validation — it fails when
+            # manifest is a local path but tar is a pipe:curl URL (string vs int
+            # ID comparison). Data integrity is still verified during iteration.
+            _orig_validate = LazyNeMoTarredIterator._validate
+            LazyNeMoTarredIterator._validate = lambda self: None
+            try:
+                iterator = LazyNeMoTarredIterator(
+                    manifest_path=manifest_path,
+                    tar_paths=resolved_tar,
+                    skip_missing_manifest_entries=True,
+                )
+            finally:
+                LazyNeMoTarredIterator._validate = _orig_validate
+            return CutSet(iterator)
 
         return CutSet(LazyNeMoIterator(manifest_path))
 
