@@ -49,15 +49,25 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     This allows downstream stages (FastTextLID, RegexSubstitution) to
     always read from ``best_prediction`` regardless of which model
     produced the final text.
+
+    The model that produced the final text is recorded in
+    ``source_key`` (default ``best_prediction_source``): the primary
+    model's label (default ``omni``) when the omni prediction is kept,
+    or the per-sample value stored in
+    ``additional_notes[asr_model_key]`` (e.g. ``indic_conformer``,
+    ``faster_whisper``, ``qwen3_asr``) when the ASR prediction is chosen.
     """
 
     primary_text_key: str = "qwen3_prediction_s1"
-    asr_text_key: str = "qwen3_asr_prediction"
+    asr_text_key: str = "asr_prediction"
+    asr_model_key: str = "asr_model"
     output_key: str = "best_prediction"
+    source_key: str = "best_prediction_source"
     notes_key: str = "additional_notes"
     skip_me_key: str = "_skipme"
     min_agreement_pct: float = 80.0
     agreement_wer_key: str = "omni_asr_agreement_wer"
+    primary_source_label: str = "omni"
     name: str = "SelectBestPrediction"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -65,18 +75,21 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.primary_text_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.output_key, self.skip_me_key, self.agreement_wer_key]
+        return [], [self.output_key, self.skip_me_key, self.agreement_wer_key, self.source_key]
 
     def process(self, task: AudioTask) -> AudioTask:
         primary_pred = task.data.get(self.primary_text_key, "")
         asr_pred = task.data.get(self.asr_text_key, "")
         notes = task.data.get(self.notes_key, {})
+        notes_dict = notes if isinstance(notes, dict) else {}
+        asr_model = str(notes_dict.get(self.asr_model_key, "") or "asr")
         skip_me = str(task.data.get(self.skip_me_key, ""))
 
         has_recovery = any("recovered" in str(v).lower() for v in (notes.values() if isinstance(notes, dict) else [notes]))
         if has_recovery and asr_pred:
             task.data[self.output_key] = asr_pred
-            set_note(task.data, self.name, "used asr", self.notes_key)
+            task.data[self.source_key] = asr_model
+            set_note(task.data, self.name, f"used asr ({asr_model})", self.notes_key)
             return task
 
         both_hallucinated = skip_me.startswith("Hallucination") and asr_pred
@@ -89,10 +102,12 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
                     f"(threshold {100.0 - self.min_agreement_pct:.1f}%), keeping omni prediction"
                 )
                 task.data[self.output_key] = primary_pred
+                task.data[self.source_key] = self.primary_source_label
                 task.data[self.skip_me_key] = ""
                 set_note(task.data, self.name, f"recovered:cross_model_agreement (wer={wer:.1f}%)", self.notes_key)
                 return task
 
         task.data[self.output_key] = primary_pred
+        task.data[self.source_key] = self.primary_source_label
         set_note(task.data, self.name, "used omni", self.notes_key)
         return task

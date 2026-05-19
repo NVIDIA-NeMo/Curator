@@ -62,8 +62,9 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     source_lang_key: str = "source_lang"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sampling_rate"
-    pred_text_key: str = "qwen3_asr_prediction"
-    language_key: str = "qwen3_asr_language"
+    pred_text_key: str = "asr_prediction"
+    language_key: str = "asr_language"
+    asr_model_key: str = "asr_model"
     context_key: str | None = None
     run_only_if_key: str | None = None
     run_only_if_prefix: str = "Hallucination"
@@ -138,7 +139,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.waveform_key, self.sample_rate_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.pred_text_key, self.language_key]
+        return [], [self.pred_text_key, self.language_key, self.asr_model_key]
 
     # ------------------------------------------------------------------
     # Processing
@@ -159,6 +160,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         for task in tasks:
             task.data.setdefault(self.pred_text_key, "")
             task.data.setdefault(self.language_key, "")
+            task.data.setdefault(self.asr_model_key, "")
 
         if self.run_only_if_key:
             run_indices = [
@@ -210,6 +212,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         for idx, pred, lang in zip(eligible_indices, pred_texts, detected_langs, strict=True):
             tasks[idx].data[self.pred_text_key] = pred
             tasks[idx].data[self.language_key] = lang
+            tasks[idx].data[self.asr_model_key] = "qwen3_asr"
 
         for task in tasks:
             task.data.pop(self.waveform_key, None)

@@ -45,9 +45,12 @@ class InferenceLanguageRoutedAsrStage(ProcessingStage[AudioTask, AudioTask]):
     Priority: Indic Conformer (Indic codes) → Faster-Whisper (``WHISPER_ROUTED_LANGUAGE_CODES``)
     → Qwen3-ASR for remaining languages when ``qwen_model_id`` is set.
 
-    Outputs per task: ``pred_text_key`` (default ``qwen3_asr_prediction``) and
-    ``language_key`` (default ``qwen3_asr_language``) — backend-specific language label
-    (Indic ISO code, Whisper ``language`` code such as ``tl``, or Qwen-detected name).
+    Outputs per task: ``pred_text_key`` (default ``asr_prediction``),
+    ``language_key`` (default ``asr_language``) — backend-specific language label
+    (Indic ISO code, Whisper ``language`` code such as ``tl``, or Qwen-detected name),
+    and ``additional_notes[asr_model_key]`` (default key ``asr_model``) — one of
+    ``indic_conformer``, ``faster_whisper``, ``qwen3_asr`` for samples that ran,
+    absent for skipped ones.
 
     Args:
         qwen_model_id: HuggingFace id or path for Qwen3-ASR; omit when unused.
@@ -72,8 +75,9 @@ class InferenceLanguageRoutedAsrStage(ProcessingStage[AudioTask, AudioTask]):
     source_lang_key: str = "source_lang"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sampling_rate"
-    pred_text_key: str = "qwen3_asr_prediction"
-    language_key: str = "qwen3_asr_language"
+    pred_text_key: str = "asr_prediction"
+    language_key: str = "asr_language"
+    asr_model_key: str = "asr_model"
     context_key: str | None = None
     run_only_if_key: str | None = None
     run_only_if_prefix: str = "Hallucination"
@@ -188,7 +192,7 @@ class InferenceLanguageRoutedAsrStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.waveform_key, self.sample_rate_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.pred_text_key, self.language_key]
+        return [], [self.pred_text_key, self.language_key, self.notes_key]
 
     def process(self, task: AudioTask) -> AudioTask:
         msg = "InferenceLanguageRoutedAsrStage only supports process_batch"
@@ -337,6 +341,7 @@ class InferenceLanguageRoutedAsrStage(ProcessingStage[AudioTask, AudioTask]):
             for j, pred, lo in zip(idxs, pred_texts, langs_out, strict=True):
                 tasks[j].data[self.pred_text_key] = pred
                 tasks[j].data[self.language_key] = lo
+                set_note(tasks[j].data, self.asr_model_key, "indic_conformer", self.notes_key)
 
         if whisper_items:
             widxs = [p[0] for p in whisper_items]
@@ -348,6 +353,7 @@ class InferenceLanguageRoutedAsrStage(ProcessingStage[AudioTask, AudioTask]):
             for j, pred, lo in zip(widxs, pred_texts, langs_out, strict=True):
                 tasks[j].data[self.pred_text_key] = pred
                 tasks[j].data[self.language_key] = lo
+                set_note(tasks[j].data, self.asr_model_key, "faster_whisper", self.notes_key)
 
         if qwen_indices:
             waves = [tasks[j].data[self.waveform_key] for j in qwen_indices]
@@ -370,6 +376,7 @@ class InferenceLanguageRoutedAsrStage(ProcessingStage[AudioTask, AudioTask]):
             for j, pred, det in zip(qwen_indices, pred_texts, detected, strict=True):
                 tasks[j].data[self.pred_text_key] = pred
                 tasks[j].data[self.language_key] = det
+                set_note(tasks[j].data, self.asr_model_key, "qwen3_asr", self.notes_key)
 
         for task in tasks:
             task.data.pop(self.waveform_key, None)

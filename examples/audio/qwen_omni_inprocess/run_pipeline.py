@@ -33,11 +33,16 @@ Architecture:
         → compares Turn 1 vs Turn 2 WER
     WhisperHallucinationStage (CPU)
         → flags hallucination patterns, sets _skipme
-    [optional] InferenceQwenASRStage or InferenceLanguageRoutedAsrStage (GPU)
-        → recovery ASR by ``source_lang``: Indic Conformer (``--indic_conformer_model_id``),
-          Faster-Whisper (``--whisper_model_size_or_path``), else Qwen3-ASR when ``--asr_model_id`` is set
-    [optional] WhisperHallucinationStage (CPU)
-        → checks QwenASR output; recovers or confirms hallucination
+    InferenceLanguageRoutedAsrStage (GPU)
+        → always-on recovery ASR routed by ``source_lang``: Indic Conformer
+          for Indic codes (``--indic_conformer_model_id``), Faster-Whisper for
+          Whisper-routed codes (``--whisper_model_size_or_path``), Qwen3-ASR
+          for everything else (``--asr_model_id``). All three default to
+          hardcoded model IDs; the omni prediction remains the primary winner
+          unless flagged as hallucinated. Writes ``additional_notes["asr_model"]``
+          per sample.
+    WhisperHallucinationStage (CPU)
+        → checks recovery-ASR output; recovers or confirms hallucination
     SelectBestPredictionStage (CPU)
         → picks ASR prediction if recovered, else omni prediction
     FastTextLIDStage (CPU)
@@ -69,11 +74,13 @@ import time
 from loguru import logger
 
 from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.models.indic_conformer_asr import INDIC_CONFORMER_DEFAULT_MODEL_ID
 from nemo_curator.pipeline import Pipeline
+
+QWEN_ASR_DEFAULT_MODEL_ID = "Qwen/Qwen3-ASR-0.6B"
+INDIC_CONFORMER_DEFAULT_MODEL_ID = "ai4bharat/indic-conformer-600m-multilingual"
+WHISPER_DEFAULT_MODEL = "large-v3"
 from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.stages.audio.inference.language_routed_asr import InferenceLanguageRoutedAsrStage
-from nemo_curator.stages.audio.inference.qwen_asr import InferenceQwenASRStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
 from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
 from nemo_curator.stages.audio.io.unified_reader import UnifiedAudioReader
@@ -230,22 +237,32 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     sed.add_argument("--sed_num_workers", type=int, default=None,
                      help="Fixed actor count for SED stage.")
 
-    asr = ap.add_argument_group("QwenASR hallucination recovery")
-    asr.add_argument("--asr_model_id", type=str, default=None,
-                     help="QwenASR model ID or local path. Used for non-Indic languages when "
-                          "--indic_conformer_model_id is set; otherwise enables hallucination recovery alone.")
+    asr = ap.add_argument_group("Language-routed ASR hallucination recovery (always enabled)")
     asr.add_argument(
-        "--indic_conformer_model_id",
-        nargs="?",
-        const=INDIC_CONFORMER_DEFAULT_MODEL_ID,
-        default=None,
-        metavar="HF_REPO_OR_PATH",
+        "--asr_model_id",
+        type=str,
+        default=QWEN_ASR_DEFAULT_MODEL_ID,
         help=(
-            "Enable language-routed recovery with AI4Bharat Indic Conformer for Indic source_lang codes. "
-            f"Pass flag alone to use {INDIC_CONFORMER_DEFAULT_MODEL_ID}; "
-            "or pass a repo/path explicitly. Non-Indic samples use --asr_model_id when set."
+            f"Qwen3-ASR model ID or local path (default: {QWEN_ASR_DEFAULT_MODEL_ID}). "
+            "Used as the default fallback backend for languages not handled by Indic Conformer "
+            "or Faster-Whisper."
         ),
     )
+    asr.add_argument("--no_qwen_asr", action="store_true", default=False,
+                     help="Disable the Qwen3-ASR backend in the language-routed ASR stage.")
+    asr.add_argument(
+        "--indic_conformer_model_id",
+        type=str,
+        default=INDIC_CONFORMER_DEFAULT_MODEL_ID,
+        metavar="HF_REPO_OR_PATH",
+        help=(
+            f"AI4Bharat Indic Conformer model ID (default: {INDIC_CONFORMER_DEFAULT_MODEL_ID}). "
+            "Used for Indic source_lang codes. The HF repo is gated — set HF_TOKEN in the "
+            "environment, or pass --no_indic_conformer to skip this backend."
+        ),
+    )
+    asr.add_argument("--no_indic_conformer", action="store_true", default=False,
+                     help="Disable the Indic Conformer backend in the language-routed ASR stage.")
     asr.add_argument(
         "--indic_conformer_decode",
         type=str,
@@ -256,14 +273,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     asr.add_argument(
         "--whisper_model_size_or_path",
         type=str,
-        default=None,
+        default=WHISPER_DEFAULT_MODEL,
         metavar="MODEL",
         help=(
-            "faster-whisper model name or path (e.g. large-v3). When set with language-routed recovery, "
-            "routes Romanian/Hungarian/Greek/Finnish/Danish/Swedish/Thai/Filipino/Tagalog/Persian "
+            f"faster-whisper model name or path (default: {WHISPER_DEFAULT_MODEL}). "
+            "Routes Romanian/Hungarian/Greek/Finnish/Danish/Swedish/Thai/Filipino/Tagalog/Persian "
             "source_lang codes to Whisper; see WHISPER_ROUTED_LANGUAGE_CODES in pipeline_utils."
         ),
     )
+    asr.add_argument("--no_whisper", action="store_true", default=False,
+                     help="Disable the Faster-Whisper backend in the language-routed ASR stage.")
     asr.add_argument(
         "--whisper_device",
         type=str,
@@ -336,10 +355,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             itn_prompt_text = f.read().strip()
 
     omni_text_key = "qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1"
-    enable_recovery_asr = bool(
-        args.asr_model_id or args.indic_conformer_model_id or args.whisper_model_size_or_path
-    )
-    use_language_routed_asr = bool(args.indic_conformer_model_id or args.whisper_model_size_or_path)
 
     stages = [
         UnifiedAudioReader(
@@ -393,7 +408,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         source_lang_key=args.source_lang_key,
         pred_text_key="qwen3_prediction_s1",
         disfluency_text_key="qwen3_prediction_s2",
-        keep_waveform=enable_recovery_asr,
+        keep_waveform=True,
         num_workers_override=args.omni_num_workers,
     ))
 
@@ -414,53 +429,48 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         max_char_rate=args.max_char_rate,
     ))
 
-    if enable_recovery_asr:
-        whisper_asr = WhisperHallucinationStage(
+    qwen_asr_id = None if args.no_qwen_asr else args.asr_model_id
+    indic_conformer_id = None if args.no_indic_conformer else args.indic_conformer_model_id
+    whisper_model = None if args.no_whisper else args.whisper_model_size_or_path
+    if not (qwen_asr_id or indic_conformer_id or whisper_model):
+        msg = (
+            "All three ASR backends are disabled (--no_qwen_asr, --no_indic_conformer, --no_whisper). "
+            "Enable at least one or remove the InferenceLanguageRoutedAsrStage."
+        )
+        raise SystemExit(msg)
+
+    stages.extend([
+        InferenceLanguageRoutedAsrStage(
+            qwen_model_id=qwen_asr_id,
+            indic_model_id=indic_conformer_id,
+            indic_decode_mode=args.indic_conformer_decode,
+            whisper_model_size_or_path=whisper_model,
+            whisper_device=args.whisper_device,
+            whisper_compute_type=args.whisper_compute_type,
+            whisper_download_root=args.whisper_download_root,
+            source_lang_key=args.source_lang_key,
+            batch_size=args.asr_batch_size,
+            gpu_memory_utilization=args.asr_gpu_memory_utilization,
+            max_new_tokens=args.asr_max_new_tokens,
+            max_inference_batch_size=args.asr_batch_size,
+            num_workers_override=args.asr_num_workers,
+        ),
+        WhisperHallucinationStage(
             name="WhisperHallucination_asr",
             common_hall_file=args.hall_phrases,
-            text_key="qwen3_asr_prediction",
+            text_key="asr_prediction",
             overwrite=True,
-            recovery_value="Recovered:QwenASR",
+            recovery_value="Recovered:ASR",
             unique_words_threshold=args.unique_words_threshold,
             long_word_threshold=args.long_word_threshold,
             long_word_rel_threshold=args.long_word_rel_threshold,
             max_char_rate=args.max_char_rate,
-        )
-        if use_language_routed_asr:
-            stages.extend([
-                InferenceLanguageRoutedAsrStage(
-                    qwen_model_id=args.asr_model_id,
-                    indic_model_id=args.indic_conformer_model_id,
-                    indic_decode_mode=args.indic_conformer_decode,
-                    whisper_model_size_or_path=args.whisper_model_size_or_path,
-                    whisper_device=args.whisper_device,
-                    whisper_compute_type=args.whisper_compute_type,
-                    whisper_download_root=args.whisper_download_root,
-                    source_lang_key=args.source_lang_key,
-                    batch_size=args.asr_batch_size,
-                    gpu_memory_utilization=args.asr_gpu_memory_utilization,
-                    max_new_tokens=args.asr_max_new_tokens,
-                    max_inference_batch_size=args.asr_batch_size,
-                    num_workers_override=args.asr_num_workers,
-                ),
-                whisper_asr,
-            ])
-        else:
-            stages.extend([
-                InferenceQwenASRStage(
-                    model_id=args.asr_model_id,
-                    source_lang_key=args.source_lang_key,
-                    batch_size=args.asr_batch_size,
-                    gpu_memory_utilization=args.asr_gpu_memory_utilization,
-                    max_new_tokens=args.asr_max_new_tokens,
-                    num_workers_override=args.asr_num_workers,
-                ),
-                whisper_asr,
-            ])
+        ),
+    ])
 
     stages.append(SelectBestPredictionStage(
         primary_text_key=omni_text_key,
-        asr_text_key="qwen3_asr_prediction",
+        asr_text_key="asr_prediction",
     ))
 
     stages.extend([

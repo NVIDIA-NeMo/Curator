@@ -20,6 +20,7 @@ See model card: https://huggingface.co/ai4bharat/indic-conformer-600m-multilingu
 from __future__ import annotations
 
 import gc
+import os
 from typing import Any, Literal
 
 import numpy as np
@@ -28,8 +29,14 @@ from loguru import logger
 
 from nemo_curator.models.base import ModelInterface
 
+# Silence ONNX Runtime informational chatter from the model_onnx.py wrapper.
+# Must be set before any ``import onnxruntime`` so the global env is captured.
+os.environ.setdefault("ORT_LOG_SEVERITY_LEVEL", "3")
+
 INDIC_CONFORMER_DEFAULT_MODEL_ID = "ai4bharat/indic-conformer-600m-multilingual"
 _TARGET_SR = 16000
+_ORT_INTRA_OP_THREADS = 2
+_ORT_INTER_OP_THREADS = 1
 
 
 class IndicConformerASR(ModelInterface):
@@ -51,19 +58,43 @@ class IndicConformerASR(ModelInterface):
 
     def setup(self) -> None:
         try:
+            import onnxruntime as ort
             import torch
             from transformers import AutoModel
         except ImportError as e:
             msg = (
-                "transformers and torch are required for IndicConformerASR. "
-                "Install per the model card, e.g. pip install transformers torchaudio"
+                "transformers, torch, and onnxruntime are required for IndicConformerASR. "
+                "Install per the model card, e.g. pip install transformers torchaudio onnxruntime-gpu"
             )
             raise ImportError(msg) from e
 
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"Loading Indic Conformer model={self.model_id} decode={self.decode_mode} device={self._device}")
 
-        self._model = AutoModel.from_pretrained(self.model_id, trust_remote_code=True)
+        # Patch ort.InferenceSession.__init__ for the duration of from_pretrained
+        # so the HF wrapper's ~28 session creations pick up sensible defaults
+        # (small thread pools, sequential execution, full graph optimisation,
+        # quiet logger). Restore the original immediately after to avoid global
+        # side effects on any other ORT user (e.g. SigMOS) in the same process.
+        _orig_init = ort.InferenceSession.__init__
+
+        def _patched_init(self_: Any, *args: Any, **kwargs: Any) -> None:
+            if not kwargs.get("sess_options"):
+                opts = ort.SessionOptions()
+                opts.intra_op_num_threads = _ORT_INTRA_OP_THREADS
+                opts.inter_op_num_threads = _ORT_INTER_OP_THREADS
+                opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                opts.log_severity_level = 3
+                kwargs["sess_options"] = opts
+            return _orig_init(self_, *args, **kwargs)
+
+        ort.InferenceSession.__init__ = _patched_init
+        try:
+            self._model = AutoModel.from_pretrained(self.model_id, trust_remote_code=True)
+        finally:
+            ort.InferenceSession.__init__ = _orig_init
+
         self._model.to(self._device)
         self._model.eval()
 
