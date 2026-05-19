@@ -8,6 +8,7 @@
 instances:
   - url: nemo-curator.docs.buildwithfern.com/nemo/curator
     custom-domain: docs.nvidia.com/nemo/curator
+    multi-source: true
 
 redirects:
   - source: "/nemo/curator/home"
@@ -186,4 +187,3 @@ libraries:
 experimental:
   mdx-components:
     - ./components
-  basepath-aware: true
