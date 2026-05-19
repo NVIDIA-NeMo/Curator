@@ -17,7 +17,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.stages.base import CompositeStage, ProcessingStage, assign_root_lineage
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import Task
 
 
@@ -213,5 +213,7 @@ class Pipeline:
                 )
 
         if initial_tasks:
-            assign_root_lineage(initial_tasks)
+            # Assign deterministic root-level lineage to initial pipeline tasks
+            for i, task in enumerate(initial_tasks):
+                task._set_lineage([], i)
         return executor.execute(self.stages, initial_tasks)
