@@ -119,6 +119,15 @@ class InferenceLanguageRoutedAsrStage(ProcessingStage[AudioTask, AudioTask]):
     max_inference_batch_size: int = 128
     num_workers_override: int | None = None
     single_resident_models: bool = True
+    # When set to one of ``"qwen" / "indic" / "whisper" / "parakeet"``, the stage
+    # routes EVERY sample to that backend regardless of ``source_lang``. Used to
+    # reuse this stage as the language-specific primary inference step where the
+    # caller has already picked the correct backend for the (single) language in
+    # play. The corresponding backend must also be enabled (model id provided).
+    force_backend: Literal["qwen", "indic", "whisper", "parakeet"] | None = None
+    # When True, the waveform is left on the task so the next ASR stage can
+    # reuse it. Default False matches recovery-stage behaviour (pop to free RAM).
+    keep_waveform: bool = False
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
     _qwen_model: QwenASR | None = field(default=None, init=False, repr=False)

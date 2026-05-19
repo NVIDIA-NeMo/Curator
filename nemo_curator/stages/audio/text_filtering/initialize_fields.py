@@ -46,6 +46,8 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     - Renames ``original_text_key`` → ``granary_v1_key`` (if the key
       exists in the task data).
     - Drops all keys listed in ``drop_keys``.
+    - Stamps any key/value pairs from ``pipeline_notes`` into
+      ``additional_notes`` (e.g. ``primary_model``, ``recovery_model``).
 
     Downstream stages store a human-readable reason string in
     ``_skipme`` when they flag an entry (e.g. ``"Hallucination"``).
@@ -58,6 +60,7 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     source_lang_key: str = "source_lang"
     default_source_lang: str = "en"
     drop_keys: list[str] = field(default_factory=lambda: list(_DEFAULT_DROP_KEYS))
+    pipeline_notes: dict[str, str] = field(default_factory=dict)
     name: str = "InitializeFields"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -77,6 +80,7 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
             notes = {}
         if v1_skipme:
             notes["v1_skipme"] = v1_skipme
+        notes.update(self.pipeline_notes)
         task.data[self.notes_key] = notes
         task.data[self.skip_me_key] = ""
         if self.source_lang_key and self.source_lang_key not in task.data:

@@ -21,6 +21,7 @@ from loguru import logger
 
 from nemo_curator.models.qwen_omni import QwenOmni
 from nemo_curator.stages.audio.pipeline_utils import LANG_CODE_TO_NAME as _LANG_CODE_TO_NAME
+from nemo_curator.stages.audio.pipeline_utils import set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -89,6 +90,8 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
+    notes_key: str = "additional_notes"
+    primary_model_key: str = "primary_model"
 
     def __post_init__(self) -> None:
         self._model: QwenOmni | None = None
@@ -196,6 +199,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data[self.disfluency_text_key] = disfl
             if i in skipped_indices:
                 task.data[self.skip_me_key] = "empty_audio"
+            set_note(task.data, self.primary_model_key, "qwen3_omni", self.notes_key)
             if not self.keep_waveform:
                 task.data.pop(self.waveform_key, None)
 

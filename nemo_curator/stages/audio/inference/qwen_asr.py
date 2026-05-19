@@ -212,7 +212,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         for idx, pred, lang in zip(eligible_indices, pred_texts, detected_langs, strict=True):
             tasks[idx].data[self.pred_text_key] = pred
             tasks[idx].data[self.language_key] = lang
-            tasks[idx].data[self.asr_model_key] = "qwen3_asr"
+            set_note(tasks[idx].data, self.asr_model_key, "qwen3_asr", self.notes_key)
 
         for task in tasks:
             task.data.pop(self.waveform_key, None)

@@ -1,0 +1,177 @@
+# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Standalone faster-whisper inference stage for a single language group."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from loguru import logger
+
+from nemo_curator.models.faster_whisper_asr import FasterWhisperASR
+from nemo_curator.stages.audio.pipeline_utils import set_note
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+
+
+@dataclass
+class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
+    """Audio transcription using faster-whisper with a forced language code per sample.
+
+    Designed for single-language-group invocations where every sample belongs to
+    the same language family (e.g. WHISPER_PRIMARY_LANGUAGE_CODES). The ISO
+    ``source_lang`` value is passed directly to Whisper as the forced ``language``
+    parameter, so no per-sample routing is needed.
+
+    Args:
+        model_size_or_path: faster-whisper model name or local path (e.g. ``"large-v3"``).
+        device: ``"cuda"``, ``"cpu"``, or ``"auto"``.
+        compute_type: faster-whisper quantisation type (e.g. ``"float16"``, ``"int8"``).
+        download_root: Optional cache directory for model downloads.
+        beam_size: Beam search width.
+        vad_filter: Enable faster-whisper built-in VAD filtering.
+        source_lang_key: Task data key holding the per-sample ISO language code.
+        waveform_key: Task data key for the mono float32 numpy waveform.
+        sample_rate_key: Task data key for the integer sample rate.
+        pred_text_key: Output key for the predicted transcription.
+        language_key: Output key for the detected/forced language code.
+        asr_model_key: Key written into ``additional_notes`` identifying the backend.
+        notes_key: Top-level key used for ``additional_notes`` metadata.
+        keep_waveform: When True the waveform stays on the task (needed when a
+            downstream stage re-uses it, e.g. a recovery ASR stage).
+        num_workers_override: Fixed Ray actor count. None = autoscaler decides.
+    """
+
+    name: str = "FasterWhisper_inference"
+    model_size_or_path: str = "large-v3"
+    device: str = "cuda"
+    compute_type: str = "float16"
+    download_root: str | None = None
+    beam_size: int = 5
+    vad_filter: bool = True
+    source_lang_key: str = "source_lang"
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sampling_rate"
+    pred_text_key: str = "asr_prediction"
+    language_key: str = "asr_language"
+    asr_model_key: str = "asr_model"
+    notes_key: str = "additional_notes"
+    keep_waveform: bool = False
+    num_workers_override: int | None = None
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
+    batch_size: int = 128
+    _model: FasterWhisperASR | None = field(default=None, init=False, repr=False)
+
+    # ------------------------------------------------------------------
+    # Scaling hooks
+    # ------------------------------------------------------------------
+
+    def num_workers(self) -> int | None:
+        return self.num_workers_override
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {}
+        if self.num_workers_override is not None:
+            spec["num_workers"] = self.num_workers_override
+        return spec
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def _create_model(self) -> FasterWhisperASR:
+        return FasterWhisperASR(
+            model_size_or_path=self.model_size_or_path,
+            device=self.device,
+            compute_type=self.compute_type,
+            download_root=self.download_root,
+            beam_size=self.beam_size,
+            vad_filter=self.vad_filter,
+        )
+
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        self._model = self._create_model()
+        self._model.setup()
+        logger.info(f"FasterWhisper model ready on node: {self.model_size_or_path}")
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        if self._model is None:
+            self._model = self._create_model()
+            self._model.setup()
+
+    def teardown(self) -> None:
+        if self._model is not None:
+            self._model.teardown()
+            self._model = None
+
+    # ------------------------------------------------------------------
+    # I/O contract
+    # ------------------------------------------------------------------
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.waveform_key, self.sample_rate_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.pred_text_key, self.language_key]
+
+    # ------------------------------------------------------------------
+    # Processing
+    # ------------------------------------------------------------------
+
+    def process(self, task: AudioTask) -> AudioTask:
+        msg = "InferenceFasterWhisperStage only supports process_batch"
+        raise NotImplementedError(msg)
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        if len(tasks) == 0:
+            return []
+        if self._model is None:
+            msg = "Model not initialized — setup() was not called"
+            raise RuntimeError(msg)
+
+        for task in tasks:
+            task.data.setdefault(self.pred_text_key, "")
+            task.data.setdefault(self.language_key, "")
+
+        waveforms = [t.data[self.waveform_key] for t in tasks]
+        sample_rates = [t.data[self.sample_rate_key] for t in tasks]
+        # Pass source_lang directly as the forced Whisper ISO language code.
+        lang_codes = [
+            str(t.data.get(self.source_lang_key, "") or "").strip().lower()
+            for t in tasks
+        ]
+
+        pred_texts, langs_out = self._model.generate(waveforms, sample_rates, lang_codes)
+
+        for task, pred, lang in zip(tasks, pred_texts, langs_out, strict=True):
+            task.data[self.pred_text_key] = pred
+            task.data[self.language_key] = lang
+            set_note(task.data, self.asr_model_key, "faster_whisper", self.notes_key)
+
+        if not self.keep_waveform:
+            for task in tasks:
+                task.data.pop(self.waveform_key, None)
+
+        logger.info(f"FasterWhisper: generated {len(tasks)} predictions")
+        return tasks

@@ -39,7 +39,7 @@ _ISO639_3_TO_1: dict[str, str] = {
     "heb": "he", "hin": "hi", "hrv": "hr", "hun": "hu", "hye": "hy",
     "ibo": "ig", "ind": "id", "isl": "is", "ita": "it", "jav": "jv",
     "jpn": "ja", "kan": "kn", "kat": "ka", "khm": "km", "kor": "ko",
-    "lao": "lo", "lav": "lv", "lit": "lt", "mal": "ml", "mar": "mr",
+    "lao": "lo", "lav": "lv", "lvs": "lv", "lit": "lt", "mal": "ml", "mar": "mr",
     "mkd": "mk", "mon": "mn", "msa": "ms", "mya": "my", "nep": "ne",
     "nld": "nl", "nob": "nb", "nor": "no", "ori": "or", "pan": "pa",
     "pol": "pl", "por": "pt", "ron": "ro", "rus": "ru", "sin": "si",
