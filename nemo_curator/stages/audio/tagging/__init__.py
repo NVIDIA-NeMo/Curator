@@ -32,6 +32,7 @@ _LAZY_IMPORTS = {
     # --- Preprocessing (tagging/) ---
     "ResampleAudioStage": "nemo_curator.stages.audio.tagging.resample_audio",
     "SplitLongAudioStage": "nemo_curator.stages.audio.tagging.split",
+    "SplitLongAudioBySegmentsStage": "nemo_curator.stages.audio.tagging.split",
     "JoinSplitAudioMetadataStage": "nemo_curator.stages.audio.tagging.split",
     "SplitASRAlignJoinStage": "nemo_curator.stages.audio.tagging.split",
     "MergeAlignmentDiarizationStage": "nemo_curator.stages.audio.tagging.merge_alignment_diarization",

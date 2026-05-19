@@ -200,6 +200,95 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
+class SplitLongAudioBySegmentsStage(ProcessingStage[AudioTask, AudioTask]):
+    """
+    Stage that splits long audio files into segments by segments_key.
+
+    Splits the audio file into segments by segments_key.
+    """
+
+    segments_key: str = "segments"
+    min_len: float = 1.0
+
+    name: str = "SplitLongAudioBySegments"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["duration", self.segments_key, "resampled_audio_filepath"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [
+            "duration",
+            self.segments_key,
+            "resampled_audio_filepath",
+        ]
+
+    def process(self, task: AudioTask) -> AudioTask:
+        """Process entry to split long audio files."""
+        with self._time_metric("process_time"):
+            return self._do_split(task)
+
+    def _do_split(self, task: AudioTask) -> AudioTask:
+        """Core splitting logic, separated to keep statement count within limits."""
+        data_entry = task.data
+        duration = data_entry["duration"]
+
+        segments = data_entry[self.segments_key]
+
+        audio_path = data_entry["resampled_audio_filepath"]
+        _fs, resolved_path = url_to_fs(audio_path)
+
+        parent_url, filename = audio_path.rsplit("/", 1) if "/" in audio_path else ("", audio_path)
+        resolved_parent = resolved_path.rsplit("/", 1)[0] if "/" in resolved_path else ""
+        stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+        audio, sr = torchaudio.load(resolved_path)
+
+        for idx, segment in enumerate(segments):
+            split_start = int(segment["start"] * sr)
+            split_end = int(segment["end"] * sr)
+
+            if split_end - split_start > self.min_len * sr:
+                try:
+                    split_name = f"{stem}.{idx + 1}_of_{len(segments)}.wav"
+                    split_filepath = f"{parent_url}/{split_name}" if parent_url else split_name
+                    split_resolved = f"{resolved_parent}/{split_name}" if resolved_parent else split_name
+                    torchaudio.save(split_resolved, audio[:, split_start:split_end], sr)
+                    segment["resampled_audio_filepath"] = split_filepath
+                    segment["duration"] = segment["end"] - segment["start"]
+                except (RuntimeError, OSError) as e:
+                    logger.error(f"Error saving audio segment {idx}: {e}")
+                    continue
+
+        self._log_metrics({"input_duration": duration, "splits_produced": len(segments)})
+        return task
+
+    @staticmethod
+    def _build_split_metadata(
+        audio_item_id: str,
+        segments: list[dict],
+        *,
+        fallback: bool = False,
+    ) -> list[dict]:
+        """Build per-split metadata dicts from filepaths and durations."""
+        if fallback:
+            return [
+                {
+                    "audio_item_id": audio_item_id,
+                    "resampled_audio_filepath": segments[0]["resampled_audio_filepath"],
+                    "duration": segments[0]["duration"],
+                }
+            ]
+        return [
+            {
+                "audio_item_id": f"{audio_item_id}_{idx}",
+                "resampled_audio_filepath": segment["resampled_audio_filepath"],
+                "duration": segment["duration"],
+            }
+            for idx, segment in enumerate(segments)
+        ]
+
+
+@dataclass
 class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
     """
     Stage for joining metadata of previously split audio files.
