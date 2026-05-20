@@ -1,15 +1,13 @@
 # Steward: Benchmarking & Performance
 
-Performance gates and profiling for NeMo Curator. Covers the nightly
-benchmark suite, ALM (audio language model) and audio profiling, and
-the runners/tools that produce comparable numbers across runs.
+Performance gates and profiling: nightly benchmark suite, ALM (audio
+language model) profiling, audio profiling, and the runners that
+produce comparable numbers across runs.
 
-Related docs:
-
-- root [AGENTS.md](../AGENTS.md)
-- [benchmarking/README.md](README.md)
-- [benchmarking/ALM_BENCHMARK.md](ALM_BENCHMARK.md)
-- [benchmarking/AUDIO_PROFILING.md](AUDIO_PROFILING.md)
+Related: root [AGENTS.md](../AGENTS.md),
+[benchmarking/README.md](README.md),
+[ALM_BENCHMARK.md](ALM_BENCHMARK.md),
+[AUDIO_PROFILING.md](AUDIO_PROFILING.md).
 
 ## Point Of View
 
@@ -19,85 +17,51 @@ and backends — without comparability, benchmarks become noise.
 
 ## Protect
 
-- **Run reproducibility**: a benchmark configuration must produce
-  comparable results when re-run on the same hardware. Pin seeds,
-  data, and software versions where it matters.
-- **Hardware capture**: every result must record what it ran on.
-  Numbers without hardware context cannot be compared.
-- **`benchmarking/test-paths.yaml`** is the canonical list of what
-  the suite runs; PRs that change scope update it.
-- **`nightly-benchmark.yaml`** is wired into CI; changes there
-  require automation team review (per CODEOWNERS).
-- **Result format stability**: downstream tooling consumes results;
+- **Reproducibility.** A benchmark config produces comparable results
+  when re-run on the same hardware. Pin seeds, data, and software
+  versions where it matters.
+- **Hardware capture.** Every result records what it ran on. Numbers
+  without hardware context cannot be compared.
+- **`test-paths.yaml`** is the canonical scope of the suite.
+- **`nightly-benchmark.yaml`** is wired into CI; changes route to
+  automation per CODEOWNERS.
+- **Result schema stability.** Downstream tooling consumes results;
   schema changes are user-visible.
-- **Data preparation isolation** (`data_prep/`): bench input
-  preparation must not silently change between runs.
+- **Data-prep isolation** (`data_prep/`): bench input prep must not
+  silently change between runs.
 
 ## Contract Checklist
 
 When this domain changes:
 
-- `benchmarking/run.py`, `benchmarking/runner/`,
-  `benchmarking/scripts/`, `benchmarking/tools/`
-- `benchmarking/test-paths.yaml`
-- `benchmarking/nightly-benchmark.yaml`
-- `benchmarking/data_prep/`, `benchmarking/tools/`
-- `benchmarking/Dockerfile` — keep aligned with `docker/`
-- `benchmarking/ALM_BENCHMARK.md`, `AUDIO_PROFILING.md`, `README.md`
+- `benchmarking/{run.py,runner/,scripts/,tools/,data_prep/,Dockerfile,test-paths.yaml,nightly-benchmark.yaml}`
+- `benchmarking/{ALM_BENCHMARK,AUDIO_PROFILING,README}.md`
+- `docker/` for runtime-dependency alignment
 - `fern/` performance / benchmarking pages if present
 - `CHANGELOG.md` for user-visible perf regressions or improvements
 
 ## Advocate
 
-- A regression-detection step that compares current results against a
-  baseline and flags > N% slowdowns.
+- Regression detection: compare current results against a baseline
+  and flag > N% slowdowns.
 - A "minimum viable benchmark" recipe for new modality work so perf
   gates exist from day one.
-- Clearer cost/throughput reporting per executor (Xenna vs Ray Data
-  vs Ray Actor Pool).
+- Per-executor cost/throughput reporting (Xenna vs Ray Data vs Ray
+  Actor Pool).
 - Reproducibility instructions in `README.md` that round-trip
   against current runner code.
 
-## Serve Peers
-
-- **To deduplication, video, text stewards**: provide perf signal
-  when their stages change.
-- **To backends steward**: cross-executor perf parity is a primary
-  concern; surface where one executor falls behind another.
-- **To docs steward**: keep perf numbers in `fern/` aligned with
-  current bench output; flag stale numbers.
-
-## Do Not
-
-- Compare numbers across different hardware or software versions
-  without flagging the change.
-- Land a perf-affecting change without re-running affected
-  benchmarks.
-- Edit `nightly-benchmark.yaml` or `scripts/` without routing to
-  `@NVIDIA-NeMo/curator_reviewers` per CODEOWNERS.
-- Use private model artifacts or licensed data that cannot be
-  re-run by other contributors.
-
 ## Own
 
-**Code surfaces**:
+**Code:** `benchmarking/` (entire tree).
 
-- `benchmarking/` (entire tree, minus `scripts/` and
-  `nightly-benchmark.yaml` which route to `curator_reviewers`)
+**Docs (autopilot surface):** `benchmarking/README.md`,
+`ALM_BENCHMARK.md`, `AUDIO_PROFILING.md`; `fern/` performance pages if
+present.
 
-**Tests**: benchmark runs themselves; surface failures as test
-failures where practical.
+**CODEOWNERS:**
 
-**Docs (autopilot audit surface)**:
-
-- `benchmarking/README.md`, `ALM_BENCHMARK.md`, `AUDIO_PROFILING.md`
-- `fern/` benchmarking / performance pages if present (to be pinned
-  in the next docs autopilot pass)
-
-**Agent-facing artifacts**: none scoped to benchmarking yet.
-
-**CODEOWNERS routing**:
-
-- `benchmarking/`: `@rlratzel @praateekmahajan @sarahyurick @ayushdg`
-- `benchmarking/scripts/` and `benchmarking/nightly-benchmark.yaml`:
+- `benchmarking/` → `@rlratzel @praateekmahajan @sarahyurick
+  @ayushdg`
+- `benchmarking/scripts/` and `nightly-benchmark.yaml` →
   `@NVIDIA-NeMo/curator_reviewers` (excludes Rick)

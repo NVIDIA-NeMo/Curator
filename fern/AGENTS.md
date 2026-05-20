@@ -1,205 +1,120 @@
 # Steward: Documentation (Fern, Canonical)
 
-`fern/` is the canonical, user-facing documentation site published at
-`docs.nvidia.com/nemo/curator`. **`docs/` is deprecated** — do not add
-or edit pages there for product reasons; only decommissioning changes
-land in `docs/`. Release notes go in `fern/` only.
+`fern/` is the canonical user-facing docs site, published at
+`docs.nvidia.com/nemo/curator`. **`docs/` is under a write-freeze
+effective 2026-05-20** — only decommissioning steps land there.
+Release notes go in `fern/` only. This steward owns the Doc Autopilot
+ritual defined in root [AGENTS.md](../AGENTS.md).
 
-This is the **Docs Steward**. It owns the Doc Autopilot ritual that
-keeps the whole docs surface accurate over time.
-
-Related docs:
-
-- root [AGENTS.md](../AGENTS.md) — Doc Autopilot section, Known
-  Regression Patterns
-- `fern/README.md`, `fern/AUTODOCS_GUIDE.md`
-- `requirements-docs.txt`
-- `.claude/skills/nemo-curator-docs/` — the docs skill, which should
-  point back here
+Related: `fern/README.md`, `fern/AUTODOCS_GUIDE.md`,
+`requirements-docs.txt`, `.claude/skills/nemo-curator-docs/`.
 
 ## Point Of View
 
-The user's first contact with NeMo Curator. Defends accuracy of every
-claim made about the product: install steps, CLI flags, classifier
-names, executor selection, GPU prerequisites. Owns the cadence of
-content audits, not just the response to individual doc PRs.
+The user's first contact with NeMo Curator. Defends the accuracy of
+every claim made about the product: install steps, CLI flags,
+classifier names, executor selection, GPU prerequisites. Owns the
+cadence of content audits, not just the response to individual doc
+PRs.
 
 ## Protect
 
-- **Canonicality**: `fern/` is the authoritative user-facing docs
-  source. If an agent-facing artifact (cursor rule, copilot
-  instruction, Claude skill, `AGENTS.md`) carries product knowledge
-  that should be public, fix `fern/` first.
-- **`docs/` write-freeze**: `docs/` is being decommissioned. From
-  this PR forward (2026-05-20), new product-facing changes to `docs/`
-  are a P0; only decommissioning steps (removing pages, deleting
-  redirects, retiring `docs/conf.py`) land there. Existing content
-  in `docs/` (including historical release notes under
-  `docs/about/release-notes/`) is tracked for removal — see Advocate.
-- **Release notes location**: from 2026-05-20 onward, release notes
-  land in `fern/` only. Historical release notes under
-  `docs/about/release-notes/` are scheduled for removal as part of
-  the `docs/` decommission.
-- **Version structure**: `fern/versions/{latest,main,v25.09,v26.02,v26.04}.yml`
-  and matching directories. Adding a version is a coordinated change
-  (versions, redirects, `docs.yml`).
-- **Redirects in `fern/docs.yml`** carry years of inbound links;
-  removing one without checking inbound traffic breaks SEO and
-  bookmarks.
-- **No fabricated CLI flags, config fields, classifier names, codec
-  lists, or version pins.** Every documented surface must trace to a
-  Pydantic field, argparse declaration, class definition, or
-  configuration schema in source.
-- **Snippets and code blocks** must round-trip against current public
-  API: `from nemo_curator…` imports must resolve, CLI invocations
-  must match argparse, `pipeline.add_stage(...)` examples must
-  type-check.
-- **Cross-page consistency**: same fact stated identically across
-  Fern pages, `README.md`, `CONTRIBUTING.md`, `api-design.md`, cursor
+- **Canonicality.** `fern/` is authoritative. Agent-facing artifacts
+  (cursor rules, copilot instructions, Claude skills, AGENTS.md)
+  extend `fern/`; they never replace it. Product knowledge that
+  surfaces only in an agent artifact is a docs bug — fix `fern/`
+  first.
+- **`docs/` write-freeze (effective 2026-05-20).** New product-facing
+  changes to `docs/` are P0. Existing content under `docs/`,
+  including `docs/about/release-notes/`, is tracked for removal — see
+  Advocate.
+- **Versions and redirects.**
+  `fern/versions/{latest,main,v25.09,v26.02,v26.04}.yml` and matching
+  directories. Adding a version coordinates `fern/docs.yml` redirects
+  and inbound-link impact. `fern/docs.yml` redirects carry years of
+  inbound traffic; don't remove without checking traffic.
+- **No fabricated claims.** Every documented flag, config field,
+  classifier name, codec, default, or version pin must trace to source
+  (Pydantic field, argparse declaration, dataclass, class definition,
+  config schema). Every snippet must round-trip:
+  `from nemo_curator…` imports resolve, CLI lines match argparse,
+  `pipeline.add_stage(...)` examples type-check.
+- **Cross-page consistency.** Same fact must read identically across
+  `fern/`, `README.md`, `CONTRIBUTING.md`, `api-design.md`, cursor
   rules, copilot instructions, and tutorials.
-- **Broken-link hygiene**: `fern/_fix_broken_links.py` is the
-  internal tool; `docs/broken_links_*.json` reflects the deprecated
-  Sphinx site's state and is **not** the source of truth for Fern.
-- **Variable substitution**: `fern/substitute_variables.py`
-  (e.g. `{{ current_release }}`, `<release/>`) — do not hand-edit
-  versions where a substitution would apply.
+- **Broken-link tooling.** `fern/_fix_broken_links.py` is the
+  authoritative tool. `docs/broken_links_*.json` reflects the
+  deprecated Sphinx site — ignore it for Fern.
+- **Variable substitution.** `fern/substitute_variables.py` rewrites
+  `{{ current_release }}` / `<release/>`. Don't hand-pin versions
+  where substitution would apply.
 
 ## Contract Checklist
 
-When this domain changes:
+When `fern/` changes:
 
-- `fern/docs.yml` (redirects, instances, structure)
-- `fern/versions/*.yml` and `fern/versions/<name>/` directories
-- `fern/AUTODOCS_GUIDE.md`, `fern/README.md`
-- `fern/components/` — custom React components
-- `fern/main.css`, `fern/assets/`, `fern/package.json`,
+- `fern/docs.yml`, `fern/versions/*.yml` and matching directories
+- `fern/AUTODOCS_GUIDE.md`, `fern/README.md`, `fern/components/`,
+  `fern/main.css`, `fern/assets/`, `fern/package.json`,
   `fern/fern.config.json`
 - `fern/_fix_broken_links.py`, `fern/substitute_variables.py`
 - `requirements-docs.txt`
 - `.claude/skills/nemo-curator-docs/` — keep aligned
-- `.cursor/rules/*.mdc` and `.github/copilot-instructions.md` —
-  any product fact also stated here
+- `.cursor/rules/*.mdc`, `.github/copilot-instructions.md` — any
+  product fact shared with `fern/`
 - `CHANGELOG.md` and release notes (in `fern/`)
 
 For IA refactors, version cuts, and large content updates, run the
-full Content Audit swarm (see root AGENTS.md) and gate merge on
-verified P0.
+full Content Audit swarm and gate merge on verified P0.
 
-## Doc Autopilot (this steward's recurring ritual)
+## Doc Autopilot
 
-The Docs Steward owns three triggers. **Current state: manual
-rollout, automation pending** — there is no CI gate, scheduled job, or
-source-watch wiring yet. Wiring these into `.github/workflows/` is
-open advocacy (below).
+Three triggers defined in root [AGENTS.md](../AGENTS.md) — merge gate,
+periodic re-audit, source-triggered re-audit. **Current state:
+manual rollout, automation pending.** No CI gate, scheduled job, or
+source-watch wiring exists yet. Wiring these into
+`.github/workflows/` is open advocacy below.
 
-1. **Merge gate (per-PR)** — Doc-shaped PRs (IA refactors, release
-   notes, large content updates, README sweeps, any PR touching
-   `fern/`) gate on a Content Audit having run. Initial rollout:
-   verified P0 only. Mature rollout: P0 + P1.
-2. **Periodic re-audit** — At every release boundary (a new
-   `fern/versions/v*.yml` lands or a new tag in `CHANGELOG.md`) and
-   on a recurring 4–6 week cadence, spawn the full Content Audit
-   swarm against the live `fern/` surface.
-3. **Source-triggered targeted re-audit** — When source files change
-   in ways a scoped steward owns (e.g., a classifier renamed in
-   `nemo_curator/stages/text/classifiers/`), that steward's Content
-   Audit runs against its owned doc pages. The Docs Steward surfaces
-   this trigger when reviewing code PRs that touch documented public
-   surface.
-
-Each scoped steward lists its owned doc pages under `Own`. That list
-is the audit surface for that steward in autopilot mode.
+Each scoped steward lists its owned doc pages under **Own**. That
+list is the audit surface for that steward in autopilot mode.
 
 ## Advocate
 
-- Pin the **owned doc paths** in every scoped `AGENTS.md` in the next
-  audit pass. Today most are listed as "canonical paths to be pinned"
-  — close that gap.
-- A site-wide grep tool for the Global Sweep On Accepted P0s rule.
-- Surfacing internal counts (classifiers, embedders, supported
-  codecs) programmatically so docs do not hand-count.
-- A `fern/`-only release-notes template so contributors stop adding
-  notes to `docs/`.
-- Decommission `docs/`: with the 2026-05-20 write-freeze in place,
-  drive the removal — confirm Fern parity for every `docs/` page,
-  delete migrated pages, retire `docs/conf.py`, drop
-  `docs/about/release-notes/`, and remove or rebase any stale
-  redirects.
+- **Pin owned doc paths** in every scoped `AGENTS.md`. Most currently
+  defer this to "the next docs autopilot pass" — close the gap.
+- **Decommission `docs/`** under the 2026-05-20 freeze: confirm Fern
+  parity for every migrated page, retire `docs/conf.py`, drop
+  `docs/about/release-notes/`, remove or rebase stale redirects.
 - **Wire Doc Autopilot triggers into CI**: a `docs-audit-required`
-  PR check for the merge gate; a scheduled workflow for the periodic
-  re-audit; a labels-or-paths trigger for source-triggered re-audits.
-  Mandate is policy until this lands.
-- Track and publish docs health metrics (broken links, freshness,
-  owner coverage) on the cadence in root AGENTS.md Measurement.
-
-## Serve Peers
-
-- **To every scoped steward**: provide a current map of
-  `fern/` pages that touch their domain, so their `Own` list stays
-  pinned to real paths.
-- **To pipeline-contract steward**: keep `api-design.md` and the
-  Fern pipeline/stage/task pages in sync; flag when source-of-truth
-  disagrees with itself.
-- **To backends steward**: keep executor-selection guidance current.
-- **To deduplication, video, synthetic stewards**: surface install
-  prereqs / GPU requirements consistently.
-- **To text steward**: classifier and embedder name lists are the
-  single highest doc-rot surface — audit them on every text-public
-  change.
-- **To human governance stewards** (`@NVIDIA-NeMo/docs_team`): route
-  IA refactors, terminology decisions, cross-repo conflicts, and
-  ownership changes to them.
-
-## Do Not
-
-- Add or edit pages in `docs/` for product reasons. `docs/` is
-  deprecated; release notes and product docs go in `fern/` only.
-- Hand-edit `fern/versions/*.yml` without coordinating
-  redirect changes in `fern/docs.yml`.
-- Document a flag, config field, classifier name, codec, or version
-  pin without verifying it against source.
-- Remove a redirect in `fern/docs.yml` without checking inbound link
-  traffic and search-index coverage.
-- Treat `docs/broken_links_*.json` as authoritative for the Fern
-  site.
-- Pin version numbers where `{{ current_release }}` / `<release/>`
-  substitution should be used.
-- Land a doc-shaped PR without running a Content Audit.
+  PR check for the merge gate, a scheduled workflow for periodic
+  re-audit, a labels-or-paths trigger for source-triggered re-audits.
+- **Programmatic counts** — surface classifier / embedder / codec
+  inventories from source so docs don't hand-count.
+- **Site-wide grep tool** for the Global Sweep On Accepted P0s rule
+  in root AGENTS.md.
+- **Health metrics** — track broken-link rate, freshness, owner
+  coverage on the cadence in root AGENTS.md Measurement.
 
 ## Own
 
-**Code/content surfaces**:
+**Content:**
 
-- `fern/` (entire tree)
+- `fern/` (entire tree); cross-cutting concerns (welcome,
+  getting-started, install, glossary, contributor pages,
+  release-notes) are this steward's direct audit surface. Scoped
+  stewards own their domain pages.
 - `requirements-docs.txt`
+- Release notes (in `fern/`)
 - `CHANGELOG.md` (cross-owned with the implementing area)
-- Release notes (always in `fern/`)
 
-**Tests**:
+**Tests:** any link / lint / structural checks for `fern/` (add a CI
+gate if not present — see Advocate).
 
-- Any link / lint / structural checks for `fern/` (add a CI gate if
-  not present)
+**Agent artifacts:** `.claude/skills/nemo-curator-docs/` (this
+steward owns the skill's accuracy; apply the Docs-First evaluation
+gate before expanding).
 
-**Docs (autopilot audit surface)**:
-
-The Docs Steward audits **every** `fern/` page. Scoped stewards own
-their domain pages; the Docs Steward owns the cross-cutting concerns:
-
-- `fern/docs.yml` — navigation, redirects
-- `fern/versions/*` — version-pinned content
-- Welcome / getting-started / install pages
-- Cross-modality concept pages
-- Release notes
-- Glossary / terminology
-- Contributor / developer pages (cross-owned with tests steward)
-
-**Agent-facing artifacts**:
-
-- `.claude/skills/nemo-curator-docs/` — this steward is the human
-  owner of the skill's accuracy. Apply the Docs-First Agent Artifact
-  Evaluation gate (root AGENTS.md) before expanding it.
-
-**CODEOWNERS routing**: `@NVIDIA-NeMo/docs_team` for both
-`docs/` and `fern/` (the `fern/` entry was added alongside this
-steward; before that, `fern/` fell through to the default reviewers
-team — a real governance gap).
+**CODEOWNERS:** `@NVIDIA-NeMo/docs_team` for both `docs/` and
+`fern/`. The `fern/` entry was added alongside this steward — before
+that, `fern/` fell through to the default reviewers team, a real
+governance gap.
