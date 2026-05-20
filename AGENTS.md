@@ -1,10 +1,5 @@
 # Agent Constitution
 
-> Read this file plus the closest scoped `AGENTS.md` before acting. Scoped
-> stewards: `nemo_curator/`, `nemo_curator/backends/`,
-> `nemo_curator/stages/{text,video,synthetic,deduplication}/`, `tests/`,
-> `fern/`, `benchmarking/`, `tutorials/`.
-
 ## North Star
 
 NeMo Curator builds scalable, configurable pipelines to curate text,
