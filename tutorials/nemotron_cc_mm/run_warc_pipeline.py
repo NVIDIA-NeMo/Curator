@@ -29,6 +29,7 @@ from pathlib import Path
 import yaml
 
 from run_manifest import utc_iso, write_run_manifest
+from shard import Shard
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.core.client import RayClient
@@ -233,7 +234,59 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
 
 
 def main(args: argparse.Namespace) -> None:
+    # Short-circuit if this shard already completed in a previous submission.
+    # Driven by env vars (CURATOR_SHARD_INDEX, CURATOR_NUM_SHARDS); when not
+    # running under SLURM these default to (0, 1) so the marker check works
+    # consistently for single-WARC dev runs too.
+    #
+    # Markers live at *array-root level* (one dir up from the per-WARC
+    # output_path), so they collect under <root>/_SUCCESS/shard_NNNNN.json
+    # rather than being scattered inside per-shard dirs.
+    try:
+        idx, num_shards = Shard.env()
+    except ValueError:
+        idx, num_shards = 0, 1
+    marker_root = Path(args.output_path).parent
+    if Shard.has_marker(marker_root, idx):
+        print(
+            f"[shard] {idx}/{num_shards} already has marker at "
+            f"{Shard.marker_path(marker_root, idx)} — skipping",
+            file=sys.stderr,
+        )
+        return
+
     started = utc_iso()
+
+    # Start Ray with address="local" so we always start a brand-new local
+    # cluster instead of attaching to /tmp/ray/ray_current_cluster (which
+    # collides when SLURM packs multiple tasks on one node).
+    #
+    # _temp_dir must NOT live under args.output_path because the writer's
+    # --mode overwrite rmtree-s that directory mid-pipeline, which would
+    # wipe Ray's active session dir.  Use a per-task path under /tmp
+    # (compute-node-local) keyed on SLURM_JOB_ID + shard so siblings on
+    # the same node don't collide.
+    ray_tmp = (
+        f"/tmp/ray_ccmm_{os.environ.get('SLURM_JOB_ID', os.getpid())}"
+        f"_{idx:05d}"
+    )
+    ray_ctx = None
+    try:
+        import ray
+        if not ray.is_initialized():
+            ray_ctx = ray.init(
+                address="local",
+                _temp_dir=ray_tmp,
+                ignore_reinit_error=True,
+            )
+            # RayClient short-circuits its own ``ray start --head`` subprocess
+            # only when RAY_ADDRESS is set in the env, so advertise our cluster.
+            gcs = getattr(ray_ctx, "address_info", {}).get("gcs_address")
+            if gcs:
+                os.environ["RAY_ADDRESS"] = gcs
+    except Exception as e:  # noqa: BLE001
+        print(f"[shard] WARNING — explicit ray.init failed ({e}); falling back to RayClient", file=sys.stderr)
+
     ray_client = RayClient()
     ray_client.start()
 
@@ -244,13 +297,27 @@ def main(args: argparse.Namespace) -> None:
         ray.data.DataContext.get_current().max_errored_blocks = 100
     except Exception:  # noqa: BLE001
         pass  # best-effort; older Ray versions may not expose this
+
+    pipeline_ok = False
     try:
         pipeline = build_pipeline(args)
         print(pipeline.describe())
         pipeline.run(executor=RayDataExecutor())
+        pipeline_ok = True
     finally:
         ray_client.stop()
-        write_run_manifest(args, started, utc_iso())
+        finished = utc_iso()
+        write_run_manifest(args, started, finished)
+        if pipeline_ok:
+            Shard.write_marker(
+                marker_root, idx, num_shards,
+                payload={
+                    "preset": args.preset,
+                    "input_path": args.input_path,
+                    "started_utc": started,
+                    "finished_utc": finished,
+                },
+            )
 
 
 def _add_filter_flag(parser: argparse.ArgumentParser, name: str, default: bool, help_text: str) -> None:
