@@ -230,11 +230,23 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
 
     # ── Prompt formatting ────────────────────────────────────────────
 
-    def _format_prompt(self, user_text: str) -> str:
-        messages = [
-            {"role": "system", "content": self._system_prompt},
-            {"role": "user", "content": user_text},
-        ]
+    def _format_prompt(self, user_text: str, task_data: dict | None = None) -> str:
+        prompt_template = self._system_prompt
+        has_placeholders = "{text}" in prompt_template or "{language}" in prompt_template
+
+        if has_placeholders:
+            if "{language}" in prompt_template:
+                lang = task_data.get("source_lang", "English") if task_data else "English"
+                prompt_template = prompt_template.replace("{language}", lang)
+            if "{text}" in prompt_template:
+                prompt_template = prompt_template.replace("{text}", user_text)
+            messages = [{"role": "user", "content": prompt_template}]
+        else:
+            messages = [
+                {"role": "system", "content": prompt_template},
+                {"role": "user", "content": user_text},
+            ]
+
         return self._tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
         )
@@ -282,7 +294,7 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
                 set_note(task.data, self.name, "skipped (empty)", self.notes_key)
                 continue
             valid_indices.append(i)
-            prompts.append(self._format_prompt(text))
+            prompts.append(self._format_prompt(text, task.data))
 
         if prompts:
             outputs = self._llm.generate(prompts, sampling_params=self._sampling_params, use_tqdm=False)
