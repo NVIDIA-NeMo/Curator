@@ -52,9 +52,11 @@ underscores instead of dashes).
 
 | Preset | Recipe |
 |---|---|
-| `omnicorpus` | OmniCorpus paper §3.1: 14 text filters + image NSFW + LAION aesthetic |
-| `mint1t`     | MINT-1T-style: lighter Gopher subset, looser thresholds (approximate — MINT-1T relies on KenLM perplexity which we don't have yet) |
-| `mmc4`       | Permissive baseline: lang-ID + word count + URL-NSFW only |
+| `omnicorpus`           | OmniCorpus paper §3.1: 14 text filters + image NSFW + LAION aesthetic. Needs GPU. |
+| `omnicorpus_cpu`       | Same as above with NSFW + aesthetic disabled. Pure-CPU. |
+| `omnicorpus_text_only` | Text filters only — no image download, no GPU. Deterministic; useful for reproducible filter funnels. |
+| `mint1t`               | MINT-1T-style: lighter Gopher subset, looser thresholds (approximate — MINT-1T relies on KenLM perplexity which we don't have yet) |
+| `mmc4`                 | Permissive baseline: lang-ID + word count + URL-NSFW only |
 
 Precedence: **CLI flags > preset > argparse defaults**. So you can pick a
 preset and tweak one knob:
@@ -91,9 +93,103 @@ content rows in DOM order.
   `hybrid` tries magic_html and falls back to naive on empty pages.
 - `--record-limit N` — cap records per WARC (smoke testing).
 - `--files-per-partition K` — one Ray batch per `K` WARC files.
+- `--max-text-chars N` — cap per-row text length (default 50,000); guards
+  against pathological docs that would trigger a `<U{maxlen}>` numpy upcast
+  inside the filter chain.
+- `--max-batch-bytes B` — split each WARC into sub-batches no larger than `B`
+  Arrow bytes (default 256 MiB).  Smaller = more pipeline parallelism.
 - Filter on/off pairs: every Stage-3 / Stage-5 filter has a
   `--<name>` / `--no-<name>` toggle; thresholds use `--<name>-min` /
   `--<name>-max`. See `--help` for the full list.
+
+## Slurm array — fan-out over many WARCs
+
+For a multi-WARC run on a Slurm cluster, drive submissions through
+**`submit_array.sh`**.  One array task = one WARC; per-shard `_SUCCESS`
+markers make retries idempotent.
+
+### Quick start
+
+```bash
+WARC_DIR=$USER_DIR/CC-MAIN-…/segments/…/warc \
+WARC_PATTERN="CC-MAIN-…-%05d.warc.gz" \
+OUTPUT_PATH=$USER_DIR/out/50warcs_cpu \
+PRESET=omnicorpus_cpu \
+ARRAY_SIZE=50 \
+./submit_array.sh submit
+```
+
+### Four modes
+
+| mode | what it does |
+|---|---|
+| `submit`        | fresh `sbatch --array=0..N-1%MAX` |
+| `status`        | reads `_SUCCESS/shard_*.json`; prints "completed / missing" |
+| `retry-missing` | resubmits only the shards without markers |
+| `worker`        | per-shard srun entrypoint (called by sbatch — never invoke directly) |
+
+Run `status` / `retry-missing` repeatedly; the workflow is idempotent.
+
+### Required env
+
+| var | meaning |
+|---|---|
+| `WARC_DIR`     | directory holding the WARC files |
+| `WARC_PATTERN` | printf pattern indexed by shard, e.g. `"CC-MAIN-…-%05d.warc.gz"` |
+| `OUTPUT_PATH`  | array root — markers, logs, per-WARC subdirs land here |
+| `PRESET`       | `omnicorpus_cpu` / `omnicorpus_text_only` / `omnicorpus` |
+| `ARRAY_SIZE`   | number of WARCs |
+
+### Common knobs (all optional)
+
+| var | default | notes |
+|---|---|---|
+| `PARTITION`     | `cpu_short` | set to `batch` for the GPU pipeline |
+| `TIME_LIMIT`    | `01:00:00`  | bump to `01:30:00` if 2-per-node packing causes timeouts |
+| `CPUS_PER_TASK` | 16          | proved optimal in benchmarks; below 16 thrashes C-extension threads |
+| `MEM`           | 200G (CPU) / 190G (GPU) | drop to 110G to pack 2 tasks per CPU node |
+| `MAX_CONCURRENT`| `ARRAY_SIZE` | throttle for QOS or politeness |
+
+### Output layout
+
+```
+$OUTPUT_PATH/
+├── _SUCCESS/                          ← idempotency markers, root-level
+│   ├── shard_00000.json               (per completed shard)
+│   └── …
+├── _logs/                             ← all logs outside the per-WARC data dirs
+│   ├── slurm-<job>_<idx>.out          (sbatch stdout)
+│   └── idx_NNNNN.log                  (python --log-path, has funnel lines)
+├── idx_00000/                         ← per-WARC output
+│   ├── <hash>.parquet
+│   └── _run.json                      (manifest + funnel parsed from log)
+└── …
+```
+
+Markers and logs live at the array root so the writer's `--mode overwrite`
+rmtree of `idx_NNNNN/` doesn't delete them.
+
+### What it handles under the hood
+
+- **Ray isolation per task** — each task starts its own local Ray cluster
+  (`ray.init(address="local", _temp_dir=/tmp/ray_ccmm_<job>_<idx>)`) and sets
+  `RAY_ADDRESS` so `RayClient.start()` skips its own `ray start --head` subprocess.
+  Result: Slurm can pack multiple tasks per node without `/tmp/ray` collisions.
+- **Resume on retry** — `Shard.has_marker()` short-circuits at startup;
+  rerunning the full array re-runs nothing extra.
+- **Sparse-retry shard count** — `CURATOR_ORIGINAL_ARRAY_SIZE` is propagated
+  so `--array=3,7,12` retries still see `num_shards=50` in env.
+
+### GPU caveat
+
+The same script supports `PRESET=omnicorpus PARTITION=batch` for the full
+GPU pipeline (NSFW + aesthetic).  Expect ~30–50 % of tasks to be cancelled
+at ~37 min by the cluster's **GPU idle reaper** (`svc-hwinf-cs-sched`) —
+our pipeline only uses the GPU for ~5 % of wallclock, so the per-job
+"30 min idle" threshold fires.  Cancelled tasks still write ~700 MB of
+output (1 of 2 sub-batches); `retry-missing` picks up the rest.  Proper
+fix requires either a GPU Idle Time Exemption or a pipeline split.  See
+`PERF_NOTES.md` for the math.
 
 ## Inspect output
 
