@@ -1,0 +1,106 @@
+# OmniCorpus — CPU-only variant
+# ----------------------------------------------------------------------
+# Same recipe as omnicorpus.yaml but with every GPU-bound stage disabled
+# so the pipeline can run on a CPU partition (`cpu`, `cpu_interactive`,
+# `cpu_long`) or on a GPU node without occupying any GPU.
+#
+# Disabled (GPU-bound, see omnicorpus.yaml for full config):
+#   * Stage ④ — image_nsfw       (CLIP + LAION NSFW MLP)
+#   * Stage ④ — image_aesthetic  (CLIP + LAION aesthetic MLP)
+#
+# Everything else mirrors omnicorpus.yaml — see that file for paper
+# citations and per-knob rationale.
+
+name: omnicorpus_cpu
+description: OmniCorpus paper (arXiv:2406.08418) Phase-1 subset, CPU-only — GPU NSFW & aesthetic filters disabled
+
+# ======================================================================
+# ① Main Body Extraction
+# ======================================================================
+extractor: hybrid
+min_text_chars: 1
+max_text_chars: 50000            # cap pathological multi-MB rows at extraction
+resiliparse_text: true
+max_batch_bytes: 268435456       # 256 MiB chunked extraction
+
+# ======================================================================
+# ② Preliminary Text Filtering — 14 doc-level filters
+# ======================================================================
+url_substr_nsfw: true
+lorem_ipsum: true
+word_count: true
+mean_word_length: true
+symbol_ratio: true
+stopword_count: true
+ngram_repetition: true
+alpha_ratio: true
+ellipsis_line: true
+bullet_line: true
+dup_line: true
+top_word: true
+continuous_line_breaks: true
+bad_words: false                 # set bad_words_path to enable
+lang_id: true
+
+word_count_min: 50
+word_count_max: 100000
+mean_word_length_min: 3.0
+mean_word_length_max: 10.0
+symbol_ratio_max: 0.1
+stopword_count_min: 2
+alpha_ratio_min: 0.8
+ellipsis_line_max: 0.3
+bullet_line_max: 0.9
+dup_line_max: 0.3
+top_word_max: 0.30
+continuous_line_breaks_max: 0.05
+lang_id_target: en
+lang_id_min_score: 0.65
+bad_words_path: ""
+
+# ======================================================================
+# ④ Image Downloading & Filtering — CPU-only subset
+# ======================================================================
+image_download: true             # CPU + network
+image_concurrency: 500
+image_timeout_s: 20.0
+image_retries: 1
+image_max_bytes: 20971520
+image_url_dedup: true
+image_geometry: true             # CPU (PIL)
+image_min_dim: 150
+image_max_dim: 20000
+image_aspect_ratio: true         # CPU (Curator)
+image_aspect_min: 0.5
+image_aspect_max: 2.0
+image_nsfw: false                # 🚫 GPU — disabled in this preset
+image_nsfw_max_score: 0.8
+image_aesthetic: false           # 🚫 GPU — disabled in this preset
+image_aesthetic_min_score: 3.7
+image_count: true
+image_count_min: 1
+image_count_max: 30
+
+# ======================================================================
+# ⑤ Detailed Filter + Safety (Stage 7 in our scheme)
+# ======================================================================
+pii_redact: true                 # regex-based, CPU
+pii_email: true
+pii_phone: true
+pii_ipv4: true
+pii_ssn: true
+pii_alt_text: false
+
+# ----------------------------------------------------------------------
+# When to use this preset
+# ----------------------------------------------------------------------
+# - You want to validate the text + image-acquire half of the pipeline
+#   without waiting for a GPU allocation
+# - The Slurm GPU queue is loaded and you have CPU slots free
+# - You're doing local dev where Curator's nvidia-container-cli hook
+#   would otherwise fail (no GPU on the host)
+#
+# To produce the *same* downstream dataset OmniCorpus describes, you
+# still need to re-run with NSFW + aesthetic on (use `omnicorpus.yaml`).
+# Output of this preset will keep image rows that would otherwise be
+# dropped by the two GPU filters — flag downstream if that matters.

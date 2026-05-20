@@ -41,11 +41,45 @@ def aggregate_doc_text(group: pd.DataFrame) -> str:
     text_rows = group[group["modality"] == "text"]
     if text_rows.empty:
         return ""
-    return "\n".join(text_rows["text_content"].dropna().astype(str).tolist())
+    # Avoid Series.astype(str) and ``.tolist()``: the column comes in as
+    # ``pd.ArrowDtype`` (set in ``InterleavedBatch.to_pandas``), so any
+    # bulk numpy materialization triggers a fixed-width Unicode allocation
+    # of ``n_rows × max_len × 4 bytes`` — easily 10+ TiB on pathological
+    # docs.  Iterating the Series yields one Python object at a time.
+    series = text_rows["text_content"].dropna()
+    return "\n".join(str(t) for t in series)
 
 
 def split_words(text: str) -> list[str]:
     return _WORD_RE.findall(text)
+
+
+def count_tokens(df: pd.DataFrame) -> int:
+    """Approximate token count = sum of whitespace-split words across
+    all text-modality rows.  Cheap (~10 ms / 100 K rows); underestimates
+    a real BPE/SentencePiece tokenizer count by ~25 % for English prose.
+
+    Used by :class:`LoggingInterleavedFilterStage` to log a token-yield
+    funnel alongside doc/row counts so the per-filter drop in *tokens*
+    (which is what pretraining cares about) is visible.
+
+    For a true tokenizer count (tiktoken / SentencePiece / Llama-3),
+    swap this out — same return shape, just slower.
+    """
+    if df.empty or "modality" not in df.columns:
+        return 0
+    text_rows = df[df["modality"] == "text"]
+    if text_rows.empty:
+        return 0
+    total = 0
+    # Iterate Python objects directly — see ``aggregate_doc_text`` for
+    # why we avoid bulk numpy materialization of an ArrowDtype Series.
+    for t in text_rows["text_content"].dropna():
+        if t is None:
+            continue
+        # Whitespace split is ~2× faster than re.findall here.
+        total += len(str(t).split())
+    return total
 
 
 # ---------------------------------------------------------------------------
@@ -71,22 +105,30 @@ class LoggingInterleavedFilterStage(BaseInterleavedFilterStage):
             return task
         n_docs_in = df["sample_id"].nunique() if "sample_id" in df.columns else 0
         n_rows_in = len(df)
+        n_tokens_in = count_tokens(df) if self.log_drops else 0
         out_df = self.annotate(task, df)
         n_docs_out = (
             out_df["sample_id"].nunique() if "sample_id" in out_df.columns else 0
         )
         n_rows_out = len(out_df)
         if self.log_drops and n_docs_in:
+            n_tokens_out = count_tokens(out_df)
             n_docs_dropped = n_docs_in - n_docs_out
             n_rows_dropped = n_rows_in - n_rows_out
+            n_tokens_dropped = n_tokens_in - n_tokens_out
             doc_pct = n_docs_dropped / n_docs_in * 100.0
             row_pct = (n_rows_dropped / n_rows_in * 100.0) if n_rows_in else 0.0
+            tok_pct = (
+                n_tokens_dropped / n_tokens_in * 100.0 if n_tokens_in else 0.0
+            )
             logger.info(
                 f"[{self.name}] "
                 f"docs {n_docs_in:>6} → {n_docs_out:>6} "
                 f"(-{n_docs_dropped}, {doc_pct:5.1f}%)   "
                 f"rows {n_rows_in:>7} → {n_rows_out:>7} "
-                f"(-{n_rows_dropped}, {row_pct:5.1f}%)"
+                f"(-{n_rows_dropped}, {row_pct:5.1f}%)   "
+                f"tokens {n_tokens_in:>9} → {n_tokens_out:>9} "
+                f"(-{n_tokens_dropped}, {tok_pct:5.1f}%)"
             )
         from nemo_curator.tasks import InterleavedBatch as _IB
         return _IB(

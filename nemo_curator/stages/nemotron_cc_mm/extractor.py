@@ -85,8 +85,29 @@ def _make_image_row(
 
 
 def _make_metadata_row(
-    sample_id: str, source_url: str, warc_id: str
+    sample_id: str,
+    source_url: str,
+    warc_id: str,
+    *,
+    warc_file: str | None = None,
+    warc_segment: str | None = None,
+    snapshot: str | None = None,
+    extractor: str | None = None,
 ) -> dict[str, Any]:
+    """Build the doc's metadata row.  ``source_ref`` JSON carries lineage
+    fields (Option A in the lineage design)."""
+    lineage: dict[str, Any] = {
+        "source_url": source_url,
+        "warc_id": warc_id,
+    }
+    if warc_file is not None:
+        lineage["warc_file"] = warc_file
+    if warc_segment is not None:
+        lineage["warc_segment"] = warc_segment
+    if snapshot is not None:
+        lineage["snapshot"] = snapshot
+    if extractor is not None:
+        lineage["extractor"] = extractor
     return {
         "sample_id": sample_id,
         "position": -1,
@@ -94,7 +115,7 @@ def _make_metadata_row(
         "content_type": "application/json",
         "text_content": None,
         "binary_content": None,
-        "source_ref": json.dumps({"source_url": source_url, "warc_id": warc_id}),
+        "source_ref": json.dumps(lineage),
         "materialize_error": None,
     }
 
@@ -121,7 +142,13 @@ def warc_html_to_interleaved_rows(
     html_bytes = warc_record["content"]
 
     rows: list[dict[str, Any]] = [
-        _make_metadata_row(sample_id, source_url, sample_id)
+        _make_metadata_row(
+            sample_id, source_url, sample_id,
+            warc_file=warc_record.get("warc_file"),
+            warc_segment=warc_record.get("warc_segment"),
+            snapshot=warc_record.get("snapshot"),
+            extractor=warc_record.get("extractor"),
+        )
     ]
 
     if not html_bytes:

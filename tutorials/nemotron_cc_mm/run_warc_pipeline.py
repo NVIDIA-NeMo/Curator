@@ -22,10 +22,13 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 import yaml
+
+from run_manifest import utc_iso, write_run_manifest
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.core.client import RayClient
@@ -48,6 +51,7 @@ from nemo_curator.stages.nemotron_cc_mm import (
     InterleavedMeanWordLengthFilterStage,
     InterleavedNGramRepetitionFilterStage,
     InterleavedNSFWFilter,
+    InterleavedPIIRedactorStage,
     InterleavedStopwordCountFilterStage,
     InterleavedSymbolToWordRatioFilterStage,
     InterleavedTopWordFractionFilterStage,
@@ -92,6 +96,9 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
         WarcDocumentToInterleavedStage(
             extractor=args.extractor,
             min_text_chars=args.min_text_chars,
+            resiliparse_text=args.resiliparse_text,
+            max_batch_bytes=args.max_batch_bytes,
+            max_text_chars=args.max_text_chars,
         )
     )
 
@@ -201,6 +208,16 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
             max_images=args.image_count_max,
         ))
 
+    # Stage 7 — Detailed filter + safety (PII redaction; more to come).
+    if args.pii_redact:
+        pipe.add_stage(InterleavedPIIRedactorStage(
+            redact_email=args.pii_email,
+            redact_phone=args.pii_phone,
+            redact_ipv4=args.pii_ipv4,
+            redact_ssn=args.pii_ssn,
+            redact_alt_text=args.pii_alt_text,
+        ))
+
     pipe.add_stage(
         InterleavedParquetWriterStage(
             path=args.output_path,
@@ -213,15 +230,27 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
     return pipe
 
 
+
+
 def main(args: argparse.Namespace) -> None:
+    started = utc_iso()
     ray_client = RayClient()
     ray_client.start()
+
+    # Tolerate occasional transient block errors (network blips during image
+    # download, etc.) instead of aborting the whole pipeline.
+    try:
+        import ray.data
+        ray.data.DataContext.get_current().max_errored_blocks = 100
+    except Exception:  # noqa: BLE001
+        pass  # best-effort; older Ray versions may not expose this
     try:
         pipeline = build_pipeline(args)
         print(pipeline.describe())
         pipeline.run(executor=RayDataExecutor())
     finally:
         ray_client.stop()
+        write_run_manifest(args, started, utc_iso())
 
 
 def _add_filter_flag(parser: argparse.ArgumentParser, name: str, default: bool, help_text: str) -> None:
@@ -297,6 +326,10 @@ if __name__ == "__main__":
     parser.add_argument("--files-per-partition", type=int, default=1)
     parser.add_argument("--mode", default="overwrite",
                         choices=["ignore", "overwrite", "append", "error"])
+    parser.add_argument("--log-path", default=None,
+                        help="Path to the run's log file.  If provided, "
+                             "_run.json gets a 'funnel' field aggregated "
+                             "from per-stage docs/rows/tokens lines in this log.")
 
     # ---- Stage 2 (extraction) ----
     parser.add_argument("--extractor", default="naive",
@@ -304,6 +337,19 @@ if __name__ == "__main__":
                         help="HTML → interleaved-rows extractor implementation")
     parser.add_argument("--min-text-chars", type=int, default=1,
                         help="Drop text rows shorter than N chars (at extraction)")
+    parser.add_argument("--max-text-chars", type=int, default=50_000,
+                        help="Cap each row's text_content at N chars at extraction "
+                             "time.  Bounds downstream numpy fixed-width allocations "
+                             "(an ArrowDtype Series upcast to <U{max_len}> blows up "
+                             "memory on pathological docs).  0 disables.  Default 50K.")
+    parser.add_argument("--max-batch-bytes", type=int, default=256 * 1024 * 1024,
+                        help="Chunk each WARC's InterleavedBatch into sub-batches no "
+                             "larger than this many bytes (Arrow nbytes) — keeps all "
+                             "rows of a sample together.  Smaller = lower peak memory "
+                             "for image/GPU stages.  Default 256 MiB.")
+    _add_filter_flag(parser, "resiliparse-text", True,
+                     "Also run Curator's Resiliparse text extractor and stuff "
+                     "its joined output into the doc's metadata-row text_content")
 
     # ---- Stage 3 (text filters) ----
     _add_filter_flag(parser, "url-substr-nsfw", True, "URL-substring NSFW filter")
@@ -373,6 +419,16 @@ if __name__ == "__main__":
                      "Drop docs whose surviving image-row count is out of bounds")
     parser.add_argument("--image-count-min", type=int, default=1)
     parser.add_argument("--image-count-max", type=int, default=30)
+
+    # ---- Stage 7 (detailed filter + safety) ----
+    _add_filter_flag(parser, "pii-redact", True,
+                     "Redact PII patterns (email, phone, IP, SSN) in text rows")
+    _add_filter_flag(parser, "pii-email", True, "Redact email addresses")
+    _add_filter_flag(parser, "pii-phone", True, "Redact US-format phone numbers")
+    _add_filter_flag(parser, "pii-ipv4",  True, "Redact dotted-quad IPv4 addresses")
+    _add_filter_flag(parser, "pii-ssn",   True, "Redact US-format SSNs")
+    _add_filter_flag(parser, "pii-alt-text", False,
+                     "Also redact PII inside image alt-text (off by default)")
 
     args = parser.parse_args(namespace=preset_ns)
     main(args)

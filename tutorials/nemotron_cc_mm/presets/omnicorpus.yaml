@@ -30,6 +30,12 @@ description: OmniCorpus paper (arXiv:2406.08418); Phase-1 subset — see TODOs b
 # where it returns nothing.
 extractor: hybrid
 min_text_chars: 1
+max_text_chars: 50000            # cap pathological multi-MB rows at extraction
+resiliparse_text: true           # parallel text-only extraction; stored in
+                                 # the metadata row's text_content column
+max_batch_bytes: 268435456       # 256 MiB chunk size — extraction stage splits
+                                 # one WARC into N sub-batches that flow through
+                                 # the rest of the pipeline independently.
 #
 # 📌 TODO: implement "Drop HTML documents without images" at extraction
 #    time.  Today we emit metadata-only rows for image-less docs and
@@ -132,6 +138,14 @@ image_aesthetic_min_score: 3.7   # OmniCorpus cutoff (paper §3.1)
 image_count: true
 image_count_min: 1               # Strict OmniCorpus drops these at Stage ①
 image_count_max: 30              # Our cap; paper doesn't state one
+
+# ---- Stage 7 (detailed filter + safety) ----
+pii_redact: true                 # regex PII redaction on text rows
+pii_email: true
+pii_phone: true
+pii_ipv4: true
+pii_ssn: true
+pii_alt_text: false              # keep image alt-text intact by default
 #
 # 📌 TODO: implement pHash/dHash image dedup with > 10× corpus cap.
 # 📌 TODO: extend the within-batch URL pre-dedup (already on; ~7 %

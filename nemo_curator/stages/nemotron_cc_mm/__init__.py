@@ -2,6 +2,8 @@
 from nemo_curator.stages.nemotron_cc_mm.extraction import WarcDocumentToInterleavedStage
 from nemo_curator.stages.nemotron_cc_mm.image_downloader import ParallelImageDownloader
 from nemo_curator.stages.nemotron_cc_mm.aesthetic_filter import InterleavedAestheticFilter
+from nemo_curator.stages.nemotron_cc_mm.lineage import attach_lineage, lineage_view
+from nemo_curator.stages.nemotron_cc_mm.safety_filters import InterleavedPIIRedactorStage
 from nemo_curator.stages.nemotron_cc_mm.image_filters import (
     InterleavedGeometryFilter,
     InterleavedImageCountFilter,
@@ -51,4 +53,7 @@ __all__ = [
     "InterleavedGeometryFilter",
     "InterleavedImageCountFilter",
     "InterleavedNSFWFilter",
+    "InterleavedPIIRedactorStage",
+    "attach_lineage",
+    "lineage_view",
 ]
