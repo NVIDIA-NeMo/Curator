@@ -43,7 +43,7 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         audio_filepath_key: Key for the audio file path in the manifest. Defaults to "resampled_audio_filepath".
         target_sr: Target sample rate for SQUIM model input. Defaults to 16000.
         batch_size: Number of audio tasks to be processed at once. Defaults to 32.
-        compute_batch_size: Number of waveforms to process per GPU inference call. Defaults to 64.
+        compute_batch_size: Number of waveforms to process per GPU inference call. Defaults to 32.
         segments_key: Key for the segments in the manifest. Defaults to "segments".
 
     Returns:

@@ -206,7 +206,7 @@ class TestGetPairwiseWerStage:
         task = audio_task(text="a b c", pred_text="a x c")
         result = stage.process(task)
         assert isinstance(result, AudioTask)
-        assert result.data["wer"] == pytest.approx(33.33, abs=0.1)
+        assert result.data["wer_pct"] == pytest.approx(33.33, abs=0.1)
 
     def test_validate_input_valid(self, audio_task: Callable[..., AudioTask]) -> None:
         """Valid task passes validation."""
@@ -234,3 +234,71 @@ class TestGetPairwiseWerStage:
         stage = GetPairwiseWerStage()
         with pytest.raises(ValueError, match="failed validation"):
             stage.process_batch([audio_task(text="a b c")])
+
+
+class TestLoopContainment:
+    """Tests that per-segment errors don't abort remaining segments."""
+
+    def test_wer_skips_segment_missing_keys(self, audio_task: Callable[..., AudioTask]) -> None:
+        """ComputeWERStage skips segments missing text keys without aborting the loop."""
+        stage = ComputeWERStage(
+            language="en",
+            hypothesis_text_key="text",
+            reference_text_key="text_2",
+        )
+        stage.setup()
+        task = audio_task(
+            segments=[
+                {"start": 0.0, "end": 1.0, "text": "hello world", "text_2": "hello world"},
+                {"start": 1.0, "end": 2.0, "speaker": "A"},
+                {"start": 2.0, "end": 3.0, "text": "foo bar", "text_2": "foo baz"},
+            ]
+        )
+        result = stage.process(task)
+        segs = result.data["segments"]
+        assert "wer" in segs[0].get("metrics", {})
+        assert "metrics" not in segs[1] or "wer" not in segs[1].get("metrics", {})
+        assert "wer" in segs[2].get("metrics", {})
+
+    def test_bandwidth_skips_zero_duration_segment(self, audio_task: Callable[..., AudioTask], tmp_path: Path) -> None:
+        """BandwidthEstimation tags zero-duration segments without aborting."""
+        import numpy as np
+        import soundfile as sf
+
+        wav_path = tmp_path / "test.wav"
+        rng = np.random.default_rng(42)
+        audio_data = rng.standard_normal(16000).astype(np.float32)
+        sf.write(str(wav_path), audio_data, 16000)
+
+        stage = BandwidthEstimationStage()
+        task = audio_task(
+            audio_filepath=str(wav_path),
+            segments=[
+                {"start": 0.0, "end": 0.5, "speaker": "A", "text": "hi"},
+                {"start": 0.5, "end": 0.5, "speaker": "A", "text": "bad"},
+                {"start": 0.5, "end": 1.0, "speaker": "A", "text": "ok"},
+            ],
+        )
+        result = stage.process(task)
+        segs = result.data["segments"]
+        assert "bandwidth" in segs[0].get("metrics", {})
+        assert "metric_skip_reason" in segs[1].get("metrics", {})
+        assert "bandwidth" in segs[2].get("metrics", {})
+
+    def test_wer_empty_reference_tags_skip_reason(self, audio_task: Callable[..., AudioTask]) -> None:
+        """Empty reference text sets metric_skip_reason instead of computing inf WER."""
+        stage = ComputeWERStage(
+            language="en",
+            hypothesis_text_key="text",
+            reference_text_key="text_2",
+        )
+        stage.setup()
+        task = audio_task(
+            segments=[
+                {"start": 0.0, "end": 1.0, "text": "hello", "text_2": ""},
+            ]
+        )
+        result = stage.process(task)
+        metrics = result.data["segments"][0]["metrics"]
+        assert metrics["wer"] is None
+        assert metrics["metric_skip_reason"] == "empty_reference"

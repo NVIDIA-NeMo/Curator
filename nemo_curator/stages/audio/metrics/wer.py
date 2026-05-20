@@ -326,13 +326,13 @@ class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
     Args:
         text_key: Key for the utterance transcript. Defaults to "text".
         pred_text_key: Key for the ASR predictions. Defaults to "pred_text".
-        wer_key: Key to store the computed WER percentage. Defaults to "wer".
+        wer_key: Key to store the computed WER percentage. Defaults to "wer_pct".
     """
 
     name: str = "GetPairwiseWerStage"
     text_key: str = "text"
     pred_text_key: str = "pred_text"
-    wer_key: str = "wer"
+    wer_key: str = "wer_pct"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key, self.pred_text_key]
@@ -341,6 +341,7 @@ class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.text_key, self.pred_text_key, self.wer_key]
 
     def process(self, task: AudioTask) -> AudioTask:
+        """Compute WER percentage between hypothesis and reference text."""
         hypothesis = task.data.get(self.pred_text_key)
         reference = task.data.get(self.text_key)
         if hypothesis is None or reference is None:
