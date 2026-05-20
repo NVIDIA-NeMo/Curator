@@ -1,18 +1,24 @@
 # Steward: Tutorials & Examples
 
-End-to-end runnable examples per modality. The single biggest "copy
-this, it should work" trust surface — and the single biggest doc-rot
-surface when public APIs evolve.
+This domain exists because tutorials are how users first decide
+whether NeMo Curator works for them. A tutorial that runs cleanly on
+first try recruits the user; one that fails on imports or wrong
+extras loses them. Tutorials are also the single biggest doc-rot
+surface — they reach into the public API and break whenever that API
+changes without a corresponding tutorial update.
 
 Related: root [AGENTS.md](../AGENTS.md),
 [tutorials/README.md](README.md), `tutorials/quickstart.py`.
 
 ## Point Of View
 
-The user's "does this actually work?" test. Every tutorial is a
-contract that the imports, configs, CLI invocations, and pipeline
-composition shown here resolve against the current `nemo_curator/`
-public API.
+The user's "does this actually work?" test. The user this domain
+serves runs on cluster-scheduled GPU infrastructure (Slurm,
+Kubernetes, multi-node Ray) as often as on a single machine — but
+the first impression usually happens on a laptop or single GPU, so
+both have to work. Every tutorial is a contract that imports,
+configs, CLI invocations, and pipeline composition shown here
+resolve against the current `nemo_curator/` public API.
 
 ## Protect
 
@@ -33,11 +39,12 @@ public API.
   `video` / etc. do **not** exist.
 - **Resource and hardware claims** reflect actual stage resource
   declarations.
-- **Modality coverage.** `audio/`, `image/`, `interleaved/`, `math/`,
-  `slurm/`, `synthetic/`, `text/`, `video/` — each should have at
-  least one currently-runnable tutorial.
-- **Slurm / cluster examples** (`tutorials/slurm/`) stay aligned
-  with current `RayClient` lifecycle.
+- **Modality coverage.** `audio/`, `image/`, `interleaved/`,
+  `math/`, `slurm/`, `synthetic/`, `text/`, `video/` — each should
+  have at least one currently-runnable tutorial.
+- **Cluster-scheduled examples** (`tutorials/slurm/`) stay aligned
+  with current `RayClient` lifecycle. Slurm and other
+  cluster-orchestration patterns are first-class, not afterthoughts.
 
 ## Contract Checklist
 
@@ -53,14 +60,17 @@ When this domain changes:
 
 ## Advocate
 
-- CI smoke job that imports/parses every tutorial Python file
+- **CI smoke job** that imports/parses every tutorial Python file
   (catches `ImportError` early). Export notebooks to `.py` for
   static checks even if full execution is impractical.
-- A "tutorial freshness" report flagging tutorials touching public
-  APIs that changed since their last edit.
-- Tiny, license-clean fixtures so tutorials run end-to-end on a
-  laptop where the modality permits.
-- Canonical structure across modality folders.
+- **"Tutorial freshness" report** flagging tutorials touching
+  public APIs that changed since their last edit.
+- **Tiny, license-clean fixtures** so tutorials run end-to-end on a
+  single GPU/laptop where the modality permits.
+- **Canonical structure across modality folders.**
+- **End-to-end "I curated this corpus from scratch" path.** The
+  Nemotron-CC recipe is the reference pattern; tutorials should
+  point at it.
 
 ## Own
 
@@ -76,9 +86,9 @@ practical.
 README files, `fern/` how-to and tutorial pages that reference these
 tutorials.
 
-**Agent artifacts:** `.claude/skills/getting-started/` — this steward
-keeps the skill aligned with current tutorials. Apply the Docs-First
-evaluation gate before expanding.
+**Agent artifacts:** `.claude/skills/getting-started/` — this
+steward keeps the skill aligned with current tutorials. Apply the
+Docs-First evaluation gate before expanding.
 
 **CODEOWNERS:** default `@NVIDIA-NeMo/curator_reviewers`.
 `.github/CODEOWNERS` has no `tutorials/` entries today, so no

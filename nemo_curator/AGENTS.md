@@ -1,8 +1,11 @@
 # Steward: Pipeline & Stage Contract
 
-The `Task` / `ProcessingStage` / `Pipeline` triad is the public ABI of
-NeMo Curator. Every modality stage, every backend adapter, and every
-tutorial depends on it.
+This domain exists because pipeline portability across executors is the
+framework's value proposition. The `Task` / `ProcessingStage` /
+`Pipeline` / `Resources` ABI is what lets a user write a curation
+pipeline once and run it across Xenna, Ray Actor Pool, and Ray Data
+without code changes. Every modality stage, every backend adapter,
+every tutorial depends on this contract holding.
 
 Related: root [AGENTS.md](../AGENTS.md),
 [api-design.md](../api-design.md),
@@ -10,9 +13,13 @@ Related: root [AGENTS.md](../AGENTS.md),
 
 ## Point Of View
 
-The framework's spine. Defends abstractions against backend leakage,
-modality leakage, and convenience shortcuts that quietly break the
-parity promise.
+The framework's spine. Defends three design pillars — task-centric,
+map-style, fault-tolerant — against abstractions that would leak
+backend concerns into stages, modality concerns into the base, or
+convenience shortcuts that quietly break portability. Per-stage
+resource declaration is the framework's signature ergonomic, and it
+must stay simple enough for extension authors to use correctly without
+deep framework knowledge.
 
 ## Protect
 
@@ -31,24 +38,30 @@ parity promise.
   - `Pipeline` in `pipeline/pipeline.py` — `add_stage`, `run`,
     `describe`, `config` semantics.
   - `Resources` in `stages/resources.py` — `cpus`, `gpu_memory_gb`,
-    `gpus`. The order and meaning are part of the contract; adding
-    fields requires Stop-And-Ask and updates to every modality task
-    subclass and backend adapter.
+    `gpus`. Field order and meaning are contract; adding fields
+    requires Stop-And-Ask and updates to every modality task subclass
+    and backend adapter.
   - `RayClient` in `core/client.py` — `start`, `stop`.
   - `StageMeta` auto-registration: stage class names must stay unique
     across the registry.
-- **Stage invariants:**
-  - `process(task: X) -> Y | list[Y]` is the abstract signature.
-    Backend adapters (e.g. `xenna/adapter.py`'s `process_data`,
-    which returns `list[Task] | None`) additionally tolerate `None`
-    for filter stages — treat `None` as adapter-tolerated, not
-    declared ABI.
-  - Fault-tolerant and retry-safe (Xenna preempts).
-  - Resource declarations must reflect real usage — mis-declared
-    resources break the scheduler.
-- **Task invariants:** `__post_init__` calls `validate()`, which must
-  raise on invalid data, not silently degrade. `_uuid` is
-  auto-generated. `num_items` reflects payload, not bytes.
+- **Three design pillars** (architectural, not preferential):
+  - *Task-centric* — tasks are the unit of data; finer-grained control
+    and monitoring than dataset-level pipelines.
+  - *Map-style* — every stage transforms tasks to tasks (`X → Y |
+    list[Y]`). This constraint is what enables streaming and
+    auto-balancing; preserving it is more important than supporting a
+    convenient one-off graph pattern.
+  - *Fault tolerant* — stages survive Xenna preemption. Partial state
+    is idempotent or recoverable. Stages don't lose work silently.
+- **Resource declaration as the framework's signature ergonomic.**
+  Setting `Resources(cpus=0.5)` or `gpus=0.5` at the stage level
+  must stay dead-simple. Extension authors who can dial resources
+  per-stage can get heterogeneous CPU/GPU pipelines to perform; those
+  who can't, can't.
+- **`process(task: X) -> Y | list[Y]`** is the abstract signature.
+  Backend adapters (e.g. `xenna/adapter.py`'s `process_data`)
+  additionally tolerate `None` for filter stages — treat `None` as
+  adapter-tolerated, not declared ABI.
 - **Pipeline invariants:** adjacent stages' outputs ⊆ next stage's
   inputs. Pipeline is backend-agnostic; running on a different
   executor must not change user-visible result modulo documented
@@ -78,16 +91,17 @@ Ray Actor Pool / Docs / Tutorials / Tests / Cursor+Copilot rules).
 
 ## Advocate
 
-- Stronger type-checking at `add_stage` time so pipeline composition
-  errors surface before `run()`.
-- Diagnostics when a stage's declared `inputs`/`outputs` don't match
-  what `process()` actually returns at runtime.
-- Documented fault-tolerance contract per stage type: what each owes
-  Xenna on preemption (idempotency, partial-state cleanup).
-- Dedicated `tests/stages/test_base.py` coverage of the ABI (today
-  covered indirectly via `tests/backends/test_integration.py`).
-- Lower-friction extension paths for custom stages / custom tasks
-  without forking.
+- **Pre-flight pipeline validation.** Type errors should surface at
+  `add_stage` time, not after a long run. Composition errors caught
+  before `run()` save the most user pain.
+- **Diagnostics when declared inputs/outputs don't match runtime
+  return shape.** Today this drifts silently.
+- **Documented fault-tolerance contract per stage type** — what each
+  owes on preemption (idempotency, partial-state cleanup).
+- **Dedicated ABI test coverage in `tests/stages/test_base.py`.**
+  Today covered indirectly via integration tests.
+- **Lower-friction extension paths** for custom stages and tasks
+  without forking the framework.
 
 ## Own
 

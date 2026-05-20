@@ -7,11 +7,26 @@
 
 ## North Star
 
-NeMo Curator is a Ray-based, backend-agnostic framework for distributed
-data-curation pipelines across text, image, audio, and video. The same
-pipeline definition must run unchanged on three executors (Xenna, Ray
-Actor Pool, Ray Data). We protect the **single pipeline / many backends**
-contract and the user-facing surfaces that depend on it.
+NeMo Curator builds scalable, configurable pipelines to curate text,
+image, audio, and video datasets for accurate AI applications. Customers
+run trillion-token pretraining, multi-modal corpora, and synthetic data
+generation at multi-node GPU scale. We protect the conditions that make
+this possible:
+
+- **Higher accuracy** — better data, less training compute
+- **Faster processing** — RAPIDS-accelerated dedup, classification, and inference
+- **Scalability** — multi-node, multi-GPU, designed for PB-scale workloads
+- **Classifier models** — state-of-the-art open quality/domain/safety models
+- **Deploy anywhere** — Python APIs, runnable on CSP and on-prem
+
+The architecture rests on three design pillars:
+
+- **Task-centric** — Tasks (`DocumentBatch`, `ImageBatch`, `VideoTask`, `AudioTask`) are the unit of data flowing through pipelines
+- **Map-style** — every stage transforms tasks to tasks; this constraint enables auto-balancing and streaming
+- **Fault tolerant** — stages survive preemption and reschedule; partial state is recoverable
+
+The same pipeline definition must run unchanged across Xenna, Ray Actor
+Pool, and Ray Data executors.
 
 ## Non-Negotiables
 
@@ -19,12 +34,12 @@ contract and the user-facing surfaces that depend on it.
   `Resources` are public ABI (`nemo_curator/stages/base.py`,
   `tasks/tasks.py`, `pipeline/pipeline.py`, `backends/base.py`,
   `stages/resources.py`). Breaks here are Stop-And-Ask.
-- **All stages MUST be fault-tolerant and retry-safe.** Xenna preempts
-  and reschedules; partial state must be idempotent or recoverable.
-- Same pipeline → equivalent results across all three backends. Any
-  executor-specific behavior must be explicitly documented.
+- All stages MUST be fault-tolerant and retry-safe. Xenna preempts and
+  reschedules; partial state must be idempotent or recoverable.
+- Same pipeline → equivalent results across all three backends.
+  Executor-specific behavior must be explicitly documented.
 - GPU code paths degrade gracefully when CUDA/RAPIDS aren't installed.
-  Guard imports; don't crash CPU-only installs.
+  Guard imports outside the dedup tree; don't crash CPU-only installs.
 
 ## Architecture Boundaries
 
@@ -43,15 +58,15 @@ contract and the user-facing surfaces that depend on it.
 ## Governance Alignment
 
 `.github/CODEOWNERS` is the source of truth for human review. AI
-stewards **advise**; CODEOWNERS approve. Route review to the named
-humans when a change crosses their lines — never replace them.
+stewards advise; CODEOWNERS approve. Route review to the named humans
+when a change crosses their lines — never replace them.
 
 Canonical knowledge lives in `fern/`. Cursor rules
 (`.cursor/rules/*.mdc`), Copilot instructions
 (`.github/copilot-instructions.md`), Claude skills (`.claude/skills/`),
 and `AGENTS.md` files extend canonical docs — they do not replace them.
-If important product knowledge is only in an agent artifact, fix `fern/`
-first.
+If important product knowledge is only in an agent artifact, fix
+`fern/` first.
 
 Cross-repo terminology or duplicate-fact conflicts route to
 `@NVIDIA-NeMo/docs_team`. Stewards are repo-local; escalate rather than
@@ -76,7 +91,7 @@ Pause for human review before:
   knobs.
 - Tests and code disagree, or a bug can't be reproduced locally.
 
-## Anti-Patterns (repo-specific)
+## Anti-Patterns
 
 - Adding a backend-specific code path inside a `ProcessingStage`.
   Differences belong in `nemo_curator/backends/<name>/`.
@@ -97,7 +112,7 @@ Pause for human review before:
 
 Each scoped steward is a domain agent with the same operating model:
 
-- **Point of View** — what the domain represents
+- **Point of View** — what the domain represents and why it matters
 - **Protect** — invariants, contracts, quality bars
 - **Contract Checklist** — surfaces to inspect when this domain changes
 - **Advocate** — investments to push for
@@ -106,14 +121,48 @@ Each scoped steward is a domain agent with the same operating model:
 Optional sections — include only when they carry weight a careful
 reader can't infer from the other sections:
 
-- **Do Not** — only for non-obvious local anti-patterns. If a bullet
-  inverts a Protect item, drop it.
-- **Serve Peers** — only for explicit cross-domain obligations. If a
-  bullet just says "keep things in sync," drop it.
+- **Do Not** — only for non-obvious local anti-patterns
+- **Serve Peers** — only for explicit cross-domain obligations
 
 Cross-boundary work includes a **Steward Notes** block in the PR
 description naming consulted stewards, accepted/deferred findings,
 merged duplicates, and required collateral.
+
+## Inference Acceleration Steward (cross-cutting)
+
+The Inference Acceleration Steward is a cross-cutting steward, not
+tied to a single directory. It coordinates the modality, backends,
+synthetic-data, and dedup stewards whenever a change touches an
+inference-bearing stage or the model-serving surface.
+
+Consult it when work changes or creates: a classifier or embedder
+stage, a VLM or LLM stage (captioning, scoring, generation), an
+embedding-model integration for semantic dedup, a `runtime_env` carrying
+model-serving deps (vLLM, TensorRT-LLM, NIM client, Ray Serve, Dynamo),
+or any documented throughput / latency / GPU-utilization claim.
+
+Inference acceleration review asks:
+
+- Is the model running at speed-of-light for its hardware? (TensorRT-LLM,
+  memory optimization, FP8/INT8 quantization, paged attention)
+- Is the serving pattern explicit: in-process (model loaded per stage
+  worker) or server-endpoint (CPU-only Curator stages calling a local
+  model server)?
+- Which model server is used: vLLM is canonical; Ray Serve is preferred
+  for Ray-native ergonomics; Dynamo is supported when NV-optimized
+  inference matters more than integration cost.
+- Does the benchmark capture model + serving stack + hardware? Numbers
+  without that context are noise.
+- For server-endpoint patterns: replica count, concurrency per client,
+  and queue behavior are documented; serialization overhead is measured.
+- For in-process patterns: model fits within stage worker memory budget;
+  GPU memory budgeting is honest.
+- Async scheduling features (e.g., vLLM's `RayExecutorV2`) are adopted
+  when they reduce GPU idle time.
+
+This steward does not replace the modality, backends, or SDG stewards
+— it creates tension when an inference-bearing change crosses their
+boundaries so model serving choices stay coherent across the framework.
 
 ### Contract Checklist (repo-wide)
 
@@ -170,10 +219,12 @@ misleading. P2/P3 = polish or advocacy.
 
 **When to consult:** nearest steward for local work; multiple stewards
 when ownership lines cross; full swarm for site-wide `fern/` IA
-refactors or cross-cutting refactors. Parallelize only when the
-questions are independent — independent stewards surface convergence.
-Route structural, cross-domain, standards-impacting, or
-ownership-affecting decisions to human governance stewards.
+refactors or cross-cutting refactors. **Consult the Inference
+Acceleration Steward** for any inference-bearing or model-serving
+change. Parallelize only when the questions are independent — independent
+stewards surface convergence. Route structural, cross-domain,
+standards-impacting, or ownership-affecting decisions to human
+governance stewards.
 
 Match depth to risk: typo and link fixes ship after automated checks;
 technical-accuracy changes need agent first-pass plus human review;
@@ -240,6 +291,12 @@ the verification recipe.
   but the implementation differs across
   `backends/{xenna,ray_data,ray_actor_pool}/`. *Verify:* grep all
   three adapters for the named feature.
+- **Inference performance regression.** A model-bearing stage's
+  throughput, latency, or GPU utilization drops without explanation,
+  or a new inference path lands without speed-of-light benchmarks
+  (TensorRT-LLM, quantization, paged attention). *Verify:* every
+  inference change carries a benchmark capturing model + serving
+  stack + hardware.
 - **Deduplication CUDA gating.** Dedup example doesn't name the
   `deduplication_cuda12` extras or GPU requirement. Today, importing
   the dedup package itself requires `deduplication_cuda12` (RAPIDS at
@@ -315,7 +372,8 @@ terminology drift. Tune quarterly.
   for user-visible behavior. Release notes in `fern/` only.
 - Tutorials / `quickstart.py` updated when public surface changes, or
   an explicit `no-impact: <reason>` note.
-- Benchmark notes for perf-sensitive changes.
+- Benchmark notes for perf-sensitive changes; inference-bearing
+  changes carry model + serving-stack + hardware context.
 - Every accepted steward finding has proof or an explicit no-impact
   note. Factual P0/P1 findings carry verification status.
 - For doc-shaped PRs: a Content Audit ran; accepted P0s were

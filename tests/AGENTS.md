@@ -1,10 +1,11 @@
 # Steward: Tests
 
-The test suite. CPU-default with explicit GPU markers. `conftest.py`
-runs a shared session-scoped Ray cluster that adapts to available
-GPUs. CI runs via `L0_Unit_Test_CPU.sh` and `L0_Unit_Test_GPU.sh`.
-Pre-commit plus 80% coverage on changed lines (per `codecov.yml`) are
-gate conditions.
+This domain exists because the framework's parity, fault-tolerance,
+and ABI claims need defending. Without consistent test conventions,
+every modality drifts independently and the "same pipeline runs on
+any backend" guarantee silently rots. Parity across modalities and
+backends is the actual risk surface — more so than CPU-vs-GPU
+coverage.
 
 Related: root [AGENTS.md](../AGENTS.md),
 [CONTRIBUTING.md](../CONTRIBUTING.md),
@@ -12,9 +13,11 @@ Related: root [AGENTS.md](../AGENTS.md),
 
 ## Point Of View
 
-The safety net. Defends the parity, fault-tolerance, and ABI claims
-the rest of the repo makes. Without consistent conventions, every
-modality drifts independently and parity testing collapses.
+The safety net. Defends the framework's portability and contract
+claims through fixtures, markers, and CI scripts that mirror how
+users actually run pipelines. Tests are also the documentation of
+*intended* behavior — when source and tests disagree, the discussion
+is "which one matches what we promised users?"
 
 ## Protect
 
@@ -56,15 +59,15 @@ When this domain changes:
 
 ## Advocate
 
-- Backend-parity test fixtures so executor sweeps are first-class
+- **Backend-parity test fixtures** so executor sweeps are first-class
   instead of hand-coded per test.
-- Canonical small fixtures per modality so new tests don't reinvent
-  fixture loading. Today `tests/fixtures/` and `tests/data/` only
-  cover audio.
-- Per-module coverage reporting so low-coverage hotspots are
+- **Canonical small fixtures per modality** so new tests don't
+  reinvent fixture loading. Today `tests/fixtures/` and
+  `tests/data/` only cover audio.
+- **Per-module coverage reporting** so low-coverage hotspots are
   visible.
-- Faster CPU CI via path-based test selection on changed files.
-- Snapshot or determinism tests for dedup and synthetic-data
+- **Faster CPU CI** via path-based test selection on changed files.
+- **Snapshot or determinism tests** for dedup and synthetic-data
   outputs.
 
 ## Do Not
@@ -88,12 +91,10 @@ testing pages.
 **Agent artifacts:** the "Testing" portion of
 `.cursor/rules/coding-standards.mdc`.
 
-**CODEOWNERS:** default `@NVIDIA-NeMo/curator_reviewers`. Per-modality
-subtrees route to their modality CODEOWNERS when defined:
-`tests/stages/deduplication/`, `tests/stages/text/embedders/`,
-`tests/stages/text/classifiers/`, `tests/stages/synthetic/`,
-`tests/stages/video/`, `tests/backends/`. Other subtrees
-(`tests/stages/{audio,image,interleaved,math_stages,common}/`,
-`tests/{tasks,pipelines,core,metrics,models,config,utils}/`) fall
-through to the default team — add explicit CODEOWNERS entries when
-those modalities grow dedicated owners.
+**CODEOWNERS:** default `@NVIDIA-NeMo/curator_reviewers`.
+Per-modality subtrees route to their modality CODEOWNERS when
+defined: `tests/stages/deduplication/`,
+`tests/stages/text/embedders/`, `tests/stages/text/classifiers/`,
+`tests/stages/synthetic/`, `tests/stages/video/`, `tests/backends/`.
+Other subtrees fall through to the default team — add explicit
+CODEOWNERS entries when those modalities grow dedicated owners.
