@@ -50,6 +50,7 @@ _PROMPT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "nemo_curat
 _ITN_PROMPT = _PROMPT_DIR / "itn_prompt.md"
 _CORRECTION_PROMPT = _PROMPT_DIR / "correction_prompt.md"
 _CAPTIONING_PROMPT = _PROMPT_DIR / "captioning_prompt.md"
+_PNC_PROMPT = _PROMPT_DIR / "pnc_prompt.md"
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -67,6 +68,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                     help="Enable ITN + disfluency removal stage: removes fillers/repetitions + ITN. Output key: itn_no-disfluencies_text")
     ap.add_argument("--enable_captioning", action="store_true", default=False,
                     help="Enable captioning stage: summarizes transcript into a short caption. Output key: captioning_text")
+    ap.add_argument("--enable_pnc", action="store_true", default=False,
+                    help="Enable PnC stage: restores punctuation and capitalization. Output key: pnc_text")
 
     ap.add_argument("--text_key", type=str, default="pnc_text",
                     help="Input text field from ASR pipeline output.")
@@ -76,6 +79,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                     help="Output field for ITN + disfluency removal result.")
     ap.add_argument("--captioning_output_key", type=str, default="captioning_text",
                     help="Output field for captioning result.")
+    ap.add_argument("--pnc_output_key", type=str, default="pnc_text",
+                    help="Output field for PnC result.")
 
     ap.add_argument("--model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8",
                     help="HuggingFace model ID for the text LLM.")
@@ -85,6 +90,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                     help="Path to ITN + disfluency removal prompt file. Defaults to bundled correction_prompt.md.")
     ap.add_argument("--captioning_prompt_file", type=str, default=None,
                     help="Path to captioning prompt file. Defaults to bundled captioning_prompt.md.")
+    ap.add_argument("--pnc_prompt_file", type=str, default=None,
+                    help="Path to PnC prompt file. Defaults to bundled pnc_prompt.md.")
 
     ap.add_argument("--tensor_parallel_size", type=int, default=None,
                     help="GPUs for tensor parallelism (default: auto-detect).")
@@ -106,13 +113,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _build_arg_parser().parse_args()
 
-    if not args.enable_itn and not args.enable_itn_no_disfluencies and not args.enable_captioning:
-        logger.warning("No stages enabled. Use --enable_itn, --enable_itn_no-disfluencies, or --enable_captioning.")
+    if not args.enable_itn and not args.enable_itn_no_disfluencies and not args.enable_captioning and not args.enable_pnc:
+        logger.warning("No stages enabled. Use --enable_pnc, --enable_itn, --enable_itn_no-disfluencies, or --enable_captioning.")
         return
 
     itn_prompt = args.itn_prompt_file or str(_ITN_PROMPT)
     itn_no_disfl_prompt = args.itn_no_disfluencies_prompt_file or str(_CORRECTION_PROMPT)
     captioning_prompt = args.captioning_prompt_file or str(_CAPTIONING_PROMPT)
+    pnc_prompt = args.pnc_prompt_file or str(_PNC_PROMPT)
 
     shared_model_kwargs = {
         "model_id": args.model_id,
@@ -129,6 +137,18 @@ def main() -> None:
     stages = [
         ALMManifestReader(manifest_path=args.input_manifest),
     ]
+
+    if args.enable_pnc:
+        pnc_input_key = "abbreviated_text" if args.text_key == "pnc_text" else args.text_key
+        stages.append(TextLLMStage(
+            name="PnCRestoration",
+            prompt_file=pnc_prompt,
+            text_key=pnc_input_key,
+            output_text_key=args.pnc_output_key,
+            resources=Resources(gpus=1.0),
+            **shared_model_kwargs,
+        ))
+        logger.info(f"PnC stage enabled: {pnc_input_key} → {args.pnc_output_key}")
 
     if args.enable_itn:
         stages.append(TextLLMStage(

@@ -45,10 +45,7 @@ Architecture:
         → applies regex rules, writes cleaned_text
     AbbreviationConcatStage (CPU)
         → re-joins split abbreviations, writes abbreviated_text
-    [optional] PnCRestorationStage (GPU, text-only LLM)
-        → restores punctuation/capitalisation, writes pnc_text
-    [optional] PnCContentGuardStage (CPU)
-        → reverts pnc_text when the LLM changed words
+    [moved to text pipeline] PnCRestorationStage + PnCContentGuardStage
     ShardedManifestWriterStage (CPU)
         → writes per-shard JSONL output with .done markers
 """
@@ -74,8 +71,6 @@ from nemo_curator.stages.audio.text_filtering import (
     DisfluencyWerGuardStage,
     FastTextLIDStage,
     InitializeFieldsStage,
-    PnCContentGuardStage,
-    PnCRestorationStage,
     RegexSubstitutionStage,
     WhisperHallucinationStage,
 )
@@ -152,31 +147,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         help="Min chars/s above which text is considered impossibly dense.",
     )
 
-    pnc = ap.add_argument_group("PnC restoration")
-    pnc.add_argument("--pnc_model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8",
-                     help="Model ID for PnC restoration LLM.")
-    pnc.add_argument("--pnc_prompt", type=str, default=None,
-                     help="PnC restoration prompt (use {text} placeholder). Read from --pnc_prompt_file if set.")
-    pnc.add_argument("--pnc_prompt_file", type=str, default=None,
-                     help="Read PnC restoration prompt from file.")
-    pnc.add_argument("--completeness_prompt", type=str, default=None,
-                     help="Completeness check prompt (use {text} placeholder).")
-    pnc.add_argument("--pnc_tensor_parallel_size", type=int, default=2,
-                     help="Tensor parallel size for PnC model.")
-    pnc.add_argument("--pnc_batch_size", type=int, default=64,
-                     help="Batch size for PnC restoration stage.")
-    pnc.add_argument("--pnc_max_model_len", type=int, default=8192,
-                     help="Max model length for PnC model.")
-    pnc.add_argument("--pnc_max_num_seqs", type=int, default=64,
-                     help="Max concurrent sequences for PnC model.")
-    pnc.add_argument("--pnc_prep_workers", type=int, default=8,
-                     help="Thread pool size for PnC prompt preprocessing.")
-    pnc.add_argument("--pnc_gpu_memory_utilization", type=float, default=0.95,
-                     help="Fraction of GPU memory for PnC vLLM engine.")
-    pnc.add_argument("--pnc_source_lang_key", type=str, default="source_lang",
-                     help="Task data key holding per-sample language name for PnC prompt {language} placeholder.")
-    pnc.add_argument("--skip_pnc", action="store_true", default=False,
-                     help="Skip PnC restoration stage entirely.")
+    # PnC stage moved to text post-processing pipeline (run_text_pipeline.py)
 
     sed = ap.add_argument_group("SED (sound event detection)")
     sed.add_argument("--sed_checkpoint", type=str, default=None,
@@ -241,12 +212,6 @@ def main() -> None:  # noqa: C901
                 system_prompt = f.read().strip()
         else:
             system_prompt = args.system_prompt
-
-    pnc_prompt_text = args.pnc_prompt
-    if args.pnc_prompt_file:
-        with open(args.pnc_prompt_file, encoding="utf-8") as f:
-            pnc_prompt_text = f.read().strip()
-
 
     omni_text_key = "qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1"
 
@@ -364,29 +329,7 @@ def main() -> None:  # noqa: C901
         ),
     ])
 
-    if not args.skip_pnc:
-        stages.extend([
-            PnCRestorationStage(
-                model_id=args.pnc_model_id,
-                text_key="abbreviated_text",
-                output_text_key="pnc_text",
-                tensor_parallel_size=args.pnc_tensor_parallel_size,
-                batch_size=args.pnc_batch_size,
-                max_model_len=args.pnc_max_model_len,
-                max_num_seqs=args.pnc_max_num_seqs,
-                gpu_memory_utilization=args.pnc_gpu_memory_utilization,
-                prep_workers=args.pnc_prep_workers,
-                num_workers_override=args.pnc_num_workers,
-                **({"pnc_prompt": pnc_prompt_text} if pnc_prompt_text else {}),
-                **({"completeness_prompt": args.completeness_prompt} if args.completeness_prompt else {}),
-                source_lang_key=args.pnc_source_lang_key,
-            ),
-            PnCContentGuardStage(
-                text_key="abbreviated_text",
-                pnc_text_key="pnc_text",
-                rejected_text_key="rejected_pnc_text",
-            ),
-        ])
+    # PnC stage moved to text post-processing pipeline
 
     stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
 
