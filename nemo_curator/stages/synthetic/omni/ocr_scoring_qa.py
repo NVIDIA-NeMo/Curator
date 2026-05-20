@@ -36,7 +36,7 @@ import json
 import random
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nemo_curator.tasks.image import SingleDataTask
@@ -172,7 +172,6 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         dense_dump_prob: float = 0.05,
         batch_size: int | None = None,
         priority_mode: bool = False,
-        **kwargs: Any,  # noqa: ANN401
     ) -> None:
         """Initialise the combined scoring + QA stage.
 
@@ -214,7 +213,6 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
                 priority_mode=priority_mode,
             ),
             batch_size=batch_size or self.batch_size,
-            **kwargs,
         )
 
     def build_prompt(self, task: SingleDataTask[OCRData]) -> str:
