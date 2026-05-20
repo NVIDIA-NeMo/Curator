@@ -123,41 +123,33 @@ Cross-boundary work includes a **Steward Notes** block in the PR
 description naming consulted stewards, accepted/deferred findings,
 merged duplicates, and required collateral.
 
-## Inference Acceleration Steward (cross-cutting)
+## Inference Acceleration (cross-cutting concern)
 
-The Inference Acceleration Steward is a cross-cutting steward, not
-tied to a single directory. It coordinates the modality, backends,
-synthetic-data, and dedup stewards whenever a change touches an
-inference-bearing stage or the model-serving surface.
+Inference acceleration is a cross-cutting concern owned at root, not
+a separately-scoped steward. When code changes touch an
+inference-bearing surface, these invariants apply in addition to the
+relevant modality steward's:
 
-Consult it when work changes or creates: a classifier or embedder
-stage, a VLM or LLM stage (captioning, scoring, generation), an
-embedding-model integration for semantic dedup, a `runtime_env` carrying
-model-serving deps (vLLM, TensorRT-LLM, NIM client, Ray Serve, Dynamo),
-or any documented throughput / latency / GPU-utilization claim.
-
-Inference acceleration review asks:
-
-- Is the model running at speed-of-light for its hardware? (TensorRT-LLM,
-  memory optimization, FP8/INT8 quantization, paged attention)
-- Is the serving pattern explicit: in-process (model loaded per stage
-  worker) or server-endpoint (CPU-only Curator stages calling a local
-  model server)?
-- Which model server is used: vLLM is canonical; Ray Serve is preferred
-  for Ray-native ergonomics; Dynamo is supported when NV-optimized
+- **Speed-of-light per model.** TensorRT-LLM, memory optimization,
+  FP8/INT8 quantization, and paged attention are the floor — not the
+  ceiling.
+- **Serving pattern is explicit.** Either *in-process* (model loaded
+  per stage worker; must fit the worker's GPU memory budget) or
+  *server-endpoint* (CPU-only Curator stages calling a local model
+  server; replica count, per-client concurrency, queue behavior, and
+  serialization overhead documented).
+- **Model server choice.** vLLM is canonical. Ray Serve is preferred
+  for Ray-native ergonomics. Dynamo is supported when NV-optimized
   inference matters more than integration cost.
-- Does the benchmark capture model + serving stack + hardware? Numbers
+- **Async scheduling** features (e.g., vLLM's `RayExecutorV2`) are
+  adopted when they reduce GPU idle time.
+- **Benchmarks capture model + serving stack + hardware.** Numbers
   without that context are noise.
-- For server-endpoint patterns: replica count, concurrency per client,
-  and queue behavior are documented; serialization overhead is measured.
-- For in-process patterns: model fits within stage worker memory budget;
-  GPU memory budgeting is honest.
-- Async scheduling features (e.g., vLLM's `RayExecutorV2`) are adopted
-  when they reduce GPU idle time.
 
-This steward does not replace the modality, backends, or SDG stewards
-— it creates tension when an inference-bearing change crosses their
-boundaries so model serving choices stay coherent across the framework.
+Inference-bearing surfaces include classifier / embedder / VLM / LLM
+stages, semantic-dedup embedding integrations, `runtime_env` carrying
+model-serving deps, and any documented throughput / latency / GPU-
+utilization claim.
 
 ### Contract Checklist (repo-wide)
 

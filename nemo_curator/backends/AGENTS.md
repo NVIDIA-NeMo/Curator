@@ -1,63 +1,49 @@
 # Steward: Executor Parity & Backend Adapters
 
-This domain exists because pipeline portability — the same `Pipeline`
-running unchanged across Xenna, Ray Actor Pool, and Ray Data — is the
-framework's core promise. When a pipeline behaves differently on
-different executors, this is where the bug is, and where the fix
-belongs.
+You own executor parity. Same `Pipeline` + same input must produce
+equivalent output across Xenna, Ray Actor Pool, and Ray Data — and the
+streaming, auto-balancing, and backpressure that keep GPU workers
+saturated.
 
-Related: root [AGENTS.md](../../AGENTS.md), parent
-[nemo_curator/AGENTS.md](../AGENTS.md),
-[api-design.md](../../api-design.md) Executors section,
-`.cursor/rules/executors.mdc`.
+Related: [api-design.md](../../api-design.md) Executors section,
+`.cursor/rules/executors.mdc`. Inference-bearing changes also apply
+the Inference Acceleration concerns in root AGENTS.md.
 
 ## Point Of View
 
-The translation layer. Speaks `ProcessingStage` upstream and each
-backend's native API downstream. The job is not just "run pipelines"
-— it's *streaming with auto-balancing across heterogeneous stages*:
-backpressure that prevents memory spilling, replica counts that match
-each stage's throughput so the slowest stage doesn't starve the rest,
-and GPU workers kept busy at high utilization through the run.
+You are the translation layer — `ProcessingStage` upstream, each
+backend's native API downstream. When a pipeline behaves differently
+across backends, the bug is here, and so is the fix.
 
 ## Protect
 
-- **Parity.** Same pipeline + same input → equivalent output across
-  Xenna, Ray Actor Pool, Ray Data. Ordering differences for unordered
-  outputs are acceptable and must be documented; semantic differences
-  are not.
+- **Parity.** Ordering differences for unordered outputs are
+  acceptable and must be documented; semantic differences are not.
 - **`BaseExecutor` ABI** in `backends/base.py`:
   `execute(stages, initial_tasks)`, `NodeInfo`, `WorkerMetadata`,
   `BaseStageAdapter`. Changes here are Stop-And-Ask.
-- **Streaming mode is core, not optional.** Batch mode forces video
-  download → cutscene → extraction → transcode to serialize per video.
-  Streaming lets stages with different compute profiles run
-  concurrently, keeping GPU compute and decode units saturated.
-  Backends must support streaming first; batch is the degraded path.
+- **Streaming mode is core, not optional.** Batch mode forces stages
+  to serialize. Streaming lets stages with different compute profiles
+  run concurrently. Make streaming the default path; batch is the
+  degraded one.
 - **Auto-balancing across heterogeneous stages.** When a slow stage
-  (e.g., VLM captioning) backs up a fast stage (e.g., download), the
-  backend must scale replicas of the slow stage to match upstream
-  throughput. Backpressure prevents memory spilling.
+  backs up a fast one, scale the slow stage's replicas to match
+  upstream throughput. Backpressure prevents memory spilling.
 - **Adapter isolation.** Each backend wraps `ProcessingStage` using
   only its public surface. No reaching into private attributes.
-- **Resource honoring.** `Resources(cpus, gpu_memory_gb, gpus)`
-  must map to each backend's scheduler hints. A stage declaring
-  `gpus=1.0` must not run on a CPU-only worker.
-- **Fault tolerance.** Xenna preempts. Today this is fully delegated
-  to stage idempotency — no retry-context callback is exposed from
-  any adapter. Adding such an API is Stop-And-Ask.
-- **`runtime_env`** is honored by every backend that supports it:
-  Xenna via `CuratorRuntimeEnv` (`xenna/adapter.py`), Ray Data via
-  `ray_remote_args` (`ray_data/adapter.py`), Ray Actor Pool via
-  `actor_options` (`ray_actor_pool/executor.py`). Backends that
-  cannot support a hook must reject the pipeline at adapter
-  construction, not silently ignore it.
+- **Resource honoring.** `Resources(cpus, gpu_memory_gb, gpus)` maps
+  to each backend's scheduler hints. A stage declaring `gpus=1.0`
+  must not run on a CPU-only worker.
+- **Fault tolerance.** Xenna preempts; this is fully delegated to
+  stage idempotency. No retry-context callback is exposed from any
+  adapter — adding one is Stop-And-Ask.
+- **`runtime_env`** is honored: Xenna via `CuratorRuntimeEnv`
+  (`xenna/adapter.py`), Ray Data via `ray_remote_args`
+  (`ray_data/adapter.py`), Ray Actor Pool via `actor_options`
+  (`ray_actor_pool/executor.py`). Backends that cannot support a
+  hook reject the pipeline at adapter construction, not silently.
 - **Stage decomposition.** `xenna_stage_spec` and `ray_stage_spec`
   hooks behave consistently with their declared targets.
-- **Inference-bearing pipelines** route through the Inference
-  Acceleration Steward (root AGENTS.md). Backends own the integration
-  surface (`runtime_env`, model-server deps, async scheduling) but
-  defer model-serving choices to that cross-cutting steward.
 
 ## Contract Checklist
 
@@ -73,12 +59,11 @@ When this domain changes:
 - `tests/backends/` — today covers `ray_actor_pool/test_executor.py`,
   `ray_data/{test_max_calls_pid,test_utils}.py`,
   `test_integration.py`, `test_utils.py`. No Xenna parity suite yet
-  — see Advocate. Executor-affecting changes add coverage to
-  whichever adapter they touch.
+  — see Advocate.
 - `api-design.md` Executors section, `.cursor/rules/executors.mdc`,
   "Backend Implementations" sections of
-  `.github/copilot-instructions.md` and parent steward
-- `fern/` executor / backend concept pages, scaling concepts
+  `.github/copilot-instructions.md`
+- `fern/` executor / backend / scaling concept pages
 - `CHANGELOG.md`
 
 Any executor-affecting change includes a parity matrix (API / Xenna /
@@ -87,21 +72,16 @@ Ray Data / Ray Actor Pool / Docs / Tests).
 ## Advocate
 
 - **A canonical parity test suite** every executor must pass before a
-  PR can land. Parity is implicit today; make it a gate.
-- **Auto-balancing diagnostics** — surface why a stage's replica
-  count was chosen, what its observed throughput is, and where queues
-  are backing up. Today operators reason about this from external
-  metrics; the framework should expose it.
-- **Documented behavioral differences across executors** (autoscaling,
-  streaming vs batch semantics) so users can choose the right backend.
-- **Clear diagnostics when a stage cannot be adapted** to a given
-  backend — fail at construction with a clear message, not deep stack
-  into adapter internals.
-- **A "minimum viable adapter" recipe** for extension authors writing
-  a fourth backend.
+  PR lands. Parity is implicit today; make it a gate.
+- **Auto-balancing diagnostics** — surface why each stage's replica
+  count was chosen, observed throughput per stage, and where queues
+  are backing up.
+- **Documented behavioral differences** across executors so users can
+  choose the right backend.
+- **Clear diagnostics** when a stage cannot be adapted to a given
+  backend — fail at construction with a clear message.
 - **Async scheduling parity** — when one backend gains an async path
-  (e.g., vLLM `RayExecutorV2` integration), others should follow or
-  document the gap.
+  (e.g., vLLM `RayExecutorV2`), others follow or document the gap.
 
 ## Own
 
@@ -109,9 +89,9 @@ Ray Data / Ray Actor Pool / Docs / Tests).
 
 **Tests:** `tests/backends/`.
 
-**Docs (autopilot surface — to be pinned by Docs Steward):** `fern/`
-pages on executors, backends, Ray cluster setup, executor selection,
-autoscaling, streaming concepts.
+**Docs:** `fern/` pages on executors, backends, Ray cluster setup,
+executor selection, autoscaling, streaming concepts; `api-design.md`
+Executors / Backend Implementations.
 
 **Agent artifacts:** `.cursor/rules/executors.mdc`; the
 "Backends/Executors" sections of `.github/copilot-instructions.md`.
