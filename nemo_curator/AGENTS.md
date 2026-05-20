@@ -39,9 +39,10 @@ parity promise.
     across the registry.
 - **Stage invariants:**
   - `process(task: X) -> Y | list[Y]` is the abstract signature.
-    Backend adapters and helpers in `backends/utils.py` additionally
-    tolerate `None` (for filters); treat `None` as
-    adapter-tolerated, not declared ABI.
+    Backend adapters (e.g. `xenna/adapter.py`'s `process_data`,
+    which returns `list[Task] | None`) additionally tolerate `None`
+    for filter stages — treat `None` as adapter-tolerated, not
+    declared ABI.
   - Fault-tolerant and retry-safe (Xenna preempts).
   - Resource declarations must reflect real usage — mis-declared
     resources break the scheduler.

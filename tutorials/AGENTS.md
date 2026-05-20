@@ -80,7 +80,8 @@ tutorials.
 keeps the skill aligned with current tutorials. Apply the Docs-First
 evaluation gate before expanding.
 
-**CODEOWNERS:** default `@NVIDIA-NeMo/curator_reviewers`. Tutorials
-touching a modality with named CODEOWNERS (deduplication,
-classifiers, embedders, video, synthetic) route additionally to those
-teams.
+**CODEOWNERS:** default `@NVIDIA-NeMo/curator_reviewers`.
+`.github/CODEOWNERS` has no `tutorials/` entries today, so no
+per-modality routing fires for tutorial changes — adding explicit
+routes for tutorials touching dedup / classifiers / embedders /
+video / synthetic is open advocacy.

@@ -29,10 +29,12 @@ PRs.
   including `docs/about/release-notes/`, is tracked for removal — see
   Advocate.
 - **Versions and redirects.**
-  `fern/versions/{latest,main,v25.09,v26.02,v26.04}.yml` and matching
-  directories. Adding a version coordinates `fern/docs.yml` redirects
-  and inbound-link impact. `fern/docs.yml` redirects carry years of
-  inbound traffic; don't remove without checking traffic.
+  `fern/versions/{latest,main,v25.09,v26.02,v26.04}.yml`, with
+  matching directories for `main` and each `vYY.MM`. `latest.yml`
+  is redirect-only (no `latest/` directory). Adding a version
+  coordinates `fern/docs.yml` redirects and inbound-link impact;
+  redirects carry years of inbound traffic, so don't remove without
+  checking traffic.
 - **No fabricated claims.** Every documented flag, config field,
   classifier name, codec, default, or version pin must trace to source
   (Pydantic field, argparse declaration, dataclass, class definition,

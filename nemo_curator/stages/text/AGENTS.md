@@ -28,11 +28,12 @@ a `DocumentBatch`.
   `text/embedders/` lacks an equivalent registry today (see
   Advocate). Renames, removals, and default changes are
   user-visible.
-- **Filter and modifier semantics** (`text/modifiers/`,
-  `text/modules/`): keep/drop predicates and string transforms are
-  contract. Document edge cases (Unicode, whitespace, length
-  cutoffs). Note: there is no `text/filters/` directory —
-  filter-shaped stages live alongside modifiers and modules.
+- **Filter and modifier semantics** (`text/filters/`,
+  `text/modifiers/`, `text/modules/`): keep/drop predicates
+  (`text/filters/{doc_filter,score_filter}.py` and the `fasttext`,
+  `heuristic`, `histogram`, `token` subpackages under filters) and
+  string transforms are contract. Document edge cases (Unicode,
+  whitespace, length cutoffs).
 - **Download stages** (`text/download/`): respect upstream rate
   limits / robots / licensing; surface failures explicitly; retry-safe
   under preemption.
@@ -47,7 +48,7 @@ a `DocumentBatch`.
 
 When this domain changes:
 
-- `stages/text/{classifiers,embedders,modifiers,modules,io,download,utils,experimental,models,deduplication}/`
+- `stages/text/{classifiers,embedders,filters,modifiers,modules,io,download,utils,experimental,models,deduplication}/`
 - `tasks/document.py`
 - `tests/stages/text/`
 - `fern/` text curation pages — classifier names, filter params,
@@ -72,8 +73,9 @@ When this domain changes:
 ## Own
 
 **Code:** `nemo_curator/stages/text/` (subpackages: `classifiers`,
-`embedders`, `modifiers`, `modules`, `io`, `download`, `utils`,
-`experimental`, `models`, `deduplication`); `tasks/document.py`.
+`embedders`, `filters`, `modifiers`, `modules`, `io`, `download`,
+`utils`, `experimental`, `models`, `deduplication`);
+`tasks/document.py`.
 
 **Tests:** `tests/stages/text/`.
 

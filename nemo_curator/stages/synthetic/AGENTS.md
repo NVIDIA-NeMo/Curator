@@ -66,7 +66,9 @@ When this domain changes:
 **Code:**
 
 - `nemo_curator/stages/synthetic/nemo_data_designer/data_designer.py`
-- `nemo_curator/stages/synthetic/nemotron_cc/{base,nemotron_cc,prompts}.py`
+- `nemo_curator/stages/synthetic/nemotron_cc/` — top-level
+  (`base.py`, `nemotron_cc.py`, `prompts.py`) plus nested
+  `nemotron_cc/nemo_data_designer/{base,nemotron_cc}.py`
 - `nemo_curator/stages/synthetic/qa_multilingual_synthetic.py`
 - Any future file-based prompt templates under `stages/synthetic/`
 
