@@ -42,7 +42,11 @@ class TestDynamoRuntimeEnv:
             runtime_env={"uv": ["mypkg==1.0"]},
         )
         env = dynamo_runtime_env(mc)
-        assert env["uv"] == ["ai-dynamo[vllm]", "mypkg==1.0"]
+        # Dict-form ``DYNAMO_VLLM_RUNTIME_ENV["uv"]`` + list-form override:
+        # override packages append; base ``uv_pip_install_options`` survive.
+        expected_packages = [*DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"], "mypkg==1.0"]
+        assert env["uv"]["packages"] == expected_packages
+        assert env["uv"]["uv_pip_install_options"] == DYNAMO_VLLM_RUNTIME_ENV["uv"]["uv_pip_install_options"]
 
     def test_user_env_vars_are_preserved(self) -> None:
         mc = DynamoVLLMModelConfig(
@@ -50,7 +54,8 @@ class TestDynamoRuntimeEnv:
             runtime_env={"env_vars": {"HF_TOKEN": "abc", "TRANSFORMERS_OFFLINE": "1"}},
         )
         env = dynamo_runtime_env(mc)
-        assert env["uv"] == ["ai-dynamo[vllm]"]
+        # No ``uv`` override → base ``uv`` block is preserved verbatim.
+        assert env["uv"] == DYNAMO_VLLM_RUNTIME_ENV["uv"]
         assert env["env_vars"] == {"HF_TOKEN": "abc", "TRANSFORMERS_OFFLINE": "1"}
 
     def test_working_dir_is_passed_through(self) -> None:
@@ -79,7 +84,8 @@ class TestMergeModelRuntimeEnvs:
         ]
         env = merge_model_runtime_envs(models)
         assert env["env_vars"] == {"A": "1", "B": "2"}
-        assert env["uv"] == ["ai-dynamo[vllm]", "userpkg"]
+        expected_packages = [*DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"], "userpkg"]
+        assert env["uv"]["packages"] == expected_packages
 
     def test_later_model_env_var_overrides_earlier(self) -> None:
         models = [
@@ -105,3 +111,24 @@ class TestMergeModelRuntimeEnvs:
         ]
         env = merge_model_runtime_envs(models)
         assert env["env_vars"] == {"A": "1"}
+
+    def test_user_dict_form_uv_concatenates_install_options(self) -> None:
+        # User passes a dict-form ``uv`` override carrying its own
+        # ``uv_pip_install_options``; merger appends packages and concatenates
+        # options without dropping the Curator-owned flash-attn rebuild flags.
+        models = [
+            DynamoVLLMModelConfig(
+                model_identifier="m",
+                runtime_env={
+                    "uv": {
+                        "packages": ["userpkg"],
+                        "uv_pip_install_options": ["--prefer-binary"],
+                    },
+                },
+            ),
+        ]
+        env = merge_model_runtime_envs(models)
+        expected_packages = [*DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"], "userpkg"]
+        expected_options = [*DYNAMO_VLLM_RUNTIME_ENV["uv"]["uv_pip_install_options"], "--prefer-binary"]
+        assert env["uv"]["packages"] == expected_packages
+        assert env["uv"]["uv_pip_install_options"] == expected_options

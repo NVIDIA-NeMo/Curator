@@ -17,9 +17,12 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from functools import reduce
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import ray
 from loguru import logger
 
 from nemo_curator.core.serve.base import BaseModelConfig
@@ -36,6 +39,7 @@ from nemo_curator.core.serve.placement import (
     plan_replica_bundle_shape,
 )
 from nemo_curator.core.serve.subprocess_mgr import ManagedSubprocess
+from nemo_curator.utils.ray_utils import run_on_each_node
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -46,10 +50,51 @@ if TYPE_CHECKING:
     from nemo_curator.core.serve.placement import ReplicaBundleSpec
 
 
-# Installs ai-dynamo[vllm] to pin the exact vLLM release matching the
-# installed ai-dynamo — required because ai-dynamo's CLI surface tracks
-# a specific vLLM version.
-DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {"uv": ["ai-dynamo[vllm]"]}
+# ai-dynamo[vllm]'s [vllm] extra carries a hard ray pin, but Ray refuses
+# actor venvs whose ray version differs from the cluster head's. uv has no
+# inline override syntax — only ``--override <file>`` — so we materialize a
+# tiny constraints file at a fixed path on every node via
+# ``ensure_actor_overrides_on_all_nodes``; the content is derived from the
+# driver's ``ray.__version__`` at fan-out time so a future Curator ray bump
+# doesn't need a code change here.
+_ACTOR_VENV_OVERRIDES_PATH = Path(tempfile.gettempdir()) / "nemo_curator_dynamo_actor_overrides.txt"
+
+DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
+    "uv": {
+        "packages": ["ai-dynamo[vllm]"],
+        "uv_pip_install_options": ["--override", str(_ACTOR_VENV_OVERRIDES_PATH)],
+    },
+    "config": {"setup_timeout_seconds": 600},
+}
+
+
+@ray.remote
+def _write_actor_overrides_file(path: str, body: str) -> None:
+    Path(path).write_text(body)
+
+
+def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> None:
+    """Write the actor-venv ``--override`` file at a fixed path on every alive node.
+
+    The file pins ``ray=={ray.__version__}`` (read from the driver) so the
+    actor venv keeps the same ray patch as the cluster head — Ray rejects
+    any mismatch.
+
+    Must run inside an active Ray context, before any worker spawned with
+    :data:`DYNAMO_VLLM_RUNTIME_ENV` lands. The runtime_env_agent on each
+    worker reads the file from the node-local filesystem; a single
+    driver-side write doesn't reach remote nodes.
+
+    Re-call after cluster topology changes (autoscale, node restart) — this
+    is one-shot and not auto-triggered.
+    """
+    run_on_each_node(
+        _write_actor_overrides_file,
+        str(_ACTOR_VENV_OVERRIDES_PATH),
+        f"ray=={ray.__version__}\n",
+        ignore_head_node=ignore_head_node,
+    )
+
 
 # Default KV-cache transfer configuration for disagg — NixlConnector is the
 # production path; ``kv_both`` makes each worker both send and receive KV
@@ -72,6 +117,12 @@ def merge_model_runtime_envs(models: list[DynamoVLLMModelConfig]) -> dict[str, A
     envs = [m.runtime_env for m in models if m.runtime_env]
     user_merged = reduce(BaseModelConfig.merge_runtime_envs, envs) if envs else None
     return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, user_merged)
+
+
+def _worker_subprocess_env(base_env: dict[str, str], runtime_dir: str) -> dict[str, str]:
+    # FlashInfer's default workspace can keep cubins from a prior session whose
+    # actor venv has since been replaced; anchor it per-run instead.
+    return {**base_env, "FLASHINFER_WORKSPACE_BASE": f"{runtime_dir}/flashinfer"}
 
 
 def resolve_disagg_role_config(
@@ -325,7 +376,7 @@ def _launch_vllm_worker(  # noqa: PLR0913
         python_args=python_args,
         runtime_dir=runtime_dir,
         actor_name_prefix=actor_name_prefix,
-        subprocess_env=base_env,
+        subprocess_env=_worker_subprocess_env(base_env, runtime_dir),
         runtime_env=dynamo_runtime_env(model_config),
     )
 
@@ -489,7 +540,11 @@ def _launch_disagg_role(  # noqa: PLR0913
             python_args=python_args,
             runtime_dir=runtime_dir,
             actor_name_prefix=actor_name_prefix,
-            subprocess_env={**base_env, "VLLM_NIXL_SIDE_CHANNEL_PORT": str(nixl_port), "PYTHONHASHSEED": "0"},
+            subprocess_env={
+                **_worker_subprocess_env(base_env, runtime_dir),
+                "VLLM_NIXL_SIDE_CHANNEL_PORT": str(nixl_port),
+                "PYTHONHASHSEED": "0",
+            },
             runtime_env=dynamo_runtime_env(model_config),
         )
         worker_actors.append(proc)

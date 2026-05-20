@@ -95,11 +95,11 @@ def _get_gpu_topology(
             ``CURATOR_IGNORE_RAY_HEAD_NODE`` filtering). Defaults to the
             node bearing the ``node:__internal_head__`` resource marker;
             falls back to the driver's own node id if no marker is found
-            (matches the behaviour used by ``backends/utils.py``).
+            (matches the behaviour used by ``utils/ray_utils.py``).
         nodes: Pre-fetched ``ray.nodes()`` to avoid a redundant call.
     """
     if head_node_id is None:
-        from nemo_curator.backends.utils import get_head_node_id
+        from nemo_curator.utils.ray_utils import get_head_node_id
 
         head_node_id = get_head_node_id() or ray.get_runtime_context().get_node_id()
 
