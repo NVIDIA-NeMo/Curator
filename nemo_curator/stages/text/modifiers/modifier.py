@@ -36,9 +36,9 @@ class Modify(ProcessingStage[DocumentBatch, DocumentBatch]):
     - list[list[str]] (per-modifier multiple input fields)
 
     Implicit behavior:
-    - If `output_field` is None and each modifier has exactly one input field,
+    - If `output_fields` is None and each modifier has exactly one input field,
       results are written in-place to that input field.
-    - If any modifier has multiple input fields, `output_field` is required
+    - If any modifier has multiple input fields, `output_fields` is required
       (provide a single name to reuse for all, or one per modifier).
 
     Args:
@@ -218,5 +218,5 @@ def _normalize_output_fields(
         )
         raise ValueError(msg)
     else:
-        msg = "output_field must be str, list[str | None], or None"
+        msg = "output_fields must be str, list[str | None], or None"
         raise TypeError(msg)
