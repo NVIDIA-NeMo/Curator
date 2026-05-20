@@ -306,7 +306,11 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
         data_entry = task.data
         if self.segments_key in data_entry:
             for audio_segment in data_entry[self.segments_key]:
-                self.get_wer(audio_segment)
+                try:
+                    self.get_wer(audio_segment)
+                except (KeyError, ValueError) as ex:
+                    logger.warning(f"[{self.name}] skipping segment in {task.task_id}: {ex}")
+                    audio_segment.setdefault("metrics", {})["metric_skip_reason"] = str(ex)
         else:
             self.get_wer(data_entry)
         return task
@@ -314,14 +318,15 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
 
 @dataclass
 class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
-    """Compute pairwise word-error-rate (WER) as a ratio in [0, 1].
+    """Compute pairwise word-error-rate (WER) as a percentage for each pair of text and pred_text.
 
-    WER is measured between ``data[self.text_key]`` and ``data[self.pred_text_key]``.
+    WER is measured between ``data[self.text_key]`` and ``data[self.pred_text_key]``
+    and stored as a percentage (e.g. 5.0 means 5% WER).
 
     Args:
         text_key: Key for the utterance transcript. Defaults to "text".
         pred_text_key: Key for the ASR predictions. Defaults to "pred_text".
-        wer_key: Key to store the computed WER. Defaults to "wer".
+        wer_key: Key to store the computed WER percentage. Defaults to "wer".
     """
 
     name: str = "GetPairwiseWerStage"
@@ -345,5 +350,5 @@ class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
             references=[reference],
             use_cer=False,
         )
-        task.data[self.wer_key] = round(wer_val, 4)
+        task.data[self.wer_key] = round(wer_val * 100.0, 4)
         return task

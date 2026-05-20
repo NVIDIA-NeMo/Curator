@@ -105,7 +105,7 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
 
         start = audio_segment.get("start", 0.0)
         end = audio_segment.get("end", audio_segment.get("duration", 0.0))
-        if end is None or start >= end:
+        if end is None or start > end:
             msg = f"[{self.name}] Invalid segment time range: start={start}, end={end}"
             raise ValueError(msg)
 
@@ -135,7 +135,11 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
 
         if self.segments_key in data_entry:
             for segment in data_entry[self.segments_key]:
-                self.get_bandwidth(segment, audio, sample_rate)
+                try:
+                    self.get_bandwidth(segment, audio, sample_rate)
+                except ValueError as ex:
+                    logger.warning(f"[{self.name}] skipping segment in {task.task_id}: {ex}")
+                    segment.setdefault("metrics", {})["metric_skip_reason"] = str(ex)
         else:
             self.get_bandwidth(data_entry, audio, sample_rate)
 

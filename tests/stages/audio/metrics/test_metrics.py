@@ -206,7 +206,7 @@ class TestGetPairwiseWerStage:
         task = audio_task(text="a b c", pred_text="a x c")
         result = stage.process(task)
         assert isinstance(result, AudioTask)
-        assert result.data["wer"] == pytest.approx(0.3333, abs=0.001)
+        assert result.data["wer"] == pytest.approx(33.33, abs=0.1)
 
     def test_validate_input_valid(self, audio_task: Callable[..., AudioTask]) -> None:
         """Valid task passes validation."""

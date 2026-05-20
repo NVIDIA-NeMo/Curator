@@ -53,7 +53,7 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     audio_filepath_key: str = "resampled_audio_filepath"
     target_sr: int = 16000
     batch_size: int = 32
-    compute_batch_size: int = 64
+    compute_batch_size: int = 32
     segments_key: str = "segments"
 
     # Stage metadata
