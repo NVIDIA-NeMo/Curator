@@ -73,7 +73,10 @@ def _get_or_load_model(  # noqa: PLR0913
 
         logger.info(
             "TextLLMStage: loading %s (tp=%d, max_model_len=%d, kv_cache=%s)",
-            model_id, tensor_parallel_size, max_model_len, kv_cache_dtype,
+            model_id,
+            tensor_parallel_size,
+            max_model_len,
+            kv_cache_dtype,
         )
         llm = LLM(
             model=model_id,
@@ -199,7 +202,9 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             kv_cache_dtype=self.kv_cache_dtype,
         )
         self._sampling_params = SamplingParams(temperature=0, max_tokens=self.max_output_tokens)
-        logger.info("%s: ready (prompt=%d chars, output_key=%s)", self.name, len(self._system_prompt), self.output_text_key)
+        logger.info(
+            "%s: ready (prompt=%d chars, output_key=%s)", self.name, len(self._system_prompt), self.output_text_key
+        )
 
     def setup_on_node(
         self,
@@ -216,7 +221,9 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
         if self._n_processed:
             logger.info(
                 "%s: processed %d, filtered %d (%.1f%%)",
-                self.name, self._n_processed, self._n_filtered,
+                self.name,
+                self._n_processed,
+                self._n_filtered,
                 100.0 * self._n_filtered / self._n_processed if self._n_processed else 0,
             )
 
@@ -248,7 +255,10 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             ]
 
         return self._tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
         )
 
     # ── Validation ───────────────────────────────────────────────────

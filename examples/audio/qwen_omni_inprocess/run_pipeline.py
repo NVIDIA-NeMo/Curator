@@ -84,9 +84,21 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
     ap.add_argument("--output_dir", type=str, required=True, help="Output directory for per-shard manifests.")
     ap.add_argument("--model_id", type=str, default="Qwen/Qwen3-Omni-30B-A3B-Instruct")
-    ap.add_argument("--ml_prompt", type=str, default="Transcribe the audio.", help="Multilingual prompt text. Supports {language} placeholder resolved per-sample from source_lang.")
-    ap.add_argument("--ml_prompt_file", type=str, default=None, help="Read multilingual prompt from file. Overrides --ml_prompt.")
-    ap.add_argument("--en_prompt_file", type=str, default=None, help="English-specific prompt file. Used for en samples; --ml_prompt_file is used for all other languages.")
+    ap.add_argument(
+        "--ml_prompt",
+        type=str,
+        default="Transcribe the audio.",
+        help="Multilingual prompt text. Supports {language} placeholder resolved per-sample from source_lang.",
+    )
+    ap.add_argument(
+        "--ml_prompt_file", type=str, default=None, help="Read multilingual prompt from file. Overrides --ml_prompt."
+    )
+    ap.add_argument(
+        "--en_prompt_file",
+        type=str,
+        default=None,
+        help="English-specific prompt file. Used for en samples; --ml_prompt_file is used for all other languages.",
+    )
     ap.add_argument("--followup_prompt", type=str, default=None, help="Turn 2 follow-up prompt text.")
     ap.add_argument("--followup_prompt_file", type=str, default=None, help="Read Turn 2 follow-up prompt from file.")
     ap.add_argument("--system_prompt", type=str, default=None, help="System prompt text or path to file.")
@@ -97,16 +109,22 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap.add_argument("--max_num_seqs", type=int, default=16)
     ap.add_argument("--gpu_memory_utilization", type=float, default=0.95)
     ap.add_argument("--prep_workers", type=int, default=16, help="Thread pool size for audio preprocessing.")
-    ap.add_argument("--source_lang_key", type=str, default="source_lang",
-                    help="Manifest key holding per-sample language code. "
-                         "Used for prompt interpolation ({language} placeholder) and per-sample LID filtering.")
+    ap.add_argument(
+        "--source_lang_key",
+        type=str,
+        default="source_lang",
+        help="Manifest key holding per-sample language code. "
+        "Used for prompt interpolation ({language} placeholder) and per-sample LID filtering.",
+    )
     ap.add_argument("--s3_endpoint_url", type=str, default=None)
     ap.add_argument(
         "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
     )
     ap.add_argument(
-        "--autoscale_interval_s", type=int, default=180,
-        help="Seconds between Xenna streaming autoscaler checks. Lower values ramp up GPU actors faster on multi-node."
+        "--autoscale_interval_s",
+        type=int,
+        default=180,
+        help="Seconds between Xenna streaming autoscaler checks. Lower values ramp up GPU actors faster on multi-node.",
     )
 
     tf = ap.add_argument_group("text filtering")
@@ -150,44 +168,62 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     # PnC stage moved to text post-processing pipeline (run_text_pipeline.py)
 
     sed = ap.add_argument_group("SED (sound event detection)")
-    sed.add_argument("--sed_checkpoint", type=str, default=None,
-                     help="Path to PANNs CNN14 .pth checkpoint. Enables SED stages when set.")
-    sed.add_argument("--sed_model_type", type=str, default="Cnn14_DecisionLevelMax",
-                     help="CNN14 variant name (see sed_models.MODEL_REGISTRY).")
-    sed.add_argument("--sed_speech_threshold", type=float, default=0.5,
-                     help="Speech probability threshold for event detection.")
-    sed.add_argument("--sed_min_duration", type=float, default=0.3,
-                     help="Minimum speech event duration in seconds.")
-    sed.add_argument("--sed_merge_gap", type=float, default=0.0,
-                     help="Merge events with gaps smaller than this (seconds, 0 = disabled).")
-    sed.add_argument("--sed_batch_size", type=int, default=32,
-                     help="Batch size for SED GPU inference.")
-    sed.add_argument("--sed_gpu_memory_gb", type=float, default=4.0,
-                     help="GPU memory in GB for SED inference stage.")
-    sed.add_argument("--sed_subcategories", action="store_true", default=False,
-                     help="Emit per-class subcategory events instead of aggregated superclass events.")
-    sed.add_argument("--sed_num_workers", type=int, default=None,
-                     help="Fixed actor count for SED stage.")
+    sed.add_argument(
+        "--sed_checkpoint",
+        type=str,
+        default=None,
+        help="Path to PANNs CNN14 .pth checkpoint. Enables SED stages when set.",
+    )
+    sed.add_argument(
+        "--sed_model_type",
+        type=str,
+        default="Cnn14_DecisionLevelMax",
+        help="CNN14 variant name (see sed_models.MODEL_REGISTRY).",
+    )
+    sed.add_argument(
+        "--sed_speech_threshold", type=float, default=0.5, help="Speech probability threshold for event detection."
+    )
+    sed.add_argument("--sed_min_duration", type=float, default=0.3, help="Minimum speech event duration in seconds.")
+    sed.add_argument(
+        "--sed_merge_gap",
+        type=float,
+        default=0.0,
+        help="Merge events with gaps smaller than this (seconds, 0 = disabled).",
+    )
+    sed.add_argument("--sed_batch_size", type=int, default=32, help="Batch size for SED GPU inference.")
+    sed.add_argument("--sed_gpu_memory_gb", type=float, default=4.0, help="GPU memory in GB for SED inference stage.")
+    sed.add_argument(
+        "--sed_subcategories",
+        action="store_true",
+        default=False,
+        help="Emit per-class subcategory events instead of aggregated superclass events.",
+    )
+    sed.add_argument("--sed_num_workers", type=int, default=None, help="Fixed actor count for SED stage.")
     asr = ap.add_argument_group("QwenASR hallucination recovery")
-    asr.add_argument("--asr_model_id", type=str, default=None,
-                     help="QwenASR model ID or local path. If set, enables hallucination recovery.")
+    asr.add_argument(
+        "--asr_model_id",
+        type=str,
+        default=None,
+        help="QwenASR model ID or local path. If set, enables hallucination recovery.",
+    )
     asr.add_argument("--asr_batch_size", type=int, default=128)
     asr.add_argument("--asr_gpu_memory_utilization", type=float, default=0.95)
     asr.add_argument("--asr_max_new_tokens", type=int, default=4096)
 
     scaling = ap.add_argument_group("multi-node scaling")
-    scaling.add_argument("--omni_num_workers", type=int, default=None,
-                         help="Fixed actor count for QwenOmni stage. Default: autoscaler decides.")
-    scaling.add_argument("--asr_num_workers", type=int, default=None,
-                         help="Fixed actor count for QwenASR stage.")
-    scaling.add_argument("--pnc_num_workers", type=int, default=None,
-                         help="Fixed actor count for PnC stage.")
-    scaling.add_argument("--itn_num_workers", type=int, default=None,
-                         help="Fixed actor count for ITN stage.")
+    scaling.add_argument(
+        "--omni_num_workers",
+        type=int,
+        default=None,
+        help="Fixed actor count for QwenOmni stage. Default: autoscaler decides.",
+    )
+    scaling.add_argument("--asr_num_workers", type=int, default=None, help="Fixed actor count for QwenASR stage.")
+    scaling.add_argument("--pnc_num_workers", type=int, default=None, help="Fixed actor count for PnC stage.")
+    scaling.add_argument("--itn_num_workers", type=int, default=None, help="Fixed actor count for ITN stage.")
     return ap
 
 
-def main() -> None:  # noqa: C901
+def main() -> None:
     args = _build_arg_parser().parse_args()
 
     prompt = args.ml_prompt
@@ -229,105 +265,119 @@ def main() -> None:  # noqa: C901
         from nemo_curator.stages.audio.inference.sed import SEDInferenceStage
         from nemo_curator.stages.audio.postprocessing.sed_postprocessing import SEDPostprocessingStage
 
-        stages.extend([
-            SEDInferenceStage(
-                checkpoint_path=args.sed_checkpoint,
-                model_type=args.sed_model_type,
-                batch_size=args.sed_batch_size,
-                num_workers_override=args.sed_num_workers,
-                resources=Resources(cpus=1.0, gpu_memory_gb=args.sed_gpu_memory_gb),
-            ),
-            SEDPostprocessingStage(
-                threshold=args.sed_speech_threshold,
-                min_duration_sec=args.sed_min_duration,
-                merge_gap_sec=args.sed_merge_gap,
-                emit_subcategories=args.sed_subcategories,
-            ),
-        ])
+        stages.extend(
+            [
+                SEDInferenceStage(
+                    checkpoint_path=args.sed_checkpoint,
+                    model_type=args.sed_model_type,
+                    batch_size=args.sed_batch_size,
+                    num_workers_override=args.sed_num_workers,
+                    resources=Resources(cpus=1.0, gpu_memory_gb=args.sed_gpu_memory_gb),
+                ),
+                SEDPostprocessingStage(
+                    threshold=args.sed_speech_threshold,
+                    min_duration_sec=args.sed_min_duration,
+                    merge_gap_sec=args.sed_merge_gap,
+                    emit_subcategories=args.sed_subcategories,
+                ),
+            ]
+        )
 
-    stages.append(InferenceQwenOmniStage(
-        model_id=args.model_id,
-        prompt_text=prompt,
-        en_prompt_text=en_prompt,
-        followup_prompt=followup_prompt,
-        system_prompt=system_prompt,
-        tensor_parallel_size=args.tensor_parallel_size,
-        batch_size=args.batch_size,
-        max_output_tokens=args.max_output_tokens,
-        max_model_len=args.max_model_len,
-        max_num_seqs=args.max_num_seqs,
-        gpu_memory_utilization=args.gpu_memory_utilization,
-        prep_workers=args.prep_workers,
-        source_lang_key=args.source_lang_key,
-        pred_text_key="qwen3_prediction_s1",
-        disfluency_text_key="qwen3_prediction_s2",
-        keep_waveform=bool(args.asr_model_id),
-        num_workers_override=args.omni_num_workers,
-    ))
+    stages.append(
+        InferenceQwenOmniStage(
+            model_id=args.model_id,
+            prompt_text=prompt,
+            en_prompt_text=en_prompt,
+            followup_prompt=followup_prompt,
+            system_prompt=system_prompt,
+            tensor_parallel_size=args.tensor_parallel_size,
+            batch_size=args.batch_size,
+            max_output_tokens=args.max_output_tokens,
+            max_model_len=args.max_model_len,
+            max_num_seqs=args.max_num_seqs,
+            gpu_memory_utilization=args.gpu_memory_utilization,
+            prep_workers=args.prep_workers,
+            source_lang_key=args.source_lang_key,
+            pred_text_key="qwen3_prediction_s1",
+            disfluency_text_key="qwen3_prediction_s2",
+            keep_waveform=bool(args.asr_model_id),
+            num_workers_override=args.omni_num_workers,
+        )
+    )
 
     if followup_prompt:
-        stages.append(DisfluencyWerGuardStage(
-            ref_text_key="qwen3_prediction_s1",
-            hyp_text_key="qwen3_prediction_s2",
-            max_wer_pct=50.0,
-        ))
+        stages.append(
+            DisfluencyWerGuardStage(
+                ref_text_key="qwen3_prediction_s1",
+                hyp_text_key="qwen3_prediction_s2",
+                max_wer_pct=50.0,
+            )
+        )
 
-    stages.append(WhisperHallucinationStage(
-        name="WhisperHallucination_omni",
-        common_hall_file=args.hall_phrases,
-        text_key=omni_text_key,
-        unique_words_threshold=args.unique_words_threshold,
-        long_word_threshold=args.long_word_threshold,
-        long_word_rel_threshold=args.long_word_rel_threshold,
-        max_char_rate=args.max_char_rate,
-    ))
+    stages.append(
+        WhisperHallucinationStage(
+            name="WhisperHallucination_omni",
+            common_hall_file=args.hall_phrases,
+            text_key=omni_text_key,
+            unique_words_threshold=args.unique_words_threshold,
+            long_word_threshold=args.long_word_threshold,
+            long_word_rel_threshold=args.long_word_rel_threshold,
+            max_char_rate=args.max_char_rate,
+        )
+    )
 
     if args.asr_model_id:
-        stages.extend([
-            InferenceQwenASRStage(
-                model_id=args.asr_model_id,
+        stages.extend(
+            [
+                InferenceQwenASRStage(
+                    model_id=args.asr_model_id,
+                    source_lang_key=args.source_lang_key,
+                    batch_size=args.asr_batch_size,
+                    gpu_memory_utilization=args.asr_gpu_memory_utilization,
+                    max_new_tokens=args.asr_max_new_tokens,
+                    num_workers_override=args.asr_num_workers,
+                ),
+                WhisperHallucinationStage(
+                    name="WhisperHallucination_asr",
+                    common_hall_file=args.hall_phrases,
+                    text_key="qwen3_asr_prediction",
+                    overwrite=True,
+                    recovery_value="Recovered:QwenASR",
+                    unique_words_threshold=args.unique_words_threshold,
+                    long_word_threshold=args.long_word_threshold,
+                    long_word_rel_threshold=args.long_word_rel_threshold,
+                    max_char_rate=args.max_char_rate,
+                ),
+            ]
+        )
+
+    stages.append(
+        SelectBestPredictionStage(
+            primary_text_key=omni_text_key,
+            asr_text_key="qwen3_asr_prediction",
+        )
+    )
+
+    stages.extend(
+        [
+            FastTextLIDStage(
+                model_path=args.fasttext_model,
+                text_key="best_prediction",
                 source_lang_key=args.source_lang_key,
-                batch_size=args.asr_batch_size,
-                gpu_memory_utilization=args.asr_gpu_memory_utilization,
-                max_new_tokens=args.asr_max_new_tokens,
-                num_workers_override=args.asr_num_workers,
+                min_lang_prob=args.min_lang_prob,
             ),
-            WhisperHallucinationStage(
-                name="WhisperHallucination_asr",
-                common_hall_file=args.hall_phrases,
-                text_key="qwen3_asr_prediction",
-                overwrite=True,
-                recovery_value="Recovered:QwenASR",
-                unique_words_threshold=args.unique_words_threshold,
-                long_word_threshold=args.long_word_threshold,
-                long_word_rel_threshold=args.long_word_rel_threshold,
-                max_char_rate=args.max_char_rate,
+            RegexSubstitutionStage(
+                regex_params_yaml=args.regex_yaml,
+                text_key="best_prediction",
+                output_text_key="cleaned_text",
             ),
-        ])
-
-    stages.append(SelectBestPredictionStage(
-        primary_text_key=omni_text_key,
-        asr_text_key="qwen3_asr_prediction",
-    ))
-
-    stages.extend([
-        FastTextLIDStage(
-            model_path=args.fasttext_model,
-            text_key="best_prediction",
-            source_lang_key=args.source_lang_key,
-            min_lang_prob=args.min_lang_prob,
-        ),
-        RegexSubstitutionStage(
-            regex_params_yaml=args.regex_yaml,
-            text_key="best_prediction",
-            output_text_key="cleaned_text",
-        ),
-        AbbreviationConcatStage(
-            text_key="cleaned_text",
-            output_text_key="abbreviated_text",
-            source_lang_key=args.source_lang_key,
-        ),
-    ])
+            AbbreviationConcatStage(
+                text_key="cleaned_text",
+                output_text_key="abbreviated_text",
+                source_lang_key=args.source_lang_key,
+            ),
+        ]
+    )
 
     # PnC stage moved to text post-processing pipeline
 
