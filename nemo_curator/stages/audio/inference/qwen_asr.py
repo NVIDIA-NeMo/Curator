@@ -61,6 +61,8 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         gpu_memory_utilization: Fraction of GPU memory vLLM may use.
         max_new_tokens: Maximum tokens to generate per sample.
         max_inference_batch_size: Batch size for internal vLLM batching.
+        keep_waveform: When True the waveform stays on the task (needed when a
+            downstream stage re-uses it, e.g. a recovery ASR stage).
     """
 
     name: str = "QwenASR_inference"
@@ -77,6 +79,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     gpu_memory_utilization: float = 0.7
     max_new_tokens: int = 4096
     max_inference_batch_size: int = 128
+    keep_waveform: bool = False
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
@@ -163,8 +166,9 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             run_indices = list(range(len(tasks)))
 
         if not run_indices:
-            for task in tasks:
-                task.data.pop(self.waveform_key, None)
+            if not self.keep_waveform:
+                for task in tasks:
+                    task.data.pop(self.waveform_key, None)
             logger.info(f"QwenASR: skipped entire batch of {len(tasks)} (none matched run_only_if_key)")
             return tasks
 
@@ -180,8 +184,9 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             eligible_indices.append(i)
 
         if not eligible_indices:
-            for task in tasks:
-                task.data.pop(self.waveform_key, None)
+            if not self.keep_waveform:
+                for task in tasks:
+                    task.data.pop(self.waveform_key, None)
             logger.info(f"QwenASR: skipped entire batch of {len(tasks)} (no eligible samples)")
             return tasks
 
@@ -204,8 +209,9 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             tasks[idx].data[self.pred_text_key] = pred
             tasks[idx].data[self.language_key] = lang
 
-        for task in tasks:
-            task.data.pop(self.waveform_key, None)
+        if not self.keep_waveform:
+            for task in tasks:
+                task.data.pop(self.waveform_key, None)
 
         lang_skipped = len(run_indices) - len(eligible_indices)
         skipped = len(tasks) - len(run_indices)
