@@ -438,7 +438,7 @@ This framework enables data scientists and engineers to focus on pipeline logic 
 **Status:** Pre Release - This API design is currently under development and may change.
 
 ### Examples and Usage
-For practical examples of the API in action, refer to the quickstart examples in `nemo_curator/examples/quickstart.py` and the tutorial notebooks that demonstrate complete pipeline workflows following these design patterns.
+For practical examples of the API in action, refer to the quickstart in `tutorials/quickstart.py` and the tutorial notebooks under `tutorials/` that demonstrate complete pipeline workflows following these design patterns.
 
 ## File Structure Conventions
 
