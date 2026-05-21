@@ -12,6 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
+from bs4 import BeautifulSoup
+
+from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.common_crawl.extract import CommonCrawlHTMLExtractor
 from nemo_curator.stages.text.download.html_extractors import (
     HTMLElement,
@@ -19,25 +23,46 @@ from nemo_curator.stages.text.download.html_extractors import (
     ModelBasedHTMLExtractionStage,
 )
 from nemo_curator.stages.text.download.html_extractors.base import HTMLExtractorAlgorithm
+from nemo_curator.stages.text.download.html_extractors.model_based import (
+    extract_candidate_elements,
+    render_blocks_from_predictions,
+)
 
 
-class FakeElementClassifier:
-    def __init__(self, predictions_by_tag: dict[str, HTMLElementPrediction]):
-        self.predictions_by_tag = predictions_by_tag
+class LifecycleTrackingAlgorithm(HTMLExtractorAlgorithm):
+    def __init__(self) -> None:
+        self.resources = Resources(cpus=1.0, gpus=1.0)
+        self.setup_on_node_called = False
+        self.setup_called = False
+        self.teardown_called = False
 
-    def predict(self, elements: list[HTMLElement]) -> list[HTMLElementPrediction]:
-        return [
-            self.predictions_by_tag.get(element.tag_name, HTMLElementPrediction(label="boilerplate", confidence=0.99))
-            for element in elements
-        ]
+    def extract_text(self, html: str, stop_words: frozenset[str], language: str) -> list[str] | None:
+        return [html]
+
+    def setup_on_node(self, *args, **kwargs) -> None:
+        self.setup_on_node_called = True
+
+    def setup(self, *args, **kwargs) -> None:
+        self.setup_called = True
+
+    def teardown(self) -> None:
+        self.teardown_called = True
+
+    @staticmethod
+    def ray_stage_spec() -> dict[str, bool]:
+        return {"is_actor_stage": True}
 
 
-class FakeFallbackExtractor(HTMLExtractorAlgorithm):
-    def extract_text(self, _html: str, _stop_words: frozenset[str], _language: str) -> list[str] | None:
-        return ["fallback text"]
+def _predict_for_elements(
+    elements: list[HTMLElement], predictions_by_tag: dict[str, HTMLElementPrediction]
+) -> list[HTMLElementPrediction]:
+    return [
+        predictions_by_tag.get(element.tag_name, HTMLElementPrediction(label="boilerplate", confidence=0.99))
+        for element in elements
+    ]
 
 
-def test_model_based_extractor_preserves_structured_markdown() -> None:
+def test_model_based_helpers_preserve_structured_markdown() -> None:
     html = """
     <html>
       <body>
@@ -56,7 +81,9 @@ def test_model_based_extractor_preserves_structured_markdown() -> None:
       </body>
     </html>
     """
-    classifier = FakeElementClassifier(
+    elements = extract_candidate_elements(BeautifulSoup(html, "lxml"))
+    predictions = _predict_for_elements(
+        elements,
         {
             "h1": HTMLElementPrediction(label="main_content", confidence=0.99),
             "p": HTMLElementPrediction(label="main_content", confidence=0.99),
@@ -65,9 +92,12 @@ def test_model_based_extractor_preserves_structured_markdown() -> None:
             "table": HTMLElementPrediction(label="table", confidence=0.99),
         }
     )
-    extractor = ModelBasedHTMLExtractionStage(classifier=classifier, fallback_threshold=0.5)
-
-    result = extractor.extract_text(html, frozenset({"the", "and", "with"}), "ENGLISH")
+    result = render_blocks_from_predictions(
+        elements=elements,
+        predictions=predictions,
+        output_format="markdown",
+        fallback_threshold=0.5,
+    )
 
     assert result == [
         "# Example Article",
@@ -78,60 +108,103 @@ def test_model_based_extractor_preserves_structured_markdown() -> None:
     ]
 
 
-def test_model_based_extractor_falls_back_when_confidence_is_low() -> None:
-    classifier = FakeElementClassifier(
+def test_model_based_helpers_return_none_when_confidence_is_low() -> None:
+    html = "<html><body><p>Low confidence main content.</p></body></html>"
+    elements = extract_candidate_elements(BeautifulSoup(html, "lxml"))
+    predictions = _predict_for_elements(
+        elements,
         {
             "p": HTMLElementPrediction(label="main_content", confidence=0.1),
         }
     )
-    extractor = ModelBasedHTMLExtractionStage(
-        classifier=classifier,
-        fallback_extractor=FakeFallbackExtractor(),
+    result = render_blocks_from_predictions(
+        elements=elements,
+        predictions=predictions,
+        output_format="markdown",
         fallback_threshold=0.8,
     )
 
-    result = extractor.extract_text(
-        "<html><body><p>Low confidence main content.</p></body></html>",
-        frozenset(),
-        "ENGLISH",
-    )
-
-    assert result == ["fallback text"]
+    assert result is None
 
 
-def test_common_crawl_accepts_model_based_algorithm_string() -> None:
-    extractor = CommonCrawlHTMLExtractor(
-        algorithm="model",
-        algorithm_kwargs={
-            "classifier": FakeElementClassifier(
-                {"p": HTMLElementPrediction(label="main_content", confidence=0.99)}
-            ),
-            "fallback_threshold": 0.5,
-        },
-    )
+def test_model_based_extractor_direct_use_is_not_supported() -> None:
+    extractor = ModelBasedHTMLExtractionStage()
 
-    assert isinstance(extractor.algorithm, ModelBasedHTMLExtractionStage)
+    with pytest.raises(NotImplementedError, match="configuration wrapper"):
+        extractor.extract_text("<html><body><p>content</p></body></html>", frozenset(), "ENGLISH")
 
 
-def test_model_based_extractor_plain_text_table_drops_alignment_separator() -> None:
-    classifier = FakeElementClassifier(
-        {
-            "table": HTMLElementPrediction(label="table", confidence=0.99),
-        }
-    )
-    extractor = ModelBasedHTMLExtractionStage(classifier=classifier, output_format="plain_text")
+def test_common_crawl_direct_model_based_algorithm_string_is_not_supported() -> None:
+    with pytest.raises(ValueError, match="only supported through CommonCrawlDownloadExtractStage"):
+        CommonCrawlHTMLExtractor(
+            algorithm="model",
+            algorithm_kwargs={
+                "fallback_threshold": 0.5,
+            },
+        )
 
-    plain_text = extractor.extract_text(
-        """
+
+def test_common_crawl_extractor_delegates_lifecycle_and_resources() -> None:
+    algorithm = LifecycleTrackingAlgorithm()
+    extractor = CommonCrawlHTMLExtractor(algorithm=algorithm)
+
+    extractor.setup_on_node()
+    extractor.setup()
+    extractor.teardown()
+
+    assert extractor.resources == algorithm.resources
+    assert extractor.ray_stage_spec() == {"is_actor_stage": True}
+    assert algorithm.setup_on_node_called
+    assert algorithm.setup_called
+    assert algorithm.teardown_called
+
+
+def test_model_based_helpers_plain_text_table_drop_alignment_separator() -> None:
+    html = """
         <html><body>
           <table>
             <tr><th>Name</th><th>Value</th></tr>
             <tr><td>alpha</td><td>1</td></tr>
           </table>
         </body></html>
-        """,
-        frozenset(),
-        "ENGLISH",
+        """
+    elements = extract_candidate_elements(BeautifulSoup(html, "lxml"))
+    predictions = _predict_for_elements(
+        elements,
+        {
+            "table": HTMLElementPrediction(label="table", confidence=0.99),
+        }
+    )
+    plain_text = render_blocks_from_predictions(
+        elements=elements,
+        predictions=predictions,
+        output_format="plain_text",
+        fallback_threshold=0.5,
     )
 
     assert plain_text == ["Name\tValue\nalpha\t1"]
+
+
+def test_model_based_helpers_plain_text_code_preserve_backtick_lines() -> None:
+    html = """
+        <html><body>
+          <pre><code>first line
+```literal
+last line</code></pre>
+        </body></html>
+        """
+    elements = extract_candidate_elements(BeautifulSoup(html, "lxml"))
+    predictions = _predict_for_elements(
+        elements,
+        {
+            "pre": HTMLElementPrediction(label="code_block", confidence=0.99),
+        }
+    )
+    plain_text = render_blocks_from_predictions(
+        elements=elements,
+        predictions=predictions,
+        output_format="plain_text",
+        fallback_threshold=0.5,
+    )
+
+    assert plain_text == ["first line\n```literal\nlast line"]
