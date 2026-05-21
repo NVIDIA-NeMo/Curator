@@ -42,8 +42,7 @@ configuration so the nightly cron can run it.
    params, executor, and the expected metric values to compare
    against.
 3. The nightly cron runs all entries in `nightly-benchmark.yaml` on
-   4×A100; results post to the rapids-workflows-nightly-tests
-   channel.
+   4×A100; results post to the team's results sink.
 
 A new feature without a benchmark script is incomplete.
 
@@ -90,8 +89,10 @@ schema, search `benchmarking/`, `fern/`, `README.md`, and
 - Hardware references (H100, L40S, A100, GB200) tied to specific
   workloads
 - Cost-per-token / cost-per-hour-of-video claims
-- Headline speedup numbers (e.g., RedPajama-v2 fuzzy-dedup figures
-  in `README.md` and the public site)
+- Headline speedup numbers and dataset names cited in `README.md`
+  or on the public site (verify against the README first before
+  changing — the canonical fuzzy-dedup benchmark and the Nemotron-CC
+  end-to-end recipe are both cited there)
 
 Conceptual changes (introducing a new perf-claim category, reshaping
 the report format) delegate to the Docs Steward.

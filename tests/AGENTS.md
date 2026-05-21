@@ -44,6 +44,13 @@ run pipelines. When source and tests disagree, the discussion is
   Group related tests into a single class only when they share
   fixtures or setup. A flat list of `test_*` functions is the
   default and usually the right choice.
+- **HF_TOKEN-gated tests require automation-team coordination.** If
+  a test loads a HuggingFace model that needs an access token, the
+  test will fail in CI without the token configured. Coordinate
+  with `@NVIDIA-NeMo/automation` to add the token (and any
+  model-specific access grants) to the CI secrets before merging.
+  Use `pytest.skip` if the token is absent locally — never
+  `pytest.fail`, which hard-blocks contributors without the secret.
 
 ## Contract Checklist
 

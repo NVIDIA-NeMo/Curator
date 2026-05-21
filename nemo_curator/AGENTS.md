@@ -66,9 +66,13 @@ dead-simple for extension authors.
     models into memory and moving them to device
     (`self.model = AutoModel.from_pretrained(...).to("cuda")`).
     GPU-resident state lives here.
-  - A stage that overrides `setup()` is auto-routed to a Ray Data
-    **Actor**; stateless stages become Ray Data **Tasks**. Overriding
-    `setup()` is the signal Curator uses to detect stateful stages.
+  - Ray Data auto-routing based on `setup()` is *opportunistic*, not
+    guaranteed — it works for simpler text filter/modifier stages but
+    isn't reliable across the board. **For any stage that holds an
+    object in memory (tokenizer, model, large lookup table),
+    explicitly set `RayStageSpecKeys.IS_ACTOR_STAGE: True` in
+    `ray_stage_spec`.** Don't rely on auto-detection for inference-
+    bearing or stateful stages.
 - **`process` vs `process_batch` + `batch_size`.**
   - Default to a single Task whose `data` holds many items (rows in
     a DataFrame, frames in a video). Override `process(task) -> Y |

@@ -35,8 +35,17 @@ root AGENTS.md.
   published on HuggingFace. Renames, removals, default changes, or
   rubric changes are major-version events.
 - **Filter and modifier semantics** (`text/filters/`,
-  `text/modifiers/`, `text/modules/`). Document edge cases
-  (Unicode, whitespace, length cutoffs).
+  `text/modifiers/`). Document edge cases (Unicode, whitespace,
+  length cutoffs). Note: `text/modules/` is utility code (`add_id`,
+  `joiner`, `splitter`) — not the home of filter/modifier stages.
+- **Tokenization and model inference are always separate stages.**
+  When a pipeline needs both (e.g., classifier inference, embedder
+  inference), split them into two stages and compose them with
+  `CompositeStage`. Tokenization is CPU-bound; inference is
+  GPU-bound. Keeping them in one stage forces the GPU stage to
+  share its replicas with tokenization, hurting throughput. Each
+  model loaded in memory deserves its own stage so the GPU stage
+  can scale independently.
 - **Download stages** (`text/download/`): respect upstream rate
   limits / robots / licensing; surface failures explicitly;
   retry-safe under preemption.

@@ -20,8 +20,10 @@ The architecture rests on three design pillars:
 - **Map-style** — every stage transforms tasks to tasks; this constraint enables auto-balancing and streaming
 - **Fault tolerant** — stages survive preemption and reschedule; partial state is recoverable
 
-The same pipeline definition must run unchanged across Xenna, Ray Actor
-Pool, and Ray Data executors.
+The same pipeline definition must run unchanged across the streaming
+executors (Xenna and Ray Data). Ray Actor Pool is the dedup-batch
+executor — appropriate for shuffle-based dedup and full-data-state
+passes, not for general streaming workloads.
 
 ## Non-Negotiables
 
