@@ -80,7 +80,22 @@ When this domain changes:
 
 **Tests:** `tests/stages/synthetic/`.
 
-**Docs:** `fern/` synthetic curation concepts, prompt reference,
-model integration guides, tutorials.
+**Docs (discover by grep — see root AGENTS.md *Impacted-Docs
+Discovery*):** when changing SDG code or prompts, search `fern/`,
+`tutorials/`, `README.md`, `.cursor/rules/`, and
+`.github/copilot-instructions.md` for:
+
+- Prompt constant names from `nemotron_cc/prompts.py` (the prompt
+  text itself if changing it materially)
+- `Nemotron-CC`, `nemotron-cc`, `nemo_data_designer` and other
+  pipeline / recipe names
+- Model server identifiers: `vLLM`, `NIM`, `Ray Serve`, `Dynamo`,
+  `TRT-LLM`
+- `OpenAI`-compatible API references if changing the contract
+- The specific stage class name being changed
+- Determinism / variance claims if changing seed handling
+
+Conceptual changes (introducing a new prompt template family,
+reshaping the SDG pipeline shape) delegate to the Docs Steward.
 
 **CODEOWNERS:** `@huvunvidia`.

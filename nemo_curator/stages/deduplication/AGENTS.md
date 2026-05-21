@@ -93,7 +93,22 @@ When this domain changes:
 
 **Tests:** `tests/stages/deduplication/`.
 
-**Docs:** `fern/` dedup concept, how-to, configuration reference,
-install/prerequisite pages.
+**Docs (discover by grep — see root AGENTS.md *Impacted-Docs
+Discovery*):** when changing dedup behavior, search `fern/`,
+`tutorials/`, `README.md`, `.cursor/rules/`, and
+`.github/copilot-instructions.md` for:
+
+- `IdGenerator`, `MinHash`, `LSH`, `BucketsToEdges`,
+  `ConnectedComponents`, `SemanticDedup`, `FuzzyDedup`, `ExactDedup`
+- `deduplication_cuda12` extras name
+- `cuDF`, `cuGraph`, `cuML`, `RAPIDS`, `RAFT`, `rapidsmpf`
+- `TextRemovalWorkflow`, `Workflow`, the Id Generator Actor
+- The specific dedup mode (exact / fuzzy / semantic) and its install
+  prereqs
+- `RedPajama-v2` / TB-scale benchmark patterns if changing
+  performance claims
+
+Conceptual changes (introducing a fourth dedup mode, reshaping the
+mode taxonomy) delegate to the Docs Steward.
 
 **CODEOWNERS:** `@ayushdg @praateekmahajan`.

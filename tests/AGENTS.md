@@ -82,9 +82,20 @@ When this domain changes:
 
 **Code:** `tests/` (entire tree).
 
-**Docs:** "Unit tests" / "Coverage" sections of `CONTRIBUTING.md`;
-"Testing Guidelines" in `.github/copilot-instructions.md`; `fern/`
-contributor / developer testing pages.
+**Docs (discover by grep — see root AGENTS.md *Impacted-Docs
+Discovery*):** when changing test conventions or fixtures, search
+`fern/`, `CONTRIBUTING.md`, `README.md`, `.cursor/rules/`, and
+`.github/copilot-instructions.md` for:
+
+- `@pytest.mark.gpu`, `pytest_ignore_collect`, `shared_ray_cluster`
+- `L0_Unit_Test_CPU.sh`, `L0_Unit_Test_GPU.sh`, `gpu_test_groups.json`
+- Coverage thresholds (80%) and `codecov.yml` references
+- `conftest.py`, `tests/fixtures/`, `tests/data/`
+- `pytest -m "not gpu"`, `pytest` invocations that document the
+  expected commands
+
+Conceptual changes (reshaping the GPU/CPU split, introducing a new
+marker family) delegate to the Docs Steward.
 
 **Agent artifacts:** the "Testing" portion of
 `.cursor/rules/coding-standards.mdc`.

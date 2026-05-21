@@ -75,8 +75,25 @@ runnable example).
 file (add a CI gate if not present); notebook execution where
 practical.
 
-**Docs:** `tutorials/README.md`, per-modality README files, `fern/`
-how-to and tutorial pages that reference these tutorials.
+**Docs (discover by grep — see root AGENTS.md *Impacted-Docs
+Discovery*):** when changing a tutorial or its dependencies, search
+`fern/`, `tutorials/README.md`, per-modality `tutorials/<mod>/`
+READMEs, `README.md` (quickstart section), `.cursor/rules/`, and
+`.github/copilot-instructions.md` for:
+
+- Tutorial filenames (e.g. `quickstart.py`,
+  `tutorials/synthetic/nemotron_cc/`)
+- Extras names: `<modality>_cpu`, `<modality>_cuda12`, `all`,
+  `deduplication_cuda12`
+- Classes / functions the tutorial imports if they were renamed or
+  moved
+- Cluster-orchestration patterns (Slurm, `RayClient`) if changing
+  cluster examples
+- The Nemotron-CC recipe link / reference if changing the canonical
+  end-to-end path
+
+Conceptual changes (reshaping the modality coverage map, IA shifts
+in how-to pages) delegate to the Docs Steward.
 
 **Agent artifacts:** `.claude/skills/getting-started/`. Apply the
 Docs-First evaluation gate before expanding.

@@ -79,8 +79,22 @@ When this domain changes:
 
 **Code:** `benchmarking/` (entire tree).
 
-**Docs:** `benchmarking/README.md`; `fern/` performance pages if
-present.
+**Docs (discover by grep — see root AGENTS.md *Impacted-Docs
+Discovery*):** when changing benchmark configs / runners / results
+schema, search `benchmarking/`, `fern/`, `README.md`, and
+`.github/copilot-instructions.md` for:
+
+- `test-paths.yaml`, `nightly-benchmark.yaml` entries
+- Benchmark script names you renamed under `benchmarking/scripts/`
+- Result schema field names (params, metrics, tasks)
+- Hardware references (H100, L40S, A100, GB200) tied to specific
+  workloads
+- Cost-per-token / cost-per-hour-of-video claims
+- Headline speedup numbers (e.g., RedPajama-v2 fuzzy-dedup figures
+  in `README.md` and the public site)
+
+Conceptual changes (introducing a new perf-claim category, reshaping
+the report format) delegate to the Docs Steward.
 
 **CODEOWNERS:**
 

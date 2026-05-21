@@ -151,9 +151,23 @@ Ray Actor Pool / Docs / Tutorials / Tests / Cursor+Copilot rules).
 **Tests:** `tests/tasks/`, `tests/pipelines/`, `tests/core/`,
 `tests/backends/test_integration.py`.
 
-**Docs:** `fern/` pages under pipeline / stages / tasks / executors /
-resources concepts; `api-design.md`; the quickstart section of
-`README.md`.
+**Docs (discover by grep — see root AGENTS.md *Impacted-Docs
+Discovery*):** when changing ABI surfaces, search `fern/`,
+`tutorials/`, `README.md`, `api-design.md`, `.cursor/rules/`, and
+`.github/copilot-instructions.md` for:
+
+- `ProcessingStage`, `CompositeStage`, `Workflow`, `Pipeline`,
+  `Task`, `Resources` (and the specific subclass / method you're
+  changing)
+- `process`, `process_batch`, `setup`, `setup_on_node`, `with_`,
+  `inputs`, `outputs`, `teardown`
+- `batch_size`, `runtime_env`, `xenna_stage_spec`, `ray_stage_spec`
+- Modality task names: `DocumentBatch`, `ImageBatch`, `VideoTask`,
+  `AudioTask`, `FileGroupTask`, `InterleavedBatch`
+- New / changed `Resources` fields
+
+Conceptual changes (reshaping a pillar, redefining what a stage
+*is*) delegate to the Docs Steward.
 
 **Agent artifacts:** `.cursor/rules/{pipeline-structure,processing-stage-patterns,task-patterns,composite-stage-patterns,resources-configuration,executors,coding-standards}.mdc`;
 the "API Design Architecture" and "Core Components" sections of

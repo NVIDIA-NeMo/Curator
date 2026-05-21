@@ -94,11 +94,23 @@ its audit surface in autopilot mode.
 
 - `fern/` (entire tree); cross-cutting concerns (welcome,
   getting-started, install, glossary, contributor pages,
-  release-notes) are your direct audit surface. Scoped stewards own
-  their domain pages.
+  release-notes) are your direct audit surface. Scoped stewards
+  discover their own impacted pages via root AGENTS.md
+  *Impacted-Docs Discovery*.
 - `requirements-docs.txt`
 - Release notes (in `fern/`)
 - `CHANGELOG.md` (cross-owned with the implementing area)
+
+**Delegation destination.** You are the steward other stewards
+escalate to when a change is *abstraction-level* (reshaped concept,
+terminology shift, restructured mental model) and the calling
+steward can't list useful grep terms in one line. When invoked as
+a subagent with a diff summary + change context, your job is:
+cross-page consistency, IA implications, terminology drift, and
+identifying conceptual pages no symbol-grep would have surfaced.
+Return findings in Steward Signal Format. Don't replicate the
+work the calling steward already did — focus on what they
+*couldn't* do.
 
 **Tests:** any link / lint / structural checks for `fern/` (add a CI
 gate if not present).

@@ -125,9 +125,23 @@ changes (dedup-adjacent) note the scope explicitly.
 
 **Tests:** `tests/backends/`.
 
-**Docs:** `fern/` pages on executors, backends, Ray cluster setup,
-executor selection (Xenna vs Ray Data), autoscaling, streaming
-concepts; `api-design.md` Executors / Backend Implementations.
+**Docs (discover by grep — see root AGENTS.md *Impacted-Docs
+Discovery*):** when changing executor / adapter behavior, search
+`fern/`, `tutorials/`, `README.md`, `api-design.md`,
+`.cursor/rules/`, and `.github/copilot-instructions.md` for:
+
+- `XennaExecutor`, `RayDataExecutor`, `RayActorPoolExecutor`
+- `xenna_stage_spec`, `ray_stage_spec`, `ray_data_stage_spec`
+- `IS_ACTOR_STAGE`, `IS_FANOUT_STAGE`, `max_workers_per_node`
+- `runtime_env`, `CuratorRuntimeEnv`, `BaseExecutor`,
+  `BaseStageAdapter`
+- The specific behavior you changed (autoscaling, backpressure,
+  fault tolerance, fusion, Object Store)
+- Streaming-vs-batch framing if you reshaped the executor selection
+  guidance
+
+Conceptual changes (reshaping the streaming model, IA shifts for
+executor selection) delegate to the Docs Steward.
 
 **Agent artifacts:** `.cursor/rules/executors.mdc`; the
 "Backends/Executors" sections of `.github/copilot-instructions.md`.

@@ -84,9 +84,25 @@ When this domain changes:
 
 **Tests:** `tests/stages/text/`.
 
-**Docs:** `fern/` text curation concepts, classifier reference,
-embedder reference, filter / modifier reference, download pipelines,
-tutorials; text-related sections of `README.md`.
+**Docs (discover by grep — see root AGENTS.md *Impacted-Docs
+Discovery*):** when changing text-modality code, search `fern/`,
+`tutorials/`, `README.md`, `.cursor/rules/`, and
+`.github/copilot-instructions.md` for:
+
+- The class name you're changing (e.g. `QualityClassifier`,
+  `DomainClassifier`, `FineWebMixtralEduClassifier`)
+- The HuggingFace identifier of any underlying model
+- Quality Classifier rubric labels (`High`, `Medium`, `Low`) and
+  rubric dimensions (accuracy, clarity, coherence, grammar, depth,
+  usefulness)
+- Domain Classifier class names (the 26 domain labels) if changing
+  the taxonomy
+- Filter / modifier `name` attributes if renaming
+- `DocumentBatch` if changing the task schema
+- Tokenizer or model-artifact paths if pinning changes
+
+Conceptual changes (reshaping how classifiers compose, IA refactors
+of the text curation pages) delegate to the Docs Steward.
 
 **Agent artifacts:** the text portion of
 `.cursor/rules/modality-structure.mdc`.

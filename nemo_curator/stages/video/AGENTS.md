@@ -82,8 +82,22 @@ When this domain changes:
 
 **Tests:** `tests/stages/video/`.
 
-**Docs:** `fern/` video curation concepts, codec/container reference,
-GPU prerequisites, tutorials.
+**Docs (discover by grep — see root AGENTS.md *Impacted-Docs
+Discovery*):** when changing video-modality code, search `fern/`,
+`tutorials/`, `README.md`, `.cursor/rules/`, and
+`.github/copilot-instructions.md` for:
+
+- `VideoTask`, `Video`, `Clip`, `VideoMetadata`, `_Window`
+- Decoder / encoder library names: `PyNvVideoCodec`, `pynvvideocodec`,
+  `CvCuda`, `cvcuda`, `cv2.cuda`, `pyav`, `NVDEC`, `NVENC`, `FFmpeg`
+- Codec / container names you support or document (mp4, h264, etc.)
+- `WebDataset` output format and its field shape (clip mp4, text
+  caption, text embedding, video embedding)
+- The specific stage class name being changed
+- GPU memory / hardware claims if changing resource declarations
+
+Conceptual changes (reshaping the clipping-vs-dedup split, IA
+refactors of video pages) delegate to the Docs Steward.
 
 **Agent artifacts:** the video portion of
 `.cursor/rules/modality-structure.mdc`.

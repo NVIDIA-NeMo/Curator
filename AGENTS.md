@@ -236,6 +236,56 @@ flagged." The fix is: grep the entire `fern/` site (and `tutorials/`,
 the P0 is closed. Cross-surface propagation is the dominant failure
 mode of narrow fixes.
 
+### Impacted-Docs Discovery
+
+When a steward's code changes, discover impacted docs by grep — not
+by pre-pinned file lists. Path lists go stale; source-derived
+searches self-maintain.
+
+Derive search terms from the diff itself:
+
+- Class / function names you renamed, removed, or reshaped
+- Attribute, field, or default values you altered
+- CLI flags, config keys, or extras names you added
+- User-visible labels, rubrics, or identifiers you changed
+- Public-API symbols re-exported from `__init__.py` `_LAZY` /
+  `__all__` registries
+
+Search surfaces in priority order:
+
+1. `fern/` — canonical docs site
+2. `tutorials/` — runnable examples and per-modality READMEs
+3. `README.md`, `api-design.md`, `CONTRIBUTING.md`, `CHANGELOG.md`
+4. `.cursor/rules/`, `.github/copilot-instructions.md`,
+   `.claude/skills/` — agent artifacts that mirror code surfaces
+
+For each hit, either:
+
+- **Update in the same PR** — preferred for direct-rename,
+  behavior-change, default-change, removed-symbol cases.
+- **Mark `no-impact: <reason>`** in the PR description when the
+  doc references the symbol but doesn't depend on the changed
+  behavior.
+- **Escalate to the Docs Steward** (`@NVIDIA-NeMo/docs_team`) when
+  the change reshapes a cross-cutting concern: IA structure,
+  terminology, release-notes shape, or a navigation surface that
+  spans multiple domains.
+
+Each scoped steward's **Own → Docs** section lists the
+domain-specific search terms that an agent might not think to grep
+for. The procedure here is the shared mechanism; the per-steward
+terms are the local vocabulary.
+
+**When to delegate to the Docs Steward instead of self-grep.** Grep
+beats delegation when the change is symbol-derivable (renames,
+defaults, schemas, removed symbols). Spawn a subagent with
+`fern/AGENTS.md` plus a one-paragraph diff summary when the change
+is *abstraction-level* — reshaped concept, terminology shift,
+restructured mental model — and you can't list useful grep terms in
+one line. The Docs Steward subagent has the site's IA and
+cross-page consistency context the code steward doesn't. Treat
+delegation as the escalation path, not the default.
+
 ### Doc Autopilot
 
 The Content Audit swarm is the primary mechanism for keeping docs
