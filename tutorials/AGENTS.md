@@ -54,8 +54,8 @@ When this domain changes:
 
 ## Advocate
 
-- **CI smoke job** that imports/parses every tutorial Python file.
-  Export notebooks to `.py` for static checks.
+- **Ruff on `tutorials/`** so tutorial code stays lint-clean. CI
+  doesn't execute tutorials; the lint pass is the gate.
 - **"Tutorial freshness" report** flagging tutorials touching
   public APIs that changed since their last edit.
 - **Tiny, license-clean fixtures** so tutorials run end-to-end on a

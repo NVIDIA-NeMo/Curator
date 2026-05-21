@@ -52,8 +52,9 @@ When this domain changes:
 - `fern/` video pages — codec/container coverage, GPU prereqs,
   configuration
 - `tutorials/video/`
-- `benchmarking/` — video benchmark configs and runners
-  (`ALM_BENCHMARK.md` is audio, not video)
+- `benchmarking/` — video benchmark configs and runners. Every new
+  video stage ships with a benchmarking script + yaml entry; nightly
+  cron will run it on 4×A100.
 - `docker/` for video-specific runtime dependencies
 - `CHANGELOG.md`
 

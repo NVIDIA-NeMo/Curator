@@ -31,7 +31,8 @@ Pool, and Ray Data executors.
   `stages/resources.py`). Breaks here are Stop-And-Ask.
 - All stages MUST be fault-tolerant and retry-safe. Xenna preempts and
   reschedules; partial state must be idempotent or recoverable.
-- Same pipeline → equivalent results across all three backends.
+- Same pipeline → equivalent results across the streaming
+  executors (Xenna and Ray Data). Ray Actor Pool is dedup-only.
   Executor-specific behavior must be explicitly documented.
 - GPU code paths degrade gracefully when CUDA/RAPIDS aren't installed.
   Guard imports outside the dedup tree; don't crash CPU-only installs.
@@ -160,7 +161,8 @@ adapters, `fern/` pages, `tutorials/`, tests, benchmarks, `CHANGELOG.md`,
 and matching agent artifacts. Every accepted finding names required
 proof and collateral, or explicitly says `no collateral: <reason>`.
 Contract-affecting PRs that span backends include a parity matrix
-(API / Xenna / Ray Data / Ray Actor Pool / Docs / Tests).
+(API / Xenna / Ray Data / Docs / Tests; Ray Actor Pool only for
+dedup-affecting changes).
 
 ### Steward Signal Format
 
@@ -274,10 +276,10 @@ the verification recipe.
   types or resource shapes that no longer match
   `stages/base.py` or the stage's definition. *Verify:* read
   `inputs`, `outputs`, `process`, `resources` and cross-check.
-- **Executor parity drift.** Doc claims a behavior across executors
-  but the implementation differs across
-  `backends/{xenna,ray_data,ray_actor_pool}/`. *Verify:* grep all
-  three adapters for the named feature.
+- **Executor parity drift.** Doc claims a streaming behavior across
+  Xenna and Ray Data but the two adapters differ. *Verify:* grep
+  `backends/{xenna,ray_data}/` for the named feature. (Ray Actor
+  Pool is dedup-only; parity comparisons are Xenna vs Ray Data.)
 - **Inference performance regression.** A model-bearing stage's
   throughput, latency, or GPU utilization drops without explanation,
   or a new inference path lands without speed-of-light benchmarks

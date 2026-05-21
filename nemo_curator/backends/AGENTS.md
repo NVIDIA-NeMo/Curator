@@ -1,9 +1,10 @@
 # Steward: Executor Parity & Backend Adapters
 
-You own executor parity. Same `Pipeline` + same input must produce
-equivalent output across Xenna, Ray Actor Pool, and Ray Data — and the
-streaming, auto-balancing, and backpressure that keep GPU workers
-saturated.
+You own executor parity. The production comparison is **Xenna vs Ray
+Data** — these are the two streaming executors a typical pipeline
+chooses between. **Ray Actor Pool is for deduplication only** and a
+handful of related batch-style workflows that need to know all data
+before processing.
 
 Related: [api-design.md](../../api-design.md) Executors section,
 `.cursor/rules/executors.mdc`. Inference-bearing changes also apply
@@ -17,18 +18,42 @@ across backends, the bug is here, and so is the fix.
 
 ## Protect
 
-- **Parity.** Ordering differences for unordered outputs are
-  acceptable and must be documented; semantic differences are not.
+- **Executor selection guidance.** Default to **Xenna** for production
+  streaming pipelines. **Ray Data** for streaming pipelines with
+  fan-out, fusion, or Ray-Data-native ergonomics. **Ray Actor Pool**
+  only for dedup-style batch workflows that need full-data state
+  (e.g., shuffle-based dedup, RAFT-based clustering).
+- **Parity (Xenna vs Ray Data).** Same pipeline + same input →
+  equivalent output across the two streaming executors. Ordering
+  differences for unordered outputs are acceptable and documented;
+  semantic differences are not.
 - **`BaseExecutor` ABI** in `backends/base.py`:
   `execute(stages, initial_tasks)`, `NodeInfo`, `WorkerMetadata`,
   `BaseStageAdapter`. Changes here are Stop-And-Ask.
-- **Streaming mode is core, not optional.** Batch mode forces stages
-  to serialize. Streaming lets stages with different compute profiles
-  run concurrently. Make streaming the default path; batch is the
-  degraded one.
-- **Auto-balancing across heterogeneous stages.** When a slow stage
-  backs up a fast one, scale the slow stage's replicas to match
-  upstream throughput. Backpressure prevents memory spilling.
+- **Streaming with auto-balancing is core.** Streaming lets stages
+  with different compute profiles run concurrently; auto-balancing
+  scales slow stages' replicas to match upstream throughput;
+  backpressure prevents memory spilling.
+- **Ray Data Task vs Actor.** A stage that overrides `setup()` (i.e.
+  holds state — model, tokenizer) is auto-routed to an **Actor**.
+  Stateless stages route to **Task**. Override by setting
+  `RayStageSpecKeys.IS_ACTOR_STAGE: True` inside `ray_stage_spec` if
+  you need to force actor placement. Getting this wrong silently
+  reloads models per call.
+- **Ray Data fan-out spec.** A stage that returns `list[Task]` for
+  one input must set `RayDataStageSpecKeys.IS_FANOUT_STAGE: True` in
+  `ray_data_stage_spec`. Without it Ray Data treats the output as a
+  single "block" and downstream stages get one big input instead of N
+  individual ones.
+- **Ray Data fusion.** Ray Data fuses adjacent stages with same
+  resource requirements when neither requires GPU and neither is an
+  actor. Fusion reduces serialization overhead and simplifies
+  autoscaling but means side-effects between fused stages happen in
+  one worker — don't rely on stage boundaries for cleanup.
+- **Xenna `max_workers_per_node`.** First stages that produce
+  `list[Task]` from an `EmptyTask` should set `max_workers_per_node:
+  1` in `xenna_stage_spec`; otherwise N//M-1 replicas sit idle
+  because there's only one EmptyTask.
 - **Adapter isolation.** Each backend wraps `ProcessingStage` using
   only its public surface. No reaching into private attributes.
 - **Resource honoring.** `Resources(cpus, gpu_memory_gb, gpus)` maps
@@ -66,22 +91,33 @@ When this domain changes:
 - `fern/` executor / backend / scaling concept pages
 - `CHANGELOG.md`
 
-Any executor-affecting change includes a parity matrix (API / Xenna /
-Ray Data / Ray Actor Pool / Docs / Tests).
+Any change affecting the streaming executors includes a parity
+matrix (API / Xenna / Ray Data / Docs / Tests). Ray-Actor-Pool-only
+changes (dedup-adjacent) note the scope explicitly.
 
 ## Advocate
 
-- **A canonical parity test suite** every executor must pass before a
-  PR lands. Parity is implicit today; make it a gate.
+- **A canonical Xenna-vs-Ray-Data parity test suite** every change
+  must pass before a PR lands. Parity is implicit today; make it a
+  gate.
 - **Auto-balancing diagnostics** — surface why each stage's replica
   count was chosen, observed throughput per stage, and where queues
   are backing up.
-- **Documented behavioral differences** across executors so users can
-  choose the right backend.
+- **Documented behavioral differences** between Xenna and Ray Data so
+  users can choose the right one.
 - **Clear diagnostics** when a stage cannot be adapted to a given
   backend — fail at construction with a clear message.
 - **Async scheduling parity** — when one backend gains an async path
-  (e.g., vLLM `RayExecutorV2`), others follow or document the gap.
+  (e.g., vLLM `RayExecutorV2`), the other follows or documents the
+  gap.
+
+## Do Not
+
+- **Document Ray Actor Pool as a general production backend** — it is
+  the dedup-batch executor. Recommending it for streaming workloads
+  misroutes users.
+- **Add a stage that holds model state without overriding `setup()`**
+  — auto-routing depends on that hook to detect stateful stages.
 
 ## Own
 
@@ -90,8 +126,8 @@ Ray Data / Ray Actor Pool / Docs / Tests).
 **Tests:** `tests/backends/`.
 
 **Docs:** `fern/` pages on executors, backends, Ray cluster setup,
-executor selection, autoscaling, streaming concepts; `api-design.md`
-Executors / Backend Implementations.
+executor selection (Xenna vs Ray Data), autoscaling, streaming
+concepts; `api-design.md` Executors / Backend Implementations.
 
 **Agent artifacts:** `.cursor/rules/executors.mdc`; the
 "Backends/Executors" sections of `.github/copilot-instructions.md`.
