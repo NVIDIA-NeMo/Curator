@@ -22,6 +22,9 @@ include = [
     "nemo_curator.*",
 ]
 
+[tool.setuptools.package-data]
+"nemo_curator.stages.text.experimental.translation" = ["prompts/*.yaml"]
+
 [tool.setuptools.dynamic]
 version = { attr = "nemo_curator.package_info.__version__" }
 
@@ -80,7 +83,7 @@ inference_server = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
     "vllm<0.19; (platform_machine == 'x86_64' and platform_system != 'Darwin')", # Ray Serve LLM 2.55.1 isn't compatible with vllm 0.19+
-    "ai-dynamo==1.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')", # pin so the Dynamo actor venv resolves to the same release we test against; gated to x86_64 since vllm wheels are x86_64-only
+    "ai-dynamo==1.1.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')", # pin so the Dynamo actor venv resolves to the same release we test against; gated to x86_64 since vllm wheels are x86_64-only
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "ray[serve,llm]>=2.55.1",
@@ -445,10 +448,57 @@ fixable = ["ALL"]
 ".github/scripts/**" = [
     "INP001", # CI scripts; not an installable package
 ]
+".claude/skills/**/scripts/**" = [
+    "INP001", # skill verification scripts; not an installable package
+    "F401",   # imports are intentionally present to verify modules load
+    "EXE001", # invoked via `python3 verify_*.py`; shebang is informational
+    "ANN001", # type annotations not required for one-shot verification scripts
+    "ANN201", # type annotations not required for one-shot verification scripts
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
     "asyncio",
     "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
+]
+
+[tool.check-manifest]
+ignore = [
+  "*.md",
+  "*.cff",
+  "*.lock",
+  "*.txt",
+  "*.yml",
+  "*.yaml",
+  "*.json",
+  "*.toml",
+  "*.sh",
+  "*.cfg",
+  "Makefile",
+  "Dockerfile",
+  "MAINTAINERS",
+  "CODEOWNERS",
+  ".gitattributes",
+  ".gitmodules",
+  ".markdownlint.json",
+  ".secrets.baseline",
+  ".pre-commit-config.yaml",
+  "api-design.md",
+  ".claude/**",
+  ".cursor/**",
+  ".github/**",
+  "benchmarking/**",
+  "docker/**",
+  "docs/**",
+  "examples/**",
+  "fern/**",
+  "image/**",
+  "scripts/**",
+  "tests/**",
+  "tutorials/**",
+  "**/conftest.py",
+  "**/test_*.py",
+  "**/*.bat",
+  "**/.gitkeep",
 ]

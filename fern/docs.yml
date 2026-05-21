@@ -8,6 +8,7 @@
 instances:
   - url: nemo-curator.docs.buildwithfern.com/nemo/curator
     custom-domain: docs.nvidia.com/nemo/curator
+    multi-source: true
 
 redirects:
   - source: "/nemo/curator/home"
@@ -144,7 +145,13 @@ redirects:
 
 title: NeMo Curator
 
-footer: ./components/CustomFooter.tsx
+global-theme: nvidia
+
+# Local override attempt: the `nvidia` global theme hardcodes `right-text: Documentation`.
+# Testing whether a partial child-side `logo:` block can override just the right-text
+# while inheriting the SVGs/height/href from the theme.
+logo:
+  right-text: NeMo Curator
 
 versions:
   - display-name: "Latest · v1.1.2 (26.04)"
@@ -168,47 +175,6 @@ versions:
     slug: v25.09
     availability: stable
 
-layout:
-  searchbar-placement: header
-  page-width: 1376px
-  sidebar-width: 248px
-  content-width: 812px
-  tabs-placement: header
-  hide-feedback: true
-
-colors:
-  accentPrimary:
-    dark: "#76B900"
-    light: "#76B900"
-  background:
-    light: "#FFFFFF"
-    dark: "#000000"
-
-theme:
-  page-actions: toolbar
-  footer-nav: minimal
-
-logo:
-  dark: ./assets/NVIDIA_dark.svg
-  light: ./assets/NVIDIA_light.svg
-  height: 20
-  href: /nemo/curator/home/welcome
-  right-text: NeMo Curator
-
-favicon: ./assets/NVIDIA_symbol.svg
-
-js:
-  - url: https://assets.adobedtm.com/5d4962a43b79/c1061d2c5e7b/launch-191c2462b890.min.js
-    strategy: beforeInteractive
-
-
-css:
-  - ./main.css
-
-navbar-links:
-  - type: github
-    value: https://github.com/NVIDIA-NeMo/Curator
-
 libraries:
   nemo-curator:
     input:
@@ -221,4 +187,3 @@ libraries:
 experimental:
   mdx-components:
     - ./components
-  basepath-aware: true

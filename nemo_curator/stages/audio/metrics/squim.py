@@ -43,7 +43,7 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         audio_filepath_key: Key for the audio file path in the manifest. Defaults to "resampled_audio_filepath".
         target_sr: Target sample rate for SQUIM model input. Defaults to 16000.
         batch_size: Number of audio tasks to be processed at once. Defaults to 32.
-        compute_batch_size: Number of waveforms to process per GPU inference call. Defaults to 64.
+        compute_batch_size: Number of waveforms to process per GPU inference call. Defaults to 32.
         segments_key: Key for the segments in the manifest. Defaults to "segments".
 
     Returns:
@@ -53,7 +53,7 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     audio_filepath_key: str = "resampled_audio_filepath"
     target_sr: int = 16000
     batch_size: int = 32
-    compute_batch_size: int = 64
+    compute_batch_size: int = 32
     segments_key: str = "segments"
 
     # Stage metadata
@@ -63,10 +63,23 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     model: Any = field(default=None, repr=False)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, self.segments_key]
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, self.segments_key, "metrics"]
+        return [], []
+
+    def validate_input(self, task: AudioTask) -> bool:
+        """OR-shaped validation: segments OR top-level audio_filepath keys must be present."""
+        data = task.data
+        if hasattr(data, self.segments_key):
+            return True
+        if hasattr(data, self.audio_filepath_key):
+            return True
+        logger.error(
+            f"Task {task.task_id} missing required attributes: "
+            f"need '{self.segments_key}' OR '{self.audio_filepath_key}'"
+        )
+        return False
 
     @property
     def _device(self) -> str:
@@ -120,24 +133,24 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         """
         audio_path = data_entry.get(self.audio_filepath_key)
         if not audio_path:
-            logger.error(
+            msg = (
                 f"[{self.name}] Missing '{self.audio_filepath_key}' for entry: "
                 f"{data_entry.get('audio_item_id', 'unknown')}"
             )
-            return []
+            raise ValueError(msg)
 
         try:
             info = sf.info(audio_path)
             sr = info.samplerate
-        except Exception as ex:  # noqa: BLE001
-            logger.error(f"[{self.name}] Failed to read audio info: {audio_path}, exception={ex}")
-            return []
+        except Exception as ex:
+            msg = f"[{self.name}] Failed to read audio info: {audio_path}"
+            raise RuntimeError(msg) from ex
 
         try:
             audio, _ = librosa.load(path=audio_path, sr=sr)
-        except Exception as ex:  # noqa: BLE001
-            logger.error(f"[{self.name}] Failed to load audio: {audio_path}, exception={ex}")
-            return []
+        except Exception as ex:
+            msg = f"[{self.name}] Failed to load audio: {audio_path}"
+            raise RuntimeError(msg) from ex
 
         collected: list[tuple[int, int, torch.Tensor]] = []
         if self.segments_key in data_entry:
@@ -199,6 +212,10 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
             all_waveform_metadata.extend(self._collect_waveforms_for_entry(task_idx, task.data))
 
         if not all_waveform_metadata:
+            logger.warning(
+                f"[{self.name}] No valid waveforms collected from {len(tasks)} task(s). "
+                "All tasks returned without SQUIM metrics."
+            )
             return tasks
 
         # Sort by waveform length so similarly-sized segments share a batch
@@ -215,8 +232,9 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
                     self.update_metrics(segment, pesq_val, stoi_val, sisdr_val)
                 else:
                     self.update_metrics(tasks[task_idx].data, pesq_val, stoi_val, sisdr_val)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             torch.cuda.empty_cache()
-            logger.error(f"[{self.name}] Failed to compute Squim metrics: {e}")
+            msg = f"[{self.name}] Failed to compute Squim metrics: {e}"
+            raise RuntimeError(msg) from e
 
         return tasks

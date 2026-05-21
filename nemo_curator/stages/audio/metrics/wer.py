@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from loguru import logger
 from nemo.collections.asr.metrics.wer import word_error_rate_detail
 from nemo_text_processing.text_normalization import Normalizer
 
@@ -53,7 +54,7 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
 
     language: str = "en"
     hypothesis_text_key: str = "text"
-    reference_text_key: str = "text"
+    reference_text_key: str = "text_ref"
     num_words_threshold: int = 200
     num_words_look_back: int = 5
     compute_pnc_wer: bool = False
@@ -77,10 +78,23 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.segments_key]
+        return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.segments_key, "metrics"]
+        return [], ["metrics"]
+
+    def validate_input(self, task: AudioTask) -> bool:
+        """OR-shaped validation: segments OR top-level text keys must be present."""
+        data = task.data
+        if hasattr(data, self.segments_key):
+            return True
+        if hasattr(data, self.hypothesis_text_key) and hasattr(data, self.reference_text_key):
+            return True
+        logger.error(
+            f"Task {task.task_id} missing required attributes: "
+            f"need '{self.segments_key}' OR both '{self.hypothesis_text_key}' and '{self.reference_text_key}'"
+        )
+        return False
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup stage."""
@@ -184,6 +198,13 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
         hypothesis_pnc, hypothesis_clean = self.normalize_and_clean_text(audio_segment[self.hypothesis_text_key])
         reference_pnc, reference_clean = self.normalize_and_clean_text(audio_segment[self.reference_text_key])
 
+        if not reference_clean:
+            metrics["wer"] = None
+            metrics["cer"] = None
+            metrics["metric_skip_reason"] = "empty_reference"
+            audio_segment["metrics"] = metrics
+            return
+
         metrics["char_rate"] = self.get_char_rate(audio_segment[self.hypothesis_text_key], duration)
         metrics["word_rate"] = self.get_word_rate(audio_segment[self.hypothesis_text_key], duration)
 
@@ -285,7 +306,11 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
         data_entry = task.data
         if self.segments_key in data_entry:
             for audio_segment in data_entry[self.segments_key]:
-                self.get_wer(audio_segment)
+                try:
+                    self.get_wer(audio_segment)
+                except (KeyError, ValueError) as ex:
+                    logger.warning(f"[{self.name}] skipping segment in {task.task_id}: {ex}")
+                    audio_segment.setdefault("metrics", {})["metric_skip_reason"] = str(ex)
         else:
             self.get_wer(data_entry)
         return task
@@ -293,20 +318,21 @@ class ComputeWERStage(ProcessingStage[AudioTask, AudioTask]):
 
 @dataclass
 class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
-    """Count pairwise word-error-rate (WER) * 100% for each pair of text and pred_text.
+    """Compute pairwise word-error-rate (WER) as a percentage for each pair of text and pred_text.
 
-    WER is measured between ``data[self.text_key]`` and ``data[self.pred_text_key]``.
+    WER is measured between ``data[self.text_key]`` and ``data[self.pred_text_key]``
+    and stored as a percentage (e.g. 5.0 means 5% WER).
 
     Args:
         text_key: Key for the utterance transcript. Defaults to "text".
         pred_text_key: Key for the ASR predictions. Defaults to "pred_text".
-        wer_key: Key to store the computed WER. Defaults to "wer".
+        wer_key: Key to store the computed WER percentage. Defaults to "wer_pct".
     """
 
     name: str = "GetPairwiseWerStage"
     text_key: str = "text"
     pred_text_key: str = "pred_text"
-    wer_key: str = "wer"
+    wer_key: str = "wer_pct"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.text_key, self.pred_text_key]
@@ -315,10 +341,15 @@ class GetPairwiseWerStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.text_key, self.pred_text_key, self.wer_key]
 
     def process(self, task: AudioTask) -> AudioTask:
+        """Compute WER percentage between hypothesis and reference text."""
+        hypothesis = task.data.get(self.pred_text_key)
+        reference = task.data.get(self.text_key)
+        if hypothesis is None or reference is None:
+            return task
         wer_val, _, _, _, _ = word_error_rate_detail(
-            hypotheses=[task.data[self.pred_text_key]],
-            references=[task.data[self.text_key]],
+            hypotheses=[hypothesis],
+            references=[reference],
             use_cer=False,
         )
-        task.data[self.wer_key] = round(wer_val, 4)
+        task.data[self.wer_key] = round(wer_val * 100.0, 4)
         return task

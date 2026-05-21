@@ -57,10 +57,21 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "BandwidthEstimation"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, self.segments_key, "duration"]
+        return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, self.segments_key, "duration"]
+        return [], [self.audio_filepath_key, "metrics"]
+
+    def validate_input(self, task: AudioTask) -> bool:
+        """OR-shaped: needs audio_filepath AND (segments OR duration)."""
+        data = task.data
+        if not hasattr(data, self.audio_filepath_key):
+            logger.error(f"Task {task.task_id} missing '{self.audio_filepath_key}'")
+            return False
+        if hasattr(data, self.segments_key) or hasattr(data, "duration"):
+            return True
+        logger.error(f"Task {task.task_id} missing required attributes: need '{self.segments_key}' OR 'duration'")
+        return False
 
     def _estimate_bandwidth(self, audio: "np.ndarray", sample_rate: int) -> int:
         """Estimate the bandwidth of an audio signal."""
@@ -93,7 +104,10 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
             return
 
         start = audio_segment.get("start", 0.0)
-        end = audio_segment.get("end", audio_segment.get("duration"))
+        end = audio_segment.get("end", audio_segment.get("duration", 0.0))
+        if end is None or start >= end:
+            msg = f"[{self.name}] Invalid segment time range: start={start}, end={end}"
+            raise ValueError(msg)
 
         segment_audio_array = audio[int(start * sample_rate) : int(end * sample_rate)]
         bandwidth = self._estimate_bandwidth(segment_audio_array, sample_rate)
@@ -108,20 +122,24 @@ class BandwidthEstimationStage(ProcessingStage[AudioTask, AudioTask]):
         data_entry = task.data
         audio_path = data_entry.get(self.audio_filepath_key)
         if not audio_path:
-            logger.error(
+            msg = (
                 f"[{self.name}] Missing '{self.audio_filepath_key}' for entry: "
                 f"{data_entry.get('audio_item_id', 'unknown')}"
             )
-            return task
+            raise ValueError(msg)
         try:
             audio, sample_rate = librosa.load(path=audio_path, sr=None)
-        except Exception as ex:  # noqa: BLE001
-            logger.error(f"Failed to load audio path: {audio_path}, exception={ex}")
-            return task
+        except Exception as ex:
+            msg = f"[{self.name}] Failed to load audio: {audio_path}"
+            raise RuntimeError(msg) from ex
 
         if self.segments_key in data_entry:
             for segment in data_entry[self.segments_key]:
-                self.get_bandwidth(segment, audio, sample_rate)
+                try:
+                    self.get_bandwidth(segment, audio, sample_rate)
+                except ValueError as ex:
+                    logger.warning(f"[{self.name}] skipping segment in {task.task_id}: {ex}")
+                    segment.setdefault("metrics", {})["metric_skip_reason"] = str(ex)
         else:
             self.get_bandwidth(data_entry, audio, sample_rate)
 

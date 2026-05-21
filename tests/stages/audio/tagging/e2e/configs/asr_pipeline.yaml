@@ -57,8 +57,8 @@ stages:
   - _target_: nemo_curator.stages.audio.metrics.wer.ComputeWERStage
     name: "ComputeWER"
     language: ${language_short}
-    hypothesis_text_key: "text"
-    reference_text_key: ${text_key2}
+    hypothesis_text_key: ${text_key2}
+    reference_text_key: ${text_key1}
     pnc_chars: ".?,"
     compute_pnc_wer: False
     resources: ${resources}

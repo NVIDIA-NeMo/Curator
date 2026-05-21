@@ -157,7 +157,10 @@ class TestDynamoBackendStart:
     def test_sweeps_orphan_actors_before_removing_placement_groups(self) -> None:
         """``remove_named_pgs_with_prefix`` force-kills actors scheduled into
         the reaped PGs; sweeping named actors first lets ``graceful_stop_actors``
-        ``killpg`` each process group cleanly."""
+        ``killpg`` each process group cleanly. Also asserts the override
+        fan-out runs *before* any worker-spawning step — the actor venv
+        install on each worker reads the file from the local filesystem,
+        so it must exist by the time the first actor lands."""
         server = InferenceServer(
             models=[DynamoVLLMModelConfig(model_identifier="m")],
             backend=DynamoServerConfig(
@@ -176,6 +179,11 @@ class TestDynamoBackendStart:
             mock.patch.object(dynamo_backend.ray, "init", return_value=contextlib.nullcontext()),
             mock.patch.object(dynamo_backend.ray, "get_runtime_context", return_value=mock_ctx),
             mock.patch.object(dynamo_backend.os, "makedirs"),
+            mock.patch.object(
+                dynamo_backend,
+                "ensure_actor_overrides_on_all_nodes",
+                side_effect=lambda **_kw: order.append("overrides"),
+            ),
             mock.patch.object(backend, "_sweep_orphan_actors", side_effect=lambda: order.append("actors")),
             mock.patch.object(
                 dynamo_backend,
@@ -186,7 +194,7 @@ class TestDynamoBackendStart:
         ):
             backend.start()
 
-        assert order == ["actors", "pgs", "deploy"]
+        assert order == ["overrides", "actors", "pgs", "deploy"]
 
 
 # ---------------------------------------------------------------------------
