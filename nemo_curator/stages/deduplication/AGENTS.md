@@ -17,6 +17,16 @@ Inference Acceleration concerns in root AGENTS.md.
 
 - **Three-mode coverage** — `exact/`, `fuzzy/`, `semantic/` are all
   first-class.
+- **Dedup uses `Workflow`, not bare `Pipeline.run()`.** Dedup spans
+  a streaming identification pass and a batch removal pass on Ray
+  Actor Pool, with an Id Generator Actor set up before and torn down
+  after. That orchestration is the canonical example of `Workflow`
+  in the framework — see `TextRemovalWorkflow`. New dedup modes
+  extend the `Workflow` pattern, not Pipeline.
+- **Ray Actor Pool is dedup's executor.** This is the one domain
+  where Ray Actor Pool is the right answer — shuffle adapters, RAFT
+  clustering, and removal passes need full-data state. Streaming
+  executors (Xenna, Ray Data) are not appropriate for these passes.
 - **ID generation determinism** (`id_generator.py`). IDs are
   reproducible across runs and across backends for the same input.
   Hash/salt changes are migration events with on-disk impact.

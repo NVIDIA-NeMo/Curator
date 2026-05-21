@@ -36,6 +36,12 @@ GPU memory budgeting matters more than throughput — OOM ends runs.
   significant GPU memory; mis-declared resources OOM workers.
 - **File-handle and GPU-memory hygiene.** Use context managers;
   release handles before yielding across task boundaries.
+- **VLM and embedding stages load in `setup()`.** Captioning and
+  video-embedding stages move models to GPU inside `setup()`, not
+  `__init__`. Downloading weights belongs in `setup_on_node()`.
+  Overriding `setup()` is also what makes Ray Data auto-route the
+  stage as an Actor. See the setup-discipline rule in
+  [parent](../../AGENTS.md).
 - **CUDA gating.** Lazy-import `cv2.cuda`, `cvcuda`, `pynvvideocodec`,
   and GPU-decoder paths of PyAV. Plain `import cv2` and `import av`
   at module top level are acceptable.

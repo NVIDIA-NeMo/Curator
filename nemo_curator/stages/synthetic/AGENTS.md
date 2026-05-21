@@ -28,6 +28,12 @@ as public API — edits change downstream model behavior.
 - **OpenAI-API compatibility.** SDG stages call OpenAI-compatible
   endpoints; custom Instruct/Reward models work through that
   contract.
+- **Client setup in `setup()`, not `__init__`.** SDG stages that
+  hold a connection to a model server (vLLM, NIM) initialize the
+  client inside `setup()`. Auth tokens, endpoint URLs, and other
+  configuration are stored in `__init__` (runtime validation only).
+  See the setup-discipline rule in
+  [parent](../../AGENTS.md).
 - **Output reproducibility.** Given a fixed seed, model, and prompt,
   outputs are reproducible to the extent the underlying model
   allows. Document expected variance.

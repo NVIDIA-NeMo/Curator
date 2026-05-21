@@ -42,6 +42,11 @@ root AGENTS.md.
   retry-safe under preemption.
 - **GPU/CPU paths.** Lazy-import GPU libs; declare resources
   honestly; CPU fallback loads.
+- **Model loading in `setup()`, not `__init__`.** Classifiers and
+  embedders must load model weights and call `.to("cuda")` inside
+  `setup()`. Loading in `__init__` serializes the model to every
+  replica. Downloading weights belongs in `setup_on_node()`. See the
+  setup-discipline rule in [parent](../../AGENTS.md).
 - **Tokenizer and model artifact handling.** HuggingFace-pinned
   artifacts can vanish; treat that as an operational risk.
 

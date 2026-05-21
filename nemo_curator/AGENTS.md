@@ -53,6 +53,60 @@ dead-simple for extension authors.
 - **Pipeline invariants:** adjacent stages' outputs ⊆ next stage's
   inputs. Running on a different executor must not change
   user-visible result modulo documented ordering nondeterminism.
+- **`__init__` / `setup_on_node()` / `setup()` discipline.** Three
+  lifecycle hooks for three different scopes — don't conflate them:
+  - `__init__` runs **on the driver** and gets serialized to every
+    replica. Keep it light. Runtime validation and config storage
+    only — never load models, open files, or do heavy work here.
+  - `setup_on_node()` runs **once per node**. Use for
+    pre-downloading model weights or verifying they exist on disk.
+    Never load a model into memory here — the next worker on the
+    same node would reload it.
+  - `setup()` runs **once per worker (replica)**. Use for loading
+    models into memory and moving them to device
+    (`self.model = AutoModel.from_pretrained(...).to("cuda")`).
+    GPU-resident state lives here.
+  - A stage that overrides `setup()` is auto-routed to a Ray Data
+    **Actor**; stateless stages become Ray Data **Tasks**. Overriding
+    `setup()` is the signal Curator uses to detect stateful stages.
+- **`process` vs `process_batch` + `batch_size`.**
+  - Default to a single Task whose `data` holds many items (rows in
+    a DataFrame, frames in a video). Override `process(task) -> Y |
+    list[Y]`.
+  - Use `process_batch(tasks: list[X]) -> list[Y] | Y` **only** when
+    you genuinely need to combine multiple Tasks (e.g., to vectorize
+    inference across tasks). If you set `batch_size > 1` you must
+    override `process_batch`; otherwise Curator can't batch.
+  - Setting `batch_size > 1` without `process_batch` is a contract
+    bug — see Known Regression Patterns in root AGENTS.md.
+- **`_metadata` and `_stage_perf` propagation.** Every output task
+  must carry its input task's `_metadata` and `_stage_perf`.
+  Curator auto-logs `StagePerfStats` and `num_items` per stage;
+  custom metadata flows through tasks. **This applies even to fan-
+  out stages** — each output task gets the input's metadata, not
+  just the first one. Dropping `_stage_perf` on fan-out collapses
+  pipeline-level analysis to the last stage only.
+- **Task size sweet spot.** Tasks are passed through Ray's Object
+  Store with serialization overhead each hop. Too big → serialization
+  cost dominates; too small → overhead of too many tasks dominates.
+  Group items into Tasks accordingly (a `DocumentBatch` typically
+  holds thousands of rows).
+- **`with_()` for variable resources at construction time.** Stages
+  with model-dependent resources (e.g., a generic
+  `EmbeddingModelStage` that accepts any `model_id`) should expose
+  resources via `with_()`:
+  `MyStage(model_id="small").with_(resources=Resources(gpus=0.5))`.
+  Don't hard-code `Resources` per subclass when the resource shape
+  varies with construction args.
+- **`CompositeStage` for stages that always go together.** Two
+  stages that the user shouldn't have to know about (e.g., file
+  partitioning + parquet read; caption-prep + caption-generation)
+  belong in a `CompositeStage`. Decomposition happens at
+  `Pipeline.build()` time.
+- **`Workflow` for multi-pipeline patterns.** When orchestration
+  spans multiple `Pipeline.run()` calls or needs Ray-actor lifecycle
+  setup/teardown (e.g., dedup's Id Generator Actor across streaming
+  and batch passes), use `Workflow` — not a one-off script.
 
 ## Contract Checklist
 

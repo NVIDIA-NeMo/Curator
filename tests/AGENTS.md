@@ -37,6 +37,13 @@ run pipelines. When source and tests disagree, the discussion is
 - **Determinism.** Avoid wall-clock and unseeded randomness.
 - **Fixtures and data.** `tests/fixtures/` and `tests/data/` stay
   small, license-clean, and committed (no large binaries).
+- **Test organization: prefer functions; group classes by area, not
+  per-function.** Avoid the `TestThisClassFunction` pattern (one
+  test class per source function) — it creates dozens of one-method
+  classes and adds nothing pytest discovery doesn't already do.
+  Group related tests into a single class only when they share
+  fixtures or setup. A flat list of `test_*` functions is the
+  default and usually the right choice.
 
 ## Contract Checklist
 
