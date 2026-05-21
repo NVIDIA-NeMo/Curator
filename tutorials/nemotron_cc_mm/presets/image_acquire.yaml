@@ -1,0 +1,66 @@
+# OmniCorpus — Stage Group 2: image download only
+# ----------------------------------------------------------------------
+# Second group in the chained-pipeline workflow.  Reads Parquet from
+# the extract_and_text group, fetches all image URLs over HTTP, writes
+# Parquet where image rows now carry the actual bytes (`binary_content`
+# populated).  No quality filtering — that lives in image_quality.
+#
+# Reads: Parquet with text-filtered rows + image rows (URL-only)
+# Writes: Parquet with images filled in (binary_content), unfiltered
+# Resources: CPU + network (asyncio downloader, hundreds of concurrent
+# connections).  Image download success rate ~70-80% on real CC URLs;
+# the rest end up with `materialize_error` set, no `binary_content`.
+
+name: image_acquire
+description: Stage group 2 — Parquet → image download only → Parquet (no filtering)
+
+input_type: parquet
+
+# ======================================================================
+# ① Extraction settings (ignored on Parquet input but kept for clarity)
+# ======================================================================
+extractor: hybrid                # ignored when input_type=parquet
+min_text_chars: 1
+max_text_chars: 50000
+resiliparse_text: false
+max_batch_bytes: 268435456
+
+# ======================================================================
+# ② Text filters — ALL DISABLED (already applied in group 1)
+# ======================================================================
+url_substr_nsfw: false
+lorem_ipsum: false
+word_count: false
+mean_word_length: false
+symbol_ratio: false
+stopword_count: false
+ngram_repetition: false
+alpha_ratio: false
+ellipsis_line: false
+bullet_line: false
+dup_line: false
+top_word: false
+continuous_line_breaks: false
+bad_words: false
+lang_id: false
+
+# ======================================================================
+# ④ Image stages — DOWNLOAD ONLY (no quality filtering)
+# ======================================================================
+image_download: true
+image_concurrency: 500
+image_timeout_s: 20.0
+image_retries: 1
+image_max_bytes: 20971520
+image_url_dedup: true
+
+image_geometry: false            # deferred to image_quality
+image_aspect_ratio: false        # deferred to image_quality
+image_nsfw: false                # deferred to image_quality
+image_aesthetic: false           # deferred to image_quality
+image_count: false               # deferred to image_quality
+
+# ======================================================================
+# ⑤ Safety — DISABLED (lives in image_quality)
+# ======================================================================
+pii_redact: false

@@ -1,0 +1,58 @@
+# OmniCorpus — Stage Group 1: WARC extraction (no filtering)
+# ----------------------------------------------------------------------
+# First group in the chained-pipeline workflow.  Just parses each WARC
+# into InterleavedBatch rows and writes them.  No text filters, no
+# image work — that's all downstream.
+#
+# Reads: raw Common Crawl WARC files
+# Writes: Parquet with every extracted doc (text rows + image URL rows + metadata)
+# Resources: CPU only
+
+name: extract
+description: Stage group 1 — WARC → extractor → Parquet (no filtering)
+
+input_type: warc
+
+# ======================================================================
+# ① Main Body Extraction (paper §3.1)
+# ======================================================================
+extractor: hybrid
+min_text_chars: 1
+max_text_chars: 50000
+resiliparse_text: true
+max_batch_bytes: 268435456       # 256 MiB chunked extraction
+
+# ======================================================================
+# ② Text filters — ALL DISABLED (this group is extraction-only)
+# ======================================================================
+url_substr_nsfw: false
+lorem_ipsum: false
+word_count: false
+mean_word_length: false
+symbol_ratio: false
+stopword_count: false
+ngram_repetition: false
+alpha_ratio: false
+ellipsis_line: false
+bullet_line: false
+dup_line: false
+top_word: false
+continuous_line_breaks: false
+bad_words: false
+lang_id: false
+
+# ======================================================================
+# ④ Image stages — ALL DISABLED
+# ======================================================================
+image_download: false
+image_url_dedup: false
+image_geometry: false
+image_aspect_ratio: false
+image_nsfw: false
+image_aesthetic: false
+image_count: false
+
+# ======================================================================
+# ⑤ Detailed Filter + Safety — DISABLED
+# ======================================================================
+pii_redact: false

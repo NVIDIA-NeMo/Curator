@@ -1,0 +1,79 @@
+# OmniCorpus — Stage Group 3: image quality filters + safety
+# ----------------------------------------------------------------------
+# Third (and final) group in the chained-pipeline workflow.  Reads the
+# downloaded-image Parquet from the image_acquire group, runs all image
+# quality filters (CPU geometry/aspect + GPU NSFW/aesthetic + image_count)
+# and PII redaction.  Output is the final pipeline product.
+#
+# Reads: Parquet with downloaded images (`binary_content` populated)
+# Writes: Parquet filtered by image quality, with PII redacted in text
+# Resources: GPU (NSFW + aesthetic at 0.1 GPU each, ~0.2 GPU per task);
+# CPU otherwise.  Per-task wallclock ≈ 6 min once images are loaded,
+# well under the 30-min idle-reaper threshold.
+
+name: image_quality
+description: Stage group 3 — Parquet (with images) → image filters + GPU NSFW/aesthetic + PII → Parquet
+
+input_type: parquet
+
+# ======================================================================
+# ① Extraction settings (ignored on Parquet input)
+# ======================================================================
+extractor: hybrid
+min_text_chars: 1
+max_text_chars: 50000
+resiliparse_text: false
+max_batch_bytes: 268435456
+
+# ======================================================================
+# ② Text filters — ALL DISABLED (already applied in group 1)
+# ======================================================================
+url_substr_nsfw: false
+lorem_ipsum: false
+word_count: false
+mean_word_length: false
+symbol_ratio: false
+stopword_count: false
+ngram_repetition: false
+alpha_ratio: false
+ellipsis_line: false
+bullet_line: false
+dup_line: false
+top_word: false
+continuous_line_breaks: false
+bad_words: false
+lang_id: false
+
+# ======================================================================
+# ④ Image stages — image filters only (download done in group 2)
+# ======================================================================
+image_download: false            # bytes already in Parquet
+image_url_dedup: false
+
+image_geometry: true             # CPU
+image_min_dim: 150
+image_max_dim: 20000
+
+image_aspect_ratio: true         # CPU
+image_aspect_min: 0.5
+image_aspect_max: 2.0
+
+image_nsfw: true                 # GPU (0.1 of 1 H100 = 8 GiB)
+image_nsfw_max_score: 0.8
+
+image_aesthetic: true            # GPU (0.1 of 1 H100 = 8 GiB)
+image_aesthetic_min_score: 3.7
+
+image_count: true                # drop docs that lost all their images
+image_count_min: 1
+image_count_max: 30
+
+# ======================================================================
+# ⑤ Detailed Filter + Safety — PII regex redaction
+# ======================================================================
+pii_redact: true
+pii_email: true
+pii_phone: true
+pii_ipv4: true
+pii_ssn: true
+pii_alt_text: false

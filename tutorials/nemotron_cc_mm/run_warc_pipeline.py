@@ -35,6 +35,7 @@ from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.interleaved.io.reader import InterleavedParquetReader
 from nemo_curator.stages.interleaved.io.writers import InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.stages import InterleavedAspectRatioFilterStage
 from nemo_curator.stages.nemotron_cc_mm import (
@@ -74,34 +75,49 @@ from nemo_curator.stages.text.download.common_crawl.warc_iterator import (
 def build_pipeline(args: argparse.Namespace) -> Pipeline:
     pipe = Pipeline(
         name="warc_to_interleaved",
-        description="CC WARC → interleaved rows → Stage-3 filters → Parquet",
+        description="WARC or Parquet → interleaved rows → filters → Parquet",
     )
 
-    pipe.add_stage(
-        FilePartitioningStage(
-            file_paths=args.input_path,
-            files_per_partition=args.files_per_partition,
-            file_extensions=[".gz", ".warc"],
+    # ---------------- Input: WARC files OR existing InterleavedBatch Parquet ----------------
+    #
+    # The downstream pipeline is identical in either case — it operates on
+    # InterleavedBatch tasks.  Stage-1 either extracts from WARC or just
+    # reads a Parquet that another pipeline run already produced.
+    if args.input_type == "parquet":
+        # Skips WARC-specific stages; --extractor / --min-text-chars /
+        # --max-text-chars / --resiliparse-text / --record-limit have no
+        # effect in this branch.
+        pipe.add_stage(
+            InterleavedParquetReader(
+                file_paths=args.input_path,
+                files_per_partition=args.files_per_partition,
+                max_batch_bytes=args.max_batch_bytes,
+            )
         )
-    )
-
-    pipe.add_stage(
-        DocumentIterateExtractStage(
-            iterator=CommonCrawlWarcIterator(),
-            record_limit=args.record_limit,
-            add_filename_column=True,
+    else:
+        pipe.add_stage(
+            FilePartitioningStage(
+                file_paths=args.input_path,
+                files_per_partition=args.files_per_partition,
+                file_extensions=[".gz", ".warc"],
+            )
         )
-    )
-
-    pipe.add_stage(
-        WarcDocumentToInterleavedStage(
-            extractor=args.extractor,
-            min_text_chars=args.min_text_chars,
-            resiliparse_text=args.resiliparse_text,
-            max_batch_bytes=args.max_batch_bytes,
-            max_text_chars=args.max_text_chars,
+        pipe.add_stage(
+            DocumentIterateExtractStage(
+                iterator=CommonCrawlWarcIterator(),
+                record_limit=args.record_limit,
+                add_filename_column=True,
+            )
         )
-    )
+        pipe.add_stage(
+            WarcDocumentToInterleavedStage(
+                extractor=args.extractor,
+                min_text_chars=args.min_text_chars,
+                resiliparse_text=args.resiliparse_text,
+                max_batch_bytes=args.max_batch_bytes,
+                max_text_chars=args.max_text_chars,
+            )
+        )
 
     # ---------------- Stage 3 (toggleable per filter) ----------------
 
@@ -255,6 +271,28 @@ def main(args: argparse.Namespace) -> None:
         )
         return
 
+    # Input validation — fail-fast if the input dir is missing or empty.
+    # Without this, an empty-Parquet input produces an empty output AND a
+    # success marker, which silently breaks chained-pipeline correctness
+    # (we hit this in the 50-WARC chain when a later stage's task started
+    # before the earlier stage's retry had written its parquet).
+    if args.input_type == "parquet":
+        inp = Path(args.input_path)
+        if not inp.exists():
+            msg = (
+                f"[shard] {idx}/{num_shards} input_type=parquet but "
+                f"--input-path does not exist: {inp}"
+            )
+            raise FileNotFoundError(msg)
+        if inp.is_dir():
+            parqs = list(inp.glob("*.parquet"))
+            if not parqs:
+                msg = (
+                    f"[shard] {idx}/{num_shards} input_type=parquet but "
+                    f"--input-path is empty (no *.parquet files): {inp}"
+                )
+                raise FileNotFoundError(msg)
+
     started = utc_iso()
 
     # Start Ray with address="local" so we always start a brand-new local
@@ -384,8 +422,16 @@ if __name__ == "__main__":
                              "Loaded BEFORE CLI defaults; CLI flags still win.")
 
     # ---- I/O ----
+    parser.add_argument("--input-type", default="warc",
+                        choices=["warc", "parquet"],
+                        help="What kind of input ``--input-path`` points at.  "
+                             "``warc`` runs extract + InterleavedBatch conversion; "
+                             "``parquet`` reads an existing InterleavedBatch Parquet "
+                             "dataset produced by a prior pipeline run (lets you "
+                             "split the pipeline into stage groups).")
     parser.add_argument("--input-path", required=True,
-                        help="WARC file or directory of .warc.gz files")
+                        help="WARC file/dir of .warc.gz files, OR a directory of "
+                             "Parquet shards (when --input-type=parquet)")
     parser.add_argument("--output-path", required=True,
                         help="Output directory for Parquet shards")
     parser.add_argument("--record-limit", type=int, default=None,

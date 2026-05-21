@@ -1,0 +1,76 @@
+# OmniCorpus — Stage Group 2: text filters
+# ----------------------------------------------------------------------
+# Second group in the chained-pipeline workflow.  Reads the extracted
+# Parquet from the `extract` group, runs all 14 text filters, writes a
+# Parquet with the surviving docs.  Image rows pass through unchanged
+# (still URL-only); image work happens in groups 3 and 4.
+#
+# Reads: Parquet from `extract` group (full extracted rows)
+# Writes: Parquet with text-filter survivors
+# Resources: CPU only.  Deterministic — same input → same output.
+
+name: text_filter
+description: Stage group 2 — Parquet → 14 text filters → Parquet (no image work)
+
+input_type: parquet
+
+# ======================================================================
+# ① Extraction settings (ignored on Parquet input)
+# ======================================================================
+extractor: hybrid
+min_text_chars: 1
+max_text_chars: 50000
+resiliparse_text: false
+max_batch_bytes: 268435456
+
+# ======================================================================
+# ② Preliminary Text Filtering — 14 doc-level filters
+# ======================================================================
+url_substr_nsfw: true
+lorem_ipsum: true
+word_count: true
+mean_word_length: true
+symbol_ratio: true
+stopword_count: true
+ngram_repetition: true
+alpha_ratio: true
+ellipsis_line: true
+bullet_line: true
+dup_line: true
+top_word: true
+continuous_line_breaks: true
+bad_words: false                 # set bad_words_path to enable
+lang_id: true
+
+# Thresholds (Gopher + C4 defaults)
+word_count_min: 50
+word_count_max: 100000
+mean_word_length_min: 3.0
+mean_word_length_max: 10.0
+symbol_ratio_max: 0.1
+stopword_count_min: 2
+alpha_ratio_min: 0.8
+ellipsis_line_max: 0.3
+bullet_line_max: 0.9
+dup_line_max: 0.3
+top_word_max: 0.30
+continuous_line_breaks_max: 0.05
+lang_id_target: en
+lang_id_min_score: 0.65
+bad_words_path: ""
+
+# ======================================================================
+# ④ Image stages — ALL DISABLED
+# ======================================================================
+image_download: false
+image_url_dedup: false
+image_geometry: false
+image_aspect_ratio: false
+image_nsfw: false
+image_aesthetic: false
+image_count: false
+
+# ======================================================================
+# ⑤ Detailed Filter + Safety — DISABLED
+# ======================================================================
+pii_redact: false

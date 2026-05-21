@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# submit_array.sh — SLURM-array driver for the WARC pipeline.
+# submit_array.sh — SLURM-array driver for the WARC/Parquet pipeline.
 #
 # Modes:
 #   submit          fresh sbatch for indices 0..ARRAY_SIZE-1
@@ -8,13 +8,20 @@
 #   retry-missing   resubmit only the missing shard indices
 #   worker          per-shard srun entrypoint (called by sbatch)
 #
-# Required env (submit/status/retry):
-#   WARC_DIR        directory containing the WARC files
-#   WARC_PATTERN    sprintf pattern with one %s slot, indexed by shard
-#                   e.g. "CC-MAIN-20250612112840-20250612142840-%05d.warc.gz"
+# Required env (all modes):
 #   OUTPUT_PATH     where to write per-shard output + _SUCCESS markers
-#   PRESET          omnicorpus | omnicorpus_cpu | omnicorpus_text_only
-#   ARRAY_SIZE      number of shards (one WARC each)
+#   PRESET          extract | text_filter | image_acquire | image_quality |
+#                   omnicorpus | omnicorpus_cpu | omnicorpus_text_only
+#   ARRAY_SIZE      number of shards (one WARC or one prior-stage idx_NN each)
+#
+# Input contract — choose ONE based on the preset's input type:
+#   When INPUT_TYPE=warc (default; for `extract`, `omnicorpus*`):
+#     WARC_DIR      directory containing the WARC files
+#     WARC_PATTERN  sprintf pattern with one %d slot, indexed by shard
+#                   e.g. "CC-MAIN-20250612112840-20250612142840-%05d.warc.gz"
+#   When INPUT_TYPE=parquet (for `text_filter`, `image_acquire`, `image_quality`):
+#     INPUT_PATH    output root of a PRIOR stage group; each shard reads
+#                   $INPUT_PATH/idx_<padded>/  (a Parquet directory)
 #
 # Common knobs (all optional, sensible defaults):
 #   PARTITION         cpu_short | batch (default: cpu_short)
@@ -28,12 +35,25 @@
 #   MODEL_DIR         path to NSFW + aesthetic models (default: $USER_DIR/models/curator)
 #   CONTAINER_IMAGE   sqsh path (default: /home/aot/scratch/sqsh/curator_2604.sqsh)
 #
-# Example — 5-WARC CPU validation:
-#   WARC_DIR=$USER_DIR/CC-MAIN-2025-26/segments/1749709481111.44/warc \
-#   WARC_PATTERN="CC-MAIN-20250612112840-20250612142840-%05d.warc.gz" \
-#   OUTPUT_PATH=$USER_DIR/out/5warcs_cpu \
-#   PRESET=omnicorpus_cpu ARRAY_SIZE=5 \
-#   ./submit_array.sh submit
+# Example — 4-group chained pipeline on 50 WARCs:
+#   ROOT=$USER_DIR/out/50warcs_chained
+#   # group 1: WARC → extracted Parquet
+#   PRESET=extract INPUT_TYPE=warc \
+#   WARC_DIR=… WARC_PATTERN=… OUTPUT_PATH=$ROOT/01_extract \
+#   ARRAY_SIZE=50 ./submit_array.sh submit
+#
+#   # group 2: extracted → text-filtered
+#   PRESET=text_filter INPUT_TYPE=parquet INPUT_PATH=$ROOT/01_extract \
+#   OUTPUT_PATH=$ROOT/02_text ARRAY_SIZE=50 ./submit_array.sh submit
+#
+#   # group 3: text-filtered → with downloaded images
+#   PRESET=image_acquire INPUT_TYPE=parquet INPUT_PATH=$ROOT/02_text \
+#   OUTPUT_PATH=$ROOT/03_images ARRAY_SIZE=50 ./submit_array.sh submit
+#
+#   # group 4: with images → final (NSFW + aesthetic on GPU)
+#   PRESET=image_quality INPUT_TYPE=parquet INPUT_PATH=$ROOT/03_images \
+#   OUTPUT_PATH=$ROOT/04_quality ARRAY_SIZE=50 \
+#   PARTITION=batch ./submit_array.sh submit
 # =============================================================================
 set -euo pipefail
 
@@ -41,11 +61,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 USER_DIR=/scratch/fsw/portfolios/nemotron/projects/nemotron_n4_pre/users/aot
 
 # Required ----------------------------------------------------------------
+: "${INPUT_TYPE:=warc}"
+
 require_env() {
     local missing=()
-    for v in WARC_DIR WARC_PATTERN OUTPUT_PATH PRESET ARRAY_SIZE; do
+    for v in OUTPUT_PATH PRESET ARRAY_SIZE; do
         [[ -z "${!v:-}" ]] && missing+=("$v")
     done
+    if [[ "${INPUT_TYPE}" == "warc" ]]; then
+        for v in WARC_DIR WARC_PATTERN; do
+            [[ -z "${!v:-}" ]] && missing+=("$v (required for INPUT_TYPE=warc)")
+        done
+    elif [[ "${INPUT_TYPE}" == "parquet" ]]; then
+        [[ -z "${INPUT_PATH:-}" ]] && missing+=("INPUT_PATH (required for INPUT_TYPE=parquet)")
+    else
+        missing+=("INPUT_TYPE must be 'warc' or 'parquet' (got: ${INPUT_TYPE})")
+    fi
     if (( ${#missing[@]} > 0 )); then
         echo "Missing required env: ${missing[*]}" >&2
         exit 2
@@ -105,8 +136,10 @@ submit_array() {  # $1: array spec
     # Propagate the original array size so sparse retries
     # (e.g. --array=3,7,12) still know N for sanity checks.
     export CURATOR_ORIGINAL_ARRAY_SIZE="${ARRAY_SIZE}"
-    export WARC_DIR WARC_PATTERN OUTPUT_PATH PRESET LID_PATH MODEL_DIR \
-        CONTAINER_IMAGE USER_DIR SCRIPT_DIR
+    export INPUT_TYPE OUTPUT_PATH PRESET LID_PATH MODEL_DIR \
+        CONTAINER_IMAGE USER_DIR SCRIPT_DIR PARTITION
+    [[ "${INPUT_TYPE}" == "warc" ]] && export WARC_DIR WARC_PATTERN
+    [[ "${INPUT_TYPE}" == "parquet" ]] && export INPUT_PATH
 
     local sbatch_args=(
         "--account=${ACCOUNT}"
@@ -156,24 +189,39 @@ run_worker() {
     export CURATOR_SHARD_INDEX="${CURATOR_SHARD_INDEX:-${SLURM_ARRAY_TASK_ID:-0}}"
     export CURATOR_NUM_SHARDS="${CURATOR_NUM_SHARDS:-${CURATOR_ORIGINAL_ARRAY_SIZE:-1}}"
 
-    local pad
+    local pad input_path
     pad="$(printf '%05d' "${CURATOR_SHARD_INDEX}")"
-    local warc_file
-    # shellcheck disable=SC2059
-    warc_file="$(printf "${WARC_PATTERN}" "${CURATOR_SHARD_INDEX}")"
-    local warc="${WARC_DIR%/}/${warc_file}"
+
+    # Resolve this shard's input based on INPUT_TYPE.
+    case "${INPUT_TYPE:-warc}" in
+        warc)
+            # shellcheck disable=SC2059
+            input_path="${WARC_DIR%/}/$(printf "${WARC_PATTERN}" "${CURATOR_SHARD_INDEX}")"
+            ;;
+        parquet)
+            # Prior stage wrote to $INPUT_PATH/idx_<pad>/  → use it as the
+            # Parquet directory for this shard.
+            input_path="${INPUT_PATH%/}/idx_${pad}"
+            ;;
+        *)
+            echo "Unknown INPUT_TYPE: ${INPUT_TYPE}" >&2
+            exit 2
+            ;;
+    esac
+
     local task_out="${OUTPUT_PATH%/}/idx_${pad}"
     # Keep --log-path *outside* the output dir so the writer's --mode overwrite
     # rmtree doesn't delete it.  The _logs/ dir was created by submit.
     local task_log="${OUTPUT_PATH%/}/_logs/idx_${pad}.log"
     mkdir -p "$(dirname "$task_log")"
 
-    echo "Worker shard ${CURATOR_SHARD_INDEX}/${CURATOR_NUM_SHARDS}"
-    echo "  WARC: ${warc}"
-    echo "  OUT:  ${task_out}"
+    echo "Worker shard ${CURATOR_SHARD_INDEX}/${CURATOR_NUM_SHARDS} (input_type=${INPUT_TYPE})"
+    echo "  INPUT:  ${input_path}"
+    echo "  OUTPUT: ${task_out}"
 
+    # NSFW + aesthetic model dirs are only needed when those stages run.
     local extra_args=()
-    if [[ "${PRESET}" == omnicorpus ]]; then  # full GPU pipeline
+    if [[ "${PRESET}" == omnicorpus || "${PRESET}" == image_quality ]]; then
         extra_args+=("--image-nsfw-model-dir" "${MODEL_DIR}"
                      "--image-aesthetic-model-dir" "${MODEL_DIR}")
     fi
@@ -191,7 +239,8 @@ run_worker() {
             cd ${USER_DIR}/codebase/Curator/tutorials/nemotron_cc_mm
             stdbuf -oL -eL python run_warc_pipeline.py \
                 --preset ${PRESET} \
-                --input-path ${warc} \
+                --input-type ${INPUT_TYPE} \
+                --input-path ${input_path} \
                 --output-path ${task_out} \
                 --mode overwrite \
                 --lang-id-model ${LID_PATH} \

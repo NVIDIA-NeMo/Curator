@@ -50,13 +50,24 @@ Each preset under `presets/*.yaml` configures the whole pipeline (which
 filters, which thresholds). YAML keys map 1:1 to CLI flag names (with
 underscores instead of dashes).
 
+**Monolithic presets** (run the whole pipeline in one job):
+
 | Preset | Recipe |
 |---|---|
-| `omnicorpus`           | OmniCorpus paper §3.1: 14 text filters + image NSFW + LAION aesthetic. Needs GPU. |
+| `omnicorpus`           | OmniCorpus paper §3.1: 14 text filters + image NSFW + LAION aesthetic. Needs GPU. *Trips the GPU idle reaper on `batch` — prefer the chained workflow.* |
 | `omnicorpus_cpu`       | Same as above with NSFW + aesthetic disabled. Pure-CPU. |
 | `omnicorpus_text_only` | Text filters only — no image download, no GPU. Deterministic; useful for reproducible filter funnels. |
 | `mint1t`               | MINT-1T-style: lighter Gopher subset, looser thresholds (approximate — MINT-1T relies on KenLM perplexity which we don't have yet) |
 | `mmc4`                 | Permissive baseline: lang-ID + word count + URL-NSFW only |
+
+**Chained pipeline presets** (each is one stage of a 4-step chain — see the *Chained pipeline workflow* section below):
+
+| Preset | Input | Recipe |
+|---|---|---|
+| `extract`        | WARC    | Resiliparse + magic-html → InterleavedBatch Parquet (no filtering) |
+| `text_filter`    | Parquet | 14 doc-level text filters |
+| `image_acquire`  | Parquet | Image downloader only (no quality filtering) |
+| `image_quality`  | Parquet | Geometry + aspect ratio + NSFW + aesthetic + image_count + PII redactor |
 
 Precedence: **CLI flags > preset > argparse defaults**. So you can pick a
 preset and tweak one knob:
@@ -180,16 +191,98 @@ rmtree of `idx_NNNNN/` doesn't delete them.
 - **Sparse-retry shard count** — `CURATOR_ORIGINAL_ARRAY_SIZE` is propagated
   so `--array=3,7,12` retries still see `num_shards=50` in env.
 
-### GPU caveat
+### GPU caveat — and the chained pipeline that fixes it
 
-The same script supports `PRESET=omnicorpus PARTITION=batch` for the full
-GPU pipeline (NSFW + aesthetic).  Expect ~30–50 % of tasks to be cancelled
-at ~37 min by the cluster's **GPU idle reaper** (`svc-hwinf-cs-sched`) —
-our pipeline only uses the GPU for ~5 % of wallclock, so the per-job
-"30 min idle" threshold fires.  Cancelled tasks still write ~700 MB of
-output (1 of 2 sub-batches); `retry-missing` picks up the rest.  Proper
-fix requires either a GPU Idle Time Exemption or a pipeline split.  See
-`PERF_NOTES.md` for the math.
+Running the *monolithic* `PRESET=omnicorpus PARTITION=batch` end-to-end
+trips the cluster's **GPU idle reaper** (uid 146504, `svc-hwinf-cs-sched`)
+at ~37 min: the GPU sits at 0 % for the first 30 minutes (extract +
+text filters + image download — all CPU/network), so by the time NSFW
++ aesthetic actually start, the reaper's 30-min idle window has elapsed.
+Roughly 30–50 % of tasks get SIGTERM'd mid-run.
+
+**The proper fix is to split the pipeline into stages** that each fit
+under the 30-min idle threshold and only hold GPU when actually using it.
+See the next section.
+
+## Chained pipeline workflow (4 stage groups)
+
+Each stage group runs as its own `submit_array.sh` invocation against its
+own output directory; the next group reads the previous group's output
+as Parquet.  This gives us:
+
+- **Failure isolation** — a crash in stage 3 doesn't lose stage 1+2 work
+- **Independent retries** — re-run one stage with tweaked thresholds
+  without redoing the others
+- **Right-sized resources per stage** — CPU for stages 1–3, GPU only for
+  stage 4 (and only ~5 min/task, well under the idle-reaper threshold)
+- **Resumability** — a re-submitted stage short-circuits per-shard via
+  the existing `_SUCCESS/shard_NNNNN.json` markers
+
+### The four presets
+
+| group | preset | input | what it does | per-shard wallclock (1 WARC) |
+|---|---|---|---|---|
+| 1 | `extract`        | WARC    | Resiliparse + magic-html → InterleavedBatch Parquet | ~20 min |
+| 2 | `text_filter`    | Parquet | 14 doc-level text filters                            | ~6 min |
+| 3 | `image_acquire`  | Parquet | downloader (~70 % URL success)                       | ~15 min |
+| 4 | `image_quality`  | Parquet | geometry + aspect + NSFW + aesthetic + image_count + PII | ~5 min |
+
+Stage 4 finishes in ~5 min wallclock — under the GPU idle-reaper threshold.
+
+### Driver invocation
+
+```bash
+ROOT=$USER_DIR/out/50warcs_chain
+WARCS=$USER_DIR/CC-MAIN-…/segments/…/warc
+WARC_PATTERN="CC-MAIN-…-%05d.warc.gz"
+
+# 1. WARC → extracted Parquet
+PRESET=extract INPUT_TYPE=warc \
+WARC_DIR=$WARCS WARC_PATTERN=$WARC_PATTERN \
+OUTPUT_PATH=$ROOT/01_extract ARRAY_SIZE=50 \
+TIME_LIMIT=02:00:00 ./submit_array.sh submit
+
+# 2. extracted → text-filtered
+PRESET=text_filter INPUT_TYPE=parquet INPUT_PATH=$ROOT/01_extract \
+OUTPUT_PATH=$ROOT/02_text ARRAY_SIZE=50 \
+TIME_LIMIT=00:30:00 ./submit_array.sh submit
+
+# 3. text-filtered → with downloaded images
+PRESET=image_acquire INPUT_TYPE=parquet INPUT_PATH=$ROOT/02_text \
+OUTPUT_PATH=$ROOT/03_images ARRAY_SIZE=50 \
+TIME_LIMIT=01:30:00 ./submit_array.sh submit
+
+# 4. with images → final (GPU)
+PRESET=image_quality INPUT_TYPE=parquet INPUT_PATH=$ROOT/03_images \
+OUTPUT_PATH=$ROOT/04_quality ARRAY_SIZE=50 \
+PARTITION=batch TIME_LIMIT=00:30:00 ./submit_array.sh submit
+```
+
+Each step blocks the next implicitly (the next `submit` can't process
+shards whose marker isn't yet written by the prior stage).  Per-stage
+`status` and `retry-missing` work as usual within each group's
+`OUTPUT_PATH`.
+
+### What `INPUT_TYPE=parquet` does
+
+Worker derives this shard's input dir as `${INPUT_PATH%/}/idx_<pad>/`
+(matching the convention the prior stage writes to) and passes
+`--input-path <derived>` along with `--input-type parquet` to
+`run_warc_pipeline.py`.  Python uses
+`nemo_curator.stages.interleaved.io.reader.InterleavedParquetReader`
+in place of the WARC reader+extractor; everything downstream is
+identical.
+
+### Comparison: monolithic vs chained
+
+|  | monolithic (`omnicorpus`) | chained (4 groups) |
+|---|---|---|
+| total wallclock per shard | ~35 min (when not reaped) | ~46 min serial; ~25 min if you can run downstream stages in parallel as upstream finishes |
+| GPU idle-reaper kills | ~30–50 % of tasks | none (stage 4 is short enough) |
+| failure recovery | re-run whole shard from WARC | re-run only the affected stage |
+| tunability | one big preset | tweak one stage in isolation |
+| disk I/O overhead | none (everything in-memory) | each stage reads + writes Parquet (~5–10 % overhead) |
+| per-shard `_run.json` funnel | one for whole pipeline | one per stage (richer trace) |
 
 ## Inspect output
 
@@ -211,11 +304,17 @@ Parquet directory into the sidebar.  To A/B two runs, fill in the
 Curator/
 ├── nemo_curator/stages/nemotron_cc_mm/   ← all custom stages
 └── tutorials/nemotron_cc_mm/
-    ├── run_warc_pipeline.py              ← this script
+    ├── run_warc_pipeline.py              ← pipeline entrypoint (one WARC per invocation)
+    ├── run_manifest.py                   ← writes _run.json (lineage + funnel)
+    ├── shard.py                          ← per-shard success markers (Slurm array)
+    ├── submit_array.sh                   ← Slurm-array driver: submit/status/retry-missing/worker
     ├── dashboard.py                      ← Streamlit output viewer
     ├── README.md                         ← this file
+    ├── PERF_NOTES.md                     ← measured timings, scaling math, bug history
     └── presets/
-        ├── omnicorpus.yaml
+        ├── omnicorpus.yaml               (GPU full pipeline)
+        ├── omnicorpus_cpu.yaml           (no GPU stages)
+        ├── omnicorpus_text_only.yaml     (no images, deterministic)
         ├── mint1t.yaml
         └── mmc4.yaml
 ```
