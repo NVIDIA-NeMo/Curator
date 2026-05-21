@@ -47,6 +47,11 @@ from nemo_curator.stages.audio.segmentation import (
     SpeakerSeparationStage,
     VADSegmentationStage,
 )
+from nemo_curator.stages.audio.speaker_id import (
+    SpeakerClusteringStage,
+    SpeakerEmbeddingLhotseStage,
+    SpeakerEmbeddingRequestStage,
+)
 
 __all__ = [
     "ALMDataBuilderStage",
@@ -60,6 +65,9 @@ __all__ = [
     "PreserveByValueStage",
     "SIGMOSFilterStage",
     "SegmentConcatenationStage",
+    "SpeakerClusteringStage",
+    "SpeakerEmbeddingLhotseStage",
+    "SpeakerEmbeddingRequestStage",
     "SpeakerSeparationStage",
     "TimestampMapperStage",
     "UTMOSFilterStage",

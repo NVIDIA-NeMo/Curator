@@ -1,0 +1,105 @@
+---
+description: "Cluster speaker embeddings into speaker groups using SCOTCH (Scalable Centroid-based Two-stage Clustering with Hierarchical refinement)"
+categories: ["audio-processing"]
+tags: ["scotch", "speaker-clustering", "ahc", "birch", "speaker-id"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# SCOTCH Speaker Clustering
+
+Cluster speaker embeddings into speaker groups using Agglomerative Hierarchical Clustering (AHC). For datasets over 500 hours, a two-stage BIRCH → AHC pipeline keeps memory bounded while scaling to tens of millions of utterances.
+
+## Understanding SCOTCH
+
+SCOTCH assigns every utterance a `speaker_label` (integer cluster ID) and a `confidence_score` (0–1 silhouette-style metric). Two backends are available:
+
+| Backend | Scale | Memory | When to Use |
+|---------|-------|--------|-------------|
+| Standard AHC | < 500 h / < 150K utterances | O(N²) | Small-to-medium datasets |
+| Large-scale (BIRCH + AHC) | > 500 h / millions of utterances | O(N·D + K²) | Web-scale audio |
+
+Use `recommend_clustering_method()` to pick automatically:
+
+```python
+from nemo_curator.stages.audio.speaker_id.clustering.large_scale_clustering_and_scoring import (
+    recommend_clustering_method,
+)
+
+method = recommend_clustering_method(num_hours=1200)
+# -> "large_scale"
+```
+
+## Basic Usage
+
+### Standard AHC (SpeakerClusteringStage)
+
+```python
+from nemo_curator.stages.audio.speaker_id import SpeakerClusteringStage
+
+cluster = SpeakerClusteringStage(
+    input_manifest="manifests/manifest_{0..49}.json",
+    embedding_dir="embeddings/",
+    output_manifest_dir="output_manifests/",
+    threshold=0.292,
+    embedding_normalization="center_global",
+)
+pipeline.add_stage(cluster)
+```
+
+### Large-Scale (Function API)
+
+```python
+from nemo_curator.stages.audio.speaker_id.clustering.large_scale_clustering_and_scoring import (
+    cluster_embeddings_large_scale,
+)
+
+labels, confidence, stats = cluster_embeddings_large_scale(
+    embeddings,       # (N, D) float32 array
+    threshold=0.40,
+    min_cluster_size=30,
+)
+```
+
+## Parameters
+
+### SpeakerClusteringStage
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `threshold` | float | 0.292 | Cosine-similarity cutoff for same-speaker decisions |
+| `linkage_method` | str | `"average"` | AHC linkage: `"average"`, `"complete"`, `"single"` |
+| `shard_level_clustering` | bool | `False` | Cluster each shard independently vs globally |
+| `batch_size` | int | `None` | Group shards into batches for clustering |
+| `embedding_normalization` | str | `"center_global"` | `"none"`, `"center_global"`, or `"external"` |
+
+### Large-Scale Function
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `threshold` | float | 0.40 | Cosine cutoff at AHC step |
+| `min_cluster_size` | int | 30 | Drop clusters smaller than this |
+| `birch_threshold` | float | ~0.63 | BIRCH leaf radius (Euclidean on unit sphere) |
+| `branching_factor` | int | 50 | BIRCH tree branching factor |
+
+## Threshold Tuning
+
+| Threshold | Effect | Use Case |
+|-----------|--------|----------|
+| 0.25–0.30 | Aggressive merging, fewer speakers | High-recall speaker groups |
+| 0.30–0.35 | Balanced (default for TitaNet) | General ASR data curation |
+| 0.40–0.50 | Conservative, more speakers | Purity-first for TTS training |
+
+## Best Practices
+
+- **Run embedding normalization** — `center_global` (default) subtracts batch mean, which improves threshold stability across domains.
+- **Start with default thresholds** — 0.292 for standard AHC (TitaNet), 0.40 for large-scale.
+- **Use `min_cluster_size=30`** for training data — drops long-tail noise speakers that hurt model quality.
+- **CPU-only** — clustering does not need GPU; allocate sufficient RAM for the embedding matrix.
+
+## Related Topics
+
+- [Speaker Embedding](/curate-audio/process-data/quality-filtering/speaker-embedding) — extract embeddings before clustering
+- [UTMOSv2 Scoring](/curate-audio/process-data/quality-filtering/utmosv2) — combine with quality filtering

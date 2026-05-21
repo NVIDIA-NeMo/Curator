@@ -1,0 +1,86 @@
+---
+description: "Extract speaker embeddings from audio using TitaNet for downstream clustering and speaker identification"
+categories: ["audio-processing"]
+tags: ["speaker-embedding", "titanet", "speaker-id", "embedding"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "audio-only"
+---
+
+# Speaker Embedding
+
+Extract per-utterance speaker embeddings using a pretrained [TitaNet](https://catalog.ngc.nvidia.com/orgs/nvidia/models/speakerverification_en_titanet_large) model. These embeddings power downstream speaker clustering (SCOTCH) and confidence scoring.
+
+## Understanding Speaker Embeddings
+
+Speaker embeddings are fixed-dimensional vectors that capture the vocal characteristics of a speaker. Two utterances from the same speaker produce embeddings with high cosine similarity; different speakers produce low similarity.
+
+Three stage variants handle different data layouts:
+
+| Stage | Input | Use Case |
+|-------|-------|----------|
+| `SpeakerEmbeddingAudioTaskStage` | In-memory waveform (`AudioTask`) | AIS-streamed pipelines |
+| `SpeakerEmbeddingRequestStage` | File paths in JSONL (`DocumentBatch`) | Local/S3/tar audio |
+| `SpeakerEmbeddingLhotseStage` | Lhotse CutSet (NeMo tarred) | Large-scale NeMo datasets |
+
+## Basic Usage
+
+### In-Memory Waveform (AudioTask)
+
+```python
+from nemo_curator.stages.audio.speaker_id import SpeakerEmbeddingAudioTaskStage
+
+embed = SpeakerEmbeddingAudioTaskStage(
+    output_dir="embeddings/",
+    target_sample_rate=16000,
+)
+pipeline.add_stage(embed)
+```
+
+### File Paths (DocumentBatch)
+
+```python
+from nemo_curator.stages.audio.speaker_id import SpeakerEmbeddingRequestStage
+
+embed = SpeakerEmbeddingRequestStage(
+    output_path="embeddings/all_embeddings.npz",
+    output_format="npz",
+)
+pipeline.add_stage(embed)
+```
+
+### NeMo Tarred (Lhotse)
+
+```python
+from nemo_curator.stages.audio.speaker_id import SpeakerEmbeddingLhotseStage
+
+embed = SpeakerEmbeddingLhotseStage(
+    input_manifest="manifests/manifest_{0..49}.json",
+    input_tar="tars/audio_{0..49}.tar",
+    output_path="embeddings/",
+    batch_size=64,
+)
+```
+
+## Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `model_name` | str | `nvidia/speakerverification_en_titanet_large` | Pretrained NeMo speaker model |
+| `target_sample_rate` | int | 16000 | Resample audio to this rate |
+| `output_dir` / `output_path` | str | `""` | Where to save embedding files |
+| `output_format` | str | `"npz"` | `"npz"` or `"pt"` |
+| `batch_size` | int | 64 | Inference batch size |
+
+## Best Practices
+
+- **Use TitaNet Large** for best clustering quality; the default model works well across domains.
+- **Target 16 kHz** — the model expects this sample rate; mismatched rates degrade accuracy.
+- **Save per-shard embeddings** for large datasets; use `merge_shard_embeddings()` to combine afterwards.
+- **GPU recommended** — embedding extraction is compute-intensive; allocate at least 4 GB GPU memory.
+
+## Related Topics
+
+- [SCOTCH Clustering](/curate-audio/process-data/quality-filtering/scotch-clustering) — cluster embeddings into speaker groups
+- [UTMOSv2 Scoring](/curate-audio/process-data/quality-filtering/utmosv2) — audio quality scoring
