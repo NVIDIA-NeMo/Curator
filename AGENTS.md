@@ -89,20 +89,26 @@ Pause for human review before:
 
 ## Anti-Patterns
 
-- Adding a backend-specific code path inside a `ProcessingStage`.
-  Differences belong in `nemo_curator/backends/<name>/`.
-- Importing `cudf`, `cupy`, `cuml`, or other RAPIDS libs at module top
-  level **outside `nemo_curator/stages/deduplication/`**. (Deduplication
-  imports RAPIDS at module top level today; lazy-import work is open
-  advocacy with the Dedup steward.)
-- Editing `docs/` for product reasons — it's deprecated. See
-  [fern/AGENTS.md](fern/AGENTS.md).
-- Documenting a flag, config field, classifier name, codec, or default
-  that doesn't trace to a Pydantic / dataclass / argparse declaration in
-  source.
-- Treating `.cursor/rules/`, `copilot-instructions.md`, and `AGENTS.md`
-  as redundant. They serve different agents but must agree on facts;
-  update them together when shared facts change.
+Repo-specific anti-patterns that show up in agent-authored code.
+Each row pairs the wrong pattern with the right one:
+
+| Don't | Do instead |
+| --- | --- |
+| `pip install …` | `uv sync --extra <group>` |
+| `python script.py` | `uv run python script.py` |
+| Define `name` / `resources` / `batch_size` as `@property` on a `ProcessingStage` | Set as plain class attributes |
+| Override `_name`, `_resources`, `_batch_size` | Use `name`, `resources`, `batch_size` (the `_` versions are `@final` properties) |
+| Load model in `__init__` | Load in `setup()`; download in `setup_on_node()` |
+| Set `batch_size > 1` without overriding `process_batch` | Override `process_batch` or keep `batch_size = 1` |
+| Drop `_metadata` / `_stage_perf` in fan-out output tasks | Propagate input task's `_metadata` and `_stage_perf` to every output |
+| Backend-specific code path inside a `ProcessingStage` | Put differences in `nemo_curator/backends/<name>/` adapters |
+| Top-level RAPIDS import outside `stages/deduplication/` | Lazy-import inside GPU code paths (dedup tree is a known exception being paid down) |
+| Edit `docs/` for product reasons | Edit `fern/` — `docs/` is under write-freeze. See [fern/AGENTS.md](fern/AGENTS.md) |
+| Document a flag/config/classifier/codec that doesn't trace to source | Verify against argparse / Pydantic / dataclass / config schema first |
+| `print()` | `loguru.logger` |
+| Commit without `-s` (signoff) | `git commit -sS …` — unsigned commits get rejected by CI |
+| One test class per source function (`TestThisClassFunction`) | Flat `test_*` functions; group classes only when they share fixtures |
+| Treat `.cursor/rules/`, `copilot-instructions.md`, and `AGENTS.md` as redundant | They serve different agents but must agree on facts; update together when shared facts change |
 
 ## Steward System
 
@@ -310,6 +316,49 @@ the verification recipe.
 - **Unverified finding regression.** A steward reports a divergence
   that a source grep would have disproved. *Verify:* every factual
   P0/P1 carries a verification status before triage.
+- **Stage lifecycle drift (`__init__` / `setup_on_node` / `setup`).**
+  Heavy work or model loading in `__init__` (serialized to every
+  replica); model load in `setup_on_node()` (should be download-only
+  — the next worker on the same node would reload it); missing
+  `to("cuda")` in `setup()` despite GPU resources declared. *Verify:*
+  grep stage files for `from_pretrained`, `.to("cuda")`, and `torch`
+  imports — they should live in `setup()`, not `__init__`. See the
+  Pipeline steward's `__init__ / setup_on_node / setup` discipline.
+- **`process_batch` mis-use.** Stage declares `batch_size > 1` but
+  only overrides `process`; or overrides `process_batch` when
+  single-Task-with-many-items would do. *Verify:* for every stage
+  with `batch_size > 1`, confirm `process_batch` is implemented;
+  conversely, `process_batch` should only appear when combining
+  across Tasks is genuinely required.
+- **Metadata / `_stage_perf` propagation drop.** Stage output missing
+  the input task's `_metadata` or `_stage_perf` — especially in
+  fan-out stages where the convenient mistake is to put metadata
+  only on the first output. *Verify:* every output task construction
+  passes through `_metadata=task._metadata, _stage_perf=task._stage_perf`.
+  Pipeline-level analysis collapses to the last stage if this drops.
+- **Ray Data spec missing.** Stateful (model-holding) stage without
+  `RayStageSpecKeys.IS_ACTOR_STAGE: True` in `ray_stage_spec` — Ray
+  Data reloads the model per call. Fan-out stage without
+  `RayDataStageSpecKeys.IS_FANOUT_STAGE: True` in `ray_data_stage_spec`
+  — Ray Data treats the output `list[Task]` as one block. *Verify:*
+  any stage that overrides `setup()` is auto-detected as an Actor by
+  default, but `IS_ACTOR_STAGE: True` is required when overriding
+  the auto-detection; any stage whose `process()` returns `list[Y]`
+  for fan-out needs the fanout flag.
+- **Ray Actor Pool mis-attribution.** Documenting Ray Actor Pool as
+  a general production backend. It is the dedup-batch executor.
+  *Verify:* production streaming comparisons are Xenna vs Ray Data;
+  Ray Actor Pool appears only in dedup contexts (shuffle, RAFT,
+  removal passes, Id-Generator workflows).
+- **Test over-classification.** New tests written as
+  `TestThisClassFunction` (one class per source function with one
+  test method). *Verify:* test files under `tests/stages/` and
+  `tests/backends/` prefer flat `test_*` functions; classes appear
+  only when sharing fixtures or `setup_method`.
+- **`EmptyTask` first-stage worker waste.** First stage of a Xenna
+  pipeline starts from `EmptyTask` → `list[Task]` but doesn't set
+  `max_workers_per_node: 1` in `xenna_stage_spec`. *Verify:* grep
+  for `EmptyTask` first stages; each should pin `max_workers_per_node`.
 
 Add new patterns as audits surface them, each with a verification
 recipe.
