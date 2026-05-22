@@ -191,8 +191,17 @@ def main() -> int:
     parser.add_argument("--executor-config-json", default=None, help="JSON object passed to the executor constructor")
 
     args = parser.parse_args()
-    results = run_benchmark(args)
-    write_benchmark_results(results, args.benchmark_results_path)
+
+    results = {
+        "params": vars(args),
+        "metrics": {"is_success": False},
+        "tasks": [],
+    }
+    try:
+        results = run_benchmark(args)
+    finally:
+        write_benchmark_results(results, args.benchmark_results_path)
+
     return 0 if results["metrics"]["is_success"] else 1
 
 
