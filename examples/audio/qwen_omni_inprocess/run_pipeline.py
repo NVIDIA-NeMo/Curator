@@ -78,7 +78,7 @@ from nemo_curator.stages.audio.text_filtering.select_best_prediction import Sele
 from nemo_curator.stages.resources import Resources
 
 
-def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
+def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="QwenOmni in-process vLLM pipeline")
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
@@ -218,8 +218,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         help="Fixed actor count for QwenOmni stage. Default: autoscaler decides.",
     )
     scaling.add_argument("--asr_num_workers", type=int, default=None, help="Fixed actor count for QwenASR stage.")
-    scaling.add_argument("--pnc_num_workers", type=int, default=None, help="Fixed actor count for PnC stage.")
-    scaling.add_argument("--itn_num_workers", type=int, default=None, help="Fixed actor count for ITN stage.")
     return ap
 
 

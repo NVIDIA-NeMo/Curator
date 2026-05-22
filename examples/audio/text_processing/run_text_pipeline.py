@@ -15,8 +15,9 @@
 """Text post-processing pipeline for ASR output.
 
 Reads JSONL manifests produced by the audio ASR pipeline and applies
-text-only LLM stages (ITN, disfluency correction) using a single
-shared vLLM model.
+text-only LLM stages (PnC, ITN, disfluency correction, captioning).
+Each stage runs as a separate Ray Data actor with its own vLLM engine.
+All stages use the same model ID but load independently per actor.
 
 Architecture:
     ALMManifestReader (CPU)

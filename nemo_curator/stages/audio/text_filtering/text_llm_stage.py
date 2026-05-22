@@ -239,14 +239,13 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _format_prompt(self, user_text: str, task_data: dict | None = None) -> str:
         prompt_template = self._system_prompt
-        has_placeholders = "{text}" in prompt_template or "{language}" in prompt_template
 
-        if has_placeholders:
-            if "{language}" in prompt_template:
-                lang = task_data.get("source_lang", "English") if task_data else "English"
-                prompt_template = prompt_template.replace("{language}", lang)
-            if "{text}" in prompt_template:
-                prompt_template = prompt_template.replace("{text}", user_text)
+        if "{language}" in prompt_template:
+            lang = task_data.get("source_lang", "English") if task_data else "English"
+            prompt_template = prompt_template.replace("{language}", lang)
+
+        if "{text}" in prompt_template:
+            prompt_template = prompt_template.replace("{text}", user_text)
             messages = [{"role": "user", "content": prompt_template}]
         else:
             messages = [
@@ -268,7 +267,7 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
         out_words = output_text.lower().split()
         if not in_words or not out_words:
             return True, "ok"
-        if len(out_words) > len(in_words) * 1.5:
+        if len(out_words) > len(in_words):
             return False, f"word_count_increase ({len(in_words)}->{len(out_words)})"
         if (
             len(in_words) >= self.min_words_for_deletion_check
