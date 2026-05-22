@@ -22,6 +22,7 @@ pipeline.
 
 from __future__ import annotations
 
+import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -262,6 +263,78 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
 
     # ── Validation ───────────────────────────────────────────────────
 
+    _ALPHA_RE = re.compile(r"[a-zA-Z]+")
+    _ROMAN_RE = re.compile(r"^[ivxlcdm]+$", re.IGNORECASE)
+    _VALID_ITN_ALPHA = frozenset(
+        {
+            "st",
+            "nd",
+            "rd",
+            "th",
+            "dr",
+            "mr",
+            "mrs",
+            "ms",
+            "prof",
+            "sr",
+            "jr",
+            "ave",
+            "blvd",
+            "ln",
+            "ct",
+            "pl",
+            "n",
+            "s",
+            "e",
+            "w",
+            "ne",
+            "nw",
+            "se",
+            "sw",
+            "kg",
+            "km",
+            "cm",
+            "mm",
+            "mg",
+            "lb",
+            "lbs",
+            "oz",
+            "ft",
+            "mi",
+            "ml",
+            "mph",
+            "h",
+            "g",
+            "m",
+            "l",
+            "am",
+            "pm",
+            "vs",
+            "dept",
+            "inc",
+            "corp",
+            "ltd",
+            "co",
+            "no",
+        }
+    )
+
+    def _check_novel_words(self, in_words: list[str], out_words: list[str]) -> list[str]:
+        in_alpha: set[str] = set()
+        for w in in_words:
+            for part in self._ALPHA_RE.findall(w):
+                in_alpha.add(part.lower())
+        novel: list[str] = []
+        for w in out_words:
+            for part in self._ALPHA_RE.findall(w):
+                p = part.lower()
+                if p in in_alpha or p in self._VALID_ITN_ALPHA:
+                    continue
+                if self._ROMAN_RE.match(p):
+                    continue
+                novel.append(p)
+        return novel
+
     def _validate(self, input_text: str, output_text: str) -> tuple[bool, str]:
         in_words = input_text.lower().split()
         out_words = output_text.lower().split()
@@ -269,6 +342,9 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
             return True, "ok"
         if len(out_words) > len(in_words):
             return False, f"word_count_increase ({len(in_words)}->{len(out_words)})"
+        novel = self._check_novel_words(in_words, out_words)
+        if novel:
+            return False, f"novel_words: {novel}"
         if (
             len(in_words) >= self.min_words_for_deletion_check
             and len(out_words) < len(in_words) * self.max_deletion_ratio
