@@ -330,7 +330,13 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             self.source = _FieldNormalizingSource(self.source)
 
         class _FieldNormalizingSource:
-            """Wraps a lazy JSONL source to alias sample_rate -> sampling_rate."""
+            """Wraps a lazy JSONL source to normalize fields for NeMo adapters.
+
+            - Aliases sample_rate -> sampling_rate
+            - Strips sampling_rate from offset entries with local files so NeMo uses
+              Recording.from_file() (avoids NeMo bug where _create_recording gets
+              segment duration instead of full recording duration)
+            """
 
             def __init__(self, source):
                 self._source = source
@@ -339,6 +345,11 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 for data in self._source:
                     if "sampling_rate" not in data and "sample_rate" in data:
                         data["sampling_rate"] = data["sample_rate"]
+                    if data.get("offset") is not None and "sampling_rate" in data:
+                        audio_path = data.get("audio_filepath", "")
+                        if not (audio_path.startswith("s3://") or audio_path.startswith("pipe:")):
+                            data.pop("sampling_rate", None)
+                            data.pop("sample_rate", None)
                     yield data
 
             def __len__(self):
