@@ -226,6 +226,14 @@ class QwenOmni(ModelInterface):
             logger.warning("Skipping empty waveform")
             return None
 
+        # Qwen3OmniMoeProcessor's STFT padding requires >=200 samples.
+        # Use 1600 (100 ms @ 16 kHz) as a conservative minimum that also
+        # guarantees the audio is long enough for meaningful inference.
+        MIN_SAMPLES = 1600
+        if waveform.size < MIN_SAMPLES:
+            logger.warning(f"Skipping too-short waveform ({waveform.size} samples)")
+            return None
+
         try:
             waveform_16k = self._resample(waveform, sample_rate)
             messages = self._build_messages(waveform_16k, language)
