@@ -347,7 +347,9 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                         data["sampling_rate"] = data["sample_rate"]
                     if data.get("offset") is not None and "sampling_rate" in data:
                         audio_path = data.get("audio_filepath", "")
-                        if not (audio_path.startswith("s3://") or audio_path.startswith("pipe:")):
+                        is_remote = audio_path.startswith(("s3://", "pipe:"))
+                        is_opus = audio_path.lower().endswith(".opus")
+                        if not is_remote and not is_opus:
                             data.pop("sampling_rate", None)
                             data.pop("sample_rate", None)
                     yield data
@@ -411,14 +413,21 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             if audio.ndim > 1:
                 audio = audio.mean(axis=0)
 
+            target_sr = cut.recording.sampling_rate
+            if cut.duration > 0:
+                actual_sr = round(len(audio) / cut.duration)
+                if actual_sr != target_sr and actual_sr > 0:
+                    import librosa
+                    audio = librosa.resample(audio, orig_sr=actual_sr, target_sr=target_sr)
+
             loaded += 1
             if loaded % 100 == 0 or loaded == 1:
                 logger.info(f"  [{shard_key}] loaded {loaded}")
 
             entry_data = dict(cut.custom) if cut.custom else {}
             entry_data["waveform"] = audio.astype(np.float32)
-            entry_data["sampling_rate"] = cut.recording.sampling_rate
-            entry_data["sample_rate"] = cut.recording.sampling_rate
+            entry_data["sampling_rate"] = target_sr
+            entry_data["sample_rate"] = target_sr
             entry_data["duration"] = cut.duration
             entry_data["num_channels"] = 1
             entry_data["corpus"] = corpus
