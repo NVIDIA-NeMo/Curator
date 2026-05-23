@@ -180,7 +180,7 @@ def main() -> None:
     }
 
     stages = [
-        ALMManifestReader(manifest_path=args.input_manifest),
+        ALMManifestReader(manifest_path=args.input_manifest, output_dir=args.output_dir),
     ]
 
     if args.enable_pnc:
