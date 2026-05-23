@@ -15,23 +15,33 @@
 """Text post-processing pipeline for ASR output.
 
 Reads JSONL manifests produced by the audio ASR pipeline and applies
-text-only LLM stages (PnC, ITN, disfluency correction, captioning).
-Each stage runs as a separate Ray Data actor with its own vLLM engine.
-All stages use the same model ID but load independently per actor.
+text-only LLM stages (PnC, ITN, disfluency correction, captioning,
+contextual ASR entity extraction).  Each stage runs as a separate Ray
+Data actor.  All stages share a class-level vLLM cache keyed on
+``model_id`` — when several stages use the same model, only one engine
+is loaded per worker.
 
 Architecture:
     ALMManifestReader (CPU)
         → reads per-shard JSONL output from the ASR pipeline
+    [if --enable_pnc] TextLLMStage: PnC (GPU)
+        → restores punctuation/capitalisation, writes pnc_text
     [if --enable_itn] TextLLMStage: ITN (GPU)
         → inverse text normalization, preserves disfluencies
         → writes itn_text
-    [if --enable_correction] TextLLMStage: Correction (GPU)
+    [if --enable_itn_no-disfluencies] TextLLMStage: DisfluencyRemoval (GPU)
         → ITN + disfluency removal (fillers, repetitions)
-        → writes corrected_text
+        → writes itn_no-disfluencies_text
+    [if --enable_captioning] TextLLMStage: Captioning (GPU)
+        → summarises transcript into a short caption
+        → writes captioning_text
+    [if --enable_context_asr] ContextualASRExtractionStage (GPU)
+        → extracts domain, named-entity buckets, distractors
+        → writes context_asr dict
+    [if --enable_context_asr] ContextualASRPromptVariantStage (CPU)
+        → appends six prompt variants to the context_asr dict
     ShardedManifestWriterStage (CPU)
         → writes per-shard JSONL output with .done markers
-
-Both GPU stages share the same vLLM model instance (loaded once).
 """
 
 from __future__ import annotations
@@ -44,6 +54,8 @@ from loguru import logger
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
 from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
+from nemo_curator.stages.audio.text_filtering.contextual_asr_extraction import ContextualASRExtractionStage
+from nemo_curator.stages.audio.text_filtering.contextual_asr_prompt_variant import ContextualASRPromptVariantStage
 from nemo_curator.stages.audio.text_filtering.text_llm_stage import TextLLMStage
 from nemo_curator.stages.resources import Resources
 
@@ -59,6 +71,11 @@ _ITN_PROMPT = _PROMPT_DIR / "itn_prompt.md"
 _CORRECTION_PROMPT = _PROMPT_DIR / "correction_prompt.md"
 _CAPTIONING_PROMPT = _PROMPT_DIR / "captioning_prompt.md"
 _PNC_PROMPT = _PROMPT_DIR / "pnc_prompt.md"
+_CONTEXT_ASR_PROMPT = _PROMPT_DIR / "contextual_asr_prompt.md"
+
+# Minimum recommended max_model_len when --enable_context_asr is used.
+# The extraction prompt + output JSON can exceed shorter contexts.
+_CONTEXT_ASR_MIN_MAX_MODEL_LEN = 4096
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -96,6 +113,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=False,
         help="Enable PnC stage: restores punctuation and capitalization. Output key: pnc_text",
     )
+    ap.add_argument(
+        "--enable_context_asr",
+        action="store_true",
+        default=False,
+        help=(
+            "Enable contextual ASR stages: extract domain / named entities / distractors via LLM, "
+            "then append six prompt variants. Output key: context_asr (nested dict)."
+        ),
+    )
 
     ap.add_argument("--text_key", type=str, default="pnc_text", help="Input text field from ASR pipeline output.")
     ap.add_argument("--itn_output_key", type=str, default="itn_text", help="Output field for ITN result.")
@@ -132,6 +158,55 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--pnc_prompt_file", type=str, default=None, help="Path to PnC prompt file. Defaults to bundled pnc_prompt.md."
     )
 
+    ctx = ap.add_argument_group("contextual ASR")
+    ctx.add_argument(
+        "--context_asr_prompt_file",
+        type=str,
+        default=None,
+        help="Path to context ASR extraction prompt file. Defaults to bundled contextual_asr_prompt.md.",
+    )
+    ctx.add_argument(
+        "--context_asr_text_key",
+        type=str,
+        default=None,
+        help="Input text field for context ASR extraction (default: --text_key).",
+    )
+    ctx.add_argument(
+        "--context_asr_output_key",
+        type=str,
+        default="context_asr",
+        help="Output field (nested dict) for context ASR extraction + prompt variants.",
+    )
+    ctx.add_argument(
+        "--context_asr_source_lang_key",
+        type=str,
+        default="source_lang",
+        help="Manifest key holding per-sample source language (for prompt-variant language awareness).",
+    )
+    ctx.add_argument(
+        "--context_asr_max_output_tokens",
+        type=int,
+        default=2048,
+        help=(
+            "Max tokens generated per sample for context ASR extraction. The shared vLLM engine's "
+            "max_model_len must be ≥ this value plus prompt length — pass --max_model_len 8192 (or higher) "
+            "when enabling context ASR."
+        ),
+    )
+    ctx.add_argument("--context_asr_seed", type=int, default=42, help="Base RNG seed for prompt-variant generation.")
+    ctx.add_argument(
+        "--context_asr_partial_keep_lo",
+        type=float,
+        default=0.5,
+        help="Lower bound of random keep fraction for the partial-context variant.",
+    )
+    ctx.add_argument(
+        "--context_asr_partial_keep_hi",
+        type=float,
+        default=0.8,
+        help="Upper bound of random keep fraction for the partial-context variant.",
+    )
+
     ap.add_argument(
         "--tensor_parallel_size", type=int, default=None, help="GPUs for tensor parallelism (default: auto-detect)."
     )
@@ -156,9 +231,11 @@ def main() -> None:
         and not args.enable_itn_no_disfluencies
         and not args.enable_captioning
         and not args.enable_pnc
+        and not args.enable_context_asr
     ):
         logger.warning(
-            "No stages enabled. Use --enable_pnc, --enable_itn, --enable_itn_no-disfluencies, or --enable_captioning."
+            "No stages enabled. Use --enable_pnc, --enable_itn, --enable_itn_no-disfluencies, "
+            "--enable_captioning, or --enable_context_asr."
         )
         return
 
@@ -166,6 +243,7 @@ def main() -> None:
     itn_no_disfl_prompt = args.itn_no_disfluencies_prompt_file or str(_CORRECTION_PROMPT)
     captioning_prompt = args.captioning_prompt_file or str(_CAPTIONING_PROMPT)
     pnc_prompt = args.pnc_prompt_file or str(_PNC_PROMPT)
+    context_asr_prompt = args.context_asr_prompt_file or str(_CONTEXT_ASR_PROMPT)
 
     shared_model_kwargs = {
         "model_id": args.model_id,
@@ -252,6 +330,48 @@ def main() -> None:
             )
         )
         logger.info(f"Captioning stage enabled: {args.text_key} → {args.captioning_output_key}")
+
+    if args.enable_context_asr:
+        context_asr_text_key = args.context_asr_text_key or args.text_key
+        # Engine-level kwargs are shared with the other TextLLMStage instances via the
+        # class-level vLLM cache in text_llm_stage.py.  Per-stage knobs (prompt file,
+        # max_output_tokens, batch size) stay local.
+        stages.append(
+            ContextualASRExtractionStage(
+                model_id=args.model_id,
+                prompt_file=context_asr_prompt,
+                text_key=context_asr_text_key,
+                source_lang_key=args.context_asr_source_lang_key,
+                output_key=args.context_asr_output_key,
+                tensor_parallel_size=args.tensor_parallel_size,
+                max_output_tokens=args.context_asr_max_output_tokens,
+                max_model_len=args.max_model_len,
+                max_num_seqs=args.max_num_seqs,
+                gpu_memory_utilization=args.gpu_memory_utilization,
+                kv_cache_dtype=args.kv_cache_dtype,
+                num_workers_override=args.num_workers,
+                batch_size=args.batch_size,
+                resources=Resources(gpus=1.0),
+            )
+        )
+        stages.append(
+            ContextualASRPromptVariantStage(
+                context_key=args.context_asr_output_key,
+                source_lang_key=args.context_asr_source_lang_key,
+                seed=args.context_asr_seed,
+                partial_keep_lo=args.context_asr_partial_keep_lo,
+                partial_keep_hi=args.context_asr_partial_keep_hi,
+            )
+        )
+        logger.info(
+            f"Context ASR stages enabled: {context_asr_text_key} → {args.context_asr_output_key} "
+            f"(extraction + 6 prompt variants)"
+        )
+        if args.max_model_len < _CONTEXT_ASR_MIN_MAX_MODEL_LEN:
+            logger.warning(
+                f"--max_model_len={args.max_model_len} may be too small for context ASR extraction. "
+                f"Consider --max_model_len 8192 or higher when --enable_context_asr is used."
+            )
 
     stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
 
