@@ -56,12 +56,7 @@ class RayDataExecutor(BaseExecutor):
 
         register_loguru_serializer()
         # This prevents verbose logging from Ray Data about serialization of the dataclass
-        ctx = DataContext.get_current()
-        ctx.enable_fallback_to_arrow_object_ext_type = True
-        # Reduce actor prefetch depth to 1 to mitigate tail-flush hangs
-        # where the actor pool fails to drain the last prefetched blocks.
-        if hasattr(ctx, "max_tasks_in_flight_per_actor"):
-            ctx.max_tasks_in_flight_per_actor = 1
+        DataContext.get_current().enable_fallback_to_arrow_object_ext_type = True
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
         tasks: list[Task] = initial_tasks or [EmptyTask]
         output_tasks: list[Task] = []
