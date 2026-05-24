@@ -51,6 +51,24 @@ class ConcreteProcessingStage(ProcessingStage[MockTask, MockTask]):
         return [], []
 
 
+class FanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
+    """ProcessingStage that returns multiple tasks."""
+
+    name = "FanoutProcessingStage"
+
+    def process(self, task: MockTask) -> list[MockTask]:
+        return [task]
+
+
+class MaybeFanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
+    """ProcessingStage that may return multiple tasks."""
+
+    name = "MaybeFanoutProcessingStage"
+
+    def process(self, task: MockTask) -> MockTask | list[MockTask]:
+        return task
+
+
 class TestProcessingStageWith:
     """Test the with_ method for ProcessingStage."""
 
@@ -263,6 +281,25 @@ class TestProcessingStageWith:
         # But the instances created with with_ should still have their custom values
         assert stage_with_custom.resources == Resources(cpus=5.0)
         assert stage_with_custom2.resources == Resources(cpus=7.0)
+
+
+class TestProcessingStageRaySpec:
+    """Test Ray stage spec defaults."""
+
+    def test_default_ray_stage_spec_empty_for_single_task_stage(self):
+        stage = ConcreteProcessingStage()
+
+        assert stage.ray_stage_spec() == {}
+
+    def test_ray_stage_spec_detects_fanout_stage(self):
+        stage = FanoutProcessingStage()
+
+        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+
+    def test_ray_stage_spec_detects_optional_fanout_stage(self):
+        stage = MaybeFanoutProcessingStage()
+
+        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
 
 
 class TestProcessingStageOverriddenProperties:
