@@ -15,7 +15,7 @@
 """Text post-processing pipeline for ASR output.
 
 Reads JSONL manifests produced by the audio ASR pipeline and applies
-text-only LLM stages (PnC, ITN, disfluency correction, captioning).
+text-only LLM stages (PnC, ITN, disfluency correction, captioning, code-switching).
 Each stage runs as a separate Ray Data actor with its own vLLM engine.
 All stages use the same model ID but load independently per actor.
 
@@ -28,10 +28,18 @@ Architecture:
     [if --enable_correction] TextLLMStage: Correction (GPU)
         → ITN + disfluency removal (fillers, repetitions)
         → writes corrected_text
+    [if --enable_code_switching] TextLLMStage: CodeSwitching (GPU)
+        → restores English Latin spelling for English loanwords
+          transliterated into the native script
+        → writes code_switched_text
+    [if --enable_speech_qa] TextLLMStage: SpeechQA (GPU)
+        → either "SKIP" when the transcript is not suitable, or two lines
+          "Q: <question>\nA: <answer>" grounded in the transcript
+        → writes speech_qa_text
     ShardedManifestWriterStage (CPU)
         → writes per-shard JSONL output with .done markers
 
-Both GPU stages share the same vLLM model instance (loaded once).
+All GPU stages share the same vLLM model instance (loaded once).
 """
 
 from __future__ import annotations
@@ -59,6 +67,8 @@ _ITN_PROMPT = _PROMPT_DIR / "itn_prompt.md"
 _CORRECTION_PROMPT = _PROMPT_DIR / "correction_prompt.md"
 _CAPTIONING_PROMPT = _PROMPT_DIR / "captioning_prompt.md"
 _PNC_PROMPT = _PROMPT_DIR / "pnc_prompt.md"
+_CODE_SWITCHING_PROMPT = _PROMPT_DIR / "code_switching_prompt.md"
+_SPEECH_QA_PROMPT = _PROMPT_DIR / "speech_qa_prompt.md"
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -96,6 +106,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=False,
         help="Enable PnC stage: restores punctuation and capitalization. Output key: pnc_text",
     )
+    ap.add_argument(
+        "--enable_code_switching",
+        action="store_true",
+        default=False,
+        help="Enable code-switching stage: restores English Latin spelling for English loanwords "
+        "transliterated into the native script. Output key: code_switched_text",
+    )
+    ap.add_argument(
+        "--enable_speech_qa",
+        action="store_true",
+        default=False,
+        help="Enable SpeechQA stage: generates a (Q, A) pair grounded in the transcript, or the "
+        "single token SKIP when the transcript is not suitable. Output key: speech_qa_text",
+    )
 
     ap.add_argument("--text_key", type=str, default="pnc_text", help="Input text field from ASR pipeline output.")
     ap.add_argument("--itn_output_key", type=str, default="itn_text", help="Output field for ITN result.")
@@ -109,6 +133,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--captioning_output_key", type=str, default="captioning_text", help="Output field for captioning result."
     )
     ap.add_argument("--pnc_output_key", type=str, default="pnc_text", help="Output field for PnC result.")
+    ap.add_argument(
+        "--code_switching_output_key",
+        type=str,
+        default="code_switched_text",
+        help="Output field for code-switching restoration result.",
+    )
+    ap.add_argument(
+        "--speech_qa_output_key",
+        type=str,
+        default="speech_qa_text",
+        help="Output field for SpeechQA result. Either 'SKIP' (single line) or two lines 'Q: ...' + 'A: ...'.",
+    )
 
     ap.add_argument(
         "--model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8", help="HuggingFace model ID for the text LLM."
@@ -130,6 +166,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument(
         "--pnc_prompt_file", type=str, default=None, help="Path to PnC prompt file. Defaults to bundled pnc_prompt.md."
+    )
+    ap.add_argument(
+        "--code_switching_prompt_file",
+        type=str,
+        default=None,
+        help="Path to code-switching prompt file. Defaults to bundled code_switching_prompt.md.",
+    )
+    ap.add_argument(
+        "--speech_qa_prompt_file",
+        type=str,
+        default=None,
+        help="Path to SpeechQA prompt file. Defaults to bundled speech_qa_prompt.md.",
     )
 
     ap.add_argument(
@@ -156,9 +204,12 @@ def main() -> None:
         and not args.enable_itn_no_disfluencies
         and not args.enable_captioning
         and not args.enable_pnc
+        and not args.enable_code_switching
+        and not args.enable_speech_qa
     ):
         logger.warning(
-            "No stages enabled. Use --enable_pnc, --enable_itn, --enable_itn_no-disfluencies, or --enable_captioning."
+            "No stages enabled. Use --enable_pnc, --enable_itn, --enable_itn_no-disfluencies, "
+            "--enable_captioning, --enable_code_switching, or --enable_speech_qa."
         )
         return
 
@@ -166,6 +217,8 @@ def main() -> None:
     itn_no_disfl_prompt = args.itn_no_disfluencies_prompt_file or str(_CORRECTION_PROMPT)
     captioning_prompt = args.captioning_prompt_file or str(_CAPTIONING_PROMPT)
     pnc_prompt = args.pnc_prompt_file or str(_PNC_PROMPT)
+    code_switching_prompt = args.code_switching_prompt_file or str(_CODE_SWITCHING_PROMPT)
+    speech_qa_prompt = args.speech_qa_prompt_file or str(_SPEECH_QA_PROMPT)
 
     shared_model_kwargs = {
         "model_id": args.model_id,
@@ -252,6 +305,33 @@ def main() -> None:
             )
         )
         logger.info(f"Captioning stage enabled: {args.text_key} → {args.captioning_output_key}")
+
+    if args.enable_code_switching:
+        stages.append(
+            TextLLMStage(
+                name="CodeSwitching",
+                prompt_file=code_switching_prompt,
+                text_key=args.text_key,
+                output_text_key=args.code_switching_output_key,
+                resources=Resources(gpus=1.0),
+                **shared_model_kwargs,
+            )
+        )
+        logger.info(f"CodeSwitching stage enabled: {args.text_key} → {args.code_switching_output_key}")
+
+    if args.enable_speech_qa:
+        stages.append(
+            TextLLMStage(
+                name="SpeechQA",
+                prompt_file=speech_qa_prompt,
+                text_key=args.text_key,
+                output_text_key=args.speech_qa_output_key,
+                enable_validation=False,
+                resources=Resources(gpus=1.0),
+                **shared_model_kwargs,
+            )
+        )
+        logger.info(f"SpeechQA stage enabled: {args.text_key} → {args.speech_qa_output_key}")
 
     stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
 
