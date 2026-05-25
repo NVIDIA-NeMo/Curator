@@ -133,15 +133,20 @@ def build_pipeline() -> Pipeline:
     return pipeline
 
 
-ray_client = RayClient()
-ray_client.start()
+def main():
+    ray_client = RayClient()
+    ray_client.start()
 
-try:
-    # If this run is interrupted, run the same script again. Curator will
-    # reuse completed files in DOWNLOAD_DIR and fetch only missing WARC files.
-    build_pipeline().run()
-finally:
-    ray_client.stop()
+    try:
+        # If this run is interrupted, run the same script again. Curator will
+        # reuse completed files in DOWNLOAD_DIR and fetch only missing WARC files.
+        build_pipeline().run()
+    finally:
+        ray_client.stop()
+
+
+if __name__ == "__main__":
+    main()
 ```
 
 For best results, keep `download_dir` on durable storage that survives the job
