@@ -26,7 +26,6 @@ from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask
-from nemo_curator.backends.utils import RayStageSpecKeys
 
 
 @dataclass
@@ -121,8 +120,7 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         shard_total = task._metadata.get("_shard_total", 0)
         if shard_total > 0 and self._shard_counts[shard_key] >= shard_total:
             done_path = os.path.join(self.output_dir, f"{shard_key}.jsonl.done")
-            with open(done_path, "w") as f:
-                f.write(f"{self._shard_counts[shard_key]}\n")
+            open(done_path, "w").close()
             logger.info(f"Shard {shard_key} complete: {self._shard_counts[shard_key]} utterances, wrote {done_path}")
 
         return FileGroupTask(
@@ -155,5 +153,4 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         # accumulator sees every row for each shard. Without this, Ray Data
         # runs the writer as parallel stateless tasks with fresh per-task
         # state, and `.done` markers never get written.
-
         return {RayStageSpecKeys.IS_ACTOR_STAGE: True}
