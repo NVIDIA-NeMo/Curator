@@ -101,6 +101,10 @@ class RayServeBackend(InferenceBackend):
         quiet_runtime_env: dict[str, Any] | None,
     ) -> dict[str, Any]:
         """Build arguments for Ray Serve's OpenAI app factory."""
+        if "llm_configs" in self._server.server_kwargs:
+            msg = "server_kwargs must not include 'llm_configs'; it is generated from the server models"
+            raise ValueError(msg)
+
         build_args = deepcopy(self._server.server_kwargs)
         build_args["llm_configs"] = llm_configs
 

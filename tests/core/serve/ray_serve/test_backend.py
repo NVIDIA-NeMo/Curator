@@ -67,3 +67,12 @@ class TestRayServeBackend:
             "VLLM_LOGGING_LEVEL": "WARNING",
             "RAY_SERVE_LOG_TO_STDERR": "0",
         }
+
+    def test_build_openai_app_args_rejects_llm_configs_server_kwarg(self) -> None:
+        server = InferenceServer(
+            models=[RayServeModelConfig(model_identifier="some-model")],
+            server_kwargs={"llm_configs": []},
+        )
+
+        with pytest.raises(ValueError, match="server_kwargs must not include 'llm_configs'"):
+            RayServeBackend(server)._build_openai_app_args([], None)
