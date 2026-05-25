@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unified audio reader using NeMo's lhotse adapters.
+"""NeMo Speech audio reader using lhotse adapters.
 
-Handles NeMo ``input_cfg`` YAML configs (``nemo_tarred`` and ``nemo``
+Reads NeMo ``input_cfg`` YAML configs (``nemo_tarred`` and ``nemo``
 types) through NeMo's ``LazyNeMoIterator`` and
 ``LazyNeMoTarredIterator``:
 
@@ -22,8 +22,8 @@ types) through NeMo's ``LazyNeMoIterator`` and
                      -> NeMo lhotse adapter -> CutSet -> cut.load_audio() -> AudioTask
 
 Decomposes into:
-1. ``UnifiedDiscoveryStage`` — parses ``input_cfg`` YAML, expands shards, checks .done
-2. ``UnifiedReaderStage`` — manifest -> NeMo CutSet -> AudioTask (format-agnostic)
+1. ``NeMoSpeechDiscoveryStage`` — parses ``input_cfg`` YAML, expands shards, checks .done
+2. ``NeMoSpeechReaderStage`` — manifest -> NeMo CutSet -> AudioTask (format-agnostic)
 """
 
 from __future__ import annotations
@@ -173,7 +173,7 @@ def _parse_input_cfg(yaml_path: str, corpus_filter: list[str] | None) -> list[di
 
 
 @dataclass
-class UnifiedDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
+class NeMoSpeechDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     """Parse ``input_cfg`` YAML and emit one ``FileGroupTask`` per shard.
 
     Supports NeMo ``input_cfg`` format with ``nemo_tarred`` and ``nemo``
@@ -252,7 +252,7 @@ class UnifiedDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
 
 @dataclass
-class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
+class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     """Read a manifest shard and emit AudioTasks via NeMo lhotse adapters.
 
     Format-agnostic: uses ``LazyNeMoTarredIterator`` when a tar path
@@ -269,10 +269,7 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["waveform", "sampling_rate", "sample_rate", "corpus", "num_channels"]
-
-    def setup(self, _worker_metadata: Any = None) -> None:
-        self._patch_nemo_adapters()
+        return ["data"], ["waveform", "sampling_rate", "corpus", "num_channels"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
         if RayStageSpecKeys is not None:
@@ -283,87 +280,6 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return {"is_fanout_stage": True, "is_actor_stage": True}
 
     @staticmethod
-    def _patch_nemo_adapters() -> None:
-        """Apply two NeMo fixes for S3-based non-tarred manifests.
-
-        Fix 1 (get_full_path): NeMo uses os.path.isabs() which returns False for
-        s3://, http://, gs:// URIs — causing them to be joined with the manifest
-        directory.  Adds NeMo's own is_datastore_path() check.
-
-        Fix 2 (sampling_rate field): LazyNeMoIterator expects "sampling_rate" in
-        manifest entries but many datasets use "sample_rate".  Without it, NeMo
-        calls Recording.from_file() which can't read S3 URIs.  With it, NeMo
-        creates Recording(source_type="url") using lhotse's native URL backend.
-        """
-        import nemo.collections.common.data.lhotse.nemo_adapters as _adapters
-        import nemo.collections.common.parts.preprocessing.manifest as _manifest
-
-        if getattr(_manifest, "_nemo_s3_patched", False):
-            return
-
-        from nemo.utils.data_utils import is_datastore_path
-
-        # --- Fix 1: get_full_path URI recognition ---
-        _original_get_full_path = _manifest.get_full_path
-
-        def _patched_get_full_path(
-            audio_file, manifest_file=None, data_dir=None, audio_file_len_limit=255, force_cache=True
-        ):
-            if isinstance(audio_file, str) and is_datastore_path(audio_file):
-                return audio_file
-            if isinstance(audio_file, list):
-                return [
-                    _patched_get_full_path(a, manifest_file, data_dir, audio_file_len_limit, force_cache)
-                    for a in audio_file
-                ]
-            return _original_get_full_path(audio_file, manifest_file, data_dir, audio_file_len_limit, force_cache)
-
-        _manifest.get_full_path = _patched_get_full_path
-        _adapters.get_full_path = _patched_get_full_path
-
-        # --- Fix 2: alias sample_rate -> sampling_rate in LazyNeMoIterator ---
-        # Wrap the source iterator to normalize field names before NeMo processes them.
-        _OriginalIterInit = _adapters.LazyNeMoIterator.__init__
-
-        def _patched_init(self, *args, **kwargs):
-            _OriginalIterInit(self, *args, **kwargs)
-            self.source = _FieldNormalizingSource(self.source)
-
-        class _FieldNormalizingSource:
-            """Wraps a lazy JSONL source to normalize fields for NeMo adapters.
-
-            - Aliases sample_rate -> sampling_rate
-            - Strips sampling_rate from offset entries with local files so NeMo uses
-              Recording.from_file() (avoids NeMo bug where _create_recording gets
-              segment duration instead of full recording duration)
-            """
-
-            def __init__(self, source):
-                self._source = source
-
-            def __iter__(self):
-                for data in self._source:
-                    if "sampling_rate" not in data and "sample_rate" in data:
-                        data["sampling_rate"] = data["sample_rate"]
-                    if data.get("offset") is not None and "sampling_rate" in data:
-                        audio_path = data.get("audio_filepath", "")
-                        is_remote = audio_path.startswith(("s3://", "pipe:"))
-                        is_opus = audio_path.lower().endswith(".opus")
-                        if not is_remote and not is_opus:
-                            data.pop("sampling_rate", None)
-                            data.pop("sample_rate", None)
-                    yield data
-
-            def __len__(self):
-                return len(self._source)
-
-            def __add__(self, other):
-                return self._source.__add__(other)
-
-        _adapters.LazyNeMoIterator.__init__ = _patched_init
-        _manifest._nemo_s3_patched = True
-
-    @staticmethod
     def _make_cutset(manifest_path: str, tar_path: str | None) -> Any:  # noqa: ANN401
         """Build a lhotse CutSet using NeMo adapters."""
         from lhotse import CutSet
@@ -371,9 +287,10 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
         if tar_path:
             resolved_tar = _s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
-            # Temporarily disable NeMo's shard ID validation — it fails when
-            # manifest is a local path but tar is a pipe:curl URL (string vs int
-            # ID comparison). Data integrity is still verified during iteration.
+            # Temporarily bypass _validate() which asserts shard_id type equality.
+            # Some datasets (e.g. MCV4) store shard_id as string '0' in the manifest
+            # while the tar regex extracts int 0 — causing a set comparison failure.
+            # Data integrity is verified during actual iteration.
             _orig_validate = LazyNeMoTarredIterator._validate
             LazyNeMoTarredIterator._validate = lambda self: None
             try:
@@ -427,7 +344,6 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             entry_data = dict(cut.custom) if cut.custom else {}
             entry_data["waveform"] = audio.astype(np.float32)
             entry_data["sampling_rate"] = target_sr
-            entry_data["sample_rate"] = target_sr
             entry_data["duration"] = cut.duration
             entry_data["num_channels"] = 1
             entry_data["corpus"] = corpus
@@ -455,7 +371,7 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
 
 @dataclass
-class UnifiedAudioReader(CompositeStage[_EmptyTask, AudioTask]):
+class NeMoSpeechAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     """Unified reader for NeMo audio datasets.
 
     Reads NeMo ``input_cfg`` YAML configs and uses NeMo's lhotse
@@ -471,15 +387,15 @@ class UnifiedAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     def __post_init__(self) -> None:
         super().__init__()
         if not self.yaml_path:
-            msg = "yaml_path is required for UnifiedAudioReader"
+            msg = "yaml_path is required for NeMoSpeechAudioReader"
             raise ValueError(msg)
         self._stages: list[ProcessingStage] = [
-            UnifiedDiscoveryStage(
+            NeMoSpeechDiscoveryStage(
                 yaml_path=self.yaml_path,
                 corpus_filter=self.corpus_filter,
                 output_dir=self.output_dir,
             ),
-            UnifiedReaderStage(),
+            NeMoSpeechReaderStage(),
         ]
 
     def inputs(self) -> tuple[list[str], list[str]]:

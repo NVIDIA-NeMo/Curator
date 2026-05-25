@@ -65,8 +65,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.stages.audio.inference.qwen_asr import InferenceQwenASRStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
-from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
-from nemo_curator.stages.audio.io.unified_reader import UnifiedAudioReader
+from nemo_curator.stages.audio.io.nemo_speech_reader import NeMoSpeechAudioReader
 from nemo_curator.stages.audio.text_filtering import (
     AbbreviationConcatStage,
     DisfluencyWerGuardStage,
@@ -118,8 +117,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "Used for prompt interpolation ({language} placeholder) and per-sample LID filtering.",
     )
     ap.add_argument("--s3_endpoint_url", type=str, default=None)
-    ap.add_argument("--use_unified_reader", action="store_true", default=False,
-                    help="Use UnifiedAudioReader (NeMo lhotse adapters for tarred + non-tarred data).")
     ap.add_argument(
         "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
     )
@@ -224,7 +221,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def main() -> None:  # noqa: C901
+def main() -> None:  # noqa: C901, PLR0912, PLR0915
     args = _build_arg_parser().parse_args()
 
     prompt = args.ml_prompt
@@ -253,18 +250,11 @@ def main() -> None:  # noqa: C901
     omni_text_key = "qwen3_prediction_s2" if followup_prompt else "qwen3_prediction_s1"
 
     stages = [
-        UnifiedAudioReader(
+        NeMoSpeechAudioReader(
             yaml_path=args.data_config,
             corpus_filter=args.corpus,
             output_dir=args.output_dir,
-        )
-        if args.use_unified_reader else
-        NemoTarredAudioReader(
-            yaml_path=args.data_config,
-            corpus_filter=args.corpus,
-            s3_endpoint_url=args.s3_endpoint_url,
-            output_dir=args.output_dir,
-        ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
+        ),
         InitializeFieldsStage(),
     ]
 
