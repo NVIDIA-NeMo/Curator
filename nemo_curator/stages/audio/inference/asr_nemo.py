@@ -22,7 +22,6 @@ Two classes live here side by side because they share the same
   ``nvidia/parakeet-tdt-0.6b-v3``). Exposes both file-path
   (:meth:`~NemoASRModel.transcribe_files`) and in-memory waveform
   (:meth:`~NemoASRModel.transcribe_waveforms`) inference, so it can be
-  reused by other stages (e.g. ``InferenceLanguageRoutedAsrStage``)
   without writing temp ``.wav`` files.
 - :class:`InferenceAsrNemoStage` — thin ``ProcessingStage`` over
   :class:`NemoASRModel` that takes ``audio_filepath`` inputs and writes
