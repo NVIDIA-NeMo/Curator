@@ -93,6 +93,61 @@ if __name__ == "__main__":
 
 For executor options and configuration, refer to {ref}`reference-execution-backends`.
 
+### Resuming Interrupted Downloads
+
+Common Crawl snapshots can contain many WARC files. If a run is interrupted
+after some files are already downloaded, rerun the same pipeline with the same
+`download_dir`, snapshot range, `crawl_type`, and `url_limit` settings. Curator
+skips any completed, non-empty WARC files that already exist in `download_dir`
+and downloads only the missing files.
+
+The downloader writes each in-progress file to a temporary `.tmp` path, then
+moves it into place after a successful download. This means a cancelled or
+failed download does not look like a completed WARC file on the next run.
+
+```python
+from nemo_curator.core.client import RayClient
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.download import CommonCrawlDownloadExtractStage
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+DOWNLOAD_DIR = "./cc_downloads"
+OUTPUT_DIR = "./cc_output"
+
+
+def build_pipeline() -> Pipeline:
+    pipeline = Pipeline(
+        name="common_crawl_resume_example",
+        description="Download and process Common Crawl data with resumable downloads",
+    )
+    pipeline.add_stage(
+        CommonCrawlDownloadExtractStage(
+            start_snapshot="2020-50",
+            end_snapshot="2020-50",
+            download_dir=DOWNLOAD_DIR,
+            crawl_type="main",
+            use_aws_to_download=True,
+        )
+    )
+    pipeline.add_stage(JsonlWriter(OUTPUT_DIR))
+    return pipeline
+
+
+ray_client = RayClient()
+ray_client.start()
+
+try:
+    # If this run is interrupted, run the same script again. Curator will
+    # reuse completed files in DOWNLOAD_DIR and fetch only missing WARC files.
+    build_pipeline().run()
+finally:
+    ray_client.stop()
+```
+
+For best results, keep `download_dir` on durable storage that survives the job
+restart. If you change the snapshot range, crawl type, or URL limit, Curator may
+generate a different URL list and download additional files.
+
 ### Writing to Parquet
 
 To write to Parquet files instead of JSONL, use `ParquetWriter`:
