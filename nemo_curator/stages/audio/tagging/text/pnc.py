@@ -208,7 +208,7 @@ class CleanLLMOutputStage(ProcessingStage[AudioTask, AudioTask]):
     Compares the LLM-generated punctuated text against the original ASR
     prediction using CER.  When the CER exceeds the threshold, the output
     contains digits, or the text has invalid characters, the stage flags
-    the entry with ``use_bert_pnc=True`` for downstream handling.
+    the entry with ``pnc_fallback=True`` for downstream handling.
 
     When ``segments`` are present, each segment is cleaned individually;
     otherwise the top-level entry is cleaned.
@@ -292,10 +292,10 @@ class CleanLLMOutputStage(ProcessingStage[AudioTask, AudioTask]):
     def _process_segment(self, segment: dict) -> None:
         """Clean one segment/entry in place."""
         if self.generation_field not in segment:
-            segment["use_bert_pnc"] = False
+            segment["pnc_fallback"] = False
             return
         if self.asr_pred_text_key not in segment:
-            segment["use_bert_pnc"] = False
+            segment["pnc_fallback"] = False
             return
 
         asr_pred_text = segment[self.asr_pred_text_key]
@@ -314,7 +314,7 @@ class CleanLLMOutputStage(ProcessingStage[AudioTask, AudioTask]):
                 use_cer=True,
             )
             if cer > self.cer_threshold or digit_present or not self.is_valid_text(llm_cleaned, self._full_vocab_set):
-                segment["use_bert_pnc"] = True
+                segment["pnc_fallback"] = True
                 segment[self._cleaned_generation_field] = asr_pred_text
             else:
                 if self.update_alignment and segment.get(self.alignment_key):
@@ -325,10 +325,10 @@ class CleanLLMOutputStage(ProcessingStage[AudioTask, AudioTask]):
                     )
                     raise ValueError(msg)
                 segment[self._cleaned_generation_field] = llm_cleaned
-                segment["use_bert_pnc"] = False
+                segment["pnc_fallback"] = False
         else:
             segment[self._cleaned_generation_field] = llm_cleaned
-            segment["use_bert_pnc"] = False
+            segment["pnc_fallback"] = False
             self._update_alignment_words(segment, llm_cleaned)
 
     def _update_alignment_words(self, segment: dict, cleaned_text: str) -> None:
@@ -358,7 +358,7 @@ class CleanLLMOutputStage(ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self._cleaned_generation_field, "use_bert_pnc"]
+        return [], [self._cleaned_generation_field, "pnc_fallback"]
 
     def process(self, task: AudioTask) -> AudioTask:
         data = task.data

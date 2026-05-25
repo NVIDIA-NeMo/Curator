@@ -220,7 +220,7 @@ class TestCleanLLMOutputStageProcess:
         result = stage.process(task)
         out = result.data
 
-        assert out["use_bert_pnc"] is False
+        assert out["pnc_fallback"] is False
         assert out["generation_cleaned"] == "Hello, world."
 
     def test_missing_generation_field(self) -> None:
@@ -228,7 +228,7 @@ class TestCleanLLMOutputStageProcess:
         task = AudioTask(data={"text": "hello"})
         result = stage.process(task)
 
-        assert result.data["use_bert_pnc"] is False
+        assert result.data["pnc_fallback"] is False
         assert "generation_cleaned" not in result.data
 
     def test_high_cer_triggers_bert_fallback(self) -> None:
@@ -241,7 +241,7 @@ class TestCleanLLMOutputStageProcess:
         )
         result = stage.process(task)
 
-        assert result.data["use_bert_pnc"] is True
+        assert result.data["pnc_fallback"] is True
         assert result.data["generation_cleaned"] == "hello world"
 
     def test_digit_triggers_bert_fallback(self) -> None:
@@ -254,7 +254,7 @@ class TestCleanLLMOutputStageProcess:
         )
         result = stage.process(task)
 
-        assert result.data["use_bert_pnc"] is True
+        assert result.data["pnc_fallback"] is True
 
     def test_invalid_chars_trigger_bert_fallback(self) -> None:
         stage = CleanLLMOutputStage(
@@ -269,7 +269,7 @@ class TestCleanLLMOutputStageProcess:
         )
         result = stage.process(task)
 
-        assert result.data["use_bert_pnc"] is True
+        assert result.data["pnc_fallback"] is True
 
     def test_segments_processed_individually(self, audio_task: Callable[..., AudioTask]) -> None:
         stage = CleanLLMOutputStage()
@@ -282,7 +282,7 @@ class TestCleanLLMOutputStageProcess:
         result = stage.process(task)
 
         for seg in result.data["segments"]:
-            assert "use_bert_pnc" in seg
+            assert "pnc_fallback" in seg
             assert "generation_cleaned" in seg
 
     def test_segment_without_generation(self, audio_task: Callable[..., AudioTask]) -> None:
@@ -294,7 +294,7 @@ class TestCleanLLMOutputStageProcess:
         )
         result = stage.process(task)
 
-        assert result.data["segments"][0]["use_bert_pnc"] is False
+        assert result.data["segments"][0]["pnc_fallback"] is False
         assert "generation_cleaned" not in result.data["segments"][0]
 
     def test_vocab_file(self, tmp_path: Path) -> None:
@@ -339,7 +339,7 @@ class TestCleanLLMOutputSecondPassASR:
         result = stage.process(task)
 
         for seg in result.data["segments"]:
-            assert seg["use_bert_pnc"] is False
+            assert seg["pnc_fallback"] is False
             assert "generation_cleaned" in seg
 
     def test_high_cer_segment_falls_back(self, audio_task: Callable[..., AudioTask]) -> None:
@@ -352,8 +352,8 @@ class TestCleanLLMOutputSecondPassASR:
         )
         result = stage.process(task)
 
-        assert result.data["segments"][0]["use_bert_pnc"] is False
-        assert result.data["segments"][1]["use_bert_pnc"] is True
+        assert result.data["segments"][0]["pnc_fallback"] is False
+        assert result.data["segments"][1]["pnc_fallback"] is True
         assert result.data["segments"][1]["generation_cleaned"] == "good morning"
 
     def test_no_alignment_update_by_default(self, audio_task: Callable[..., AudioTask]) -> None:
@@ -387,9 +387,9 @@ class TestCleanLLMOutputSecondPassASR:
         )
         result = stage.process(task)
 
-        assert result.data["segments"][0]["use_bert_pnc"] is False
-        assert result.data["segments"][1]["use_bert_pnc"] is False
-        assert result.data["segments"][2]["use_bert_pnc"] is False
+        assert result.data["segments"][0]["pnc_fallback"] is False
+        assert result.data["segments"][1]["pnc_fallback"] is False
+        assert result.data["segments"][2]["pnc_fallback"] is False
 
     def test_batch_pnc_stage_then_clean(self, audio_task: Callable[..., AudioTask]) -> None:
         """Full flow: PNCwithvLLMInferenceStage -> CleanLLMOutputStage for 2nd pass."""
@@ -428,7 +428,7 @@ class TestCleanLLMOutputSecondPassASR:
         result = clean_stage.process(task)
 
         for seg in result.data["segments"]:
-            assert seg["use_bert_pnc"] is False
+            assert seg["pnc_fallback"] is False
             assert "text_pnc_cleaned" in seg
 
 
@@ -493,7 +493,7 @@ class TestCleanLLMOutputFirstPassASR:
         )
         result = stage.process(AudioTask(data=data))
 
-        assert result.data["use_bert_pnc"] is False
+        assert result.data["pnc_fallback"] is False
         words = [w["word"] for w in result.data["alignment"]]
         assert words == ["Hello,", "world.", "Good", "morning,", "everyone."]
         assert result.data["alignment"][0]["start"] == 0.0
@@ -527,7 +527,7 @@ class TestCleanLLMOutputFirstPassASR:
         )
         result = stage.process(AudioTask(data=data))
 
-        assert result.data["use_bert_pnc"] is True
+        assert result.data["pnc_fallback"] is True
         assert result.data["generation_cleaned"] == "hello world good morning everyone"
         words = [w["word"] for w in result.data["alignment"]]
         assert words == ["hello", "world", "good", "morning", "everyone"]
@@ -562,7 +562,7 @@ class TestCleanLLMOutputFirstPassASR:
         )
         result = stage.process(AudioTask(data=data))
 
-        assert result.data["use_bert_pnc"] is False
+        assert result.data["pnc_fallback"] is False
         assert "alignment" not in result.data
 
     def test_full_flow_pnc_then_clean_with_alignment(self) -> None:
@@ -599,7 +599,7 @@ class TestCleanLLMOutputFirstPassASR:
         )
         result = clean_stage.process(task)
 
-        assert result.data["use_bert_pnc"] is False
+        assert result.data["pnc_fallback"] is False
         words = [w["word"] for w in result.data["alignment"]]
         assert words == ["Hello,", "world.", "Good", "morning,", "everyone."]
 

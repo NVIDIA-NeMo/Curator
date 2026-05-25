@@ -5297,7 +5297,6 @@ audio-cuda12 = [
     { name = "torchaudio", version = "2.10.0+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
     { name = "torchcodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "transformers" },
-    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "whisperx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 cuda12 = [
@@ -5638,7 +5637,6 @@ requires-dist = [
     { name = "nemo-curator", extras = ["translation-segmentation"], marker = "extra == 'translation-all'" },
     { name = "nemo-curator", extras = ["video-cpu"], marker = "extra == 'video-cuda12'" },
     { name = "nemo-curator", extras = ["video-cuda12"], marker = "extra == 'all'" },
-    { name = "nemo-curator", extras = ["vllm"], marker = "extra == 'audio-cuda12'" },
     { name = "nemo-curator", extras = ["vllm"], marker = "extra == 'inference-server'" },
     { name = "nemo-curator", extras = ["vllm"], marker = "extra == 'interleaved-cuda12'" },
     { name = "nemo-curator", extras = ["vllm"], marker = "extra == 'text-cuda12'" },

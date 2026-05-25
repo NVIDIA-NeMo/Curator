@@ -84,7 +84,7 @@ Punctuation and capitalization (PNC) via a vLLM language model can be inserted a
 | Stage | Description | GPU |
 |-------|-------------|-----|
 | **PNCwithvLLMInferenceStage** | Generate punctuated/capitalised text using a vLLM-backed LLM (e.g. `Qwen/Qwen2.5-1.5B-Instruct`). Processes segments or top-level text depending on configuration. | Yes |
-| **CleanLLMOutputStage** | Post-process LLM output: strip artefacts, validate against allowed vocabulary, compare CER with original ASR text, and optionally update word-level alignment. Entries exceeding the CER threshold are flagged with `use_bert_pnc=True`. | No |
+| **CleanLLMOutputStage** | Post-process LLM output: strip artefacts, validate against allowed vocabulary, compare CER with original ASR text, and optionally update word-level alignment. Entries exceeding the CER threshold are flagged with `pnc_fallback=True`. | No |
 
 See [PNC with LLM](#pnc-with-llm-punctuation--capitalization) below for detailed usage.
 
@@ -209,7 +209,7 @@ The cleaning stage performs these checks on each LLM output:
 3. **Validity check**: Ensures all characters are in the allowed vocabulary set
 4. **Digit check**: Flags outputs containing digits (LLMs sometimes hallucinate numbers)
 
-If any check fails, the entry is flagged with `use_bert_pnc=True` for downstream handling.
+If any check fails, the entry is flagged with `pnc_fallback=True` for downstream handling.
 
 When `update_alignment: true` (1st-pass ASR mode), the stage writes the punctuated words back into the word-level alignment entries, preserving the original timestamps. This only happens when the character sequences match exactly (`cer_threshold: 0`).
 
@@ -218,7 +218,7 @@ When `update_alignment: true` (1st-pass ASR mode), the stage writes the punctuat
 From the Curator repository root:
 
 ```bash
-uv sync --extra audio_cuda12
+uv sync --extra audio_cuda12 --extra vllm
 source .venv/bin/activate
 ```
 
@@ -347,7 +347,7 @@ The output manifest is a JSONL file where each line contains the fully processed
 | `segments[].wer`          | Optional (ComputeWER)   | Word error rate between first and second ASR transcripts             |
 | `segments[].pnc`          | Optional (PNC with LLM) | Raw LLM-generated punctuated text (e.g. `text_2_pnc`)               |
 | `segments[].pnc_cleaned`  | Optional (PNC with LLM) | Cleaned and validated punctuated text (e.g. `text_2_pnc_cleaned`)   |
-| `segments[].use_bert_pnc` | Optional (PNC with LLM) | `true` if LLM output failed validation  |
+| `segments[].pnc_fallback` | Optional (PNC with LLM) | `true` if LLM output failed validation  |
 
 ## Configuration
 
@@ -590,7 +590,7 @@ export HF_TOKEN=your_hf_token
 
 ### PNC with LLM Issues
 
-- **High `use_bert_pnc` rate**: Lower `cer_threshold` or try a larger LLM model. Check that the prompt instructions match your language and domain. Consider re-running flagged entries with a different prompt or model.
+- **High `pnc_fallback` rate**: Lower `cer_threshold` or try a larger LLM model. Check that the prompt instructions match your language and domain. Consider re-running flagged entries with a different prompt or model.
 - **Alignment update errors**: When using `update_alignment: true`, set `cer_threshold: 0` so alignment is only updated when character sequences match exactly.
 - **vLLM engine conflicts with Ray**: Ensure `VLLM_USE_V1=0` is set in your environment. The stage sets this automatically, but it must be set before any vLLM import.
 - **GPU OOM during PNC**: Reduce `gpu_memory_utilization` in `model_params` (e.g. from `0.9` to `0.5`) or use a smaller model.
