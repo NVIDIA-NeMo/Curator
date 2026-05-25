@@ -16,6 +16,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import fsspec
 from loguru import logger
 
 # TODO: Consider using fastwarc https://github.com/NVIDIA-NeMo/Curator/issues/778
@@ -25,15 +26,25 @@ from nemo_curator.stages.text.download import DocumentIterator
 
 
 class CommonCrawlWarcIterator(DocumentIterator):
-    """Processes downloaded WARC files."""
+    """Processes WARC files from local paths or any fsspec-supported URI.
+
+    Accepts ``storage_options`` to be forwarded to ``fsspec.open`` — e.g.
+    ``{"profile": "cc"}`` to read from an S3-compatible mirror configured
+    in ``~/.aws/credentials``.  Empty / ``None`` means local-file behavior.
+    """
+
+    def __init__(self, storage_options: dict[str, Any] | None = None):
+        self._storage_options = storage_options or {}
 
     def iterate(self, file_path: str) -> Iterator[dict[str, Any]]:
         """Process a task containing WARC files and extract their contents."""
         filename = file_path.name if isinstance(file_path, Path) else file_path.split("/")[-1]
 
         num_records = 0
-        # TODO: Support cloud storage https://github.com/NVIDIA-NeMo/Curator/issues/779
-        with open(file_path, "rb") as file_pointer:
+        # fsspec.open auto-dispatches by URI scheme: local paths use the
+        # filesystem; ``s3://...`` uses s3fs; etc.  Storage options pass
+        # through (e.g. AWS profile or custom endpoint).
+        with fsspec.open(file_path, mode="rb", **self._storage_options) as file_pointer:
             archive_iterator = ArchiveIterator(file_pointer, arc2warc=True)
             while True:
                 try:

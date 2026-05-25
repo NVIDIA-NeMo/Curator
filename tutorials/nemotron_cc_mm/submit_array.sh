@@ -16,7 +16,11 @@
 #
 # Input contract — choose ONE based on the preset's input type:
 #   When INPUT_TYPE=warc (default; for `extract`, `omnicorpus*`):
-#     WARC_DIR      directory containing the WARC files
+#     WARC_DIR      directory containing the WARC files (local path OR an
+#                   fsspec URI such as s3://crawl-data/CC-MAIN-…/warc).
+#                   When the URI scheme is s3, the worker exports
+#                   AWS_PROFILE (default "cc"; override via AWS_PROFILE)
+#                   so python's s3fs reads ~/.aws/credentials + ~/.aws/config.
 #     WARC_PATTERN  sprintf pattern with one %d slot, indexed by shard
 #                   e.g. "CC-MAIN-20250612112840-20250612142840-%05d.warc.gz"
 #   When INPUT_TYPE=parquet (for `text_filter`, `image_acquire`, `image_quality`):
@@ -37,10 +41,17 @@
 #
 # Example — 4-group chained pipeline on 50 WARCs:
 #   ROOT=$USER_DIR/out/50warcs_chained
-#   # group 1: WARC → extracted Parquet
+#   # group 1: WARC → extracted Parquet  (local WARCs)
 #   PRESET=extract INPUT_TYPE=warc \
 #   WARC_DIR=… WARC_PATTERN=… OUTPUT_PATH=$ROOT/01_extract \
 #   ARRAY_SIZE=50 ./submit_array.sh submit
+#
+#   # group 1 from S3 — same shape, just s3:// in WARC_DIR.  AWS_PROFILE
+#   # defaults to "cc" (reads ~/.aws/credentials).
+#   PRESET=extract INPUT_TYPE=warc \
+#   WARC_DIR="s3://crawl-data/CC-MAIN-2025-26/segments/1749709481111.44/warc" \
+#   WARC_PATTERN="CC-MAIN-20250612112840-20250612142840-%05d.warc.gz" \
+#   OUTPUT_PATH=$ROOT/01_extract ARRAY_SIZE=50 ./submit_array.sh submit
 #
 #   # group 2: extracted → text-filtered
 #   PRESET=text_filter INPUT_TYPE=parquet INPUT_PATH=$ROOT/01_extract \
@@ -209,6 +220,12 @@ run_worker() {
             ;;
     esac
 
+    # If the input URI is s3-style, ensure AWS_PROFILE is set so boto3 /
+    # s3fs picks up ~/.aws/credentials + ~/.aws/config inside the container.
+    if [[ "${input_path}" == s3://* ]]; then
+        export AWS_PROFILE="${AWS_PROFILE:-cc}"
+    fi
+
     local task_out="${OUTPUT_PATH%/}/idx_${pad}"
     # Keep --log-path *outside* the output dir so the writer's --mode overwrite
     # rmtree doesn't delete it.  The _logs/ dir was created by submit.
@@ -228,6 +245,27 @@ run_worker() {
 
     local srun_export="ALL"
     [[ "${PARTITION:-}" == cpu* ]] && srun_export="ALL,NVIDIA_VISIBLE_DEVICES=void"
+    # AWS_PROFILE may have been set above for s3:// inputs; ensure it
+    # reaches the container.  (ALL exports current env, but srun's
+    # explicit --export list is the canonical place to be clear.)
+    [[ -n "${AWS_PROFILE:-}" ]] && srun_export="${srun_export},AWS_PROFILE=${AWS_PROFILE}"
+
+    # Thread caps + Ray plasma size for N-tasks-per-node packing.  Defaults
+    # match 1-per-node baseline; submit caller can override via env to pack
+    # tighter (e.g. THREAD_CAP=8 + RAY_OBJECT_STORE_MEMORY=$((8 * 1024**3))
+    # for 4-per-node with MEM=55G).
+    : "${THREAD_CAP:=}"
+    if [[ -n "${THREAD_CAP}" ]]; then
+        export OMP_NUM_THREADS="${THREAD_CAP}"
+        export OPENBLAS_NUM_THREADS="${THREAD_CAP}"
+        export MKL_NUM_THREADS="${THREAD_CAP}"
+        export RAYON_NUM_THREADS="${THREAD_CAP}"
+        export TOKENIZERS_PARALLELISM="false"
+        srun_export="${srun_export},OMP_NUM_THREADS,OPENBLAS_NUM_THREADS,MKL_NUM_THREADS,RAYON_NUM_THREADS,TOKENIZERS_PARALLELISM"
+    fi
+    if [[ -n "${RAY_OBJECT_STORE_MEMORY:-}" ]]; then
+        srun_export="${srun_export},RAY_OBJECT_STORE_MEMORY"
+    fi
 
     srun --export="${srun_export}" \
          --container-image="${CONTAINER_IMAGE}" \

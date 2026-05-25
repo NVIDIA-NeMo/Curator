@@ -83,6 +83,14 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
     # The downstream pipeline is identical in either case — it operates on
     # InterleavedBatch tasks.  Stage-1 either extracts from WARC or just
     # reads a Parquet that another pipeline run already produced.
+    #
+    # ``--input-path`` may be a local glob/dir OR any fsspec URI (e.g.
+    # ``s3://crawl-data/CC-MAIN-…/warc/*.warc.gz``).  When the URI scheme
+    # needs credentials, set ``AWS_PROFILE`` in the env (boto3 / s3fs pick
+    # it up automatically); no code change beyond passing storage_options
+    # through to FilePartitioningStage and the iterator.
+    storage_options: dict = {}  # currently relies on env-var auth (AWS_PROFILE)
+
     if args.input_type == "parquet":
         # Skips WARC-specific stages; --extractor / --min-text-chars /
         # --max-text-chars / --resiliparse-text / --record-limit have no
@@ -100,11 +108,12 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
                 file_paths=args.input_path,
                 files_per_partition=args.files_per_partition,
                 file_extensions=[".gz", ".warc"],
+                storage_options=storage_options,
             )
         )
         pipe.add_stage(
             DocumentIterateExtractStage(
-                iterator=CommonCrawlWarcIterator(),
+                iterator=CommonCrawlWarcIterator(storage_options=storage_options),
                 record_limit=args.record_limit,
                 add_filename_column=True,
             )
@@ -312,11 +321,18 @@ def main(args: argparse.Namespace) -> None:
     try:
         import ray
         if not ray.is_initialized():
-            ray_ctx = ray.init(
-                address="local",
-                _temp_dir=ray_tmp,
-                ignore_reinit_error=True,
-            )
+            # Default object store is ~30% of node RAM per Ray session, so
+            # N tasks packed on one node oversubscribe N-fold.  Honor an env
+            # cap so submit_array.sh can size it against per-task MEM.
+            ray_init_kwargs = {
+                "address": "local",
+                "_temp_dir": ray_tmp,
+                "ignore_reinit_error": True,
+            }
+            _ray_os = os.environ.get("RAY_OBJECT_STORE_MEMORY")
+            if _ray_os:
+                ray_init_kwargs["object_store_memory"] = int(_ray_os)
+            ray_ctx = ray.init(**ray_init_kwargs)
             # RayClient short-circuits its own ``ray start --head`` subprocess
             # only when RAY_ADDRESS is set in the env, so advertise our cluster.
             gcs = getattr(ray_ctx, "address_info", {}).get("gcs_address")
