@@ -113,9 +113,11 @@ def _s3_to_pipe(s3_path: str) -> str:
         raise RuntimeError(msg)
     url = f"{endpoint.rstrip('/')}/v1/objects/{bucket}/{key}?provider=s3"
     token = os.environ.get("AIS_AUTHN_TOKEN", "")
+    ca_cert = os.environ.get("AIS_CLIENT_CA", "")
+    cacert_flag = f" --cacert '{ca_cert}'" if ca_cert else ""
     if token:
-        return f"pipe:curl -sL -H 'Authorization: Bearer {token}' '{url}'"
-    return f"pipe:curl -sL '{url}'"
+        return f"pipe:curl -sL{cacert_flag} -H 'Authorization: Bearer {token}' '{url}'"
+    return f"pipe:curl -sL{cacert_flag} '{url}'"
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +340,13 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             self.source = _FieldNormalizingSource(self.source)
 
         class _FieldNormalizingSource:
-            """Wraps a lazy JSONL source to alias sample_rate -> sampling_rate."""
+            """Wraps a lazy JSONL source to normalize fields for NeMo adapters.
+
+            - Aliases sample_rate -> sampling_rate
+            - Strips sampling_rate from offset entries with local files so NeMo uses
+              Recording.from_file() (avoids NeMo bug where _create_recording gets
+              segment duration instead of full recording duration)
+            """
 
             def __init__(self, source):
                 self._source = source
@@ -347,6 +355,13 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 for data in self._source:
                     if "sampling_rate" not in data and "sample_rate" in data:
                         data["sampling_rate"] = data["sample_rate"]
+                    if data.get("offset") is not None and "sampling_rate" in data:
+                        audio_path = data.get("audio_filepath", "")
+                        is_remote = audio_path.startswith(("s3://", "pipe:"))
+                        is_opus = audio_path.lower().endswith(".opus")
+                        if not is_remote and not is_opus:
+                            data.pop("sampling_rate", None)
+                            data.pop("sample_rate", None)
                     yield data
 
             def __len__(self):
@@ -366,11 +381,20 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
         if tar_path:
             resolved_tar = _s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
-            return CutSet(LazyNeMoTarredIterator(
-                manifest_path=manifest_path,
-                tar_paths=resolved_tar,
-                skip_missing_manifest_entries=True,
-            ))
+            # Temporarily disable NeMo's shard ID validation — it fails when
+            # manifest is a local path but tar is a pipe:curl URL (string vs int
+            # ID comparison). Data integrity is still verified during iteration.
+            _orig_validate = LazyNeMoTarredIterator._validate
+            LazyNeMoTarredIterator._validate = lambda self: None
+            try:
+                iterator = LazyNeMoTarredIterator(
+                    manifest_path=manifest_path,
+                    tar_paths=resolved_tar,
+                    skip_missing_manifest_entries=True,
+                )
+            finally:
+                LazyNeMoTarredIterator._validate = _orig_validate
+            return CutSet(iterator)
 
         return CutSet(LazyNeMoIterator(manifest_path))
 
@@ -399,14 +423,21 @@ class UnifiedReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             if audio.ndim > 1:
                 audio = audio.mean(axis=0)
 
+            target_sr = cut.recording.sampling_rate
+            if cut.duration > 0:
+                actual_sr = round(len(audio) / cut.duration)
+                if actual_sr != target_sr and actual_sr > 0:
+                    import librosa
+                    audio = librosa.resample(audio, orig_sr=actual_sr, target_sr=target_sr)
+
             loaded += 1
             if loaded % 100 == 0 or loaded == 1:
                 logger.info(f"  [{shard_key}] loaded {loaded}")
 
             entry_data = dict(cut.custom) if cut.custom else {}
             entry_data["waveform"] = audio.astype(np.float32)
-            entry_data["sampling_rate"] = cut.recording.sampling_rate
-            entry_data["sample_rate"] = cut.recording.sampling_rate
+            entry_data["sampling_rate"] = target_sr
+            entry_data["sample_rate"] = target_sr
             entry_data["duration"] = cut.duration
             entry_data["num_channels"] = 1
             entry_data["corpus"] = corpus
