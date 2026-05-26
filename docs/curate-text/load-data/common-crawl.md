@@ -16,7 +16,7 @@ Download and extract text from Common Crawl snapshots using Curator.
 
 Common Crawl provides petabytes of web data collected over years of web crawling. The data uses a compressed web archive format (`.warc.gz`), which requires processing to extract useful text for language model training.
 
-## How it Works
+## How It Works
 
 Curator's Common Crawl processing pipeline consists of four sequential stages:
 
@@ -93,7 +93,7 @@ if __name__ == "__main__":
 
 For executor options and configuration, refer to {ref}`reference-execution-backends`.
 
-### Resuming Interrupted Downloads
+### Resume Interrupted Downloads
 
 Common Crawl snapshots can contain many WARC files. If a run is interrupted
 after some files are already downloaded, rerun the same pipeline with the same
@@ -153,7 +153,7 @@ For best results, keep `download_dir` on durable storage that survives the job
 restart. If you change the snapshot range, crawl type, or URL limit, Curator may
 generate a different URL list and download additional files.
 
-### Writing to Parquet
+### Write to Parquet
 
 To write to Parquet files instead of JSONL, use `ParquetWriter`:
 
@@ -205,7 +205,7 @@ pipeline.add_stage(writer)
   - None
 * - `use_aws_to_download`
   - bool
-  - Use S3 downloads via s5cmd instead of HTTPS (requires s5cmd installation)
+  - Use S3 downloads through s5cmd instead of HTTPS (requires s5cmd installation)
   - False
 * - `verbose`
   - bool
@@ -279,7 +279,7 @@ Curator supports several HTML text extraction algorithms:
   - [Trafilatura](https://trafilatura.readthedocs.io/)
 ```
 
-#### Configuring HTML Extractors
+#### Configure HTML Extractors
 
 ```python
 from nemo_curator.stages.text.download.html_extractors import ResiliparseExtractor
@@ -329,7 +329,7 @@ cc_stage = CommonCrawlDownloadExtractStage(
 
 ## Advanced Usage
 
-### Processing CC-NEWS Data
+### Process CC-NEWS Data
 
 For Common Crawl News data, use the `news` crawl type with month-based snapshots:
 
