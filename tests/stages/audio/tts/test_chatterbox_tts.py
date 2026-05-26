@@ -33,7 +33,7 @@ from nemo_curator.tasks import AudioTask
 MODULE = "nemo_curator.stages.audio.tts.chatterbox_tts"
 
 
-@pytest.fixture()
+@pytest.fixture
 def ref_dataset(tmp_path):
     """Create a reference voices dataset with wavs/ and rttms/ layout."""
     wavs_dir = tmp_path / "wavs" / "dialog001"
@@ -55,7 +55,7 @@ def ref_dataset(tmp_path):
     return str(tmp_path)
 
 
-@pytest.fixture()
+@pytest.fixture
 def ref_dataset_mls(tmp_path):
     """Create a reference voices dataset in MLS layout."""
     sr = 16000
@@ -69,7 +69,7 @@ def ref_dataset_mls(tmp_path):
     return str(tmp_path)
 
 
-@pytest.fixture()
+@pytest.fixture
 def output_dir(tmp_path):
     return str(tmp_path / "tts_output")
 
@@ -263,8 +263,8 @@ class TestSpeakerAssignment:
         stage = _build_stage(output_dir, ref_dataset)
         _setup_stage_with_mock(stage)
 
-        path_a, id_a = stage._assign_reference("Alice", "conv001")
-        path_b, id_b = stage._assign_reference("Bob", "conv001")
+        path_a, _id_a = stage._assign_reference("Alice", "conv001")
+        path_b, _id_b = stage._assign_reference("Bob", "conv001")
         assert path_a != path_b
 
     def test_different_conversations_independent(self, output_dir, ref_dataset):
@@ -280,8 +280,8 @@ class TestSpeakerAssignment:
         stage = _build_stage(output_dir, ref_dataset_mls)
         _setup_stage_with_mock(stage)
 
-        path_a, id_a = stage._assign_reference("Alice", "conv001")
-        path_b, id_b = stage._assign_reference("Bob", "conv001")
+        path_a, _id_a = stage._assign_reference("Alice", "conv001")
+        path_b, _id_b = stage._assign_reference("Bob", "conv001")
         assert path_a != path_b
         assert "conv001_Alice" in stage.speaker_to_ref_id
         assert "conv001_Bob" in stage.speaker_to_ref_id
@@ -628,7 +628,7 @@ class TestLifecycle:
         stage.teardown()
         stage.setup()
 
-        ref_path, ref_id = stage._assign_reference("Alice", "conv001")
+        ref_path, _ref_id = stage._assign_reference("Alice", "conv001")
         assert os.path.exists(ref_path)
 
 class TestEdgeCases:
@@ -690,5 +690,5 @@ class TestEdgeCases:
         task = _make_task("This will fail")
         result = stage.process(task)
         assert "audio_filepath" in result.data
-        audio, sr = sf.read(result.data["audio_filepath"])
+        audio, _sr = sf.read(result.data["audio_filepath"])
         assert np.allclose(audio, 0.0)

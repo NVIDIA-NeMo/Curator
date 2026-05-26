@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import glob
 import hashlib
 import os
@@ -83,7 +84,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     name = "ChatterboxTTSStage"
     resources = Resources(gpus=1)
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         output_audio_dir: str,
         reference_voices_dataset: str,
@@ -116,19 +117,22 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         self.normalize_level = normalize_level
 
         if language is not None and language.lower() not in SUPPORTED_LANGUAGES:
-            raise ValueError(
+            msg = (
                 f"Unsupported language '{language}'. "
                 f"Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}"
             )
+            raise ValueError(msg)
         if language is not None:
             self.language = language.lower()
 
+        _multilingual_default_penalty = 2.0
         if repetition_penalty is not None:
             self.repetition_penalty = repetition_penalty
         else:
-            self.repetition_penalty = 2.0 if language else 1.2
+            self.repetition_penalty = _multilingual_default_penalty if language else 1.2
 
-        if isinstance(exaggeration, (list, tuple)) and len(exaggeration) == 2:
+        _exag_range_len = 2
+        if isinstance(exaggeration, (list, tuple)) and len(exaggeration) == _exag_range_len:
             self.exaggeration_range: tuple[float, float] | None = tuple(exaggeration)
             self.exaggeration: float = float(exaggeration[0])
         else:
@@ -146,9 +150,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         self.conversation_exaggeration: dict[str, float] = {}
 
         self.temp_dir: str | None = None
-        self._rng = random.Random()
+        self._rng = random.Random()  # noqa: S311
 
-    def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002
+    def setup(self, worker_metadata: object = None) -> None:  # noqa: ARG002
         """Load the TTS model and discover reference audio files."""
         os.makedirs(self.output_audio_dir, exist_ok=True)
         self._init_temp_dir()
@@ -171,10 +175,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _cleanup_temp_dir(self) -> None:
         if self.temp_dir and os.path.exists(self.temp_dir):
-            try:
+            with contextlib.suppress(OSError):
                 shutil.rmtree(self.temp_dir)
-            except Exception:
-                pass
             self.temp_dir = None
 
     def _load_model(self) -> None:
@@ -219,12 +221,13 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             )
             return
 
-        raise ValueError(
+        msg = (
             f"No reference audio found in {self.reference_voices_dataset}. "
             f"Expected wavs/*/*.wav or */*/*.flac"
         )
+        raise ValueError(msg)
 
-    def _process_audio_with_rttm(self, audio_filepath: str, rttm_filepath: str) -> str:
+    def _process_audio_with_rttm(self, audio_filepath: str, rttm_filepath: str) -> str:  # noqa: C901
         """Strip silences using RTTM speech segments, up to max_reference_duration."""
         if not os.path.exists(rttm_filepath):
             return audio_filepath
@@ -233,10 +236,11 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             audio, sr = ta.load(audio_filepath)
 
             speech_segments: list[tuple[float, float]] = []
-            with open(rttm_filepath, "r") as f:
+            with open(rttm_filepath) as f:
                 for line in f:
                     parts = line.strip().split()
-                    if len(parts) >= 5 and parts[0] == "SPEAKER":
+                    _min_rttm_fields = 5
+                    if len(parts) >= _min_rttm_fields and parts[0] == "SPEAKER":
                         start = float(parts[3])
                         dur = float(parts[4])
                         speech_segments.append((start, start + dur))
@@ -267,14 +271,14 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 return audio_filepath
 
             processed = torch.cat(chunks, dim=1)
-            unique_name = hashlib.md5(audio_filepath.encode()).hexdigest()[:8] + "_" + os.path.basename(audio_filepath)
+            unique_name = hashlib.md5(audio_filepath.encode(), usedforsecurity=False).hexdigest()[:8] + "_" + os.path.basename(audio_filepath)
             out_path = os.path.join(self.temp_dir, unique_name)
             ta.save(out_path, processed, sr)
-            return out_path
-
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.warning(f"RTTM processing failed for {audio_filepath}: {e}")
             return audio_filepath
+        else:
+            return out_path
 
     def _get_reference_audio_wavs(self, already_taken: set[str]) -> tuple[str, str]:
         """Select a reference WAV, optionally clean with RTTM.
@@ -329,16 +333,21 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                     audio = audio[:, : int(remaining * sr)]
                 chunks.append(audio)
                 total_dur += audio.shape[1] / sr
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 logger.warning(f"Failed to load {fpath}: {e}")
 
         if not chunks:
             return files[0], chosen
 
-        concatenated = torch.cat(chunks, dim=1)
-        out_path = os.path.join(self.temp_dir, f"ref_{chosen}.wav")
-        ta.save(out_path, concatenated, last_sr)
-        return out_path, chosen
+        try:
+            concatenated = torch.cat(chunks, dim=1)
+            out_path = os.path.join(self.temp_dir, f"ref_{chosen}.wav")
+            ta.save(out_path, concatenated, last_sr)
+        except (RuntimeError, OSError) as e:
+            logger.warning(f"MLS concatenation failed for speaker {chosen}: {e}")
+            return files[0], chosen
+        else:
+            return out_path, chosen
 
     def _assign_reference(self, speaker: str, conversation_id: str) -> tuple[str, str]:
         """Get or assign a reference audio file for a speaker in a conversation.
@@ -408,14 +417,15 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 wav = self._normalize_audio(wav)
 
             return wav.squeeze(0).cpu().numpy()
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error(f"TTS generation failed: {e}")
             return np.zeros(self.sample_rate * 2)
 
     def _normalize_audio(self, wav: torch.Tensor) -> torch.Tensor:
         """RMS-based normalisation with clipping protection."""
+        _silence_threshold = 1e-10
         rms = torch.sqrt(torch.mean(wav ** 2))
-        if rms < 1e-10:
+        if rms < _silence_threshold:
             return wav
         current_db = 20 * torch.log10(rms + 1e-8)
         gain = 10 ** ((self.normalize_level - current_db) / 20)
@@ -428,8 +438,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     @staticmethod
     def _output_filename(conversation_id: str, speaker: str, text: str) -> str:
         """Deterministic filename: ``{conv_id_hash}_{speaker}_{text_hash}.wav``."""
-        conv_hash = hashlib.md5(conversation_id.encode("utf-8")).hexdigest()[:12]
-        text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()[:10]
+        conv_hash = hashlib.md5(conversation_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+        text_hash = hashlib.md5(text.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
         return f"{conv_hash}_{speaker}_{text_hash}.wav"
 
     def process(self, task: AudioTask) -> AudioTask:
@@ -465,13 +475,18 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             filename = self._output_filename(conversation_id, speaker, text)
             audio_path = os.path.join(self.output_audio_dir, filename)
 
-            if os.path.exists(audio_path):
-                audio_data, _ = sf.read(audio_path)
-            else:
-                audio_data = self._generate_turn_audio(
-                    text, reference_wav, conversation_id
-                )
-                sf.write(audio_path, audio_data, self.sample_rate)
+            try:
+                if os.path.exists(audio_path):
+                    audio_data, _ = sf.read(audio_path)
+                else:
+                    audio_data = self._generate_turn_audio(
+                        text, reference_wav, conversation_id
+                    )
+                    sf.write(audio_path, audio_data, self.sample_rate)
+            except OSError as e:
+                logger.error(f"File I/O failed for task {task.task_id}: {e}")
+                output_tasks.append(task)
+                continue
 
             duration = len(audio_data) / self.sample_rate
 

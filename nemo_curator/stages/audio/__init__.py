@@ -31,7 +31,6 @@ from nemo_curator.stages.audio.common import (
     ManifestWriterStage,
     PreserveByValueStage,
 )
-from nemo_curator.stages.audio.tts import ChatterboxTTSStage
 from nemo_curator.stages.audio.filtering import (
     BandFilterStage,
     SIGMOSFilterStage,
@@ -48,6 +47,7 @@ from nemo_curator.stages.audio.segmentation import (
     SpeakerSeparationStage,
     VADSegmentationStage,
 )
+from nemo_curator.stages.audio.tts import ChatterboxTTSStage
 
 __all__ = [
     "ALMDataBuilderStage",
