@@ -16,7 +16,7 @@
 
 Provides:
 - ``set_note`` — per-stage decision tracking via an ``additional_notes`` dict
-- ``LANG_CODE_TO_NAME`` — ISO 639-1 code to full English name mapping
+- ``LANG_CODE_TO_NAME`` — language code to full English name mapping
 - ``INDIC_CONFORMER_LANGUAGE_CODES`` — languages supported by AI4Bharat Indic Conformer (ISO codes)
 - ``PARAKEET_LANGUAGE_CODES`` — languages routed to NVIDIA Parakeet-TDT v3 in recovery ASR
 - ``WHISPER_ROUTED_LANGUAGE_CODES`` — languages routed to Faster-Whisper in recovery ASR
