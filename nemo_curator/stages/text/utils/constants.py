@@ -72,6 +72,9 @@ bullet_list = {
 regex_alpha = regex.compile("[[:alpha:]]")
 regex_digit = regex.compile("[[:digit:]]")
 regex_alphanum = re.compile("[a-zA-Z0-9\n?!,.]")
-regex_url = re.compile("http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+")
+# NOTE: `-` is escaped on purpose. The old pattern `[$-_...]` was read as a
+# range spanning U+0024 through U+005F, which silently included `<`, `>`,
+# `;`, etc., so matches bled past the URL into surrounding HTML/punctuation.
+regex_url = re.compile(r"https?://(?:[A-Za-z0-9$\-_@.&+/:=?#~]|[!*\(\),]|(?:%[0-9A-Fa-f]{2}))+")
 regex_paren = re.compile(r"{|}|⟨|⟩|\[|\]|\(|\)")
 regex_hash = re.compile("#+")

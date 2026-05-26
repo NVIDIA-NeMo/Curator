@@ -16,14 +16,14 @@ import os
 import time
 from copy import deepcopy
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import ray
 from loguru import logger
-from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.utils.ray_utils import get_head_node_id, submit_on_each_node
 
 if TYPE_CHECKING:
     import loguru
@@ -121,35 +121,6 @@ def warn_on_env_var_override(existing_config: dict | None, merged_config: dict |
         )
 
 
-# Global variable to cache head node ID
-_HEAD_NODE_ID_CACHE = None
-
-
-def is_head_node(node: dict[str, Any]) -> bool:
-    """Check if a node is the head node."""
-    return "node:__internal_head__" in node.get("Resources", {})
-
-
-def get_head_node_id() -> str | None:
-    """Get the head node ID from the Ray cluster, with lazy evaluation and caching.
-
-    Returns:
-        The head node ID if a head node exists, otherwise None.
-    """
-    global _HEAD_NODE_ID_CACHE  # noqa: PLW0603
-
-    if _HEAD_NODE_ID_CACHE is not None:
-        return _HEAD_NODE_ID_CACHE
-
-    # Compute head node ID
-    for node in ray.nodes():
-        if is_head_node(node):
-            _HEAD_NODE_ID_CACHE = node["NodeID"]
-            return _HEAD_NODE_ID_CACHE
-
-    return None
-
-
 class RayStageSpecKeys(str, Enum):
     """String enum of different flags that define keys inside ray_stage_spec."""
 
@@ -215,7 +186,7 @@ def check_total_gpu_capacity(gpus_needed: int, *, ignore_head_node: bool = False
 
 
 @ray.remote
-def _setup_stage_on_node(stage: ProcessingStage, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:
+def _setup_stage_on_node(stage: ProcessingStage) -> None:
     """Ray remote function to execute setup_on_node for a stage.
 
     This runs as a Ray remote task (not an actor).
@@ -225,29 +196,36 @@ def _setup_stage_on_node(stage: ProcessingStage, node_info: NodeInfo, worker_met
     We explicitly set the environment variable to spawn to prevent this.
     """
     os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
-    stage.setup_on_node(node_info, worker_metadata)
+    node_id = ray.get_runtime_context().get_node_id()
+    stage.setup_on_node(NodeInfo(node_id=node_id), WorkerMetadata(worker_id="", allocation=None))
 
 
 def execute_setup_on_node(stages: list[ProcessingStage], ignore_head_node: bool = False) -> None:
-    """Execute setup on node for a stage."""
-    head_node_id = get_head_node_id()
-    ray_tasks = []
-    for node in ray.nodes():
-        node_id = node["NodeID"]
-        node_info = NodeInfo(node_id=node_id)
-        worker_metadata = WorkerMetadata(worker_id="", allocation=None)
-        if ignore_head_node and node_id == head_node_id:
-            logger.info(f"Ignoring setup on head node {node_id}")
-            continue
+    """Execute ``setup_on_node`` for every stage on every alive Ray node.
 
+    All ``(stage, node)`` setup tasks are submitted up front and awaited with a single
+    ``ray.get``, so total wall-clock time is bounded by the slowest stage rather than
+    the sum of per-stage times — important when setup is heavy (model downloads, weight
+    loads) and stages don't contend for the same resources.
+    """
+    head_node_id = get_head_node_id() if ignore_head_node else None
+    for node in ray.nodes():
+        if not node.get("Alive"):
+            continue
+        node_id = node["NodeID"]
+        if ignore_head_node and node_id == head_node_id:
+            continue
         logger.info(f"Executing setup on node {node_id} for {len(stages)} stages")
 
-        for stage in stages:
-            ray_tasks.append(
-                _setup_stage_on_node.options(
-                    num_cpus=stage.resources.cpus if stage.resources is not None else 1,
-                    num_gpus=stage.resources.gpus if stage.resources is not None else 0,
-                    scheduling_strategy=NodeAffinitySchedulingStrategy(node_id=node_id, soft=False),
-                ).remote(stage, node_info, worker_metadata)
+    refs: list = []
+    for stage in stages:
+        refs.extend(
+            submit_on_each_node(
+                _setup_stage_on_node,
+                stage,
+                ignore_head_node=ignore_head_node,
+                num_cpus=stage.resources.cpus if stage.resources is not None else 1,
+                num_gpus=stage.resources.gpus if stage.resources is not None else 0,
             )
-    ray.get(ray_tasks)
+        )
+    ray.get(refs)

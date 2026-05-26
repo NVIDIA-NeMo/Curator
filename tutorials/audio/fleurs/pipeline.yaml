@@ -57,17 +57,17 @@ processors:
       _target_: nemo_curator.stages.resources.Resources
       gpus: 1.0
 
-  - _target_: nemo_curator.stages.audio.metrics.get_wer.GetPairwiseWerStage
+  - _target_: nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage
     text_key: "text"
     pred_text_key: "pred_text"
-    wer_key: "wer"
+    wer_key: "wer_pct"
 
   - _target_: nemo_curator.stages.audio.common.GetAudioDurationStage
     audio_filepath_key: audio_filepath
     duration_key: duration
 
   - _target_: nemo_curator.stages.audio.common.PreserveByValueStage
-    input_value_key: "wer"
+    input_value_key: "wer_pct"
     target_value: 75.
     operator: "le"
 

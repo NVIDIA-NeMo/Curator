@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 from typing import Literal
 
 from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
@@ -111,15 +112,28 @@ class NumbersFilter(DocumentFilter):
 class UrlsFilter(DocumentFilter):
     """
     If more than 20% of the document is comprised of URLs, then discard.
+
+    Args:
+        max_url_to_text_ratio: Maximum ratio of URL characters to total
+            characters before the document is dropped.
+        url_regex: Optional URL regex (compiled pattern or string). When
+            ``None`` the default project-wide regex is used. Useful when the
+            default is too strict or too permissive for a particular corpus,
+            e.g. ``r"https?://[^\\s]+"`` or ``r"https?://[^\\s\\\"'<>]+"``.
     """
 
-    def __init__(self, max_url_to_text_ratio: float = 0.2):
+    def __init__(
+        self,
+        max_url_to_text_ratio: float = 0.2,
+        url_regex: re.Pattern | str | None = None,
+    ):
         super().__init__()
         self._cutoff = max_url_to_text_ratio
         self._name = "urls_ratio"
+        self._url_regex = re.compile(url_regex) if isinstance(url_regex, str) else (url_regex or regex_url)
 
     def score_document(self, text: str) -> float:
-        all_urls = regex_url.findall(text)
+        all_urls = self._url_regex.findall(text)
         url_chars = sum([len(url) for url in all_urls])
         nchar = len(text)
         # Remove if the document is empty
@@ -431,13 +445,18 @@ class WordsWithoutAlphabetsFilter(DocumentFilter):
 class PornographicUrlsFilter(DocumentFilter):
     """
     Check if any of the URLs within the document point to pornography.
+
+    Args:
+        url_regex: Optional URL regex (compiled pattern or string). When
+            ``None`` the default project-wide regex is used.
     """
 
-    def __init__(self):
+    def __init__(self, url_regex: re.Pattern | str | None = None):
         super().__init__()
+        self._url_regex = re.compile(url_regex) if isinstance(url_regex, str) else (url_regex or regex_url)
 
     def score_document(self, text: str) -> int:
-        all_urls = regex_url.findall(text)
+        all_urls = self._url_regex.findall(text)
         for url in all_urls:
             if "porn" in url:
                 return 1
