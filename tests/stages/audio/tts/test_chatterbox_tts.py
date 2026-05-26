@@ -128,6 +128,7 @@ def _setup_stage_with_mock(
     sample_rate: int = 24000,
 ) -> ChatterboxTTSStage:
     """Inject a fake model and discover reference files."""
+    os.makedirs(stage.output_audio_dir, exist_ok=True)
     stage._init_temp_dir()
     stage.model = _fake_model(sample_rate)
     stage._load_reference_audio_files()
@@ -161,6 +162,10 @@ class TestConstruction:
         assert stage.exaggeration_range is None
         assert stage.exaggeration == 0.7
 
+    def test_uppercase_language_normalized(self, output_dir, ref_dataset):
+        stage = _build_stage(output_dir, ref_dataset, language="RU")
+        assert stage.language == "ru"
+
     def test_invalid_language_raises(self, output_dir, ref_dataset):
         with pytest.raises(ValueError, match="Unsupported language"):
             _build_stage(output_dir, ref_dataset, language="xx")
@@ -171,7 +176,7 @@ class TestConstruction:
 
 
 class TestModelLoading:
-    @patch("chatterbox.tts.ChatterboxTTS")
+    @patch(f"{MODULE}.ChatterboxTTS")
     def test_loads_english_model(self, mock_cls, output_dir, ref_dataset):
         mock_cls.from_pretrained.return_value = MagicMock()
         stage = _build_stage(output_dir, ref_dataset)
@@ -179,7 +184,7 @@ class TestModelLoading:
         mock_cls.from_pretrained.assert_called_once_with(device="cpu")
         assert stage.model is not None
 
-    @patch("chatterbox.mtl_tts.ChatterboxMultilingualTTS")
+    @patch(f"{MODULE}.ChatterboxMultilingualTTS")
     def test_loads_multilingual_model(self, mock_cls, output_dir, ref_dataset):
         mock_cls.from_pretrained.return_value = MagicMock()
         stage = _build_stage(output_dir, ref_dataset, language="fr")
@@ -249,25 +254,25 @@ class TestSpeakerAssignment:
         stage = _build_stage(output_dir, ref_dataset)
         _setup_stage_with_mock(stage)
 
-        ref1 = stage._assign_reference("Alice", "conv001")
-        ref2 = stage._assign_reference("Alice", "conv001")
-        assert ref1 == ref2
+        path1, id1 = stage._assign_reference("Alice", "conv001")
+        path2, id2 = stage._assign_reference("Alice", "conv001")
+        assert path1 == path2
+        assert id1 == id2
 
     def test_different_speakers_get_different_refs(self, output_dir, ref_dataset):
         stage = _build_stage(output_dir, ref_dataset)
         _setup_stage_with_mock(stage)
 
-        ref_a = stage._assign_reference("Alice", "conv001")
-        ref_b = stage._assign_reference("Bob", "conv001")
-        assert ref_a != ref_b
+        path_a, id_a = stage._assign_reference("Alice", "conv001")
+        path_b, id_b = stage._assign_reference("Bob", "conv001")
+        assert path_a != path_b
 
     def test_different_conversations_independent(self, output_dir, ref_dataset):
         stage = _build_stage(output_dir, ref_dataset)
         _setup_stage_with_mock(stage)
 
-        ref1 = stage._assign_reference("Alice", "conv001")
-        ref2 = stage._assign_reference("Alice", "conv002")
-        # Not necessarily different (random), but the keys are distinct
+        stage._assign_reference("Alice", "conv001")
+        stage._assign_reference("Alice", "conv002")
         assert "conv001_Alice" in stage.speaker_to_reference
         assert "conv002_Alice" in stage.speaker_to_reference
 
@@ -275,12 +280,20 @@ class TestSpeakerAssignment:
         stage = _build_stage(output_dir, ref_dataset_mls)
         _setup_stage_with_mock(stage)
 
-        ref_a = stage._assign_reference("Alice", "conv001")
-        ref_b = stage._assign_reference("Bob", "conv001")
-        assert ref_a != ref_b
+        path_a, id_a = stage._assign_reference("Alice", "conv001")
+        path_b, id_b = stage._assign_reference("Bob", "conv001")
+        assert path_a != path_b
         assert "conv001_Alice" in stage.speaker_to_ref_id
         assert "conv001_Bob" in stage.speaker_to_ref_id
         assert stage.speaker_to_ref_id["conv001_Alice"] != stage.speaker_to_ref_id["conv001_Bob"]
+
+    def test_wavs_ref_id_is_dialog_speaker(self, output_dir, ref_dataset):
+        stage = _build_stage(output_dir, ref_dataset)
+        _setup_stage_with_mock(stage)
+
+        _, ref_id = stage._assign_reference("Alice", "conv001")
+        assert "/" in ref_id
+        assert "chatterbox_ref_" not in ref_id
 
 
 class TestExaggeration:
@@ -338,10 +351,17 @@ class TestOutputFilename:
         name2 = ChatterboxTTSStage._output_filename("conv123", "Alice", "Goodbye")
         assert name1 != name2
 
-    def test_long_conversation_id_truncated(self):
+    def test_long_conversation_id_hashed(self):
         long_id = "a" * 50
         name = ChatterboxTTSStage._output_filename(long_id, "Bob", "Hi")
-        assert name.startswith("a" * 12 + "_")
+        parts = name.split("_", 1)
+        assert len(parts[0]) == 12
+        assert parts[0] != long_id[:12]
+
+    def test_similar_conversation_ids_differ(self):
+        name1 = ChatterboxTTSStage._output_filename("session1_conv001", "Alice", "Hi")
+        name2 = ChatterboxTTSStage._output_filename("session1_conv002", "Alice", "Hi")
+        assert name1 != name2
 
     def test_ends_with_wav(self):
         name = ChatterboxTTSStage._output_filename("c", "s", "t")
@@ -489,17 +509,6 @@ class TestProcessBatch:
         assert stage.model.generate.call_count == call_count_before
         assert result2.data["audio_filepath"] == path1
 
-    def test_lazy_init(self, output_dir, ref_dataset):
-        """process_batch works even without explicit setup()."""
-        stage = _build_stage(output_dir, ref_dataset)
-        stage.model = _fake_model()
-        stage._init_temp_dir()
-        stage._load_reference_audio_files()
-
-        task = _make_task("Lazy init test")
-        result = stage.process(task)
-        assert "audio_filepath" in result.data
-
     def test_task_id_preserved(self, output_dir, ref_dataset):
         stage = _build_stage(output_dir, ref_dataset)
         _setup_stage_with_mock(stage)
@@ -570,7 +579,7 @@ class TestMultilingual:
 
 
 class TestLifecycle:
-    @patch("chatterbox.tts.ChatterboxTTS")
+    @patch(f"{MODULE}.ChatterboxTTS")
     def test_setup_creates_temp_dir(self, mock_cls, output_dir, ref_dataset):
         mock_cls.from_pretrained.return_value = MagicMock()
         stage = _build_stage(output_dir, ref_dataset)
@@ -581,7 +590,7 @@ class TestLifecycle:
         assert stage.temp_dir is not None
         assert os.path.isdir(stage.temp_dir)
 
-    @patch("chatterbox.tts.ChatterboxTTS")
+    @patch(f"{MODULE}.ChatterboxTTS")
     def test_teardown_cleans_up(self, mock_cls, output_dir, ref_dataset):
         mock_cls.from_pretrained.return_value = MagicMock()
         stage = _build_stage(output_dir, ref_dataset)
@@ -594,16 +603,33 @@ class TestLifecycle:
         assert stage.model is None
         assert not os.path.exists(temp_dir)
 
-    @patch("chatterbox.tts.ChatterboxTTS")
-    def test_ensure_ready_when_model_none(self, mock_cls, output_dir, ref_dataset):
-        """_ensure_ready loads the model if setup wasn't called."""
+    @patch(f"{MODULE}.ChatterboxTTS")
+    def test_teardown_clears_speaker_state(self, mock_cls, output_dir, ref_dataset):
         mock_cls.from_pretrained.return_value = _fake_model()
         stage = _build_stage(output_dir, ref_dataset)
+        stage.setup()
 
-        assert stage.model is None
-        stage._ensure_ready()
-        assert stage.model is not None
+        stage._assign_reference("Alice", "conv001")
+        assert len(stage.speaker_to_reference) > 0
 
+        stage.teardown()
+        assert len(stage.speaker_to_reference) == 0
+        assert len(stage.speaker_to_ref_id) == 0
+        assert len(stage.conversation_exaggeration) == 0
+
+    @patch(f"{MODULE}.ChatterboxTTS")
+    def test_teardown_setup_lifecycle(self, mock_cls, output_dir, ref_dataset):
+        """After teardown + re-setup, reference paths are valid."""
+        mock_cls.from_pretrained.return_value = _fake_model()
+        stage = _build_stage(output_dir, ref_dataset)
+        stage.setup()
+
+        stage._assign_reference("Alice", "conv001")
+        stage.teardown()
+        stage.setup()
+
+        ref_path, ref_id = stage._assign_reference("Alice", "conv001")
+        assert os.path.exists(ref_path)
 
 class TestEdgeCases:
     def test_whitespace_only_text(self, output_dir, ref_dataset):

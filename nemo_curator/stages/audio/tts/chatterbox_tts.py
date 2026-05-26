@@ -23,13 +23,14 @@ import os
 import random
 import shutil
 import tempfile
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import soundfile as sf
 import torch
 import torchaudio as ta
+from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+from chatterbox.tts import ChatterboxTTS
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
@@ -98,7 +99,6 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         top_p: float = 1.0,
         normalize_audio: bool = True,
         normalize_level: float = -20.0,
-        **kwargs,
     ):
         super().__init__()
 
@@ -120,6 +120,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 f"Unsupported language '{language}'. "
                 f"Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}"
             )
+        if language is not None:
+            self.language = language.lower()
 
         if repetition_penalty is not None:
             self.repetition_penalty = repetition_penalty
@@ -148,6 +150,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
     def setup(self, worker_metadata: Any = None) -> None:  # noqa: ARG002
         """Load the TTS model and discover reference audio files."""
+        os.makedirs(self.output_audio_dir, exist_ok=True)
         self._init_temp_dir()
         self._load_model()
         self._load_reference_audio_files()
@@ -155,6 +158,10 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     def teardown(self) -> None:
         """Release model and clean up temp files."""
         self.model = None
+        self.speaker_to_reference.clear()
+        self._speaker_to_original_wav.clear()
+        self.speaker_to_ref_id.clear()
+        self.conversation_exaggeration.clear()
         self._cleanup_temp_dir()
 
     def _init_temp_dir(self) -> None:
@@ -181,11 +188,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             except (ImportError, AttributeError):
                 pass
 
-            from chatterbox.mtl_tts import ChatterboxMultilingualTTS
             self.model = ChatterboxMultilingualTTS.from_pretrained(device=self.device)
             logger.info(f"Loaded ChatterboxMultilingualTTS (language={self.language})")
         else:
-            from chatterbox.tts import ChatterboxTTS
             self.model = ChatterboxTTS.from_pretrained(device=self.device)
             logger.info("Loaded ChatterboxTTS (English)")
 
@@ -262,9 +267,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 return audio_filepath
 
             processed = torch.cat(chunks, dim=1)
-            out_path = os.path.join(
-                self.temp_dir, os.path.basename(audio_filepath)
-            )
+            unique_name = hashlib.md5(audio_filepath.encode()).hexdigest()[:8] + "_" + os.path.basename(audio_filepath)
+            out_path = os.path.join(self.temp_dir, unique_name)
             ta.save(out_path, processed, sr)
             return out_path
 
@@ -336,12 +340,17 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         ta.save(out_path, concatenated, last_sr)
         return out_path, chosen
 
-    def _assign_reference(self, speaker: str, conversation_id: str) -> str:
-        """Get or assign a reference audio file for a speaker in a conversation."""
+    def _assign_reference(self, speaker: str, conversation_id: str) -> tuple[str, str]:
+        """Get or assign a reference audio file for a speaker in a conversation.
+
+        Returns:
+            Tuple of (ref_path, ref_id) where ref_id is a stable identifier
+            for the reference voice (MLS speaker ID or dialog/speaker tag).
+        """
         key = f"{conversation_id}_{speaker}"
 
         if key in self.speaker_to_reference:
-            return self.speaker_to_reference[key]
+            return self.speaker_to_reference[key], self.speaker_to_ref_id[key]
 
         if self._reference_layout == "mls":
             already_taken_ids = {
@@ -349,8 +358,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 for k in self.speaker_to_ref_id
                 if k.startswith(f"{conversation_id}_")
             }
-            ref_path, mls_id = self._get_reference_audio_mls(already_taken_ids)
-            self.speaker_to_ref_id[key] = mls_id
+            ref_path, ref_id = self._get_reference_audio_mls(already_taken_ids)
         else:
             already_taken = {
                 orig for k, orig in self._speaker_to_original_wav.items()
@@ -358,9 +366,12 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             }
             ref_path, original_wav = self._get_reference_audio_wavs(already_taken)
             self._speaker_to_original_wav[key] = original_wav
+            parts = original_wav.split(os.sep)
+            ref_id = f"{parts[-2]}/{os.path.splitext(parts[-1])[0]}"
 
         self.speaker_to_reference[key] = ref_path
-        return ref_path
+        self.speaker_to_ref_id[key] = ref_id
+        return ref_path, ref_id
 
     def _get_exaggeration(self, conversation_id: str) -> float:
         """Get consistent exaggeration for a conversation (random range support)."""
@@ -396,7 +407,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             if self.normalize_audio:
                 wav = self._normalize_audio(wav)
 
-            return wav.squeeze(0).numpy()
+            return wav.squeeze(0).cpu().numpy()
         except Exception as e:
             logger.error(f"TTS generation failed: {e}")
             return np.zeros(self.sample_rate * 2)
@@ -416,15 +427,10 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
     @staticmethod
     def _output_filename(conversation_id: str, speaker: str, text: str) -> str:
-        """Deterministic filename: ``{conv_id_short}_{speaker}_{text_hash}.wav``."""
-        conv_short = conversation_id[:12] if len(conversation_id) > 12 else conversation_id
+        """Deterministic filename: ``{conv_id_hash}_{speaker}_{text_hash}.wav``."""
+        conv_hash = hashlib.md5(conversation_id.encode("utf-8")).hexdigest()[:12]
         text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()[:10]
-        return f"{conv_short}_{speaker}_{text_hash}.wav"
-
-    def _ensure_ready(self) -> None:
-        """Lazy-init fallback when setup() was not called."""
-        if self.model is None:
-            self.setup()
+        return f"{conv_hash}_{speaker}_{text_hash}.wav"
 
     def process(self, task: AudioTask) -> AudioTask:
         """Generate audio for a single conversation turn."""
@@ -440,9 +446,6 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         if not tasks:
             return []
 
-        self._ensure_ready()
-        os.makedirs(self.output_audio_dir, exist_ok=True)
-
         output_tasks: list[AudioTask] = []
         for task in tasks:
             data = task.data
@@ -457,7 +460,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             speaker = data.get("speaker", "unknown")
             conversation_id = data.get("conversation_id", "unknown")
 
-            reference_wav = self._assign_reference(speaker, conversation_id)
+            reference_wav, ref_id = self._assign_reference(speaker, conversation_id)
 
             filename = self._output_filename(conversation_id, speaker, text)
             audio_path = os.path.join(self.output_audio_dir, filename)
@@ -475,7 +478,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             out_data = dict(data)
             out_data["audio_filepath"] = audio_path
             out_data["duration"] = duration
-            out_data["reference_voice"] = Path(reference_wav).parent.name
+            out_data["reference_voice"] = ref_id
 
             output_tasks.append(
                 AudioTask(
