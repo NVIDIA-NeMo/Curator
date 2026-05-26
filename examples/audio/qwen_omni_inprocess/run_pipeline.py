@@ -108,8 +108,7 @@ from nemo_curator.stages.audio.inference.indic_conformer import InferenceIndicCo
 from nemo_curator.stages.audio.inference.parakeet import InferenceParakeetStage
 from nemo_curator.stages.audio.inference.qwen_asr import InferenceQwenASRStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
-from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarredAudioReader
-from nemo_curator.stages.audio.io.unified_reader import UnifiedAudioReader
+from nemo_curator.stages.audio.io.nemo_speech_reader import NeMoSpeechAudioReader
 from nemo_curator.stages.audio.text_filtering import (
     AbbreviationConcatStage,
     DisfluencyWerGuardStage,
@@ -508,20 +507,11 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     language_filter = [args.language] if args.language else None
 
     stages = [
-        UnifiedAudioReader(
+        NeMoSpeechAudioReader(
             yaml_path=args.data_config,
             corpus_filter=args.corpus,
             language_filter=language_filter,
-            output_dir=args.output_dir,
-        )
-        if args.use_unified_reader else
-        NemoTarredAudioReader(
-            yaml_path=args.data_config,
-            corpus_filter=args.corpus,
-            language_filter=language_filter,
-            s3_endpoint_url=args.s3_endpoint_url,
-            output_dir=args.output_dir,
-        ).with_({"nemo_tar_shard_reader": {"resources": Resources(cpus=4.0)}}),
+            output_dir=args.output_dir),
         InitializeFieldsStage(
             pipeline_notes={
                 "primary_model": args.primary_model,
