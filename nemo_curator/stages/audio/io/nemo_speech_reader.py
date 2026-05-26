@@ -37,9 +37,12 @@ import numpy as np
 from loguru import logger
 
 try:
-    from nemo_curator.backends.experimental.utils import RayStageSpecKeys
-except ModuleNotFoundError:
-    RayStageSpecKeys = None
+    from nemo_curator.backends.utils import RayStageSpecKeys
+except (ImportError, ModuleNotFoundError):
+    try:
+        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+    except (ImportError, ModuleNotFoundError):
+        RayStageSpecKeys = None
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
@@ -280,10 +283,68 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return {"is_fanout_stage": True, "is_actor_stage": True}
 
     @staticmethod
+    def _ensure_get_full_path_handles_uris() -> None:
+        """Ensure NeMo's get_full_path returns S3/remote URIs unchanged.
+
+        NeMo 2.7.2's get_full_path has force_cache support but still joins
+        paths when the audio_filepath is an S3 URI and force_cache=False.
+        This one-time patch adds an early return for datastore paths.
+        """
+        import nemo.collections.common.data.lhotse.nemo_adapters as _adapters
+        import nemo.collections.common.parts.preprocessing.manifest as _manifest
+
+        if getattr(_manifest, "_uri_patched", False):
+            return
+
+        from nemo.utils.data_utils import is_datastore_path
+
+        _original = _manifest.get_full_path
+
+        def _patched(audio_file, manifest_file=None, data_dir=None, audio_file_len_limit=255, force_cache=True):
+            if isinstance(audio_file, str) and is_datastore_path(audio_file):
+                return audio_file
+            if isinstance(audio_file, list):
+                return [_patched(a, manifest_file, data_dir, audio_file_len_limit, force_cache) for a in audio_file]
+            return _original(audio_file, manifest_file, data_dir, audio_file_len_limit, force_cache)
+
+        _manifest.get_full_path = _patched
+        _adapters.get_full_path = _patched
+
+        # Also normalize sample_rate -> sampling_rate for non-tarred S3 data.
+        # Without sampling_rate, NeMo calls Recording.from_file() which can't
+        # read S3 URIs via soundfile. With it, NeMo creates a synthetic Recording.
+        _OriginalIterInit = _adapters.LazyNeMoIterator.__init__
+
+        def _patched_init(self, *args, **kwargs):
+            _OriginalIterInit(self, *args, **kwargs)
+            self.source = _SampleRateNormalizer(self.source)
+
+        class _SampleRateNormalizer:
+            def __init__(self, source):
+                self._source = source
+
+            def __iter__(self):
+                for data in self._source:
+                    if "sampling_rate" not in data and "sample_rate" in data:
+                        data["sampling_rate"] = data["sample_rate"]
+                    yield data
+
+            def __len__(self):
+                return len(self._source)
+
+            def __add__(self, other):
+                return self._source.__add__(other)
+
+        _adapters.LazyNeMoIterator.__init__ = _patched_init
+        _manifest._uri_patched = True
+
+    @staticmethod
     def _make_cutset(manifest_path: str, tar_path: str | None) -> Any:  # noqa: ANN401
         """Build a lhotse CutSet using NeMo adapters."""
         from lhotse import CutSet
         from nemo.collections.common.data.lhotse.nemo_adapters import LazyNeMoIterator, LazyNeMoTarredIterator
+
+        NeMoSpeechReaderStage._ensure_get_full_path_handles_uris()
 
         if tar_path:
             resolved_tar = _s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
