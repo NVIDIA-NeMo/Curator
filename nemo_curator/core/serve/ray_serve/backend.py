@@ -110,8 +110,8 @@ class RayServeBackend(InferenceBackend):
 
         if quiet_runtime_env:
             # Suppress access logs on the OpenAI ingress deployment too.
-            ingress_config = deepcopy(build_args.get("ingress_deployment_config", {}))
-            actor_options = deepcopy(ingress_config.get("ray_actor_options", {}))
+            ingress_config = build_args.get("ingress_deployment_config", {})
+            actor_options = ingress_config.get("ray_actor_options", {})
             actor_options["runtime_env"] = BaseModelConfig.merge_runtime_envs(
                 actor_options.get("runtime_env", {}),
                 quiet_runtime_env,
