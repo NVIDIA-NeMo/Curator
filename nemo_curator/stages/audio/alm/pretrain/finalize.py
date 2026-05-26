@@ -63,7 +63,10 @@ def prepare_audio_pretrain_outputs(
 
 
 def finalize_audio_pretrain_outputs(
-    output_manifest_path: str, metrics_path: str, output_audio_tar_path: str
+    output_manifest_path: str,
+    metrics_path: str,
+    output_audio_tar_path: str,
+    audio_filepath_key: str = "audio_filepath",
 ) -> None:
     """Merge per-worker shards into the final manifest, metrics JSON, and audio tar.
 
@@ -76,7 +79,7 @@ def finalize_audio_pretrain_outputs(
     After the audio tar is built, reconciles the manifest against the
     tar.  A manifest row is dropped if either:
 
-    1. its ``audio_filepath`` is not a member of the tar, or
+    1. its ``audio_filepath_key`` value is not a member of the tar, or
     2. the corresponding tar member's audio header is unreadable or
        reports zero frames / zero sample rate.
 
@@ -97,7 +100,7 @@ def finalize_audio_pretrain_outputs(
     _merge_metrics_shards(metrics_path)
     _merge_tar_shards(output_audio_tar_path)
     dropped_missing, dropped_unreadable = _reconcile_manifest_with_tar(
-        output_manifest_path, output_audio_tar_path
+        output_manifest_path, output_audio_tar_path, audio_filepath_key
     )
     _patch_metrics_post_reconcile(
         metrics_path, output_manifest_path, dropped_missing, dropped_unreadable
@@ -166,7 +169,11 @@ def _merge_metrics_shards(metrics_path: str) -> None:  # noqa: C901
                     # finalize still merges the rest.
                     logger.warning(f"skipping malformed metrics shard line in {s}: {e}")
                     continue
-                pid = r["id"]
+                pid = r.get("id")
+                if pid is None or (isinstance(pid, str) and not pid.strip()):
+                    logger.warning(f"skipping metrics shard line in {s}: missing or empty 'id'")
+                    continue
+                pid = str(pid)
                 entry = per_original.get(pid)
                 if entry is None:
                     # First record wins for input-side fields. They're
@@ -315,13 +322,13 @@ def _merge_tar_shards(output_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
 
 
 def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
-    manifest_path: str, tar_path: str
+    manifest_path: str, tar_path: str, audio_filepath_key: str = "audio_filepath"
 ) -> tuple[int, int]:
-    """Drop manifest rows whose ``audio_filepath`` isn't a valid, readable
+    """Drop manifest rows whose audio path field isn't a valid, readable
     tar member with a positive duration.
 
     Two filters:
-      1. Membership: ``audio_filepath`` must be a regular member of the tar.
+      1. Membership: ``audio_filepath_key`` must be a regular member of the tar.
       2. Header validity: ``soundfile.info`` must succeed on the member's
          payload and report ``frames > 0`` and ``samplerate > 0``.
 
@@ -334,7 +341,7 @@ def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
 
     The tar itself is left as-is.  Removing dropped members would
     require rewriting the whole archive; downstream consumers iterate
-    the manifest and look up by ``audio_filepath``, so orphan members
+    the manifest and look up by ``audio_filepath_key``, so orphan members
     are harmless.
     """
     if not os.path.exists(tar_path):
@@ -396,7 +403,7 @@ def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
                     # _merge_manifest_shards already filtered these; unreachable
                     # in practice, but keep the file usable if it ever happens.
                     continue
-                ap = row.get("audio_filepath")
+                ap = row.get(audio_filepath_key)
                 if ap not in members:
                     dropped_missing += 1
                     continue
@@ -421,7 +428,43 @@ def _reconcile_manifest_with_tar(  # noqa: C901, PLR0915
     return (dropped_missing, dropped_unreadable)
 
 
-def _patch_metrics_post_reconcile(  # noqa: C901, PLR0912
+def _collect_reconciled_output_stats(
+    manifest_path: str,
+) -> tuple[dict[str, dict[str, Any]], list[float]]:
+    out_per_id: dict[str, dict[str, Any]] = {}
+    durations: list[float] = []
+    if not os.path.exists(manifest_path):
+        return out_per_id, durations
+
+    with open(manifest_path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                # `_merge_manifest_shards` already filtered these; if a
+                # stray line slips through, skip rather than crash the
+                # finalize step.
+                continue
+            pid = str(row.get("id") or "")
+            if not pid:
+                continue
+            dur = float(row.get("duration", 0.0))
+            seg_count = len(row.get("segments") or [])
+            entry = out_per_id.setdefault(
+                pid,
+                {"out_snippets": 0, "out_segments": 0, "out_duration_sec": 0.0},
+            )
+            entry["out_snippets"] += 1
+            entry["out_segments"] += seg_count
+            entry["out_duration_sec"] += dur
+            durations.append(dur)
+    return out_per_id, durations
+
+
+def _patch_metrics_post_reconcile(
     metrics_path: str,
     manifest_path: str,
     dropped_missing: int,
@@ -477,34 +520,7 @@ def _patch_metrics_post_reconcile(  # noqa: C901, PLR0912
     # _reconcile_manifest_with_tar drops a row the worker-emitted shard
     # record for that snippet is still summed into the pre-reconcile
     # totals, so we recompute against what survived.
-    out_per_id: dict[str, dict[str, Any]] = {}
-    durations: list[float] = []
-    if os.path.exists(manifest_path):
-        with open(manifest_path, encoding="utf-8") as f:
-            for raw in f:
-                line = raw.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    # `_merge_manifest_shards` already filtered these; if a
-                    # stray line slips through, skip rather than crash the
-                    # finalize step.
-                    continue
-                pid = str(row.get("id") or "")
-                if not pid:
-                    continue
-                dur = float(row.get("duration", 0.0))
-                seg_count = len(row.get("segments") or [])
-                entry = out_per_id.setdefault(
-                    pid,
-                    {"out_snippets": 0, "out_segments": 0, "out_duration_sec": 0.0},
-                )
-                entry["out_snippets"] += 1
-                entry["out_segments"] += seg_count
-                entry["out_duration_sec"] += dur
-                durations.append(dur)
+    out_per_id, durations = _collect_reconciled_output_stats(manifest_path)
 
     total_snippets = sum(v["out_snippets"] for v in out_per_id.values())
     total_segments = sum(v["out_segments"] for v in out_per_id.values())

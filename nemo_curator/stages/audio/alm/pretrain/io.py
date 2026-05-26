@@ -57,6 +57,50 @@ if TYPE_CHECKING:
 # ----------------------------------------------------------------------
 
 
+def _read_manifest_row_id(
+    stage_name: str, lineno: int, entry: dict[str, Any], seen_ids: set[str]
+) -> str | None:
+    # `id` is required by the pipeline contract: downstream snippet ids
+    # embed it, the metrics aggregator keys per-source records on it, and
+    # tar members are named with it. A row without a usable id can't be
+    # safely processed, and a duplicate id silently collapses per-source
+    # metrics and can produce colliding snippet/tar member names.
+    row_id = entry.get("id")
+    if row_id is None or (isinstance(row_id, str) and not row_id.strip()):
+        logger.warning(f"[{stage_name}] line {lineno}: missing or empty 'id'; skipping")
+        return None
+
+    row_id = str(row_id)
+    if row_id in seen_ids:
+        logger.warning(f"[{stage_name}] line {lineno}: duplicate id {row_id!r}; skipping")
+        return None
+
+    seen_ids.add(row_id)
+    entry["id"] = row_id
+    return row_id
+
+
+def _check_duplicate_audio_basename(
+    stage_name: str,
+    lineno: int,
+    original_path: str,
+    row_id: str,
+    seen_basenames: dict[str, str],
+) -> None:
+    basename = os.path.basename(original_path)
+    prior_id = seen_basenames.get(basename)
+    if prior_id is not None:
+        msg = (
+            f"[{stage_name}] line {lineno}: duplicate audio basename {basename!r} "
+            f"(first seen for id {prior_id!r}, repeated for id {row_id!r}); "
+            f"two source rows would resolve to the same on-disk audio under "
+            f"audio_path_resolution={AUDIO_PATH_RESOLUTION_BASENAME!r}. Switch to "
+            f"'relative' (preserves subdirs) or 'as_is' if this is intentional."
+        )
+        raise ValueError(msg)
+    seen_basenames[basename] = row_id
+
+
 @dataclass
 class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
     """Read a JSONL manifest of long-form audios; emit one AudioTask per row.
@@ -149,40 +193,18 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
                     logger.error(f"[{self.name}] line {lineno}: invalid JSON ({e}); skipping")
                     continue
 
-                # `id` is required by the pipeline contract: downstream
-                # snippet ids embed it, the metrics aggregator keys
-                # per-source records on it, and tar members are named with
-                # it. A row without a usable id can't be safely processed,
-                # and a duplicate id silently collapses per-source metrics
-                # and can produce colliding snippet/tar member names.
-                row_id = entry.get("id")
-                if row_id is None or (isinstance(row_id, str) and not row_id.strip()):
-                    logger.warning(f"[{self.name}] line {lineno}: missing or empty 'id'; skipping")
+                row_id = _read_manifest_row_id(self.name, lineno, entry, seen_ids)
+                if row_id is None:
                     continue
-                row_id = str(row_id)
-                if row_id in seen_ids:
-                    logger.warning(f"[{self.name}] line {lineno}: duplicate id {row_id!r}; skipping")
-                    continue
-                seen_ids.add(row_id)
-                entry["id"] = row_id
 
                 original_path = entry.get(self.audio_filepath_key)
                 if not original_path:
                     logger.warning(f"[{self.name}] line {lineno}: missing {self.audio_filepath_key!r}; skipping")
                     continue
                 if self.audio_path_resolution == AUDIO_PATH_RESOLUTION_BASENAME:
-                    basename = os.path.basename(original_path)
-                    prior_id = seen_basenames.get(basename)
-                    if prior_id is not None:
-                        msg = (
-                            f"[{self.name}] line {lineno}: duplicate audio basename {basename!r} "
-                            f"(first seen for id {prior_id!r}, repeated for id {row_id!r}); "
-                            f"two source rows would resolve to the same on-disk audio under "
-                            f"audio_path_resolution={AUDIO_PATH_RESOLUTION_BASENAME!r}. Switch to "
-                            f"'relative' (preserves subdirs) or 'as_is' if this is intentional."
-                        )
-                        raise ValueError(msg)
-                    seen_basenames[basename] = row_id
+                    _check_duplicate_audio_basename(
+                        self.name, lineno, original_path, row_id, seen_basenames
+                    )
                 entry[self.audio_filepath_key] = _resolve_audio_path(
                     self.audio_dir, original_path, self.audio_path_resolution
                 )

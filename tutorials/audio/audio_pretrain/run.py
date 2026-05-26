@@ -260,7 +260,12 @@ def main() -> None:
         # Without this, partial shards would be silently deleted by the next
         # prepare_audio_pretrain_outputs call and any partial output is lost.
         elapsed = time.monotonic() - t0
-        finalize_audio_pretrain_outputs(args.output_manifest, args.metrics_path, args.output_audio_tar_path)
+        finalize_audio_pretrain_outputs(
+            args.output_manifest,
+            args.metrics_path,
+            args.output_audio_tar_path,
+            audio_filepath_key=args.audio_filepath_key,
+        )
     logger.info(
         f"Pipeline finished in {elapsed:.2f}s ({elapsed / 60:.2f} min). "
         f"Snippet tar at {args.output_audio_tar_path}, manifest at {args.output_manifest}, "

@@ -377,11 +377,13 @@ class TestMakeSnippetId:
         # contract.  Both POSIX and Windows separators are stripped so the
         # output stays portable.
         sid = make_snippet_id("shard1/utt001", 0.0, 5.0)
-        assert "/" not in sid and "\\" not in sid
+        assert "/" not in sid
+        assert "\\" not in sid
         assert sid == "shard1_utt001-0_000-5_000"
 
         sid = make_snippet_id("dirA\\sub\\utt", 1.0, 2.0)
-        assert "/" not in sid and "\\" not in sid
+        assert "/" not in sid
+        assert "\\" not in sid
         assert sid == "dirA_sub_utt-1_000-2_000"
 
 

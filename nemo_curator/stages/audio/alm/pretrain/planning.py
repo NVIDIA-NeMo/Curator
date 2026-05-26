@@ -53,6 +53,9 @@ if TYPE_CHECKING:
 # ----------------------------------------------------------------------
 
 
+_MIN_SEGMENTS_FOR_OVERLAP = 2
+
+
 def filter_empty_segments(segments: list[dict]) -> tuple[list[dict], int]:
     """Drop segments with no text and no words.
 
@@ -89,7 +92,7 @@ def find_overlapping_indices(segments: list[dict], min_overlap_sec: float) -> se
     is dense in that case.
     """
     n = len(segments)
-    if n < 2:
+    if n < _MIN_SEGMENTS_FOR_OVERLAP:
         return set()
     # Sort indirectly so we can return indices into the caller's list.
     order = sorted(

@@ -240,6 +240,65 @@ class TestPrepareAndFinalize:
         assert per_x["out_segments"] == 2
         assert per_x["out_duration_sec"] == 2.0
 
+    def test_finalize_reconciles_custom_audio_filepath_key(self, tmp_path: Path) -> None:
+        """A non-default audio filepath key should reconcile against that key,
+        not silently drop every manifest row by reading ``audio_filepath``."""
+        manifest = str(tmp_path / "snippets.jsonl")
+        metrics = str(tmp_path / "metrics.json")
+        tar_path = str(tmp_path / "snippets.tar")
+        audio_key = "audio_path"
+
+        sid = "X-0_000-1_000"
+        ms = _make_shard_path(manifest, "jsonl")
+        with open(ms, "w") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "id": "X",
+                        "snippet_id": sid,
+                        audio_key: f"{sid}.flac",
+                        "duration": 1.0,
+                        "segments": [{"start": 0.0, "end": 1.0, "text": "x"}],
+                    }
+                )
+                + "\n"
+            )
+
+        ms_metrics = _make_shard_path(metrics, "jsonl")
+        with open(ms_metrics, "w") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "id": "X",
+                        "in_segments": 1,
+                        "in_duration_sec": 1.0,
+                        "dropped": {},
+                        "is_stub": False,
+                        "out_segments": 1,
+                        "out_duration_sec": 1.0,
+                    }
+                )
+                + "\n"
+            )
+
+        flac_buf = io.BytesIO()
+        sf.write(flac_buf, np.zeros(160, dtype=np.float32), 16000, format="FLAC")
+        flac_bytes = flac_buf.getvalue()
+        ts = _make_shard_path(tar_path, "tar")
+        with tarfile.open(ts, "w") as t:
+            ti = tarfile.TarInfo(name=f"{sid}.flac")
+            ti.size = len(flac_bytes)
+            t.addfile(ti, io.BytesIO(flac_bytes))
+
+        finalize_audio_pretrain_outputs(manifest, metrics, tar_path, audio_filepath_key=audio_key)
+
+        rows = [json.loads(line) for line in Path(manifest).read_text().splitlines() if line]
+        assert len(rows) == 1
+        assert rows[0][audio_key] == f"{sid}.flac"
+        summary = json.loads(Path(metrics).read_text(encoding="utf-8"))
+        assert "missing_audio" not in summary["dropped"]
+        assert summary["num_output_snippets"] == 1
+
     def test_finalize_drops_manifest_rows_with_unreadable_audio(self, tmp_path: Path) -> None:
         """Manifest reconciliation: rows whose tar member fails the audio
         header/duration check get dropped (e.g. truncated payload from a
@@ -332,40 +391,40 @@ class TestPrepareAndFinalize:
 
         ms = _make_shard_path(manifest, "jsonl")
         with open(ms, "w") as f:
-            for pid, sid, dur in (
-                ("X", "X-0_000-1_000", 1.0),
-                ("X", "X-1_000-2_000", 1.0),
-                ("Y", "Y-0_000-1_000", 1.0),
-            ):
-                f.write(
-                    json.dumps(
-                        {
-                            "id": pid,
-                            "snippet_id": sid,
-                            "audio_filepath": f"{sid}.flac",
-                            "duration": dur,
-                            "segments": [{"start": 0.0, "end": dur, "text": "x"}],
-                        }
-                    )
-                    + "\n"
+            f.writelines(
+                json.dumps(
+                    {
+                        "id": pid,
+                        "snippet_id": sid,
+                        "audio_filepath": f"{sid}.flac",
+                        "duration": dur,
+                        "segments": [{"start": 0.0, "end": dur, "text": "x"}],
+                    }
                 )
+                + "\n"
+                for pid, sid, dur in (
+                    ("X", "X-0_000-1_000", 1.0),
+                    ("X", "X-1_000-2_000", 1.0),
+                    ("Y", "Y-0_000-1_000", 1.0),
+                )
+            )
         ms_metrics = _make_shard_path(metrics, "jsonl")
         with open(ms_metrics, "w") as f:
-            for pid in ("X", "X", "Y"):
-                f.write(
-                    json.dumps(
-                        {
-                            "id": pid,
-                            "in_segments": 1,
-                            "in_duration_sec": 1.0,
-                            "dropped": {},
-                            "is_stub": False,
-                            "out_segments": 1,
-                            "out_duration_sec": 1.0,
-                        }
-                    )
-                    + "\n"
+            f.writelines(
+                json.dumps(
+                    {
+                        "id": pid,
+                        "in_segments": 1,
+                        "in_duration_sec": 1.0,
+                        "dropped": {},
+                        "is_stub": False,
+                        "out_segments": 1,
+                        "out_duration_sec": 1.0,
+                    }
                 )
+                + "\n"
+                for pid in ("X", "X", "Y")
+            )
 
         flac_buf = io.BytesIO()
         sf.write(flac_buf, np.zeros(160, dtype=np.float32), 16000, format="FLAC")
@@ -390,6 +449,35 @@ class TestPrepareAndFinalize:
         assert per_x["out_duration_sec"] == 2.0
         assert per_y["out_snippets"] == 0
         assert per_y["out_duration_sec"] == 0.0
+
+    def test_finalize_skips_metrics_shard_rows_missing_id(self, tmp_path: Path) -> None:
+        manifest = str(tmp_path / "snippets.jsonl")
+        metrics = str(tmp_path / "metrics.json")
+        tar_path = str(tmp_path / "snippets.tar")
+
+        ms_metrics = _make_shard_path(metrics, "jsonl")
+        with open(ms_metrics, "w") as f:
+            f.write(json.dumps({"out_duration_sec": 9.0, "is_stub": False}) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "id": "X",
+                        "in_segments": 1,
+                        "in_duration_sec": 1.0,
+                        "dropped": {},
+                        "is_stub": False,
+                        "out_segments": 1,
+                        "out_duration_sec": 1.0,
+                    }
+                )
+                + "\n"
+            )
+
+        finalize_audio_pretrain_outputs(manifest, metrics, tar_path)
+
+        summary = json.loads(Path(metrics).read_text(encoding="utf-8"))
+        assert summary["num_input_audios"] == 1
+        assert summary["per_original"][0]["id"] == "X"
 
     def test_prepare_removes_only_matching_shards(self, tmp_path: Path) -> None:
         manifest = str(tmp_path / "snippets.jsonl")
