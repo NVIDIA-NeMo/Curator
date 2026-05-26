@@ -1,1 +1,2 @@
 include LICENSE
+recursive-include nemo_curator *.csv *.json *.yaml *.yml *.txt *.md py.typed
