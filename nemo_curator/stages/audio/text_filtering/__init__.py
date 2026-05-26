@@ -23,6 +23,7 @@ from nemo_curator.stages.audio.text_filtering.fasttext_lid import FastTextLIDSta
 from nemo_curator.stages.audio.text_filtering.finalize_fields import FinalizeFieldsStage
 from nemo_curator.stages.audio.text_filtering.initialize_fields import InitializeFieldsStage
 from nemo_curator.stages.audio.text_filtering.llm_language_verification import LLMLanguageVerificationStage
+from nemo_curator.stages.audio.text_filtering.instruction_packer import InstructionPackerStage
 from nemo_curator.stages.audio.text_filtering.regex_substitution import RegexSubstitutionStage
 from nemo_curator.stages.audio.text_filtering.whisper_hallucination import WhisperHallucinationStage
 
@@ -36,6 +37,7 @@ __all__ = [
     "FinalizeFieldsStage",
     "InitializeFieldsStage",
     "LLMLanguageVerificationStage",
+    "InstructionPackerStage",
     "RegexSubstitutionStage",
     "WhisperHallucinationStage",
 ]
