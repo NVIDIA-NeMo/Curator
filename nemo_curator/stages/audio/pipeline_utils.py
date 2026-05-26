@@ -68,8 +68,13 @@ WHISPER_ROUTED_LANGUAGE_CODES: frozenset[str] = frozenset({
 
 # Map manifest ISO codes to faster-whisper ``transcribe(language=...)`` codes when they differ.
 MODEL_LANG_CODE_TO_WHISPER: dict[str, str] = {
-    "fil": "tl",
+    "fil": "tl",   # Filipino → Tagalog
     "tl": "tl",
+    "jv": "jw",    # Javanese — Whisper uses jw, not the ISO jv
+    "iw": "he",    # legacy Hebrew code
+    "in": "id",    # legacy Indonesian code
+    "ji": "yi",    # legacy Yiddish code
+    "nb": "no",    # Norwegian Bokmål → Whisper "no"
 }
 
 

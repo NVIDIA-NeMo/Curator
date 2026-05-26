@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from nemo_curator.models.faster_whisper_asr import FasterWhisperASR
-from nemo_curator.stages.audio.pipeline_utils import set_note
+from nemo_curator.stages.audio.pipeline_utils import MODEL_LANG_CODE_TO_WHISPER, set_note
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -166,13 +166,16 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
             task.data.setdefault(self.language_key, "")
 
         eligible_indices: list[int] = []
+        eligible_lang_codes: list[str] = []
         for i, task in enumerate(tasks):
-            lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
+            raw_lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
+            lang = MODEL_LANG_CODE_TO_WHISPER.get(raw_lang, raw_lang)
             if lang not in WHISPER_LARGE_V3_LANGS:
-                set_note(task.data, self.name, f"skipped (unsupported language: {lang})", self.notes_key)
-                set_note(task.data, self.pred_text_key, f"lang_not_supported:{lang}", self.notes_key)
+                set_note(task.data, self.name, f"skipped (unsupported language: {raw_lang})", self.notes_key)
+                set_note(task.data, self.pred_text_key, f"lang_not_supported:{raw_lang}", self.notes_key)
             else:
                 eligible_indices.append(i)
+                eligible_lang_codes.append(lang)
 
         lang_skipped = len(tasks) - len(eligible_indices)
         if not eligible_indices:
@@ -185,10 +188,7 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
         eligible_tasks = [tasks[i] for i in eligible_indices]
         waveforms = [t.data[self.waveform_key] for t in eligible_tasks]
         sample_rates = [t.data[self.sample_rate_key] for t in eligible_tasks]
-        lang_codes = [
-            str(t.data.get(self.source_lang_key, "") or "").strip().lower()
-            for t in eligible_tasks
-        ]
+        lang_codes = eligible_lang_codes
 
         pred_texts, langs_out = self._model.generate(waveforms, sample_rates, lang_codes)
 
