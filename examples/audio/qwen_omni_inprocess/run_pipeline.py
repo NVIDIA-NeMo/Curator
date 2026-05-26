@@ -354,13 +354,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     asr.add_argument("--asr_max_new_tokens", type=int, default=4096)
 
     scaling = ap.add_argument_group("multi-node scaling")
-    scaling.add_argument("--omni_num_workers", type=int, default=None,
-                         help="Fixed actor count for QwenOmni primary stage. Default: autoscaler decides.")
     scaling.add_argument("--primary_num_workers", type=int, default=None,
-                         help="Fixed actor count for non-Omni primary stages (qwen_asr, whisper). "
+                         help="Fixed actor count for primary ASR stage (qwen_omni, qwen_asr, whisper). "
                               "Default: autoscaler decides.")
-    scaling.add_argument("--asr_num_workers", type=int, default=None,
-                         help="Fixed actor count for recovery ASR stage. Default: autoscaler decides.")
+    scaling.add_argument("--fallback_num_workers", type=int, default=None,
+                         help="Fixed actor count for fallback/recovery ASR stage. Default: autoscaler decides.")
     return ap
 
 
@@ -499,7 +497,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             pred_text_key="primary_model_prediction",
             disfluency_text_key="primary_model_prediction_s2",
             keep_waveform=True,
-            num_workers_override=args.omni_num_workers,
+            num_workers_override=args.primary_num_workers,
         ))
 
     elif args.primary_model == "qwen_asr":
@@ -554,7 +552,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             source_lang_key=args.source_lang_key,
             pred_text_key="fallback_model_prediction",
             batch_size=args.asr_batch_size,
-            num_workers_override=args.asr_num_workers,
+            num_workers_override=args.fallback_num_workers,
         )
     elif args.recovery_model == "qwen_asr":
         recovery_stage = InferenceQwenASRStage(
@@ -566,7 +564,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             gpu_memory_utilization=args.asr_gpu_memory_utilization,
             max_new_tokens=args.asr_max_new_tokens,
             max_inference_batch_size=args.asr_batch_size,
-            num_workers_override=args.asr_num_workers,
+            num_workers_override=args.fallback_num_workers,
         )
     elif args.recovery_model == "whisper":
         recovery_stage = InferenceFasterWhisperStage(
@@ -578,7 +576,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             source_lang_key=args.source_lang_key,
             pred_text_key="fallback_model_prediction",
             batch_size=args.asr_batch_size,
-            num_workers_override=args.asr_num_workers,
+            num_workers_override=args.fallback_num_workers,
         )
     elif args.recovery_model == "parakeet":
         recovery_stage = InferenceParakeetStage(
@@ -589,7 +587,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             source_lang_key=args.source_lang_key,
             pred_text_key="fallback_model_prediction",
             batch_size=args.asr_batch_size,
-            num_workers_override=args.asr_num_workers,
+            num_workers_override=args.fallback_num_workers,
         )
 
     stages.extend([
