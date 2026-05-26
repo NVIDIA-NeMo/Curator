@@ -349,6 +349,24 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         _manifest._uri_patched = True
 
     @staticmethod
+    def _normalize_tarred_shard_id_keys(iterator: Any) -> None:  # noqa: ANN401
+        """Align manifest and tar shard_id key types for LazyNeMoTarredIterator.
+
+        Tar paths are parsed into int shard ids (e.g. ``manifest_3.tar`` -> ``3``),
+        while some manifests store ``shard_id`` as strings (e.g. ``"3"``). NeMo
+        uses the raw value as a dict key during iteration, causing KeyError.
+        """
+        tar_map = getattr(iterator, "shard_id_to_tar_path", None)
+        if not tar_map:
+            return
+
+        for sid, path in list(tar_map.items()):
+            if isinstance(sid, int):
+                tar_map.setdefault(str(sid), path)
+            elif isinstance(sid, str) and sid.isdigit():
+                tar_map.setdefault(int(sid), path)
+
+    @staticmethod
     def _make_cutset(manifest_path: str, tar_path: str | None) -> Any:  # noqa: ANN401
         """Build a lhotse CutSet using NeMo adapters."""
         from lhotse import CutSet
@@ -358,10 +376,10 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
         if tar_path:
             resolved_tar = _s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
-            # Temporarily bypass _validate() which asserts shard_id type equality.
+            # Temporarily bypass _validate() which compares raw shard_id key sets.
             # Some datasets (e.g. MCV4) store shard_id as string '0' in the manifest
             # while the tar regex extracts int 0 — causing a set comparison failure.
-            # Data integrity is verified during actual iteration.
+            # Iteration is fixed separately via _normalize_tarred_shard_id_keys().
             _orig_validate = LazyNeMoTarredIterator._validate
             LazyNeMoTarredIterator._validate = lambda self: None
             try:
@@ -370,6 +388,7 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                     tar_paths=resolved_tar,
                     skip_missing_manifest_entries=True,
                 )
+                NeMoSpeechReaderStage._normalize_tarred_shard_id_keys(iterator)
             finally:
                 LazyNeMoTarredIterator._validate = _orig_validate
             return CutSet(iterator)
