@@ -137,8 +137,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
                     help="Manifest key holding per-sample language code. "
                          "Used for prompt interpolation ({language} placeholder) and per-sample LID filtering.")
     ap.add_argument("--s3_endpoint_url", type=str, default=None)
-    ap.add_argument("--use_unified_reader", action="store_true", default=False,
-                    help="Use UnifiedAudioReader (NeMo lhotse adapters for tarred + non-tarred data).")
     ap.add_argument(
         "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
     )
