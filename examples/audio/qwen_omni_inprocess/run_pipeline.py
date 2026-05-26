@@ -112,15 +112,27 @@ from nemo_curator.stages.audio.text_filtering.select_best_prediction import Sele
 from nemo_curator.stages.resources import Resources
 
 
-def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
+def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="QwenOmni in-process vLLM pipeline")
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
     ap.add_argument("--output_dir", type=str, required=True, help="Output directory for per-shard manifests.")
     ap.add_argument("--model_id", type=str, default="Qwen/Qwen3-Omni-30B-A3B-Instruct")
-    ap.add_argument("--ml_prompt", type=str, default="Transcribe the audio.", help="Multilingual prompt text. Supports {language} placeholder resolved per-sample from source_lang.")
-    ap.add_argument("--ml_prompt_file", type=str, default=None, help="Read multilingual prompt from file. Overrides --ml_prompt.")
-    ap.add_argument("--en_prompt_file", type=str, default=None, help="English-specific prompt file. Used for en samples; --ml_prompt_file is used for all other languages.")
+    ap.add_argument(
+        "--ml_prompt",
+        type=str,
+        default="Transcribe the audio.",
+        help="Multilingual prompt text. Supports {language} placeholder resolved per-sample from source_lang.",
+    )
+    ap.add_argument(
+        "--ml_prompt_file", type=str, default=None, help="Read multilingual prompt from file. Overrides --ml_prompt."
+    )
+    ap.add_argument(
+        "--en_prompt_file",
+        type=str,
+        default=None,
+        help="English-specific prompt file. Used for en samples; --ml_prompt_file is used for all other languages.",
+    )
     ap.add_argument("--followup_prompt", type=str, default=None, help="Turn 2 follow-up prompt text.")
     ap.add_argument("--followup_prompt_file", type=str, default=None, help="Read Turn 2 follow-up prompt from file.")
     ap.add_argument("--system_prompt", type=str, default=None, help="System prompt text or path to file.")
@@ -140,8 +152,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
     )
     ap.add_argument(
-        "--autoscale_interval_s", type=int, default=180,
-        help="Seconds between Xenna streaming autoscaler checks. Lower values ramp up GPU actors faster on multi-node."
+        "--autoscale_interval_s",
+        type=int,
+        default=180,
+        help="Seconds between Xenna streaming autoscaler checks. Lower values ramp up GPU actors faster on multi-node.",
     )
 
     primary = ap.add_argument_group(

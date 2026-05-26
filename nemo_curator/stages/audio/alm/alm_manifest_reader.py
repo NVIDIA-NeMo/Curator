@@ -20,6 +20,7 @@ with pd.read_json.
 """
 
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,28 +38,107 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     Uses line-by-line streaming via fsspec (no Pandas) to keep memory at ~1x file size.
     Supports local and cloud paths (S3, GCS).
+
+    When ``output_dir`` is set, shards whose ``<shard_key>.jsonl.done`` marker
+    already exists in ``output_dir`` are skipped entirely (only the first line
+    of the manifest is read to derive the shard key). Partial outputs without
+    a ``.done`` marker are removed so the writer's append mode does not
+    accumulate on top of stale state.
     """
 
     name: str = "alm_manifest_reader_stage"
+    output_dir: str = ""
+
+    @staticmethod
+    def _derive_shard_key(manifest_path: str, corpus: str = "") -> str:
+        """Derive a shard key from the manifest path starting at the corpus directory.
+
+        Looks for ``corpus`` in the path components (from the task data)
+        and returns everything from that point onward, stripping the
+        file extension.  Falls back to using the ``corpus`` field from
+        the first entry in the manifest if not provided.
+        """
+        parts = manifest_path.replace("\\", "/").rstrip("/").split("/")
+        basename = parts[-1]
+        for ext in (".jsonl", ".json", ".jsonl.gz"):
+            if basename.endswith(ext):
+                basename = basename[: -len(ext)]
+                break
+        parts[-1] = basename
+
+        if corpus:
+            parts_lower = [p.lower() for p in parts]
+            corpus_lower = corpus.lower()
+            matches = [i for i, p in enumerate(parts_lower) if p == corpus_lower]
+            if matches:
+                return "/".join(parts[matches[0]:])
+
+        return "/".join(parts[-4:]) if len(parts) >= 4 else "/".join(parts)
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         paths = task.data
         results: list[AudioTask] = []
         for manifest in paths:
-            count = 0
+            entries: list[dict] = []
+            shard_key = ""
+            skip = False
             fs, resolved = url_to_fs(manifest)
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
-                    if line.strip():
-                        results.append(
-                            AudioTask(
-                                data=json.loads(line.strip()),
-                                _metadata=task._metadata,
-                                _stage_perf=list(task._stage_perf),
-                            )
-                        )
-                        count += 1
-            logger.info(f"ALMManifestReaderStage: loaded {count} entries from {manifest}")
+                    if not line.strip():
+                        continue
+                    entry = json.loads(line.strip())
+                    if not entries:
+                        # First entry determines the shard key; do the resume
+                        # check now so we can short-circuit before reading the
+                        # rest of the file if the shard is already .done.
+                        corpus = entry.get("corpus", "")
+                        shard_key = self._derive_shard_key(manifest, corpus)
+                        if self.output_dir:
+                            done_path = os.path.join(self.output_dir, f"{shard_key}.jsonl.done")
+                            if os.path.exists(done_path):
+                                skip = True
+                                break
+                            partial_path = os.path.join(self.output_dir, f"{shard_key}.jsonl")
+                            if os.path.exists(partial_path):
+                                try:
+                                    os.remove(partial_path)
+                                    logger.info(
+                                        f"ALMManifestReaderStage: removed partial output for {shard_key}"
+                                    )
+                                except OSError as exc:
+                                    logger.warning(
+                                        f"ALMManifestReaderStage: failed to remove partial {partial_path}: {exc}"
+                                    )
+                    entries.append(entry)
+
+            if skip:
+                logger.info(
+                    f"ALMManifestReaderStage: skipping completed shard {shard_key} (.done marker found)"
+                )
+                continue
+            if not entries:
+                logger.warning(f"ALMManifestReaderStage: empty manifest {manifest}, skipping")
+                continue
+
+            metadata = {
+                **task._metadata,
+                "_shard_key": shard_key,
+                "_shard_total": len(entries),
+            }
+
+            for entry in entries:
+                results.append(
+                    AudioTask(
+                        data=entry,
+                        _metadata=metadata,
+                        _stage_perf=list(task._stage_perf),
+                    )
+                )
+            logger.info(
+                f"ALMManifestReaderStage: loaded {len(entries)} entries from {manifest} (shard_key={shard_key})"
+            )
+
         return results
 
     def ray_stage_spec(self) -> dict[str, Any]:
@@ -79,6 +159,11 @@ class ALMManifestReader(CompositeStage[_EmptyTask, AudioTask]):
         blocksize: Target size per partition (e.g., "100MB"). Ignored if files_per_partition is set.
         file_extensions: File extensions to filter. Defaults to [".jsonl", ".json"].
         storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
+        output_dir: Optional output directory used by the matching
+            ``ShardedManifestWriterStage``. When set, manifests whose
+            ``<shard_key>.jsonl.done`` marker already exists are skipped on
+            resume, and partial outputs (no ``.done``) are deleted before
+            re-processing so the writer's append mode starts clean.
     """
 
     name: str = "alm_manifest_reader"
@@ -87,11 +172,16 @@ class ALMManifestReader(CompositeStage[_EmptyTask, AudioTask]):
     blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
     storage_options: dict[str, Any] | None = None
+    output_dir: str = ""
 
     def __post_init__(self) -> None:
         super().__init__()
         if not self.manifest_path:
             msg = "manifest_path is required for ALMManifestReader"
+            raise ValueError(msg)
+        inputs = self.manifest_path if isinstance(self.manifest_path, list) else [self.manifest_path]
+        if self.output_dir and any(os.path.realpath(p) == os.path.realpath(self.output_dir) for p in inputs):
+            msg = f"manifest_path and output_dir must differ; resume would delete inputs ({self.output_dir})"
             raise ValueError(msg)
 
     def decompose(self) -> list[ProcessingStage]:
@@ -103,7 +193,7 @@ class ALMManifestReader(CompositeStage[_EmptyTask, AudioTask]):
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
             ),
-            ALMManifestReaderStage(),
+            ALMManifestReaderStage(output_dir=self.output_dir),
         ]
 
     def get_description(self) -> str:

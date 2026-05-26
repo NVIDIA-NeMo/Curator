@@ -158,14 +158,18 @@ class QwenASR(ModelInterface):
             raise RuntimeError(msg)
 
         n = len(waveforms)
-        valid_indices = [i for i, w in enumerate(waveforms) if w.size > 0]
+        # Qwen3-ASR's audio processor (same Qwen audio family as Qwen3-Omni)
+        # requires >=200 samples for STFT padding. Use 1600 (100 ms @ 16 kHz)
+        # as a conservative minimum, matching qwen_omni._prepare_single.
+        MIN_SAMPLES = 1600
+        valid_indices = [i for i, w in enumerate(waveforms) if w.size >= MIN_SAMPLES]
 
         if not valid_indices:
-            logger.warning(f"All {n} audio samples are empty, returning empty predictions")
+            logger.warning(f"All {n} audio samples are too short (<{MIN_SAMPLES}), returning empty predictions")
             return [""] * n, [""] * n
 
         if len(valid_indices) < n:
-            logger.warning(f"Skipping {n - len(valid_indices)}/{n} empty waveforms in QwenASR batch")
+            logger.warning(f"Skipping {n - len(valid_indices)}/{n} too-short waveforms (<{MIN_SAMPLES}) in QwenASR batch")
 
         valid_waveforms = [waveforms[i] for i in valid_indices]
         valid_rates = [sample_rates[i] for i in valid_indices]

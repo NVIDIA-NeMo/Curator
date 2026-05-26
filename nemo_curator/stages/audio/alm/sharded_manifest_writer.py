@@ -120,8 +120,7 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         shard_total = task._metadata.get("_shard_total", 0)
         if shard_total > 0 and self._shard_counts[shard_key] >= shard_total:
             done_path = os.path.join(self.output_dir, f"{shard_key}.jsonl.done")
-            with open(done_path, "w") as f:
-                f.write(f"{self._shard_counts[shard_key]}\n")
+            open(done_path, "w").close()
             logger.info(f"Shard {shard_key} complete: {self._shard_counts[shard_key]} utterances, wrote {done_path}")
 
         return FileGroupTask(
