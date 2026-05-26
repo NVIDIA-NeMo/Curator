@@ -34,6 +34,19 @@ _DEFAULT_DROP_KEYS: list[str] = [
 ]
 
 
+def _coerce_shard_id(value: object) -> object:
+    """Normalize shard_id to int when it is numeric (NeMo tarred manifests expect int)."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 @dataclass
 class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     """Prepare fields for the text-filtering pipeline.
@@ -48,6 +61,8 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     - Drops all keys listed in ``drop_keys``.
     - Stamps any key/value pairs from ``pipeline_notes`` into
       ``additional_notes`` (e.g. ``primary_model``, ``recovery_model``).
+    - Coerces ``shard_id`` to ``int`` when present (e.g. ``"3"`` → ``3``)
+      so downstream manifests match NeMo tarred shard id types.
 
     Downstream stages store a human-readable reason string in
     ``_skipme`` when they flag an entry (e.g. ``"Hallucination"``).
@@ -59,6 +74,7 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     granary_v1_key: str = "granary_v1_prediction"
     source_lang_key: str = "source_lang"
     default_source_lang: str = "en"
+    shard_id_key: str = "shard_id"
     drop_keys: list[str] = field(default_factory=lambda: list(_DEFAULT_DROP_KEYS))
     pipeline_notes: dict[str, str] = field(default_factory=dict)
     name: str = "InitializeFields"
@@ -87,6 +103,8 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
             task.data[self.source_lang_key] = self.default_source_lang
         if self.original_text_key and self.original_text_key in task.data:
             task.data[self.granary_v1_key] = task.data.pop(self.original_text_key)
+        if self.shard_id_key and self.shard_id_key in task.data:
+            task.data[self.shard_id_key] = _coerce_shard_id(task.data[self.shard_id_key])
         for key in self.drop_keys:
             task.data.pop(key, None)
 
