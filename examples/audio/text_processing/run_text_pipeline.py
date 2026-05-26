@@ -313,6 +313,7 @@ def main() -> None:
                 prompt_file=code_switching_prompt,
                 text_key=args.text_key,
                 output_text_key=args.code_switching_output_key,
+                enable_validation=False,
                 resources=Resources(gpus=1.0),
                 **shared_model_kwargs,
             )

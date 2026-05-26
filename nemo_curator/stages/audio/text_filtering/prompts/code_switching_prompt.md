@@ -27,7 +27,7 @@ Categories that are typically NATIVE (leave unchanged):
 - Words for which the {language} has used its own term for centuries
 
 Grammatical rules:
-1. If an English root carries a {language} grammatical suffix (plural, case marker, etc.), output the English root in its standard English form and drop the suffix's script. Do NOT insert a space between the English root and any retained {language} morphology.
+1. If an English root carries a {language} grammatical suffix (plural, case marker, etc.), output the English root in its standard Latin spelling and keep the suffix attached in its original {language} script. Do NOT insert a space, hyphen, or any separator between the Latin root and the {language}-script suffix, and do NOT transliterate the suffix into Latin script.
 2. Preserve original word order, punctuation, and sentence structure exactly. Do not paraphrase, summarize, or reorder.
 3. If the input contains no English-origin transliterated words, return it unchanged.
 4. Output ONLY the rewritten {language} text. No explanations, no quotation marks around the output, no commentary.
