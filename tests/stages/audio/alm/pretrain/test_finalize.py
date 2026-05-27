@@ -162,6 +162,27 @@ class TestPrepareAndFinalize:
         # Tar shards cleaned up
         assert sorted(tmp_path.glob("snippets.tar.shard-*.tar")) == []
 
+    def test_finalize_preserves_existing_tar_when_shards_have_no_members(self, tmp_path: Path) -> None:
+        manifest = str(tmp_path / "snippets.jsonl")
+        metrics = str(tmp_path / "metrics.json")
+        tar_path = str(tmp_path / "snippets.tar")
+
+        with tarfile.open(tar_path, "w") as t:
+            body = b"previous-good"
+            ti = tarfile.TarInfo(name="previous.flac")
+            ti.size = len(body)
+            t.addfile(ti, io.BytesIO(body))
+
+        Path(_make_shard_path(tar_path, "tar")).touch()
+
+        finalize_audio_pretrain_outputs(manifest, metrics, tar_path)
+
+        with tarfile.open(tar_path, "r") as t:
+            names = t.getnames()
+            assert names == ["previous.flac"]
+            payload = t.extractfile("previous.flac").read()
+        assert payload == b"previous-good"
+
     def test_finalize_drops_manifest_rows_missing_from_tar(self, tmp_path: Path) -> None:
         """Manifest reconciliation: rows whose tar member is missing get dropped
         and surfaced as `dropped.missing_audio` in the merged metrics."""

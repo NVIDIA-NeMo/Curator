@@ -281,6 +281,11 @@ def _merge_tar_shards(output_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
         finally:
             in_tar.close()
     index.sort(key=lambda e: e[0])
+    if not index:
+        logger.info(
+            f"no readable tar members found in {len(shards)} tar shard(s) for {output_path}; skipping merge"
+        )
+        return
 
     # Pass 2: keep one open TarFile per source shard so we don't pay
     # reopen cost per member, then stream each member into the merged
