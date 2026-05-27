@@ -1,0 +1,139 @@
+# Granary v2 - Qwen-Omni In-Process Pipeline (Hydra Config)
+#
+# Small PR first-stage pipeline:
+#   NemoTarredAudioReader -> QwenOmni inference -> ShardedManifestWriter
+#
+# Invoked by NvLLMOps Kratos via:
+#   python tutorials/audio/qwen_omni_inprocess/main.py \
+#       --config-path=<path> --config-name=qwen_omni_inprocess \
+#       workspace_dir=/work input_manifest=/data/config.yaml
+#
+# The NvLLMOps run_curator() passes `input_manifest` as a Hydra override.
+# For tarred data, this should point to the Granary YAML data config.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+# ===========================================================================
+# CORE - these are overridden at runtime by NvLLMOps run_curator()
+# ===========================================================================
+input_manifest: ???
+workspace_dir: /local/qwen_omni_workspace
+final_manifest: ${workspace_dir}/output.jsonl
+language_short: en
+max_segment_length: 40
+hf_token: ""
+backend: xenna
+execution_mode: streaming
+autoscale_interval_s: 30
+stages_to_run: all
+stages_to_skip: []
+
+# data_config defaults to input_manifest (NvLLMOps passes the Granary YAML
+# data config path as input_manifest)
+data_config: ${input_manifest}
+output_dir: ${workspace_dir}
+corpus: null
+s3_endpoint_url: null
+max_utterances_per_shard: null
+source_lang_key: source_lang
+cpu_batch_size: 64
+duration_key: duration
+
+# Populated by NvLLMOps when available. The tutorial does not derive stage
+# behavior from these values by default; they are visible metadata/override
+# anchors for controlled throughput experiments.
+curator_num_nodes: null
+curator_gpus_per_node: null
+curator_total_gpus: null
+
+# ===========================================================================
+# MULTI-NODE SCALING
+# ===========================================================================
+# Leave null to let Xenna autoscale. Set these for controlled throughput tests.
+reader_num_workers: null
+reader_num_workers_per_node: null
+omni_num_workers: null
+
+# ===========================================================================
+# QWEN-OMNI INFERENCE
+# ===========================================================================
+model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+ml_prompt: "Transcribe the audio."
+ml_prompt_file: null
+en_prompt_file: /opt/Curator/examples/audio/qwen_omni_inprocess/prompts/en_qwen3_omni_disfluency_asr.md
+followup_prompt: null
+followup_prompt_file: null
+system_prompt: null
+tensor_parallel_size: 2
+omni_resource_gpus: 2.0
+batch_size: 32
+max_output_tokens: 256
+max_model_len: 4096
+max_num_seqs: 16
+gpu_memory_utilization: 0.90
+prep_workers: 16
+enable_disfluency_guard: false
+omni_hallucination_text_key: qwen3_prediction_s1
+keep_waveform: false
+
+# ===========================================================================
+# STAGE GRAPH
+# ===========================================================================
+# This explicit list is the only source of truth for the tutorial stage graph.
+# Use `enabled`, `stages_to_run`, or `stages_to_skip` to choose stages.
+stages:
+  - stage_id: reader
+    _target_: nemo_curator.stages.audio.io.nemo_tarred_reader.NemoTarredAudioReader
+    yaml_path: ${data_config}
+    corpus_filter: ${corpus}
+    s3_endpoint_url: ${s3_endpoint_url}
+    output_dir: ${output_dir}
+    max_utterances_per_shard: ${max_utterances_per_shard}
+    reader_num_workers: ${reader_num_workers}
+    reader_num_workers_per_node: ${reader_num_workers_per_node}
+    stage_with:
+      nemo_tar_shard_reader:
+        resources:
+          _target_: nemo_curator.stages.resources.Resources
+          cpus: 4.0
+
+  - stage_id: qwen_omni
+    _target_: nemo_curator.stages.audio.inference.qwen_omni.InferenceQwenOmniStage
+    model_id: ${model_id}
+    prompt_text: ${ml_prompt}
+    prompt_file: ${ml_prompt_file}
+    en_prompt_file: ${en_prompt_file}
+    followup_prompt: ${followup_prompt}
+    followup_prompt_file: ${followup_prompt_file}
+    system_prompt: ${system_prompt}
+    tensor_parallel_size: ${tensor_parallel_size}
+    batch_size: ${batch_size}
+    max_output_tokens: ${max_output_tokens}
+    max_model_len: ${max_model_len}
+    max_num_seqs: ${max_num_seqs}
+    gpu_memory_utilization: ${gpu_memory_utilization}
+    prep_workers: ${prep_workers}
+    source_lang_key: ${source_lang_key}
+    pred_text_key: qwen3_prediction_s1
+    disfluency_text_key: qwen3_prediction_s2
+    keep_waveform: ${keep_waveform}
+    num_workers_override: ${omni_num_workers}
+    stage_with:
+      resources:
+        _target_: nemo_curator.stages.resources.Resources
+        gpus: ${omni_resource_gpus}
+
+  - stage_id: sharded_manifest_writer
+    _target_: nemo_curator.stages.audio.io.sharded_manifest_writer.ShardedManifestWriterStage
+    output_dir: ${output_dir}
+    duration_key: ${duration_key}
+    stage_with:
+      batch_size: ${cpu_batch_size}
