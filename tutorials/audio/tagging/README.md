@@ -4,23 +4,52 @@ This tutorial demonstrates how to process raw, unlabelled audio into labelled tr
 
 ## Overview
 
-The audio tagging pipeline is a processing framework that takes raw audio files and produces segmented, annotated manifests. It covers resampling, speaker diarization, ASR forced alignment, and merge stages.
+The audio tagging pipeline is a generic processing framework that takes raw audio files and produces segmented, annotated manifests suitable for training multiple speech modalities — **TTS**, **ASR**, **ALM**, and others. The core pipeline (stages 0–9) is shared across all modalities: resampling, speaker diarization, ASR forced alignment, merge, quality metrics, and segment preparation. The `PrepareModuleSegmentsStage` is the key stage where segments are shaped differently based on the target modality (e.g. duration constraints, utterance completeness). Optionally, a second-pass ASR transcription and WER computation can be appended to further validate transcript quality.
 
 ### Pipeline Flow
 
 ```
-┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
-│ Raw Audio  │─▶│ Resample   │─▶│ Diarize    │─▶│ Split Long │
-│ Manifest   │  │ (16kHz WAV)│  │ (PyAnnote) │  │ Audio      │
-└────────────┘  └────────────┘  └────────────┘  └────────────┘
-                                                      │
-┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
-│ Output     │◀─│ Merge      │◀─│ Join Split │◀─│ ASR Align  │
-│ Manifest   │  │            │  │ Metadata   │  │ (NeMo)     │
-└────────────┘  └────────────┘  └────────────┘  └────────────┘
+ ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+ │     Manifest     │───▶│     Resample     │───▶│     Diarize      │───▶│    Split Long    │
+ │      Reader      │    │   (16kHz WAV)    │    │    (PyAnnote)    │    │      Audio       │
+ └──────────────────┘    └──────────────────┘    └──────────────────┘    └────────┬─────────┘
+                                                                                  │
+                                                                                  ▼
+ ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+ │      Merge       │◀───│    Join Split    │◀───│    ASR Align     │
+ │    Align+Diar    │    │     Metadata     │    │   (1st pass)     │
+ └────────┬─────────┘    └──────────────────┘    └──────────────────┘
+          │
+          ▼
+ ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+ │    Bandwidth     │───▶│      SQUIM       │───▶│     Prepare      │─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+ │    Estimation    │    │     Metrics      │    │    Module Seg    │    (tts / asr / ...)
+ └──────────────────┘    └──────────────────┘    └────────┬─────────┘                            │
+                                                          │
+                                                          ▼                                      │
+                                                 ┌──────────────────┐
+                                                 │    ASR Align     │                            │
+                                                 │    (2nd pass)    │
+                                                 └────────┬─────────┘                            │
+                                                          │
+                                                          ▼                                      │
+                                                 ┌────────────────┐
+                                                 │  Compute WER   │                              │
+                                                 │                │
+                                                 └───────┬────────┘                              │
+                                                         │
+                                                         ▼                                       │
+                                                 ┌────────────────┐
+                                                 │    Manifest    │◀─────────────────────────────┘
+                                                 │     Writer     │
+                                                 └────────────────┘
 ```
 
+The dashed path shows that `ManifestWriter` can follow directly after `PrepareModuleSegments` (e.g. the default TTS config) or after the optional second-pass ASR + WER stages (e.g. the ASR config).
+
 ### Pipeline Stages
+
+#### Core Stages (shared by all modalities, stages 0–9)
 
 | # | Stage | Description | GPU |
 |---|-------|-------------|-----|
@@ -31,7 +60,29 @@ The audio tagging pipeline is a processing framework that takes raw audio files 
 | 4 | **NeMoASRAlignerStage** | Forced alignment via NeMo FastConformer | Yes |
 | 5 | **JoinSplitAudioMetadataStage** | Rejoin split audio metadata | No |
 | 6 | **MergeAlignmentDiarizationStage** | Merge alignment with diarization segments | No |
-| 7 | **ManifestWriterStage** | Write output JSONL manifest | No |
+| 7 | **BandwidthEstimationStage** | Spectral bandwidth estimation per segment | No |
+| 8 | **TorchSquimQualityMetricsStage** | PESQ, STOI, SI-SDR quality metrics | Yes |
+| 9 | **PrepareModuleSegmentsStage** | Merge/split segments into training-ready chunks for the target modality. Uses `min_duration` and `max_duration` (in seconds) to form segments suitable for ASR/TTS training. Controlled by the `module` parameter (`tts`, `asr`, etc.) and also considers pauses and punctuation for splitting. | No |
+
+> **Punctuation matters**: `PrepareModuleSegmentsStage` relies heavily on punctuation marks (`.`, `!`, `?`) to identify natural utterance boundaries when forming segments. If the ASR model produces unpunctuated text, segments will be split purely by duration and pause heuristics, leading to mid-sentence breaks. Use an ASR model that outputs punctuated and capitalised text natively for best results.
+
+#### Optional Second-Pass ASR & WER Stages
+
+These stages can be appended after `PrepareModuleSegments` in any modality config to cross-validate transcripts:
+
+| # | Stage | Description | GPU |
+|---|-------|-------------|-----|
+| 10 | **NeMoASRAlignerStage** (2nd pass) | Second-pass ASR transcription (e.g. CTC Conformer) | Yes |
+| 11 | **ComputeWERStage** | Word/character error rate between first and second ASR transcripts | No |
+
+#### Optional Text Normalization Stages
+
+These stages can be inserted after merging (stage 6) for language-specific text processing:
+
+| Stage | Description | GPU |
+|-------|-------------|-----|
+| **InverseTextNormalizationStage** | Inverse text normalization (spoken → written) | No |
+| **ChineseConversionStage** | Traditional → Simplified Chinese conversion | No |
 
 ## Installation
 
@@ -51,11 +102,13 @@ source .venv/bin/activate
 
   ```
 - **GPU**: Required for diarization (PyAnnote), VAD (Pyannote), ASR alignment (NeMo)
-- **HuggingFace Token**: Required for PyAnnote model access. Request access at [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1), [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0), [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1), [pyannote/voice-activity-detection](https://huggingface.co/pyannote/voice-activity-detection)
+- **HuggingFace Token**: Required for PyAnnote diarization model access. See [HuggingFace Access](#huggingface-access) for setup instructions.
 
 ## Quick Start
 
 ### TTS Pipeline
+
+The TTS config runs the core stages with `module: tts` in `PrepareModuleSegmentsStage` (`full_utterance_ratio: 1.0`). The output segments are single-speaker utterances, each annotated with quality metrics such as `bandwidth`, `stoi_squim`, `si_sdr`, and `pesq_squim`. These metrics can be used downstream to filter for high-quality audio — for example, keeping only segments where `bandwidth >= 8000 && si_sdr >= 15 && stoi_squim >= 0.9`.
 
 A small toy dataset is bundled in `tests/fixtures/audio/tagging/` so you can run end-to-end without providing your own audio:
 
@@ -67,6 +120,28 @@ python tutorials/audio/tagging/main.py \
   final_manifest=/tmp/tts_output.jsonl \
   hf_token=<your_hf_token>
 ```
+
+### ASR Pipeline
+
+The ASR config runs the same core stages with `module: asr` (`full_utterance_ratio: 0.8` to allow partial utterances), then adds second-pass ASR and WER computation. The per-segment `wer` field can be used to filter for reliable transcripts — for example, keeping only segments where `wer <= 10%`.
+
+```bash
+python tutorials/audio/tagging/main.py \
+  --config-path . \
+  --config-name asr_pipeline \
+  input_manifest=/data/input.jsonl \
+  final_manifest=/data/asr_output.jsonl \
+  hf_token=<your_hf_token>
+```
+
+#### Improving ASR Training Data Quality
+
+For ASR training data, combine these optional blocks to maximise transcript quality:
+
+1. **Filter by WER**: After the second-pass ASR and `ComputeWERStage`, filter segments with `wer <= 10%` to keep only samples where the two ASR passes agree closely. This is a strong signal that the transcript is correct.
+2. **Apply ITN**: Insert `InverseTextNormalizationStage` to convert spoken-form text (e.g. "twenty three") to written form (e.g. "23") for training data that requires normalised text.
+
+These blocks compose naturally — ITN and WER filtering each address a different axis of data quality and can both be enabled in a single pipeline run.
 
 ## Input Format
 
@@ -106,6 +181,13 @@ The output manifest is a JSONL file where each line contains the fully processed
         {"word": "Hello", "start": 1.23, "end": 1.55},
         {"word": "how", "start": 1.60, "end": 1.72} ...
       ],
+      "metrics":
+        {
+          "bandwidth": [8000, 8400, 7200, ...],
+          "pesq_squim": [3.4, 3.5, 3.6, ...],
+          "stoi_squim": [0.91, 0.92, 0.90, ...],
+          "si_sdr": [19.8, 20.4, 21.0, ...],
+        }
     }
   ],
   "overlap_segments": [],
@@ -119,14 +201,20 @@ The output manifest is a JSONL file where each line contains the fully processed
 
 ### Output Fields
 
-| Field                     | Description                                                                          |
-|---------------------------|--------------------------------------------------------------------------------------|
-| `resampled_audio_filepath`| Path to the resampled 16 kHz mono WAV                                                |
-| `duration`                | Total audio duration in seconds                                                      |
-| `segments`                | List of labelled speaker segments with text, word timestamps                         |
-| `overlap_segments`        | Speaker turns with detected overlap (excluded from `segments`)                       |
-| `text`                    | Full transcript text for the audio entry                                             |
-| `alignment`               | List of word-level alignment objects (with fields: `word`, `start`, `end`)           |
+| Field                     | Source                  | Description                                                          |
+|---------------------------|-------------------------|----------------------------------------------------------------------|
+| `resampled_audio_filepath`| Core                    | Path to the resampled 16 kHz mono WAV                                |
+| `duration`                | Core                    | Total audio duration in seconds                                      |
+| `segments`                | Core                    | List of labelled speaker segments with text, word timestamps         |
+| `overlap_segments`        | Core                    | Speaker turns with detected overlap (excluded from `segments`)       |
+| `text`                    | Core                    | Full transcript text for the audio entry                             |
+| `alignment`               | Core                    | List of word-level alignment objects (`word`, `start`, `end`)        |
+| `segments[].bandwidth`    | Core                    | Estimated spectral bandwidth                                         |
+| `segments[].pesq_squim`   | Core                    | PESQ quality score (via TorchSQUIM)                                  |
+| `segments[].stoi_squim`   | Core                    | STOI quality score (via TorchSQUIM)                                  |
+| `segments[].si_sdr`       | Core                    | SI-SDR quality score (via TorchSQUIM)                                |
+| `segments[].text_2`       | Optional (2nd-pass ASR) | Second-pass ASR transcript (e.g. CTC Conformer)                     |
+| `segments[].wer`          | Optional (ComputeWER)   | Word error rate between first and second ASR transcripts             |
 
 ## Configuration
 
@@ -149,23 +237,28 @@ python tutorials/audio/tagging/main.py \
 |-----------|-------------|---------|
 | `input_manifest` | Path to input JSONL manifest | **Required** |
 | `final_manifest` | Path for output JSONL manifest | **Required** |
-| `hf_token` | HuggingFace token for PyAnnote access | `""` |
+| `hf_token` | HuggingFace token for PyAnnote access (see [HuggingFace Access](#huggingface-access) below) | `""` |
 | `sample_rate` | Target sample rate in Hz | `16000` |
 | `max_segment_length` | Maximum segment duration in seconds | `40` |
 | `workspace_dir` | Directory for intermediate files | `/tmp/tagging_workspace` |
 | `resampled_audio_dir` | Directory for resampled audio | `${workspace_dir}/audio_resampled` |
-| `resources.cpus` | CPUs per CPU-bound stage | `2` |
 
 ### Stage-Specific Overrides
 
 Override individual stage parameters using their index in the `stages` list:
 
 ```bash
-# Change diarization model
+# Change diarization model (stage 2)
 stages.2.diarization_model=pyannote/speaker-diarization-3.1
 
-# Adjust ASR batch size
+# Adjust first-pass ASR batch size (stage 4)
 stages.4.batch_size=16
+
+# Adjust PrepareModuleSegments duration limits (stage 9)
+stages.9.min_duration=3 stages.9.max_duration=25
+
+# Adjust second-pass ASR batch size (stage 10, when present)
+stages.10.batch_size=32
 ```
 
 ## Parameter Tuning
@@ -244,6 +337,7 @@ These ratios vary significantly by content type. Interviews (2 speakers, turn-ta
 tutorials/audio/tagging/
 ├── main.py              # Pipeline runner (YAML-driven)
 ├── tts_pipeline.yaml    # TTS pipeline configuration
+├── asr_pipeline.yaml    # ASR pipeline configuration
 └── README.md            # This file
 ```
 
@@ -261,38 +355,49 @@ pytest tests/stages/audio/tagging/ -v
 tests/stages/audio/tagging/
 ├── conftest.py
 ├── test_merge_alignment_diarization.py
+├── test_prepare_module_segments.py
 ├── test_resample_audio.py
 ├── test_split.py
 ├── test_utils.py
-└── inference/
-    ├── test_base_asr_processor.py
-    └── test_nemo_asr_align.py
+├── inference/
+│   ├── test_base_asr_processor.py
+│   └── test_nemo_asr_align.py
+├── metrics/
+│   └── test_metrics.py
+├── text/
+│   ├── test_itn.py
+│   └── test_text.py
+└── e2e/
+    ├── test_tts_e2e.py
+    ├── test_asr_e2e.py
+    ├── conftest.py
+    ├── utils.py
+    └── configs/
+        ├── tts_pipeline.yaml
+        └── asr_pipeline.yaml
 ```
 
 ### End-to-End Pipeline Test
 
-An automated end-to-end (E2E) test validates the full TTS audio tagging pipeline. This test mirrors the tutorial configuration and ensures all pipeline stages work together as expected.
+Automated end-to-end (E2E) tests validate the full TTS and ASR audio tagging pipelines. These tests mirror the tutorial configurations and ensure all pipeline stages work together as expected.
 
-To run the E2E test:
+To run the E2E tests:
 
 ```bash
-pytest tests/stages/audio/tagging/e2e/test_tts_e2e.py -v
+pytest tests/stages/audio/tagging/e2e/ -v
 ```
-
-**What the E2E test does:**
-- Runs the entire YAML-driven pipeline found in `tutorials/audio/tagging/tts_pipeline.yaml`
-- Uses test audio fixtures and a sample manifest for reproducibility
-- Asserts output matches a reference (expected) manifest, including proper alignment and diarization
 
 **Relevant files:**
 
 ```
 tests/stages/audio/tagging/e2e/
-├── test_tts_e2e.py         # End-to-end TTS tagging pipeline test
-├── conftest.py             # Test fixtures (manifests, input data)
-├── utils.py                # Output validation helpers
+├── test_tts_e2e.py             # End-to-end TTS tagging pipeline test
+├── test_asr_e2e.py             # End-to-end ASR tagging pipeline test
+├── conftest.py                 # Test fixtures (manifests, input data)
+├── utils.py                    # Output validation helpers
 └── configs/
-    └── tts_pipeline.yaml   # Test configuration for the pipeline
+    ├── tts_pipeline.yaml               # TTS pipeline configuration
+    └── asr_pipeline.yaml               # ASR pipeline configuration
 ```
 
 > **Note:** A valid HuggingFace token (`HF_TOKEN`) is required for diarization tests.
@@ -304,18 +409,38 @@ tests/stages/audio/tagging/e2e/
 
 See the test file for detailed comments on the pipeline steps and configuration overrides.
 
+## HuggingFace Access
+
+The pipeline requires a HuggingFace token with accepted user agreements for the PyAnnote speaker diarization models. To set up access:
+
+1. Create a HuggingFace account at https://huggingface.co/join
+2. Generate an access token at https://huggingface.co/settings/tokens
+3. Accept the user agreements for the following models:
+   - [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) — main diarization pipeline
+   - [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) — speaker segmentation model
+   - [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) — community diarization model
+   - [pyannote/voice-activity-detection](https://huggingface.co/pyannote/voice-activity-detection) — voice activity detection
+4. Pass the token via `hf_token=<your_token>` in the pipeline config or export it as an environment variable:
+
+```bash
+export HF_TOKEN=your_hf_token
+```
+
+> **Note:** Without accepted agreements, the pipeline will fail with a 401/403 error when attempting to download the PyAnnote models.
+
 ## Troubleshooting
 
 ### No Segments Produced
 
-- Ensure `hf_token` is set and has access to the PyAnnote model
+- Ensure `hf_token` is set and has access to the PyAnnote models (see [HuggingFace Access](#huggingface-access))
 - Verify input audio files exist at the paths in the manifest
 - Check that `audio_item_id` is unique per entry
 
 ### GPU Out of Memory
 
-- Reduce `stages.4.batch_size` (ASR alignment)
+- Reduce `stages.4.batch_size` (first-pass ASR alignment)
 - Reduce `stages.2.segmentation_batch_size` (diarization)
+- Reduce `stages.10.batch_size` (second-pass ASR, when present)
 - Process fewer files per manifest
 - See [GPU Memory Requirements](#gpu-memory-requirements) for per-model VRAM usage
 
