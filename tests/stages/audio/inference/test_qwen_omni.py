@@ -73,6 +73,18 @@ def test_followup_prompt_stores_disfluency() -> None:
     assert results[0].data["qwen3_prediction_s2"] == "hello world cleaned"
 
 
+def test_followup_prompt_file_stores_disfluency() -> None:
+    stage = _make_stage()
+    stage.followup_prompt_file = "prompt.md"
+    stage._model.generate.return_value = (["hello world"], ["hello world cleaned"], set())
+
+    tasks = [_make_task()]
+    results = stage.process_batch(tasks)
+
+    assert "qwen3_prediction_s2" in stage.outputs()[1]
+    assert results[0].data["qwen3_prediction_s2"] == "hello world cleaned"
+
+
 def test_keep_waveform_flag() -> None:
     stage = _make_stage()
     stage.keep_waveform = True

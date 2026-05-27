@@ -169,6 +169,9 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
             return {}
         return {"num_workers": self.num_workers_override}
 
+    def _has_followup_prompt(self) -> bool:
+        return bool(self.followup_prompt or self.followup_prompt_file)
+
     @staticmethod
     def _resolve_text(text: str | None, file_path: str | None) -> str | None:
         if file_path:
@@ -245,7 +248,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         keys = [self.pred_text_key, self.skip_me_key]
-        if self.followup_prompt:
+        if self._has_followup_prompt():
             keys.append(self.disfluency_text_key)
         return [], keys
 
@@ -285,7 +288,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
 
         for i, (task, pred, disfl) in enumerate(zip(tasks, pred_texts, disfluency_texts, strict=True)):
             task.data[self.pred_text_key] = pred
-            if self.followup_prompt:
+            if self._has_followup_prompt():
                 task.data[self.disfluency_text_key] = disfl
             if i in skipped_indices:
                 task.data[self.skip_me_key] = "empty_audio"
@@ -318,5 +321,5 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
 
         if skipped_indices:
             logger.info(f"QwenOmni: marked {len(skipped_indices)}/{len(tasks)} tasks as empty_audio ({self.skip_me_key})")
-        logger.info(f"QwenOmni: generated {len(pred_texts)} predictions (turn2={bool(self.followup_prompt)})")
+        logger.info(f"QwenOmni: generated {len(pred_texts)} predictions (turn2={self._has_followup_prompt()})")
         return tasks
