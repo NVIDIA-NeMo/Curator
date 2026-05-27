@@ -232,7 +232,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             # Assign distances using the fitted cluster centers
             df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)  # noqa: PLW2901
 
-            output_filename = f"{tasks[0]._uuid}_{i}"
+            output_filename = f"{tasks[0].task_id}_{i}"
             # Write results for this subgroup
             self.write_parquet(
                 df,
@@ -392,7 +392,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             df["centroid"] = labels
             df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)
 
-            output_filename = f"{tasks[0]._uuid}_{i}"
+            output_filename = f"{tasks[0].task_id}_{i}"
             self.write_parquet(
                 df,
                 self.output_path,

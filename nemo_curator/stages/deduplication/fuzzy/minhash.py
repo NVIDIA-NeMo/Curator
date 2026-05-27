@@ -306,7 +306,7 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
             msg = "MinHash processor or ID generator not initialized. Call setup() first."
             raise RuntimeError(msg)
 
-        output_file = self.output_fs.sep.join([self.output_path, f"{task._uuid}.parquet"])
+        output_file = self.output_fs.sep.join([self.output_path, f"{task.task_id}.parquet"])
 
         read_kwargs = self.read_kwargs.copy()
 

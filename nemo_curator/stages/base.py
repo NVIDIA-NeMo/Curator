@@ -182,6 +182,16 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         Note: The returned list should have the same length as the input list,
         with each element corresponding to the result of processing the task
         at the same index.
+
+        Lineage contract: every emitted child gets ``_lineage_path`` and
+        ``task_id`` assigned by ``_set_lineage`` based on the input
+        task's ``_lineage_path`` and the child's positional index. This
+        is what makes ``task_id`` deterministic across runs.
+
+        If you override ``process_batch`` to do something custom (e.g.
+        cross-task aggregation), you're responsible for calling
+        ``_set_lineage`` on each emitted output yourself — otherwise
+        downstream stages will see empty ``task_id`` and ``_lineage_path``.
         """
         # Default implementation: process tasks one by one
         # This is only used as a fallback if a stage doesn't override this method
@@ -192,10 +202,12 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
                 raise ValueError(msg)
 
             result = self.process(task)
-            if isinstance(result, list):
-                results.extend(result)
-            else:
-                results.append(result)
+            children = result if isinstance(result, list) else [result]
+            for i, child in enumerate(children):
+                if child is None:
+                    continue
+                child._set_lineage([task._lineage_path], i)
+                results.append(child)
         return results
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:

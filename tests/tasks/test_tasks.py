@@ -44,10 +44,11 @@ class Repeat(ProcessingStage[SimpleTask, SimpleTask]):
         return [], []
 
     def process(self, task: SimpleTask) -> list[SimpleTask]:
-        # Important: construct fresh Task objects so each gets a fresh _uuid
+        # Construct fresh Task objects; the framework's default process_batch
+        # will assign deterministic task_ids via _set_lineage.
         return [
             SimpleTask(
-                task_id=f"{task.task_id}_{i}",
+                task_id="placeholder",   # always overwritten by _set_lineage
                 dataset_name=task.dataset_name,
                 data=task.data,
                 _metadata=task._metadata.copy(),
@@ -61,11 +62,17 @@ def _sample_task() -> SimpleTask:
     return SimpleTask(task_id="t0", dataset_name="test", data=[1, 2, 3])
 
 
-def test_fanout_tasks_have_unique_uuid():
+def test_fanout_tasks_have_unique_task_ids():
+    """The default process_batch should call _set_lineage on each emitted
+    child, giving them deterministic and unique task_ids derived from the
+    parent's lineage path."""
     task = _sample_task()
     stage = Repeat(times=3)
-    output = stage.process(task)
+    output = stage.process_batch([task])
 
     assert len(output) == 3
-    uuids = [t._uuid for t in output]
-    assert len(set(uuids)) == 3, f"Expected unique _uuid per task, got {uuids}"
+    task_ids = [t.task_id for t in output]
+    assert len(set(task_ids)) == 3, f"Expected unique task_id per task, got {task_ids}"
+    # Each child has a non-empty lineage path with the parent's path as prefix.
+    for i, t in enumerate(output):
+        assert t._lineage_path == f"_{i}" or t._lineage_path == str(i), t._lineage_path

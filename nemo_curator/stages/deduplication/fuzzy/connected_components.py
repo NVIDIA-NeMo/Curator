@@ -173,7 +173,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
         input_files = []
         for task in tasks:
             input_files.extend(task.data)
-        output_file = self.output_fs.sep.join([self.output_path, f"{tasks[0]._uuid}.parquet"])
+        output_file = self.output_fs.sep.join([self.output_path, f"{tasks[0].task_id}.parquet"])
         edgelist_columns = [self.source_field, self.destination_field]
         dfs = []
         for input_file in input_files:
