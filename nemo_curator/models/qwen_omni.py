@@ -19,7 +19,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
+import torch
 from loguru import logger
+from qwen_omni_utils import process_mm_info
+from transformers import Qwen3OmniMoeProcessor
 
 from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils.gpu_utils import get_gpu_count
@@ -43,6 +46,11 @@ except ImportError:
 
 _QWEN3_OMNI_MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 _QWEN_SAMPLE_RATE = 16000
+_FOLLOWUP_PROMPT = (
+    "Now listen to the audio again and add any false starts, filler words "
+    "and preserve colloquial words (like lemme, gonna, wanna, etc) as is "
+    "spoken in the audio."
+)
 
 
 class QwenOmni(ModelInterface):
@@ -61,7 +69,7 @@ class QwenOmni(ModelInterface):
         model_id: str = _QWEN3_OMNI_MODEL_ID,
         prompt_text: str = "Transcribe the audio.",
         en_prompt_text: str | None = None,
-        followup_prompt: str = "Now listen to the audio again and add any false starts, filler words and preserve colloquial words (like lemme, gonna, wanna, etc) as is spoken in the audio.",
+        followup_prompt: str = _FOLLOWUP_PROMPT,
         system_prompt: str | None = None,
         max_model_len: int = 32768,
         max_num_seqs: int = 32,
@@ -125,8 +133,6 @@ class QwenOmni(ModelInterface):
             prefix_caching_hash_algo="xxhash",
         )
 
-        from transformers import Qwen3OmniMoeProcessor
-
         self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id)
 
         self._sampling_params = SamplingParams(
@@ -149,8 +155,6 @@ class QwenOmni(ModelInterface):
         self._sampling_params = None
         gc.collect()
         try:
-            import torch
-
             torch.cuda.empty_cache()
         except Exception as e:  # noqa: BLE001
             logger.debug("CUDA cache clear skipped: {}", e)
@@ -176,7 +180,7 @@ class QwenOmni(ModelInterface):
 
     def _get_prompt_text(self, language: str | None) -> str:
         """Return the EN-specific prompt for English, otherwise the default prompt."""
-        if language and language == "English" and self.en_prompt_text:
+        if language == "English" and self.en_prompt_text:
             return self.en_prompt_text
         return self._resolve_prompt(self.prompt_text, language)
 
@@ -223,8 +227,6 @@ class QwenOmni(ModelInterface):
     def _prepare_single(
         self, waveform: np.ndarray, sample_rate: int, language: str | None = None,
     ) -> tuple[dict[str, Any], np.ndarray] | None:
-        from qwen_omni_utils import process_mm_info
-
         if waveform is None or waveform.size == 0:
             logger.warning("Skipping empty waveform")
             return None
@@ -270,8 +272,6 @@ class QwenOmni(ModelInterface):
     def _prepare_turn2_single(
         self, waveform_16k: np.ndarray, pred_text: str, language: str | None = None,
     ) -> dict[str, Any] | None:
-        from qwen_omni_utils import process_mm_info
-
         try:
             messages = self._build_turn2_messages(waveform_16k, pred_text, language)
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)

@@ -12,9 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import io
+import json
+import tarfile
+
+import numpy as np
 import pytest
+import soundfile as sf
 
 from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarShardReaderStage, NemoTarredAudioReader
+from nemo_curator.tasks import FileGroupTask
 
 
 def test_reader_composite_forwards_duration_filter() -> None:
@@ -49,3 +56,40 @@ def test_reader_manifest_lookup_accepts_common_path_variants(tmp_path) -> None:
     assert lookup["/data/shard/audio_0.wav"]["duration"] == 1.0
     assert lookup["data/shard/audio_0.wav"]["duration"] == 1.0
     assert lookup["audio_0.wav"]["duration"] == 1.0
+
+
+def test_reader_skips_tar_members_when_extractfile_returns_none(tmp_path, monkeypatch) -> None:
+    """Non-regular tar members (hard links, sparse/unknown types) can slip past
+    tar_info.isfile() and produce None from extractfile(); the stage must skip
+    them instead of raising AttributeError on .read().
+    """
+    audio = np.zeros(16000, dtype=np.float32)
+    wav_buf = io.BytesIO()
+    sf.write(wav_buf, audio, 16000, format="WAV")
+    wav_bytes = wav_buf.getvalue()
+
+    tar_path = tmp_path / "shard.tar"
+    with tarfile.open(tar_path, "w") as tf:
+        info = tarfile.TarInfo(name="audio_0.wav")
+        info.size = len(wav_bytes)
+        tf.addfile(info, io.BytesIO(wav_bytes))
+
+    manifest_path = tmp_path / "manifest.jsonl"
+    manifest_path.write_text(
+        json.dumps({"audio_filepath": "audio_0.wav", "duration": 1.0}) + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(tarfile.TarFile, "extractfile", lambda self, member: None)
+
+    stage = NemoTarShardReaderStage()
+    task = FileGroupTask(
+        task_id="test_shard",
+        dataset_name="test",
+        data=[str(manifest_path), str(tar_path)],
+        reader_config={"corpus": "test", "shard_key": "test_shard"},
+    )
+
+    results = stage.process(task)
+
+    assert results == []

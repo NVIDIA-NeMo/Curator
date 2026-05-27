@@ -32,6 +32,7 @@ from io import BytesIO
 from typing import Any
 
 import soundfile as sf
+import yaml
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
@@ -171,8 +172,6 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         return rel
 
     def process(self, _task: _EmptyTask) -> list[FileGroupTask]:  # noqa: C901
-        import yaml
-
         t0 = time.perf_counter()
         completed = self._scan_completed_shards()
         if completed:
@@ -379,7 +378,12 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                         duration_filtered_count += 1
                         continue
 
-                raw_audio = tar.extractfile(tar_info).read()
+                fobj = tar.extractfile(tar_info)
+                if fobj is None:
+                    corrupt_audio_count += 1
+                    logger.warning(f"Skipping non-regular tar member {tar_info.name} in {tar_path}")
+                    continue
+                raw_audio = fobj.read()
                 try:
                     decode_t0 = time.perf_counter()
                     audio, sample_rate = sf.read(BytesIO(raw_audio), dtype="float32")

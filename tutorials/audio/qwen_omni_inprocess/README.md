@@ -32,12 +32,6 @@ uv sync --extra audio_cuda12
 source .venv/bin/activate
 ```
 
-If you do not have `uv`, use pip:
-
-```bash
-pip install -e ".[audio_cuda12]"
-```
-
 The `audio_cuda12` extra includes the audio stack, vLLM, and `qwen-omni-utils`. Qwen3-Omni is a large GPU model; use a node with enough GPU memory for the configured tensor parallel size.
 
 ## Data Requirements

@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.models.qwen_omni import QwenOmni
@@ -220,8 +221,6 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         ``setup()`` doesn't trigger parallel downloads on multi-GPU nodes.
         """
         try:
-            from huggingface_hub import snapshot_download
-
             prefetch_t0 = time.perf_counter()
             snapshot_download(self.model_id)
             logger.info(

@@ -42,6 +42,7 @@ os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 os.environ.setdefault("VLLM_LOGGING_LEVEL", "ERROR")
 
 import hydra
+from huggingface_hub import hf_hub_download, snapshot_download
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
@@ -260,8 +261,6 @@ def _prefetch_models(stages: list[ProcessingStage], *, fail_on_error: bool = Tru
     and prefetches common HuggingFace model attributes without hardcoding a
     full Granary v2 post-processing graph in this entry point.
     """
-    from huggingface_hub import hf_hub_download, snapshot_download
-
     tasks: list[tuple[str, Callable[[], str]]] = []
     seen_snapshots: set[str] = set()
     seen_hf_files: set[str] = set()

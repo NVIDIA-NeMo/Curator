@@ -152,14 +152,14 @@ def test_default_language_used_when_task_language_missing() -> None:
     assert languages == ["English"]
 
 
-@patch("huggingface_hub.snapshot_download")
+@patch("nemo_curator.stages.audio.inference.qwen_omni.snapshot_download")
 def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     stage = InferenceQwenOmniStage(model_id="mock/model")
     stage.setup_on_node()
     mock_download.assert_called_once_with("mock/model")
 
 
-@patch("huggingface_hub.snapshot_download", side_effect=RuntimeError("missing auth"))
+@patch("nemo_curator.stages.audio.inference.qwen_omni.snapshot_download", side_effect=RuntimeError("missing auth"))
 def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
     stage = InferenceQwenOmniStage(model_id="mock/model")
 
@@ -169,7 +169,7 @@ def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
     mock_download.assert_called_once_with("mock/model")
 
 
-@patch("huggingface_hub.snapshot_download", side_effect=RuntimeError("offline"))
+@patch("nemo_curator.stages.audio.inference.qwen_omni.snapshot_download", side_effect=RuntimeError("offline"))
 def test_setup_on_node_can_warn_and_retry_later(mock_download: MagicMock) -> None:
     stage = InferenceQwenOmniStage(model_id="mock/model", prefetch_fail_on_error=False)
 

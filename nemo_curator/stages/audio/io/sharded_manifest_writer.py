@@ -55,8 +55,8 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             ``perf_summary.json`` whenever a shard completes.
     """
 
+    output_dir: str
     name: str = "sharded_manifest_writer"
-    output_dir: str = ""
     final_manifest_path: str | None = None
     write_perf_stats: bool = True
     duration_key: str = "duration"
@@ -68,9 +68,6 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
     _writer_process_calls: int = field(default=0, repr=False)
 
     def __post_init__(self) -> None:
-        if not self.output_dir:
-            msg = "output_dir is required for ShardedManifestWriterStage"
-            raise ValueError(msg)
         self._perf_summary = AudioPerformanceSummary(duration_key=self.duration_key)
 
     def inputs(self) -> tuple[list[str], list[str]]:
