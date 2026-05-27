@@ -49,12 +49,8 @@ def calculate_concurrency_for_actors_for_stage(
         max_gpu_actors = available_gpus // stage.resources.gpus
 
     # Take the minimum of CPU and GPU constraints
-    max_actors = int(min(max_cpu_actors, max_gpu_actors))
-    # Ray Data actor pools can fail to drain tail blocks when autoscaled
-    # down to a single actor (residual = prefetch_depth × batch_size).
-    # Floor the minimum at 2 to avoid the single-actor edge case.
-    min_actors = max(1, min(2, max_actors))
-    return (min_actors, max_actors)
+    max_actors = min(max_cpu_actors, max_gpu_actors)
+    return (1, int(max_actors))
 
 
 def is_actor_stage(stage: ProcessingStage) -> bool:
