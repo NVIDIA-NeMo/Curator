@@ -114,7 +114,7 @@ audio_common = [
     # qwen-asr 0.0.6's qwen3_forced_aligner.py lazily imports the following text-norm
     # and audio-feature helpers. Keep them in audio_common (not audio_cuda12) so the
     # CPU audio extra picks them up too if a future qwen-asr CPU path appears.
-    "nagisa==0.2.11",
+    "nagisa>=0.2.11,<0.3",
     "soynlp==0.0.493",
     "pyarabic",
     "opencc-python-reimplemented",
@@ -133,16 +133,11 @@ audio_cuda12 = [
     "nvidia-cudnn-cu12",
     "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
     "qwen-omni-utils",
-    # Granary v2 Qwen-ASR recovery stage. qwen-asr 0.0.6 declares incompatible
-    # transformers/huggingface-hub/accelerate pins; we force-override them in
-    # [tool.uv] override-dependencies below to the versions proven against
-    # qwen-asr by NvLLMOps commit 68f18e9b. Lazy-imported runtime companions
-    # (nagisa, soynlp, pyarabic, opencc-python-reimplemented, nnAudio) come from
-    # audio_common above.
-    "qwen-asr==0.0.6",
+    # Granary v2 Qwen-ASR recovery stage; lazy-import helpers in audio_common.
+    "qwen-asr>=0.0.6,<0.1",
     # Granary v2 LID stage uses fasttext directly; it also lives in text_cpu but
     # audio_cuda12 does not pull text_cpu, so declare it explicitly here.
-    "fasttext==0.9.3",
+    "fasttext>=0.9.3,<0.10",
     "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 
@@ -351,9 +346,7 @@ override-dependencies = [
     "fsspec>=2025.3.0", # required for nemo-toolkit[asr]==2.7.2 (fsspec==2024.12.0), override due to data-designer-engine==0.5.5 requires >=2025.3.0
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
-    "huggingface-hub==0.36.0", # Pinned to qwen-asr 0.0.6 runtime compat (NvLLMOps commit 68f18e9b); also covers transformers vs data-designer disagreement
-    "transformers==4.57.6", # Pinned to qwen-asr 0.0.6 runtime compat (NvLLMOps commit 68f18e9b); overrides qwen-asr's incompatible declared transformers pin
-    "accelerate==1.12.0", # Pinned to qwen-asr 0.0.6 runtime compat (NvLLMOps commit 68f18e9b); overrides qwen-asr's incompatible declared accelerate pin
+    "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
     "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility

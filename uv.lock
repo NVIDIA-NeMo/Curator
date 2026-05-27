@@ -44,11 +44,10 @@ constraints = [
     { name = "wheel", specifier = ">=0.46.2" },
 ]
 overrides = [
-    { name = "accelerate", specifier = "==1.12.0" },
     { name = "apex", marker = "sys_platform == 'never'" },
     { name = "distance", marker = "sys_platform == 'never'" },
     { name = "fsspec", specifier = ">=2025.3.0" },
-    { name = "huggingface-hub", specifier = "==0.36.0" },
+    { name = "huggingface-hub", specifier = ">=0.34,<1.0" },
     { name = "kaldiio", marker = "sys_platform == 'never'" },
     { name = "levenshtein", marker = "sys_platform == 'never'" },
     { name = "nixl-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", specifier = ">=0.10.0", index = "https://pypi.org/simple" },
@@ -65,7 +64,6 @@ overrides = [
     { name = "torchvision", marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64') or sys_platform == 'darwin'", specifier = "==0.25.0", index = "https://pypi.org/simple" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux')", specifier = "==0.25.0" },
     { name = "torchvision", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')", specifier = "==0.25.0", index = "https://download.pytorch.org/whl/cu129" },
-    { name = "transformers", specifier = "==4.57.6" },
     { name = "xgrammar", specifier = ">=0.1.32" },
 ]
 
@@ -5733,7 +5731,7 @@ requires-dist = [
     { name = "data-designer", marker = "extra == 'sdg-cpu'", specifier = "==0.5.5" },
     { name = "easydict", marker = "extra == 'video-cpu'" },
     { name = "einops", marker = "extra == 'video-cpu'" },
-    { name = "fasttext", marker = "extra == 'audio-cuda12'", specifier = "==0.9.3" },
+    { name = "fasttext", marker = "extra == 'audio-cuda12'", specifier = ">=0.9.3,<0.10" },
     { name = "fasttext", marker = "extra == 'text-cpu'", specifier = "==0.9.3" },
     { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "<=2.8.3" },
     { name = "fsspec" },
@@ -5750,7 +5748,7 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'interleaved-cpu'" },
     { name = "mecab-python3" },
     { name = "mwparserfromhell", marker = "extra == 'text-cpu'", specifier = "==0.6.5" },
-    { name = "nagisa", marker = "extra == 'audio-common'", specifier = "==0.2.11" },
+    { name = "nagisa", marker = "extra == 'audio-common'", specifier = ">=0.2.11,<0.3" },
     { name = "nemo-curator", extras = ["audio-common"], marker = "extra == 'audio-cpu'" },
     { name = "nemo-curator", extras = ["audio-common"], marker = "extra == 'audio-cuda12'" },
     { name = "nemo-curator", extras = ["audio-cuda12"], marker = "extra == 'all'" },
@@ -5825,7 +5823,7 @@ requires-dist = [
     { name = "pylibraft-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "==2.0.2" },
     { name = "pypdfium2", marker = "extra == 'interleaved-cpu'" },
-    { name = "qwen-asr", marker = "extra == 'audio-cuda12'", specifier = "==0.0.6" },
+    { name = "qwen-asr", marker = "extra == 'audio-cuda12'", specifier = ">=0.0.6,<0.1" },
     { name = "qwen-omni-utils", marker = "extra == 'audio-cuda12'" },
     { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
