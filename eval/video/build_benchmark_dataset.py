@@ -56,7 +56,7 @@ from loguru import logger
 from sklearn.cluster import KMeans
 
 # Import the pipeline creation function from the video tutorial
-_REPO_ROOT = Path(__file__).parent.parent.parent.parent
+_REPO_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "tutorials" / "video" / "getting-started"))
 
 from video_split_clip_example import (  # noqa: E402
