@@ -15,9 +15,10 @@
 """Contextual ASR prompt variant stage (CPU-only).
 
 Reads the entity extraction dict produced by
-:class:`ContextualASRExtractionStage` and appends six prompt-variant
-fields to it.  Each variant provides a different level of context
-information for training a context-biased ASR model.
+:class:`ContextualASRExtractionStage` and appends five prompt-variant
+fields to it (contextless prompts are handled separately).  Each
+variant provides a different level of context information for training
+a context-biased ASR model.
 
 The stage is language-aware: when a per-sample source language is
 available under ``source_lang_key`` (default ``source_lang``), about half
@@ -91,53 +92,6 @@ _DEFAULT_DOMAIN_POOL: list[str] = [
 # ─────────────────────────────────────────────────────────────
 #  Prompt template libraries
 # ─────────────────────────────────────────────────────────────
-
-CONTEXTLESS_TEMPLATES: list[str] = [
-    "Transcribe the audio into text, ensuring all punctuation marks are included.",
-    "Transcribe this audio.",
-    "Write out what is being said in this audio clip.",
-    "Convert the speech in this audio to text.",
-    "Listen to the audio and produce an accurate transcript of what is spoken.",
-    "Please transcribe the following audio recording word for word.",
-    "Carefully transcribe the spoken content in this audio file.",
-    "What is being said in this audio? Provide the full transcript.",
-    "Produce a verbatim transcript of the audio.",
-    "You are a professional transcriptionist. Transcribe the following audio recording accurately, capturing every word as spoken.",
-    "Your task is to listen to this audio and write down exactly what is said, including all proper nouns and technical terms.",
-    "Transcribe the audio below. Be precise with names, numbers, and specialized vocabulary.",
-    "Transcribe this audio. Include proper punctuation and capitalization.",
-    "Listen carefully and transcribe the audio. Preserve the original phrasing and word choices.",
-    "Generate an accurate text transcript of the speech in this recording.",
-    "Transcribe the audio. Preserve filler words, repetitions, and false starts exactly as spoken.",
-    "Transcribe what is spoken. Include hesitation markers like 'um' and 'uh'.",
-    "Produce a verbatim transcript including any stutters, repeated words, and false starts.",
-    "Transcribe the audio. Remove all filler words, hesitation markers, and repeated words — produce a clean readable transcript.",
-    "Transcribe the audio. Skip 'um', 'uh', 'you know', and other filler words.",
-    "Transcribe the audio but drop false starts and repetitions; keep only the final intended phrasing.",
-    "Transcribe the audio. Write numbers in words (e.g. 'twenty five', not '25').",
-    "Transcribe the audio using spoken form: spell out numbers, currencies, and abbreviations.",
-    "Transcribe the audio. Write numbers and units in written form (e.g. '25', '$100', 'km').",
-    "Transcribe the audio using written form with digits, symbols, and standard abbreviations.",
-    "Transcribe the audio using proper capitalization and punctuation.",
-    "Transcribe the audio in lowercase only, no punctuation.",
-]
-
-# Language-aware contextless templates — only used when a non-empty
-# language is provided to ``_pick_contextless``.  Mixed half-and-half
-# with the language-agnostic list above for prompt diversity.
-CONTEXTLESS_LANG_TEMPLATES: list[str] = [
-    "Transcribe the {language} audio.",
-    "Transcribe the {language} audio into text, ensuring all punctuation marks are included.",
-    "Listen to the {language} audio and produce an accurate transcript of what is spoken.",
-    "Produce a verbatim transcript of the {language} audio.",
-    "Transcribe this {language} audio. Include proper punctuation and capitalization.",
-    "Generate an accurate text transcript of the {language} speech in this recording.",
-    "You are a professional {language} transcriptionist. Transcribe the audio recording accurately.",
-    "Transcribe the {language} audio. Preserve filler words, repetitions, and false starts as spoken.",
-    "Transcribe the {language} audio. Remove filler words and produce a clean readable transcript.",
-    "Transcribe the {language} audio using spoken form: spell out numbers and abbreviations.",
-    "Transcribe the {language} audio using written form with digits, symbols, and standard abbreviations.",
-]
 
 COARSE_TEMPLATES: list[str] = [
     "This audio belongs to the {domain} field. Transcribe the audio into text, ensuring all punctuation marks are included.",
@@ -228,12 +182,6 @@ def _format_entity_list(entities: list[str], style: str = "comma") -> str:  # no
 # ─────────────────────────────────────────────────────────────
 
 
-def _pick_contextless(rng: _random_module.Random, language: str | None = None) -> str:
-    pool = CONTEXTLESS_TEMPLATES + (CONTEXTLESS_LANG_TEMPLATES if language else [])
-    template = rng.choice(pool)
-    return template.format(language=language) if "{language}" in template else template
-
-
 def _pick_coarse(
     domain: str,
     rng: _random_module.Random,
@@ -314,7 +262,6 @@ def _render_all_variants(  # noqa: PLR0913
     distractor_terms = extraction.get("distractor_terms") or []
     domain = coarse_terms[0] if coarse_terms else "General"
 
-    contextless_prompt = _pick_contextless(rng, language=language)
     coarse_context_prompt = _pick_coarse(domain, rng, language=language)
 
     fine_context_prompt = (
@@ -350,7 +297,6 @@ def _render_all_variants(  # noqa: PLR0913
     )
 
     return {
-        "contextless_prompt": contextless_prompt,
         "coarse_context_prompt": coarse_context_prompt,
         "fine_context_prompt": fine_context_prompt,
         "distractor_prompt": distractor_prompt,
@@ -366,18 +312,17 @@ def _render_all_variants(  # noqa: PLR0913
 
 @dataclass
 class ContextualASRPromptVariantStage(ProcessingStage[AudioTask, AudioTask]):
-    """Generate six prompt variants from extracted context-ASR entities.
+    """Generate five prompt variants from extracted context-ASR entities.
 
     Reads the extraction dict written by
     :class:`ContextualASRExtractionStage` (under ``context_key``) and
-    appends six prompt-variant fields to the same dict.
+    appends five prompt-variant fields to the same dict.
 
     This is a CPU-only stage — no LLM or GPU required.
 
-    The six variants provide different levels of context information
+    The five variants provide different levels of context information
     for training a context-biased ASR model:
 
-    - ``contextless_prompt``: plain transcription instruction
     - ``coarse_context_prompt``: domain label only
     - ``fine_context_prompt``: domain + entity list
     - ``distractor_prompt``: domain + entities shuffled with distractors

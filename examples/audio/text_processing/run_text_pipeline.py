@@ -168,20 +168,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     ctx.add_argument(
         "--context_asr_text_key",
         type=str,
-        default=None,
-        help="Input text field for context ASR extraction (default: --text_key).",
+        default="pnc_text",
+        help="Input text field for context ASR extraction.",
     )
     ctx.add_argument(
         "--context_asr_output_key",
         type=str,
         default="context_asr",
         help="Output field (nested dict) for context ASR extraction + prompt variants.",
-    )
-    ctx.add_argument(
-        "--context_asr_source_lang_key",
-        type=str,
-        default="source_lang",
-        help="Manifest key holding per-sample source language (for prompt-variant language awareness).",
     )
     ctx.add_argument(
         "--context_asr_max_output_tokens",
@@ -332,7 +326,7 @@ def main() -> None:
         logger.info(f"Captioning stage enabled: {args.text_key} → {args.captioning_output_key}")
 
     if args.enable_context_asr:
-        context_asr_text_key = args.context_asr_text_key or args.text_key
+        context_asr_text_key = args.context_asr_text_key
         # Engine-level kwargs are shared with the other TextLLMStage instances via the
         # class-level vLLM cache in text_llm_stage.py.  Per-stage knobs (prompt file,
         # max_output_tokens, batch size) stay local.
@@ -341,7 +335,7 @@ def main() -> None:
                 model_id=args.model_id,
                 prompt_file=context_asr_prompt,
                 text_key=context_asr_text_key,
-                source_lang_key=args.context_asr_source_lang_key,
+                source_lang_key="source_lang",
                 output_key=args.context_asr_output_key,
                 tensor_parallel_size=args.tensor_parallel_size,
                 max_output_tokens=args.context_asr_max_output_tokens,
@@ -357,7 +351,7 @@ def main() -> None:
         stages.append(
             ContextualASRPromptVariantStage(
                 context_key=args.context_asr_output_key,
-                source_lang_key=args.context_asr_source_lang_key,
+                source_lang_key="source_lang",
                 seed=args.context_asr_seed,
                 partial_keep_lo=args.context_asr_partial_keep_lo,
                 partial_keep_hi=args.context_asr_partial_keep_hi,
@@ -365,7 +359,7 @@ def main() -> None:
         )
         logger.info(
             f"Context ASR stages enabled: {context_asr_text_key} → {args.context_asr_output_key} "
-            f"(extraction + 6 prompt variants)"
+            f"(extraction + 5 prompt variants)"
         )
         if args.max_model_len < _CONTEXT_ASR_MIN_MAX_MODEL_LEN:
             logger.warning(
