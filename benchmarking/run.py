@@ -281,7 +281,7 @@ def run_entry(
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:  # noqa: C901
+def main() -> int:  # noqa: C901, PLR0915
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
@@ -313,6 +313,16 @@ def main() -> int:  # noqa: C901
         action="store_true",
         help="List entries to run and exit.",
     )
+    parser.add_argument(
+        "--strict-config-check",
+        default=False,
+        action="store_true",
+        help=(
+            "If set, fail with an error when an environment variable referenced in the "
+            "config is undefined or empty. By default, undefined env var references are "
+            "replaced with an empty string and a warning is logged."
+        ),
+    )
     args = parser.parse_args()
 
     # Consolidate the configuration from all YAML files into a single dict
@@ -322,7 +332,7 @@ def main() -> int:  # noqa: C901
     try:
         assert_valid_config_dict(config_dict)
         config_dict = remove_disabled_blocks(config_dict)
-        config_dict = resolve_env_vars(config_dict)
+        config_dict = resolve_env_vars(config_dict, strict=args.strict_config_check)
     except ValueError as e:
         logger.error(f"Invalid configuration: {e}")
         return 1
