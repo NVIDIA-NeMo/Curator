@@ -156,7 +156,7 @@ def _kmeans_select(
             uid = uids[idx]
             meta = uid_to_meta.get(uid, {})
             src = meta.get("source_video", "")
-            if src not in used_sources:
+            if src and src not in used_sources:
                 selected.append((uid, meta))
                 used_sources.add(src)
                 picked = True
