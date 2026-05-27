@@ -207,10 +207,3 @@ def test_metrics_exclude_skipped_utterances() -> None:
     assert metrics["utterances_input"] == 2.0
     assert metrics["utterances_processed"] == 1.0
     assert metrics["utterances_skipped"] == 1.0
-
-
-def test_worker_override_specs() -> None:
-    stage = InferenceQwenOmniStage(num_workers_override=3)
-
-    assert stage.num_workers() == 3
-    assert stage.xenna_stage_spec() == {"num_workers": 3}

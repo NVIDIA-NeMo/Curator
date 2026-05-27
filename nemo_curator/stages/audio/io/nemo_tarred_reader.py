@@ -263,8 +263,6 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     duration_key: str = "duration"
     max_duration_s: float | None = None
     max_utterances_per_shard: int | None = None
-    num_workers_override: int | None = None
-    num_workers_per_node: int | None = None
 
     def __post_init__(self) -> None:
         if self.max_duration_s is not None and self.max_duration_s <= 0:
@@ -273,23 +271,6 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         if self.max_utterances_per_shard is not None and self.max_utterances_per_shard <= 0:
             msg = "max_utterances_per_shard must be positive when set"
             raise ValueError(msg)
-        if self.num_workers_override is not None and self.num_workers_override <= 0:
-            msg = "num_workers_override must be positive when set"
-            raise ValueError(msg)
-        if self.num_workers_per_node is not None and self.num_workers_per_node <= 0:
-            msg = "num_workers_per_node must be positive when set"
-            raise ValueError(msg)
-
-    def num_workers(self) -> int | None:
-        return self.num_workers_override
-
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        spec: dict[str, Any] = {}
-        if self.num_workers_override is not None:
-            spec["num_workers"] = self.num_workers_override
-        if self.num_workers_per_node is not None:
-            spec["num_workers_per_node"] = self.num_workers_per_node
-        return spec
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -481,8 +462,6 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     max_duration_s: float | None = None
     output_dir: str | None = None
     max_utterances_per_shard: int | None = None
-    reader_num_workers: int | None = None
-    reader_num_workers_per_node: int | None = None
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -498,8 +477,6 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
                 duration_key=self.duration_key,
                 max_duration_s=self.max_duration_s,
                 max_utterances_per_shard=self.max_utterances_per_shard,
-                num_workers_override=self.reader_num_workers,
-                num_workers_per_node=self.reader_num_workers_per_node,
             ),
         ]
 

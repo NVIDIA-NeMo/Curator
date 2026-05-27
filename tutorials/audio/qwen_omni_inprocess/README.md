@@ -162,9 +162,6 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `gpu_memory_utilization` | vLLM GPU memory utilization fraction | `0.90` |
 | `prep_workers` | Thread workers for audio preprocessing | `16` |
 | `keep_waveform` | Keep waveform arrays after inference; writer still drops arrays from JSONL | `false` |
-| `reader_num_workers` | Optional total reader worker count | `null` |
-| `reader_num_workers_per_node` | Optional reader worker count per node | `null` |
-| `omni_num_workers` | Optional Qwen stage worker count | `null` |
 | `cpu_batch_size` | Writer batch size | `64` |
 
 ### Stage Selectors

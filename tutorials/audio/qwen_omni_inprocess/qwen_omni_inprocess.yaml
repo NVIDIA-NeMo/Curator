@@ -60,14 +60,6 @@ cpu_batch_size: 64
 duration_key: duration
 
 # ===========================================================================
-# MULTI-NODE SCALING
-# ===========================================================================
-# Leave null to let Xenna autoscale. Set these for controlled throughput tests.
-reader_num_workers: null
-reader_num_workers_per_node: null
-omni_num_workers: null
-
-# ===========================================================================
 # QWEN-OMNI INFERENCE
 # ===========================================================================
 model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
@@ -101,8 +93,6 @@ stages:
     duration_key: ${duration_key}
     max_duration_s: ${max_segment_length}
     max_utterances_per_shard: ${max_utterances_per_shard}
-    reader_num_workers: ${reader_num_workers}
-    reader_num_workers_per_node: ${reader_num_workers_per_node}
     stage_with:
       nemo_tar_shard_reader:
         resources:
@@ -131,7 +121,6 @@ stages:
     disfluency_text_key: qwen3_prediction_s2
     keep_waveform: ${keep_waveform}
     prefetch_fail_on_error: ${prefetch_fail_on_error}
-    num_workers_override: ${omni_num_workers}
     stage_with:
       resources:
         _target_: nemo_curator.stages.resources.Resources

@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from huggingface_hub import snapshot_download
 from loguru import logger
@@ -156,7 +156,6 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     prep_workers: int = 8
     keep_waveform: bool = False
     prefetch_fail_on_error: bool = True
-    num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
 
@@ -165,14 +164,6 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         tp = self.tensor_parallel_size
         if tp and tp > 0:
             self.resources = Resources(gpus=float(tp))
-
-    def num_workers(self) -> int | None:
-        return self.num_workers_override
-
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        if self.num_workers_override is None:
-            return {}
-        return {"num_workers": self.num_workers_override}
 
     def _has_followup_prompt(self) -> bool:
         return bool(self.followup_prompt or self.followup_prompt_file)
