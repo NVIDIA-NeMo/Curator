@@ -45,7 +45,7 @@ class IndicConformerASR(ModelInterface):
     def __init__(
         self,
         model_id: str = INDIC_CONFORMER_DEFAULT_MODEL_ID,
-        decode_mode: Literal["ctc", "rnnt"] = "ctc",
+        decode_mode: Literal["ctc", "rnnt"] = "rnnt",
     ):
         self.model_id = model_id
         self.decode_mode = decode_mode

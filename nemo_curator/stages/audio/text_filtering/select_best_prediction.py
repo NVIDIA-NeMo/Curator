@@ -56,8 +56,8 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     when the recovery model's prediction is chosen.
     """
 
-    primary_text_key: str = "qwen3_prediction_s1"
-    asr_text_key: str = "asr_prediction"
+    primary_text_key: str = "primary_model_prediction"
+    asr_text_key: str = "fallback_model_prediction"
     output_key: str = "best_prediction"
     source_key: str = "best_prediction_source"
     notes_key: str = "additional_notes"
