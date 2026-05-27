@@ -58,7 +58,7 @@ python -c "import nemo_curator; print(nemo_curator.__version__)"
 
 The bundled quickstart starts Ray, downloads a Hugging Face model, and runs a sentiment classification pipeline on GPU.
 
-**Prerequisites:** CUDA 12 toolkit, NVIDIA driver supporting CUDA 12, Linux x86_64, ~16 GB GPU memory, network access to Hugging Face.
+**Prerequisites:** CUDA 12 toolkit, NVIDIA driver supporting CUDA 12, Linux x86_64, ~16 GB GPU memory, network access to Hugging Face. This path uses [`uv`](https://docs.astral.sh/uv/) for faster dependency resolution — install it first with `pip install uv` (or follow the [uv install guide](https://docs.astral.sh/uv/getting-started/installation/)).
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -154,7 +154,7 @@ Supported versions are defined in [`pyproject.toml`](pyproject.toml) and exposed
 
 ## Roadmap
 
-Release work is tracked through versioned [GitHub Milestones](https://github.com/NVIDIA-NeMo/Curator/milestones). Larger initiatives live on the [project board](https://github.com/orgs/NVIDIA-NeMo/projects). For shipped changes, see the [release notes](https://docs.nvidia.com/nemo/curator/latest/about/release-notes).
+Release work is tracked through versioned [GitHub Milestones](https://github.com/NVIDIA-NeMo/Curator/milestones). For shipped changes, see the [release notes](https://docs.nvidia.com/nemo/curator/latest/about/release-notes).
 
 ---
 

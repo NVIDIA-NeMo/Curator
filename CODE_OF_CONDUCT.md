@@ -21,10 +21,12 @@ This Code of Conduct applies in all official project spaces — the GitHub repos
 
 ## Reporting
 
-If you experience or witness behavior that violates this Code of Conduct, please report it to the maintainers so we can address it.
+If you experience or witness behavior that violates this Code of Conduct, please report it to the maintainers so we can address it. We accept reports through either of the following channels:
 
-- **Preferred:** open a private report by emailing the maintainers at **`<TODO: confirm reporting contact — e.g., sw-coc@nvidia.com>`**.
-- **Alternative:** contact any individual repository maintainer directly via GitHub.
+- **Open a private report on GitHub** by using [Report abuse](https://github.com/contact/report-abuse) and selecting *Report content to GitHub* → *I want to report abusive content or behavior* → the relevant repository or user. GitHub forwards the report to the repository's maintainers and to GitHub Trust & Safety.
+- **Contact a repository maintainer directly** via GitHub (DM or `@`-mention on a private discussion). Maintainers are listed in the repository's commit history and on the [contributors page](https://github.com/NVIDIA-NeMo/Curator/graphs/contributors).
+
+A dedicated reporting email will be added here once confirmed with the project's open-source program office; until then, the GitHub channels above are the supported route.
 
 All reports will be reviewed and investigated promptly and fairly. Maintainers are obligated to respect the privacy and security of the reporter of any incident.
 
