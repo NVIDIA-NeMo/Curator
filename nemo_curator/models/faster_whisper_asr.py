@@ -41,7 +41,6 @@ class FasterWhisperASR(ModelInterface):
         model_size_or_path: str = "large-v3",
         device: str = "cuda",
         compute_type: str = "float16",
-        download_root: str | None = None,
         beam_size: int = 5,
         vad_filter: bool = True,
         without_timestamps: bool = True,
@@ -49,7 +48,6 @@ class FasterWhisperASR(ModelInterface):
         self.model_size_or_path = model_size_or_path
         self.device = device
         self.compute_type = compute_type
-        self.download_root = download_root
         self.beam_size = beam_size
         self.vad_filter = vad_filter
         self.without_timestamps = without_timestamps
@@ -87,7 +85,6 @@ class FasterWhisperASR(ModelInterface):
             self.model_size_or_path,
             device=resolved,
             compute_type=compute_type,
-            download_root=self.download_root,
         )
         logger.info("FasterWhisper model loaded")
 

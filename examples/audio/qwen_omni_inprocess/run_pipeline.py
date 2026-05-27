@@ -80,6 +80,7 @@ from nemo_curator.pipeline import Pipeline
 
 QWEN_ASR_DEFAULT_MODEL_ID = "Qwen/Qwen3-ASR-0.6B"
 INDIC_CONFORMER_DEFAULT_MODEL_ID = "ai4bharat/indic-conformer-600m-multilingual"
+# faster-whisper alias (CTranslate2); equivalent HF openai/whisper-large-v3 is Transformers format.
 WHISPER_DEFAULT_MODEL = "large-v3"
 PARAKEET_DEFAULT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 
@@ -322,12 +323,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="faster-whisper compute_type (e.g. float16, int8_float16, int8).",
     )
     asr.add_argument(
-        "--whisper_download_root",
-        type=str,
-        default=None,
-        help="Optional cache directory for faster-whisper downloads.",
-    )
-    asr.add_argument(
         "--parakeet_model_id",
         type=str,
         default=PARAKEET_DEFAULT_MODEL_ID,
@@ -336,12 +331,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             f"NVIDIA Parakeet-TDT v3 model ID (default: {PARAKEET_DEFAULT_MODEL_ID}). "
             "Used when --recovery_model parakeet."
         ),
-    )
-    asr.add_argument(
-        "--parakeet_cache_dir",
-        type=str,
-        default=None,
-        help="Optional NeMo cache directory for Parakeet downloads.",
     )
     asr.add_argument(
         "--parakeet_inference_batch_size",
@@ -520,7 +509,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             model_size_or_path=args.whisper_model_size_or_path,
             device=args.whisper_device,
             compute_type=args.whisper_compute_type,
-            download_root=args.whisper_download_root,
             pred_text_key="primary_model_prediction",
             keep_waveform=True,
             source_lang_key=args.source_lang_key,
@@ -572,7 +560,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             model_size_or_path=args.whisper_model_size_or_path,
             device=args.whisper_device,
             compute_type=args.whisper_compute_type,
-            download_root=args.whisper_download_root,
             source_lang_key=args.source_lang_key,
             pred_text_key="fallback_model_prediction",
             batch_size=args.asr_batch_size,
@@ -582,7 +569,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         recovery_stage = InferenceParakeetStage(
             name="Parakeet_recovery",
             model_id=args.parakeet_model_id,
-            cache_dir=args.parakeet_cache_dir,
             inference_batch_size=args.parakeet_inference_batch_size,
             source_lang_key=args.source_lang_key,
             pred_text_key="fallback_model_prediction",

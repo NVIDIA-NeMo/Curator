@@ -57,7 +57,6 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
         model_size_or_path: faster-whisper model name or local path (e.g. ``"large-v3"``).
         device: ``"cuda"``, ``"cpu"``, or ``"auto"``.
         compute_type: faster-whisper quantisation type (e.g. ``"float16"``, ``"int8"``).
-        download_root: Optional cache directory for model downloads.
         beam_size: Beam search width.
         vad_filter: Enable faster-whisper built-in VAD filtering.
         source_lang_key: Task data key holding the per-sample ISO language code.
@@ -75,7 +74,6 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
     model_size_or_path: str = "large-v3"
     device: str = "cuda"
     compute_type: str = "float16"
-    download_root: str | None = None
     beam_size: int = 5
     vad_filter: bool = True
     source_lang_key: str = "source_lang"
@@ -112,7 +110,6 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
             model_size_or_path=self.model_size_or_path,
             device=self.device,
             compute_type=self.compute_type,
-            download_root=self.download_root,
             beam_size=self.beam_size,
             vad_filter=self.vad_filter,
         )

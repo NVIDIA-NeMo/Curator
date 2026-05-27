@@ -49,7 +49,6 @@ class InferenceParakeetStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         model_id: NeMo / HuggingFace model identifier (e.g. ``"nvidia/parakeet-tdt-0.6b-v3"``).
-        cache_dir: Optional NeMo cache directory for checkpoint downloads.
         inference_batch_size: Batch size passed to Parakeet ``ASRModel.transcribe``.
         waveform_key: Task data key for the mono float32 numpy waveform.
         sample_rate_key: Task data key for the integer sample rate.
@@ -64,7 +63,6 @@ class InferenceParakeetStage(ProcessingStage[AudioTask, AudioTask]):
 
     name: str = "Parakeet_inference"
     model_id: str = "nvidia/parakeet-tdt-0.6b-v3"
-    cache_dir: str | None = None
     inference_batch_size: int = 16
     waveform_key: str = "waveform"
     sample_rate_key: str = "sampling_rate"
@@ -98,7 +96,6 @@ class InferenceParakeetStage(ProcessingStage[AudioTask, AudioTask]):
     def _create_wrapper(self) -> NemoASRModel:
         return NemoASRModel(
             model_name=self.model_id,
-            cache_dir=self.cache_dir,
             inference_batch_size=self.inference_batch_size,
         )
 
