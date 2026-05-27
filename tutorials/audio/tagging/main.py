@@ -66,10 +66,10 @@ _EXECUTOR_FACTORIES = {
 }
 
 
-def _create_executor(backend: str) -> object:
+def _create_executor(backend: str, config: dict) -> object:
     module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
     mod = importlib.import_module(module_path)
-    return getattr(mod, class_name)()
+    return getattr(mod, class_name)(config=config)
 
 
 @hydra.main(version_base=None)
@@ -85,22 +85,20 @@ def main(cfg: DictConfig) -> None:
         msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
         raise ValueError(msg)
     logger.info(f"Using backend: {backend}")
-    executor = _create_executor(backend)
+    mode = cfg.get("execution_mode", "streaming")
+    config = {"execution_mode": mode}
+    executor = _create_executor(backend, config=config)
 
     logger.info("Starting audio tagging pipeline...")
     results = pipeline.run(executor)
 
-    output_files = []
-    for task in results or []:
-        output_files.extend(task.data)
-    unique_files = sorted(set(output_files))
+    num_tasks = len(results) if results else 0
 
     logger.info("\n" + "=" * 50)
     logger.info("PIPELINE COMPLETE")
     logger.info("=" * 50)
-    logger.info(f"  Output files written: {len(unique_files)}")
-    for fp in unique_files:
-        logger.info(f"    - {fp}")
+    logger.info(f"  Tasks processed: {num_tasks}")
+    logger.info(f"  Output manifest: {cfg.final_manifest}")
 
     stage_metrics = TaskPerfUtils.collect_stage_metrics(results)
     for stage_name, metrics in stage_metrics.items():

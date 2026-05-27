@@ -26,7 +26,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
-from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
@@ -45,9 +45,9 @@ def create_audio_pipeline(args: argparse.Namespace) -> Pipeline:
         ).with_(batch_size=4)
     )
     pipeline.add_stage(InferenceAsrNemoStage(model_name=args.model_name).with_(resources=Resources(gpus=args.gpus)))
-    pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer"))
+    pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer_pct"))
     pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
-    pipeline.add_stage(PreserveByValueStage(input_value_key="wer", target_value=args.wer_threshold, operator="le"))
+    pipeline.add_stage(PreserveByValueStage(input_value_key="wer_pct", target_value=args.wer_threshold, operator="le"))
     pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
     result_dir = os.path.join(args.raw_data_dir, "result")
     if args.clean and os.path.isdir(result_dir):

@@ -63,10 +63,10 @@ python tutorials/audio/single_speaker_filter/run.py \
 
 ## Pipeline Stages
 
-1. **ALMManifestReader** — Reads the JSONL manifest and emits one `AudioTask` per entry.
+1. **ManifestReader** — Reads the JSONL manifest and emits one `AudioTask` per entry.
 2. **InferenceSortformerStage** — Runs Streaming Sortformer on each audio file (GPU). Adds `diar_segments` to each task.
 3. **SingleSpeakerFilterStage** — Counts unique speakers from `diar_segments`. Keeps only entries with exactly 1 speaker; multi-speaker or zero-speaker entries produce an empty task (no output rows).
-4. **ALMManifestWriterStage** — Writes the surviving entries to the output JSONL manifest.
+4. **ManifestWriterStage** — Writes the surviving entries to the output JSONL manifest.
 
 ## Output
 

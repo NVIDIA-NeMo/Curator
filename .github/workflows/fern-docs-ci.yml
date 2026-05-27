@@ -13,10 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Validates Fern autodocs generation (fern/product-docs) on pull requests.
-# Output is gitignored; see fern/AUTODOCS_GUIDE.md and docs.yml `libraries`.
+# Validates Fern docs configuration on pull requests.
+# Cheap config-only validation (no upstream content fetch) so this runs cleanly
+# on fork PRs where repo secrets are unavailable.
+# See fern/AUTODOCS_GUIDE.md and docs.yml `libraries`.
 
-name: Fern docs (autodocs)
+name: Fern docs (check)
 
 on:
   pull_request:
@@ -28,7 +30,7 @@ permissions:
   contents: read
 
 jobs:
-  generate-library-reference:
+  check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -39,11 +41,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Fern CLI
-        run: npm install -g fern-api
-
-      - name: Generate library reference MDX (product-docs)
+      - name: Validate Fern configuration
+        working-directory: ./fern
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
-        working-directory: ./fern
-        run: fern docs md generate
+        run: npm run check
