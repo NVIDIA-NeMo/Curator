@@ -310,12 +310,14 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
             "turn1_output_tokens": float(model_metrics.get("turn1_output_tokens", 0.0)),
             "turn2_output_tokens": float(model_metrics.get("turn2_output_tokens", 0.0)),
             "inference_time_s": inference_elapsed,
-            "inference_time": inference_elapsed,
         }
+        # Pull in any model-side scalar that the stage doesn't already emit.
+        # Keys the stage emits above are intentionally skipped to avoid the
+        # redundant `model_<key>` aliases that just restate the same value.
         metrics.update({
             f"model_{name}": value
             for name, value in model_metrics.items()
-            if isinstance(value, (int, float))
+            if isinstance(value, (int, float)) and name not in metrics
         })
         self._log_metrics(metrics)
 

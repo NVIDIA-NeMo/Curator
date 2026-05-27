@@ -220,9 +220,15 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         logger.info(
             f"NemoTarShardDiscoveryStage: found {len(tasks)} shards, skipped {skipped} completed (corpus_filter={self.corpus_filter})"
         )
+        # ``total_items_emitted`` is the actor-pattern fix for the
+        # framework's ``num_items_processed`` counting zero on stages
+        # that synthesise downstream work from config (rather than
+        # consuming an input task per output). Audio summary builder
+        # falls back to this when the framework count is 0.
         self._log_metrics({
             "input_tasks": 1.0,
             "output_tasks": float(len(tasks)),
+            "total_items_emitted": float(len(tasks)),
             "corpora_seen": float(corpora_seen),
             "shards_seen": float(shards_seen),
             "shards_emitted": float(len(tasks)),
