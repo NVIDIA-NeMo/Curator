@@ -15,6 +15,7 @@
 """Text filtering stages for ASR postprocessing."""
 
 from nemo_curator.stages.audio.text_filtering.abbreviation_concat import AbbreviationConcatStage
+from nemo_curator.stages.audio.text_filtering.acoustic_distractor import AcousticDistractorStage
 from nemo_curator.stages.audio.text_filtering.contextual_asr_extraction import ContextualASRExtractionStage
 from nemo_curator.stages.audio.text_filtering.contextual_asr_prompt_variant import ContextualASRPromptVariantStage
 from nemo_curator.stages.audio.text_filtering.disfluency_wer_guard import DisfluencyWerGuardStage
@@ -26,6 +27,7 @@ from nemo_curator.stages.audio.text_filtering.whisper_hallucination import Whisp
 
 __all__ = [
     "AbbreviationConcatStage",
+    "AcousticDistractorStage",
     "ContextualASRExtractionStage",
     "ContextualASRPromptVariantStage",
     "DisfluencyWerGuardStage",
