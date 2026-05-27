@@ -56,6 +56,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from loguru import logger
 from tqdm import tqdm
 
 from nemo_curator.models.cosmos_embed1 import CosmosEmbed1
@@ -68,7 +69,6 @@ _SUMMARIZE_SYSTEM = (
     "words. Do not include word counts, revisions, or meta-commentary."
 )
 
-_MIN_SUMMARY_LEN = 30
 _UID_LINE_FIELDS = 4
 
 
@@ -103,28 +103,6 @@ def _cosine_sim(a: torch.Tensor, b: torch.Tensor) -> float:
     return float((a * b).sum())
 
 
-def _clean_summary(text: str) -> str:
-    """Post-process LLM output: strip meta-commentary, truncate at revision."""
-    for pattern in [
-        " To:",
-        " Revised",
-        " This version",
-        " This summary",
-        " Let me",
-        " Would you",
-        " (",
-        "words.",
-        "words,",
-    ]:
-        idx = text.find(pattern)
-        if idx > _MIN_SUMMARY_LEN:
-            text = text[:idx]
-    last_period = text.rfind(".")
-    if last_period > _MIN_SUMMARY_LEN:
-        text = text[: last_period + 1]
-    return text.strip()
-
-
 def _load_uid_list(
     uid_list_path: str,
     embedding_dir: str,
@@ -155,9 +133,8 @@ def _load_uid_list(
         return requested_uids
 
     if not requested_keys:
-        print(
-            f"  Warning: UIDs don't match and no (source_video, span) info in uid list. "
-            f"Using {len(direct_match)} direct matches."
+        logger.warning(
+            f"UIDs don't match and no (source_video, span) info in uid list. Using {len(direct_match)} direct matches."
         )
         return direct_match
 
@@ -173,7 +150,7 @@ def _load_uid_list(
         if key in requested_keys and uid in emb_uuids:
             resolved_uids.add(uid)
 
-    print(f"  Resolved {len(resolved_uids)}/{len(requested_uids)} UIDs via (source_video, span)")
+    logger.info(f"Resolved {len(resolved_uids)}/{len(requested_uids)} UIDs via (source_video, span)")
     return resolved_uids
 
 
@@ -185,7 +162,7 @@ def _summarize_captions(
     from transformers import AutoTokenizer
     from vllm import LLM, SamplingParams
 
-    print(f"\nLoading summarizer: {summarizer_model}")
+    logger.info(f"Loading summarizer: {summarizer_model}")
     tokenizer = AutoTokenizer.from_pretrained(summarizer_model)
     llm = LLM(model=summarizer_model, dtype="bfloat16", gpu_memory_utilization=0.5)
 
@@ -201,10 +178,10 @@ def _summarize_captions(
     if tokenizer.eos_token:
         stop_tokens.append(tokenizer.eos_token)
     sampling = SamplingParams(temperature=0.0, max_tokens=120, stop=stop_tokens)
-    print(f"Summarizing {len(prompts)} captions ...")
+    logger.info(f"Summarizing {len(prompts)} captions ...")
     outputs = llm.generate(prompts, sampling)
-    summaries = [_clean_summary(o.outputs[0].text.strip()) for o in outputs]
-    print("  Done")
+    summaries = [o.outputs[0].text.strip() for o in outputs]
+    logger.info("Summarization done")
 
     del llm
     torch.cuda.empty_cache()
@@ -226,31 +203,42 @@ def _collect_tasks(
     return tasks
 
 
+def _load_video_embeddings(
+    common_uuids: list[str],
+    embedding_dir: str,
+) -> dict[str, torch.Tensor]:
+    """Load and cache video embeddings for all UIDs."""
+    cache = {}
+    for uid in common_uuids:
+        with open(f"{embedding_dir}/{uid}.pickle", "rb") as f:
+            arr = pickle.load(f)  # noqa: S301
+        cache[uid] = torch.from_numpy(arr).squeeze(0)
+    return cache
+
+
 def _score_summaries(
     tasks: list[tuple[str, str, str]],
     summaries: list[str],
-    embedding_dir: str,
+    vid_emb_cache: dict[str, torch.Tensor],
     cosmos_model_dir: str,
     variant: str,
 ) -> dict[str, dict[str, float]]:
     """Encode summaries with CosmosEmbed1 and compute per-clip scores."""
-    print(f"\nLoading CosmosEmbed1-{variant} from {cosmos_model_dir} ...")
+    logger.info(f"Loading CosmosEmbed1-{variant} from {cosmos_model_dir} ...")
     model = CosmosEmbed1(variant=variant, utils_only=False, model_dir=cosmos_model_dir)
     model.setup()
 
     clip_scores: dict[str, dict[str, float]] = {}
-    print("Encoding summaries and scoring ...")
+    logger.info("Encoding summaries and scoring ...")
     for i, (uid, label, _caption) in enumerate(tqdm(tasks, unit="cap")):
-        with open(f"{embedding_dir}/{uid}.pickle", "rb") as f:
-            arr = pickle.load(f)  # noqa: S301
-        vid_emb = torch.from_numpy(arr).squeeze(0)
+        vid_emb = vid_emb_cache[uid]
         text_emb = model.get_text_embedding(summaries[i]).squeeze(0)
         clip_scores.setdefault(uid, {})[label] = _cosine_sim(vid_emb, text_emb)
 
     return clip_scores
 
 
-def evaluate(  # noqa: PLR0913
+def evaluate(  # noqa: PLR0913, C901, PLR0915
     embedding_dir: str,
     caption_dirs: dict[str, str],
     cosmos_model_dir: str,
@@ -267,30 +255,38 @@ def evaluate(  # noqa: PLR0913
     for label, cap_dir in caption_dirs.items():
         metas = glob.glob(f"{cap_dir}/metas/v0/*.json")
         uuids = {Path(f).stem for f in metas}
-        print(f"{label}: {len(uuids)} clips in {cap_dir}/metas/v0/")
+        logger.info(f"{label}: {len(uuids)} clips in {cap_dir}/metas/v0/")
         uuid_sets.append(uuids)
 
     emb_uuids = {Path(f).stem for f in glob.glob(f"{embedding_dir}/*.pickle")}
     common_uuids = emb_uuids.intersection(*uuid_sets)
 
     if uid_list is not None:
-        print(f"\nFiltering to UIDs from: {uid_list}")
+        logger.info(f"Filtering to UIDs from: {uid_list}")
         allowed = _load_uid_list(uid_list, embedding_dir, caption_dirs)
         common_uuids = common_uuids & allowed
 
     common_uuids = sorted(common_uuids)
-    print(f"\nEvaluating {len(common_uuids)} clips")
+    logger.info(f"Evaluating {len(common_uuids)} clips")
 
     labels = list(caption_dirs.keys())
     tasks = _collect_tasks(common_uuids, caption_dirs)
-    print(f"Collected {len(tasks)} captions")
+    logger.info(f"Collected {len(tasks)} captions")
 
     # Get summaries (from cache or LLM)
     if load_summaries is not None:
-        print(f"\nLoading cached summaries from: {load_summaries}")
+        logger.info(f"Loading cached summaries from: {load_summaries}")
         with open(load_summaries) as f:
             summary_cache = json.load(f)
-        summaries = [summary_cache.get(uid, {}).get(label, "") for uid, label, _ in tasks]
+        summaries = []
+        missing = 0
+        for uid, label, _ in tasks:
+            s = summary_cache.get(uid, {}).get(label, "")
+            if not s:
+                missing += 1
+            summaries.append(s)
+        if missing:
+            logger.warning(f"{missing}/{len(tasks)} summaries not found in cache — scores may be invalid")
     else:
         if summarizer_model is None:
             msg = "--summarizer-model is required when not using --load-summaries"
@@ -303,16 +299,19 @@ def evaluate(  # noqa: PLR0913
             summary_cache.setdefault(uid, {})[label] = summaries[i]
         with open(save_summaries, "w") as f:
             json.dump(summary_cache, f, indent=2)
-        print(f"Summaries saved to: {save_summaries}")
+        logger.info(f"Summaries saved to: {save_summaries}")
+
+    # Load video embeddings once (shared across all models)
+    vid_emb_cache = _load_video_embeddings(common_uuids, embedding_dir)
 
     # Score
-    clip_scores = _score_summaries(tasks, summaries, embedding_dir, cosmos_model_dir, variant)
+    clip_scores = _score_summaries(tasks, summaries, vid_emb_cache, cosmos_model_dir, variant)
 
     # Print statistics
-    print("\nResults (per-clip scores):")
+    logger.info("Results (per-clip scores):")
     for label in labels:
         scores = [clip_scores[uid][label] for uid in common_uuids if label in clip_scores.get(uid, {})]
-        print(f"  {label}: mean={np.mean(scores):.4f} (n={len(scores)})")
+        logger.info(f"  {label}: mean={np.mean(scores):.4f} (n={len(scores)})")
 
     # Export CSV
     csv_path = Path(output_csv)
@@ -329,7 +328,7 @@ def evaluate(  # noqa: PLR0913
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
-    print(f"\nPer-clip scores written to: {csv_path.resolve()}")
+    logger.info(f"Per-clip scores written to: {csv_path.resolve()}")
 
 
 # ---------------------------------------------------------------------------

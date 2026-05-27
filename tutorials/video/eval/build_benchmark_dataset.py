@@ -31,21 +31,11 @@ and source videos -- ready to be used with ``caption_clipscore.py``.
 Example:
 
     python build_benchmark_dataset.py \\
-        --video-dir /path/to/openvid-1m/video \\
+        --video-dir /path/to/video_dataset \\
         --output-dir /path/to/benchmark_200 \\
         --model-dir /path/to/models \\
         --sample-size 3000 \\
         --num-clusters 200
-
-After building the dataset, generate captions with each model:
-
-    python video_split_clip_example.py \\
-        --video-dir /path/to/benchmark_200/input \\
-        --output-path /path/to/benchmark_200_qwen25 \\
-        --model-dir /path/to/models \\
-        --splitting-algorithm fixed_stride --fixed-stride-split-duration 10.0 \\
-        --embedding-algorithm cosmos-embed1-224p \\
-        --generate-captions --captioning-algorithm qwen2.5
 
 Then score with caption_clipscore.py.
 """
@@ -53,79 +43,73 @@ Then score with caption_clipscore.py.
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import glob
 import json
 import os
 import pickle
 import random
-import subprocess
 import sys
 from pathlib import Path
 
 import numpy as np
+from loguru import logger
 from sklearn.cluster import KMeans
+
+# Import the pipeline creation function from the video tutorial
+_REPO_ROOT = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(_REPO_ROOT / "tutorials" / "video" / "getting-started"))
+
+from video_split_clip_example import (  # noqa: E402
+    create_video_splitting_argparser,
+    create_video_splitting_pipeline,
+)
 
 
 def _sample_videos(video_dir: str, sample_size: int, seed: int) -> list[str]:
     """Randomly sample source videos from a directory."""
     videos = [f for f in os.listdir(video_dir) if f.endswith(".mp4")]
     if len(videos) <= sample_size:
-        print(f"  Video dir has {len(videos)} videos (<= sample_size), using all")
+        logger.info(f"Video dir has {len(videos)} videos (<= sample_size), using all")
         return videos
     random.seed(seed)
     sampled = random.sample(videos, sample_size)
-    print(f"  Sampled {len(sampled)} from {len(videos)} videos (seed={seed})")
+    logger.info(f"Sampled {len(sampled)} from {len(videos)} videos (seed={seed})")
     return sampled
 
 
-@dataclasses.dataclass
-class PipelineConfig:
-    """Configuration for the embedding pipeline."""
-
-    input_dir: str
-    output_dir: str
-    model_dir: str
-    gpus: str | None
-    split_duration: float
-    aesthetic_threshold: float
-    pipeline_script: str
-    ffmpeg_dir: str | None = None
-
-
-def _run_embedding_pipeline(cfg: PipelineConfig) -> None:
+def _run_embedding_pipeline(
+    input_dir: str,
+    output_dir: str,
+    model_dir: str,
+    split_duration: float,
+    aesthetic_threshold: float,
+) -> None:
     """Run the NeMo Curator video pipeline for splitting + embedding (no captioning)."""
-    cmd = [
-        sys.executable,
-        cfg.pipeline_script,
-        "--video-dir",
-        cfg.input_dir,
-        "--output-path",
-        cfg.output_dir,
-        "--model-dir",
-        cfg.model_dir,
-        "--splitting-algorithm",
-        "fixed_stride",
-        "--fixed-stride-split-duration",
-        str(cfg.split_duration),
-        "--embedding-algorithm",
-        "cosmos-embed1-224p",
-        "--aesthetic-threshold",
-        str(cfg.aesthetic_threshold),
-    ]
-    env = os.environ.copy()
-    if cfg.ffmpeg_dir is not None:
-        env["PATH"] = cfg.ffmpeg_dir + ":" + env.get("PATH", "")
-    if cfg.gpus is not None:
-        env["CUDA_VISIBLE_DEVICES"] = cfg.gpus
-    # Prevent Ray from resetting CUDA_VISIBLE_DEVICES on zero-GPU actors
-    env["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] = "0"
-    if cfg.gpus is not None:
-        print(f"  Running pipeline on GPUs {cfg.gpus} ...")
-    else:
-        print("  Running pipeline on all available GPUs ...")
-    env["LOGURU_LEVEL"] = "ERROR"
-    subprocess.run(cmd, env=env, check=True)  # noqa: S603
+    # Build args as if parsed from the command line
+    pipeline_parser = create_video_splitting_argparser()
+    pipeline_args = pipeline_parser.parse_args(
+        [
+            "--video-dir",
+            input_dir,
+            "--output-path",
+            output_dir,
+            "--model-dir",
+            model_dir,
+            "--splitting-algorithm",
+            "fixed_stride",
+            "--fixed-stride-split-duration",
+            str(split_duration),
+            "--embedding-algorithm",
+            "cosmos-embed1-224p",
+            "--aesthetic-threshold",
+            str(aesthetic_threshold),
+        ]
+    )
+
+    logger.info("Creating and running embedding pipeline ...")
+    pipeline = create_video_splitting_pipeline(pipeline_args)
+    pipeline.run()
+    logger.info("Pipeline completed")
 
 
 def _kmeans_select(
@@ -143,7 +127,7 @@ def _kmeans_select(
             arr = pickle.load(fh)  # noqa: S301
         embeddings.append(np.asarray(arr).flatten())
     emb_matrix = np.stack(embeddings).astype(np.float32)
-    print(f"  {emb_matrix.shape[0]} clips, {emb_matrix.shape[1]}-dim embeddings")
+    logger.info(f"{emb_matrix.shape[0]} clips, {emb_matrix.shape[1]}-dim embeddings")
 
     uid_to_meta = {}
     for uid in uids:
@@ -152,14 +136,13 @@ def _kmeans_select(
             with open(meta_path) as fh:
                 uid_to_meta[uid] = json.load(fh)
 
-    print(f"  K-means K={num_clusters} ...")
+    logger.info(f"K-means K={num_clusters} ...")
     kmeans = KMeans(n_clusters=num_clusters, random_state=seed, n_init=10, max_iter=300)
     labels = kmeans.fit_predict(emb_matrix)
     centers = kmeans.cluster_centers_
     cluster_sizes = np.bincount(labels, minlength=num_clusters)
-    print(
-        f"  Cluster sizes: min={cluster_sizes.min()}, max={cluster_sizes.max()}, "
-        f"median={int(np.median(cluster_sizes))}"
+    logger.info(
+        f"Cluster sizes: min={cluster_sizes.min()}, max={cluster_sizes.max()}, median={int(np.median(cluster_sizes))}"
     )
 
     selected = []
@@ -182,7 +165,7 @@ def _kmeans_select(
             uid = uids[sorted_idx[0]]
             selected.append((uid, uid_to_meta.get(uid, {})))
 
-    print(f"  Selected {len(selected)} clips from {len(used_sources)} unique source videos")
+    logger.info(f"Selected {len(selected)} clips from {len(used_sources)} unique source videos")
     return selected
 
 
@@ -194,6 +177,13 @@ def _build_output(
     """Create the benchmark output directory with symlinks."""
     emb_dir = f"{pipeline_output_dir}/ce1_embd"
     clip_dir = f"{pipeline_output_dir}/clips"
+
+    if not os.path.isdir(emb_dir):
+        msg = f"Pipeline did not produce embeddings at {emb_dir}"
+        raise FileNotFoundError(msg)
+    if not os.path.isdir(clip_dir):
+        msg = f"Pipeline did not produce clips at {clip_dir}"
+        raise FileNotFoundError(msg)
 
     os.makedirs(f"{output_dir}/ce1_embd", exist_ok=True)
     os.makedirs(f"{output_dir}/clips", exist_ok=True)
@@ -208,13 +198,13 @@ def _build_output(
         # Symlink embedding
         src = f"{emb_dir}/{uid}.pickle"
         dst = f"{output_dir}/ce1_embd/{uid}.pickle"
-        if os.path.exists(src) and not os.path.exists(dst):
+        if os.path.exists(src) and not os.path.lexists(dst):
             os.symlink(os.path.abspath(src), dst)
 
         # Symlink clip
         src = f"{clip_dir}/{uid}.mp4"
         dst = f"{output_dir}/clips/{uid}.mp4"
-        if os.path.exists(src) and not os.path.exists(dst):
+        if os.path.exists(src) and not os.path.lexists(dst):
             os.symlink(os.path.abspath(src), dst)
 
         # Symlink source video
@@ -222,7 +212,7 @@ def _build_output(
         if src_video and os.path.exists(src_video):
             vid_name = os.path.basename(src_video)
             dst = f"{output_dir}/input/{vid_name}"
-            if vid_name not in input_videos_linked and not os.path.exists(dst):
+            if vid_name not in input_videos_linked and not os.path.lexists(dst):
                 os.symlink(os.path.abspath(src_video), dst)
                 input_videos_linked.add(vid_name)
 
@@ -237,10 +227,10 @@ def _build_output(
     total_duration = sum(
         meta.get("duration_span", [0, 0])[1] - meta.get("duration_span", [0, 0])[0] for _, meta in selected
     )
-    print(f"\nBenchmark dataset ready at: {output_dir}")
-    print(f"  Clips       : {len(uids)}")
-    print(f"  Source videos: {len(input_videos_linked)}")
-    print(f"  Duration    : {total_duration:.0f}s ({total_duration / 60:.1f} min)")
+    logger.info(f"Benchmark dataset ready at: {output_dir}")
+    logger.info(f"  Clips       : {len(uids)}")
+    logger.info(f"  Source videos: {len(input_videos_linked)}")
+    logger.info(f"  Duration    : {total_duration:.0f}s ({total_duration / 60:.1f} min)")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -263,11 +253,6 @@ def _parse_args() -> argparse.Namespace:
         "--model-dir",
         required=True,
         help="Root model directory for the pipeline (contains CosmosEmbed1 weights etc.).",
-    )
-    parser.add_argument(
-        "--pipeline-script",
-        default=None,
-        help="Path to video_split_clip_example.py. Auto-detected if not provided.",
     )
     parser.add_argument(
         "--sample-size",
@@ -294,16 +279,6 @@ def _parse_args() -> argparse.Namespace:
         help="Minimum aesthetic score for clip filtering (default: 3.5).",
     )
     parser.add_argument(
-        "--gpus",
-        default=None,
-        help="Comma-separated GPU IDs for the pipeline. Uses all available GPUs if not set.",
-    )
-    parser.add_argument(
-        "--ffmpeg-dir",
-        default=None,
-        help="Directory containing ffmpeg/ffprobe binaries. Prepended to PATH for the pipeline subprocess.",
-    )
-    parser.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -315,55 +290,30 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
 
-    # Auto-detect pipeline script
-    pipeline_script = args.pipeline_script
-    if pipeline_script is None:
-        candidates = [
-            Path(__file__).parent.parent / "getting-started" / "video_split_clip_example.py",
-            Path(__file__).parent.parent.parent.parent
-            / "tutorials"
-            / "video"
-            / "getting-started"
-            / "video_split_clip_example.py",
-        ]
-        for c in candidates:
-            if c.exists():
-                pipeline_script = str(c)
-                break
-        if pipeline_script is None:
-            msg = "Could not find video_split_clip_example.py. Provide --pipeline-script explicitly."
-            raise FileNotFoundError(msg)
-    print(f"Pipeline script: {pipeline_script}")
-
     # Step 1: Sample videos and create temp input directory
-    print("\n[Step 1/4] Sampling videos ...")
+    logger.info("[Step 1/4] Sampling videos ...")
     sampled_videos = _sample_videos(args.video_dir, args.sample_size, args.seed)
     sample_input_dir = f"{args.output_dir}/_sample_input"
     os.makedirs(sample_input_dir, exist_ok=True)
     for vid in sampled_videos:
         src = os.path.join(args.video_dir, vid)
         dst = os.path.join(sample_input_dir, vid)
-        if not os.path.exists(dst):
+        if not os.path.lexists(dst):
             os.symlink(os.path.abspath(src), dst)
 
     # Step 2: Run embedding pipeline
-    print("\n[Step 2/4] Running embedding pipeline ...")
+    logger.info("[Step 2/4] Running embedding pipeline ...")
     pipeline_output = f"{args.output_dir}/_pipeline_output"
     _run_embedding_pipeline(
-        PipelineConfig(
-            input_dir=sample_input_dir,
-            output_dir=pipeline_output,
-            model_dir=args.model_dir,
-            gpus=args.gpus,
-            split_duration=args.split_duration,
-            aesthetic_threshold=args.aesthetic_threshold,
-            pipeline_script=pipeline_script,
-            ffmpeg_dir=args.ffmpeg_dir,
-        )
+        input_dir=sample_input_dir,
+        output_dir=pipeline_output,
+        model_dir=args.model_dir,
+        split_duration=args.split_duration,
+        aesthetic_threshold=args.aesthetic_threshold,
     )
 
     # Step 3: K-means clustering and selection
-    print("\n[Step 3/4] K-means clustering ...")
+    logger.info("[Step 3/4] K-means clustering ...")
     selected = _kmeans_select(
         emb_dir=f"{pipeline_output}/ce1_embd",
         meta_dir=f"{pipeline_output}/metas/v0",
@@ -372,7 +322,7 @@ def main() -> None:
     )
 
     # Step 4: Build output directory
-    print("\n[Step 4/4] Building output directory ...")
+    logger.info("[Step 4/4] Building output directory ...")
     _build_output(selected, pipeline_output, args.output_dir)
 
 
