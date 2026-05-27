@@ -260,15 +260,22 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     Args:
         filepath_key: Manifest key that identifies the audio filename
             inside the tar archive.
+        duration_key: Manifest key containing utterance duration in seconds.
+        max_duration_s: Optional upper bound for emitted utterance duration.
     """
 
     name: str = "nemo_tar_shard_reader"
     filepath_key: str = "audio_filepath"
+    duration_key: str = "duration"
+    max_duration_s: float | None = None
     max_utterances_per_shard: int | None = None
     num_workers_override: int | None = None
     num_workers_per_node: int | None = None
 
     def __post_init__(self) -> None:
+        if self.max_duration_s is not None and self.max_duration_s <= 0:
+            msg = "max_duration_s must be positive when set"
+            raise ValueError(msg)
         if self.max_utterances_per_shard is not None and self.max_utterances_per_shard <= 0:
             msg = "max_utterances_per_shard must be positive when set"
             raise ValueError(msg)
@@ -299,17 +306,32 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
-    def _read_manifest(self, path: str) -> dict[str, dict]:
+    @staticmethod
+    def _manifest_lookup_keys(path: str) -> set[str]:
+        stripped = path.lstrip("./")
+        return {path, stripped, os.path.basename(stripped)}
+
+    def _read_manifest(self, path: str) -> tuple[dict[str, dict], int]:
         entries: dict[str, dict] = {}
+        duplicate_keys: set[str] = set()
+        entry_count = 0
         with _open_text_stream(path) as f:
             for raw_line in f:
                 if isinstance(raw_line, bytes):
                     raw_line = raw_line.decode("utf-8")
                 stripped = raw_line.strip()
                 if stripped:
+                    entry_count += 1
                     entry = json.loads(stripped)
-                    entries[entry[self.filepath_key]] = entry
-        return entries
+                    audio_path = str(entry[self.filepath_key])
+                    for lookup_key in self._manifest_lookup_keys(audio_path):
+                        if lookup_key in entries and entries[lookup_key] != entry:
+                            duplicate_keys.add(lookup_key)
+                        else:
+                            entries[lookup_key] = entry
+        for lookup_key in duplicate_keys:
+            entries.pop(lookup_key, None)
+        return entries, entry_count
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         t0 = time.perf_counter()
@@ -318,10 +340,10 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         shard_key = task.reader_config.get("shard_key", task.task_id)
 
         manifest_t0 = time.perf_counter()
-        manifest = self._read_manifest(manifest_path)
+        manifest, manifest_entry_count = self._read_manifest(manifest_path)
         manifest_elapsed = time.perf_counter() - manifest_t0
 
-        logger.info(f"Reading shard {shard_key}: {tar_path} ({len(manifest)} manifest entries)")
+        logger.info(f"Reading shard {shard_key}: {tar_path} ({manifest_entry_count} manifest entries)")
 
         open_t0 = time.perf_counter()
         tar = _open_tar(tar_path)
@@ -330,6 +352,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         tar_members_seen = 0
         audio_members_matched = 0
         corrupt_audio_count = 0
+        duration_filtered_count = 0
         decoded_audio_seconds = 0.0
         decoded_waveform_bytes = 0.0
         decode_elapsed = 0.0
@@ -337,8 +360,24 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         try:
             for tar_info in tar:
                 tar_members_seen += 1
-                if not tar_info.isfile() or tar_info.name not in manifest:
+                if not tar_info.isfile():
                     continue
+                manifest_entry = next(
+                    (manifest[key] for key in self._manifest_lookup_keys(tar_info.name) if key in manifest),
+                    None,
+                )
+                if manifest_entry is None:
+                    continue
+
+                entry = dict(manifest_entry)
+                if self.max_duration_s is not None and self.duration_key in entry:
+                    try:
+                        duration_s = float(entry[self.duration_key])
+                    except (TypeError, ValueError):
+                        duration_s = None
+                    if duration_s is not None and duration_s > self.max_duration_s:
+                        duration_filtered_count += 1
+                        continue
 
                 raw_audio = tar.extractfile(tar_info).read()
                 try:
@@ -359,7 +398,6 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 if sample_rate:
                     decoded_audio_seconds += float(audio.shape[0]) / float(sample_rate)
 
-                entry = dict(manifest[tar_info.name])
                 entry["waveform"] = audio
                 entry["sample_rate"] = sample_rate
                 entry["sampling_rate"] = sample_rate
@@ -394,10 +432,11 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             "input_shards": 1.0,
             "output_tasks": float(shard_total),
             "output_utterances": float(shard_total),
-            "manifest_entries": float(len(manifest)),
+            "manifest_entries": float(manifest_entry_count),
             "tar_members_seen": float(tar_members_seen),
             "audio_members_decoded": float(audio_members_matched),
             "corrupt_audio_count": float(corrupt_audio_count),
+            "duration_filtered_count": float(duration_filtered_count),
             "utterances_emitted": float(shard_total),
             "utterance_limit_hit": float(
                 bool(self.max_utterances_per_shard and shard_total >= self.max_utterances_per_shard)
@@ -431,12 +470,16 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
         yaml_path: Path to the Granary YAML data config.
         corpus_filter: Only process shards whose ``corpus`` matches.
         filepath_key: Manifest key for audio filenames inside tar archives.
+        duration_key: Manifest key containing utterance duration in seconds.
+        max_duration_s: Optional upper bound for emitted utterance duration.
     """
 
     name: str = "nemo_tarred_audio_reader"
     yaml_path: str = ""
     corpus_filter: list[str] | None = None
     filepath_key: str = "audio_filepath"
+    duration_key: str = "duration"
+    max_duration_s: float | None = None
     output_dir: str | None = None
     max_utterances_per_shard: int | None = None
     reader_num_workers: int | None = None
@@ -456,6 +499,8 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
             ),
             NemoTarShardReaderStage(
                 filepath_key=self.filepath_key,
+                duration_key=self.duration_key,
+                max_duration_s=self.max_duration_s,
                 max_utterances_per_shard=self.max_utterances_per_shard,
                 num_workers_override=self.reader_num_workers,
                 num_workers_per_node=self.reader_num_workers_per_node,

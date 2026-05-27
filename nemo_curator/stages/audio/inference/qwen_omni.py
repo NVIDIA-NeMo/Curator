@@ -114,6 +114,8 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         system_prompt: Optional system prompt.
         waveform_key: Key in ``AudioTask.data`` for the waveform array.
         sample_rate_key: Key in ``AudioTask.data`` for the sample rate.
+        default_language: Optional language code/name used when a task has no
+            value under ``source_lang_key``.
         pred_text_key: Key where the predicted text is stored.
         max_model_len: Maximum context length passed to vLLM.
         max_num_seqs: Maximum concurrent sequences in vLLM.
@@ -139,6 +141,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
     source_lang_key: str = "source_lang"
+    default_language: str | None = None
     pred_text_key: str = "qwen3_prediction_s1"
     disfluency_text_key: str = "qwen3_prediction_s2"
     skip_me_key: str = "_skip_me"
@@ -151,6 +154,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     top_k: int = 1
     prep_workers: int = 8
     keep_waveform: bool = False
+    prefetch_fail_on_error: bool = True
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
@@ -225,8 +229,11 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
                 self.model_id,
                 time.perf_counter() - prefetch_t0,
             )
-        except Exception:  # noqa: BLE001
-            logger.warning("QwenOmni: snapshot_download failed; setup() will download")
+        except Exception as exc:  # noqa: BLE001
+            msg = f"QwenOmni: snapshot_download failed for {self.model_id}"
+            if self.prefetch_fail_on_error:
+                raise RuntimeError(msg) from exc
+            logger.warning("{}; setup() will retry: {}", msg, exc)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         if self._model is None:
@@ -275,11 +282,14 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         waveforms = [t.data[self.waveform_key] for t in tasks]
         sample_rates = [t.data[self.sample_rate_key] for t in tasks]
         languages: list[str | None] | None = None
-        if self.source_lang_key:
+        if self.source_lang_key or self.default_language:
             languages = [
                 _LANG_CODE_TO_NAME.get(code, code) if code else None
                 for code in (t.data.get(self.source_lang_key) for t in tasks)
             ]
+            if self.default_language:
+                default_language = _LANG_CODE_TO_NAME.get(self.default_language, self.default_language)
+                languages = [language or default_language for language in languages]
 
         t0 = time.perf_counter()
         pred_texts, disfluency_texts, skipped_indices = self._model.generate(waveforms, sample_rates, languages)
@@ -297,7 +307,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
 
         metrics = {
             "utterances_input": float(len(tasks)),
-            "utterances_processed": float(len(pred_texts)),
+            "utterances_processed": float(max(0, len(tasks) - len(skipped_indices))),
             "utterances_skipped": float(len(skipped_indices)),
             "audio_duration_s": sum(
                 float(w.shape[0]) / float(sr)

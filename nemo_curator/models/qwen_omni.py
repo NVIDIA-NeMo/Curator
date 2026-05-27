@@ -234,8 +234,13 @@ class QwenOmni(ModelInterface):
             messages = self._build_messages(waveform_16k, language)
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
-        except Exception:  # noqa: BLE001
-            logger.warning(f"Failed to preprocess audio, skipping (waveform shape={waveform.shape}, sr={sample_rate})")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to preprocess audio, skipping (waveform shape={}, sr={}): {}",
+                getattr(waveform, "shape", None),
+                sample_rate,
+                exc,
+            )
             return None
 
         inputs: dict[str, Any] = {
@@ -271,8 +276,12 @@ class QwenOmni(ModelInterface):
             messages = self._build_turn2_messages(waveform_16k, pred_text, language)
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
-        except Exception:  # noqa: BLE001
-            logger.warning(f"Failed to preprocess Turn 2 audio (shape={waveform_16k.shape})")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to preprocess Turn 2 audio (shape={}): {}",
+                getattr(waveform_16k, "shape", None),
+                exc,
+            )
             return None
 
         inputs: dict[str, Any] = {
@@ -313,6 +322,13 @@ class QwenOmni(ModelInterface):
             if token_ids is not None:
                 total += float(len(token_ids))
         return total
+
+    @staticmethod
+    def _first_output_text(output: Any) -> str:
+        sequences = getattr(output, "outputs", None) or []
+        if not sequences:
+            return ""
+        return (getattr(sequences[0], "text", "") or "").strip()
 
     # ------------------------------------------------------------------
     # Generation
@@ -403,7 +419,7 @@ class QwenOmni(ModelInterface):
 
         pred_texts: list[str] = [""] * n
         for idx, out in zip(valid_indices, t1_outputs, strict=False):
-            pred_texts[idx] = out.outputs[0].text.strip()
+            pred_texts[idx] = self._first_output_text(out)
 
         # -- Turn 2 (disfluency refinement) -----------------------------------
         if not self.followup_prompt:
@@ -438,6 +454,6 @@ class QwenOmni(ModelInterface):
 
         disfluency_texts: list[str] = [""] * n
         for (idx, _), out in zip(t2_valid, t2_outputs, strict=False):
-            disfluency_texts[idx] = out.outputs[0].text.strip()
+            disfluency_texts[idx] = self._first_output_text(out)
 
         return pred_texts, disfluency_texts, skipped_indices

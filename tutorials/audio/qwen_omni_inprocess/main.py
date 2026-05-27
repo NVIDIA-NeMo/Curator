@@ -28,8 +28,8 @@ This entry point can be invoked directly or by an external launcher via::
 
 Launchers may pass Hydra overrides such as ``workspace_dir``,
 ``input_manifest``, ``language_short``, ``max_segment_length``, ``hf_token``,
-and ``final_manifest``. All of these are accepted as top-level keys in the
-YAML and forwarded to the appropriate stages.
+and ``final_manifest``. Secret values are redacted from logs before the config
+is printed.
 """
 
 import importlib
@@ -53,6 +53,32 @@ _EXECUTOR_FACTORIES = {
     "xenna": "nemo_curator.backends.xenna:XennaExecutor",
     "ray_data": "nemo_curator.backends.ray_data:RayDataExecutor",
 }
+
+_SECRET_KEY_NAMES = {
+    "access_key",
+    "access_token",
+    "api_key",
+    "auth_token",
+    "bearer_token",
+    "credential",
+    "credentials",
+    "hf_token",
+    "password",
+    "passwd",
+    "secret",
+    "secret_key",
+    "token",
+}
+_SECRET_KEY_PARTS = (
+    "access_key",
+    "api_key",
+    "auth_token",
+    "bearer",
+    "credential",
+    "password",
+    "passwd",
+    "secret",
+)
 
 
 def _as_container(value: Any, *, resolve: bool = True) -> Any:
@@ -131,6 +157,32 @@ def _configured_stage_entries(cfg: DictConfig) -> Any:
     return None
 
 
+def _is_secret_key(key: str) -> bool:
+    key_lower = key.lower()
+    return (
+        key_lower in _SECRET_KEY_NAMES
+        or key_lower.endswith(("_token", "_secret", "_password"))
+        or any(part in key_lower for part in _SECRET_KEY_PARTS)
+    )
+
+
+def _redact_secret_values(value: Any) -> Any:
+    value = _as_container(value)
+    if isinstance(value, dict):
+        return {
+            key: ("<redacted>" if _is_secret_key(str(key)) and item not in (None, "") else _redact_secret_values(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_secret_values(item) for item in value]
+    return value
+
+
+def _safe_config_yaml(cfg: DictConfig) -> str:
+    redacted = _redact_secret_values(cfg)
+    return OmegaConf.to_yaml(OmegaConf.create(redacted))
+
+
 def _instantiate_configured_stages(cfg: DictConfig) -> list[ProcessingStage]:
     stage_entries = _configured_stage_entries(cfg)
     if not stage_entries:
@@ -201,7 +253,7 @@ def _iter_leaf_stages(stages: Iterable[ProcessingStage]) -> Iterable[ProcessingS
             yield stage
 
 
-def _prefetch_models(stages: list[ProcessingStage]) -> None:
+def _prefetch_models(stages: list[ProcessingStage], *, fail_on_error: bool = True) -> None:
     """Download all models in parallel before pipeline execution.
 
     This is intentionally generic: it looks at the stages listed in the config
@@ -242,15 +294,23 @@ def _prefetch_models(stages: list[ProcessingStage]) -> None:
     logger.info(f"Pre-fetching {len(tasks)} models in parallel...")
     t0 = time.time()
 
+    failures: list[str] = []
     with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
         futures = {pool.submit(fn): name for name, fn in tasks}
         for future in as_completed(futures):
             name = futures[future]
             try:
-                result = future.result()
+                future.result()
                 logger.info(f"  OK {name} cached ({time.time() - t0:.1f}s elapsed)")
             except Exception as exc:
-                logger.warning(f"  FAIL {name} failed: {exc} (will retry in setup_on_node)")
+                failures.append(f"{name}: {exc}")
+                logger.warning(f"  FAIL {name} failed: {exc}")
+
+    if failures and fail_on_error:
+        msg = "Model pre-fetch failed: " + "; ".join(failures)
+        raise RuntimeError(msg)
+    if failures:
+        logger.warning("Continuing after model pre-fetch failure; setup_on_node/setup will retry")
 
     logger.info(f"All model pre-fetch complete in {time.time() - t0:.1f}s")
 
@@ -280,16 +340,15 @@ def _create_executor(cfg: DictConfig):  # noqa: ANN201
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
     """Hydra entry point for the Granary v2 Qwen-Omni pipeline."""
-    logger.info(f"Hydra config:\n{OmegaConf.to_yaml(cfg)}")
-
     hf_token = cfg.get("hf_token", "")
     if hf_token:
         os.environ["HF_TOKEN"] = hf_token
         os.environ.setdefault("HF_HOME", "/tmp/hf_home")
+    logger.info(f"Hydra config:\n{_safe_config_yaml(cfg)}")
 
     pipeline = build_granary_v2_pipeline(cfg)
     logger.info(f"Pipeline: {pipeline.describe()}")
-    _prefetch_models(pipeline.stages)
+    _prefetch_models(pipeline.stages, fail_on_error=bool(cfg.get("prefetch_fail_on_error", True)))
 
     executor = _create_executor(cfg)
 

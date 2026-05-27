@@ -47,6 +47,9 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
 
     Args:
         output_dir: Root directory for output manifests.
+        final_manifest_path: Optional JSONL path that also receives every
+            output row. This is useful for single-rank tutorial runs; the
+            sharded files remain the primary output.
         write_perf_stats: If True, write per-task stage perf to a sibling
             ``_perf.jsonl`` file and refresh an aggregate
             ``perf_summary.json`` whenever a shard completes.
@@ -54,8 +57,10 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
 
     name: str = "sharded_manifest_writer"
     output_dir: str = ""
+    final_manifest_path: str | None = None
     write_perf_stats: bool = True
     duration_key: str = "duration"
+    drop_manifest_keys: tuple[str, ...] = ("waveform",)
     _perf_summary: AudioPerformanceSummary = field(init=False, repr=False)
     _writer_manifest_write_time_s: float = field(default=0.0, repr=False)
     _writer_perf_write_time_s: float = field(default=0.0, repr=False)
@@ -80,8 +85,31 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
+        if self.final_manifest_path:
+            final_parent = os.path.dirname(self.final_manifest_path)
+            if final_parent:
+                os.makedirs(final_parent, exist_ok=True)
+            if os.path.exists(self.final_manifest_path):
+                os.remove(self.final_manifest_path)
         self._perf_summary.reset_wall_timer()
         logger.info(f"ShardedManifestWriterStage: output_dir={self.output_dir}")
+
+    def _manifest_data(self, task: AudioTask) -> dict[str, Any]:
+        data: dict[str, Any] = {}
+        drop_keys = set(self.drop_manifest_keys)
+        for key, value in task.data.items():
+            if key in drop_keys:
+                continue
+            if hasattr(value, "shape") and hasattr(value, "dtype"):
+                logger.debug("Dropping array-like manifest key {} from writer output", key)
+                continue
+            try:
+                json.dumps(value, ensure_ascii=False)
+            except TypeError as exc:
+                msg = f"Task {task.task_id} contains non-JSON-serializable manifest key {key!r}"
+                raise TypeError(msg) from exc
+            data[key] = value
+        return data
 
     def _write_perf_line(self, task: AudioTask, shard_key: str) -> None:
         """Append one task's stage perf chain to the shard's perf JSONL."""
@@ -102,9 +130,14 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         out_path = os.path.join(self.output_dir, f"{shard_key}.jsonl")
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
+        manifest_data = self._manifest_data(task)
         write_t0 = time.perf_counter()
         with open(out_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
+            line = json.dumps(manifest_data, ensure_ascii=False) + "\n"
+            f.write(line)
+        if self.final_manifest_path:
+            with open(self.final_manifest_path, "a", encoding="utf-8") as f:
+                f.write(line)
         self._writer_manifest_write_time_s += time.perf_counter() - write_t0
 
         self._perf_summary.record_task(task, shard_key=shard_key, include_stage_perf=self.write_perf_stats)

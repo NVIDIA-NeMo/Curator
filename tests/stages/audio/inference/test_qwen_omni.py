@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
+from nemo_curator.models.qwen_omni import QwenOmni
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
 from nemo_curator.tasks import AudioTask
 
@@ -49,6 +51,10 @@ def test_process_raises_not_implemented() -> None:
 def test_empty_batch() -> None:
     stage = _make_stage()
     assert stage.process_batch([]) == []
+
+
+def test_qwen_model_handles_empty_vllm_outputs() -> None:
+    assert QwenOmni._first_output_text(SimpleNamespace(outputs=[])) == ""
 
 
 def test_basic_inference() -> None:
@@ -130,10 +136,45 @@ def test_language_resolution() -> None:
     assert languages == ["Spanish"]
 
 
+def test_default_language_used_when_task_language_missing() -> None:
+    stage = _make_stage()
+    stage.default_language = "en"
+    stage._model.generate.return_value = (["hello"], [""], set())
+
+    task = AudioTask(data={
+        "waveform": np.zeros(16000, dtype=np.float32),
+        "sample_rate": 16000,
+    })
+    stage.process_batch([task])
+
+    call_args = stage._model.generate.call_args
+    languages = call_args[0][2]
+    assert languages == ["English"]
+
+
 @patch("huggingface_hub.snapshot_download")
 def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     stage = InferenceQwenOmniStage(model_id="mock/model")
     stage.setup_on_node()
+    mock_download.assert_called_once_with("mock/model")
+
+
+@patch("huggingface_hub.snapshot_download", side_effect=RuntimeError("missing auth"))
+def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
+    stage = InferenceQwenOmniStage(model_id="mock/model")
+
+    with pytest.raises(RuntimeError, match="snapshot_download failed"):
+        stage.setup_on_node()
+
+    mock_download.assert_called_once_with("mock/model")
+
+
+@patch("huggingface_hub.snapshot_download", side_effect=RuntimeError("offline"))
+def test_setup_on_node_can_warn_and_retry_later(mock_download: MagicMock) -> None:
+    stage = InferenceQwenOmniStage(model_id="mock/model", prefetch_fail_on_error=False)
+
+    stage.setup_on_node()
+
     mock_download.assert_called_once_with("mock/model")
 
 
@@ -153,6 +194,19 @@ def test_skipped_indices_set_skip_key() -> None:
     results = stage.process_batch([_make_task()])
 
     assert results[0].data["_skip_me"] == "empty_audio"
+
+
+def test_metrics_exclude_skipped_utterances() -> None:
+    stage = _make_stage()
+    stage._model.generate.return_value = (["text", ""], ["", ""], {1})
+    stage._log_metrics = MagicMock()  # type: ignore[method-assign]
+
+    stage.process_batch([_make_task(), _make_task()])
+
+    metrics = stage._log_metrics.call_args[0][0]
+    assert metrics["utterances_input"] == 2.0
+    assert metrics["utterances_processed"] == 1.0
+    assert metrics["utterances_skipped"] == 1.0
 
 
 def test_worker_override_specs() -> None:

@@ -5149,6 +5149,7 @@ all = [
     { name = "pylibraft-cu12" },
     { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "pypdfium2" },
+    { name = "qwen-omni-utils" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
     { name = "ray", extra = ["llm", "serve"] },
@@ -5222,6 +5223,7 @@ audio-cuda12 = [
     { name = "onnxruntime-gpu", marker = "platform_machine == 'x86_64'" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "pydub" },
+    { name = "qwen-omni-utils" },
     { name = "scipy" },
     { name = "silero-vad" },
     { name = "soundfile" },
@@ -5601,6 +5603,7 @@ requires-dist = [
     { name = "pylibraft-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "==2.0.2" },
     { name = "pypdfium2", marker = "extra == 'interleaved-cpu'" },
+    { name = "qwen-omni-utils", marker = "extra == 'audio-cuda12'" },
     { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "ray", extras = ["data", "default"], specifier = ">=2.55.1" },
@@ -8678,6 +8681,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fd/40/e9a86b32ee3d44be6301acb9ebe6f299f2b8f0e0fd847f4143139100a2bf/quack_kernels-0.4.0.tar.gz", hash = "sha256:55a3c69bb2219ec6488fe366a21c3da1a50c4640ceb5b9b31d126f8477ad35aa", size = 261153, upload-time = "2026-04-27T15:29:08.588Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/19/5d/d963412914a2f778e4594c5164dfe69bc53435877bfcd1a0db25e67cf320/quack_kernels-0.4.0-py3-none-any.whl", hash = "sha256:c7ef1d3ee317adbc363b02e69a0a26110a8fcf5e07d8ada2cf7a1b4828b5539f", size = 250771, upload-time = "2026-04-27T15:29:07.227Z" },
+]
+
+[[package]]
+name = "qwen-omni-utils"
+version = "0.0.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "av" },
+    { name = "librosa" },
+    { name = "packaging" },
+    { name = "pillow" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a2/27/81a51b10ef6d1a4f158498089530eb4307689d75adf6bd34f6632eda3099/qwen_omni_utils-0.0.9.tar.gz", hash = "sha256:c598269c7069afb4d154f8ea523972e8d8794a978fffed89cb4d87c326f97447", size = 8632, upload-time = "2026-02-10T09:45:30.538Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/a8/dfc07e5b9005decbd2f08ac564250775fea9526473ae1bc90fbf45e8036f/qwen_omni_utils-0.0.9-py3-none-any.whl", hash = "sha256:f111db07af669c83333411c5177131e18e831fe666d6a55a1af263952ada8939", size = 9657, upload-time = "2026-02-10T09:45:28.888Z" },
 ]
 
 [[package]]

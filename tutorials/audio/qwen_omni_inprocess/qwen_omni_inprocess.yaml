@@ -32,6 +32,7 @@ hf_token: ""
 backend: xenna
 execution_mode: streaming
 autoscale_interval_s: 30
+prefetch_fail_on_error: true
 stages_to_run: all
 stages_to_skip: []
 
@@ -70,8 +71,6 @@ max_model_len: 4096
 max_num_seqs: 16
 gpu_memory_utilization: 0.90
 prep_workers: 16
-enable_disfluency_guard: false
-omni_hallucination_text_key: qwen3_prediction_s1
 keep_waveform: false
 
 # ===========================================================================
@@ -85,6 +84,8 @@ stages:
     yaml_path: ${data_config}
     corpus_filter: ${corpus}
     output_dir: ${output_dir}
+    duration_key: ${duration_key}
+    max_duration_s: ${max_segment_length}
     max_utterances_per_shard: ${max_utterances_per_shard}
     reader_num_workers: ${reader_num_workers}
     reader_num_workers_per_node: ${reader_num_workers_per_node}
@@ -111,9 +112,11 @@ stages:
     gpu_memory_utilization: ${gpu_memory_utilization}
     prep_workers: ${prep_workers}
     source_lang_key: ${source_lang_key}
+    default_language: ${language_short}
     pred_text_key: qwen3_prediction_s1
     disfluency_text_key: qwen3_prediction_s2
     keep_waveform: ${keep_waveform}
+    prefetch_fail_on_error: ${prefetch_fail_on_error}
     num_workers_override: ${omni_num_workers}
     stage_with:
       resources:
@@ -123,6 +126,7 @@ stages:
   - stage_id: sharded_manifest_writer
     _target_: nemo_curator.stages.audio.io.sharded_manifest_writer.ShardedManifestWriterStage
     output_dir: ${output_dir}
+    final_manifest_path: ${final_manifest}
     duration_key: ${duration_key}
     stage_with:
       batch_size: ${cpu_batch_size}
