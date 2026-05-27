@@ -95,15 +95,10 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             list.  ``None`` means include everything.
     """
 
+    yaml_path: str
     name: str = "nemo_tar_shard_discovery"
-    yaml_path: str = ""
     corpus_filter: list[str] | None = None
     output_dir: str | None = None
-
-    def __post_init__(self) -> None:
-        if not self.yaml_path:
-            msg = "yaml_path is required for NemoTarShardDiscoveryStage"
-            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -478,8 +473,8 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
         max_duration_s: Optional upper bound for emitted utterance duration.
     """
 
+    yaml_path: str
     name: str = "nemo_tarred_audio_reader"
-    yaml_path: str = ""
     corpus_filter: list[str] | None = None
     filepath_key: str = "audio_filepath"
     duration_key: str = "duration"
@@ -491,9 +486,6 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
 
     def __post_init__(self) -> None:
         super().__init__()
-        if not self.yaml_path:
-            msg = "yaml_path is required for NemoTarredAudioReader"
-            raise ValueError(msg)
 
         self._stages: list[ProcessingStage] = [
             NemoTarShardDiscoveryStage(
