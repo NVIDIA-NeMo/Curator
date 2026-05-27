@@ -105,7 +105,7 @@ def _apply_size_filtering(app: Sphinx, all_docs: list[str], log_func: Callable[[
                 filtered_docs.append(docname)
             else:
                 log_func(f"Skipping large file: {docname} ({source_path.stat().st_size} bytes)")
-        except Exception:  # noqa: PERF203
+        except Exception:
             filtered_docs.append(docname)  # Include if we can't check size
     return filtered_docs
 
@@ -162,7 +162,7 @@ def process_documents_parallel(
                         generated_count += 1
                     else:
                         failed_count += 1
-                except Exception:  # noqa: PERF203
+                except Exception:
                     logger.exception(f"Error generating JSON for {docname}")
                     failed_count += 1
 
@@ -179,7 +179,7 @@ def process_documents_sequential(json_builder: JSONOutputBuilder, all_docs: list
             json_data = json_builder.build_json_data(docname)
             json_builder.write_json_file(docname, json_data)
             generated_count += 1
-        except Exception:  # noqa: PERF203
+        except Exception:
             logger.exception(f"Error generating JSON for {docname}")
             failed_count += 1
 

@@ -20,6 +20,10 @@ DEFAULT_RAY_DASHBOARD_HOST = "127.0.0.1"
 DEFAULT_RAY_CLIENT_SERVER_PORT = 10001
 DEFAULT_RAY_AUTOSCALER_METRIC_PORT = 44217
 DEFAULT_RAY_DASHBOARD_METRIC_PORT = 44227
+# Default for Ray Serve's HAProxy prometheus endpoint (RAY_SERVE_HAPROXY_METRICS_PORT).
+# Ray's own default is 9101; we pick a free port starting from this so multiple Curator
+# clusters can coexist on a single host without bind conflicts.
+DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT = 9101
 
 # We cannot use a free port between 10000 and 19999 as it is used by Ray.
 DEFAULT_RAY_MIN_WORKER_PORT = 10002

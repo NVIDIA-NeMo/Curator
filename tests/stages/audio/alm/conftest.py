@@ -14,25 +14,10 @@
 
 """Shared fixtures for ALM stage tests."""
 
-import json
-from pathlib import Path
-
 import pytest
 
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage
 from nemo_curator.tasks import AudioTask
-
-
-@pytest.fixture
-def sample_entries() -> list[dict]:
-    """Load sample entries from fixture file."""
-    fixture_path = Path(__file__).parent.parent.parent.parent / "fixtures" / "audio" / "alm" / "sample_input.jsonl"
-    entries = []
-    with open(fixture_path, encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                entries.append(json.loads(line.strip()))
-    return entries
 
 
 @pytest.fixture

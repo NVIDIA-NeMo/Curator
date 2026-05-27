@@ -29,15 +29,29 @@ Usage:
         enable_utmos=true
 """
 
+import importlib
 import os
+import time
 
 import hydra
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
-from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+
+_EXECUTOR_FACTORIES = {
+    "xenna": "nemo_curator.backends.xenna:XennaExecutor",
+    "ray_data": "nemo_curator.backends.ray_data:RayDataExecutor",
+}
+
+
+def _create_executor(backend: str, **kwargs) -> object:
+    if backend not in _EXECUTOR_FACTORIES:
+        msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
+        raise ValueError(msg)
+    module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
+    mod = importlib.import_module(module_path)
+    return getattr(mod, class_name)(**kwargs)
 
 
 def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
@@ -70,13 +84,22 @@ def main(cfg: DictConfig) -> None:
     os.makedirs(output_dir, exist_ok=True)
 
     backend = cfg.get("backend", "xenna")
-    if backend == "ray_data":
-        executor = RayDataExecutor()
-    else:
+    executor_kwargs = {}
+    if backend == "xenna":
         execution_mode = cfg.get("execution_mode", "streaming")
-        executor = XennaExecutor(config={"execution_mode": execution_mode})
-    logger.info(f"Starting pipeline execution (mode: {execution_mode})...")
+        executor_kwargs["config"] = {"execution_mode": execution_mode}
+        logger.info(f"Starting pipeline execution (backend: {backend}, mode: {execution_mode})...")
+    else:
+        logger.info(f"Starting pipeline execution (backend: {backend})...")
+    executor = _create_executor(backend, **executor_kwargs)
+    raw_data_dir = cfg.raw_data_dir
+    t0 = time.monotonic()
     pipeline.run(executor)
+    elapsed = time.monotonic() - t0
+    logger.info(
+        f"Pipeline wall time: {elapsed:.2f}s ({elapsed / 60:.2f} min) "
+        f"for input dataset at {raw_data_dir}",
+    )
 
     logger.info("\n" + "=" * 60)
     logger.info("Pipeline completed!")

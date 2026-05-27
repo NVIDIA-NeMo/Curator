@@ -75,6 +75,9 @@ class OpenAIClient(LLMClient):
                 logger.warning(f"extra_kwargs will overwrite existing parameter(s): {overlapping}")
             create_kwargs.update(generation_config.extra_kwargs)
 
+        if not hasattr(self, "client"):
+            self.setup()
+
         response = self.client.chat.completions.create(**create_kwargs)
 
         return [choice.message.content for choice in response.choices]
@@ -148,6 +151,9 @@ class AsyncOpenAIClient(AsyncLLMClient):
             if overlapping:
                 logger.warning(f"extra_kwargs will overwrite existing parameter(s): {overlapping}")
             create_kwargs.update(generation_config.extra_kwargs)
+
+        if not hasattr(self, "client"):
+            self.setup()
 
         response = await self.client.chat.completions.create(**create_kwargs)
 

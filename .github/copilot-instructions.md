@@ -12,7 +12,7 @@ This scalable data preprocessing tool focuses on data curation pipelines for tex
 ## Development Environment
 
 ### Python Environment
-- **Python Version**: 3.12 (recommended and tested), supports 3.10-3.12
+- **Python Version**: 3.13 (recommended and tested), supports 3.11-3.13
 - **Package Manager**: [uv](https://docs.astral.sh/uv/) for fast, reliable dependency management
 - **Virtual Environment**: Use uv's built-in virtual environment management
 

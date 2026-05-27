@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import pytest
-
 from nemo_curator.stages.audio.metrics.get_wer import (
     GetPairwiseWerStage,
     get_cer,
@@ -21,6 +20,7 @@ from nemo_curator.stages.audio.metrics.get_wer import (
     get_wer,
     get_wordrate,
 )
+
 from nemo_curator.tasks import AudioTask
 
 

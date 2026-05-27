@@ -182,12 +182,18 @@ def _copy_item_safely(src_path: Path, dst_path: Path) -> None:
 
 
 def _copy_session_contents(session_src: Path, session_dst: Path) -> None:
-    """Copy session directory contents, excluding sockets."""
+    """Copy session directory contents, excluding sockets and runtime_env packages.
+
+    ``runtime_resources/`` holds Ray's runtime_env-resolved venvs (uv/pip/conda)
+    which can be many GB per actor — copying them into every benchmark artifact
+    archive bloats the result without aiding debugging.
+    """
     session_dst.mkdir(parents=True, exist_ok=True)
 
+    skip_names = {"sockets", "runtime_resources"}
     for item in session_src.iterdir():
-        if item.name == "sockets":  # Skip sockets directory
-            logger.debug("Skipping sockets directory")
+        if item.name in skip_names:
+            logger.debug(f"Skipping {item.name} directory")
             continue
 
         dst_item = session_dst / item.name

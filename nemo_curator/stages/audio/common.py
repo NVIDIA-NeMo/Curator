@@ -27,41 +27,7 @@ from loguru import logger
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
-
-
-def read_jsonl_manifests(
-    paths: list[str],
-    *,
-    parent_task_id: str | None = None,
-    parent_dataset_name: str | None = None,
-    parent_metadata: dict | None = None,
-    parent_stage_perf: list | None = None,
-) -> list[AudioTask]:
-    """Shared JSONL manifest reader used by ManifestReaderStage and ALMManifestReaderStage."""
-    results: list[AudioTask] = []
-    count = 0
-    meta = parent_metadata or {}
-    perf = parent_stage_perf or []
-    for manifest in paths:
-        fs, resolved = url_to_fs(manifest)
-        with fs.open(resolved, "r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    task_id = f"{parent_task_id}_{count}" if parent_task_id else None
-                    results.append(
-                        AudioTask(
-                            task_id=task_id,
-                            dataset_name=parent_dataset_name,
-                            data=json.loads(line.strip()),
-                            _metadata=meta,
-                            _stage_perf=list(perf),
-                        )
-                    )
-                    count += 1
-        logger.info(f"Manifest reader: loaded {count} entries from {manifest}")
-    return results
 
 
 def get_audio_duration(audio_filepath: str) -> float:
@@ -87,7 +53,6 @@ class GetAudioDurationStage(ProcessingStage[AudioTask, AudioTask]):
     name: str = "GetAudioDurationStage"
     audio_filepath_key: str = "audio_filepath"
     duration_key: str = "duration"
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         import soundfile
@@ -176,21 +141,32 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     """
 
     name: str = "manifest_reader_stage"
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         t0 = time.perf_counter()
-        results = read_jsonl_manifests(
-            task.data,
-            parent_task_id=task.task_id,
-            parent_dataset_name=task.dataset_name,
-            parent_metadata=task._metadata,
-            parent_stage_perf=task._stage_perf,
-        )
+        paths = task.data
+        results: list[AudioTask] = []
+        count = 0
+        for manifest in paths:
+            fs, resolved = url_to_fs(manifest)
+            with fs.open(resolved, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        results.append(
+                            AudioTask(
+                                task_id=f"{task.task_id}_{count}",
+                                dataset_name=task.dataset_name,
+                                data=json.loads(line.strip()),
+                                _metadata=task._metadata,
+                                _stage_perf=list(task._stage_perf),
+                            )
+                        )
+                        count += 1
+            logger.info(f"ManifestReaderStage: loaded {count} entries from {manifest}")
         self._log_metrics(
             {
                 "process_time": time.perf_counter() - t0,
-                "manifests_read": len(task.data),
+                "manifests_read": len(paths),
                 "entries_read": len(results),
             }
         )
@@ -275,7 +251,6 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     output_path: str
     name: str = "manifest_writer"
-    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self) -> None:
         if not self.output_path:

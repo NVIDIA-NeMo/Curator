@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import argparse
 import json
 import os
@@ -24,7 +25,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import yaml
 from loguru import logger
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
@@ -51,10 +51,12 @@ from runner.ray_cluster import (
 )
 from runner.session import Session
 from runner.utils import (
+    assert_valid_config_dict,
     find_result,
     get_gpu_stats,
     get_obj_for_json,
     log_gpu_stats,
+    merge_config_files,
     remove_disabled_blocks,
     resolve_env_vars,
 )
@@ -268,7 +270,7 @@ def run_entry(
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:  # noqa: C901, PLR0912, PLR0915
+def main() -> int:  # noqa: C901
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
@@ -303,21 +305,18 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
     args = parser.parse_args()
 
     # Consolidate the configuration from all YAML files into a single dict
-    config_dict = {}
-    for yml_file in args.config:
-        with open(yml_file) as f:
-            config_dicts = yaml.full_load_all(f)
-            for d in config_dicts:
-                config_dict.update(d)
+    config_dict = merge_config_files(args.config)
+
     # Preprocess the config dict prior to creating objects from it
     try:
-        Session.assert_valid_config_dict(config_dict)
+        assert_valid_config_dict(config_dict)
         config_dict = remove_disabled_blocks(config_dict)
         config_dict = resolve_env_vars(config_dict)
     except ValueError as e:
         logger.error(f"Invalid configuration: {e}")
         return 1
 
+    # Now that all YAML config files have been read, merged, and processed, create the Session object.
     session = Session.from_dict(config_dict, args.entries)
 
     if args.list:

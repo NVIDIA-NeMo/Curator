@@ -143,15 +143,17 @@ def _intervals_from_diar_segments(entry: dict) -> list[Interval]:
         speaker_id = entry.get("speaker_id", "unknown")
         logger.warning(f"  {speaker_id}: no diar_segments, skipping")
         return []
-    return [
-        (int(s * 1000), int(e * 1000), e - s)
-        for s, e in sorted(diar_segments, key=lambda x: x[0])
-    ]
+    return [(int(s * 1000), int(e * 1000), e - s) for s, e in sorted(diar_segments, key=lambda x: x[0])]
 
 
 def _base_metadata(  # noqa: PLR0913
-    filename: str, original_file: str, entry: dict,
-    seg_idx: int, start_ms: int, end_ms: int, dur: float,
+    filename: str,
+    original_file: str,
+    entry: dict,
+    seg_idx: int,
+    start_ms: int,
+    end_ms: int,
+    dur: float,
 ) -> dict:
     row: dict = {
         "filename": filename,
@@ -212,16 +214,8 @@ def load_manifest(manifest_path: str) -> list:
     return entries
 
 
-def load_manifests(input_path: str, output_dir: str, *, save_combined: bool = False) -> list:
-    """Load entries from a single jsonl file or a directory of jsonl files.
-
-    Args:
-        input_path: Single .jsonl file or directory of .jsonl files.
-        output_dir: Directory for optional combined manifest output.
-        save_combined: If *True*, write a merged ``manifest.jsonl`` to
-            *output_dir* when loading from a directory.  Defaults to
-            *False* to avoid surprising write side-effects.
-    """
+def load_manifests(input_path: str, output_dir: str) -> list:
+    """Load entries from a single jsonl file or a directory of jsonl files."""
     if os.path.isfile(input_path):
         return load_manifest(input_path)
 
@@ -242,7 +236,7 @@ def load_manifests(input_path: str, output_dir: str, *, save_combined: bool = Fa
 
     logger.info(f"Combined {len(all_entries)} entries from {len(jsonl_files)} file(s)")
 
-    if save_combined and all_entries:
+    if all_entries:
         os.makedirs(output_dir, exist_ok=True)
         combined_path = os.path.join(output_dir, "manifest.jsonl")
         with open(combined_path, "w") as f:
@@ -315,8 +309,7 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         if self.output_format not in SOUNDFILE_FORMATS:
             msg = f"output_format must be one of {list(SOUNDFILE_FORMATS)}, got {self.output_format!r}"
             raise ValueError(msg)
-        self._metadata_count: int = 0
-        self._metadata_keys: list[str] | None = None
+        self._all_metadata_rows: list[dict] = []
         self._segment_counter: dict[str, int] = defaultdict(int)
         self._speaker_segment_counter: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
@@ -352,46 +345,23 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         }
         extracted, total_dur, speaker_counts, metadata_rows = extractors[combo](entries)
 
-        self._append_metadata_csv(metadata_rows)
+        self._all_metadata_rows.extend(metadata_rows)
+        _write_metadata_csv(self.output_dir, self._all_metadata_rows)
 
-        logger.info(
-            f"[{self.name}] Extracted {extracted} segments "
-            f"({total_dur:.1f}s) from {len(tasks)} entries"
-        )
+        logger.info(f"[{self.name}] Extracted {extracted} segments ({total_dur:.1f}s) from {len(tasks)} entries")
         if speaker_counts:
             for speaker, count in sorted(speaker_counts.items()):
                 logger.debug(f"  {speaker}: {count} segments")
 
         return tasks
 
-    def _append_metadata_csv(self, rows: list[dict]) -> None:
-        """Append metadata rows to CSV incrementally (O(rows) per batch, not O(total))."""
-        if not rows:
-            return
-        csv_path = os.path.join(self.output_dir, "metadata.csv")
-        write_header = self._metadata_keys is None
-        if write_header:
-            all_keys: list[str] = []
-            seen: set[str] = set()
-            for row in rows:
-                for k in row:
-                    if k not in seen:
-                        all_keys.append(k)
-                        seen.add(k)
-            self._metadata_keys = all_keys
-        with open(csv_path, "a" if not write_header else "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=self._metadata_keys)
-            if write_header:
-                writer.writeheader()
-            writer.writerows(rows)
-        self._metadata_count += len(rows)
-
     # ------------------------------------------------------------------
     # Combo extractors (instance methods using self.output_dir/format)
     # ------------------------------------------------------------------
 
     def _extract_by_timestamps(
-        self, entries: list[dict],
+        self,
+        entries: list[dict],
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 2: extract by original_start_ms / original_end_ms."""
 
@@ -408,7 +378,8 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         )
 
     def _extract_speaker_diar(
-        self, entries: list[dict],
+        self,
+        entries: list[dict],
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 3: extract each diar_segment per speaker."""
 
@@ -426,7 +397,8 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         )
 
     def _extract_speaker_timestamps(
-        self, entries: list[dict],
+        self,
+        entries: list[dict],
     ) -> tuple[int, float, dict[str, int], list[dict]]:
         """Combo 4: extract speaker-segments by timestamps."""
 
@@ -576,7 +548,9 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 def extract_segments_by_timestamps(
-    entries: list, output_dir: str, output_format: str,
+    entries: list,
+    output_dir: str,
+    output_format: str,
 ) -> tuple[int, float, dict[str, int], list[dict]]:
     """Extract segments by original_start_ms / original_end_ms, sorted by start time."""
     stage = SegmentExtractionStage(output_dir=output_dir, output_format=output_format)
@@ -584,7 +558,9 @@ def extract_segments_by_timestamps(
 
 
 def extract_speaker_diar_segments(
-    entries: list, output_dir: str, output_format: str,
+    entries: list,
+    output_dir: str,
+    output_format: str,
 ) -> tuple[int, float, dict[str, int], list[dict]]:
     """Extract individual speaking intervals from diar_segments per speaker."""
     stage = SegmentExtractionStage(output_dir=output_dir, output_format=output_format)
@@ -592,7 +568,9 @@ def extract_speaker_diar_segments(
 
 
 def extract_speaker_segments_by_timestamps(
-    entries: list, output_dir: str, output_format: str,
+    entries: list,
+    output_dir: str,
+    output_format: str,
 ) -> tuple[int, float, dict[str, int], list[dict]]:
     """Extract speaker-segments using original_start_ms / original_end_ms."""
     stage = SegmentExtractionStage(output_dir=output_dir, output_format=output_format)

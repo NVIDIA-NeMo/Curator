@@ -128,3 +128,9 @@ Both the Python and YAML flows compose the same stages:
 - Convert to document format and write JSONL
 
 After running, inspect `${raw_data_dir}/result` to explore your curated manifest(s).
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| SIGSEGV / actor crash during model load | See [Known Issues](../README.md#known-issues) — set `OTEL_SDK_DISABLED=true` |

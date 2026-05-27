@@ -28,12 +28,21 @@ class TestPromptFormatterVariantMapping:
 
     def test_variant_mapping_contains_all_variants(self) -> None:
         """Test that all expected variants are in mapping."""
-        expected_variants = {"qwen", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"}
+        expected_variants = {
+            "qwen2.5",
+            "qwen3",
+            "nemotron",
+            "nemotron-bf16",
+            "nemotron-fp8",
+            "nemotron-nvfp4",
+            "nemotron-3-nano-omni",
+        }
         assert set(VARIANT_MAPPING.keys()) == expected_variants
 
-    def test_variant_mapping_qwen_hf_id(self) -> None:
-        """Test that Qwen variant has correct HuggingFace ID."""
-        assert VARIANT_MAPPING["qwen"] == "Qwen/Qwen2.5-VL-7B-Instruct"
+    def test_variant_mapping_qwen_hf_ids(self) -> None:
+        """Test that Qwen variants have correct HuggingFace IDs."""
+        assert VARIANT_MAPPING["qwen2.5"] == "Qwen/Qwen2.5-VL-7B-Instruct"
+        assert VARIANT_MAPPING["qwen3"] == "Qwen/Qwen3-VL-8B-Instruct"
 
     def test_variant_mapping_nemotron_hf_ids(self) -> None:
         """Test that Nemotron variants have correct HuggingFace IDs."""
@@ -41,6 +50,9 @@ class TestPromptFormatterVariantMapping:
         assert VARIANT_MAPPING["nemotron-bf16"] == "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16"
         assert VARIANT_MAPPING["nemotron-fp8"] == "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-FP8"
         assert VARIANT_MAPPING["nemotron-nvfp4"] == "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD"
+
+    def test_variant_mapping_nemotron_3_nano_omni_hf_id(self) -> None:
+        assert VARIANT_MAPPING["nemotron-3-nano-omni"] == "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning"
 
 
 class TestPromptFormatterQwen:
@@ -51,7 +63,7 @@ class TestPromptFormatterQwen:
         with patch("nemo_curator.models.prompt_formatter.AutoProcessor") as mock_processor:
             mock_processor_instance = Mock()
             mock_processor.from_pretrained.return_value = mock_processor_instance
-            self.formatter = PromptFormatter(prompt_variant="qwen")
+            self.formatter = PromptFormatter(prompt_variant="qwen2.5")
             self.mock_processor = mock_processor_instance
 
     def test_initialization_valid_variant(self) -> None:
@@ -60,12 +72,12 @@ class TestPromptFormatterQwen:
             mock_processor_instance = Mock()
             mock_processor.from_pretrained.return_value = mock_processor_instance
 
-            formatter = PromptFormatter(prompt_variant="qwen")
+            formatter = PromptFormatter(prompt_variant="qwen2.5")
 
-            assert formatter.prompt_variant == "qwen"
+            assert formatter.prompt_variant == "qwen2.5"
             assert formatter.text_prompt is None
             assert formatter.processor == mock_processor_instance
-            mock_processor.from_pretrained.assert_called_once_with(VARIANT_MAPPING["qwen"], trust_remote_code=True)
+            mock_processor.from_pretrained.assert_called_once_with(VARIANT_MAPPING["qwen2.5"], trust_remote_code=True)
 
     def test_initialization_invalid_variant(self) -> None:
         """Test initialization with invalid prompt variant raises ValueError."""
@@ -79,7 +91,7 @@ class TestPromptFormatterQwen:
         mock_processor_class.from_pretrained.return_value = mock_processor_instance
         mock_processor_instance.apply_chat_template.return_value = "formatted_prompt"
 
-        formatter = PromptFormatter(prompt_variant="qwen")
+        formatter = PromptFormatter(prompt_variant="qwen2.5")
 
         video_tensor = torch.randn(1, 3, 224, 224)
 
@@ -89,7 +101,12 @@ class TestPromptFormatterQwen:
         assert "prompt" in result
         assert "multi_modal_data" in result
         assert result["prompt"] == "formatted_prompt"
-        assert result["multi_modal_data"]["video"] is video_tensor
+        video_data = result["multi_modal_data"]["video"]
+        assert isinstance(video_data, tuple)
+        assert isinstance(video_data[0], np.ndarray)
+        assert video_data[1]["fps"] == 2.0
+        assert video_data[1]["frames_indices"] == [0]
+        assert video_data[1]["total_num_frames"] == 1
 
         # Verify processor was called correctly
         expected_message = [{"role": "user", "content": [{"type": "video"}, {"type": "text", "text": "Test prompt"}]}]
@@ -106,7 +123,7 @@ class TestPromptFormatterQwen:
         mock_processor_instance = Mock()
         mock_processor_class.from_pretrained.return_value = mock_processor_instance
 
-        formatter = PromptFormatter(prompt_variant="qwen")
+        formatter = PromptFormatter(prompt_variant="qwen2.5")
         formatter.text_prompt = "cached_prompt"
 
         video_tensor = torch.randn(1, 3, 224, 224)
@@ -114,7 +131,9 @@ class TestPromptFormatterQwen:
         result = formatter.generate_inputs(prompt="Test prompt", video_inputs=video_tensor)
 
         assert result["prompt"] == "cached_prompt"
-        assert result["multi_modal_data"]["video"] is video_tensor
+        video_data = result["multi_modal_data"]["video"]
+        assert isinstance(video_data, tuple)
+        assert isinstance(video_data[0], np.ndarray)
         mock_processor_instance.apply_chat_template.assert_not_called()
 
     @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
@@ -124,7 +143,7 @@ class TestPromptFormatterQwen:
         mock_processor_class.from_pretrained.return_value = mock_processor_instance
         mock_processor_instance.apply_chat_template.return_value = "new_formatted_prompt"
 
-        formatter = PromptFormatter(prompt_variant="qwen")
+        formatter = PromptFormatter(prompt_variant="qwen2.5")
         formatter.text_prompt = "old_cached_prompt"
 
         video_tensor = torch.randn(1, 3, 224, 224)
@@ -142,7 +161,7 @@ class TestPromptFormatterQwen:
         mock_processor_class.from_pretrained.return_value = mock_processor_instance
         mock_processor_instance.apply_chat_template.return_value = "formatted_prompt"
 
-        formatter = PromptFormatter(prompt_variant="qwen")
+        formatter = PromptFormatter(prompt_variant="qwen2.5")
 
         result = formatter.generate_inputs(prompt="Test prompt")
 
@@ -329,3 +348,47 @@ class TestPromptFormatterConvertToNumpy:
 
         assert isinstance(result, np.ndarray)
         assert result.dtype == np.uint8
+
+
+class TestPromptFormatterNemotron3NanoOmni:
+    """Test cases for PromptFormatter with the nemotron-3-nano-omni variant."""
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_initialization_uses_hf_id(self, mock_processor_class: Mock) -> None:
+        """nemotron-3-nano-omni loads processor from its HuggingFace hub ID."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+
+        formatter = PromptFormatter(prompt_variant="nemotron-3-nano-omni")
+
+        assert formatter.prompt_variant == "nemotron-3-nano-omni"
+        mock_processor_class.from_pretrained.assert_called_once_with(
+            "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning", trust_remote_code=True
+        )
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_generate_inputs_applies_chat_template_with_no_think(self, mock_processor_class: Mock) -> None:
+        """nemotron-3-nano-omni applies chat template with enable_thinking=False."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+
+        formatter = PromptFormatter(prompt_variant="nemotron-3-nano-omni")
+        formatter.generate_inputs(prompt="Describe the video.")
+
+        formatter.processor.apply_chat_template.assert_called_once()
+        call_kwargs = formatter.processor.apply_chat_template.call_args[1]
+        assert call_kwargs.get("enable_thinking") is False
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_generate_inputs_passes_video_metadata(self, mock_processor_class: Mock) -> None:
+        """Video numpy array and fps/frames_indices metadata are forwarded in the tuple format."""
+        import numpy as np
+
+        mock_processor_class.from_pretrained.return_value = Mock()
+
+        formatter = PromptFormatter(prompt_variant="nemotron-3-nano-omni")
+        video_np = np.zeros((4, 32, 32, 3), dtype=np.uint8)
+        result = formatter.generate_inputs(prompt="Q?", video_inputs=video_np, fps=2.0)
+
+        video_data, meta = result["multi_modal_data"]["video"]
+        assert video_data.shape == (4, 32, 32, 3)
+        assert meta["fps"] == 2.0
+        assert meta["frames_indices"] == [0, 1, 2, 3]

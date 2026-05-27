@@ -15,10 +15,11 @@
 import pathlib
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from loguru import logger
 
+from nemo_curator.models.qwen_lm import _weights_complete
 from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 try:
@@ -42,8 +43,36 @@ from nemo_curator.utils import grouping
 _QWEN2_5_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
 _QWEN2_5_VL_MODEL_REVISION = "cc59489"
 
-_QWEN_VARIANTS_INFO = {
-    "qwen": _QWEN2_5_VL_MODEL_ID,
+_QWEN3_VL_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
+_QWEN3_VL_MODEL_REVISION = "0c351dd"
+
+_QWEN_VARIANTS_INFO: Final = {
+    "qwen2.5": _QWEN2_5_VL_MODEL_ID,
+    "qwen3": _QWEN3_VL_MODEL_ID,
+}
+
+_QWEN_REVISION_INFO: Final = {
+    "qwen2.5": _QWEN2_5_VL_MODEL_REVISION,
+    "qwen3": _QWEN3_VL_MODEL_REVISION,
+}
+
+_QWEN_VL_PIXEL_PARAMS: Final = {
+    "qwen2.5": {
+        "image_factor": 28,
+        "min_pixels": 4 * 28 * 28,
+        "max_pixels": 16384 * 28 * 28,
+        "video_min_pixels": 128 * 28 * 28,
+        "video_max_pixels": 768 * 28 * 28,
+        "video_total_pixels": 24576 * 28 * 28,
+    },
+    "qwen3": {
+        "image_factor": 32,
+        "min_pixels": 4 * 32 * 32,
+        "max_pixels": 16384 * 32 * 32,
+        "video_min_pixels": 128 * 32 * 32,
+        "video_max_pixels": 768 * 32 * 32,
+        "video_total_pixels": 24576 * 32 * 32,
+    },
 }
 
 
@@ -69,7 +98,7 @@ class QwenVL(ModelInterface):
         self.model_does_preprocess = model_does_preprocess
         self.disable_mmcache = disable_mmcache
         self.vllm_kwargs = vllm_kwargs
-        self.stage2_prompt = stage2_prompt_text if stage2_prompt_text else "Please refine this caption: "
+        self.stage2_prompt = stage2_prompt_text or "Please refine this caption: "
         self.verbose = verbose
         self.weight_file = str(pathlib.Path(model_dir) / _QWEN_VARIANTS_INFO[model_variant])
         # Default pattern for stage2 caption generation - matches (.*)(user_prompt)(.*)
@@ -84,10 +113,14 @@ class QwenVL(ModelInterface):
             msg = "vllm is required for QwenVL model but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
 
+        # Qwen3-VL uses image_factor=32; pre-extracted frames may not be multiples of 32,
+        # so always enable resize for qwen3 regardless of model_does_preprocess.
+        do_resize = True if self.model_variant == "qwen3" else self.model_does_preprocess
         mm_processor_kwargs = {
-            "do_resize": self.model_does_preprocess,
+            "do_resize": do_resize,
             "do_rescale": self.model_does_preprocess,
             "do_normalize": self.model_does_preprocess,
+            **_QWEN_VL_PIXEL_PARAMS[self.model_variant],
         }
         self.model = LLM(
             model=self.weight_file,
@@ -146,15 +179,18 @@ class QwenVL(ModelInterface):
         return generated_text
 
     @classmethod
-    def download_weights_on_node(cls, model_dir: str) -> None:
+    def download_weights_on_node(cls, model_dir: str, variant: str = "qwen2.5") -> None:
         """Download the weights for the QwenVL model on the node."""
-        model_dir_path = Path(model_dir) / _QWEN2_5_VL_MODEL_ID
+        model_id = _QWEN_VARIANTS_INFO[variant]
+        revision = _QWEN_REVISION_INFO[variant]
+        model_dir_path = Path(model_dir) / model_id
         model_dir_path.mkdir(parents=True, exist_ok=True)
-        if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
+        if _weights_complete(model_dir_path):
+            logger.info(f"QwenVL weights already present at: {model_dir_path}")
             return
         download_model_from_hf(
-            model_id=_QWEN2_5_VL_MODEL_ID,
+            model_id=model_id,
             local_dir=model_dir_path,
-            revision=_QWEN2_5_VL_MODEL_REVISION,
+            revision=revision,
         )
         logger.info(f"QwenVL weights downloaded to: {model_dir_path}")
