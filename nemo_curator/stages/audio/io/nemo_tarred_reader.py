@@ -15,9 +15,9 @@
 """Reader for NeMo-style tarred audio datasets (e.g. Granary YAML configs).
 
 Decomposes into a shard-discovery stage that parses the YAML config and a
-shard-reader stage that streams each tar (local or S3/AIS), decodes audio
-in memory via lhotse/soundfile, and emits one ``AudioTask`` per utterance
-with the waveform as a numpy array; no files are written to disk.
+shard-reader stage that streams each local tar, decodes audio in memory via
+lhotse/soundfile, and emits one ``AudioTask`` per utterance with the waveform
+as a numpy array; no files are written to disk.
 """
 
 from __future__ import annotations
@@ -53,48 +53,25 @@ def _expand_nemo_path(pattern: str) -> list[str]:
     return [f"{prefix}{i}{suffix}" for i in range(start, end + 1)]
 
 
-def _s3_to_pipe(tar_path: str, s3_endpoint_url: str | None = None) -> str:
-    """Convert ``s3://BUCKET/KEY`` to a ``pipe:`` command for lhotse."""
-    from urllib.parse import urlparse
-
-    parsed = urlparse(tar_path)
-    bucket, key = parsed.netloc, parsed.path.lstrip("/")
-    endpoint = s3_endpoint_url or os.environ.get("AIS_ENDPOINT")
-    if not endpoint:
-        msg = "Set AIS_ENDPOINT env var or pass s3_endpoint_url for s3:// paths"
-        raise RuntimeError(msg)
-    url = f"{endpoint.rstrip('/')}/v1/objects/{bucket}/{key}?provider=s3"
-    token = os.environ.get("AIS_AUTHN_TOKEN")
-    if token:
-        return f"pipe:curl -sL -H 'Authorization: Bearer {token}' '{url}'"
-    return f"pipe:curl -sL '{url}'"
-
-
-def _open_tar(tar_path: str, s3_endpoint_url: str | None = None) -> tarfile.TarFile:
-    """Open a tar file from local disk or S3/AIS via lhotse's ``open_best``.
+def _open_tar(tar_path: str) -> tarfile.TarFile:
+    """Open a local tar file via lhotse's ``open_best``.
 
     Uses streaming mode (``r|*``) so the tar is read sequentially without
-    seeking; works with pipes and cloud storage.
+    seeking.
     """
     from lhotse.serialization import open_best
 
-    if tar_path.startswith("s3://"):
-        pipe_path = _s3_to_pipe(tar_path, s3_endpoint_url)
-        fileobj = open_best(pipe_path, mode="rb")
-    else:
-        if not os.path.exists(tar_path):
-            msg = f"Tar file not found: {tar_path}"
-            raise FileNotFoundError(msg)
-        fileobj = open_best(tar_path, mode="rb")
+    if not os.path.exists(tar_path):
+        msg = f"Tar file not found: {tar_path}"
+        raise FileNotFoundError(msg)
+    fileobj = open_best(tar_path, mode="rb")
     return tarfile.open(fileobj=fileobj, mode="r|*")
 
 
-def _open_text_stream(path: str, s3_endpoint_url: str | None = None) -> Any:
-    """Open a local or S3/AIS text file as a binary stream."""
+def _open_text_stream(path: str) -> Any:
+    """Open a local text file as a binary stream."""
     from lhotse.serialization import open_best
 
-    if path.startswith("s3://"):
-        return open_best(_s3_to_pipe(path, s3_endpoint_url), mode="rb")
     if not os.path.exists(path):
         msg = f"Text file not found: {path}"
         raise FileNotFoundError(msg)
@@ -283,13 +260,10 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     Args:
         filepath_key: Manifest key that identifies the audio filename
             inside the tar archive.
-        s3_endpoint_url: Override for the AIS/S3 endpoint.  Falls back to
-            the ``AIS_ENDPOINT`` environment variable.
     """
 
     name: str = "nemo_tar_shard_reader"
     filepath_key: str = "audio_filepath"
-    s3_endpoint_url: str | None = None
     max_utterances_per_shard: int | None = None
     num_workers_override: int | None = None
     num_workers_per_node: int | None = None
@@ -327,7 +301,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     def _read_manifest(self, path: str) -> dict[str, dict]:
         entries: dict[str, dict] = {}
-        with _open_text_stream(path, self.s3_endpoint_url) as f:
+        with _open_text_stream(path) as f:
             for raw_line in f:
                 if isinstance(raw_line, bytes):
                     raw_line = raw_line.decode("utf-8")
@@ -350,7 +324,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         logger.info(f"Reading shard {shard_key}: {tar_path} ({len(manifest)} manifest entries)")
 
         open_t0 = time.perf_counter()
-        tar = _open_tar(tar_path, self.s3_endpoint_url)
+        tar = _open_tar(tar_path)
         tar_open_elapsed = time.perf_counter() - open_t0
         results: list[AudioTask] = []
         tar_members_seen = 0
@@ -457,14 +431,12 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
         yaml_path: Path to the Granary YAML data config.
         corpus_filter: Only process shards whose ``corpus`` matches.
         filepath_key: Manifest key for audio filenames inside tar archives.
-        s3_endpoint_url: Override for AIS/S3 endpoint.
     """
 
     name: str = "nemo_tarred_audio_reader"
     yaml_path: str = ""
     corpus_filter: list[str] | None = None
     filepath_key: str = "audio_filepath"
-    s3_endpoint_url: str | None = None
     output_dir: str | None = None
     max_utterances_per_shard: int | None = None
     reader_num_workers: int | None = None
@@ -484,7 +456,6 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
             ),
             NemoTarShardReaderStage(
                 filepath_key=self.filepath_key,
-                s3_endpoint_url=self.s3_endpoint_url,
                 max_utterances_per_shard=self.max_utterances_per_shard,
                 num_workers_override=self.reader_num_workers,
                 num_workers_per_node=self.reader_num_workers_per_node,

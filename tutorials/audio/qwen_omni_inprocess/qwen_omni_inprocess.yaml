@@ -3,13 +3,12 @@
 # Small PR first-stage pipeline:
 #   NemoTarredAudioReader -> QwenOmni inference -> ShardedManifestWriter
 #
-# Invoked by NvLLMOps Kratos via:
+# Invoked directly or by an external launcher via:
 #   python tutorials/audio/qwen_omni_inprocess/main.py \
 #       --config-path=<path> --config-name=qwen_omni_inprocess \
 #       workspace_dir=/work input_manifest=/data/config.yaml
 #
-# The NvLLMOps run_curator() passes `input_manifest` as a Hydra override.
-# For tarred data, this should point to the Granary YAML data config.
+# For tarred data, `input_manifest` should point to the Granary YAML data config.
 
 defaults:
   - _self_
@@ -22,7 +21,7 @@ hydra:
   output_subdir: null
 
 # ===========================================================================
-# CORE - these are overridden at runtime by NvLLMOps run_curator()
+# CORE - these may be overridden at runtime by the launcher
 # ===========================================================================
 input_manifest: ???
 workspace_dir: /local/qwen_omni_workspace
@@ -36,23 +35,14 @@ autoscale_interval_s: 30
 stages_to_run: all
 stages_to_skip: []
 
-# data_config defaults to input_manifest (NvLLMOps passes the Granary YAML
-# data config path as input_manifest)
+# data_config defaults to input_manifest.
 data_config: ${input_manifest}
 output_dir: ${workspace_dir}
 corpus: null
-s3_endpoint_url: null
 max_utterances_per_shard: null
 source_lang_key: source_lang
 cpu_batch_size: 64
 duration_key: duration
-
-# Populated by NvLLMOps when available. The tutorial does not derive stage
-# behavior from these values by default; they are visible metadata/override
-# anchors for controlled throughput experiments.
-curator_num_nodes: null
-curator_gpus_per_node: null
-curator_total_gpus: null
 
 # ===========================================================================
 # MULTI-NODE SCALING
@@ -68,7 +58,7 @@ omni_num_workers: null
 model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 ml_prompt: "Transcribe the audio."
 ml_prompt_file: null
-en_prompt_file: /opt/Curator/examples/audio/qwen_omni_inprocess/prompts/en_qwen3_omni_disfluency_asr.md
+en_prompt_file: null
 followup_prompt: null
 followup_prompt_file: null
 system_prompt: null
@@ -94,7 +84,6 @@ stages:
     _target_: nemo_curator.stages.audio.io.nemo_tarred_reader.NemoTarredAudioReader
     yaml_path: ${data_config}
     corpus_filter: ${corpus}
-    s3_endpoint_url: ${s3_endpoint_url}
     output_dir: ${output_dir}
     max_utterances_per_shard: ${max_utterances_per_shard}
     reader_num_workers: ${reader_num_workers}

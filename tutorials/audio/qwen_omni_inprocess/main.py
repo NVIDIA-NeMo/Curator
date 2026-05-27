@@ -20,19 +20,15 @@ individual stage entries may include ``stage_with``/``with_`` metadata that is
 applied after Hydra instantiation so resource, batch-size, and composite-stage
 worker specs can live beside the stage definition.
 
-This can be invoked by NvLLMOps Kratos workflows via::
+This entry point can be invoked directly or by an external launcher via::
 
     python tutorials/audio/qwen_omni_inprocess/main.py \\
         --config-path=<path> --config-name=qwen_omni_inprocess \\
         workspace_dir=/work input_manifest=/data/config.yaml
 
-The NvLLMOps ``run_curator()`` function calls::
-
-    tutorials/audio/{pipeline_to_run}/main.py --config-path=... --config-name=...
-
-with Hydra overrides ``workspace_dir``, ``input_manifest``,
-``language_short``, ``max_segment_length``, ``hf_token``, and
-``final_manifest``.  All of these are accepted as top-level keys in the
+Launchers may pass Hydra overrides such as ``workspace_dir``,
+``input_manifest``, ``language_short``, ``max_segment_length``, ``hf_token``,
+and ``final_manifest``. All of these are accepted as top-level keys in the
 YAML and forwarded to the appropriate stages.
 """
 
