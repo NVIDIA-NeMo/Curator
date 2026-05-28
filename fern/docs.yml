@@ -154,7 +154,7 @@ logo:
   right-text: NeMo Curator
 
 versions:
-  - display-name: "Latest · v1.1.2 (26.04)"
+  - display-name: "Latest · v1.2.0 (26.04)"
     path: versions/latest.yml
     slug: latest
     availability: stable
@@ -162,7 +162,7 @@ versions:
     path: versions/main.yml
     slug: main
     availability: beta
-  - display-name: "26.04 · v1.1.2"
+  - display-name: "26.04 · v1.2.0"
     path: versions/v26.04.yml
     slug: v26.04
     availability: stable
