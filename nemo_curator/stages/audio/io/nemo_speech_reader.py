@@ -52,18 +52,7 @@ from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 # ---------------------------------------------------------------------------
 
 
-def _expand_nemo_path(pattern: str) -> list[str]:
-    """Expand **all** NeMo brace patterns like ``_OP_0..N_CL_`` recursively."""
-    match = re.search(r"_OP_(\d+)\.\.(\d+)_CL_", pattern)
-    if not match:
-        return [pattern]
-    start, end = int(match.group(1)), int(match.group(2))
-    prefix = pattern[: match.start()]
-    suffix = pattern[match.end() :]
-    results: list[str] = []
-    for i in range(start, end + 1):
-        results.extend(_expand_nemo_path(f"{prefix}{i}{suffix}"))
-    return results
+from nemo.collections.common.data.lhotse.nemo_adapters import expand_sharded_filepaths as _expand_nemo_path
 
 
 def _manifest_to_shard_key(manifest_path: str, corpus: str) -> str:
@@ -234,19 +223,47 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                     os.remove(partial)
                     logger.info(f"Removed partial output for {shard_key}")
 
-            data = [desc["manifest_path"]]
             if "tar_path" in desc:
-                data.append(desc["tar_path"])
+                tasks.append(FileGroupTask(
+                    task_id=shard_key,
+                    dataset_name=corpus,
+                    data=[desc["manifest_path"], desc["tar_path"]],
+                    reader_config={"corpus": corpus, "shard_key": shard_key, "language": desc.get("language", "")},
+                ))
+            else:
+                # Non-tarred: read manifest, emit one task per entry for parallel loading
+                import json
 
-            tasks.append(FileGroupTask(
-                task_id=shard_key,
-                dataset_name=corpus,
-                data=data,
-                reader_config={"corpus": corpus, "shard_key": shard_key, "language": desc.get("language", "")},
-            ))
+                from fsspec.core import url_to_fs
+
+                try:
+                    fs, resolved = url_to_fs(desc["manifest_path"])
+                    with fs.open(resolved, "r", encoding="utf-8") as f:
+                        entries = [json.loads(line) for line in f if line.strip()]
+                    for i, entry in enumerate(entries):
+                        tasks.append(FileGroupTask(
+                            task_id=f"{shard_key}_{i}",
+                            dataset_name=corpus,
+                            data=[entry.get("audio_filepath", "")],
+                            reader_config={
+                                "corpus": corpus,
+                                "shard_key": shard_key,
+                                "language": desc.get("language", ""),
+                                "entry": entry,
+                                "shard_total": len(entries),
+                            },
+                        ))
+                except Exception:  # noqa: BLE001
+                    tasks.append(FileGroupTask(
+                        task_id=shard_key,
+                        dataset_name=corpus,
+                        data=[desc["manifest_path"]],
+                        reader_config={"corpus": corpus, "shard_key": shard_key, "language": desc.get("language", "")},
+                    ))
 
         logger.info(f"UnifiedDiscovery: {len(tasks)} shards to process, {skipped} skipped")
         return tasks
+
 
 
 # ---------------------------------------------------------------------------
@@ -278,9 +295,8 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         if RayStageSpecKeys is not None:
             return {
                 RayStageSpecKeys.IS_FANOUT_STAGE: True,
-                RayStageSpecKeys.IS_ACTOR_STAGE: True,
             }
-        return {"is_fanout_stage": True, "is_actor_stage": True}
+        return {"is_fanout_stage": True}
 
     @staticmethod
     def _ensure_get_full_path_handles_uris() -> None:
@@ -350,6 +366,7 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
         if tar_path:
             resolved_tar = _s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
+            # TODO: Remove once NeMo PR #15732 and shard_id manifest fix are released.
             # Temporarily bypass _validate() which asserts shard_id type equality.
             # Some datasets (e.g. MCV4) store shard_id as string '0' in the manifest
             # while the tar regex extracts int 0 — causing a set comparison failure.
@@ -377,12 +394,69 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return CutSet(LazyNeMoIterator(manifest_path))
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
-        manifest_path = task.data[0]
-        tar_path = task.data[1] if len(task.data) >= 2 else None  # noqa: PLR2004
         corpus = task.reader_config.get("corpus", "unknown")
         shard_key = task.reader_config.get("shard_key", task.task_id)
         language = task.reader_config.get("language", "")
         metadata = dict(task._metadata)
+
+        # Single-entry mode: load one audio file directly
+        entry = task.reader_config.get("entry")
+        if entry is not None:
+            NeMoSpeechReaderStage._ensure_get_full_path_handles_uris()
+            audio_path = task.data[0]
+            sr = entry.get("sampling_rate") or entry.get("sample_rate")
+            try:
+                from lhotse import Recording
+                from lhotse.audio import AudioSource
+                from nemo.utils.data_utils import is_datastore_path
+
+                if sr:
+                    source_type = "url" if is_datastore_path(audio_path) else "file"
+                    rec = Recording(
+                        id=audio_path,
+                        sources=[AudioSource(type=source_type, channels=[0], source=audio_path)],
+                        sampling_rate=int(sr),
+                        num_samples=int(entry.get("duration", 0) * sr),
+                        duration=entry.get("duration", 0),
+                        channel_ids=[0],
+                    )
+                else:
+                    rec = Recording.from_file(audio_path)
+                audio = rec.load_audio().squeeze()
+                sr = rec.sampling_rate
+            except Exception:  # noqa: BLE001
+                # Fallback: download bytes and decode with torchaudio (handles m4a/aac)
+                try:
+                    import io as _io
+
+                    import smart_open
+                    import torchaudio
+
+                    with smart_open.open(audio_path, "rb") as f:
+                        waveform_t, file_sr = torchaudio.load(_io.BytesIO(f.read()))
+                    audio = waveform_t.numpy().squeeze()
+                    sr = file_sr
+                except Exception:  # noqa: BLE001
+                    logger.warning(f"Skipping unreadable audio: {audio_path}")
+                    return []
+            if audio.ndim > 1:
+                audio = audio.mean(axis=0)
+            entry_data = {k: v for k, v in entry.items() if k != "audio_filepath"}
+            entry_data["waveform"] = audio.astype(np.float32)
+            entry_data["sampling_rate"] = rec.sampling_rate
+            entry_data["sample_rate"] = rec.sampling_rate
+            entry_data["duration"] = rec.duration
+            entry_data["num_channels"] = 1
+            entry_data["corpus"] = corpus
+            entry_data["audio_filepath"] = audio_path
+            if language and "source_lang" not in entry_data:
+                entry_data["source_lang"] = language
+            shard_total = task.reader_config.get("shard_total", 0)
+            return [AudioTask(task_id=task.task_id, dataset_name=corpus, data=entry_data,
+                              _metadata={**metadata, "_shard_key": shard_key, "_shard_total": shard_total})]
+
+        manifest_path = task.data[0]
+        tar_path = task.data[1] if len(task.data) >= 2 else None  # noqa: PLR2004
 
         cutset = self._make_cutset(manifest_path, tar_path)
 
@@ -437,6 +511,7 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
         logger.info(f"Shard {shard_key}: emitted {len(results)} AudioTasks")
         return results
+
 
 
 # ---------------------------------------------------------------------------
