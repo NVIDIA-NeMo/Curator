@@ -31,6 +31,11 @@ from nemo_curator.stages.audio.common import (
     ManifestWriterStage,
     PreserveByValueStage,
 )
+from nemo_curator.stages.audio.llm import (
+    DocumentToAudioStage,
+    TopicExpander,
+    vLLMInference,
+)
 from nemo_curator.stages.audio.filtering import (
     BandFilterStage,
     SIGMOSFilterStage,
@@ -64,4 +69,7 @@ __all__ = [
     "TimestampMapperStage",
     "UTMOSFilterStage",
     "VADSegmentationStage",
+    "vLLMInference",
+    "DocumentToAudioStage",
+    "TopicExpander",
 ]
