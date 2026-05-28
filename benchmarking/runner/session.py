@@ -100,7 +100,12 @@ class Session:
             entry.ray = {**self.ray, **entry.ray}
 
     @classmethod
-    def from_dict(cls, data: dict, entry_filter_expr: str | None = None) -> Session:
+    def from_dict(
+        cls,
+        data: dict,
+        entry_filter_expr: str | None = None,
+        entry_exact_name: str | None = None,
+    ) -> Session:
         """
         Factory method to create a Session from a dictionary.
 
@@ -108,7 +113,15 @@ class Session:
         This method resolves environment variables and converts the list of
         entry dicts to Entry objects, and returns a new Session
         object.
+
+        Entry filtering: at most one of ``entry_filter_expr`` (pytest -k style
+        substring expression) or ``entry_exact_name`` (exact entry-name match)
+        may be supplied. Passing both raises ``ValueError``.
         """
+        if entry_filter_expr is not None and entry_exact_name is not None:
+            msg = "entry_filter_expr and entry_exact_name are mutually exclusive"
+            raise ValueError(msg)
+
         assert_valid_config_dict(data)
         path_resolver = PathResolver(data)
         dataset_resolver = DatasetResolver(data.get("datasets", []))
@@ -120,10 +133,16 @@ class Session:
 
         entries = [Entry.from_dict(e) for e in sess_data["entries"]]
 
-        # Filter entries based on the expression, if provided.
-        # Example: expr "foo and not foobar" will include all entries
-        # with "foo" in the name but not "foobar".
-        if entry_filter_expr is not None:
+        # Filter entries:
+        # - entry_exact_name takes precedence and selects at most one entry by exact name.
+        #   Use this for automated callers (e.g. CI per-job invocations) where substring
+        #   matching would dangerously match prefix-overlapping siblings (e.g.
+        #   "audio_tagging_tts_xenna" matching "audio_tagging_tts_xenna_repeat").
+        # - entry_filter_expr accepts a pytest "-k" style substring expression, e.g.
+        #   "foo and not foobar" includes all entries containing "foo" but not "foobar".
+        if entry_exact_name is not None:
+            entries = [e for e in entries if e.name == entry_exact_name]
+        elif entry_filter_expr is not None:
             filtered_entries = []
             expr = Expression.compile(entry_filter_expr)
             for entry in entries:

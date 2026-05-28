@@ -308,6 +308,15 @@ def main() -> int:  # noqa: C901, PLR0915
         ),
     )
     parser.add_argument(
+        "--entry-exact-name",
+        default=None,
+        help=(
+            "Run exactly the single entry with this name (exact string match). Intended for "
+            "automated callers (e.g. CI per-job invocations) that target a single known entry "
+            "and must not match name-prefix siblings. Mutually exclusive with --entries."
+        ),
+    )
+    parser.add_argument(
         "--list",
         default=False,
         action="store_true",
@@ -337,8 +346,16 @@ def main() -> int:  # noqa: C901, PLR0915
         logger.error(f"Invalid configuration: {e}")
         return 1
 
+    if args.entries is not None and args.entry_exact_name is not None:
+        logger.error("--entries and --entry-exact-name are mutually exclusive")
+        return 1
+
     # Now that all YAML config files have been read, merged, and processed, create the Session object.
-    session = Session.from_dict(config_dict, args.entries)
+    session = Session.from_dict(
+        config_dict,
+        entry_filter_expr=args.entries,
+        entry_exact_name=args.entry_exact_name,
+    )
 
     if args.list:
         for entry in session.entries:

@@ -24,4 +24,4 @@ python benchmarking/run.py \
   --config /opt/Curator/benchmarking/nightly-benchmark.yaml \
   --config /opt/Curator/benchmarking/test-paths.yaml \
   --session-name "benchmark_run_${CI_PIPELINE_ID}" \
-  --entries "${ENTRY_NAME}"
+  --entry-exact-name "${ENTRY_NAME}"
