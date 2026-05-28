@@ -281,7 +281,7 @@ def run_entry(
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:  # noqa: C901, PLR0915
+def main() -> int:  # noqa: C901, PLR0912, PLR0915
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
@@ -308,12 +308,15 @@ def main() -> int:  # noqa: C901, PLR0915
         ),
     )
     parser.add_argument(
-        "--entry-exact-name",
+        "--entries-exact",
         default=None,
         help=(
-            "Run exactly the single entry with this name (exact string match). Intended for "
-            "automated callers (e.g. CI per-job invocations) that target a single known entry "
-            "and must not match name-prefix siblings. Mutually exclusive with --entries."
+            "Comma-separated list of exact entry names to run. Unlike --entries (a pytest "
+            "'-k' style substring expression), names here must match entry names exactly. "
+            "Every supplied name must correspond to a configured (enabled) entry; otherwise "
+            "the run fails with an error listing the unknown names. Useful for both "
+            "automated callers (e.g. CI per-job invocations) and users targeting a specific "
+            "set of entries by exact name. Mutually exclusive with --entries."
         ),
     )
     parser.add_argument(
@@ -346,16 +349,27 @@ def main() -> int:  # noqa: C901, PLR0915
         logger.error(f"Invalid configuration: {e}")
         return 1
 
-    if args.entries is not None and args.entry_exact_name is not None:
-        logger.error("--entries and --entry-exact-name are mutually exclusive")
+    if args.entries is not None and args.entries_exact is not None:
+        logger.error("--entries and --entries-exact are mutually exclusive")
         return 1
 
+    entries_exact_list: list[str] | None = None
+    if args.entries_exact is not None:
+        entries_exact_list = [name.strip() for name in args.entries_exact.split(",") if name.strip()]
+        if not entries_exact_list:
+            logger.error("--entries-exact must contain at least one non-empty name")
+            return 1
+
     # Now that all YAML config files have been read, merged, and processed, create the Session object.
-    session = Session.from_dict(
-        config_dict,
-        entry_filter_expr=args.entries,
-        entry_exact_name=args.entry_exact_name,
-    )
+    try:
+        session = Session.from_dict(
+            config_dict,
+            entry_filter_expr=args.entries,
+            entries_exact=entries_exact_list,
+        )
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
 
     if args.list:
         for entry in session.entries:

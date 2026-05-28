@@ -104,7 +104,7 @@ class Session:
         cls,
         data: dict,
         entry_filter_expr: str | None = None,
-        entry_exact_name: str | None = None,
+        entries_exact: list[str] | None = None,
     ) -> Session:
         """
         Factory method to create a Session from a dictionary.
@@ -115,11 +115,14 @@ class Session:
         object.
 
         Entry filtering: at most one of ``entry_filter_expr`` (pytest -k style
-        substring expression) or ``entry_exact_name`` (exact entry-name match)
-        may be supplied. Passing both raises ``ValueError``.
+        substring expression) or ``entries_exact`` (list of exact entry-name
+        matches) may be supplied. Passing both raises ``ValueError``. When
+        ``entries_exact`` is provided, every name in the list must exactly
+        match a configured (enabled) entry; otherwise ``ValueError`` is raised
+        listing the unknown names along with the available entry names.
         """
-        if entry_filter_expr is not None and entry_exact_name is not None:
-            msg = "entry_filter_expr and entry_exact_name are mutually exclusive"
+        if entry_filter_expr is not None and entries_exact is not None:
+            msg = "entry_filter_expr and entries_exact are mutually exclusive"
             raise ValueError(msg)
 
         assert_valid_config_dict(data)
@@ -134,14 +137,23 @@ class Session:
         entries = [Entry.from_dict(e) for e in sess_data["entries"]]
 
         # Filter entries:
-        # - entry_exact_name takes precedence and selects at most one entry by exact name.
-        #   Use this for automated callers (e.g. CI per-job invocations) where substring
-        #   matching would dangerously match prefix-overlapping siblings (e.g.
-        #   "audio_tagging_tts_xenna" matching "audio_tagging_tts_xenna_repeat").
+        # - entries_exact takes precedence and selects entries whose names appear in the
+        #   provided list, with strict exact-name matching. Every requested name must
+        #   correspond to a configured (enabled) entry; otherwise ValueError is raised.
+        #   Duplicates in the input are collapsed; result order follows the YAML.
+        #   Use this for automated callers (e.g. CI per-job invocations) and any context
+        #   where substring matching would dangerously match prefix-overlapping siblings
+        #   (e.g. "audio_tagging_tts_xenna" matching "audio_tagging_tts_xenna_repeat").
         # - entry_filter_expr accepts a pytest "-k" style substring expression, e.g.
         #   "foo and not foobar" includes all entries containing "foo" but not "foobar".
-        if entry_exact_name is not None:
-            entries = [e for e in entries if e.name == entry_exact_name]
+        if entries_exact is not None:
+            requested = set(entries_exact)
+            available = {e.name for e in entries}
+            missing = sorted(requested - available)
+            if missing:
+                msg = f"Unknown entry names in entries_exact: {missing}. Available entry names: {sorted(available)}"
+                raise ValueError(msg)
+            entries = [e for e in entries if e.name in requested]
         elif entry_filter_expr is not None:
             filtered_entries = []
             expr = Expression.compile(entry_filter_expr)
