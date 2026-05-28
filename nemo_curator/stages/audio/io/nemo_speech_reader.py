@@ -289,6 +289,8 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         NeMo 2.7.2's get_full_path has force_cache support but still joins
         paths when the audio_filepath is an S3 URI and force_cache=False.
         This one-time patch adds an early return for datastore paths.
+
+        TODO: Remove once NeMo PR #15732 and shard_id manifest fix are released.
         """
         import nemo.collections.common.data.lhotse.nemo_adapters as _adapters
         import nemo.collections.common.parts.preprocessing.manifest as _manifest
@@ -362,6 +364,14 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 )
             finally:
                 LazyNeMoTarredIterator._validate = _orig_validate
+
+            # Fix shard_id type mismatch for datasets like MCV4 where manifest
+            # has string shard_ids ('0') but tar regex gives int (0).
+            # Add string keys to shard_id_to_tar_path so lookups work either way.
+            tar_map = iterator.shard_id_to_tar_path
+            extra = {str(k): v for k, v in tar_map.items() if str(k) not in tar_map}
+            tar_map.update(extra)
+
             return CutSet(iterator)
 
         return CutSet(LazyNeMoIterator(manifest_path))
@@ -405,9 +415,12 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             entry_data = dict(cut.custom) if cut.custom else {}
             entry_data["waveform"] = audio.astype(np.float32)
             entry_data["sampling_rate"] = target_sr
+            entry_data["sample_rate"] = target_sr
             entry_data["duration"] = cut.duration
             entry_data["num_channels"] = 1
             entry_data["corpus"] = corpus
+            if "audio_filepath" not in entry_data and cut.recording and cut.recording.sources:
+                entry_data["audio_filepath"] = cut.recording.sources[0].source
             if language and "source_lang" not in entry_data:
                 entry_data["source_lang"] = language
 
