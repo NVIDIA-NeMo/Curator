@@ -58,7 +58,7 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     def process(self, _: _EmptyTask) -> DocumentBatch:
         responses = self._process_async() if self.is_async_client else self._process_sync()
 
-        return DocumentBatch(data=pd.DataFrame({"text": responses}), dataset_name="simple_synthetic_data", task_id=1)
+        return DocumentBatch(data=pd.DataFrame({"text": responses}), dataset_name="simple_synthetic_data")
 
     def _process_llm_response(self, response: list[str]) -> str:
         """Process a single response from the LLM."""

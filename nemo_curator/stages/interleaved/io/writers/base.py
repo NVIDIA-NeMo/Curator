@@ -151,7 +151,6 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
 
         self.write_data(task, file_path_with_protocol)
         return FileGroupTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=[file_path_with_protocol],
             _metadata={**task._metadata, "format": self.file_extension},

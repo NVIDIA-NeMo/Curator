@@ -121,7 +121,6 @@ class IdentifyDuplicatesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         # Create output task
         return [
             FileGroupTask(
-                task_id=f"identify_duplicates_{get_deterministic_hash(all_files, tasks[0].task_id)}",
                 dataset_name=tasks[0].dataset_name,
                 data=[output_file],
                 _metadata={**tasks[0]._metadata, "num_removed": len(df)},

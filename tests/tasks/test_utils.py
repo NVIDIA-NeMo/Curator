@@ -22,7 +22,7 @@ from nemo_curator.utils.performance_utils import StagePerfStats
 
 def make_dummy_task(stage_name: str, process_time: float, custom: float = 0.0) -> _EmptyTask:
     perf = StagePerfStats(stage_name=stage_name, process_time=process_time, custom_metrics={"io": custom})
-    return _EmptyTask(task_id=f"{stage_name}_{process_time}", dataset_name="test", data=None, _stage_perf=[perf])
+    return _EmptyTask(dataset_name="test", data=None, _stage_perf=[perf])
 
 
 class TestTaskPerfUtils:

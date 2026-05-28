@@ -71,10 +71,7 @@ class MegatronTokenizerWriter(BaseWriter):
         try:
             # download the relevant tokenizer files once
             _ = AutoTokenizer.from_pretrained(
-                self.model_identifier,
-                cache_dir=self.cache_dir,
-                token=self.hf_token,
-                **self.transformers_init_kwargs
+                self.model_identifier, cache_dir=self.cache_dir, token=self.hf_token, **self.transformers_init_kwargs
             )
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
@@ -84,10 +81,7 @@ class MegatronTokenizerWriter(BaseWriter):
         # Load the tokenizer
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_identifier,
-                cache_dir=self.cache_dir,
-                local_files_only=True,
-                **self.transformers_init_kwargs
+                self.model_identifier, cache_dir=self.cache_dir, local_files_only=True, **self.transformers_init_kwargs
             )
         except Exception as e:  # noqa: BLE001
             # Allow this fallback since loading a tokenizer is lightweight
@@ -95,10 +89,7 @@ class MegatronTokenizerWriter(BaseWriter):
             logger.warning(msg)
 
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_identifier,
-                cache_dir=self.cache_dir,
-                token=self.hf_token,
-                **self.transformers_init_kwargs
+                self.model_identifier, cache_dir=self.cache_dir, token=self.hf_token, **self.transformers_init_kwargs
             )
 
     def process(self, task: DocumentBatch) -> FileGroupTask:
@@ -161,7 +152,6 @@ class MegatronTokenizerWriter(BaseWriter):
         logger.debug(f"Written batch to {file_prefix} with {num_docs} documents ({sum(sequence_lengths)} tokens)")
 
         return FileGroupTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=[file_prefix + file_extension for file_extension in self.file_extension],
             _metadata={

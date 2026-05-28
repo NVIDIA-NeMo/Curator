@@ -74,7 +74,6 @@ class AddId(ProcessingStage[DocumentBatch, DocumentBatch]):
         df[self.id_field] = [f"{prefix}_{i}" for i in range(len(df))]
         # Create output batch
         return DocumentBatch(
-            task_id=f"{batch.task_id}_{self.name}",
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,

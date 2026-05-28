@@ -49,7 +49,7 @@ class TestFixedStrideExtractorStage:
             clips=[],
         )
 
-        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
+        self.mock_task = VideoTask(dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test that the name property returns the correct value."""
@@ -68,7 +68,6 @@ class TestFixedStrideExtractorStage:
         result = self.stage.process(self.mock_task)
 
         assert isinstance(result, VideoTask)
-        assert result.task_id == "test_task"
         assert result.dataset_name == "test_dataset"
         assert len(result.data.clips) > 0
 
@@ -161,7 +160,7 @@ class TestFixedStrideExtractorStage:
             clips=[],
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 
@@ -217,7 +216,7 @@ class TestFixedStrideExtractorStage:
             clips=[],
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -252,7 +251,7 @@ class TestFixedStrideExtractorStage:
             clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(i * 1.0, (i + 1) * 1.0))
             video.clips.append(clip)
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -291,7 +290,7 @@ class TestFixedStrideExtractorStage:
             clips=[],
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 
@@ -315,7 +314,7 @@ class TestFixedStrideExtractorStage:
             clips=[],
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 
@@ -391,7 +390,7 @@ class TestFixedStrideExtractorStage:
                 clips=[],
             )
 
-            task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+            task = VideoTask(dataset_name="test_dataset", data=video)
 
             result = stage.process(task)
 
@@ -427,7 +426,7 @@ class TestFixedStrideExtractorStage:
             clips=[],
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -452,7 +451,7 @@ class TestFixedStrideExtractorStage:
             clips=[],
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 
@@ -478,7 +477,7 @@ class TestFixedStrideExtractorStage:
             clips=[],
         )
 
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 

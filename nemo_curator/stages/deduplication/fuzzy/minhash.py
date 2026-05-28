@@ -327,7 +327,6 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
 
         # Return FileGroupTask with output file
         return FileGroupTask(
-            task_id=f"{task.task_id}",
             dataset_name=f"{task.dataset_name}_minhash",
             data=[output_file],
             _metadata={

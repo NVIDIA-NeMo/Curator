@@ -328,7 +328,6 @@ def _build_image_mask(
 
 def _task_with_dataframe(task: InterleavedBatch, df: pd.DataFrame) -> InterleavedBatch:
     return InterleavedBatch(
-        task_id=task.task_id,
         dataset_name=task.dataset_name,
         data=df,
         _metadata=task._metadata,

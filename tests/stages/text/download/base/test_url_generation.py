@@ -117,7 +117,6 @@ class TestURLGenerationStage:
 
         # Create input task
         input_task = _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={"source": "test"},
@@ -132,7 +131,6 @@ class TestURLGenerationStage:
         # Check each generated task
         for i, task in enumerate(result):
             assert isinstance(task, FileGroupTask)
-            assert task.task_id == f"test_task_{i}"
             assert task.dataset_name == "test_dataset"
             assert task.data == [urls[i]]
             assert task._metadata == {"source_url": urls[i]}
@@ -150,7 +148,6 @@ class TestURLGenerationStage:
         stage = URLGenerationStage(url_generator=generator, limit=3)
 
         input_task = _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -171,7 +168,6 @@ class TestURLGenerationStage:
         stage = URLGenerationStage(url_generator=generator)
 
         input_task = _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -189,7 +185,6 @@ class TestURLGenerationStage:
         stage = URLGenerationStage(url_generator=generator, limit=10)
 
         input_task = _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -206,7 +201,6 @@ class TestURLGenerationStage:
         stage = URLGenerationStage(url_generator=generator, limit=0)
 
         input_task = _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -226,7 +220,6 @@ class TestURLGenerationStage:
         stage = URLGenerationStage(url_generator=generator)
 
         input_task = _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -243,7 +236,6 @@ class TestURLGenerationStage:
         stage = URLGenerationStage(url_generator=generator)
 
         input_task = _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={"original": "metadata"},
@@ -263,7 +255,6 @@ class TestURLGenerationStage:
         stage = URLGenerationStage(url_generator=generator)
 
         input_task = _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -287,17 +278,14 @@ class TestURLGenerationStage:
         stage = URLGenerationStage(url_generator=generator)
 
         input_task = _EmptyTask(
-            task_id="parent_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={},
         )
 
-        result = stage.process(input_task)
+        stage.process(input_task)
 
         # Check task ID generation
-        assert result[0].task_id == "parent_task_0"
-        assert result[1].task_id == "parent_task_1"
 
     def test_process_metadata_per_task(self) -> None:
         """Test that each task gets correct source URL metadata."""
@@ -306,7 +294,6 @@ class TestURLGenerationStage:
         stage = URLGenerationStage(url_generator=generator)
 
         input_task = _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={},
@@ -325,7 +312,6 @@ class TestURLGenerationStage:
         stage = URLGenerationStage(url_generator=generator)
 
         input_task = _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={},

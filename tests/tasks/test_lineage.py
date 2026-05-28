@@ -22,7 +22,6 @@ Covers:
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 
 from nemo_curator.stages.base import ProcessingStage
@@ -39,25 +38,23 @@ class _SimpleTask(Task[list[int]]):
         return True
 
 
-def _new(tid: str = "x") -> _SimpleTask:
-    return _SimpleTask(task_id=tid, dataset_name="d", data=[1, 2, 3])
+def _new() -> _SimpleTask:
+    return _SimpleTask(dataset_name="d", data=[1, 2, 3])
 
 
 class TestSetLineage:
     def test_initial_state(self) -> None:
         t = _new()
-        # User-provided task_id stays until _set_lineage runs.
-        assert t.task_id == "x"
+        # task_id and _lineage_path are empty until _set_lineage runs.
+        assert t.task_id == ""
         assert t._lineage_path == ""
 
     def test_set_lineage_sets_path_and_task_id(self) -> None:
         t = _new()
         t._set_lineage([], 3)
         assert t._lineage_path == "3"
-        # task_id is now the sha256-32 of the lineage path; user-provided
-        # value is overwritten.
-        assert t.task_id == hashlib.sha256(b"3").hexdigest()[:32]
-        assert t.task_id != "x"
+        # task_id is the sha256-32 of the lineage path.
+        assert len(t.task_id) == 32
 
     def test_set_lineage_filters_empty_parent_paths(self) -> None:
         t = _new()
@@ -86,7 +83,6 @@ class TestSetLineage:
         t = _new()
         t._set_lineage([], "abc123")
         assert t._lineage_path == "abc123"
-        assert t.task_id == hashlib.sha256(b"abc123").hexdigest()[:32]
 
     def test_child_segment_under_parent_lineage(self) -> None:
         """Source under a non-empty parent lineage encodes both."""
@@ -101,18 +97,18 @@ class TestGetDeterministicId:
         assert t.get_deterministic_id() is None
 
     def test_file_group_task_hashes_sorted_paths(self) -> None:
-        a = FileGroupTask(task_id="t1", dataset_name="d", data=["b.parquet", "a.parquet"])
-        b = FileGroupTask(task_id="t2", dataset_name="d", data=["a.parquet", "b.parquet"])
+        a = FileGroupTask(dataset_name="d", data=["b.parquet", "a.parquet"])
+        b = FileGroupTask(dataset_name="d", data=["a.parquet", "b.parquet"])
         # Same set of files in different orders → same content id.
         assert a.get_deterministic_id() == b.get_deterministic_id()
 
     def test_file_group_task_different_files_different_ids(self) -> None:
-        a = FileGroupTask(task_id="t", dataset_name="d", data=["a.parquet"])
-        b = FileGroupTask(task_id="t", dataset_name="d", data=["b.parquet"])
+        a = FileGroupTask(dataset_name="d", data=["a.parquet"])
+        b = FileGroupTask(dataset_name="d", data=["b.parquet"])
         assert a.get_deterministic_id() != b.get_deterministic_id()
 
     def test_file_group_id_is_string(self) -> None:
-        t = FileGroupTask(task_id="t", dataset_name="d", data=["a.parquet"])
+        t = FileGroupTask(dataset_name="d", data=["a.parquet"])
         result = t.get_deterministic_id()
         assert isinstance(result, str)
         assert len(result) == 12  # get_deterministic_hash returns 12 hex chars
@@ -129,10 +125,7 @@ class _Repeat(ProcessingStage[_SimpleTask, _SimpleTask]):
         return [], []
 
     def process(self, task: _SimpleTask) -> list[_SimpleTask]:
-        return [
-            _SimpleTask(task_id="placeholder", dataset_name=task.dataset_name, data=task.data)
-            for _ in range(self.times)
-        ]
+        return [_SimpleTask(dataset_name=task.dataset_name, data=task.data) for _ in range(self.times)]
 
 
 class _Passthrough(ProcessingStage[_SimpleTask, _SimpleTask]):
@@ -145,7 +138,7 @@ class _Passthrough(ProcessingStage[_SimpleTask, _SimpleTask]):
         return [], []
 
     def process(self, task: _SimpleTask) -> _SimpleTask:
-        return _SimpleTask(task_id="placeholder", dataset_name=task.dataset_name, data=task.data)
+        return _SimpleTask(dataset_name=task.dataset_name, data=task.data)
 
 
 class _Filter(ProcessingStage[_SimpleTask, _SimpleTask]):
@@ -163,7 +156,7 @@ class _Filter(ProcessingStage[_SimpleTask, _SimpleTask]):
 
 class TestDefaultProcessBatchAssignsLineage:
     def test_single_task_single_output_gets_lineage(self) -> None:
-        parent = _new("p")
+        parent = _new()
         parent._set_lineage([], 0)
         out = _Passthrough().process_batch([parent])
         assert len(out) == 1
@@ -171,7 +164,7 @@ class TestDefaultProcessBatchAssignsLineage:
         assert out[0]._lineage_path == "0_0"
 
     def test_fanout_outputs_get_unique_lineage_paths(self) -> None:
-        parent = _new("p")
+        parent = _new()
         parent._set_lineage([], 0)
         out = _Repeat(times=4).process_batch([parent])
         assert len(out) == 4
@@ -182,7 +175,7 @@ class TestDefaultProcessBatchAssignsLineage:
         assert len(set(task_ids)) == 4
 
     def test_filtered_out_returns_empty(self) -> None:
-        parent = _new("p")
+        parent = _new()
         parent._set_lineage([], 0)
         out = _Filter().process_batch([parent])
         assert out == []
@@ -190,7 +183,7 @@ class TestDefaultProcessBatchAssignsLineage:
     def test_batch_inputs_keep_per_parent_lineage(self) -> None:
         """Each parent in the batch contributes its own lineage to its
         child(ren)."""
-        parents = [_new(f"p{i}") for i in range(3)]
+        parents = [_new() for i in range(3)]
         for i, p in enumerate(parents):
             p._set_lineage([], i)
 
@@ -203,16 +196,15 @@ class TestDefaultProcessBatchAssignsLineage:
     def test_deterministic_across_calls(self) -> None:
         """Running the same pipeline shape on the same inputs produces
         byte-identical task_ids."""
-        parent_a = _new("a")
+        parent_a = _new()
         parent_a._set_lineage([], 0)
         out_a = _Repeat(times=2).process_batch([parent_a])
 
-        parent_b = _new("b")  # different user-provided task_id
+        parent_b = _new()
         parent_b._set_lineage([], 0)
         out_b = _Repeat(times=2).process_batch([parent_b])
 
-        # Same lineage paths despite different user-provided task_ids — the
-        # user-provided values were overwritten by _set_lineage.
+        # Same inputs → same lineage paths → same task_ids.
         assert [t.task_id for t in out_a] == [t.task_id for t in out_b]
 
 
@@ -230,7 +222,7 @@ class _FileGroupSource(ProcessingStage[_EmptyTask, FileGroupTask]):
         return [], []
 
     def process(self, task: _EmptyTask) -> list[FileGroupTask]:
-        return [FileGroupTask(task_id="placeholder", dataset_name="d", data=[f"file_{i}.parquet"]) for i in range(3)]
+        return [FileGroupTask(dataset_name="d", data=[f"file_{i}.parquet"]) for i in range(3)]
 
 
 class _NoContentSource(ProcessingStage[_EmptyTask, _SimpleTask]):
@@ -247,12 +239,12 @@ class _NoContentSource(ProcessingStage[_EmptyTask, _SimpleTask]):
         return [], []
 
     def process(self, task: _EmptyTask) -> list[_SimpleTask]:
-        return [_SimpleTask(task_id="placeholder", dataset_name="d", data=[i]) for i in range(3)]
+        return [_SimpleTask(dataset_name="d", data=[i]) for i in range(3)]
 
 
 class TestSourceStageSegment:
     def test_uses_content_hash_when_get_deterministic_id_returns_value(self) -> None:
-        empty = _EmptyTask(task_id="empty", dataset_name="empty", data=None)
+        empty = _EmptyTask(dataset_name="empty", data=None)
         out = _FileGroupSource().process_batch([empty])
         assert len(out) == 3
         # Each output's lineage_path should be exactly its content hash —
@@ -262,7 +254,7 @@ class TestSourceStageSegment:
             assert child._lineage_path == child.get_deterministic_id()
 
     def test_falls_back_to_positional_index_when_none(self) -> None:
-        empty = _EmptyTask(task_id="empty", dataset_name="empty", data=None)
+        empty = _EmptyTask(dataset_name="empty", data=None)
         out = _NoContentSource().process_batch([empty])
         assert len(out) == 3
         paths = [t._lineage_path for t in out]
@@ -284,9 +276,9 @@ class TestSourceStageSegment:
                 return [], []
 
             def process(self, task: FileGroupTask) -> FileGroupTask:
-                return FileGroupTask(task_id="placeholder", dataset_name="d", data=task.data)
+                return FileGroupTask(dataset_name="d", data=task.data)
 
-        parent = FileGroupTask(task_id="p", dataset_name="d", data=["a.parquet"])
+        parent = FileGroupTask(dataset_name="d", data=["a.parquet"])
         parent._set_lineage([], 0)
         out = _NonSource().process_batch([parent])
         # Lineage uses positional "0", not content hash.

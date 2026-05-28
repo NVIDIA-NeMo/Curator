@@ -146,7 +146,7 @@ class TestProcessLLMBackend:
                 "id": [1, 2],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
         result_df = result.to_pandas()
@@ -198,7 +198,7 @@ class TestProcessNonLLMBackend:
                 "id": [1, 2],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
         result_df = result.to_pandas()
@@ -241,7 +241,7 @@ class TestProcessNonLLMBackend:
                 "id": [1, 2, 3],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
         result_df = result.to_pandas()

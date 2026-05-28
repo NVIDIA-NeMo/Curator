@@ -107,12 +107,11 @@ class TestJsonlWriter:
         expected = pandas_document_batch.to_pandas()[["text", "score"]]
         pd.testing.assert_frame_equal(df, expected)
 
-
     def test_jsonl_writer_defaults_to_utf8_output(self, tmpdir: str):
         """JsonlWriter should preserve non-ASCII characters by default."""
         output_dir = os.path.join(tmpdir, "jsonl_utf8")
         writer = JsonlWriter(path=output_dir)
-        batch = DocumentBatch(data=pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), task_id="utf8", dataset_name="test")
+        batch = DocumentBatch(data=pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), dataset_name="test")
 
         writer.setup()
         result = writer.process(batch)
@@ -127,7 +126,7 @@ class TestJsonlWriter:
         """JsonlWriter should still honor user-provided force_ascii=True."""
         output_dir = os.path.join(tmpdir, "jsonl_ascii")
         writer = JsonlWriter(path=output_dir, write_kwargs={"force_ascii": True})
-        batch = DocumentBatch(data=pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), task_id="ascii", dataset_name="test")
+        batch = DocumentBatch(data=pd.DataFrame({"text": ["你好, 世界"], "id": [1]}), dataset_name="test")
 
         writer.setup()
         result = writer.process(batch)

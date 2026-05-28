@@ -109,7 +109,7 @@ def test_process_end_to_end(tmp_path: Path) -> None:
         patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.download_file"),
         patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.extract_archive"),
     ):
-        results = stage.process(_EmptyTask(task_id="empty", dataset_name="test", data=None))
+        results = stage.process(_EmptyTask(dataset_name="test", data=None))
     assert len(results) == 2
     assert results[0].data["text"] == "hello"
     assert results[1].data["text"] == "world"

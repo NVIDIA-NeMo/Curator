@@ -40,7 +40,7 @@ def sample_jsonl_files(tmp_path: Path) -> list[str]:
 def file_group_tasks(sample_jsonl_files: list[str]) -> list[FileGroupTask]:
     """Create multiple FileGroupTasks."""
     return [
-        FileGroupTask(task_id=f"task_{i}", dataset_name="test_dataset", data=[file_path], _metadata={})
+        FileGroupTask(dataset_name="test_dataset", data=[file_path], _metadata={})
         for i, file_path in enumerate(sample_jsonl_files)
     ]
 
@@ -73,7 +73,7 @@ class TestJsonlReaderWithoutIdGenerator:
         pd.DataFrame({"a": [1]}).to_json(file_path, orient="records", lines=True)
 
         # Reader uses read_kwargs storage options
-        task = FileGroupTask(task_id="t1", dataset_name="ds", data=[str(file_path)], _metadata={})
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
         stage = JsonlReaderStage(read_kwargs={"storage_options": {"auto_mkdir": True}})
 
         seen: dict[str, object] = {}
@@ -114,7 +114,7 @@ class TestJsonlReaderWithoutIdGenerator:
             return pd.DataFrame({"x": [1, 2]})
 
         monkeypatch.setattr(pd, "read_json", fake_read_json)
-        task = FileGroupTask(task_id="t2", dataset_name="ds", data=[str(f)], _metadata={})
+        task = FileGroupTask(dataset_name="ds", data=[str(f)], _metadata={})
         stage = JsonlReaderStage(read_kwargs={"storage_options": {"auto_mkdir": True}})
         out = stage.process(task)
         assert seen["storage_options"] == {"auto_mkdir": True}

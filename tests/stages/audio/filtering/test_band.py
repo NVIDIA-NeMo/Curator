@@ -25,7 +25,6 @@ def _make_task(waveform: torch.Tensor | None = None, sample_rate: int = 48000) -
         waveform = torch.randn(1, sample_rate)
     return AudioTask(
         data={"waveform": waveform, "sample_rate": sample_rate},
-        task_id="test",
         dataset_name="test",
     )
 
@@ -82,7 +81,7 @@ class TestBandFilterStage:
         stage = BandFilterStage(band_value="full_band")
         stage._predictor = MagicMock()
 
-        task = AudioTask(data={"some_key": "value"}, task_id="test", dataset_name="test")
+        task = AudioTask(data={"some_key": "value"}, dataset_name="test")
         result = stage.process(task)
 
         assert result == []
@@ -105,7 +104,6 @@ class TestBandFilterStage:
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(4)]
         task = AudioTask(
             data={"segments": segments, "original_file": "test.wav"},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -126,7 +124,6 @@ class TestBandFilterStage:
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]
         task = AudioTask(
             data={"segments": segments},
-            task_id="test",
             dataset_name="test",
         )
 

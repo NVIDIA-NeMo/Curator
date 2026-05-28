@@ -122,7 +122,6 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         out_df = out_df.reset_index(drop=True)
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=out_df,
             _metadata=batch._metadata,

@@ -243,11 +243,11 @@ class TestKMeansStageIntegration:
     def test_output_filenames_and_structure(self) -> None:
         """Test that the output files are created with exact expected filenames and partitioning.
 
-        Each actor (we should have two GPU actors) writes files with predictable names: {tasks[0]._uuid}_{subgroup_index}.parquet
-        Since our test data is small, each actor creates 1 subgroup, so files are named {uuid}_0.parquet
+        Each actor (we should have two GPU actors) writes files with predictable names: {tasks[0].task_id}_{subgroup_index}.parquet
+        Since our test data is small, each actor creates 1 subgroup, so files are named {task_id}_0.parquet
         """
         # Get the expected filenames from pipeline results
-        # The pipeline returns EmptyTasks with task_id = output_filename = f"{tasks[0]._uuid}_{i}"
+        # The pipeline returns EmptyTasks with
         expected_filenames = set()
         for result_task in self.pipeline_results:
             expected_filename = f"{result_task.task_id}.parquet"
@@ -382,7 +382,6 @@ class TestKMeansReadFitWriteStage:
             all_files = [str(input_dir / f"file_{i}.parquet") for i in range(4)]
             all_tasks = [
                 FileGroupTask(
-                    task_id=f"test_task_{i}",
                     dataset_name="test_dataset",
                     data=[file],
                 )
@@ -401,7 +400,6 @@ class TestKMeansReadFitWriteStage:
             all_files = [str(input_file)]
             all_tasks = [
                 FileGroupTask(
-                    task_id="test_task_jsonl",
                     dataset_name="test_dataset",
                     data=[str(input_file)],
                 )
@@ -538,7 +536,7 @@ class TestKMeansReadFitWriteStage:
     def test_process_batch_routes_by_fit_data_fraction(self, make_stage: "KMeansReadFitWriteStage") -> None:
         """fit_data_fraction=None -> single-pass; fraction set -> two-pass."""
         # Use jsonl so process_batch skips break_parquet_partition_into_groups (which reads metadata).
-        task = FileGroupTask(task_id="t", dataset_name="d", data=["x.jsonl"])
+        task = FileGroupTask(dataset_name="d", data=["x.jsonl"])
 
         for fraction, expect_single in [(None, True), (0.5, False)]:
             stage = make_stage(fit_data_fraction=fraction, filetype="jsonl")
@@ -628,7 +626,7 @@ class TestKMeansReadFitWriteStage:
         ]
         df = cudf.DataFrame({"id": [0, 1], "embeddings": [[1.0, 0.0], [0.0, 1.0]]})
         stage.kmeans.predict = Mock(return_value=cp.zeros(len(df), dtype=cp.int32))
-        tasks = [FileGroupTask(task_id="t0", dataset_name="d", data=["any.parquet"])]
+        tasks = [FileGroupTask(dataset_name="d", data=["any.parquet"])]
         with (
             patch.object(stage, "_read_group", return_value=df) as mock_read,
             patch.object(stage, "write_parquet"),
@@ -687,7 +685,7 @@ class TestKMeansReadFitWriteStage:
         stage = make_stage(fit_data_fraction=None, cache_path=str(cache_path))
         df = cudf.DataFrame({"id": [0, 1], "embeddings": [[1.0, 0.0], [0.0, 1.0]]})
         stage.kmeans.predict = Mock(return_value=cp.zeros(len(df), dtype=cp.int32))
-        tasks = [FileGroupTask(task_id="t", dataset_name="d", data=["any.parquet"])]
+        tasks = [FileGroupTask(dataset_name="d", data=["any.parquet"])]
         with (
             patch.object(stage, "_read_group", return_value=df),
             patch.object(stage, "write_parquet"),

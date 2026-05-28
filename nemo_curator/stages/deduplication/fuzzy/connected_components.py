@@ -192,7 +192,6 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
         return [
             FileGroupTask(
                 dataset_name=tasks[0].dataset_name,
-                task_id=tasks[0].task_id,
                 data=[output_file],
                 _metadata={
                     "storage_options": self.write_kwargs.get("storage_options"),

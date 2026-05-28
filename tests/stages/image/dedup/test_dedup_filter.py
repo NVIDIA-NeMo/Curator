@@ -31,7 +31,7 @@ def _write_parquet_ids(tmpdir: Path, filename: str, ids: list[str], id_column: s
 
 def _make_batch(ids: list[str]) -> ImageBatch:
     images = [ImageObject(image_id=i) for i in ids]
-    return ImageBatch(task_id="t0", dataset_name="ds", data=images)
+    return ImageBatch(dataset_name="ds", data=images)
 
 
 def test_setup_raises_when_no_parquet(tmp_path: Path) -> None:

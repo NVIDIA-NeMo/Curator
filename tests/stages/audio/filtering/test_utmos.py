@@ -26,7 +26,6 @@ def _make_task(duration_s: float = 1.0, sample_rate: int = 16000) -> AudioTask:
     num_samples = int(duration_s * sample_rate)
     return AudioTask(
         data={"waveform": torch.randn(1, num_samples), "sample_rate": sample_rate},
-        task_id="test",
         dataset_name="test",
     )
 
@@ -84,7 +83,7 @@ class TestUTMOSFilterStage:
         stage = UTMOSFilterStage(mos_threshold=3.0)
         stage._model = _mock_model(4.0)
 
-        task = AudioTask(data={"some_key": "value"}, task_id="test", dataset_name="test")
+        task = AudioTask(data={"some_key": "value"}, dataset_name="test")
         result = stage.process(task)
 
         assert result == []
@@ -122,7 +121,6 @@ class TestUTMOSFilterStage:
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(4)]
         task = AudioTask(
             data={"segments": segments, "original_file": "test.wav"},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -143,7 +141,6 @@ class TestUTMOSFilterStage:
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]
         task = AudioTask(
             data={"segments": segments},
-            task_id="test",
             dataset_name="test",
         )
 

@@ -33,11 +33,11 @@ class Task(ABC, Generic[T]):
     (text, audio, video) can implement their own task types.
 
     Attributes:
-        task_id: Deterministic identifier for this task. User-provided
-            values are ALWAYS overwritten by the framework via
-            ``_set_lineage`` once the task flows through any stage. Two
-            runs of the same pipeline on the same inputs produce
-            byte-identical ``task_id``s across all tasks.
+        task_id: Deterministic identifier for this task. NOT user-settable —
+            the framework assigns it via ``_set_lineage`` at every stage
+            boundary. Empty string until the first stage runs. Two runs
+            of the same pipeline on the same inputs produce byte-identical
+            ``task_id``s across all tasks.
         dataset_name: Name of the dataset this task belongs to.
         _stage_perf: List of stages perfs this task has passed through.
         _lineage_path: Underscore-joined path through the pipeline DAG
@@ -46,11 +46,11 @@ class Task(ABC, Generic[T]):
             ``_set_lineage`` runs.
     """
 
-    task_id: str
     dataset_name: str
     data: T
     _stage_perf: list[StagePerfStats] = field(default_factory=list)
     _metadata: dict[str, Any] = field(default_factory=dict)
+    task_id: str = field(init=False, default="")
     _lineage_path: str = field(init=False, default="")
 
     def __post_init__(self) -> None:
@@ -126,4 +126,4 @@ class _EmptyTask(Task[None]):
 
 
 # Empty tasks are just used for `ls` stages
-EmptyTask = _EmptyTask(task_id="empty", dataset_name="empty", data=None)
+EmptyTask = _EmptyTask(dataset_name="empty", data=None)

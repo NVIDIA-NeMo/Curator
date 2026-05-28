@@ -154,7 +154,6 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                     if line.strip():
                         results.append(
                             AudioTask(
-                                task_id=f"{task.task_id}_{count}",
                                 dataset_name=task.dataset_name,
                                 data=json.loads(line.strip()),
                                 _metadata=task._metadata,
@@ -282,7 +281,6 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         with self._fs.open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
         return AudioTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=task.data,
             _metadata=task._metadata,

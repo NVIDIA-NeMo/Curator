@@ -129,10 +129,8 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         for i in range(0, len(entries), self.pdfs_per_task):
             batch = entries[i : i + self.pdfs_per_task]
             task_idx = i // self.pdfs_per_task
-            task_id = f"pdf_batch_{task_idx:06d}"
             tasks.append(
                 FileGroupTask(
-                    task_id=task_id,
                     dataset_name=self.dataset_name,
                     data=batch,
                     _metadata={"source_files": batch, "partition_index": task_idx},

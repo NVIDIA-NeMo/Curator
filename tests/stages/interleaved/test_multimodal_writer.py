@@ -62,7 +62,6 @@ def test_writer_marks_materialize_error_on_bad_source_path(tmp_path: Path, input
     first_image_idx = df[image_mask].index[0]
     df.loc[first_image_idx, "source_ref"] = _source_ref("/definitely/missing/path.tar", "abc123.tiff")
     bad_batch = InterleavedBatch(
-        task_id=batch.task_id,
         dataset_name=batch.dataset_name,
         data=df,
         _metadata=batch._metadata,
@@ -104,7 +103,6 @@ def test_writer_materializes_direct_content_path_without_key(tmp_path: Path) -> 
         schema=INTERLEAVED_SCHEMA,
     )
     task = InterleavedBatch(
-        task_id="direct_content_path",
         dataset_name="mint_test",
         data=table,
         _metadata={"source_files": [str(raw_path)]},
@@ -135,7 +133,7 @@ def test_writer_does_not_persist_dataframe_index(tmp_path: Path) -> None:
         ]
     )
     df.index = pd.Index([99])
-    task = InterleavedBatch(task_id="idx_task", dataset_name="mint_test", data=df)
+    task = InterleavedBatch(dataset_name="mint_test", data=df)
     writer = InterleavedParquetWriterStage(
         path=str(tmp_path / "out_idx"), materialize_on_write=False, mode="overwrite"
     )
@@ -187,7 +185,7 @@ def test_interleaved_ordering_preserved_through_filter_and_write(tmp_path: Path)
         _row("s1", 4, "text", "end"),
     ]
     table = pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA)
-    task = InterleavedBatch(task_id="e2e_order", dataset_name="d", data=table)
+    task = InterleavedBatch(dataset_name="d", data=table)
 
     filter_stage = _DropSecondImage(drop_invalid_rows=False)
     filtered_task = filter_stage.process(task)
@@ -225,7 +223,7 @@ def test_writer_write_kwargs_cannot_override_index_false(tmp_path: Path) -> None
         ]
     )
     df.index = pd.Index([42])
-    task = InterleavedBatch(task_id="kwargs_override", dataset_name="test", data=df)
+    task = InterleavedBatch(dataset_name="test", data=df)
     writer = InterleavedParquetWriterStage(
         path=str(tmp_path / "override_out"),
         materialize_on_write=False,
@@ -277,8 +275,8 @@ def test_heterogeneous_passthrough_fields_combine_as_nullable(tmp_path: Path) ->
     )
 
     reader = InterleavedWebdatasetReaderStage()
-    batch_a = reader.process(FileGroupTask(task_id="a", dataset_name="d", data=[shard_a]))
-    batch_b = reader.process(FileGroupTask(task_id="b", dataset_name="d", data=[shard_b]))
+    batch_a = reader.process(FileGroupTask(dataset_name="d", data=[shard_a]))
+    batch_b = reader.process(FileGroupTask(dataset_name="d", data=[shard_b]))
     assert isinstance(batch_a, InterleavedBatch)
     assert isinstance(batch_b, InterleavedBatch)
 
@@ -338,7 +336,7 @@ def test_writer_uses_uuid_when_no_source_files(tmp_path: Path) -> None:
             }
         ]
     )
-    task = InterleavedBatch(task_id="no_source", dataset_name="test", data=df, _metadata={})
+    task = InterleavedBatch(dataset_name="test", data=df, _metadata={})
     out_dir = tmp_path / "uuid_out"
     writer = InterleavedParquetWriterStage(
         path=str(out_dir),
@@ -368,7 +366,6 @@ def test_writer_no_materialize_preserves_null_binary(tmp_path: Path) -> None:
         schema=INTERLEAVED_SCHEMA,
     )
     task = InterleavedBatch(
-        task_id="no_mat",
         dataset_name="test",
         data=table,
         _metadata={"source_files": ["/fake/img.jpg"]},
@@ -404,7 +401,6 @@ def test_writer_custom_compression(tmp_path: Path, compression: str) -> None:
         ]
     )
     task = InterleavedBatch(
-        task_id="comp",
         dataset_name="test",
         data=df,
         _metadata={"source_files": ["test.tar"]},
@@ -473,7 +469,6 @@ def _make_wds_batch(
             }
         )
     return InterleavedBatch(
-        task_id=f"wds_{sample_id}",
         dataset_name="test",
         data=pd.DataFrame(rows),
         _metadata={"source_files": source_files or ["test.tar"]},
@@ -536,7 +531,7 @@ def test_wds_writer_roundtrip(tmp_path: Path) -> None:
     tar_path = write_task.data[0]
     assert tar_path.endswith(".tar")
 
-    read_task = FileGroupTask(task_id="rt", dataset_name="test", data=[tar_path])
+    read_task = FileGroupTask(dataset_name="test", data=[tar_path])
     result = InterleavedWebdatasetReaderStage(sample_id_field="sample_id").process(read_task)
     assert isinstance(result, InterleavedBatch)
     df = result.to_pandas()
@@ -579,7 +574,7 @@ def test_wds_writer_unsupported_modality_raises(tmp_path: Path) -> None:
             }
         ]
     )
-    task = InterleavedBatch(task_id="vid", dataset_name="t", data=df, _metadata={"source_files": ["x.tar"]})
+    task = InterleavedBatch(dataset_name="t", data=df, _metadata={"source_files": ["x.tar"]})
     writer = InterleavedWebdatasetWriterStage(
         path=str(tmp_path / "vid_out"), materialize_on_write=False, mode="overwrite"
     )
@@ -601,7 +596,7 @@ def test_wds_writer_key_escaping(tmp_path: Path) -> None:
         assert "/" not in name.split(".json")[0], f"unescaped slash in member name: {name}"
         assert ":" not in name.split(".json")[0], f"unescaped colon in member name: {name}"
 
-    read_task = FileGroupTask(task_id="esc_rt", dataset_name="test", data=[write_task.data[0]])
+    read_task = FileGroupTask(dataset_name="test", data=[write_task.data[0]])
     result = InterleavedWebdatasetReaderStage(sample_id_field="sample_id").process(read_task)
     assert isinstance(result, InterleavedBatch)
     assert sample_id in result.to_pandas()["sample_id"].tolist()
@@ -633,9 +628,7 @@ def test_wds_writer_passthrough_columns_in_json(tmp_path: Path) -> None:
             "url": None,
         },
     ]
-    task = InterleavedBatch(
-        task_id="pt", dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]}
-    )
+    task = InterleavedBatch(dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]})
     writer = InterleavedWebdatasetWriterStage(
         path=str(tmp_path / "pt_out"), materialize_on_write=False, mode="overwrite"
     )
@@ -671,9 +664,7 @@ def test_wds_writer_null_binary_skips_member(tmp_path: Path) -> None:
         ],
         schema=INTERLEAVED_SCHEMA,
     )
-    task = InterleavedBatch(
-        task_id="null_bin", dataset_name="t", data=table, _metadata={"source_files": ["/fake/img.png"]}
-    )
+    task = InterleavedBatch(dataset_name="t", data=table, _metadata={"source_files": ["/fake/img.png"]})
     writer = InterleavedWebdatasetWriterStage(
         path=str(tmp_path / "null_bin_out"), materialize_on_write=False, mode="overwrite"
     )
@@ -688,9 +679,8 @@ def test_wds_writer_null_binary_skips_member(tmp_path: Path) -> None:
 def test_wds_writer_deterministic_filename(tmp_path: Path) -> None:
     """Same source_files + task_id → same output filename across two writer instances."""
     source = ["shard-00000.tar"]
-    task_id = "fixed_task"
+
     batch = InterleavedBatch(
-        task_id=task_id,
         dataset_name="test",
         data=_make_wds_batch(sample_id="s1", source_files=source).to_pandas(),
         _metadata={"source_files": source},
@@ -730,9 +720,7 @@ def test_wds_writer_per_image_fields_roundtrip(tmp_path: Path) -> None:
             image_alt_text="a dog in a park",
         ),
     ]
-    task = InterleavedBatch(
-        task_id="per_img", dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]}
-    )
+    task = InterleavedBatch(dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]})
     writer = InterleavedWebdatasetWriterStage(
         path=str(tmp_path / "per_img_out"), materialize_on_write=False, mode="overwrite"
     )
@@ -748,7 +736,7 @@ def test_wds_writer_per_image_fields_roundtrip(tmp_path: Path) -> None:
         sample_id_field="sample_id",
         per_image_fields=("image_alt_text",),
     )
-    result = reader.process(FileGroupTask(task_id="rt", dataset_name="t", data=write_task.data))
+    result = reader.process(FileGroupTask(dataset_name="t", data=write_task.data))
     assert isinstance(result, InterleavedBatch)
     df = result.to_pandas()
 
@@ -765,9 +753,7 @@ def test_wds_writer_per_text_fields_roundtrip(tmp_path: Path) -> None:
         make_row("s1", 1, "text", text_content="second paragraph", text_confidence=None),  # gap
         make_row("s1", 2, "text", text_content="third paragraph", text_confidence=0.72),
     ]
-    task = InterleavedBatch(
-        task_id="per_txt", dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]}
-    )
+    task = InterleavedBatch(dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]})
     writer = InterleavedWebdatasetWriterStage(
         path=str(tmp_path / "per_txt_out"), materialize_on_write=False, mode="overwrite"
     )
@@ -781,7 +767,7 @@ def test_wds_writer_per_text_fields_roundtrip(tmp_path: Path) -> None:
         sample_id_field="sample_id",
         per_text_fields=("text_confidence",),
     )
-    result = reader.process(FileGroupTask(task_id="rt2", dataset_name="t", data=write_task.data))
+    result = reader.process(FileGroupTask(dataset_name="t", data=write_task.data))
     assert isinstance(result, InterleavedBatch)
     df = result.to_pandas()
 
@@ -800,9 +786,7 @@ def test_wds_writer_non_ascii_per_image_field_roundtrip(tmp_path: Path) -> None:
         make_row("s1", 1, "image", content_type="image/png", binary_content=fake_png, image_alt_text=alt_texts[1]),
         make_row("s1", 2, "image", content_type="image/png", binary_content=fake_png, image_alt_text=alt_texts[2]),
     ]
-    task = InterleavedBatch(
-        task_id="non_ascii", dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]}
-    )
+    task = InterleavedBatch(dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]})
     writer = InterleavedWebdatasetWriterStage(
         path=str(tmp_path / "non_ascii_out"), materialize_on_write=False, mode="overwrite"
     )
@@ -818,7 +802,7 @@ def test_wds_writer_non_ascii_per_image_field_roundtrip(tmp_path: Path) -> None:
         sample_id_field="sample_id",
         per_image_fields=("image_alt_text",),
     )
-    result = reader.process(FileGroupTask(task_id="rt3", dataset_name="t", data=write_task.data))
+    result = reader.process(FileGroupTask(dataset_name="t", data=write_task.data))
     assert isinstance(result, InterleavedBatch)
     df = result.to_pandas()
     image_rows = df[df["modality"] == "image"].sort_values("position")
@@ -838,9 +822,7 @@ def test_wds_writer_mixed_modality_field_written_as_position_aligned_list(tmp_pa
         make_row("s1", 1, "image", content_type="image/png", binary_content=fake_png, confidence="img_conf_B"),
         make_row("s1", 2, "text", text_content="outro", confidence=None),
     ]
-    task = InterleavedBatch(
-        task_id="mixed", dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]}
-    )
+    task = InterleavedBatch(dataset_name="t", data=pd.DataFrame(rows), _metadata={"source_files": ["x.tar"]})
     write_task = InterleavedWebdatasetWriterStage(
         path=str(tmp_path / "mixed_out"), materialize_on_write=False, mode="overwrite"
     ).process(task)
@@ -850,7 +832,7 @@ def test_wds_writer_mixed_modality_field_written_as_position_aligned_list(tmp_pa
 
     # Without per_image/per_text declaration, reader treats it as a sample-level passthrough
     reader = InterleavedWebdatasetReaderStage(sample_id_field="sample_id")
-    result = reader.process(FileGroupTask(task_id="rt_mixed", dataset_name="t", data=write_task.data))
+    result = reader.process(FileGroupTask(dataset_name="t", data=write_task.data))
     assert isinstance(result, InterleavedBatch)
     df = result.to_pandas()
     meta_row = df[df["modality"] == "metadata"].iloc[0]

@@ -217,7 +217,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
                 df[col] = pd.Series(dtype="float64")
             df["faith_parse_failed"] = pd.Series(dtype="bool")
             return DocumentBatch(
-                task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
                 data=df,
                 _metadata=batch._metadata,
@@ -233,7 +232,6 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         df = self._filter_rows(df)
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,
@@ -519,7 +517,6 @@ class FaithThresholdFilterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=filtered_df,
             _metadata=batch._metadata,

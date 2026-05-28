@@ -51,7 +51,6 @@ class TestFilePartitioningStage:
     def empty_task(self) -> _EmptyTask:
         """Create an empty task for testing."""
         return _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={"source": "test"},
@@ -135,7 +134,6 @@ class TestFilePartitioningStage:
         assert isinstance(result[0], FileGroupTask)
         assert result[0].data == [test_files[0]]
         assert result[0].dataset_name == "path"
-        assert result[0].task_id == "file_group_0"
 
     def test_process_with_files_per_partition(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test processing with files_per_partition setting."""
@@ -167,7 +165,6 @@ class TestFilePartitioningStage:
 
         # Verify metadata
         for i, task in enumerate(result):
-            assert task.task_id == f"file_group_{i}"
             assert task._metadata["partition_index"] == i
             assert task._metadata["total_partitions"] == 5  # Total partitions before limit
 

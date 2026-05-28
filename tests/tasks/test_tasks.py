@@ -48,7 +48,7 @@ class Repeat(ProcessingStage[SimpleTask, SimpleTask]):
         # will assign deterministic task_ids via _set_lineage.
         return [
             SimpleTask(
-                task_id="placeholder",   # always overwritten by _set_lineage
+                # always overwritten by _set_lineage
                 dataset_name=task.dataset_name,
                 data=task.data,
                 _metadata=task._metadata.copy(),
@@ -59,7 +59,7 @@ class Repeat(ProcessingStage[SimpleTask, SimpleTask]):
 
 
 def _sample_task() -> SimpleTask:
-    return SimpleTask(task_id="t0", dataset_name="test", data=[1, 2, 3])
+    return SimpleTask(dataset_name="test", data=[1, 2, 3])
 
 
 def test_fanout_tasks_have_unique_task_ids():
