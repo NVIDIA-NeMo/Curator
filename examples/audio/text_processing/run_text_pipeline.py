@@ -15,18 +15,36 @@
 """Text post-processing pipeline for ASR output.
 
 Reads JSONL manifests produced by the audio ASR pipeline and applies
-text-only LLM stages (PnC, ITN, disfluency correction, captioning, code-switching, speechQA).
+text-only LLM stages (PnC, ITN, disfluency correction, captioning,
+contextual ASR entity extraction, code-switching, speechQA).
 Each stage runs as a separate Ray Data actor with its own vLLM engine.
 All stages use the same model ID but load independently per actor.
+
 
 Architecture:
     ALMManifestReader (CPU)
         → reads per-shard JSONL output from the ASR pipeline
+    [if --enable_pnc] TextLLMStage: PnC (GPU)
+        → restores punctuation/capitalisation, writes pnc_text
     [if --enable_itn] TextLLMStage: ITN (GPU)
         → inverse text normalization, preserves disfluencies
         → writes itn_text
-    [if --enable_correction] TextLLMStage: Correction (GPU)
+    [if --enable_itn_no-disfluencies] TextLLMStage: DisfluencyRemoval (GPU)
         → ITN + disfluency removal (fillers, repetitions)
+        → writes itn_no-disfluencies_text
+    [if --enable_captioning] TextLLMStage: Captioning (GPU)
+        → summarises transcript into a short caption
+        → writes captioning_text
+    [if --enable_context_asr] ContextualASRExtractionStage (GPU)
+        → extracts domain, named-entity buckets, distractors
+        → writes context_asr dict
+    [if --enable_acoustic_distractor] AcousticDistractorStage (CPU)
+        → G2Ps fine_context_terms and appends phonetically-similar
+          words from the precomputed phoneme vocab to distractor_terms
+    [if --enable_context_asr] ContextualASRPromptVariantStage (CPU)
+        → appends five prompt variants to the context_asr dict
+    ShardedManifestWriterStage (CPU)
+        → writes per-shard JSONL output with .done markers
         → writes corrected_text
     [if --enable_code_switching] TextLLMStage: CodeSwitching (GPU)
         → restores English Latin spelling for English loanwords
@@ -52,6 +70,9 @@ from loguru import logger
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
 from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
+from nemo_curator.stages.audio.text_filtering.acoustic_distractor import AcousticDistractorStage
+from nemo_curator.stages.audio.text_filtering.contextual_asr_extraction import ContextualASRExtractionStage
+from nemo_curator.stages.audio.text_filtering.contextual_asr_prompt_variant import ContextualASRPromptVariantStage
 from nemo_curator.stages.audio.text_filtering.text_llm_stage import TextLLMStage
 from nemo_curator.stages.resources import Resources
 
@@ -67,6 +88,11 @@ _ITN_PROMPT = _PROMPT_DIR / "itn_prompt.md"
 _CORRECTION_PROMPT = _PROMPT_DIR / "correction_prompt.md"
 _CAPTIONING_PROMPT = _PROMPT_DIR / "captioning_prompt.md"
 _PNC_PROMPT = _PROMPT_DIR / "pnc_prompt.md"
+_CONTEXT_ASR_PROMPT = _PROMPT_DIR / "contextual_asr_prompt.md"
+
+# Minimum recommended max_model_len when --enable_context_asr is used.
+# The extraction prompt + output JSON can exceed shorter contexts.
+_CONTEXT_ASR_MIN_MAX_MODEL_LEN = 4096
 _CODE_SWITCHING_PROMPT = _PROMPT_DIR / "code_switching_prompt.md"
 _SPEECH_QA_PROMPT = _PROMPT_DIR / "speech_qa_prompt.md"
 
@@ -105,6 +131,25 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Enable PnC stage: restores punctuation and capitalization. Output key: pnc_text",
+    )
+    ap.add_argument(
+        "--enable_context_asr",
+        action="store_true",
+        default=False,
+        help=(
+            "Enable contextual ASR stages: extract domain / named entities / distractors via LLM, "
+            "then append five prompt variants. Output key: context_asr (nested dict)."
+        ),
+    )
+    ap.add_argument(
+        "--enable_acoustic_distractor",
+        action="store_true",
+        default=False,
+        help=(
+            "Enable acoustic distractor stage (CPU-only): G2Ps fine_context_terms via phonemizer "
+            "and appends phonetically-similar words from --phoneme_vocab_path to context_asr.distractor_terms. "
+            "Requires --enable_context_asr and --phoneme_vocab_path."
+        ),
     )
     ap.add_argument(
         "--enable_code_switching",
@@ -180,6 +225,99 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Path to SpeechQA prompt file. Defaults to bundled speech_qa_prompt.md.",
     )
 
+    ctx = ap.add_argument_group("contextual ASR")
+    ctx.add_argument(
+        "--context_asr_prompt_file",
+        type=str,
+        default=None,
+        help="Path to context ASR extraction prompt file. Defaults to bundled contextual_asr_prompt.md.",
+    )
+    ctx.add_argument(
+        "--context_asr_text_key",
+        type=str,
+        default="pnc_text",
+        help="Input text field for context ASR extraction.",
+    )
+    ctx.add_argument(
+        "--context_asr_output_key",
+        type=str,
+        default="context_asr",
+        help="Output field (nested dict) for context ASR extraction + prompt variants.",
+    )
+    ctx.add_argument(
+        "--context_asr_max_output_tokens",
+        type=int,
+        default=2048,
+        help=(
+            "Max tokens generated per sample for context ASR extraction. The shared vLLM engine's "
+            "max_model_len must be ≥ this value plus prompt length — pass --max_model_len 8192 (or higher) "
+            "when enabling context ASR."
+        ),
+    )
+    ctx.add_argument("--context_asr_seed", type=int, default=42, help="Base RNG seed for prompt-variant generation.")
+    ctx.add_argument(
+        "--context_asr_partial_keep_lo",
+        type=float,
+        default=0.5,
+        help="Lower bound of random keep fraction for the partial-context variant.",
+    )
+    ctx.add_argument(
+        "--context_asr_partial_keep_hi",
+        type=float,
+        default=0.8,
+        help="Upper bound of random keep fraction for the partial-context variant.",
+    )
+
+    ad = ap.add_argument_group("acoustic distractors")
+    ad.add_argument(
+        "--phoneme_vocab_path",
+        type=str,
+        default=None,
+        help=(
+            "Path to a precomputed phoneme vocabulary JSON (produced by scripts/build_phoneme_vocab.py). "
+            "Required when --enable_acoustic_distractor is set."
+        ),
+    )
+    ad.add_argument(
+        "--phoneme_vocab_language",
+        type=str,
+        default=None,
+        help=(
+            "Optional espeak-ng language code (e.g. en-us, fr, de, cmn). When set, used for all samples; "
+            "otherwise the per-sample source_lang is mapped to an espeak code."
+        ),
+    )
+    ad.add_argument(
+        "--max_acoustic_distractors",
+        type=int,
+        default=8,
+        help="Maximum acoustic distractors appended per sample.",
+    )
+    ad.add_argument(
+        "--max_total_distractors",
+        type=int,
+        default=16,
+        help="Cap on the combined (semantic + acoustic) distractor_terms list.",
+    )
+    ad.add_argument(
+        "--acoustic_per_entity_top_k",
+        type=int,
+        default=3,
+        help="Top-K acoustic candidates retained per source entity before cross-entity merging.",
+    )
+    ad.add_argument(
+        "--min_npd",
+        type=float,
+        default=0.1,
+        help="Lower NPD bound — entries closer than this are dropped (near-duplicates).",
+    )
+    ad.add_argument(
+        "--max_npd",
+        type=float,
+        default=0.5,
+        help="Upper NPD bound — entries farther than this are dropped (acoustically unrelated).",
+    )
+
     ap.add_argument(
         "--tensor_parallel_size", type=int, default=None, help="GPUs for tensor parallelism (default: auto-detect)."
     )
@@ -196,7 +334,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def main() -> None:
+def main() -> None:  # noqa: C901, PLR0915
     args = _build_arg_parser().parse_args()
 
     if (
@@ -204,12 +342,13 @@ def main() -> None:
         and not args.enable_itn_no_disfluencies
         and not args.enable_captioning
         and not args.enable_pnc
+        and not args.enable_context_asr
         and not args.enable_code_switching
         and not args.enable_speech_qa
     ):
         logger.warning(
             "No stages enabled. Use --enable_pnc, --enable_itn, --enable_itn_no-disfluencies, "
-            "--enable_captioning, --enable_code_switching, or --enable_speech_qa."
+            "--enable_captioning, --enable_context_asr, --enable_code_switching, or --enable_speech_qa."
         )
         return
 
@@ -217,6 +356,7 @@ def main() -> None:
     itn_no_disfl_prompt = args.itn_no_disfluencies_prompt_file or str(_CORRECTION_PROMPT)
     captioning_prompt = args.captioning_prompt_file or str(_CAPTIONING_PROMPT)
     pnc_prompt = args.pnc_prompt_file or str(_PNC_PROMPT)
+    context_asr_prompt = args.context_asr_prompt_file or str(_CONTEXT_ASR_PROMPT)
     code_switching_prompt = args.code_switching_prompt_file or str(_CODE_SWITCHING_PROMPT)
     speech_qa_prompt = args.speech_qa_prompt_file or str(_SPEECH_QA_PROMPT)
 
@@ -306,6 +446,69 @@ def main() -> None:
         )
         logger.info(f"Captioning stage enabled: {args.text_key} → {args.captioning_output_key}")
 
+    if args.enable_context_asr:
+        context_asr_text_key = args.context_asr_text_key
+        # Engine-level kwargs are shared with the other TextLLMStage instances via the
+        # class-level vLLM cache in text_llm_stage.py.  Per-stage knobs (prompt file,
+        # max_output_tokens, batch size) stay local.
+        stages.append(
+            ContextualASRExtractionStage(
+                model_id=args.model_id,
+                prompt_file=context_asr_prompt,
+                text_key=context_asr_text_key,
+                source_lang_key="source_lang",
+                output_key=args.context_asr_output_key,
+                tensor_parallel_size=args.tensor_parallel_size,
+                max_output_tokens=args.context_asr_max_output_tokens,
+                max_model_len=args.max_model_len,
+                max_num_seqs=args.max_num_seqs,
+                gpu_memory_utilization=args.gpu_memory_utilization,
+                kv_cache_dtype=args.kv_cache_dtype,
+                num_workers_override=args.num_workers,
+                batch_size=args.batch_size,
+                resources=Resources(gpus=1.0),
+            )
+        )
+        if args.enable_acoustic_distractor:
+            if not args.phoneme_vocab_path:
+                msg = "--enable_acoustic_distractor requires --phoneme_vocab_path."
+                raise ValueError(msg)
+            stages.append(
+                AcousticDistractorStage(
+                    context_key=args.context_asr_output_key,
+                    source_lang_key="source_lang",
+                    language=args.phoneme_vocab_language,
+                    phoneme_vocab_path=args.phoneme_vocab_path,
+                    max_acoustic_distractors=args.max_acoustic_distractors,
+                    max_total_distractors=args.max_total_distractors,
+                    per_entity_top_k=args.acoustic_per_entity_top_k,
+                    min_npd=args.min_npd,
+                    max_npd=args.max_npd,
+                )
+            )
+            logger.info(
+                f"AcousticDistractor stage enabled: vocab={args.phoneme_vocab_path} "
+                f"(language={args.phoneme_vocab_language or 'per-sample'}, "
+                f"max_acoustic={args.max_acoustic_distractors}, total_cap={args.max_total_distractors})"
+            )
+        stages.append(
+            ContextualASRPromptVariantStage(
+                context_key=args.context_asr_output_key,
+                source_lang_key="source_lang",
+                seed=args.context_asr_seed,
+                partial_keep_lo=args.context_asr_partial_keep_lo,
+                partial_keep_hi=args.context_asr_partial_keep_hi,
+            )
+        )
+        logger.info(
+            f"Context ASR stages enabled: {context_asr_text_key} → {args.context_asr_output_key} "
+            f"(extraction + 5 prompt variants)"
+        )
+        if args.max_model_len < _CONTEXT_ASR_MIN_MAX_MODEL_LEN:
+            logger.warning(
+                f"--max_model_len={args.max_model_len} may be too small for context ASR extraction. "
+                f"Consider --max_model_len 8192 or higher when --enable_context_asr is used."
+            )
     if args.enable_code_switching:
         stages.append(
             TextLLMStage(
