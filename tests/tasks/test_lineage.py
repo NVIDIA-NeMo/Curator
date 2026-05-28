@@ -26,7 +26,7 @@ import hashlib
 from dataclasses import dataclass
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import FileGroupTask, Task
+from nemo_curator.tasks import FileGroupTask, Task, _EmptyTask
 
 
 @dataclass
@@ -214,3 +214,80 @@ class TestDefaultProcessBatchAssignsLineage:
         # Same lineage paths despite different user-provided task_ids — the
         # user-provided values were overwritten by _set_lineage.
         assert [t.task_id for t in out_a] == [t.task_id for t in out_b]
+
+
+class _FileGroupSource(ProcessingStage[_EmptyTask, FileGroupTask]):
+    """Test-only source stage that emits FileGroupTasks. Source-stage flag
+    set to True so the default process_batch uses content-based segments."""
+
+    name: str = "file_group_source"
+    is_source_stage: bool = True
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def process(self, task: _EmptyTask) -> list[FileGroupTask]:
+        return [FileGroupTask(task_id="placeholder", dataset_name="d", data=[f"file_{i}.parquet"]) for i in range(3)]
+
+
+class _NoContentSource(ProcessingStage[_EmptyTask, _SimpleTask]):
+    """Source stage whose output Task subclass doesn't implement
+    get_deterministic_id — should fall back to positional indices."""
+
+    name: str = "no_content_source"
+    is_source_stage: bool = True
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def process(self, task: _EmptyTask) -> list[_SimpleTask]:
+        return [_SimpleTask(task_id="placeholder", dataset_name="d", data=[i]) for i in range(3)]
+
+
+class TestSourceStageSegment:
+    def test_uses_content_hash_when_get_deterministic_id_returns_value(self) -> None:
+        empty = _EmptyTask(task_id="empty", dataset_name="empty", data=None)
+        out = _FileGroupSource().process_batch([empty])
+        assert len(out) == 3
+        # Each output's lineage_path should be exactly its content hash —
+        # NOT the positional index. EmptyTask's _lineage_path is "" (filtered),
+        # so the path is just the content hash itself.
+        for child in out:
+            assert child._lineage_path == child.get_deterministic_id()
+
+    def test_falls_back_to_positional_index_when_none(self) -> None:
+        empty = _EmptyTask(task_id="empty", dataset_name="empty", data=None)
+        out = _NoContentSource().process_batch([empty])
+        assert len(out) == 3
+        paths = [t._lineage_path for t in out]
+        # EmptyTask filtered; segment is positional index.
+        assert paths == ["0", "1", "2"]
+
+    def test_non_source_stage_uses_positional_index(self) -> None:
+        """A stage without is_source_stage=True ignores get_deterministic_id
+        even when the Task subclass implements one (e.g. FileGroupTask)."""
+
+        class _NonSource(ProcessingStage[FileGroupTask, FileGroupTask]):
+            name: str = "non_source"
+            # is_source_stage stays False by default.
+
+            def inputs(self) -> tuple[list[str], list[str]]:
+                return [], []
+
+            def outputs(self) -> tuple[list[str], list[str]]:
+                return [], []
+
+            def process(self, task: FileGroupTask) -> FileGroupTask:
+                return FileGroupTask(task_id="placeholder", dataset_name="d", data=task.data)
+
+        parent = FileGroupTask(task_id="p", dataset_name="d", data=["a.parquet"])
+        parent._set_lineage([], 0)
+        out = _NonSource().process_batch([parent])
+        # Lineage uses positional "0", not content hash.
+        assert out[0]._lineage_path == "0_0"

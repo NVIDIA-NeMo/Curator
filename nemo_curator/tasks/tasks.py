@@ -17,9 +17,10 @@ from __future__ import annotations
 import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from nemo_curator.utils.performance_utils import StagePerfStats
+if TYPE_CHECKING:
+    from nemo_curator.utils.performance_utils import StagePerfStats
 
 T = TypeVar("T")
 

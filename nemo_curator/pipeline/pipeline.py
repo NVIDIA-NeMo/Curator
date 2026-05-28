@@ -80,6 +80,30 @@ class Pipeline:
         self.stages = execution_stages
         self.decomposition_info = decomposition_info
 
+        # 3. Source / sink defaults: at most one stage may be explicitly
+        # marked; if none, the first stage is the source and the last is
+        # the sink. The source flag activates content-based ids in the
+        # default ``process_batch``; the sink flag is used by the
+        # resumability layer in a follow-up PR.
+        self._assign_source_sink_roles()
+
+    def _assign_source_sink_roles(self) -> None:
+        explicit_sources = [s for s in self.stages if s.is_source_stage]
+        if len(explicit_sources) > 1:
+            names = [type(s).__name__ for s in explicit_sources]
+            msg = f"Pipeline has multiple source stages marked: {names}. At most one is supported."
+            raise ValueError(msg)
+        if not explicit_sources:
+            self.stages[0].is_source_stage = True
+
+        explicit_sinks = [s for s in self.stages if s.is_sink_stage]
+        if len(explicit_sinks) > 1:
+            names = [type(s).__name__ for s in explicit_sinks]
+            msg = f"Pipeline has multiple sink stages marked: {names}. At most one is supported."
+            raise ValueError(msg)
+        if not explicit_sinks:
+            self.stages[-1].is_sink_stage = True
+
     def _decompose_stages(
         self, stages: list[ProcessingStage | CompositeStage]
     ) -> tuple[list[ProcessingStage], dict[str, list[str]]]:

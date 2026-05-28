@@ -87,6 +87,16 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     batch_size = 1
     runtime_env: ClassVar[dict[str, Any] | None] = None
 
+    # Source / sink role flags. User-overridable on the stage class or
+    # instance. If neither is set explicitly on any stage in the pipeline,
+    # ``Pipeline.build()`` defaults the first stage to source and the last
+    # to sink. The source flag selects content-based ids from
+    # ``Task.get_deterministic_id()`` (when the Task subclass implements
+    # one) for the lineage segment; the sink flag is reserved for the
+    # resumability layer to mark the counter-decrement boundary.
+    is_source_stage: bool = False
+    is_sink_stage: bool = False
+
     @property
     @final
     def _name(self) -> str:
@@ -206,7 +216,16 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             for i, child in enumerate(children):
                 if child is None:
                     continue
-                child._set_lineage([task._lineage_path], i)
+                # Source stages: prefer a content-based segment from
+                # `get_deterministic_id()` (e.g. `FileGroupTask` hashes its
+                # file paths). Falls back to the positional index when the
+                # child's Task subclass doesn't implement one. This makes
+                # task_ids stable across reorderings of the source input.
+                if self.is_source_stage:
+                    segment: str | int = child.get_deterministic_id() or i
+                else:
+                    segment = i
+                child._set_lineage([task._lineage_path], segment)
                 results.append(child)
         return results
 
