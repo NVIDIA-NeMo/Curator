@@ -90,9 +90,19 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             logger.info("ReassemblyStage: no translated segment rows to reassemble")
             base_cols = [col for col in df.columns if col not in _INTERNAL_COLUMNS]
             out_df = df.loc[:, base_cols].copy()
+            _COL_DTYPES: dict[str, str] = {
+                "translation_time": "float64",
+                "faith_fluency": "float64",
+                "faith_accuracy": "float64",
+                "faith_idiomaticity": "float64",
+                "faith_terminology": "float64",
+                "faith_handling_of_format": "float64",
+                "faith_avg": "float64",
+                "faith_parse_failed": "bool",
+            }
             for col in self.outputs()[1]:
                 if col not in out_df.columns:
-                    out_df[col] = pd.Series(dtype="object")
+                    out_df[col] = pd.Series(dtype=_COL_DTYPES.get(col, "object"))
             return DocumentBatch(
                 task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
