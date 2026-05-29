@@ -106,3 +106,19 @@ def test_pred_text_untouched() -> None:
     task = AudioTask(data={"text": "orig", "pred_text": "prediction"})
     result = stage.process(task)
     assert result.data["pred_text"] == "prediction"
+
+
+def test_coerces_string_shard_id_to_int() -> None:
+    stage = InitializeFieldsStage()
+    task = AudioTask(data={"text": "t", "shard_id": "3"})
+    result = stage.process(task)
+    assert result.data["shard_id"] == 3
+    assert isinstance(result.data["shard_id"], int)
+
+
+def test_preserves_int_shard_id() -> None:
+    stage = InitializeFieldsStage()
+    task = AudioTask(data={"text": "t", "shard_id": 42})
+    result = stage.process(task)
+    assert result.data["shard_id"] == 42
+    assert isinstance(result.data["shard_id"], int)

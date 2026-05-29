@@ -1,3 +1,29 @@
+# Granary v2 ASR post-processing regex rules.
+#
+# Covered languages (40):
+#   Latin:      en, de, es, fr, it, pt, pl, cs, nl, ro, hu, fi, lt, da, sv,
+#               lv, hr, et, sk, sl, mt
+#   Greek:      el
+#   Cyrillic:   ru, uk, bg
+#   Devanagari: hi, mr
+#   Bengali:    bn
+#   Gurmukhi:   pa
+#   Gujarati:   gu
+#   Tamil:      ta
+#   Telugu:     te
+#   Kannada:    kn
+#   Malayalam:  ml
+#   Arabic:     ar, ur
+#   Hebrew:     he
+#   CJK:        zh, ja (Hanzi/Kanji + Hiragana + Katakana)
+#   Hangul:     ko
+#
+# To add a new script:
+#   1. Look up its Unicode block at https://unicode.org/charts
+#   2. Append \uXXXX-\uYYYY to the [^...] character class in the whitelist rule
+#   3. Optionally add script-specific punctuation -> ASCII rules above the whitelist
+
+# Smart quotes & dashes
 - {"pattern": "’", "repl": "'"}
 - {"pattern": "‘", "repl": "'"}
 - {"pattern": "—", "repl": "-"}
@@ -5,27 +31,67 @@
 - {"pattern": "-", "repl": "-"}
 - {"pattern": "_", "repl": " "}
 - {"pattern": "——", "repl": "-"}
-- {"pattern": "Ё", "repl": "Е"} 
+- {"pattern": "Ё", "repl": "Е"}
 - {"pattern": "ё", "repl": "е"}
 
+# Devanagari punctuation (hi, mr)
+- {"pattern": "\u0964", "repl": "."}    # danda ।
+- {"pattern": "\u0965", "repl": "."}    # double danda ॥
+
+# Arabic / Urdu punctuation (ar, ur)
+- {"pattern": "\u06D4", "repl": "."}    # Arabic full stop ۔
+- {"pattern": "\u060C", "repl": ","}    # Arabic comma ،
+- {"pattern": "\u061B", "repl": ","}    # Arabic semicolon ؛
+- {"pattern": "\u061F", "repl": "?"}    # Arabic question mark ؟
+- {"pattern": "\u0640", "repl": ""}     # Arabic tatweel ـ (decorative; remove)
+
+# CJK punctuation (zh, ja, ko)
+- {"pattern": "\u3002", "repl": "."}    # ideographic full stop 。
+- {"pattern": "\u3001", "repl": ","}    # ideographic comma 、
+- {"pattern": "\uFF0C", "repl": ","}    # fullwidth comma ，
+- {"pattern": "\uFF01", "repl": "!"}    # fullwidth exclamation ！
+- {"pattern": "\uFF1F", "repl": "?"}    # fullwidth question ？
+- {"pattern": "\uFF1A", "repl": ":"}    # fullwidth colon ：
+- {"pattern": "\uFF1B", "repl": ","}    # fullwidth semicolon ；
+
+# Music & misc symbols
 - {"pattern": "♫", "repl": " "}
 - {"pattern": "♪", "repl": " "}
 - {"pattern": "♬", "repl": " "}
 - {"pattern": "♩", "repl": " "}
 - {"pattern": "♭", "repl": " "}
-- {"pattern": '\|', "repl": " "} # : -> :
+- {"pattern": '\|', "repl": " "}
 - {"pattern": ";", "repl": ","}
 
+# Bracketed content removal
 - {"pattern": '\[[^\]]*\]', "repl": ""} # delete content inside []
 - {"pattern": ' ?\([^\)]+\)', "repl": ""} # delete content inside ()
 - {"pattern": ' ?{[^}]+}', "repl": ""} # delete content inside {}
 
-- {"pattern": "[^ !$%',-.0123456789;?ABCDEFGHIJKLMNOPQRSßTUVWXYŸZabcdefghijklmnopqrsẞtuvwxyÿz¡£¿ÀÁÂÃÄÅÆÇÈÉÊÌÍÎÑÒÓÔÕÖØÙÚÜÝàáâãäåæçèéêëìíîïñòóôõöøùúûüýĀāĂăĄąĆćĊċČčĎďĐđĒēĖėĘęĚěĠġĢģĦħĪīĮįĶķĹĺĻļĽľŁłŃńŅņŇňŐőŒœŔŕŘřŚśŠšŤťŪūŮůŰűŲųŹźŻżŽžȘșȚțΆΈΉΌΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩάέήίαβγδεζηθικλμνξοπρστυφχψωϊόύώЁЄІЇАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяёєіїҐґ€₴₽/:]", "repl": " "}
+# Character whitelist: anything NOT in this class becomes a space.
+# Scripts appended after the base Latin/Greek/Cyrillic set, in Unicode-block order:
+#   Hebrew              \u0590-\u05FF
+#   Arabic              \u0600-\u06FF
+#   Arabic Supplement   \u0750-\u077F
+#   Devanagari          \u0900-\u097F
+#   Bengali             \u0980-\u09FF
+#   Gurmukhi            \u0A00-\u0A7F
+#   Gujarati            \u0A80-\u0AFF
+#   Tamil               \u0B80-\u0BFF
+#   Telugu              \u0C00-\u0C7F
+#   Kannada             \u0C80-\u0CFF
+#   Malayalam           \u0D00-\u0D7F
+#   ZWNJ / ZWJ          \u200C \u200D   (Indic conjuncts + Arabic ligatures)
+#   Hiragana            \u3040-\u309F
+#   Katakana            \u30A0-\u30FF
+#   CJK Unified         \u4E00-\u9FFF
+#   Hangul Syllables    \uAC00-\uD7AF
+- {"pattern": "[^ !$%',-.0123456789;?ABCDEFGHIJKLMNOPQRSßTUVWXYŸZabcdefghijklmnopqrsẞtuvwxyÿz¡£¿ÀÁÂÃÄÅÆÇÈÉÊÌÍÎÑÒÓÔÕÖØÙÚÜÝàáâãäåæçèéêëìíîïñòóôõöøùúûüýĀāĂăĄąĆćĊċČčĎďĐđĒēĖėĘęĚěĠġĢģĦħĪīĮįĶķĹĺĻļĽľŁłŃńŅņŇňŐőŒœŔŕŘřŚśŠšŤťŪūŮůŰűŲųŹźŻżŽžȘșȚțΆΈΉΌΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩάέήίαβγδεζηθικλμνξοπρστυφχψωϊόύώЁЄІЇАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяёєіїҐґ€₴₽/:\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u200C\u200D\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]", "repl": " "}
 
-# keep capital letters, lowercase letters, and spaces, ?, !, ., ,, and ' only
+# Trailing cleanup
 - {"pattern": '\s+\.', "repl": "."}
 - {"pattern": '\?+', "repl": "?"}
 - {"pattern": '\.+', "repl": "."}
 - {"pattern": ',+', "repl": ","}
-- {"pattern": '!+', "repl": "!"} 
-- {"pattern": '\s+', "repl": " "}  
+- {"pattern": '!+', "repl": "!"}
+- {"pattern": '\s+', "repl": " "}

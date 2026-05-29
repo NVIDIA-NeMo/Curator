@@ -110,6 +110,7 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     name: str = "nemo_tar_shard_discovery"
     yaml_path: str = ""
     corpus_filter: list[str] | None = None
+    language_filter: list[str] | None = None
     output_dir: str | None = None
 
     def __post_init__(self) -> None:
@@ -196,7 +197,10 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         for group in config:
             for cfg in group.get("input_cfg", []):
                 corpus = cfg.get("corpus", "unknown")
+                language = cfg.get("language", "")
                 if self.corpus_filter and corpus not in self.corpus_filter:
+                    continue
+                if self.language_filter and language not in self.language_filter:
                     continue
                 if cfg.get("type", "nemo_tarred") != "nemo_tarred":
                     logger.warning(f"Skipping non-nemo_tarred corpus {corpus} (type={cfg.get('type')})")
@@ -224,12 +228,13 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                             task_id=shard_key,
                             dataset_name=corpus,
                             data=[mp, tp],
-                            reader_config={"corpus": corpus, "shard_key": shard_key},
+                            reader_config={"corpus": corpus, "shard_key": shard_key, "language": language},
                         )
                     )
 
         logger.info(
-            f"NemoTarShardDiscoveryStage: found {len(tasks)} shards, skipped {skipped} completed (corpus_filter={self.corpus_filter})"
+            f"NemoTarShardDiscoveryStage: found {len(tasks)} shards, skipped {skipped} completed "
+            f"(corpus_filter={self.corpus_filter}, language_filter={self.language_filter})"
         )
         return tasks
 
@@ -287,6 +292,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         manifest_path, tar_path = task.data[0], task.data[1]
         corpus = task.reader_config.get("corpus", "unknown")
         shard_key = task.reader_config.get("shard_key", task.task_id)
+        language = task.reader_config.get("language", "")
 
         manifest = self._read_manifest(manifest_path)
 
@@ -319,6 +325,8 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             entry["sample_rate"] = sr
             entry["num_channels"] = num_channels
             entry["corpus"] = corpus
+            if language and "source_lang" not in entry:
+                entry["source_lang"] = language
 
             results.append(
                 AudioTask(
@@ -365,6 +373,7 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     name: str = "nemo_tarred_audio_reader"
     yaml_path: str = ""
     corpus_filter: list[str] | None = None
+    language_filter: list[str] | None = None
     filepath_key: str = "audio_filepath"
     s3_endpoint_url: str | None = None
     output_dir: str | None = None
@@ -379,6 +388,7 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
             NemoTarShardDiscoveryStage(
                 yaml_path=self.yaml_path,
                 corpus_filter=self.corpus_filter,
+                language_filter=self.language_filter,
                 output_dir=self.output_dir,
             ),
             NemoTarShardReaderStage(

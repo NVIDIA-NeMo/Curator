@@ -95,7 +95,11 @@ def _manifest_to_shard_key(manifest_path: str, corpus: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _parse_input_cfg(yaml_path: str, corpus_filter: list[str] | None) -> list[dict[str, Any]]:
+def _parse_input_cfg(
+    yaml_path: str,
+    corpus_filter: list[str] | None,
+    language_filter: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """Parse a NeMo ``input_cfg`` YAML into shard descriptors.
 
     Each descriptor has ``manifest_path``, optional ``tar_path``,
@@ -121,6 +125,8 @@ def _parse_input_cfg(yaml_path: str, corpus_filter: list[str] | None) -> list[di
                 continue
 
             language = cfg.get("language", "")
+            if language_filter and language not in language_filter:
+                continue
 
             if "tarred_audio_filepaths" in cfg:
                 manifest_paths = _expand_nemo_path(cfg["manifest_filepath"])
@@ -153,6 +159,7 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     name: str = "nemo_speech_discovery"
     yaml_path: str = ""
     corpus_filter: list[str] | None = None
+    language_filter: list[str] | None = None
     output_dir: str | None = None
 
     def __post_init__(self) -> None:
@@ -181,7 +188,7 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         return completed
 
     def process(self, _task: _EmptyTask) -> list[FileGroupTask]:
-        shard_descs = _parse_input_cfg(self.yaml_path, self.corpus_filter)
+        shard_descs = _parse_input_cfg(self.yaml_path, self.corpus_filter, self.language_filter)
 
         completed = self._scan_completed_shards()
         if completed:
@@ -239,7 +246,10 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                         reader_config={"corpus": corpus, "shard_key": shard_key, "language": desc.get("language", "")},
                     ))
 
-        logger.info(f"UnifiedDiscovery: {len(tasks)} shards to process, {skipped} skipped")
+        logger.info(
+            f"UnifiedDiscovery: {len(tasks)} shards to process, {skipped} skipped "
+            f"(corpus_filter={self.corpus_filter}, language_filter={self.language_filter})"
+        )
         return tasks
 
 
@@ -427,6 +437,7 @@ class NeMoSpeechAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     name: str = "nemo_speech_audio_reader"
     yaml_path: str = ""
     corpus_filter: list[str] | None = None
+    language_filter: list[str] | None = None
     output_dir: str | None = None
 
     def __post_init__(self) -> None:
@@ -438,6 +449,7 @@ class NeMoSpeechAudioReader(CompositeStage[_EmptyTask, AudioTask]):
             NeMoSpeechDiscoveryStage(
                 yaml_path=self.yaml_path,
                 corpus_filter=self.corpus_filter,
+                language_filter=self.language_filter,
                 output_dir=self.output_dir,
             ),
             NeMoSpeechReaderStage(),

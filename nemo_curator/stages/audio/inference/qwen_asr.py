@@ -29,6 +29,12 @@ from nemo_curator.tasks import AudioTask
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
+QWEN3_ASR_0_6B_LANGS: frozenset[str] = frozenset({
+    "zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it",
+    "ko", "ru", "th", "vi", "ja", "tr", "hi", "ms", "nl", "sv",
+    "da", "fi", "pl", "cs", "fil", "fa", "el", "hu", "mk", "ro",
+})
+
 
 @dataclass
 class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
@@ -55,6 +61,8 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
         gpu_memory_utilization: Fraction of GPU memory vLLM may use.
         max_new_tokens: Maximum tokens to generate per sample.
         max_inference_batch_size: Batch size for internal vLLM batching.
+        keep_waveform: When True the waveform stays on the task (needed when a
+            downstream stage re-uses it, e.g. a recovery ASR stage).
     """
 
     name: str = "QwenASR_inference"
@@ -62,8 +70,8 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     source_lang_key: str = "source_lang"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sampling_rate"
-    pred_text_key: str = "qwen3_asr_prediction"
-    language_key: str = "qwen3_asr_language"
+    pred_text_key: str = "asr_prediction"
+    language_key: str = "asr_language"
     context_key: str | None = None
     run_only_if_key: str | None = None
     run_only_if_prefix: str = "Hallucination"
@@ -71,24 +79,13 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     gpu_memory_utilization: float = 0.7
     max_new_tokens: int = 4096
     max_inference_batch_size: int = 128
+    keep_waveform: bool = False
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
 
-    _supported_langs: set[str] = field(default_factory=set, init=False, repr=False)
-
     def __post_init__(self) -> None:
         self._model: QwenASR | None = None
-
-    def _get_supported_languages(self) -> set[str]:
-        """Return the set of language names supported by QwenASR."""
-        if not self._supported_langs:
-            try:
-                from qwen_asr.inference.utils import SUPPORTED_LANGUAGES
-                self._supported_langs = set(SUPPORTED_LANGUAGES)
-            except ImportError:
-                pass
-        return self._supported_langs
 
     def num_workers(self) -> int | None:
         return self.num_workers_override
@@ -169,26 +166,27 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             run_indices = list(range(len(tasks)))
 
         if not run_indices:
-            for task in tasks:
-                task.data.pop(self.waveform_key, None)
+            if not self.keep_waveform:
+                for task in tasks:
+                    task.data.pop(self.waveform_key, None)
             logger.info(f"QwenASR: skipped entire batch of {len(tasks)} (none matched run_only_if_key)")
             return tasks
 
-        # Filter out samples with unsupported languages
-        supported = self._get_supported_languages()
+        # Filter out samples with unsupported languages using the model's ISO-code list.
         eligible_indices: list[int] = []
         for i in run_indices:
-            if self.source_lang_key and supported:
-                code = tasks[i].data.get(self.source_lang_key, "")
-                lang_name = _LANG_CODE_TO_NAME.get(code, code) if code else None
-                if lang_name and lang_name not in supported:
-                    set_note(tasks[i].data, self.name, f"skipped (unsupported language: {lang_name})", self.notes_key)
+            if self.source_lang_key:
+                code = str(tasks[i].data.get(self.source_lang_key, "") or "").strip().lower()
+                if code not in QWEN3_ASR_0_6B_LANGS:
+                    set_note(tasks[i].data, self.name, f"skipped (unsupported language: {code})", self.notes_key)
+                    set_note(tasks[i].data, self.pred_text_key, f"lang_not_supported:{code}", self.notes_key)
                     continue
             eligible_indices.append(i)
 
         if not eligible_indices:
-            for task in tasks:
-                task.data.pop(self.waveform_key, None)
+            if not self.keep_waveform:
+                for task in tasks:
+                    task.data.pop(self.waveform_key, None)
             logger.info(f"QwenASR: skipped entire batch of {len(tasks)} (no eligible samples)")
             return tasks
 
@@ -211,8 +209,9 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             tasks[idx].data[self.pred_text_key] = pred
             tasks[idx].data[self.language_key] = lang
 
-        for task in tasks:
-            task.data.pop(self.waveform_key, None)
+        if not self.keep_waveform:
+            for task in tasks:
+                task.data.pop(self.waveform_key, None)
 
         lang_skipped = len(run_indices) - len(eligible_indices)
         skipped = len(tasks) - len(run_indices)
