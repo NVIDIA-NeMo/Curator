@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Voice Activity Detection inference stages."""
+"""Generic VAD stage (SDP-V2 stage-adapter split, §4) and WhisperX helper model."""
 
-from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADModel, WhisperXVADStage
+from nemo_curator.stages.audio.inference.vad.stage import VADStage
+from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADModel
 
-__all__ = ["WhisperXVADModel", "WhisperXVADStage"]
+__all__ = ["VADStage", "WhisperXVADModel"]

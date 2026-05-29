@@ -41,7 +41,8 @@ _LAZY_IMPORTS = {
     # --- Inference (stage-adapter split per SDP-V2 design) ---
     "DiarizationStage": "nemo_curator.stages.audio.inference.speaker_diarization",
     "PyAnnoteDiarizationAdapter": "nemo_curator.adapters.diarization",
-    "WhisperXVADStage": "nemo_curator.stages.audio.inference.vad.whisperx_vad",
+    "VADStage": "nemo_curator.stages.audio.inference.vad",
+    "WhisperXVADAdapter": "nemo_curator.adapters.vad",
 }
 
 _cache: dict[str, Any] = {}

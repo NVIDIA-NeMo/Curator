@@ -12,37 +12,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-WhisperX VAD for NeMo Curator.
+"""WhisperX VAD model helper.
 
-Provides WhisperXVADModel (shared VAD logic for pyannote and standalone VAD)
-and WhisperXVADStage (ProcessingStage for VAD-only pipeline use).
+Provides :class:`WhisperXVADModel`, the shared inference wrapper around
+WhisperX's ``Pyannote.merge_chunks``-driven VAD. Two callers consume it:
+
+* :class:`~nemo_curator.adapters.vad.WhisperXVADAdapter` - the VAD
+  adapter used by :class:`~nemo_curator.stages.audio.inference.vad.VADStage`.
+* :class:`~nemo_curator.adapters.diarization.PyAnnoteDiarizationAdapter` -
+  uses it to micro-split long PyAnnote speaker turns.
+
+The pre-split ``WhisperXVADStage`` lived here too; it was removed in
+favour of the SDP-V2 stage-adapter split.
 """
 
 import os
-import time
-from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING
 
-import numpy as np
-import soundfile as sf
 import torch
-from loguru import logger
 from whisperx.audio import SAMPLE_RATE
 from whisperx.vads.pyannote import Pyannote, load_vad_model
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.stages.audio.common import get_audio_duration
-from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioTask
+if TYPE_CHECKING:
+    import numpy as np
 
 
 class WhisperXVADModel:
-    """Shared VAD model and get_vad_segments logic for PyAnnote and standalone VAD.
+    """Shared VAD model and ``get_vad_segments`` logic.
 
-    Used by PyAnnoteDiarizationStage for sub-segment VAD and by WhisperXVADStage
-    for VAD-only processing.
+    Used by :class:`~nemo_curator.adapters.vad.WhisperXVADAdapter` for
+    standalone VAD and by
+    :class:`~nemo_curator.adapters.diarization.PyAnnoteDiarizationAdapter`
+    for sub-segment VAD of long speaker turns.
     """
 
     def __init__(
@@ -100,89 +101,3 @@ class WhisperXVADModel:
             }
         )
         return Pyannote.merge_chunks(vad_segments, merge_max_length, onset=self._vad_onset)
-
-
-@dataclass
-class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
-    """
-    Stage that performs Voice Activity Detection (VAD) using WhisperX's VAD model.
-
-    Adds VAD segments to each entry under segments_key (e.g. "vad_segments").
-    Entries shorter than min_length are skipped (not emitted).
-    """
-
-    min_length: float = 0.5
-    max_length: float = 40.0
-    vad_onset: float = 0.5
-    vad_offset: float = 0.363
-    segments_key: str = "vad_segments"
-    audio_filepath_key: str = "resampled_audio_filepath"
-
-    name: str = "WhisperXVAD"
-    resources: Resources = field(default_factory=lambda: Resources(gpus=1))
-
-    _vad_model: Any = field(default=None, repr=False)
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key]
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.audio_filepath_key, self.segments_key]
-
-    @property
-    def _device(self) -> str:
-        """Derive device from resources configuration."""
-        return "cuda" if self.resources.requires_gpu else "cpu"
-
-    def setup_on_node(
-        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
-    ) -> None:
-        """Setup stage on node."""
-        if self._vad_model is None:
-            self._vad_model = WhisperXVADModel(
-                device="cpu",
-                vad_onset=self.vad_onset,
-                vad_offset=self.vad_offset,
-            )
-
-    def setup(self, _: WorkerMetadata | None = None) -> None:
-        if self._vad_model is None:
-            self._vad_model = WhisperXVADModel(
-                device=self._device,
-                vad_onset=self.vad_onset,
-                vad_offset=self.vad_offset,
-            )
-        self._vad_model.to(self._device)
-        logger.info(f"[{self.name}] Initialized WhisperX VAD on {self._device}")
-
-    def process(self, task: AudioTask) -> AudioTask:
-        t0 = time.perf_counter()
-        data_entry = task.data
-        file_path = data_entry[self.audio_filepath_key]
-        duration = data_entry.get("duration", get_audio_duration(file_path))
-        if duration < self.min_length:
-            logger.warning(f"Skipping {file_path} because it is less than {self.min_length} seconds")
-            data_entry[self.segments_key] = []
-            self._log_metrics(
-                {
-                    "process_time": time.perf_counter() - t0,
-                    "audio_duration": duration,
-                    "vad_segments_detected": 0,
-                    "skipped_short": 1.0,
-                }
-            )
-            return task
-
-        data, sr = sf.read(file_path, dtype="float32")
-        audio = np.expand_dims(data, axis=0) if data.ndim == 1 else data.T
-        vad_segments = self._vad_model.get_vad_segments(audio, self.max_length, sample_rate=sr)
-        data_entry[self.segments_key] = vad_segments
-        self._log_metrics(
-            {
-                "process_time": time.perf_counter() - t0,
-                "audio_duration": duration,
-                "vad_segments_detected": len(vad_segments),
-                "skipped_short": 0.0,
-            }
-        )
-        return task
