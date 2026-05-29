@@ -60,6 +60,10 @@ Architecture:
         → either "SKIP" when the transcript is not suitable, or two lines
           "Q: <question>\nA: <answer>" grounded in the transcript
         → writes speech_qa_text
+    [if --enable_instruction_packer] InstructionPackerStage (CPU)
+        → collects every enabled text variant into a single
+          'preference_instructions' field (list of {prompt, target} pairs) ready
+          for instruction-tuning training
     ShardedManifestWriterStage (CPU)
         → writes per-shard JSONL output with .done markers
 
@@ -80,6 +84,7 @@ from nemo_curator.stages.audio.text_filtering.acoustic_distractor import Acousti
 from nemo_curator.stages.audio.text_filtering.contextual_asr_extraction import ContextualASRExtractionStage
 from nemo_curator.stages.audio.text_filtering.contextual_asr_prompt_variant import ContextualASRPromptVariantStage
 from nemo_curator.stages.audio.text_filtering.llm_language_verification import LLMLanguageVerificationStage
+from nemo_curator.stages.audio.text_filtering.instruction_packer import InstructionPackerStage
 from nemo_curator.stages.audio.text_filtering.text_llm_stage import TextLLMStage
 from nemo_curator.stages.resources import Resources
 
@@ -183,6 +188,26 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=False,
         help="Enable SpeechQA stage: generates a (Q, A) pair grounded in the transcript, or the "
         "single token SKIP when the transcript is not suitable. Output key: speech_qa_text",
+    )
+    ap.add_argument(
+        "--enable_instruction_packer",
+        action="store_true",
+        default=False,
+        help="Pack all enabled text outputs (pnc/itn/itn_no-disfluencies/captioning/code-switched/"
+        "speech_qa/context_asr) into a single 'preference_instructions' field — a list of "
+        "{prompt, target} pairs the trainer samples from one-per-epoch.",
+    )
+    ap.add_argument(
+        "--instructions_output_key",
+        type=str,
+        default="preference_instructions",
+        help="Output field name for the packed instruction-target list.",
+    )
+    ap.add_argument(
+        "--instruction_packer_seed",
+        type=int,
+        default=42,
+        help="Base RNG seed for per-sample prompt-template sampling in the instruction packer.",
     )
 
     ap.add_argument("--text_key", type=str, default="pnc_text", help="Input text field from ASR pipeline output.")
@@ -582,6 +607,22 @@ def main() -> None:  # noqa: C901, PLR0915
             )
         )
         logger.info(f"SpeechQA stage enabled: {args.text_key} → {args.speech_qa_output_key}")
+
+    if args.enable_instruction_packer:
+        stages.append(
+            InstructionPackerStage(
+                output_key=args.instructions_output_key,
+                pnc_key=args.pnc_output_key,
+                itn_key=args.itn_output_key,
+                itn_no_disfluencies_key=args.itn_no_disfluencies_output_key,
+                captioning_key=args.captioning_output_key,
+                code_switched_key=args.code_switching_output_key,
+                speech_qa_key=args.speech_qa_output_key,
+                transcription_target_key=args.pnc_output_key,
+                seed=args.instruction_packer_seed,
+            )
+        )
+        logger.info(f"InstructionPacker stage enabled → {args.instructions_output_key}")
 
     stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
 
