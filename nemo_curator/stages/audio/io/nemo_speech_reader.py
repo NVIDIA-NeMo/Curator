@@ -433,7 +433,8 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             entry_data["num_channels"] = 1
             entry_data["corpus"] = corpus
             if "audio_filepath" not in entry_data and cut.recording and cut.recording.sources:
-                entry_data["audio_filepath"] = cut.recording.sources[0].source
+                src = cut.recording.sources[0].source
+                entry_data["audio_filepath"] = src if isinstance(src, str) else cut.id
             if language and "source_lang" not in entry_data:
                 entry_data["source_lang"] = language
 
