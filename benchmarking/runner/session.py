@@ -66,6 +66,14 @@ class Session:
         if isinstance(self.object_store_size, float):
             self.object_store_size = int(get_total_memory_bytes() * self.object_store_size)
 
+        # Validate the session-level warning threshold range, if set.
+        if self.gpu_mem_use_warning_threshold is not None and not (0 <= self.gpu_mem_use_warning_threshold <= 1):
+            msg = (
+                f"Invalid session-level gpu_mem_use_warning_threshold: "
+                f"{self.gpu_mem_use_warning_threshold}; must be between 0 and 1 inclusive."
+            )
+            raise ValueError(msg)
+
         # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
         for entry in self.entries:
             if entry.delete_scratch is None:
