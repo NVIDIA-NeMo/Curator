@@ -12,19 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Qwen3-Omni ASR adapter for the SDP-V2 stage-adapter split.
+
+Implements the :class:`~nemo_curator.adapters.asr.ASRAdapter` protocol on
+top of the in-process vLLM thinker-only path. Two-turn output (Turn-1
+transcribe, Turn-2 disfluency/refinement) is supported when
+``followup_prompt`` is set; single-turn otherwise.
+
+Core inference logic (vLLM engine setup, ``qwen_omni_utils.process_mm_info``
+preprocessing, Turn-1/Turn-2 prompt construction, batched preprocessing
+thread pool) is preserved verbatim from the pre-split ``QwenOmni`` model
+wrapper - this module only re-houses that code inside the adapter
+protocol and adds ``prefetch_weights`` + ``transcribe_batch`` thin
+wrappers around the existing ``generate`` flow.
+"""
+
 from __future__ import annotations
 
 import gc
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import torch
+from huggingface_hub import snapshot_download
 from loguru import logger
 from qwen_omni_utils import process_mm_info
 from transformers import Qwen3OmniMoeProcessor
 
-from nemo_curator.models.base import ModelInterface
+from nemo_curator.adapters.asr.base import ASRResult
 from nemo_curator.utils.gpu_utils import get_gpu_count
 
 if TYPE_CHECKING:
@@ -46,78 +64,130 @@ except ImportError:
 
 _QWEN3_OMNI_MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 _QWEN_SAMPLE_RATE = 16000
-_FOLLOWUP_PROMPT = (
+_FOLLOWUP_PROMPT_DEFAULT = (
     "Now listen to the audio again and add any false starts, filler words "
     "and preserve colloquial words (like lemme, gonna, wanna, etc) as is "
     "spoken in the audio."
 )
 
 
-class QwenOmni(ModelInterface):
-    """Qwen3-Omni multimodal model via vLLM for audio-conditioned text generation.
+@dataclass
+class QwenOmniASRAdapter:
+    """Qwen3-Omni in-process vLLM adapter (thinker-only path).
 
-    Uses the *thinker-only* path: audio waveforms go in, text comes out.
+    Constructor matches the SDP-V2 adapter convention: stages instantiate
+    via ``cls(model_id=..., revision=..., **adapter_kwargs)``, so every
+    field below is a keyword-only knob the YAML's ``adapter_kwargs`` block
+    can set.
 
-    Audio is accepted as in-memory numpy arrays (mono, any sample rate).
-    Arrays are resampled to 16 kHz before being passed to
-    ``qwen_omni_utils.process_mm_info`` which natively accepts
-    ``np.ndarray`` inputs; no temporary files are created.
+    Resource expectations:
+        * ~40 GB VRAM for Qwen3-Omni-30B-A3B (FP8). One A100-80GB or two
+          A100-40GB with ``tensor_parallel_size=2``.
+        * ~50-80 audio-seconds/GPU-second on A100-80GB with
+          ``batch_size=32`` and ``max_num_seqs=32``.
+        * ~15 GB cached weights on first run (HuggingFace Hub).
+
+    Args:
+        model_id: HuggingFace model identifier. Defaults to the published
+            Qwen3-Omni-30B-A3B Instruct checkpoint.
+        revision: Optional HuggingFace revision to pin.
+        prompt_text: User prompt sent alongside the audio for Turn-1.
+            ``{language}`` is interpolated per-item from the stage-supplied
+            language name.
+        prompt_file: Optional path to a UTF-8 text file whose contents
+            replace ``prompt_text`` when present. Resolved at
+            ``__post_init__`` time.
+        en_prompt_text / en_prompt_file: English-specific prompt override
+            (used when the per-item language resolves to ``"English"``).
+        followup_prompt / followup_prompt_file: When set, enables Turn-2
+            inference. ``{language}`` is interpolated.
+        system_prompt / system_prompt_file: Optional system message
+            prepended to both turns.
+        max_model_len: vLLM context length.
+        max_num_seqs: vLLM max concurrent sequences.
+        gpu_memory_utilization: Fraction of GPU memory vLLM may use.
+        tensor_parallel_size: TP world size. ``None`` -> auto-detect from
+            visible GPUs on the worker.
+        max_output_tokens: Max generated tokens per turn.
+        temperature: Sampling temperature (0.0 = greedy).
+        top_k: Top-k sampling.
+        prep_workers: Thread-pool size for parallel audio preprocessing.
     """
 
-    def __init__(  # noqa: PLR0913
-        self,
-        model_id: str = _QWEN3_OMNI_MODEL_ID,
-        prompt_text: str = "Transcribe the audio.",
-        en_prompt_text: str | None = None,
-        followup_prompt: str = _FOLLOWUP_PROMPT,
-        system_prompt: str | None = None,
-        max_model_len: int = 32768,
-        max_num_seqs: int = 32,
-        gpu_memory_utilization: float = 0.95,
-        tensor_parallel_size: int | None = None,
-        max_output_tokens: int = 256,
-        temperature: float = 0.0,
-        top_k: int = 1,
-        prep_workers: int = 8,
-    ):
-        self.model_id = model_id
-        self.prompt_text = prompt_text
-        self.en_prompt_text = en_prompt_text
-        self.followup_prompt = followup_prompt
-        self.system_prompt = system_prompt
-        self.max_model_len = max_model_len
-        self.max_num_seqs = max_num_seqs
-        self.gpu_memory_utilization = gpu_memory_utilization
-        self.tensor_parallel_size = tensor_parallel_size
-        self.max_output_tokens = max_output_tokens
-        self.temperature = temperature
-        self.top_k = top_k
-        self.prep_workers = prep_workers
+    # SDP-V2 adapter constructor convention - first two are universal.
+    model_id: str = _QWEN3_OMNI_MODEL_ID
+    revision: str | None = None
+
+    # Qwen-Omni-specific knobs (flow in via adapter_kwargs).
+    prompt_text: str = "Transcribe the audio."
+    prompt_file: str | None = None
+    en_prompt_text: str | None = None
+    en_prompt_file: str | None = None
+    followup_prompt: str | None = None
+    followup_prompt_file: str | None = None
+    system_prompt: str | None = None
+    system_prompt_file: str | None = None
+    max_model_len: int = 32768
+    max_num_seqs: int = 32
+    gpu_memory_utilization: float = 0.95
+    tensor_parallel_size: int | None = None
+    max_output_tokens: int = 256
+    temperature: float = 0.0
+    top_k: int = 1
+    prep_workers: int = 8
+
+    # Per-batch state - reset by transcribe_batch, surfaced to the stage
+    # for _log_metrics merging.
+    last_metrics: dict[str, float] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Resolve any file-backed prompts into their text form once at
+        # construction so the per-batch path stays cheap.
+        self.prompt_text = self._load_text(self.prompt_text, self.prompt_file) or ""
+        self.en_prompt_text = self._load_text(self.en_prompt_text, self.en_prompt_file)
+        self.followup_prompt = self._load_text(self.followup_prompt, self.followup_prompt_file)
+        self.system_prompt = self._load_text(self.system_prompt, self.system_prompt_file)
 
         self._llm: LLM | None = None
         self._sampling_params: SamplingParams | None = None
         self._processor: Any = None
         self._prep_pool: ThreadPoolExecutor | None = None
-        self.last_metrics: dict[str, float] = {}
 
-    @property
-    def model_id_names(self) -> list[str]:
-        return [self.model_id]
+    @staticmethod
+    def _load_text(text: str | None, file_path: str | None) -> str | None:
+        if file_path:
+            path = Path(file_path)
+            if not path.exists():
+                msg = f"QwenOmniASRAdapter prompt file not found: {path}"
+                raise FileNotFoundError(msg)
+            return path.read_text(encoding="utf-8").strip()
+        return text
 
     # ------------------------------------------------------------------
-    # Lifecycle
+    # ASRAdapter protocol surface
     # ------------------------------------------------------------------
+
+    @classmethod
+    def prefetch_weights(cls, model_id: str, revision: str | None = None) -> None:
+        """Cache the model snapshot on local disk without touching the GPU."""
+        kwargs: dict[str, Any] = {}
+        if revision is not None:
+            kwargs["revision"] = revision
+        snapshot_download(model_id, **kwargs)
 
     def setup(self) -> None:
+        if self._llm is not None:
+            return
         if not VLLM_AVAILABLE:
-            msg = "vLLM is required for QwenOmni. Install it: pip install vllm"
+            msg = "vLLM is required for QwenOmniASRAdapter. Install it: pip install vllm"
             raise ImportError(msg)
 
         setup_t0 = time.perf_counter()
         tp_size = self.tensor_parallel_size or get_gpu_count()
 
         logger.info(
-            f"Loading QwenOmni model={self.model_id}  tp={tp_size}  max_model_len={self.max_model_len}  max_num_seqs={self.max_num_seqs}"
+            f"Loading QwenOmni model={self.model_id}  tp={tp_size}  "
+            f"max_model_len={self.max_model_len}  max_num_seqs={self.max_num_seqs}"
         )
 
         self._llm = LLM(
@@ -159,13 +229,37 @@ class QwenOmni(ModelInterface):
         except Exception as e:  # noqa: BLE001
             logger.debug("CUDA cache clear skipped: {}", e)
 
+    def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
+        """Run batched Qwen-Omni inference over a batch of per-task dicts.
+
+        Unpacks the per-task dicts the stage assembles, dispatches into
+        the underlying two-turn generation, and packs each output into
+        an :class:`ASRResult`. Skipped items (empty / unprocessable
+        waveforms) round-trip as ``ASRResult(text="", skipped=True)``.
+        """
+        if not items:
+            return []
+        waveforms = [it["waveform"] for it in items]
+        sample_rates = [it["sample_rate"] for it in items]
+        languages = [it.get("language") for it in items]
+        pred_texts, disfl_texts, skipped_indices = self._generate(waveforms, sample_rates, languages)
+        has_t2 = bool(self.followup_prompt)
+        return [
+            ASRResult(
+                text=pred,
+                secondary_text=(disfl if has_t2 else None),
+                skipped=(i in skipped_indices),
+                model_id=self.model_id,
+            )
+            for i, (pred, disfl) in enumerate(zip(pred_texts, disfl_texts, strict=True))
+        ]
+
     # ------------------------------------------------------------------
-    # Input preparation
+    # Input preparation - logic preserved from pre-split QwenOmni
     # ------------------------------------------------------------------
 
     @staticmethod
     def _resample(waveform: np.ndarray, orig_sr: int, target_sr: int = _QWEN_SAMPLE_RATE) -> np.ndarray:
-        """Resample waveform to target sample rate if needed."""
         if orig_sr == target_sr:
             return waveform
         import librosa
@@ -173,19 +267,16 @@ class QwenOmni(ModelInterface):
         return librosa.resample(waveform, orig_sr=orig_sr, target_sr=target_sr)
 
     def _resolve_prompt(self, template: str, language: str | None) -> str:
-        """Replace ``{language}`` placeholder if *language* is provided."""
         if language and "{language}" in template:
             return template.replace("{language}", language)
         return template
 
     def _get_prompt_text(self, language: str | None) -> str:
-        """Return the EN-specific prompt for English, otherwise the default prompt."""
         if language == "English" and self.en_prompt_text:
             return self.en_prompt_text
         return self._resolve_prompt(self.prompt_text, language)
 
     def _build_messages(self, waveform: np.ndarray, language: str | None = None) -> list[dict[str, Any]]:
-        """Build Turn 1 chat messages with an in-memory waveform (numpy array at 16 kHz)."""
         prompt = self._get_prompt_text(language)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
@@ -200,10 +291,11 @@ class QwenOmni(ModelInterface):
         })
         return messages
 
-    def _build_turn2_messages(self, waveform: np.ndarray, pred_text: str, language: str | None = None) -> list[dict[str, Any]]:
-        """Build Turn 2 messages: full Turn 1 conversation history + follow-up prompt."""
+    def _build_turn2_messages(
+        self, waveform: np.ndarray, pred_text: str, language: str | None = None,
+    ) -> list[dict[str, Any]]:
         prompt = self._get_prompt_text(language)
-        followup = self._resolve_prompt(self.followup_prompt, language)
+        followup = self._resolve_prompt(self.followup_prompt or _FOLLOWUP_PROMPT_DEFAULT, language)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
             sys_prompt = self._resolve_prompt(self.system_prompt, language)
@@ -266,7 +358,10 @@ class QwenOmni(ModelInterface):
     ) -> list[tuple[dict[str, Any], np.ndarray] | None]:
         langs = languages or [None] * len(waveforms)
         if self._prep_pool is None:
-            return [self._prepare_single(w, sr, lang) for w, sr, lang in zip(waveforms, sample_rates, langs, strict=False)]
+            return [
+                self._prepare_single(w, sr, lang)
+                for w, sr, lang in zip(waveforms, sample_rates, langs, strict=False)
+            ]
         return list(self._prep_pool.map(self._prepare_single, waveforms, sample_rates, langs))
 
     def _prepare_turn2_single(
@@ -331,40 +426,23 @@ class QwenOmni(ModelInterface):
         return (getattr(sequences[0], "text", "") or "").strip()
 
     # ------------------------------------------------------------------
-    # Generation
+    # Two-turn generation - logic preserved from pre-split QwenOmni
     # ------------------------------------------------------------------
 
-    def generate(
+    def _generate(
         self,
         waveforms: list[np.ndarray],
         sample_rates: list[int],
         languages: list[str | None] | None = None,
     ) -> tuple[list[str], list[str], set[int]]:
-        """Run batched two-turn inference on in-memory audio waveforms.
+        """Run batched two-turn inference on in-memory waveforms.
 
-        Turn 1 transcribes using ``prompt_text``.  If ``followup_prompt``
-        is set, Turn 2 re-listens with the full conversation history and
-        a follow-up prompt (e.g. to add disfluencies / filler words).
-
-        Prompts may contain a ``{language}`` placeholder which is replaced
-        per-sample with the corresponding entry from *languages* (e.g.
-        ``"English"``).  When *languages* is ``None`` or an entry is
-        ``None``, prompts are used as-is.
-
-        Args:
-            waveforms: List of 1-D mono numpy float32 arrays.
-            sample_rates: Corresponding sample rates for each waveform.
-            languages: Optional per-sample language names for prompt
-                interpolation.
-
-        Returns:
-            ``(pred_texts, disfluency_texts, skipped_indices)`` - one string
-            per input for each turn, plus a set of indices that were skipped
-            due to empty/corrupt audio.  ``disfluency_texts`` is all empty
-            strings when ``followup_prompt`` is ``None``.
+        Returns ``(pred_texts, disfluency_texts, skipped_indices)``.
+        ``disfluency_texts`` is all empty strings when ``followup_prompt``
+        is not set.
         """
         if self._llm is None or self._sampling_params is None:
-            msg = "Model not initialized. Call setup() first."
+            msg = "Adapter not initialized. Call setup() first."
             raise RuntimeError(msg)
 
         n = len(waveforms)

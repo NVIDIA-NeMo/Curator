@@ -12,6 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
+from nemo_curator.stages.audio.inference.asr import ASRStage
 
-__all__ = ["InferenceQwenOmniStage"]
+__all__ = ["ASRStage"]

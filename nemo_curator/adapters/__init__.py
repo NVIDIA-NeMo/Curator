@@ -12,13 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio speech-recognition Curator stages.
+"""Model adapters for the SDP-V2 stage-adapter split.
 
-The generic stage-adapter split (``ASRStage`` + pluggable ASR adapter)
-lives in ``stage.py``; the pre-existing NeMo-specific ASR stage stays in
-``asr_nemo.py``.
+Each adapter family (``asr``, ``diarization``, ``vad``, ...) lives in its
+own subpackage and exposes:
+
+* ``base.py`` - a ``Protocol`` plus a typed ``Result`` dataclass that every
+  adapter in the family must implement.
+* one module per concrete model that implements the protocol.
+
+Stages in ``nemo_curator/stages/audio/inference/`` import the protocol and
+typed result only; the concrete adapter is resolved at runtime from the
+YAML's ``adapter_target`` string via ``hydra.utils.get_class``.
 """
-
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
-
-__all__ = ["ASRStage"]

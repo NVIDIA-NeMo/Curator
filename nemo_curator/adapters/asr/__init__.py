@@ -12,13 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio speech-recognition Curator stages.
+"""ASR adapter family for the SDP-V2 stage-adapter split.
 
-The generic stage-adapter split (``ASRStage`` + pluggable ASR adapter)
-lives in ``stage.py``; the pre-existing NeMo-specific ASR stage stays in
-``asr_nemo.py``.
+Public surface (the only symbols the stage imports):
+
+* :class:`ASRAdapter` - structural protocol every ASR adapter implements.
+* :class:`ASRResult` - canonical per-utterance result dataclass.
+
+Concrete adapters live in their own modules (e.g. ``qwen_omni.py``) and are
+resolved at runtime by their fully-qualified class path in YAML's
+``adapter_target`` field.
 """
 
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.adapters.asr.base import ASRAdapter, ASRResult
+from nemo_curator.adapters.asr.qwen_omni import QwenOmniASRAdapter
 
-__all__ = ["ASRStage"]
+__all__ = ["ASRAdapter", "ASRResult", "QwenOmniASRAdapter"]

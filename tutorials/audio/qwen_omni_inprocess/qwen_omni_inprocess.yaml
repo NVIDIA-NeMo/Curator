@@ -15,7 +15,13 @@
 # Granary v2 - Qwen-Omni In-Process Pipeline (Hydra Config)
 #
 # Small PR first-stage pipeline:
-#   NemoTarredAudioReader -> QwenOmni inference -> ShardedManifestWriter
+#   NemoTarredAudioReader -> ASRStage (Qwen-Omni adapter) -> ShardedManifestWriter
+#
+# The middle stage uses the SDP-V2 stage->adapter split: the generic
+# ``ASRStage`` owns Curator-side glue (task.data reads, validate_input,
+# batching, ISO-code -> language-name lookup, schema mutation, metrics);
+# the Qwen-Omni-specific knobs live under ``adapter_kwargs``. Swap models
+# by replacing the single ``adapter_target:`` line.
 #
 # Invoked directly or by an external launcher via:
 #   python tutorials/audio/qwen_omni_inprocess/main.py \
@@ -60,9 +66,19 @@ cpu_batch_size: 64
 duration_key: duration
 
 # ===========================================================================
-# QWEN-OMNI INFERENCE
+# ASR (Qwen-Omni adapter) - stage knobs (Tier-1) + adapter knobs (Tier-2)
 # ===========================================================================
+# Tier-1 swap surface: replace adapter_target to change the underlying ASR
+# model without touching stage code. Tier-2 knobs (adapter_kwargs.*) are
+# adapter-specific and must be rewritten as a block when swapping adapters.
+adapter_target: nemo_curator.adapters.asr.QwenOmniASRAdapter
 model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+
+# Stage I/O keys (Tier-1)
+pred_text_key: qwen3_prediction_s1
+secondary_text_key: qwen3_prediction_s2
+
+# Qwen-Omni adapter-specific knobs (Tier-2: adapter_kwargs.*)
 ml_prompt: "Transcribe the audio."
 ml_prompt_file: null
 en_prompt_file: null
@@ -100,27 +116,34 @@ stages:
           cpus: 4.0
 
   - stage_id: qwen_omni
-    _target_: nemo_curator.stages.audio.inference.qwen_omni.InferenceQwenOmniStage
+    # Tier 1 - generic stage. Swap adapter_target to change the ASR model.
+    _target_: nemo_curator.stages.audio.inference.asr.ASRStage
+    # Override the default 'ASR_inference' so perf_summary.stages keys
+    # remain stable across pre-/post-refactor runs.
+    name: QwenOmni_inference
+    adapter_target: ${adapter_target}
     model_id: ${model_id}
-    prompt_text: ${ml_prompt}
-    prompt_file: ${ml_prompt_file}
-    en_prompt_file: ${en_prompt_file}
-    followup_prompt: ${followup_prompt}
-    followup_prompt_file: ${followup_prompt_file}
-    system_prompt: ${system_prompt}
-    tensor_parallel_size: ${tensor_parallel_size}
-    batch_size: ${batch_size}
-    max_output_tokens: ${max_output_tokens}
-    max_model_len: ${max_model_len}
-    max_num_seqs: ${max_num_seqs}
-    gpu_memory_utilization: ${gpu_memory_utilization}
-    prep_workers: ${prep_workers}
     source_lang_key: ${source_lang_key}
     default_language: ${language_short}
-    pred_text_key: qwen3_prediction_s1
-    disfluency_text_key: qwen3_prediction_s2
+    pred_text_key: ${pred_text_key}
+    secondary_text_key: ${secondary_text_key}
     keep_waveform: ${keep_waveform}
     prefetch_fail_on_error: ${prefetch_fail_on_error}
+    batch_size: ${batch_size}
+    # Tier 2 - QwenOmniASRAdapter-only (rewrite entire block when swapping).
+    adapter_kwargs:
+      prompt_text: ${ml_prompt}
+      prompt_file: ${ml_prompt_file}
+      en_prompt_file: ${en_prompt_file}
+      followup_prompt: ${followup_prompt}
+      followup_prompt_file: ${followup_prompt_file}
+      system_prompt: ${system_prompt}
+      tensor_parallel_size: ${tensor_parallel_size}
+      max_output_tokens: ${max_output_tokens}
+      max_model_len: ${max_model_len}
+      max_num_seqs: ${max_num_seqs}
+      gpu_memory_utilization: ${gpu_memory_utilization}
+      prep_workers: ${prep_workers}
     stage_with:
       resources:
         _target_: nemo_curator.stages.resources.Resources

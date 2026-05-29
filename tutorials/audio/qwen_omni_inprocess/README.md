@@ -8,7 +8,7 @@ The pipeline reads a Granary-style NeMo tarred audio data config, decodes audio 
 
 - **Input**: Granary YAML data config with `nemo_tarred` corpora
 - **Reader**: Streams local NeMo tar shards and decodes waveforms in memory
-- **Inference**: Runs Qwen3-Omni thinker-only audio-to-text generation through in-process vLLM
+- **Inference**: Runs Qwen3-Omni thinker-only audio-to-text generation through in-process vLLM. The Curator-side glue lives in the generic `ASRStage`; the Qwen-Omni-specific vLLM setup, prompt formatting, and two-turn generation live in `QwenOmniASRAdapter`. Swap models by changing the single `adapter_target:` line in the YAML.
 - **Output**: Writes per-shard manifests, `.done` markers, an optional final manifest, and `perf_summary.json`
 
 ### Pipeline Flow
@@ -146,6 +146,9 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `max_utterances_per_shard` | Debug/smoke cap per tar shard | `null` |
 | `source_lang_key` | Manifest key for per-row language | `source_lang` |
 | `duration_key` | Manifest key for utterance duration | `duration` |
+| `adapter_target` | Tier-1 swap line; fully-qualified ASR adapter class path | `nemo_curator.adapters.asr.QwenOmniASRAdapter` |
+| `pred_text_key` | Output key for the Turn-1 transcription | `qwen3_prediction_s1` |
+| `secondary_text_key` | Output key for the optional Turn-2 transcription; set to `null` to disable | `qwen3_prediction_s2` |
 | `model_id` | Hugging Face model identifier | `Qwen/Qwen3-Omni-30B-A3B-Instruct` |
 | `ml_prompt` | Default prompt sent with audio | `Transcribe the audio.` |
 | `ml_prompt_file` | File containing the default prompt | `null` |
@@ -169,7 +172,7 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 The explicit `stages` list is the source of truth for the graph:
 
 - `reader`: `NemoTarredAudioReader`
-- `qwen_omni`: `InferenceQwenOmniStage`
+- `qwen_omni`: `ASRStage` with `adapter_target: nemo_curator.adapters.asr.QwenOmniASRAdapter`
 - `sharded_manifest_writer`: `ShardedManifestWriterStage`
 
 Run only selected stages when debugging:
