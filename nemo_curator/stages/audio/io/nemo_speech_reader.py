@@ -172,7 +172,7 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     types.  Handles shard expansion and ``.done``-file checkpointing.
     """
 
-    name: str = "unified_discovery"
+    name: str = "nemo_speech_discovery"
     yaml_path: str = ""
     corpus_filter: list[str] | None = None
     output_dir: str | None = None
@@ -283,7 +283,7 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     all I/O (including lazy line-by-line streaming for large files).
     """
 
-    name: str = "unified_reader"
+    name: str = "nemo_speech_reader"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -450,7 +450,7 @@ class NeMoSpeechAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     for audio loading.
     """
 
-    name: str = "unified_audio_reader"
+    name: str = "nemo_speech_audio_reader"
     yaml_path: str = ""
     corpus_filter: list[str] | None = None
     output_dir: str | None = None
