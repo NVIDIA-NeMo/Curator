@@ -1,0 +1,168 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+###############################################################################
+# TTS Audio Tagging Pipeline - Correctness Validation Configuration
+###############################################################################
+#
+# Bakes in the exact post-override pipeline shape used to generate the
+# in-tree reference manifest at:
+#
+#   tests/fixtures/audio/tagging/reference/tts/test_data_reference.jsonl
+#
+# Reference was produced by running tests/stages/audio/tagging/e2e/
+# test_tts_e2e.py, which loads
+# tests/stages/audio/tagging/e2e/configs/tts_pipeline.yaml and then
+# applies four runtime overrides on Stage 4 (ForcedAlignmentStage):
+#   model_id                        = "nvidia/stt_en_fastconformer_ctc_large"
+#   adapter_kwargs.is_fastconformer = true
+#   adapter_kwargs.decoder_type     = "ctc"
+#   adapter_kwargs.transcribe_batch_size = 1
+# This file bakes those four values directly into the YAML so the
+# pipeline-as-loaded matches the pipeline-as-validated.
+#
+# Designed for NvLLMOps' non-native Curator runner
+# (nvllmops/stages/harvest/curator/run_curator.py), which:
+#   - invokes  tutorials/audio/tagging/main.py  as the pod entry point,
+#   - downloads this YAML from swift via --local-config-path,
+#   - injects the following Hydra CLI overrides unconditionally:
+#       workspace_dir=<out>  output_dir=<out>  hf_token=<env>
+#       input_manifest=<chunk>  data_config=<chunk>  language_short=<lang>
+#       max_segment_length=<dur>  final_manifest=<out>
+#
+# Post-run, diff the merged output against test_data_reference.jsonl
+# using tests/stages/audio/tagging/e2e/utils.py::check_output (text exact
+# + segment boundaries pytest.approx(rel=1e-3) + word timings abs=0.01).
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  TTS Audio Tagging Pipeline - Correctness Validation
+  ###################################################
+
+  Loaded by NvLLMOps' non-native Curator runner. Settings frozen to
+  reproduce the in-tree reference manifest at
+  ``tests/fixtures/audio/tagging/reference/tts/test_data_reference.jsonl``.
+
+  **Required arguments** (NvLLMOps injects these via Hydra CLI overrides):
+
+  * **input_manifest**: JSONL with audio_filepath + audio_item_id entries.
+  * **final_manifest**: Output JSONL path.
+  * **hf_token**: HuggingFace token for PyAnnote model gate.
+
+# =============================================================================
+# CORE CONFIGURATION
+# =============================================================================
+
+input_manifest: ???
+final_manifest: ???
+# NvLLMOps run_curator.py unconditionally injects these two as Hydra
+# overrides for non-native pipelines (see lines 234-238 in that file).
+# Declared empty here so Hydra struct-mode accepts the assignment;
+# neither is consumed by any stage.
+data_config: ""
+output_dir: ""
+backend: xenna
+workspace_dir: /tmp/tagging_workspace
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+language_short: en
+hf_token: ""
+sample_rate: 16000
+max_segment_length: 40
+resources:
+  cpus: 1
+
+# =============================================================================
+# PIPELINE STAGES
+# =============================================================================
+#
+# Stage list + ordering identical to tts_pipeline.yaml; only Stage 2 +
+# Stage 4 model / batch knobs differ (matched against the reference).
+
+stages:
+  # 0. Read input manifest
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+    files_per_partition: 1
+
+  # 1. Resample audio to 16 kHz mono WAV
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: "ResampleAudio"
+    resampled_audio_dir: ${resampled_audio_dir}
+    input_format: "wav"
+    target_sample_rate: ${sample_rate}
+    target_format: "wav"
+    target_nchannels: 1
+    resources: ${resources}
+
+  # 2. Speaker diarization — small PyAnnote batches matching reference
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.DiarizationStage
+    name: "PyAnnoteDiarization"
+    adapter_target: nemo_curator.adapters.diarization.PyAnnoteDiarizationAdapter
+    model_id: "pyannote/speaker-diarization-3.1"
+    non_speaker_max_length: ${max_segment_length}
+    xenna_num_workers: 1
+    resources:
+      gpus: 1
+    adapter_kwargs:
+      hf_token: ${hf_token}
+      max_length: ${max_segment_length}
+      segmentation_batch_size: 2
+      embedding_batch_size: 2
+
+  # 3. Split long audio segments
+  - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
+    name: "SplitLongAudio"
+    suggested_max_len: ${max_segment_length}
+    min_len: 1.0
+    resources: ${resources}
+
+  # 4. ASR forced alignment — CTC fastconformer large, batch=1
+  #    (matches the test_tts_e2e.py runtime overrides exactly)
+  - _target_: nemo_curator.stages.audio.inference.alignment.ForcedAlignmentStage
+    name: "ASRAlignment"
+    adapter_target: nemo_curator.adapters.alignment.NeMoASRAlignAdapter
+    model_id: "nvidia/stt_en_fastconformer_ctc_large"
+    batch_size: 1
+    resources:
+      gpus: 1
+    adapter_kwargs:
+      is_fastconformer: true
+      decoder_type: ctc
+      transcribe_batch_size: 1
+      num_workers: 1
+
+  # 5. Join split audio metadata
+  - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
+    name: "JoinSplitMetadata"
+    resources: ${resources}
+
+  # 6. Merge alignment with diarization segments
+  - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
+    name: "MergeAlignmentDiar"
+    text_key: "text"
+    words_key: "words"
+    resources: ${resources}
+
+  # 7. Write output manifest
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${final_manifest}
