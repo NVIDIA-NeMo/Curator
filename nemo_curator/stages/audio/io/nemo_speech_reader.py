@@ -306,29 +306,11 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
         if tar_path:
             resolved_tar = _s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
-            # TODO: Remove once shard_id manifest fix is released in NeMo.
-            # Temporarily bypass _validate() which asserts shard_id type equality.
-            # Some datasets (e.g. MCV4) store shard_id as string '0' in the manifest
-            # while the tar regex extracts int 0 — causing a set comparison failure.
-            # Data integrity is verified during actual iteration.
-            _orig_validate = LazyNeMoTarredIterator._validate
-            LazyNeMoTarredIterator._validate = lambda self: None
-            try:
-                iterator = LazyNeMoTarredIterator(
-                    manifest_path=manifest_path,
-                    tar_paths=resolved_tar,
-                    skip_missing_manifest_entries=True,
-                )
-            finally:
-                LazyNeMoTarredIterator._validate = _orig_validate
-
-            # Fix shard_id type mismatch for datasets like MCV4 where manifest
-            # has string shard_ids ('0') but tar regex gives int (0).
-            # Add string keys to shard_id_to_tar_path so lookups work either way.
-            tar_map = iterator.shard_id_to_tar_path
-            extra = {str(k): v for k, v in tar_map.items() if str(k) not in tar_map}
-            tar_map.update(extra)
-
+            iterator = LazyNeMoTarredIterator(
+                manifest_path=manifest_path,
+                tar_paths=resolved_tar,
+                skip_missing_manifest_entries=True,
+            )
             return CutSet(iterator)
 
         return CutSet(LazyNeMoIterator(manifest_path))
