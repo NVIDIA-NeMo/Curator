@@ -80,7 +80,7 @@ from nemo_curator.pipeline import Pipeline
 
 QWEN_ASR_DEFAULT_MODEL_ID = "Qwen/Qwen3-ASR-0.6B"
 INDIC_CONFORMER_DEFAULT_MODEL_ID = "ai4bharat/indic-conformer-600m-multilingual"
-# faster-whisper alias (CTranslate2); equivalent HF openai/whisper-large-v3 is Transformers format.
+#faster-whisper alias; equivalent HF openai/whisper-large-v3 in Transformers format.
 WHISPER_DEFAULT_MODEL = "large-v3"
 PARAKEET_DEFAULT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 
