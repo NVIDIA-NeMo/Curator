@@ -1,6 +1,14 @@
-results_path: /tmp/curator/results/${BRANCH_NAME}
-datasets_path: /tmp/curator/datasets
-model_weights_path: /tmp/curator/model_weights
+paths:
+  - name: "results_path"
+    host_path: "/tmp/curator/results/${BRANCH_NAME}"
+  - name: "datasets_path"
+    host_path: "/tmp/curator/datasets"
+  - name: "model_weights_path"
+    host_path: "/tmp/curator/model_weights"
+
+# Only datasets/formats whose paths differ from nightly-benchmark.yaml, plus
+# datasets defined exclusively here. Other entries are inherited unchanged from
+# nightly-benchmark.yaml via the config merger.
 datasets:
   - name: "tinystories"
     formats:
@@ -10,8 +18,6 @@ datasets:
     formats:
     - type: "jsonl"
       path: "{datasets_path}/cleaned_exact_dedup_all_cc"
-    - type: "parquet_gemma_embeddings"
-      path: "{datasets_path}/cleaned_exact_dedup_all_cc_gemma_embeddings"
   - name: "commoncrawl_id_map"
     formats:
     - type: "json"
@@ -20,14 +26,6 @@ datasets:
     formats:
     - type: "parquet"
       path: "{datasets_path}/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/FuzzyDuplicateIds"
-  - name: "mscoco"
-    formats:
-    - type: "wds"
-      path: "{datasets_path}/mscoco/wds/truncated_100K_mscoco_benchmarking"
-  - name: "mscoco_model_weights"
-    formats:
-    - type: "files"
-      path: "{datasets_path}/mscoco/model_weights"
   - name: "videos"
     formats:
     - type: "mp4"
@@ -36,14 +34,6 @@ datasets:
     formats:
     - type: "files"
       path: "{model_weights_path}/video_model_weights"
-  - name: "rpv2-2023-14-en"
-    formats:
-    - type: "parquet"
-      path: "{datasets_path}/rpv2_2023-14_en"
-  - name: "arxiv_downloads"
-    formats:
-    - type: "tar"
-      path: "{datasets_path}/arxiv_downloads"
   - name: "fasttext_langid_model"
     formats:
     - type: "bin"
@@ -52,27 +42,11 @@ datasets:
     formats:
     - type: "bin"
       path: "{model_weights_path}/text_model_weights/fasttext-oh-eli5/openhermes_reddit_eli5_vs_rw_v2_bigram_200k_train.bin"
-  - name: "ndd_gretel_symptoms"
-    formats:
-    - type: "jsonl"
-      path: "{datasets_path}/ndd_gretel_symptoms"
   - name: "text_models_hf_cache"
     formats:
     - type: "files"
       path: "{model_weights_path}/text_model_weights/hf_cache"
-  - name: "multimodal_mint1t"
+  - name: "ndd_gretel_symptoms"
     formats:
-    - type: "wds_tar_dir"
-      path: "{datasets_path}/multimodal/mint1t"
-  - name: "finemath4plus"
-    formats:
-    - type: "parquet"
-      path: "{datasets_path}/finemath4plus/enriched"
-  - name: "cc_index_query_dataset"
-    formats:
-    - type: "parquet"
-      path: "{datasets_path}/cc_index_benchmark/dataset/megamath_web/megamath-web"
-  - name: "cc_index_partitions"
-    formats:
-    - type: "parquet"
-      path: "{datasets_path}/cc_index_benchmark/cc_index"
+    - type: "jsonl"
+      path: "{datasets_path}/ndd_gretel_symptoms"
