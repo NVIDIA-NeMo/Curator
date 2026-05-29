@@ -31,7 +31,7 @@ from utils import RepeatEntriesStage, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
-from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
+from nemo_curator.stages.audio.inference.speaker_diarization import DiarizationStage
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
@@ -85,12 +85,17 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         ).with_(resources=Resources(cpus=cpus))
     )
 
-    # Speaker diarization and overlap detection (PyAnnote)
+    # Speaker diarization and overlap detection (DiarizationStage + PyAnnote adapter)
     pipeline.add_stage(
-        PyAnnoteDiarizationStage(
+        DiarizationStage(
             name="PyAnnoteDiarization",
-            hf_token=hf_token,
-            max_length=max_segment_length,
+            adapter_target="nemo_curator.adapters.diarization.PyAnnoteDiarizationAdapter",
+            model_id="pyannote/speaker-diarization-3.1",
+            non_speaker_max_length=max_segment_length,
+            adapter_kwargs={
+                "hf_token": hf_token,
+                "max_length": max_segment_length,
+            },
         ).with_(resources=Resources(cpus=cpus, gpus=0.5))
     )
 

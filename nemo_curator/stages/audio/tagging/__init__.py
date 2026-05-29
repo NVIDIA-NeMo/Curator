@@ -38,7 +38,9 @@ _LAZY_IMPORTS = {
     # --- Inference (tagging/inference/) ---
     "BaseASRProcessorStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
     "NeMoASRAlignerStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
-    "PyAnnoteDiarizationStage": "nemo_curator.stages.audio.inference.speaker_diarization.pyannote",
+    # --- Inference (stage-adapter split per SDP-V2 design) ---
+    "DiarizationStage": "nemo_curator.stages.audio.inference.speaker_diarization",
+    "PyAnnoteDiarizationAdapter": "nemo_curator.adapters.diarization",
     "WhisperXVADStage": "nemo_curator.stages.audio.inference.vad.whisperx_vad",
 }
 

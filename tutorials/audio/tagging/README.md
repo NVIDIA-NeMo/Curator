@@ -26,7 +26,7 @@ The audio tagging pipeline is a processing framework that takes raw audio files 
 |---|-------|-------------|-----|
 | 0 | **ManifestReader** | Reads input JSONL manifest | No |
 | 1 | **ResampleAudioStage** | Resample to 16 kHz mono WAV | No |
-| 2 | **PyAnnoteDiarizationStage** | Speaker diarization and overlap detection | Yes |
+| 2 | **DiarizationStage** (+ `PyAnnoteDiarizationAdapter`) | Speaker diarization and overlap detection | Yes |
 | 3 | **SplitLongAudioStage** | Split segments exceeding max length | No |
 | 4 | **NeMoASRAlignerStage** | Forced alignment via NeMo FastConformer | Yes |
 | 5 | **JoinSplitAudioMetadataStage** | Rejoin split audio metadata | No |
@@ -161,8 +161,9 @@ python tutorials/audio/tagging/main.py \
 Override individual stage parameters using their index in the `stages` list:
 
 ```bash
-# Change diarization model
-stages.2.diarization_model=pyannote/speaker-diarization-3.1
+# Change diarization model (Tier-1 swap line)
+stages.2.adapter_target=nemo_curator.adapters.diarization.PyAnnoteDiarizationAdapter
+stages.2.model_id=pyannote/speaker-diarization-3.1
 
 # Adjust ASR batch size
 stages.4.batch_size=16
@@ -315,7 +316,7 @@ See the test file for detailed comments on the pipeline steps and configuration 
 ### GPU Out of Memory
 
 - Reduce `stages.4.batch_size` (ASR alignment)
-- Reduce `stages.2.segmentation_batch_size` (diarization)
+- Reduce `stages.2.adapter_kwargs.segmentation_batch_size` (diarization)
 - Process fewer files per manifest
 - See [GPU Memory Requirements](#gpu-memory-requirements) for per-model VRAM usage
 

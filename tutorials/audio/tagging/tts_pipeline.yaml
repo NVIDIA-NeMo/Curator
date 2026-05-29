@@ -21,7 +21,7 @@
 # Pipeline stages:
 #   0. ManifestReader          - Read input JSONL manifest
 #   1. ResampleAudio            - Resample audio to 16 kHz mono WAV
-#   2. PyAnnoteDiarization     - Speaker diarization + overlap detection
+#   2. DiarizationStage         - Speaker diarization + overlap detection (PyAnnote adapter)
 #   3. SplitLongAudio          - Split segments exceeding max length
 #   4. NeMoASRAligner          - Forced alignment via NeMo FastConformer
 #   5. JoinSplitAudioMetadata  - Rejoin split metadata
@@ -101,10 +101,14 @@ stages:
     target_nchannels: 1
     resources: ${resources}
 
-  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.DiarizationStage
     name: "PyAnnoteDiarization"
-    hf_token: ${hf_token}
-    max_length: ${max_segment_length}
+    adapter_target: nemo_curator.adapters.diarization.PyAnnoteDiarizationAdapter
+    model_id: "pyannote/speaker-diarization-3.1"
+    non_speaker_max_length: ${max_segment_length}
+    adapter_kwargs:
+      hf_token: ${hf_token}
+      max_length: ${max_segment_length}
 
   - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
     name: "SplitLongAudio"

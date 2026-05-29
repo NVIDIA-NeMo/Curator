@@ -30,16 +30,20 @@ stages:
     target_nchannels: 1
     resources: ${resources}
 
-  # 2. Speaker diarization (PyAnnote)
-  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.pyannote.PyAnnoteDiarizationStage
+  # 2. Speaker diarization (DiarizationStage + PyAnnoteDiarizationAdapter)
+  - _target_: nemo_curator.stages.audio.inference.speaker_diarization.DiarizationStage
     name: "PyAnnoteDiarization"
-    hf_token: ${hf_token}
-    max_length: ${max_segment_length}
-    segmentation_batch_size: 2
-    embedding_batch_size: 2
+    adapter_target: nemo_curator.adapters.diarization.PyAnnoteDiarizationAdapter
+    model_id: "pyannote/speaker-diarization-3.1"
+    non_speaker_max_length: ${max_segment_length}
     xenna_num_workers: 1
     resources:
       gpus: 1
+    adapter_kwargs:
+      hf_token: ${hf_token}
+      max_length: ${max_segment_length}
+      segmentation_batch_size: 2
+      embedding_batch_size: 2
 
   # 3. Split long audio segments
   - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
