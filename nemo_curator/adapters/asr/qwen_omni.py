@@ -112,6 +112,21 @@ class QwenOmniASRAdapter:
         temperature: Sampling temperature (0.0 = greedy).
         top_k: Top-k sampling.
         prep_workers: Thread-pool size for parallel audio preprocessing.
+        enable_prefix_caching: vLLM prefix-cache toggle. SDP-V2 §6 elevates
+            this from a hardcoded constant to a per-deployment knob - the
+            doc keeps it ``True`` because the system / user / follow-up
+            prompts repeat across every request, but a deployment with
+            random prompts can disable it without re-rolling the image.
+        prefix_caching_hash_algo: Backing hash algorithm for the prefix
+            cache. ``"xxhash"`` matches the doc default; vLLM also accepts
+            ``"sha256"``.
+        limit_mm_per_prompt_audio: Per-prompt audio-token cap for vLLM's
+            multi-modal limiter. Default ``2`` matches the doc and the
+            pre-split granary-v2 value (enough for the two-turn flow).
+            Set to ``1`` for strictly single-turn deployments.
+        seed: vLLM scheduler / sampling seed. Exposed so reproducibility
+            tests (and follow-up bit-exactness checks) can override it
+            from YAML.
     """
 
     # SDP-V2 adapter constructor convention - first two are universal.
@@ -135,6 +150,12 @@ class QwenOmniASRAdapter:
     temperature: float = 0.0
     top_k: int = 1
     prep_workers: int = 8
+
+    # SDP-V2 §6 (d): vLLM knobs elevated to adapter_kwargs.
+    enable_prefix_caching: bool = True
+    prefix_caching_hash_algo: str = "xxhash"
+    limit_mm_per_prompt_audio: int = 2
+    seed: int = 1234
 
     # Per-batch state - reset by transcribe_batch, surfaced to the stage
     # for _log_metrics merging.
@@ -195,12 +216,12 @@ class QwenOmniASRAdapter:
             trust_remote_code=True,
             gpu_memory_utilization=self.gpu_memory_utilization,
             tensor_parallel_size=tp_size,
-            limit_mm_per_prompt={"image": 1, "video": 1, "audio": 2},
+            limit_mm_per_prompt={"image": 1, "video": 1, "audio": int(self.limit_mm_per_prompt_audio)},
             max_num_seqs=self.max_num_seqs,
             max_model_len=self.max_model_len,
-            seed=1234,
-            enable_prefix_caching=True,
-            prefix_caching_hash_algo="xxhash",
+            seed=int(self.seed),
+            enable_prefix_caching=bool(self.enable_prefix_caching),
+            prefix_caching_hash_algo=str(self.prefix_caching_hash_algo),
         )
 
         self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id)

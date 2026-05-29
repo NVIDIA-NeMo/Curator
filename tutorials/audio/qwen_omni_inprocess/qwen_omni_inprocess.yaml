@@ -73,10 +73,24 @@ duration_key: duration
 # adapter-specific and must be rewritten as a block when swapping adapters.
 adapter_target: nemo_curator.adapters.asr.QwenOmniASRAdapter
 model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+revision: null
 
-# Stage I/O keys (Tier-1)
+# Stage I/O keys (Tier-1). Naming follows SDP-V2 design doc §6.
 pred_text_key: qwen3_prediction_s1
-secondary_text_key: qwen3_prediction_s2
+disfluency_text_key: qwen3_prediction_s2
+
+# Pre-slice + bucket-shape anchors (SDP-V2 §6 (b) and §0.3).
+# Qwen-Omni's per-turn audio cap is 40 minutes (2400 s); the stage pre-slices
+# any clip exceeding ``max_inference_duration_s`` into contiguous
+# ≤ ``max_inference_duration_s`` sub-chunks and stitches outputs back per
+# parent task with a single-space join.
+ideal_inference_segment_s: 2400
+max_inference_duration_s: 2400
+
+# SDP-V2 §6 (c): keep_waveform default flipped to true so downstream
+# hallucination / recovery / forced-alignment stages can reuse the
+# in-memory buffer without re-reading from tarred shards.
+keep_waveform: true
 
 # Qwen-Omni adapter-specific knobs (Tier-2: adapter_kwargs.*)
 ml_prompt: "Transcribe the audio."
@@ -93,7 +107,12 @@ max_model_len: 4096
 max_num_seqs: 16
 gpu_memory_utilization: 0.90
 prep_workers: 16
-keep_waveform: false
+
+# SDP-V2 §6 (d): vLLM knobs elevated to per-deployment YAML knobs.
+enable_prefix_caching: true
+prefix_caching_hash_algo: xxhash
+limit_mm_per_prompt_audio: 2
+seed: 1234
 
 # ===========================================================================
 # STAGE GRAPH
@@ -123,13 +142,30 @@ stages:
     name: QwenOmni_inference
     adapter_target: ${adapter_target}
     model_id: ${model_id}
+    revision: ${revision}
     source_lang_key: ${source_lang_key}
     default_language: ${language_short}
     pred_text_key: ${pred_text_key}
-    secondary_text_key: ${secondary_text_key}
+    disfluency_text_key: ${disfluency_text_key}
+    ideal_inference_segment_s: ${ideal_inference_segment_s}
+    max_inference_duration_s: ${max_inference_duration_s}
     keep_waveform: ${keep_waveform}
     prefetch_fail_on_error: ${prefetch_fail_on_error}
     batch_size: ${batch_size}
+    # SDP-V2 §0.3 best-effort within-call duration-bucketed batching.
+    # Cross-call queueing requires framework-scheduler support (follow-up PR);
+    # this block re-buckets whatever items each process_batch invocation
+    # assembles so a single vLLM call never mixes a 40-min sub-chunk with
+    # 5-sec sub-chunks. Bucket shape anchored on ideal_inference_segment_s:
+    # 4 bins at [0, ideal/4, ideal/2, ideal] with item caps shrinking by
+    # bucket and a global audio-second ceiling of K × ideal (K=1 here).
+    batch_policy:
+      _target_: nemo_curator.stages.audio.batch_policy.BatchPolicy
+      strategy: duration_bucketed
+      buckets_sec: [0, 600, 1200, 2400]
+      max_items_per_batch_by_bucket: [32, 16, 8, 4]
+      max_audio_sec_per_batch: 2400
+      flush_interval_ms: 250
     # Tier 2 - QwenOmniASRAdapter-only (rewrite entire block when swapping).
     adapter_kwargs:
       prompt_text: ${ml_prompt}
@@ -144,6 +180,10 @@ stages:
       max_num_seqs: ${max_num_seqs}
       gpu_memory_utilization: ${gpu_memory_utilization}
       prep_workers: ${prep_workers}
+      enable_prefix_caching: ${enable_prefix_caching}
+      prefix_caching_hash_algo: ${prefix_caching_hash_algo}
+      limit_mm_per_prompt_audio: ${limit_mm_per_prompt_audio}
+      seed: ${seed}
     stage_with:
       resources:
         _target_: nemo_curator.stages.resources.Resources
