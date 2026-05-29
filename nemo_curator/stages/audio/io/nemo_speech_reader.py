@@ -29,7 +29,6 @@ Decomposes into:
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -44,15 +43,14 @@ except (ImportError, ModuleNotFoundError):
     except (ImportError, ModuleNotFoundError):
         RayStageSpecKeys = None
 
+from nemo.collections.common.data.lhotse.nemo_adapters import expand_sharded_filepaths as _expand_nemo_path
+
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-from nemo.collections.common.data.lhotse.nemo_adapters import expand_sharded_filepaths as _expand_nemo_path
 
 
 def _manifest_to_shard_key(manifest_path: str, corpus: str) -> str:
@@ -90,26 +88,6 @@ def _manifest_to_shard_key(manifest_path: str, corpus: str) -> str:
     return rel
 
 
-def _s3_to_pipe(s3_path: str) -> str:
-    """Convert ``s3://BUCKET/KEY`` to a ``pipe:curl`` command for AIS.
-
-    Uses ``AIS_ENDPOINT`` and ``AIS_AUTHN_TOKEN`` environment variables.
-    """
-    from urllib.parse import urlparse
-
-    parsed = urlparse(s3_path)
-    bucket, key = parsed.netloc, parsed.path.lstrip("/")
-    endpoint = os.environ.get("AIS_ENDPOINT", "")
-    if not endpoint:
-        msg = "AIS_ENDPOINT env var required for s3:// tar paths"
-        raise RuntimeError(msg)
-    url = f"{endpoint.rstrip('/')}/v1/objects/{bucket}/{key}?provider=s3"
-    token = os.environ.get("AIS_AUTHN_TOKEN", "")
-    ca_cert = os.environ.get("AIS_CLIENT_CA", "")
-    cacert_flag = f" --cacert '{ca_cert}'" if ca_cert else ""
-    if token:
-        return f"pipe:curl -sL{cacert_flag} -H 'Authorization: Bearer {token}' '{url}'"
-    return f"pipe:curl -sL{cacert_flag} '{url}'"
 
 
 # ---------------------------------------------------------------------------
@@ -305,10 +283,9 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         from nemo.collections.common.data.lhotse.nemo_adapters import LazyNeMoIterator, LazyNeMoTarredIterator
 
         if tar_path:
-            resolved_tar = _s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
             iterator = LazyNeMoTarredIterator(
                 manifest_path=manifest_path,
-                tar_paths=resolved_tar,
+                tar_paths=tar_path,
                 skip_missing_manifest_entries=True,
             )
             return CutSet(iterator)
@@ -346,17 +323,14 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 audio = rec.load_audio().squeeze()
                 sr = rec.sampling_rate
             except Exception:  # noqa: BLE001
-                # Fallback: download bytes and decode with torchaudio (handles m4a/aac)
                 try:
-                    import io as _io
-
                     import smart_open
-                    import torchaudio
+                    from torchcodec.decoders import AudioDecoder
 
                     with smart_open.open(audio_path, "rb") as f:
-                        waveform_t, file_sr = torchaudio.load(_io.BytesIO(f.read()))
-                    audio = waveform_t.numpy().squeeze()
-                    sr = file_sr
+                        samples = AudioDecoder(f.read()).get_all_samples()
+                    audio = samples.data.numpy().squeeze()
+                    sr = samples.sample_rate
                 except Exception:  # noqa: BLE001
                     logger.warning(f"Skipping unreadable audio: {audio_path}")
                     return []
