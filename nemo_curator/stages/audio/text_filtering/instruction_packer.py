@@ -18,8 +18,9 @@ Walks the per-task output keys produced by the text post-processing
 pipeline (``pnc_text``, ``itn_text``, ``itn_no-disfluencies_text``,
 ``captioning_text``, ``code_switched_text``, ``speech_qa_text``, and
 optionally the ``context_asr`` nested dict) and assembles a single
-``instructions`` field — a list of ``{"prompt": ..., "target": ...}``
-pairs — that downstream trainers can sample from one-per-epoch.
+``preference_instructions`` field — a list of
+``{"prompt": ..., "target": ..., "tags": {"type": ..., "target_lang": ...}}``
+entries — that downstream trainers can sample from one-per-epoch.
 
 The stage is deterministic: prompt-template selection uses a
 per-sample seeded RNG derived from ``sha256(seed + audio_filepath)``
@@ -46,13 +47,8 @@ from nemo_curator.tasks import AudioTask
 #  Prompt template libraries (one per task type)
 # ─────────────────────────────────────────────────────────────
 
-_PNC_PROMPTS: list[str] = [
-    "Transcribe the audio with proper punctuation and capitalization.",
-    "Provide a transcript of this audio including punctuation marks.",
-    "Listen to the audio and write down what is said, using correct punctuation.",
-    "Produce a transcript with sentence boundaries and capitalization.",
-    "Write what is spoken in this clip, including commas, periods, and capital letters where appropriate.",
-    "Transcribe the audio into text, ensuring all punctuation marks are included.",
+# Punctuation-agnostic prompts; shared by both tn and tn-pnc.
+_GENERIC_TRANSCRIBE_PROMPTS: list[str] = [
     "Transcribe this audio.",
     "Write out what is being said in this audio clip.",
     "Convert the speech in this audio to text.",
@@ -64,10 +60,30 @@ _PNC_PROMPTS: list[str] = [
     "You are a professional transcriptionist. Transcribe the following audio recording accurately, capturing every word as spoken.",
     "Your task is to listen to this audio and write down exactly what is said, including all proper nouns and technical terms.",
     "Transcribe the audio below. Be precise with names, numbers, and specialized vocabulary.",
-    "Transcribe this audio. Include proper punctuation and capitalization.",
     "Listen carefully and transcribe the audio. Preserve the original phrasing and word choices.",
     "Generate an accurate text transcript of the speech in this recording.",
 ]
+
+# Punctuation/capitalization-explicit; tn-pnc only.
+_PNC_ONLY_PROMPTS: list[str] = [
+    "Transcribe the audio with proper punctuation and capitalization.",
+    "Provide a transcript of this audio including punctuation marks.",
+    "Listen to the audio and write down what is said, using correct punctuation.",
+    "Produce a transcript with sentence boundaries and capitalization.",
+    "Write what is spoken in this clip, including commas, periods, and capital letters where appropriate.",
+    "Transcribe the audio into text, ensuring all punctuation marks are included.",
+    "Transcribe this audio. Include proper punctuation and capitalization.",
+]
+
+# No-punctuation/lowercase-explicit; tn only.
+_TN_ONLY_PROMPTS: list[str] = [
+    "Transcribe the audio as plain normalized text, without punctuation or capitalization.",
+    "Write down the spoken words only — no punctuation marks, no capital letters.",
+    "Produce a normalized transcript: lowercase words, no punctuation.",
+]
+
+_PNC_PROMPTS: list[str] = _GENERIC_TRANSCRIBE_PROMPTS + _PNC_ONLY_PROMPTS
+_TN_PROMPTS: list[str] = _GENERIC_TRANSCRIBE_PROMPTS + _TN_ONLY_PROMPTS
 
 _ITN_PROMPTS: list[str] = [
     "Transcribe the audio in written form: render numbers, currencies, and dates using digits and symbols.",
@@ -128,12 +144,14 @@ def _parse_speech_qa(raw: str) -> tuple[str, str] | None:
 
 @dataclass
 class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
-    """Pack per-stage text outputs into a unified ``instructions`` list.
+    """Pack per-stage text outputs into a unified ``preference_instructions`` list.
 
     For each output field present on a task, emit one (or more, for
-    context ASR) ``{"prompt": str, "target": str}`` pair into the
-    ``instructions`` field.  Missing keys are silently skipped so the
-    stage works regardless of which upstream stages were enabled.
+    context ASR) ``{"prompt": str, "target": str, "tags": {...}}`` entry
+    into the ``preference_instructions`` field.  Each ``tags`` dict carries the
+    ``type`` of variant that was picked and a ``target_lang`` (currently
+    mirroring the per-sample source language).  Missing keys are silently
+    skipped so the stage works regardless of which upstream stages ran.
 
     Args:
         output_key: Destination field name for the packed list.
@@ -149,14 +167,23 @@ class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
             ``target`` for context-ASR prompt variants.  Defaults to
             ``pnc_text``; falls back to ``cleaned_text`` if pnc_text
             is empty.
+        source_lang_key: Field name holding the per-sample source
+            language; copied into each entry's ``tags.target_lang``.
+        notes_key: Field holding the ``additional_notes`` dict of
+            per-stage decisions.
+        pnc_note_key: Key within ``additional_notes`` recording the PnC
+            stage decision.  The PnC entry is tagged ``type="tn-pnc"`` by
+            default; it is downgraded to ``"tn"`` only when this note is
+            present and does not start with ``"applied"`` (e.g.
+            skipped/fallback/kept).
         sample_id_key: Stable per-sample identifier used to seed the RNG.
         seed: Base RNG seed combined with ``sample_id`` via SHA-256.
         skip_when_empty: If True (default), do not write the
-            ``instructions`` field when no pairs were produced.
+            ``preference_instructions`` field when no pairs were produced.
     """
 
     name: str = "InstructionPacker"
-    output_key: str = "instructions"
+    output_key: str = "preference_instructions"
 
     pnc_key: str = "pnc_text"
     itn_key: str = "itn_text"
@@ -166,6 +193,10 @@ class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
     speech_qa_key: str = "speech_qa_text"
     context_asr_key: str = "context_asr"
     transcription_target_key: str = "pnc_text"
+    source_lang_key: str = "source_lang"
+
+    notes_key: str = "additional_notes"
+    pnc_note_key: str = "PnCRestoration"
 
     sample_id_key: str = "audio_filepath"
     seed: int = 42
@@ -195,25 +226,44 @@ class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
     def _nonempty(text: Any) -> bool:  # noqa: ANN401
         return isinstance(text, str) and bool(text.strip())
 
-    def _pack_one(self, task: AudioTask, rng: _random_module.Random) -> list[dict[str, str]]:
-        pairs: list[dict[str, str]] = []
+    def _pnc_applied(self, data: dict[str, Any]) -> bool:
+        """Assume PnC applied unless ``additional_notes[pnc_note_key]`` is present
+        and does not start with ``"applied"`` (e.g. skipped/fallback/kept)."""
+        notes = data.get(self.notes_key)
+        if isinstance(notes, dict):
+            note = notes.get(self.pnc_note_key)
+            if isinstance(note, str) and note and not note.startswith("applied"):
+                return False
+        return True
+
+    def _pack_one(self, task: AudioTask, rng: _random_module.Random) -> list[dict[str, Any]]:
+        pairs: list[dict[str, Any]] = []
         data = task.data
 
-        def add(prompts: list[str], target_key: str) -> None:
+        # target_lang currently mirrors the per-sample source language.
+        target_lang = data.get(self.source_lang_key)
+
+        def make_tags(instruction_type: str) -> dict[str, Any]:
+            return {"type": instruction_type, "target_lang": target_lang}
+
+        def add(prompts: list[str], target_key: str, instruction_type: str) -> None:
             target = data.get(target_key)
             if self._nonempty(target):
-                pairs.append({"prompt": rng.choice(prompts), "target": target.strip()})
+                pairs.append(
+                    {"prompt": rng.choice(prompts), "target": target.strip(), "tags": make_tags(instruction_type)}
+                )
 
-        add(_PNC_PROMPTS, self.pnc_key)
-        add(_ITN_PROMPTS, self.itn_key)
-        add(_ITN_NO_DISFL_PROMPTS, self.itn_no_disfluencies_key)
-        add(_CAPTION_PROMPTS, self.captioning_key)
-        add(_CODE_SWITCH_PROMPTS, self.code_switched_key)
+        pnc_applied = self._pnc_applied(data)
+        add(_PNC_PROMPTS if pnc_applied else _TN_PROMPTS, self.pnc_key, "tn-pnc" if pnc_applied else "tn")
+        add(_ITN_PROMPTS, self.itn_key, "itn")
+        add(_ITN_NO_DISFL_PROMPTS, self.itn_no_disfluencies_key, "itn_no-disfluencies")
+        add(_CAPTION_PROMPTS, self.captioning_key, "captioning")
+        add(_CODE_SWITCH_PROMPTS, self.code_switched_key, "code_switched")
 
         qa = _parse_speech_qa(data.get(self.speech_qa_key, ""))
         if qa is not None:
             question, answer = qa
-            pairs.append({"prompt": question, "target": answer})
+            pairs.append({"prompt": question, "target": answer, "tags": make_tags("speech_qa")})
 
         ctx = data.get(self.context_asr_key)
         if isinstance(ctx, dict):
@@ -223,7 +273,13 @@ class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
                 for vkey in _CONTEXT_ASR_VARIANT_KEYS:
                     prompt = ctx.get(vkey)
                     if self._nonempty(prompt):
-                        pairs.append({"prompt": prompt.strip(), "target": target})
+                        pairs.append(
+                            {
+                                "prompt": prompt.strip(),
+                                "target": target,
+                                "tags": make_tags(f"context_asr-{vkey.removesuffix('_prompt')}"),
+                            }
+                        )
 
         return pairs
 

@@ -62,7 +62,7 @@ Architecture:
         → writes speech_qa_text
     [if --enable_instruction_packer] InstructionPackerStage (CPU)
         → collects every enabled text variant into a single
-          'instructions' field (list of {prompt, target} pairs) ready
+          'preference_instructions' field (list of {prompt, target} pairs) ready
           for instruction-tuning training
     ShardedManifestWriterStage (CPU)
         → writes per-shard JSONL output with .done markers
@@ -194,13 +194,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Pack all enabled text outputs (pnc/itn/itn_no-disfluencies/captioning/code-switched/"
-        "speech_qa/context_asr) into a single 'instructions' field — a list of {prompt, target} "
-        "pairs the trainer samples from one-per-epoch.",
+        "speech_qa/context_asr) into a single 'preference_instructions' field — a list of "
+        "{prompt, target} pairs the trainer samples from one-per-epoch.",
     )
     ap.add_argument(
         "--instructions_output_key",
         type=str,
-        default="instructions",
+        default="preference_instructions",
         help="Output field name for the packed instruction-target list.",
     )
     ap.add_argument(
