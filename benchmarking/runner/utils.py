@@ -218,7 +218,12 @@ def get_gpu_stats() -> dict:
     return query_data
 
 
-def log_gpu_stats(gpu_stats: dict, warn_if_in_use: bool = False, warning_threshold: float | None = None) -> list[str]:
+def log_gpu_stats(
+    gpu_stats: dict,
+    warn_if_in_use: bool = False,
+    warning_threshold: float | None = None,
+    warning_threshold_msg: str = "still in use",
+) -> list[str]:
     """Log GPU memory usage for each GPU as a percentage of total memory.
 
     Args:
@@ -240,7 +245,7 @@ def log_gpu_stats(gpu_stats: dict, warn_if_in_use: bool = False, warning_thresho
                 fraction_used > warning_threshold if warning_threshold is not None else stats["memory_used"] > 0
             )
             if threshold_exceeded:
-                msg = f"GPU {gpu_id} has {stats['memory_used']} MiB ({pct_used:.1f}% of total) used before benchmark started"
+                msg = f"GPU {gpu_id}: {stats['memory_used']} MiB ({pct_used:.1f}% of total) {warning_threshold_msg}"
                 logger.warning(msg)
                 warnings.append(msg)
     return warnings

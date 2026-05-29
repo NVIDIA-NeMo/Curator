@@ -47,8 +47,8 @@ class Entry:
     object_store_size: int | float | str | None = None
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
-    # If set, overrides the session-level max_allowed_gpu_mem_use_warning_threshold for this entry
-    max_allowed_gpu_mem_use_warning_threshold: float | None = None
+    # If set, overrides the session-level gpu_mem_use_warning_threshold for this entry
+    gpu_mem_use_warning_threshold: float | None = None
 
     def __post_init__(self) -> None:  # noqa: C901, PLR0912
         """Post-initialization checks and updates for dataclass."""

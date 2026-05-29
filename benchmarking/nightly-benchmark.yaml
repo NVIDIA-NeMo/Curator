@@ -135,7 +135,7 @@ object_store_size: 536870912000  # 500GB
 
 # Percentage of GPU memory permitted to be in use prior to running a
 # benchmark before a warning is printed.
-max_allowed_gpu_mem_use_warning_threshold: 0.02
+gpu_mem_use_warning_threshold: 0.01
 
 # Global ray settings inherited by all entries. Per-entry ray sections override these values.
 ray:

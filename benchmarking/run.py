@@ -208,7 +208,8 @@ def run_entry(
         warnings = log_gpu_stats(
             gpu_stats_before,
             warn_if_in_use=True,
-            warning_threshold=entry.max_allowed_gpu_mem_use_warning_threshold,
+            warning_threshold=entry.gpu_mem_use_warning_threshold,
+            warning_threshold_msg="used before benchmark started",
         )
         logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
@@ -221,7 +222,12 @@ def run_entry(
         )
         ended_exec = time.time()
         logger.info("\tGPU stats (after):")
-        warnings += log_gpu_stats(get_gpu_stats(), warn_if_in_use=True)
+        warnings += log_gpu_stats(
+            get_gpu_stats(),
+            warn_if_in_use=True,
+            warning_threshold=entry.gpu_mem_use_warning_threshold,
+            warning_threshold_msg="left in use after benchmark ended",
+        )
         duration = ended_exec - started_exec
 
         # Update result_data

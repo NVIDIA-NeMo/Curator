@@ -48,7 +48,7 @@ class Session:
     delete_scratch: bool = True
     # Fraction of total GPU memory (0.0-1.0) above which a pre-run warning is emitted.
     # If None, any usage > 0 triggers a warning. Entries can override this value.
-    max_allowed_gpu_mem_use_warning_threshold: float | None = None
+    gpu_mem_use_warning_threshold: float | None = None
     # Global ray settings inherited by all entries; per-entry ray sections override these values.
     ray: dict = field(default_factory=dict)
     path_resolver: PathResolver = None
@@ -81,10 +81,10 @@ class Session:
             if entry.object_store_size is None:
                 entry.object_store_size = self.object_store_size
 
-        # Update max_allowed_gpu_mem_use_warning_threshold for each entry that has not been set.
+        # Update gpu_mem_use_warning_threshold for each entry that has not been set.
         for entry in self.entries:
-            if entry.max_allowed_gpu_mem_use_warning_threshold is None:
-                entry.max_allowed_gpu_mem_use_warning_threshold = self.max_allowed_gpu_mem_use_warning_threshold
+            if entry.gpu_mem_use_warning_threshold is None:
+                entry.gpu_mem_use_warning_threshold = self.gpu_mem_use_warning_threshold
 
         # Apply global ray defaults to each entry, with per-entry ray values taking precedence.
         for entry in self.entries:
