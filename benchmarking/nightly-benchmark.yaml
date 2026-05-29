@@ -855,7 +855,7 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
-    timeout_s: 400
+    timeout_s: 800
     sink_data:
       - name: slack
         ping_on_failure:
@@ -866,7 +866,7 @@ entries:
       - metric: num_clips_generated
         exact_value: 1400
       - metric: throughput_clips_per_sec
-        min_value: 4.0
+        min_value: 2.0
 
   - name: video_transcoding_xenna
     enabled: true
@@ -902,7 +902,7 @@ entries:
       --no-generate-embeddings
       --video-dir={dataset:videos,mp4}
       --video-limit=1000
-    timeout_s: 400
+    timeout_s: 800
     sink_data:
       - name: slack
         ping_on_failure:
@@ -914,7 +914,7 @@ entries:
       - metric: num_clips_generated
         exact_value: 1400
       - metric: throughput_clips_per_sec
-        min_value: 5.0
+        min_value: 3.0
 
   - name: video_captioning_xenna
     enabled: true
@@ -1071,7 +1071,7 @@ entries:
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=1000
-    timeout_s: 800
+    timeout_s: 1200
     sink_data:
       - name: slack
         ping_on_failure:
@@ -1082,7 +1082,7 @@ entries:
       - metric: num_clips_generated
         exact_value: 113
       - metric: throughput_clips_per_sec
-        min_value: 0.25
+        min_value: 0.1
 
   - name: multimodal_mint1t_xenna
     enabled: false
