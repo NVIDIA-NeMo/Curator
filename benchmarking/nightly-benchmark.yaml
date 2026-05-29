@@ -120,6 +120,9 @@ sinks:
     live_updates: true
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
+    # Temporarily disable @-mentions on failure while the test suite is being
+    # stabilized. Flip back to true (or remove this line) once runs are clean.
+    ping_users_on_failure: false
 #  - name: gdrive
 #    enabled: false
 #    drive_folder_id: ${GDRIVE_FOLDER_ID}
