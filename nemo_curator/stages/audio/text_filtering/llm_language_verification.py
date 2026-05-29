@@ -73,13 +73,47 @@ def normalize_language_to_code(value: str) -> str | None:
     return None
 
 
+def parse_language_prediction(raw: str) -> tuple[str | None, list[str]]:
+    """Parse an LLM language-ID output into ``(primary_code, detected_codes)``.
+
+    Recognizes the ``Primary: <name>`` / ``Languages: <a, b>`` format; falls back
+    to treating the whole string as a single language name.  ``detected_codes``
+    is de-duplicated with the primary first; >1 entry means code-switching.
+    """
+    primary_raw: str | None = None
+    langs_raw: list[str] = []
+    for line in raw.splitlines():
+        lowered = line.strip().lower()
+        if lowered.startswith("primary:"):
+            primary_raw = line.split(":", 1)[1].strip()
+        elif lowered.startswith("languages:"):
+            langs_raw = [p.strip() for p in line.split(":", 1)[1].split(",") if p.strip()]
+
+    if primary_raw is None:
+        primary_raw = langs_raw[0] if langs_raw else raw.strip()
+
+    primary_code = normalize_language_to_code(primary_raw)
+
+    detected_codes: list[str] = []
+    for value in [primary_raw, *langs_raw]:
+        code = normalize_language_to_code(value)
+        if code and code not in detected_codes:
+            detected_codes.append(code)
+
+    return primary_code, detected_codes
+
+
 @dataclass
 class LLMLanguageVerificationStage(ProcessingStage[AudioTask, AudioTask]):
     """Compare ``llm_language_prediction`` to ``source_lang`` and flag mismatches.
 
-    When the predicted language differs from ``source_lang_key``, ``skip_me_key``
-    is set to the detected language label in ``English-en`` form (name + ISO code).
-    An already non-empty ``skip_me_key`` value is never overwritten.
+    The prediction reports a primary language plus all languages present.
+    Code-switched transcripts that still contain ``source_lang`` are kept (only
+    noted); mismatches and code-switches missing ``source_lang`` are flagged
+    ``"Wrong language:<stage>"`` (``"Unparseable language:<stage>"`` when the
+    prediction can't be parsed), following ``FastTextLIDStage``'s
+    ``"<reason>:<stage>"`` convention.  An already non-empty ``skip_me_key`` is
+    never overwritten.
 
     Args:
         prediction_key: Manifest key holding the LLM language name/code output.
@@ -114,7 +148,7 @@ class LLMLanguageVerificationStage(ProcessingStage[AudioTask, AudioTask]):
             return task
 
         expected_code = normalize_language_to_code(str(raw_expected))
-        predicted_code = normalize_language_to_code(raw_prediction)
+        primary_code, detected_codes = parse_language_prediction(raw_prediction)
 
         if expected_code is None:
             set_note(
@@ -125,9 +159,9 @@ class LLMLanguageVerificationStage(ProcessingStage[AudioTask, AudioTask]):
             )
             return task
 
-        if predicted_code is None:
+        if primary_code is None:
             if not task.data[self.skip_me_key]:
-                task.data[self.skip_me_key] = raw_prediction.strip()
+                task.data[self.skip_me_key] = f"Unparseable language:{self.name}"
             set_note(
                 task.data,
                 self.name,
@@ -136,21 +170,44 @@ class LLMLanguageVerificationStage(ProcessingStage[AudioTask, AudioTask]):
             )
             return task
 
-        if predicted_code != expected_code:
+        langs_label = ", ".join(_format_lang_label(c) for c in detected_codes)
+        expected_label = _format_lang_label(expected_code)
+
+        # Keep code-switched samples that still contain source_lang; flag only when it's absent.
+        if len(detected_codes) > 1:
+            if expected_code in detected_codes:
+                set_note(
+                    task.data,
+                    self.name,
+                    f"passed code-switch (primary={_format_lang_label(primary_code)}, "
+                    f"langs=[{langs_label}], expected={expected_label})",
+                    self.notes_key,
+                )
+            else:
+                if not task.data[self.skip_me_key]:
+                    task.data[self.skip_me_key] = f"Wrong language:{self.name}"
+                set_note(
+                    task.data,
+                    self.name,
+                    f"wrong language code-switch (langs=[{langs_label}], expected={expected_label})",
+                    self.notes_key,
+                )
+            return task
+
+        if primary_code != expected_code:
             if not task.data[self.skip_me_key]:
-                task.data[self.skip_me_key] = _format_lang_label(predicted_code)
+                task.data[self.skip_me_key] = f"Wrong language:{self.name}"
             set_note(
                 task.data,
                 self.name,
-                f"wrong language (predicted={_format_lang_label(predicted_code)}, "
-                f"expected={_format_lang_label(expected_code)})",
+                f"wrong language (predicted={_format_lang_label(primary_code)}, expected={expected_label})",
                 self.notes_key,
             )
         else:
             set_note(
                 task.data,
                 self.name,
-                f"passed ({_format_lang_label(predicted_code)})",
+                f"passed ({_format_lang_label(primary_code)})",
                 self.notes_key,
             )
         return task

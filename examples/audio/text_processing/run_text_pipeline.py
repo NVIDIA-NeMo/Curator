@@ -27,10 +27,11 @@ Architecture:
     [if --enable_pnc] TextLLMStage: PnC (GPU)
         → restores punctuation/capitalisation, writes pnc_text
     [if --enable_language_id] TextLLMStage: LanguageID (GPU)
-        → asks the LLM to identify the transcript language
+        → asks the LLM for the primary language plus all languages present
         → writes llm_language_prediction
-        → LLMLanguageVerificationStage (CPU): compares to source_lang,
-          sets _skipme to English-en style label on mismatch
+        → LLMLanguageVerificationStage (CPU): compares to source_lang; keeps
+          code-switched samples containing source_lang, else sets _skipme to
+          "Wrong language:LLMLanguageVerification"
     [if --enable_itn] TextLLMStage: ITN (GPU)
         → inverse text normalization, preserves disfluencies
         → writes itn_text
@@ -145,8 +146,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=False,
         help=(
             "Enable language-ID stage (GPU) plus verification (CPU): LLM writes "
-            "llm_language_prediction, then compares to source_lang and sets _skipme "
-            "to Name-code (e.g. English-en) on mismatch."
+            "llm_language_prediction (primary + all languages), then compares to source_lang. "
+            "Code-switched samples containing source_lang are kept; otherwise _skipme is set "
+            "to 'Wrong language:LLMLanguageVerification'."
         ),
     )
     ap.add_argument(
@@ -430,7 +432,8 @@ def main() -> None:  # noqa: C901, PLR0915
         logger.info("LanguageID stage enabled: pnc_text → llm_language_prediction")
         stages.append(LLMLanguageVerificationStage())
         logger.info(
-            "LLMLanguageVerification stage enabled: llm_language_prediction vs source_lang → _skipme (Name-code)"
+            "LLMLanguageVerification stage enabled: llm_language_prediction vs source_lang "
+            "→ keep code-switch w/ source_lang, else _skipme='Wrong language:LLMLanguageVerification'"
         )
 
     if args.enable_itn:
