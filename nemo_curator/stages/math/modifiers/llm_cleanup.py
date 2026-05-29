@@ -112,7 +112,9 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         else:
             self._final_max_model_len = self.max_model_len
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         """Download weights and initialize vLLM once per node to avoid torch.compile race conditions."""
         cache_dir = self._model_kwargs.get("cache_dir") if self._model is None else self._model.cache_dir
 

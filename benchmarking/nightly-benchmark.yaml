@@ -133,6 +133,10 @@ delete_scratch: true
 # for "ray start" to determine object store size.
 object_store_size: 536870912000  # 500GB
 
+# Fraction (0.0-1.0) of GPU memory that may be in use without emitting a
+# warning. Checked both before and after each benchmark run.
+gpu_mem_use_warning_threshold: 0.01
+
 # Global ray settings inherited by all entries. Per-entry ray sections override these values.
 ray:
   num_cpus: 64
@@ -1134,7 +1138,7 @@ entries:
     ray:
       num_gpus: 0
 
-  - name: audio_tagging_tts
+  - name: audio_tagging_tts_xenna
     enabled: true
     script: audio_tagging_benchmark.py
     args: >-
@@ -1144,7 +1148,30 @@ entries:
       --max-segment-length=40
       --asr-batch-size=50
       --executor=xenna
-      --cpus=10
+    timeout_s: 3600
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U06J49AK7BQ  # Sushmitha Deva
+    ray:
+      num_cpus: 16
+      num_gpus: 1
+      enable_object_spilling: false
+    requirements:
+      - metric: is_success
+        exact_value: true
+
+  - name: audio_tagging_tts_xenna_repeat
+    enabled: true
+    script: audio_tagging_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={session_entry_dir}/input.jsonl
+      --repeat-factor=2
+      --hf-token=${HF_SECRET_KEY}
+      --max-segment-length=40
+      --asr-batch-size=50
+      --executor=xenna
     timeout_s: 3600
     sink_data:
       - name: slack

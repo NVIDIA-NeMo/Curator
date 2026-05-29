@@ -37,9 +37,8 @@ stages:
     max_length: ${max_segment_length}
     segmentation_batch_size: 2
     embedding_batch_size: 2
-    xenna_num_workers: 1
     resources:
-      gpus: 1
+      gpus: 0.4
 
   # 3. Split long audio segments
   - _target_: nemo_curator.stages.audio.tagging.SplitLongAudioStage
@@ -57,20 +56,47 @@ stages:
     transcribe_batch_size: 4
     num_workers: 1
     resources:
-      gpus: 1
+      gpus: 0.45
 
   # 5. Join split audio metadata
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
     name: "JoinSplitMetadata"
-    resources: ${resources}
+    resources:
+      cpus: 0.5
 
   # 6. Merge alignment with diarization segments
   - _target_: nemo_curator.stages.audio.tagging.MergeAlignmentDiarizationStage
     name: "MergeAlignmentDiar"
     text_key: "text"
     words_key: "words"
+    resources:
+      cpus: 0.5
+
+  # 7. Estimate bandwidth
+  - _target_: nemo_curator.stages.audio.metrics.bandwidth.BandwidthEstimationStage
+    name: "BandwidthEstimation"
     resources: ${resources}
 
-  # 7. Write output manifest
+  # 8. Calculate audio quality metrics
+  - _target_: nemo_curator.stages.audio.metrics.squim.TorchSquimQualityMetricsStage
+    name: "SquimMetrics"
+    resources:
+      gpus: 0.05
+
+
+  # 9. Prepare TTS segments
+  - _target_: nemo_curator.stages.audio.tagging.PrepareModuleSegmentsStage
+    name: "PrepareModuleSegments"
+    module: tts
+    min_duration: 5
+    max_duration: 20
+    max_pause: 2
+    terminal_punct_marks: ".!?。？！。"
+    full_utterance_ratio: 1.0
+    punctuation_split_only: false
+    resources:
+      cpus: 0.5
+
+  # 10. Write output manifest
   - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     output_path: ${final_manifest}
