@@ -231,6 +231,8 @@ def log_gpu_stats(
         warn_if_in_use: If True, emit a warning for any GPU that exceeds the usage threshold.
         warning_threshold: Fraction of total GPU memory (0.0-1.0) above which a warning is
             emitted. If None and warn_if_in_use is True, any usage > 0 triggers a warning.
+        warning_threshold_msg: Trailing context phrase appended to each warning message
+            (e.g. "used before benchmark started"). Defaults to "still in use".
 
     Returns:
         List of warning strings for any GPUs that triggered a warning.
