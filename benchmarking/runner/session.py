@@ -46,8 +46,9 @@ class Session:
     object_store_size: int | float | str | None = 0.5
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
-    # Fraction of total GPU memory (0.0-1.0) above which a pre-run warning is emitted.
-    # If None, any usage > 0 triggers a warning. Entries can override this value.
+    # Fraction of total GPU memory (0.0-1.0) above which a warning is emitted, both
+    # before and after each benchmark run. If None, any usage > 0 triggers a warning.
+    # Entries can override this value.
     gpu_mem_use_warning_threshold: float | None = None
     # Global ray settings inherited by all entries; per-entry ray sections override these values.
     ray: dict = field(default_factory=dict)

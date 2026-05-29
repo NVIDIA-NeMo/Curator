@@ -133,8 +133,8 @@ delete_scratch: true
 # for "ray start" to determine object store size.
 object_store_size: 536870912000  # 500GB
 
-# Fraction (0.0-1.0) of GPU memory permitted to be in use prior to running
-# a benchmark before a warning is printed.
+# Fraction (0.0-1.0) of GPU memory that may be in use without emitting a
+# warning. Checked both before and after each benchmark run.
 gpu_mem_use_warning_threshold: 0.01
 
 # Global ray settings inherited by all entries. Per-entry ray sections override these values.
