@@ -57,6 +57,8 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     backend_type: str = "llm"
     backend_config: dict = field(default_factory=dict)
     generation_config: GenerationConfig | None = None
+    prompt_path: str | None = None
+    """Absolute local YAML prompt path, or ``None`` for the packaged prompt."""
     max_concurrent_requests: int = 64
     health_check: bool = True
     """If True, verify the translation backend is reachable during ``setup()``."""
@@ -101,7 +103,8 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Initialize the client or backend on the worker."""
         if not self._initialized:
-            self._system_prompt, self._user_template = load_prompt_template("translate.yaml")
+            prompt_file = self.prompt_path or "translate.yaml"
+            self._system_prompt, self._user_template = load_prompt_template(prompt_file)
 
             if self.backend_type != "llm":
                 from nemo_curator.stages.text.experimental.translation.backends import get_backend

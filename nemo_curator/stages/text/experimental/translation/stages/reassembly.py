@@ -86,6 +86,21 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         """Reassemble translated segments into full documents."""
         df = batch.to_pandas()
 
+        if df.empty:
+            logger.info("ReassemblyStage: no translated segment rows to reassemble")
+            base_cols = [col for col in df.columns if col not in _INTERNAL_COLUMNS]
+            out_df = df.loc[:, base_cols].copy()
+            for col in self.outputs()[1]:
+                if col not in out_df.columns:
+                    out_df[col] = pd.Series(dtype="object")
+            return DocumentBatch(
+                task_id=batch.task_id,
+                dataset_name=batch.dataset_name,
+                data=out_df,
+                _metadata=batch._metadata,
+                _stage_perf=batch._stage_perf,
+            )
+
         result_rows: list[dict[str, Any]] = []
 
         for _doc_id, doc_group in df.groupby("_seg_doc_id", sort=True):
