@@ -26,6 +26,12 @@ Architecture:
         → reads per-shard JSONL output from the ASR pipeline
     [if --enable_pnc] TextLLMStage: PnC (GPU)
         → restores punctuation/capitalisation, writes pnc_text
+    [if --enable_language_id] TextLLMStage: LanguageID (GPU)
+        → asks the LLM for the primary language plus all languages present
+        → writes llm_language_prediction
+        → LLMLanguageVerificationStage (CPU): compares to source_lang; keeps
+          code-switched samples containing source_lang, else sets _skipme to
+          "Wrong language:LLMLanguageVerification"
     [if --enable_itn] TextLLMStage: ITN (GPU)
         → inverse text normalization, preserves disfluencies
         → writes itn_text
@@ -73,6 +79,7 @@ from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifes
 from nemo_curator.stages.audio.text_filtering.acoustic_distractor import AcousticDistractorStage
 from nemo_curator.stages.audio.text_filtering.contextual_asr_extraction import ContextualASRExtractionStage
 from nemo_curator.stages.audio.text_filtering.contextual_asr_prompt_variant import ContextualASRPromptVariantStage
+from nemo_curator.stages.audio.text_filtering.llm_language_verification import LLMLanguageVerificationStage
 from nemo_curator.stages.audio.text_filtering.text_llm_stage import TextLLMStage
 from nemo_curator.stages.resources import Resources
 
@@ -95,6 +102,7 @@ _CONTEXT_ASR_PROMPT = _PROMPT_DIR / "contextual_asr_prompt.md"
 _CONTEXT_ASR_MIN_MAX_MODEL_LEN = 4096
 _CODE_SWITCHING_PROMPT = _PROMPT_DIR / "code_switching_prompt.md"
 _SPEECH_QA_PROMPT = _PROMPT_DIR / "speech_qa_prompt.md"
+_LANGUAGE_ID_PROMPT = _PROMPT_DIR / "language_id_prompt.md"
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -131,6 +139,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Enable PnC stage: restores punctuation and capitalization. Output key: pnc_text",
+    )
+    ap.add_argument(
+        "--enable_language_id",
+        action="store_true",
+        default=False,
+        help=(
+            "Enable language-ID stage (GPU) plus verification (CPU): LLM writes "
+            "llm_language_prediction (primary + all languages), then compares to source_lang. "
+            "Code-switched samples containing source_lang are kept; otherwise _skipme is set "
+            "to 'Wrong language:LLMLanguageVerification'."
+        ),
     )
     ap.add_argument(
         "--enable_context_asr",
@@ -211,6 +230,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument(
         "--pnc_prompt_file", type=str, default=None, help="Path to PnC prompt file. Defaults to bundled pnc_prompt.md."
+    )
+    ap.add_argument(
+        "--language_id_prompt_file",
+        type=str,
+        default=None,
+        help="Path to language-ID prompt file. Defaults to bundled language_id_prompt.md.",
     )
     ap.add_argument(
         "--code_switching_prompt_file",
@@ -342,12 +367,13 @@ def main() -> None:  # noqa: C901, PLR0915
         and not args.enable_itn_no_disfluencies
         and not args.enable_captioning
         and not args.enable_pnc
+        and not args.enable_language_id
         and not args.enable_context_asr
         and not args.enable_code_switching
         and not args.enable_speech_qa
     ):
         logger.warning(
-            "No stages enabled. Use --enable_pnc, --enable_itn, --enable_itn_no-disfluencies, "
+            "No stages enabled. Use --enable_pnc, --enable_language_id, --enable_itn, --enable_itn_no-disfluencies, "
             "--enable_captioning, --enable_context_asr, --enable_code_switching, or --enable_speech_qa."
         )
         return
@@ -356,6 +382,7 @@ def main() -> None:  # noqa: C901, PLR0915
     itn_no_disfl_prompt = args.itn_no_disfluencies_prompt_file or str(_CORRECTION_PROMPT)
     captioning_prompt = args.captioning_prompt_file or str(_CAPTIONING_PROMPT)
     pnc_prompt = args.pnc_prompt_file or str(_PNC_PROMPT)
+    language_id_prompt = args.language_id_prompt_file or str(_LANGUAGE_ID_PROMPT)
     context_asr_prompt = args.context_asr_prompt_file or str(_CONTEXT_ASR_PROMPT)
     code_switching_prompt = args.code_switching_prompt_file or str(_CODE_SWITCHING_PROMPT)
     speech_qa_prompt = args.speech_qa_prompt_file or str(_SPEECH_QA_PROMPT)
@@ -389,6 +416,25 @@ def main() -> None:  # noqa: C901, PLR0915
             )
         )
         logger.info(f"PnC stage enabled: {pnc_input_key} → {args.pnc_output_key}")
+
+    if args.enable_language_id:
+        stages.append(
+            TextLLMStage(
+                name="LanguageID",
+                prompt_file=language_id_prompt,
+                text_key="pnc_text",
+                output_text_key="llm_language_prediction",
+                enable_validation=False,
+                resources=Resources(gpus=1.0),
+                **shared_model_kwargs,
+            )
+        )
+        logger.info("LanguageID stage enabled: pnc_text → llm_language_prediction")
+        stages.append(LLMLanguageVerificationStage())
+        logger.info(
+            "LLMLanguageVerification stage enabled: llm_language_prediction vs source_lang "
+            "→ keep code-switch w/ source_lang, else _skipme='Wrong language:LLMLanguageVerification'"
+        )
 
     if args.enable_itn:
         stages.append(
