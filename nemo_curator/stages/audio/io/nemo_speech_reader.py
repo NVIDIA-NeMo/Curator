@@ -309,115 +309,18 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return {"is_fanout_stage": True}
 
     @staticmethod
-    def _ensure_get_full_path_handles_uris() -> None:
-        """Ensure NeMo's get_full_path returns S3/remote URIs unchanged.
-
-        NeMo 2.7.2's get_full_path has force_cache support but still joins
-        paths when the audio_filepath is an S3 URI and force_cache=False.
-        This one-time patch adds an early return for datastore paths.
-
-        TODO: Remove once NeMo PR #15732 and shard_id manifest fix are released.
-        """
-        import nemo.collections.common.data.lhotse.nemo_adapters as _adapters
-        import nemo.collections.common.parts.preprocessing.manifest as _manifest
-
-        if getattr(_manifest, "_uri_patched", False):
-            return
-
-        from nemo.utils.data_utils import is_datastore_path
-
-        _original = _manifest.get_full_path
-
-        def _patched(audio_file, manifest_file=None, data_dir=None, audio_file_len_limit=255, force_cache=True):
-            if isinstance(audio_file, str) and is_datastore_path(audio_file):
-                return audio_file
-            if isinstance(audio_file, list):
-                return [_patched(a, manifest_file, data_dir, audio_file_len_limit, force_cache) for a in audio_file]
-            return _original(audio_file, manifest_file, data_dir, audio_file_len_limit, force_cache)
-
-        _manifest.get_full_path = _patched
-        _adapters.get_full_path = _patched
-
-        # Also normalize sample_rate -> sampling_rate for non-tarred S3 data.
-        # Without sampling_rate, NeMo calls Recording.from_file() which can't
-        # read S3 URIs via soundfile. With it, NeMo creates a synthetic Recording.
-        _OriginalIterInit = _adapters.LazyNeMoIterator.__init__
-
-        def _patched_init(self, *args, **kwargs):
-            _OriginalIterInit(self, *args, **kwargs)
-            self.source = _SampleRateNormalizer(self.source)
-
-        class _SampleRateNormalizer:
-            def __init__(self, source):
-                self._source = source
-
-            def __iter__(self):
-                for data in self._source:
-                    if "sampling_rate" not in data and "sample_rate" in data:
-                        data["sampling_rate"] = data["sample_rate"]
-                    yield data
-
-            def __len__(self):
-                return len(self._source)
-
-            def __add__(self, other):
-                return self._source.__add__(other)
-
-        _adapters.LazyNeMoIterator.__init__ = _patched_init
-        _manifest._uri_patched = True
-
-    @staticmethod
-    def _normalize_tarred_shard_id_keys(iterator: Any) -> None:  # noqa: ANN401
-        """Align manifest and tar shard_id key types for LazyNeMoTarredIterator.
-
-        Tar paths are parsed into int shard ids (e.g. ``manifest_3.tar`` -> ``3``),
-        while some manifests store ``shard_id`` as strings (e.g. ``"3"``). NeMo
-        uses the raw value as a dict key during iteration, causing KeyError.
-        """
-        tar_map = getattr(iterator, "shard_id_to_tar_path", None)
-        if not tar_map:
-            return
-
-        for sid, path in list(tar_map.items()):
-            if isinstance(sid, int):
-                tar_map.setdefault(str(sid), path)
-            elif isinstance(sid, str) and sid.isdigit():
-                tar_map.setdefault(int(sid), path)
-
-    @staticmethod
     def _make_cutset(manifest_path: str, tar_path: str | None) -> Any:  # noqa: ANN401
         """Build a lhotse CutSet using NeMo adapters."""
         from lhotse import CutSet
         from nemo.collections.common.data.lhotse.nemo_adapters import LazyNeMoIterator, LazyNeMoTarredIterator
 
-        NeMoSpeechReaderStage._ensure_get_full_path_handles_uris()
-
         if tar_path:
             resolved_tar = _s3_to_pipe(tar_path) if tar_path.startswith("s3://") else tar_path
-            # TODO: Remove once NeMo PR #15732 and shard_id manifest fix are released.
-            # Temporarily bypass _validate() which asserts shard_id type equality.
-            # Some datasets (e.g. MCV4) store shard_id as string '0' in the manifest
-            # while the tar regex extracts int 0 — causing a set comparison failure.
-            # Iteration is fixed separately via _normalize_tarred_shard_id_keys().
-            _orig_validate = LazyNeMoTarredIterator._validate
-            LazyNeMoTarredIterator._validate = lambda self: None
-            try:
-                iterator = LazyNeMoTarredIterator(
-                    manifest_path=manifest_path,
-                    tar_paths=resolved_tar,
-                    skip_missing_manifest_entries=True,
-                )
-                NeMoSpeechReaderStage._normalize_tarred_shard_id_keys(iterator)
-            finally:
-                LazyNeMoTarredIterator._validate = _orig_validate
-
-            # Fix shard_id type mismatch for datasets like MCV4 where manifest
-            # has string shard_ids ('0') but tar regex gives int (0).
-            # Add string keys to shard_id_to_tar_path so lookups work either way.
-            tar_map = iterator.shard_id_to_tar_path
-            extra = {str(k): v for k, v in tar_map.items() if str(k) not in tar_map}
-            tar_map.update(extra)
-
+            iterator = LazyNeMoTarredIterator(
+                manifest_path=manifest_path,
+                tar_paths=resolved_tar,
+                skip_missing_manifest_entries=True,
+            )
             return CutSet(iterator)
 
         return CutSet(LazyNeMoIterator(manifest_path))
@@ -431,7 +334,6 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         # Single-entry mode: load one audio file directly
         entry = task.reader_config.get("entry")
         if entry is not None:
-            NeMoSpeechReaderStage._ensure_get_full_path_handles_uris()
             audio_path = task.data[0]
             sr = entry.get("sampling_rate") or entry.get("sample_rate")
             try:
@@ -523,7 +425,8 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
             entry_data["num_channels"] = 1
             entry_data["corpus"] = corpus
             if "audio_filepath" not in entry_data and cut.recording and cut.recording.sources:
-                entry_data["audio_filepath"] = cut.recording.sources[0].source
+                src = cut.recording.sources[0].source
+                entry_data["audio_filepath"] = src if isinstance(src, str) else cut.id
             if language and "source_lang" not in entry_data:
                 entry_data["source_lang"] = language
 
