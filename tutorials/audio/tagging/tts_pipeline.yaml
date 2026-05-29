@@ -72,6 +72,14 @@ documentation: |
 
 input_manifest: ???
 final_manifest: ???
+# NvLLMOps' non-native Curator runner (nvllmops/stages/harvest/curator/
+# run_curator.py) unconditionally injects `data_config=<chunk>` and
+# `output_dir=<dir>` as Hydra CLI overrides for every pipeline that
+# isn't in _CURATOR_NATIVE_PIPELINES (which includes tagging). Declare
+# them here so Hydra struct-mode accepts the assignment. Not consumed
+# by any stage in this pipeline.
+data_config: ""
+output_dir: ""
 backend: xenna
 workspace_dir: /tmp/tagging_workspace
 resampled_audio_dir: ${workspace_dir}/audio_resampled

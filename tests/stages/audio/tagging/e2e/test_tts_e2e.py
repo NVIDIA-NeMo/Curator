@@ -51,11 +51,12 @@ def test_tts_e2e(tmp_path: Path, get_input_manifest: str) -> None:
     cfg.hf_token = os.getenv("HF_TOKEN", "")
     cfg.language_short = "en"
 
-    # Override ForcedAlignmentStage (index 4) to use CTC model for CPU testing
-    cfg.stages[4].model_name = "nvidia/stt_en_fastconformer_ctc_large"
-    cfg.stages[4].is_fastconformer = True
-    cfg.stages[4].decoder_type = "ctc"
-    cfg.stages[4].transcribe_batch_size = 1
+    # Override ForcedAlignmentStage (index 4) to use CTC model for CPU testing.
+    # Tier-1 stage field: model_id. Tier-2 adapter knobs: under adapter_kwargs.
+    cfg.stages[4].model_id = "nvidia/stt_en_fastconformer_ctc_large"
+    cfg.stages[4].adapter_kwargs.is_fastconformer = True
+    cfg.stages[4].adapter_kwargs.decoder_type = "ctc"
+    cfg.stages[4].adapter_kwargs.transcribe_batch_size = 1
 
     pipeline = create_pipeline_from_yaml(cfg)
     executor = XennaExecutor(
