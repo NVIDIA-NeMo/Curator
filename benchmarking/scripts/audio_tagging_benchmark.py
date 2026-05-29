@@ -32,7 +32,7 @@ from utils import RepeatEntriesStage, setup_executor, write_benchmark_results
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestReader, ManifestWriterStage
 from nemo_curator.stages.audio.inference.speaker_diarization import DiarizationStage
-from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
+from nemo_curator.stages.audio.inference.alignment import ForcedAlignmentStage
 from nemo_curator.stages.audio.tagging.merge_alignment_diarization import MergeAlignmentDiarizationStage
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
 from nemo_curator.stages.audio.tagging.split import JoinSplitAudioMetadataStage, SplitLongAudioStage
@@ -108,13 +108,17 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
         ).with_(resources=Resources(cpus=cpus))
     )
 
-    # ASR forced alignment (NeMo FastConformer)
+    # ASR forced alignment (ForcedAlignmentStage + NeMoASRAlignAdapter)
     pipeline.add_stage(
-        NeMoASRAlignerStage(
+        ForcedAlignmentStage(
             name="ASRAlignment",
-            is_fastconformer=True,
-            decoder_type="rnnt",
+            adapter_target="nemo_curator.adapters.alignment.NeMoASRAlignAdapter",
+            model_id="nvidia/parakeet-tdt_ctc-1.1b",
             batch_size=asr_batch_size,
+            adapter_kwargs={
+                "is_fastconformer": True,
+                "decoder_type": "rnnt",
+            },
         ).with_(resources=Resources(cpus=cpus, gpus=0.45))
     )
 

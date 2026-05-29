@@ -23,7 +23,7 @@
 #   1. ResampleAudio            - Resample audio to 16 kHz mono WAV
 #   2. DiarizationStage         - Speaker diarization + overlap detection (PyAnnote adapter)
 #   3. SplitLongAudio          - Split segments exceeding max length
-#   4. NeMoASRAligner          - Forced alignment via NeMo FastConformer
+#   4. ForcedAlignmentStage     - Forced alignment via NeMo FastConformer (NeMoASRAlignAdapter)
 #   5. JoinSplitAudioMetadata  - Rejoin split metadata
 #   6. MergeAlignmentDiar      - Merge ASR alignment with diarization
 #   7. ManifestWriter          - Write output JSONL manifest
@@ -116,11 +116,14 @@ stages:
     min_len: 1.0
     resources: ${resources}
 
-  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+  - _target_: nemo_curator.stages.audio.inference.alignment.ForcedAlignmentStage
     name: "ASRAlignment"
-    is_fastconformer: true
-    decoder_type: rnnt
+    adapter_target: nemo_curator.adapters.alignment.NeMoASRAlignAdapter
+    model_id: "nvidia/parakeet-tdt_ctc-1.1b"
     batch_size: 32
+    adapter_kwargs:
+      is_fastconformer: true
+      decoder_type: rnnt
 
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage
     name: "JoinSplitMetadata"

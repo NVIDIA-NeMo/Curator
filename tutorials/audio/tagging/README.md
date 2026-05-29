@@ -28,7 +28,7 @@ The audio tagging pipeline is a processing framework that takes raw audio files 
 | 1 | **ResampleAudioStage** | Resample to 16 kHz mono WAV | No |
 | 2 | **DiarizationStage** (+ `PyAnnoteDiarizationAdapter`) | Speaker diarization and overlap detection | Yes |
 | 3 | **SplitLongAudioStage** | Split segments exceeding max length | No |
-| 4 | **NeMoASRAlignerStage** | Forced alignment via NeMo FastConformer | Yes |
+| 4 | **ForcedAlignmentStage** (+ `NeMoASRAlignAdapter`) | Forced alignment via NeMo FastConformer | Yes |
 | 5 | **JoinSplitAudioMetadataStage** | Rejoin split audio metadata | No |
 | 6 | **MergeAlignmentDiarizationStage** | Merge alignment with diarization segments | No |
 | 7 | **ManifestWriterStage** | Write output JSONL manifest | No |

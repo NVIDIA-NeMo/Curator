@@ -52,16 +52,19 @@ stages:
     min_len: 1.0
     resources: ${resources}
 
-  # 4. ASR forced alignment (NeMo)
-  - _target_: nemo_curator.stages.audio.tagging.inference.nemo_asr_align.NeMoASRAlignerStage
+  # 4. ASR forced alignment (ForcedAlignmentStage + NeMoASRAlignAdapter)
+  - _target_: nemo_curator.stages.audio.inference.alignment.ForcedAlignmentStage
     name: "ASRAlignment"
-    is_fastconformer: true
-    decoder_type: ctc
+    adapter_target: nemo_curator.adapters.alignment.NeMoASRAlignAdapter
+    model_id: "nvidia/parakeet-tdt_ctc-1.1b"
     batch_size: 1
-    transcribe_batch_size: 4
-    num_workers: 1
     resources:
       gpus: 1
+    adapter_kwargs:
+      is_fastconformer: true
+      decoder_type: ctc
+      transcribe_batch_size: 4
+      num_workers: 1
 
   # 5. Join split audio metadata
   - _target_: nemo_curator.stages.audio.tagging.JoinSplitAudioMetadataStage

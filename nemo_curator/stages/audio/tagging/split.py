@@ -25,7 +25,7 @@ import torchaudio
 from fsspec.core import url_to_fs
 from loguru import logger
 
-from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
+from nemo_curator.stages.audio.inference.alignment import ForcedAlignmentStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -289,7 +289,7 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
 
     Decomposes into three sequential stages that always run together:
     1. SplitLongAudioStage — splits audio exceeding ``suggested_max_len``
-    2. NeMoASRAlignerStage — transcribes and aligns each chunk
+    2. ForcedAlignmentStage (with NeMoASRAlignAdapter) — transcribes and aligns each chunk
     3. JoinSplitAudioMetadataStage — merges transcripts back into original entries
 
     Args:
@@ -355,24 +355,26 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
                 suggested_max_len=self.suggested_max_len,
                 min_len=self.min_len,
             ),
-            NeMoASRAlignerStage(
-                model_name=self.model_name,
-                model_path=self.model_path,
-                is_fastconformer=self.is_fastconformer,
-                decoder_type=self.decoder_type,
+            ForcedAlignmentStage(
+                adapter_target="nemo_curator.adapters.alignment.NeMoASRAlignAdapter",
+                model_id=self.model_name,
+                text_key=self.text_key,
+                words_key=self.words_key,
+                segments_key=self.segments_key,
+                infer_segment_only=self.infer_segment_only,
                 min_len=self.min_len,
                 max_len=self.max_len,
                 batch_size=self.batch_size,
-                transcribe_batch_size=self.transcribe_batch_size,
-                split_batch_size=self.split_batch_size,
-                num_workers=self.num_workers,
-                infer_segment_only=self.infer_segment_only,
-                compute_timestamps=self.compute_timestamps,
-                timestamp_type=self.timestamp_type,
-                text_key=self.text_key,
-                words_key=self.words_key,
-                disable_word_confidence=self.disable_word_confidence,
-                segments_key=self.segments_key,
+                adapter_kwargs={
+                    "model_path": self.model_path,
+                    "is_fastconformer": self.is_fastconformer,
+                    "decoder_type": self.decoder_type,
+                    "transcribe_batch_size": self.transcribe_batch_size,
+                    "num_workers": self.num_workers,
+                    "compute_timestamps": self.compute_timestamps,
+                    "timestamp_type": self.timestamp_type,
+                    "disable_word_confidence": self.disable_word_confidence,
+                },
             ),
             JoinSplitAudioMetadataStage(),
         ]

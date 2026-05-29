@@ -35,14 +35,13 @@ _LAZY_IMPORTS = {
     "JoinSplitAudioMetadataStage": "nemo_curator.stages.audio.tagging.split",
     "SplitASRAlignJoinStage": "nemo_curator.stages.audio.tagging.split",
     "MergeAlignmentDiarizationStage": "nemo_curator.stages.audio.tagging.merge_alignment_diarization",
-    # --- Inference (tagging/inference/) ---
-    "BaseASRProcessorStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
-    "NeMoASRAlignerStage": "nemo_curator.stages.audio.tagging.inference.nemo_asr_align",
     # --- Inference (stage-adapter split per SDP-V2 design) ---
     "DiarizationStage": "nemo_curator.stages.audio.inference.speaker_diarization",
     "PyAnnoteDiarizationAdapter": "nemo_curator.adapters.diarization",
     "VADStage": "nemo_curator.stages.audio.inference.vad",
     "WhisperXVADAdapter": "nemo_curator.adapters.vad",
+    "ForcedAlignmentStage": "nemo_curator.stages.audio.inference.alignment",
+    "NeMoASRAlignAdapter": "nemo_curator.adapters.alignment",
 }
 
 _cache: dict[str, Any] = {}
