@@ -1,0 +1,389 @@
+---
+description: "Remove semantically redundant data using embeddings and clustering to identify meaning-based duplicates in large text datasets"
+categories: ["how-to-guides"]
+tags: ["semantic-dedup", "embeddings", "clustering", "similarity", "meaning-based", "advanced"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "advanced"
+content_type: "how-to"
+modality: "text-only"
+---
+
+# Semantic Deduplication
+
+Detect and remove semantically redundant data from your large text datasets using NeMo Curator.
+
+Unlike exact or fuzzy deduplication, which focus on textual similarity, semantic deduplication leverages the meaning of content to identify duplicates. This approach can significantly reduce dataset size while maintaining or even improving model performance.
+
+The technique uses embeddings to identify "semantic duplicates" - content pairs that convey similar meaning despite using different words.
+
+<Note>
+**GPU Acceleration**: Semantic deduplication requires GPU acceleration for both embedding generation and clustering operations. This method uses cuDF for GPU-accelerated dataframe operations and PyTorch models on GPU for optimal performance.
+</Note>
+
+## How It Works
+
+Semantic deduplication identifies meaning-based duplicates using embeddings:
+
+1. Generates embeddings for each document using transformer models
+2. Clusters embeddings using K-means
+3. Computes pairwise cosine similarities within clusters
+4. Identifies semantic duplicates based on similarity threshold
+5. Removes duplicates, keeping one representative per group
+
+<Note>
+Based on [SemDeDup: Data-efficient learning at web-scale through semantic deduplication](https://arxiv.org/pdf/2303.09540) by Abbas et al.
+</Note>
+
+## Before You Start
+
+**Prerequisites**:
+
+- GPU acceleration (required for embedding generation and clustering)
+- Stable document identifiers for removal (either existing IDs or IDs managed by the workflow and removal stages)
+
+<Note>
+**Running in Docker**: When running semantic deduplication inside the NeMo Curator container, ensure the container is started with `--gpus all` so that CUDA GPUs are available. Without this flag, you will see `RuntimeError: No CUDA GPUs are available`. Also activate the virtual environment with `source /opt/venv/env.sh` after entering the container.
+</Note>
+
+## Quick Start
+
+Get started with semantic deduplication using the following example of identifying duplicates, then remove them in one step:
+
+```python
+from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
+
+# Default: uses vLLM with google/embeddinggemma-300m
+workflow = TextSemanticDeduplicationWorkflow(
+    input_path="input_data/",
+    output_path="./results",
+    cache_path="./sem_cache",
+    n_clusters=100,
+    eps=0.07,  # Similarity threshold
+    id_field="doc_id",
+    perform_removal=True,  # Complete deduplication
+)
+
+results = workflow.run()
+# Clean dataset saved to ./results/deduplicated/
+```
+
+## Configuration
+
+Configure semantic deduplication using these key parameters:
+
+<Accordion title="Step-by-Step Workflow">
+
+For fine-grained control, break semantic deduplication into separate stages:
+
+```python
+from nemo_curator.stages.deduplication.id_generator import create_id_generator_actor
+from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
+from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
+from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import ParquetReader
+from nemo_curator.stages.text.io.writer import ParquetWriter
+
+# Step 1: Create ID generator
+create_id_generator_actor()
+
+# Step 2: Generate embeddings separately (using vLLM)
+embedding_pipeline = Pipeline(
+    name="embedding_pipeline",
+    stages=[
+        ParquetReader(file_paths=input_path, files_per_partition=1, fields=["text"], _generate_ids=True),
+        # VLLMEmbeddingModelStage uses shorter parameter names than the workflow wrapper:
+        # pretokenize (not embedding_pretokenize), vllm_init_kwargs (not embedding_vllm_init_kwargs),
+        # max_chars (not embedding_max_chars), cache_dir (not model_cache_dir)
+        VLLMEmbeddingModelStage(
+            model_identifier="google/embeddinggemma-300m",
+            text_field="text",
+        ),
+        ParquetWriter(path=embedding_output_path, fields=["_curator_dedup_id", "embeddings"]),
+    ],
+)
+embedding_out = embedding_pipeline.run()
+
+# Step 3: Run clustering and pairwise similarity (without duplicate identification)
+semantic_workflow = SemanticDeduplicationWorkflow(
+    input_path=embedding_output_path,
+    output_path=semantic_workflow_path,
+    n_clusters=100,
+    id_field="_curator_dedup_id",
+    embedding_field="embeddings",
+    eps=None,  # Skip duplicate identification for analysis
+)
+result = semantic_workflow.run()
+# result.metadata contains: total_time, num_duplicates, kmeans_time, pairwise_time
+
+# Step 4: Analyze similarity distribution to choose eps
+# Step 5: Identify duplicates with chosen eps
+# Step 6: Remove duplicates from original dataset
+```
+
+This approach enables analysis of intermediate results and parameter tuning.
+</Accordion>
+
+### Comparison with Other Deduplication Methods
+
+Compare semantic deduplication with other methods:
+
+| Method | Return Value Options | perform_removal Parameter | Workflow |
+| --- | --- | --- | --- |
+| ExactDuplicates | Duplicates (ID list only) | ❌ Not supported (must remain `False`; use `TextDuplicatesRemovalWorkflow`) | Two-step (identification + removal workflow) |
+| FuzzyDuplicates | Duplicates (ID list only) | ❌ Not supported (must remain `False`; use `TextDuplicatesRemovalWorkflow`) | Two-step (identification + removal workflow) |
+| TextSemanticDeduplicationWorkflow | Duplicates or Clean Dataset | ✅ Available | One-step or two-step |
+
+### Key Parameters
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_identifier` | str | `"google/embeddinggemma-300m"` | Pre-trained model for embedding generation (vLLM backend) |
+| `embedding_pretokenize` | bool | `False` | Whether to pre-tokenize input before passing to vLLM |
+| `embedding_vllm_init_kwargs` | dict | `None` | Additional keyword arguments passed to the vLLM `LLM` initializer |
+| `embedding_max_chars` | int | `None` | Maximum number of characters for text truncation |
+| `model_cache_dir` | str | `None` | Directory to cache model weights |
+| `n_clusters` | int | `100` | Number of clusters for k-means clustering |
+| `kmeans_max_iter` | int | `300` | Maximum iterations for clustering |
+| `eps` | float | `0.01` | Threshold for deduplication (higher = more aggressive) |
+| `which_to_keep` | str | `"hard"` | Strategy for keeping duplicates ("hard", "easy", or "random") |
+| `pairwise_batch_size` | int | `1024` | Batch size for similarity computation |
+| `distance_metric` | str | `"cosine"` | Distance metric for similarity ("cosine" or "l2") |
+| `perform_removal` | bool | `True` | Whether to perform duplicate removal |
+| `text_field` | str | `"text"` | Name of the text field in input data |
+| `id_field` | str | `"_curator_dedup_id"` | Name of the ID field in the data |
+
+### Similarity Threshold
+
+Control deduplication aggressiveness with `eps`:
+
+- **Lower values** (such as 0.001): More strict, less deduplication, higher confidence
+- **Higher values** (such as 0.1): Less strict, more aggressive deduplication
+
+Experiment with different values to balance data reduction and dataset diversity.
+
+<Accordion title="Embedding Models">
+
+Embedding generation uses vLLM as the inference backend. The default model is `google/embeddinggemma-300m`.
+
+**Default (vLLM)**:
+
+```python
+workflow = TextSemanticDeduplicationWorkflow(
+    # Uses google/embeddinggemma-300m by default
+    input_path="input_data/",
+    output_path="./results",
+    cache_path="./sem_cache",
+)
+```
+
+**Custom model with vLLM options**:
+
+```python
+workflow = TextSemanticDeduplicationWorkflow(
+    model_identifier="google/embeddinggemma-300m",
+    embedding_pretokenize=True,
+    embedding_vllm_init_kwargs={"enforce_eager": True, "max_model_len": 2048},
+    # ... other parameters
+)
+```
+
+**vLLM Embedder** (recommended for large models):
+
+For large embedding models, you can generate embeddings separately using `VLLMEmbeddingModelStage` before running the deduplication workflow. This provides better GPU utilization and throughput for models with 500M+ parameters. See [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder) for details.
+
+Generate embeddings with `VLLMEmbeddingModelStage` using the [vLLM Embedder](/curate-text/process-data/embeddings/vllm-embedder) pipeline, then pass the output to `SemanticDeduplicationWorkflow`:
+
+```python
+from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
+
+# After generating embeddings to embedding_output_path using VLLMEmbeddingModelStage
+semantic_workflow = SemanticDeduplicationWorkflow(
+    input_path=embedding_output_path,
+    output_path=output_path,
+    n_clusters=100,
+    eps=0.07,
+    id_field="_curator_dedup_id",
+    embedding_field="embeddings",
+)
+semantic_workflow.run()
+
+# Step 3: Filter original text dataset using the IDs to remove
+# See TextDuplicatesRemovalWorkflow for the removal step
+```
+
+**When choosing a model**:
+
+- Use models that support vLLM pooling (embedding) mode
+- Choose models appropriate for your language or domain
+- Prefer models trained for sentence embeddings (for example, EmbeddingGemma, E5, BGE, or SBERT)
+- Use `embedding_pretokenize=True` for models that benefit from explicit tokenization control
+- Pass additional vLLM configuration through `embedding_vllm_init_kwargs`
+- For more control over the embedding process, consider using [VLLMEmbeddingModelStage](/curate-text/process-data/embeddings/vllm-embedder) separately
+</Accordion>
+
+<Accordion title="Advanced Configuration">
+
+```python
+workflow = TextSemanticDeduplicationWorkflow(
+    # I/O
+    input_path="input_data/",
+    output_path="results/",
+    cache_path="semdedup_cache",
+
+    # Embedding generation (vLLM backend)
+    text_field="text",
+    model_identifier="google/embeddinggemma-300m",
+    embedding_pretokenize=False,
+    embedding_max_chars=None,
+    model_cache_dir=None,
+
+    # Deduplication
+    n_clusters=100,
+    eps=0.01,  # Similarity threshold
+    distance_metric="cosine",
+    which_to_keep="hard",
+
+    # K-means
+    kmeans_max_iter=300,
+    kmeans_tol=1e-4,
+    pairwise_batch_size=1024,
+
+    perform_removal=True,
+)
+```
+</Accordion>
+
+## Output Format
+
+The semantic deduplication process produces the following directory structure in your configured `cache_path`:
+
+```text
+cache_path/
+├── embeddings/                           # Embedding outputs
+│   └── *.parquet                         # Parquet files containing document embeddings
+├── semantic_dedup/                       # Semantic deduplication cache
+│   ├── kmeans_results/                   # K-means clustering outputs
+│   │   ├── kmeans_centroids.npy         # Cluster centroids
+│   │   └── embs_by_nearest_center/      # Embeddings organized by cluster
+│   │       └── nearest_cent={0..n-1}/   # Subdirectories for each cluster
+│   │           └── *.parquet            # Cluster member embeddings
+│   └── pairwise_results/                # Pairwise similarity results
+│       └── *.parquet                    # Similarity scores by cluster
+└── output_path/
+    ├── duplicates/                       # Duplicate identification results
+    │   └── *.parquet                    # Document IDs to remove
+    └── deduplicated/                     # Final clean dataset (if perform_removal=True)
+        └── *.parquet                    # Deduplicated documents
+```
+
+### File Formats
+
+The workflow produces these output files:
+
+1. **Document Embeddings** (`embeddings/*.parquet`):
+   - Contains document IDs and their vector embeddings
+   - Format: Parquet files with columns: `[id_column, embedding_column]`
+
+2. **Cluster Assignments** (`semantic_dedup/kmeans_results/`):
+   - `kmeans_centroids.npy`: NumPy array of cluster centers
+   - `embs_by_nearest_center/`: Parquet files containing cluster members
+   - Format: Parquet files with columns: `[id_column, embedding_column, cluster_id]`
+
+3. **Duplicate IDs** (`output_path/duplicates/*.parquet`):
+   - IDs of documents identified as duplicates for removal
+   - Format: Parquet file with columns: `["id"]`
+   - **Important**: Contains only the IDs of documents to remove, not the full document content
+   - When `perform_removal=True`, clean dataset is saved to `output_path/deduplicated/`
+
+ 
+
+<Accordion title="Performance Considerations">
+
+**Performance characteristics**:
+
+- Computationally intensive, especially for large datasets
+- GPU acceleration required for embedding generation and clustering
+- Benefits often outweigh upfront cost (reduced training time, improved model performance)
+
+**GPU requirements**:
+
+- NVIDIA GPU with CUDA support
+- Sufficient GPU memory (recommended: &gt;8GB for medium datasets)
+- RAPIDS libraries (cuDF) for GPU-accelerated dataframe operations
+- CPU-only processing not supported
+
+**Performance tuning**:
+
+- Adjust `n_clusters` based on dataset size and available resources
+- Use batched cosine similarity to reduce memory requirements
+- Consider distributed processing for very large datasets
+
+| Dataset Size | GPU Memory | Processing Time | Recommended GPUs |
+| --- | --- | --- | --- |
+| &lt;100K docs | 4-8 GB | 1-2 hours | RTX 3080, A100 |
+| 100K-1M docs | 8-16 GB | 2-8 hours | RTX 4090, A100 |
+| &gt;1M docs | &gt;16 GB | 8+ hours | A100, H100 |
+
+For more details, see the [SemDeDup paper](https://arxiv.org/pdf/2303.09540) by Abbas et al.
+</Accordion>
+
+<Accordion title="Advanced Configuration">
+
+**ID Generator for large-scale operations**:
+
+```python
+from nemo_curator.stages.deduplication.id_generator import (
+    create_id_generator_actor,
+    write_id_generator_to_disk,
+    kill_id_generator_actor
+)
+
+create_id_generator_actor()
+id_generator_path = "semantic_id_generator.json"
+write_id_generator_to_disk(id_generator_path)
+kill_id_generator_actor()
+
+# Use persisted ID generator in removal workflow
+removal_workflow = TextDuplicatesRemovalWorkflow(
+    input_path=input_path,
+    ids_to_remove_path=duplicates_path,
+    output_path=output_path,
+    id_generator_path=id_generator_path,
+    input_files_per_partition=1,  # Match partitioning as embedding generation
+    # ... other parameters
+)
+```
+
+**Critical requirements**:
+
+- Use the same input configuration (file paths, partitioning) across all stages
+- ID consistency maintained by hashing filenames in each task
+- Mismatched partitioning causes ID lookup failures
+
+**Ray backend configuration**:
+
+```python
+from nemo_curator.core.client import RayClient
+
+client = RayClient(
+    num_cpus=64,    # Adjust based on available cores
+    num_gpus=4      # Should be roughly 2x the memory of embeddings
+)
+client.start()
+
+try:
+    workflow = TextSemanticDeduplicationWorkflow(
+        input_path=input_path,
+        output_path=output_path,
+        cache_path=cache_path,
+        # ... other parameters
+    )
+    result = workflow.run()
+    # result.metadata contains: total_time, num_duplicates, num_duplicates_removed, embedding_time, identification_time, removal_time, final_output_path
+finally:
+    client.stop()
+```
+
+Provides distributed processing, memory management, and fault tolerance.
+</Accordion>

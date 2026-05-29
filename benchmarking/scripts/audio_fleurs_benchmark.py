@@ -32,7 +32,7 @@ from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByVa
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
 from nemo_curator.stages.audio.inference.asr.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
-from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
@@ -84,7 +84,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
             GetPairwiseWerStage(
                 text_key="text",
                 pred_text_key="pred_text",
-                wer_key="wer",
+                wer_key="wer_pct",
             )
         )
         pipeline.add_stage(
@@ -95,7 +95,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         )
         pipeline.add_stage(
             PreserveByValueStage(
-                input_value_key="wer",
+                input_value_key="wer_pct",
                 target_value=wer_threshold,
                 operator="le",
             )

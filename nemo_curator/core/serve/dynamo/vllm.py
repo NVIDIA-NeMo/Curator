@@ -17,9 +17,12 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from functools import reduce
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import ray
 from loguru import logger
 
 from nemo_curator.core.serve.base import BaseModelConfig
@@ -36,6 +39,7 @@ from nemo_curator.core.serve.placement import (
     plan_replica_bundle_shape,
 )
 from nemo_curator.core.serve.subprocess_mgr import ManagedSubprocess
+from nemo_curator.utils.ray_utils import run_on_each_node
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -46,29 +50,51 @@ if TYPE_CHECKING:
     from nemo_curator.core.serve.placement import ReplicaBundleSpec
 
 
-# Force flash-attn to rebuild against the actor venv's torch — its prebuilt
-# wheel has a torch-version-specific ABI and ai-dynamo[vllm] often pulls a
-# torch different from the base image's, so the prebuilt wheel's
-# ``c10::cuda::c10_cuda_check_implementation`` symbol misses at import.
-#
-# ``config.setup_timeout_seconds`` overrides Ray's 600s default — the
-# flash-attn from-source rebuild alone runs ~15 min, so the install would
-# otherwise be cancelled with ``RuntimeEnvSetupError`` before completing.
+# ai-dynamo[vllm]'s [vllm] extra carries a hard ray pin, but Ray refuses
+# actor venvs whose ray version differs from the cluster head's. uv has no
+# inline override syntax — only ``--override <file>`` — so we materialize a
+# tiny constraints file at a fixed path on every node via
+# ``ensure_actor_overrides_on_all_nodes``; the content is derived from the
+# driver's ``ray.__version__`` at fan-out time so a future Curator ray bump
+# doesn't need a code change here.
+_ACTOR_VENV_OVERRIDES_PATH = Path(tempfile.gettempdir()) / "nemo_curator_dynamo_actor_overrides.txt"
+
 DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
     "uv": {
-        "packages": [
-            "ai-dynamo[vllm]",
-            "flash-attn",
-        ],
-        "uv_pip_install_options": [
-            "--reinstall-package",
-            "flash-attn",
-            "--no-build-isolation-package",
-            "flash-attn",
-        ],
+        "packages": ["ai-dynamo[vllm]"],
+        "uv_pip_install_options": ["--override", str(_ACTOR_VENV_OVERRIDES_PATH)],
     },
-    "config": {"setup_timeout_seconds": 1800},
+    "config": {"setup_timeout_seconds": 600},
 }
+
+
+@ray.remote
+def _write_actor_overrides_file(path: str, body: str) -> None:
+    Path(path).write_text(body)
+
+
+def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> None:
+    """Write the actor-venv ``--override`` file at a fixed path on every alive node.
+
+    The file pins ``ray=={ray.__version__}`` (read from the driver) so the
+    actor venv keeps the same ray patch as the cluster head — Ray rejects
+    any mismatch.
+
+    Must run inside an active Ray context, before any worker spawned with
+    :data:`DYNAMO_VLLM_RUNTIME_ENV` lands. The runtime_env_agent on each
+    worker reads the file from the node-local filesystem; a single
+    driver-side write doesn't reach remote nodes.
+
+    Re-call after cluster topology changes (autoscale, node restart) — this
+    is one-shot and not auto-triggered.
+    """
+    run_on_each_node(
+        _write_actor_overrides_file,
+        str(_ACTOR_VENV_OVERRIDES_PATH),
+        f"ray=={ray.__version__}\n",
+        ignore_head_node=ignore_head_node,
+    )
+
 
 # Default KV-cache transfer configuration for disagg — NixlConnector is the
 # production path; ``kv_both`` makes each worker both send and receive KV
