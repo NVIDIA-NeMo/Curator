@@ -53,16 +53,13 @@ _ISO639_3_TO_1: dict[str, str] = {
 
 @dataclass
 class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
-    """Language identification using FastText; flags non-target-language entries.
+    """Language identification using FastText; records the result in notes only.
 
-    When an entry is flagged, ``_skipme`` is set to a descriptive string:
-
-    - ``"Wrong language"`` — detected language differs from per-sample ``source_lang``.
-    - ``"Low probability of language"`` — correct language but confidence
-      below ``min_lang_prob``.
-    - ``"Empty text"`` — text is blank after stripping.
-
-    An already non-empty ``_skipme`` value is never overwritten.
+    The detection outcome (passed / wrong language / low confidence / empty text)
+    is written to ``additional_notes`` but ``_skipme`` is never set — the language
+    decision is deferred to ``LLMLanguageVerificationStage`` so code-switched
+    samples are not dropped prematurely.  Entries already flagged upstream are
+    skipped.
 
     Texts with fewer than ``min_word_count`` words are passed through
     without LID filtering because FastText confidence is unreliable on
@@ -145,7 +142,7 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.text_key, self.skip_me_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.skip_me_key]
+        return [], []
 
     def _predict(self, text: str) -> tuple[str, float]:
         labels, scores = self._model.predict([text], k=1)
@@ -161,8 +158,6 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
             return task
         text = text.strip().replace("\n", " ")
         if not text:
-            if not task.data[self.skip_me_key]:
-                task.data[self.skip_me_key] = f"Empty text:{self.name}"
             set_note(task.data, self.name, "empty text", self.notes_key)
             return task
         if len(text.split()) < self.min_word_count:
@@ -170,15 +165,12 @@ class FastTextLIDStage(ProcessingStage[AudioTask, AudioTask]):
             return task
         lang, prob = self._predict(text)
         expected = task.data[self.source_lang_key]
-        if not task.data[self.skip_me_key]:
-            if lang != expected.lower():
-                task.data[self.skip_me_key] = f"Wrong language:{self.name}"
-                set_note(task.data, self.name, f"wrong language (detected={lang}, expected={expected}, prob={prob:.2f})", self.notes_key)
-            elif prob < self.min_lang_prob:
-                task.data[self.skip_me_key] = f"Low probability of language:{self.name}"
-                set_note(task.data, self.name, f"low confidence ({lang}, prob={prob:.2f})", self.notes_key)
-            else:
-                set_note(task.data, self.name, f"passed ({lang}, prob={prob:.2f})", self.notes_key)
+        if lang != expected.lower():
+            set_note(task.data, self.name, f"wrong language (detected={lang}, expected={expected}, prob={prob:.2f})", self.notes_key)
+        elif prob < self.min_lang_prob:
+            set_note(task.data, self.name, f"low confidence ({lang}, prob={prob:.2f})", self.notes_key)
+        else:
+            set_note(task.data, self.name, f"passed ({lang}, prob={prob:.2f})", self.notes_key)
         return task
 
     def process(self, task: AudioTask) -> AudioTask:
