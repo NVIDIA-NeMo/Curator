@@ -48,6 +48,9 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
 
     name: str = "sharded_manifest_writer"
     output_dir: str = ""
+    # Batch so process_batch() does one open+write+close per (batch, shard)
+    # instead of one per row, lifting the Lustre per-row fsync ceiling.
+    batch_size: int = 256
     _shard_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int), repr=False)
 
     def __post_init__(self) -> None:
@@ -120,7 +123,8 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         shard_total = task._metadata.get("_shard_total", 0)
         if shard_total > 0 and self._shard_counts[shard_key] >= shard_total:
             done_path = os.path.join(self.output_dir, f"{shard_key}.jsonl.done")
-            open(done_path, "w").close()
+            with open(done_path, "w") as f:
+                f.write(f"{self._shard_counts[shard_key]}\n")
             logger.info(f"Shard {shard_key} complete: {self._shard_counts[shard_key]} utterances, wrote {done_path}")
 
         return FileGroupTask(
@@ -132,7 +136,49 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         )
 
     def process_batch(self, tasks: list[AudioTask]) -> list[FileGroupTask]:
-        return [self.process(task) for task in tasks]
+        """One open+write+close per (batch, shard) instead of one per row."""
+        # Ray Data passes tasks as an ndarray, so use len() not `if not tasks`.
+        if len(tasks) == 0:
+            return []
+
+        by_shard: dict[str, list[AudioTask]] = defaultdict(list)
+        for task in tasks:
+            shard_key = task._metadata.get("_shard_key", "unknown/shard_0")
+            by_shard[shard_key].append(task)
+
+        results: list[FileGroupTask] = []
+        for shard_key, shard_tasks in by_shard.items():
+            out_path = os.path.join(self.output_dir, f"{shard_key}.jsonl")
+            os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+            with open(out_path, "a", encoding="utf-8") as f:
+                for task in shard_tasks:
+                    f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
+
+            # Update count only after data is on disk, so .done reflects it.
+            self._shard_counts[shard_key] += len(shard_tasks)
+
+            shard_total = shard_tasks[0]._metadata.get("_shard_total", 0)
+            if shard_total > 0 and self._shard_counts[shard_key] >= shard_total:
+                done_path = os.path.join(self.output_dir, f"{shard_key}.jsonl.done")
+                with open(done_path, "w") as f:
+                    f.write(f"{self._shard_counts[shard_key]}\n")
+                logger.info(
+                    f"Shard {shard_key} complete: {self._shard_counts[shard_key]} utterances, wrote {done_path}"
+                )
+
+            for task in shard_tasks:
+                results.append(
+                    FileGroupTask(
+                        task_id=task.task_id,
+                        dataset_name=task.dataset_name,
+                        data=[out_path],
+                        _metadata=task._metadata,
+                        _stage_perf=task._stage_perf,
+                    )
+                )
+
+        return results
 
     def teardown(self) -> None:
         total = sum(self._shard_counts.values())

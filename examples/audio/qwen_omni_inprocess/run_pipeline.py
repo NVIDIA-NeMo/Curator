@@ -245,7 +245,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                      help="Merge events with gaps smaller than this (seconds, 0 = disabled).")
     sed.add_argument("--sed_batch_size", type=int, default=32,
                      help="Batch size for SED GPU inference.")
-    sed.add_argument("--sed_gpu_memory_gb", type=float, default=4.0,
+    sed.add_argument("--sed_gpu_memory_gb", type=float, default=2.0,
                      help="GPU memory in GB for SED inference stage.")
     sed.add_argument("--sed_superclasses", action="store_true", default=False,
                      help="Emit aggregated superclass events (noisy-or per group) instead of per-class subcategory events.")
