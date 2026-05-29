@@ -1,8 +1,8 @@
 # Granary v2 ASR post-processing regex rules.
 #
-# Covered languages (40):
+# Covered languages (46):
 #   Latin:      en, de, es, fr, it, pt, pl, cs, nl, ro, hu, fi, lt, da, sv,
-#               lv, hr, et, sk, sl, mt
+#               lv, hr, et, sk, sl, mt, id, tl/fil, tr, vi
 #   Greek:      el
 #   Cyrillic:   ru, uk, bg
 #   Devanagari: hi, mr
@@ -13,7 +13,8 @@
 #   Telugu:     te
 #   Kannada:    kn
 #   Malayalam:  ml
-#   Arabic:     ar, ur
+#   Thai:       th
+#   Arabic:     ar, ur, fa
 #   Hebrew:     he
 #   CJK:        zh, ja (Hanzi/Kanji + Hiragana + Katakana)
 #   Hangul:     ko
@@ -81,12 +82,16 @@
 #   Telugu              \u0C00-\u0C7F
 #   Kannada             \u0C80-\u0CFF
 #   Malayalam           \u0D00-\u0D7F
+#   Thai                \u0E00-\u0E7F
+#   Turkish (Latin-A)   \u011E\u011F \u0130\u0131 \u015E\u015F   (\u011E\u011F \u0130\u0131 \u015E\u015F)
+#   Vietnamese (Latin-B)\u01A0-\u01B0                            (\u01A0\u01A1 \u01AF\u01B0)
+#   Vietnamese (Lat-Add)\u1EA0-\u1EFF                            (tone-marked vowels)
 #   ZWNJ / ZWJ          \u200C \u200D   (Indic conjuncts + Arabic ligatures)
 #   Hiragana            \u3040-\u309F
 #   Katakana            \u30A0-\u30FF
 #   CJK Unified         \u4E00-\u9FFF
 #   Hangul Syllables    \uAC00-\uD7AF
-- {"pattern": "[^ !$%',-.0123456789;?ABCDEFGHIJKLMNOPQRSßTUVWXYŸZabcdefghijklmnopqrsẞtuvwxyÿz¡£¿ÀÁÂÃÄÅÆÇÈÉÊÌÍÎÑÒÓÔÕÖØÙÚÜÝàáâãäåæçèéêëìíîïñòóôõöøùúûüýĀāĂăĄąĆćĊċČčĎďĐđĒēĖėĘęĚěĠġĢģĦħĪīĮįĶķĹĺĻļĽľŁłŃńŅņŇňŐőŒœŔŕŘřŚśŠšŤťŪūŮůŰűŲųŹźŻżŽžȘșȚțΆΈΉΌΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩάέήίαβγδεζηθικλμνξοπρστυφχψωϊόύώЁЄІЇАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяёєіїҐґ€₴₽/:\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u200C\u200D\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]", "repl": " "}
+- {"pattern": "[^ !$%',-.0123456789;?ABCDEFGHIJKLMNOPQRSßTUVWXYŸZabcdefghijklmnopqrsẞtuvwxyÿz¡£¿ÀÁÂÃÄÅÆÇÈÉÊÌÍÎÑÒÓÔÕÖØÙÚÜÝàáâãäåæçèéêëìíîïñòóôõöøùúûüýĀāĂăĄąĆćĊċČčĎďĐđĒēĖėĘęĚěĠġĢģĦħĪīĮįĶķĹĺĻļĽľŁłŃńŅņŇňŐőŒœŔŕŘřŚśŠšŤťŪūŮůŰűŲųŹźŻżŽžȘșȚțΆΈΉΌΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩάέήίαβγδεζηθικλμνξοπρστυφχψωϊόύώЁЄІЇАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяёєіїҐґ€₴₽/:\u011E\u011F\u0130\u0131\u015E\u015F\u01A0-\u01B0\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0E00-\u0E7F\u1EA0-\u1EFF\u200C\u200D\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]", "repl": " "}
 
 # Trailing cleanup
 - {"pattern": '\s+\.', "repl": "."}
