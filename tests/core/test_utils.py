@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import socket
+
 import pytest
 
-from nemo_curator.core.utils import ignore_ray_head_node
+from nemo_curator.core.utils import get_free_port, ignore_ray_head_node
 
 
 @pytest.mark.parametrize(
@@ -34,3 +36,28 @@ def test_ignore_ray_head_node_env_parsing(monkeypatch: pytest.MonkeyPatch, value
     else:
         monkeypatch.setenv("CURATOR_IGNORE_RAY_HEAD_NODE", value)
     assert ignore_ray_head_node() is expected
+
+
+def test_get_free_port_checks_highest_valid_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeSocket:
+        def __enter__(self) -> "FakeSocket":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def setsockopt(self, *args: object) -> None:
+            return None
+
+        def bind(self, address: tuple[str, int]) -> None:
+            _, port = address
+            if port != 65535:
+                raise OSError
+
+    def fake_socket(*args: object, **kwargs: object) -> FakeSocket:
+        _ = args, kwargs
+        return FakeSocket()
+
+    monkeypatch.setattr(socket, "socket", fake_socket)
+
+    assert get_free_port(65535) == 65535
