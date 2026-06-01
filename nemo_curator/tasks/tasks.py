@@ -66,7 +66,7 @@ class Task(ABC, Generic[T]):
         """Add performance stats for a stage."""
         self._stage_perf.append(perf_stats)
 
-    def _set_lineage(self, parent_lineage_paths: list[str], child_segment: str | int) -> None:
+    def _set_lineage(self, parent_lineage_paths: list[str], current_task_id_suffix: str | int) -> None:
         """Assign deterministic lineage to this task.
 
         Always overwrites ``_lineage_path`` and ``task_id``. There is no
@@ -80,13 +80,14 @@ class Task(ABC, Generic[T]):
             parent_lineage_paths: Lineage paths of each parent. Empty
                 strings are filtered out (so an EmptyTask parent doesn't
                 contribute a leading ``"_"`` to the path).
-            child_segment: Either a positional index (``int`` → coerced
-                to ``str``) for plain emissions, or a string id (e.g. a
-                content-based hash from :py:meth:`get_deterministic_id`)
-                for source-stage emissions where stability across input
-                reordering matters.
+            current_task_id_suffix: This task's own segment of the lineage
+                path — appended after the parent path. Either a positional
+                index (``int`` → coerced to ``str``) for plain emissions,
+                or a string id (e.g. a content-based hash from
+                :py:meth:`get_deterministic_id`) for source-stage emissions
+                where stability across input reordering matters.
         """
-        parts = [*[p for p in parent_lineage_paths if p], str(child_segment)]
+        parts = [*[p for p in parent_lineage_paths if p], str(current_task_id_suffix)]
         self._lineage_path = "_".join(parts)
         self.task_id = hashlib.sha256(self._lineage_path.encode()).hexdigest()[:32]
 

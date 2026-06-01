@@ -19,9 +19,9 @@ from typing import Any
 import pandas as pd
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.text.io.writer.utils import get_deterministic_hash
 from nemo_curator.tasks import FileGroupTask
 from nemo_curator.utils.file_utils import check_disallowed_kwargs
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 
 @dataclass

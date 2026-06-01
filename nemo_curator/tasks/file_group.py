@@ -52,6 +52,6 @@ class FileGroupTask(Task[list[str]]):
         across runs even if the source stage emits the file group at a
         different position (e.g. because new files were added or removed
         between runs)."""
-        from nemo_curator.stages.text.io.writer.utils import get_deterministic_hash
+        from nemo_curator.utils.hash_utils import get_deterministic_hash
 
         return get_deterministic_hash(sorted(self.data))

@@ -64,7 +64,6 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     storage_options: dict[str, Any] | None = None
     limit: int | None = None
     name: str = "file_partitioning"
-    is_source_stage: bool = True
 
     def __post_init__(self):
         """Initialize default values."""

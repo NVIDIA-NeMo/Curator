@@ -216,16 +216,17 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             for i, child in enumerate(children):
                 if child is None:
                     continue
-                # Source stages: prefer a content-based segment from
+                # Source stages: prefer a content-based id from
                 # `get_deterministic_id()` (e.g. `FileGroupTask` hashes its
-                # file paths). Falls back to the positional index when the
-                # child's Task subclass doesn't implement one. This makes
-                # task_ids stable across reorderings of the source input.
+                # file paths) for this task's lineage segment. Falls back to
+                # the positional index when the child's Task subclass doesn't
+                # implement one. This makes task_ids stable across
+                # reorderings of the source input.
                 if self.is_source_stage:
-                    segment: str | int = child.get_deterministic_id() or i
+                    current_task_id_suffix: str | int = child.get_deterministic_id() or i
                 else:
-                    segment = i
-                child._set_lineage([task._lineage_path], segment)
+                    current_task_id_suffix = i
+                child._set_lineage([task._lineage_path], current_task_id_suffix)
                 results.append(child)
         return results
 

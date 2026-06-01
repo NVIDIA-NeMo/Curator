@@ -12,10 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import hashlib
 from collections.abc import Iterable, Iterator
 from itertools import islice
 from typing import Any
+
+# Re-exported from nemo_curator.utils so existing call sites that do
+# `writer_utils.get_deterministic_hash(...)` keep working. The canonical
+# home is nemo_curator.utils.hash_utils (modality-agnostic).
+from nemo_curator.utils.hash_utils import get_deterministic_hash
+
+__all__ = ["batched", "get_deterministic_hash"]
 
 
 def batched(iterable: Iterable[Any], n: int) -> Iterator[tuple[Any, ...]]:
@@ -35,9 +41,3 @@ def batched(iterable: Iterable[Any], n: int) -> Iterator[tuple[Any, ...]]:
     it = iter(iterable)
     while batch := tuple(islice(it, n)):
         yield batch
-
-
-def get_deterministic_hash(inputs: list[str], seed: str = "") -> str:
-    """Create a deterministic hash from inputs."""
-    combined = "|".join(sorted(inputs)) + "|" + seed
-    return hashlib.sha256(combined.encode()).hexdigest()[:12]

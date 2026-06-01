@@ -73,6 +73,7 @@ def test_fanout_tasks_have_unique_task_ids():
     assert len(output) == 3
     task_ids = [t.task_id for t in output]
     assert len(set(task_ids)) == 3, f"Expected unique task_id per task, got {task_ids}"
-    # Each child has a non-empty lineage path with the parent's path as prefix.
+    # The parent task starts with an empty _lineage_path, which _set_lineage
+    # filters out, so each child's path is just its positional index.
     for i, t in enumerate(output):
-        assert t._lineage_path == f"_{i}" or t._lineage_path == str(i), t._lineage_path
+        assert t._lineage_path == str(i), t._lineage_path
