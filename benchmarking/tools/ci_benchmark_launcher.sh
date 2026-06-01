@@ -17,6 +17,13 @@ set -ex
 
 mkdir -p "/tmp/curator/results/${BRANCH_NAME}"
 
+# Install lynx unconditionally. The math/* benchmarks shell out to lynx for HTML
+# extraction. lynx is GPL-licensed so we deliberately do not bake it into the
+# redistributable Curator image; instead it is installed transiently at CI run
+# time inside the existing benchmark container, used during the run, and
+# discarded with the container.
+apt-get update -qq && apt-get install -y --no-install-recommends lynx
+
 cd /opt/Curator
 uv pip install GitPython pynvml pyyaml rich
 
