@@ -85,3 +85,16 @@ def test_process_batch_single_task() -> None:
     assert len(result) == 1
     assert len(result[0].data) == 1
     assert result[0].data.iloc[0]["text"] == "hi"
+
+
+def test_process_batch_serializes_constructor_sample_key() -> None:
+    task = AudioTask(
+        task_id="only",
+        dataset_name="ds",
+        data={"audio_filepath": "/x.wav", "text": "hi"},
+        sample_key="sample-serialized",
+    )
+    stage = AudioToDocumentStage()
+    result = stage.process_batch([task])
+
+    assert result[0].data.iloc[0]["sample_key"] == "sample-serialized"

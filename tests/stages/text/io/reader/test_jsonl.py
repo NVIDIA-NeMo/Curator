@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -20,8 +21,8 @@ import pytest
 from nemo_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
 )
-from nemo_curator.stages.text.io.reader.jsonl import JsonlReader, JsonlReaderStage
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.stages.text.io.reader.jsonl import JsonlAudioReaderStage, JsonlReader, JsonlReaderStage
+from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 
 
 @pytest.fixture
@@ -120,6 +121,233 @@ class TestJsonlReaderWithoutIdGenerator:
         assert seen["storage_options"] == {"auto_mkdir": True}
         df = out.to_pandas()
         assert len(df) == 2
+
+
+class TestJsonlAudioReader:
+    """Tests for the audio-task JSONL reader path."""
+
+    def test_audio_stage_reads_audio_tasks(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "audio.jsonl"
+        entries = [
+            {"audio_filepath": "a.wav", "text": "alpha", "segments": [{"start": 0.0, "end": 1.0}]},
+            {"audio_filepath": "b.wav", "text": "beta", "segments": [{"start": 1.0, "end": 2.0}]},
+        ]
+        manifest.write_text("\n".join(json.dumps(entry) for entry in entries))
+
+        stage = JsonlAudioReaderStage()
+        task = FileGroupTask(
+            task_id="audio_task",
+            dataset_name="audio_dataset",
+            data=[str(manifest)],
+            _metadata={"source": "unit-test"},
+        )
+        result = stage.process(task)
+
+        assert len(result) == 2
+        assert all(isinstance(item, AudioTask) for item in result)
+        assert [item.data["audio_filepath"] for item in result] == ["a.wav", "b.wav"]
+        assert [item.task_id for item in result] == ["audio_task_0", "audio_task_1"]
+        assert all(item.dataset_name == "audio_dataset" for item in result)
+        assert all(item._metadata == {"source": "unit-test"} for item in result)
+        assert all(item.sample_key for item in result)
+        assert result[0].sample_key != result[1].sample_key
+        assert result[0].data["segments"][0]["end"] == 1.0
+
+    def test_audio_stage_filters_fields_and_skips_blank_lines(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "audio_fields.jsonl"
+        manifest.write_text(
+            json.dumps({"audio_filepath": "a.wav", "text": "alpha", "speaker_id": "spk1"})
+            + "\n\n  \n"
+            + json.dumps({"audio_filepath": "b.wav", "text": "beta", "speaker_id": "spk2"})
+            + "\n"
+        )
+
+        stage = JsonlAudioReaderStage(fields=["audio_filepath", "text"])
+        task = FileGroupTask(task_id="audio_task", dataset_name="audio_dataset", data=[str(manifest)], _metadata={})
+        result = stage.process(task)
+
+        assert len(result) == 2
+        assert result[0].data["audio_filepath"] == "a.wav"
+        assert result[0].data["text"] == "alpha"
+        assert result[0].data["sample_key"]
+        assert result[1].data["audio_filepath"] == "b.wav"
+        assert result[1].data["text"] == "beta"
+        assert result[1].data["sample_key"]
+
+    def test_audio_stage_preserves_explicit_sample_key_from_manifest(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "audio_sample_keys.jsonl"
+        manifest.write_text(
+            json.dumps({"audio_filepath": "a.wav", "text": "alpha", "sample_key": "explicit-a"}) + "\n"
+        )
+
+        stage = JsonlAudioReaderStage(fields=["audio_filepath", "text"])
+        task = FileGroupTask(task_id="audio_task", dataset_name="audio_dataset", data=[str(manifest)], _metadata={})
+        [result] = stage.process(task)
+
+        assert result.sample_key == "explicit-a"
+
+    def test_audio_composite_decomposes_to_audio_stage(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "audio_manifest.jsonl"
+        manifest.write_text(json.dumps({"audio_filepath": "a.wav", "text": "alpha"}) + "\n")
+
+        reader = JsonlReader(
+            file_paths=str(tmp_path),
+            task_type="audio",
+            fields=["audio_filepath", "text"],
+            read_kwargs={"storage_options": {"anon": True}},
+        )
+        stages = reader.decompose()
+
+        assert len(stages) == 2
+        assert getattr(stages[0], "storage_options", None) == {"anon": True}
+        assert isinstance(stages[1], JsonlAudioReaderStage)
+        assert stages[1].fields == ["audio_filepath", "text"]
+
+    def test_audio_composite_propagates_id_generation_flags(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "audio_manifest.jsonl"
+        manifest.write_text(json.dumps({"audio_filepath": "a.wav", "text": "alpha"}) + "\n")
+
+        reader = JsonlReader(file_paths=str(tmp_path), task_type="audio", _generate_ids=True)
+        stages = reader.decompose()
+
+        assert len(stages) == 2
+        assert isinstance(stages[1], JsonlAudioReaderStage)
+        assert stages[1]._generate_ids is True
+        assert stages[1]._assign_ids is False
+
+    def test_audio_pipeline_outputs_audio_tasks(self, tmp_path: Path) -> None:
+        from nemo_curator.backends.xenna import XennaExecutor
+        from nemo_curator.pipeline import Pipeline
+
+        input_dir = tmp_path / "audio_inputs"
+        input_dir.mkdir()
+        for file_idx in range(2):
+            manifest = input_dir / f"audio_{file_idx}.jsonl"
+            entries = [
+                {"audio_filepath": f"{file_idx}_0.wav", "text": f"doc-{file_idx}-0"},
+                {"audio_filepath": f"{file_idx}_1.wav", "text": f"doc-{file_idx}-1"},
+            ]
+            manifest.write_text("\n".join(json.dumps(entry) for entry in entries))
+
+        pipeline = Pipeline(name="audio_reader_test")
+        pipeline.add_stage(JsonlReader(file_paths=str(input_dir), files_per_partition=1, task_type="audio"))
+
+        results = pipeline.run(XennaExecutor(config={"execution_mode": "streaming"}))
+
+        assert results is not None
+        assert len(results) == 4
+        assert all(isinstance(task, AudioTask) for task in results)
+        assert sorted(task.data["audio_filepath"] for task in results) == [
+            "0_0.wav",
+            "0_1.wav",
+            "1_0.wav",
+            "1_1.wav",
+        ]
+
+    @pytest.mark.usefixtures("ray_client_with_id_generator")
+    def test_audio_stage_generates_and_assigns_stable_ids(self, tmp_path: Path) -> None:
+        manifest = tmp_path / "audio_ids.jsonl"
+        manifest.write_text(
+            "\n".join(
+                [
+                    json.dumps({"audio_filepath": "a.wav", "text": "alpha"}),
+                    json.dumps({"audio_filepath": "b.wav", "text": "beta"}),
+                ]
+            )
+        )
+        task = FileGroupTask(task_id="audio_task", dataset_name="audio_dataset", data=[str(manifest)], _metadata={})
+
+        generation_stage = JsonlAudioReaderStage(_generate_ids=True)
+        generation_stage.setup()
+
+        generated = generation_stage.process(task)
+        generated_ids = [audio_task.data[CURATOR_DEDUP_ID_STR] for audio_task in generated]
+        assert generated_ids == [0, 1]
+
+        repeated = generation_stage.process(task)
+        repeated_ids = [audio_task.data[CURATOR_DEDUP_ID_STR] for audio_task in repeated]
+        assert repeated_ids == [0, 1]
+
+        assign_stage = JsonlAudioReaderStage(_assign_ids=True)
+        assign_stage.setup()
+        assigned = assign_stage.process(task)
+        assigned_ids = [audio_task.data[CURATOR_DEDUP_ID_STR] for audio_task in assigned]
+        assert assigned_ids == [0, 1]
+
+    def test_audio_stage_assign_ids_tolerates_extra_registered_ids_from_blank_lines(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _FakeRemoteMethod:
+            def __init__(self, return_value: tuple[int, int]) -> None:
+                self.return_value = return_value
+
+            def remote(self, *_args: object, **_kwargs: object) -> tuple[int, int]:
+                return self.return_value
+
+        class _FakeIdGenerator:
+            def __init__(self, return_value: tuple[int, int]) -> None:
+                self.get_batch_range = _FakeRemoteMethod(return_value)
+
+        manifest = tmp_path / "audio_blank_lines.jsonl"
+        manifest.write_text(
+            json.dumps({"audio_filepath": "a.wav", "text": "alpha"})
+            + "\n\n  \n"
+            + json.dumps({"audio_filepath": "b.wav", "text": "beta"})
+            + "\n"
+        )
+        task = FileGroupTask(task_id="audio_task", dataset_name="audio_dataset", data=[str(manifest)], _metadata={})
+
+        stage = JsonlAudioReaderStage(_assign_ids=True)
+        stage.id_generator = _FakeIdGenerator((10, 12))
+        monkeypatch.setattr("nemo_curator.stages.text.io.reader.jsonl.ray.get", lambda value: value)
+
+        assigned = stage.process(task)
+        assigned_ids = [audio_task.data[CURATOR_DEDUP_ID_STR] for audio_task in assigned]
+
+        assert assigned_ids == [10, 11]
+
+    def test_audio_stage_assign_ids_raises_clear_error_when_registered_range_is_too_short(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _FakeRemoteMethod:
+            def __init__(self, return_value: tuple[int, int]) -> None:
+                self.return_value = return_value
+
+            def remote(self, *_args: object, **_kwargs: object) -> tuple[int, int]:
+                return self.return_value
+
+        class _FakeIdGenerator:
+            def __init__(self, return_value: tuple[int, int]) -> None:
+                self.get_batch_range = _FakeRemoteMethod(return_value)
+
+        manifest = tmp_path / "audio_short_range.jsonl"
+        manifest.write_text(
+            "\n".join(
+                [
+                    json.dumps({"audio_filepath": "a.wav", "text": "alpha"}),
+                    json.dumps({"audio_filepath": "b.wav", "text": "beta"}),
+                ]
+            )
+        )
+        task = FileGroupTask(task_id="audio_task", dataset_name="audio_dataset", data=[str(manifest)], _metadata={})
+
+        stage = JsonlAudioReaderStage(_assign_ids=True)
+        stage.id_generator = _FakeIdGenerator((20, 20))
+        monkeypatch.setattr("nemo_curator.stages.text.io.reader.jsonl.ray.get", lambda value: value)
+
+        with pytest.raises(RuntimeError, match="contains 1 IDs, but the audio JSONL reader produced 2 tasks"):
+            stage.process(task)
+
+    def test_audio_stage_generate_ids_no_actor_error(self) -> None:
+        stage = JsonlAudioReaderStage(_generate_ids=True)
+
+        with pytest.raises(RuntimeError, match="actor 'id_generator' does not exist"):
+            stage.setup()
+
+        stage = JsonlAudioReaderStage(_assign_ids=True)
+
+        with pytest.raises(RuntimeError, match="actor 'id_generator' does not exist"):
+            stage.setup()
 
 
 class TestJsonlReaderWithIdGenerator:
