@@ -284,6 +284,10 @@ entries:
 
   - name: fuzzy_dedup_identification
     enabled: true
+    # Preserve this entry's scratch dir so its artifacts (under
+    # session_entry_dir/scratch/{cache,output}) remain available for the
+    # downstream dedup_removal_* benchmarks, which read by exact path.
+    delete_scratch: false
     script: fuzzy_dedup_identification_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
