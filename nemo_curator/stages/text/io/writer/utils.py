@@ -16,13 +16,6 @@ from collections.abc import Iterable, Iterator
 from itertools import islice
 from typing import Any
 
-# Re-exported from nemo_curator.utils so existing call sites that do
-# `writer_utils.get_deterministic_hash(...)` keep working. The canonical
-# home is nemo_curator.utils.hash_utils (modality-agnostic).
-from nemo_curator.utils.hash_utils import get_deterministic_hash
-
-__all__ = ["batched", "get_deterministic_hash"]
-
 
 def batched(iterable: Iterable[Any], n: int) -> Iterator[tuple[Any, ...]]:
     """

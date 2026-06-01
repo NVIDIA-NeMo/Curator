@@ -14,13 +14,12 @@
 """Unit tests for Task lineage assignment.
 
 Covers:
-- Task._set_lineage (always overwrites; sets task_id and _lineage_path)
+- Task._set_lineage (always overwrites task_id with the lineage path)
 - Task.get_deterministic_id (default None)
-- FileGroupTask.get_deterministic_id override (content-based hash)
 - Default ProcessingStage.process_batch calls _set_lineage on each child
-"""
 
-from __future__ import annotations
+FileGroupTask.get_deterministic_id is covered in test_file_group_tasks.py.
+"""
 
 from dataclasses import dataclass
 
@@ -45,73 +44,52 @@ def _new() -> _SimpleTask:
 class TestSetLineage:
     def test_initial_state(self) -> None:
         t = _new()
-        # task_id and _lineage_path are empty until _set_lineage runs.
+        # task_id is empty until _set_lineage runs.
         assert t.task_id == ""
-        assert t._lineage_path == ""
 
-    def test_set_lineage_sets_path_and_task_id(self) -> None:
+    def test_set_lineage_sets_task_id(self) -> None:
         t = _new()
         t._set_lineage([], 3)
-        assert t._lineage_path == "3"
-        # task_id is the sha256-32 of the lineage path.
-        assert len(t.task_id) == 32
+        # task_id is the lineage path itself (no hashing).
+        assert t.task_id == "3"
 
-    def test_set_lineage_filters_empty_parent_paths(self) -> None:
+    def test_set_lineage_filters_empty_parent_ids(self) -> None:
         t = _new()
-        # Empty strings in parent paths are stripped (EmptyTask's default
-        # _lineage_path is "").
+        # Empty strings in parent ids are stripped (EmptyTask's default
+        # task_id is "").
         t._set_lineage(["", "5", ""], 3)
-        assert t._lineage_path == "5_3"
+        assert t.task_id == "5_3"
 
     def test_set_lineage_always_overwrites(self) -> None:
-        """No idempotency — each call recomputes lineage. This is what
+        """No idempotency — each call recomputes the id. This is what
         lets a task object passing through N stages get N distinct
         task_ids (one per stage boundary)."""
         t = _new()
         t._set_lineage([], 0)
         first_id = t.task_id
-        first_path = t._lineage_path
 
         t._set_lineage(["0"], 7)
-        assert t._lineage_path == "0_7"
-        assert t._lineage_path != first_path
+        assert t.task_id == "0_7"
         assert t.task_id != first_id
 
-    def test_string_child_segment(self) -> None:
+    def test_string_suffix(self) -> None:
         """Source stages pass a content-based hash (str) instead of a
-        positional index (int) as the child_segment."""
+        positional index (int) as the suffix."""
         t = _new()
         t._set_lineage([], "abc123")
-        assert t._lineage_path == "abc123"
+        assert t.task_id == "abc123"
 
-    def test_child_segment_under_parent_lineage(self) -> None:
-        """Source under a non-empty parent lineage encodes both."""
+    def test_suffix_under_parent_lineage(self) -> None:
+        """A task under a non-empty parent id encodes both."""
         t = _new()
         t._set_lineage(["root"], "abc123")
-        assert t._lineage_path == "root_abc123"
+        assert t.task_id == "root_abc123"
 
 
 class TestGetDeterministicId:
     def test_default_returns_none(self) -> None:
         t = _new()
         assert t.get_deterministic_id() is None
-
-    def test_file_group_task_hashes_sorted_paths(self) -> None:
-        a = FileGroupTask(dataset_name="d", data=["b.parquet", "a.parquet"])
-        b = FileGroupTask(dataset_name="d", data=["a.parquet", "b.parquet"])
-        # Same set of files in different orders → same content id.
-        assert a.get_deterministic_id() == b.get_deterministic_id()
-
-    def test_file_group_task_different_files_different_ids(self) -> None:
-        a = FileGroupTask(dataset_name="d", data=["a.parquet"])
-        b = FileGroupTask(dataset_name="d", data=["b.parquet"])
-        assert a.get_deterministic_id() != b.get_deterministic_id()
-
-    def test_file_group_id_is_string(self) -> None:
-        t = FileGroupTask(dataset_name="d", data=["a.parquet"])
-        result = t.get_deterministic_id()
-        assert isinstance(result, str)
-        assert len(result) == 12  # get_deterministic_hash returns 12 hex chars
 
 
 class _Repeat(ProcessingStage[_SimpleTask, _SimpleTask]):
@@ -160,18 +138,16 @@ class TestDefaultProcessBatchAssignsLineage:
         parent._set_lineage([], 0)
         out = _Passthrough().process_batch([parent])
         assert len(out) == 1
-        # Child's lineage is parent's lineage + "_0"
-        assert out[0]._lineage_path == "0_0"
+        # Child's id is parent's id + "_0"
+        assert out[0].task_id == "0_0"
 
-    def test_fanout_outputs_get_unique_lineage_paths(self) -> None:
+    def test_fanout_outputs_get_unique_task_ids(self) -> None:
         parent = _new()
         parent._set_lineage([], 0)
         out = _Repeat(times=4).process_batch([parent])
         assert len(out) == 4
-        paths = [t._lineage_path for t in out]
-        assert paths == ["0_0", "0_1", "0_2", "0_3"]
-        # And task_ids are unique deterministic hashes.
         task_ids = [t.task_id for t in out]
+        assert task_ids == ["0_0", "0_1", "0_2", "0_3"]
         assert len(set(task_ids)) == 4
 
     def test_filtered_out_returns_empty(self) -> None:
@@ -189,9 +165,9 @@ class TestDefaultProcessBatchAssignsLineage:
 
         out = _Passthrough().process_batch(parents)
         assert len(out) == 3
-        # Each child's lineage = parent's lineage + "_0".
+        # Each child's id = parent's id + "_0".
         for i, child in enumerate(out):
-            assert child._lineage_path == f"{i}_0"
+            assert child.task_id == f"{i}_0"
 
     def test_deterministic_across_calls(self) -> None:
         """Running the same pipeline shape on the same inputs produces
@@ -210,7 +186,7 @@ class TestDefaultProcessBatchAssignsLineage:
 
 class _FileGroupSource(ProcessingStage[_EmptyTask, FileGroupTask]):
     """Test-only source stage that emits FileGroupTasks. Source-stage flag
-    set to True so the default process_batch uses content-based segments."""
+    set to True so the default process_batch uses content-based ids."""
 
     name: str = "file_group_source"
     is_source_stage: bool = True
@@ -247,19 +223,19 @@ class TestSourceStageSegment:
         empty = _EmptyTask(dataset_name="empty", data=None)
         out = _FileGroupSource().process_batch([empty])
         assert len(out) == 3
-        # Each output's lineage_path should be exactly its content hash —
-        # NOT the positional index. EmptyTask's _lineage_path is "" (filtered),
-        # so the path is just the content hash itself.
+        # Each output's task_id should be exactly its content hash — NOT the
+        # positional index. EmptyTask's task_id is "" (filtered), so the id
+        # is just the content hash itself.
         for child in out:
-            assert child._lineage_path == child.get_deterministic_id()
+            assert child.task_id == child.get_deterministic_id()
 
     def test_falls_back_to_positional_index_when_none(self) -> None:
         empty = _EmptyTask(dataset_name="empty", data=None)
         out = _NoContentSource().process_batch([empty])
         assert len(out) == 3
-        paths = [t._lineage_path for t in out]
-        # EmptyTask filtered; segment is positional index.
-        assert paths == ["0", "1", "2"]
+        task_ids = [t.task_id for t in out]
+        # EmptyTask filtered; suffix is positional index.
+        assert task_ids == ["0", "1", "2"]
 
     def test_non_source_stage_uses_positional_index(self) -> None:
         """A stage without is_source_stage=True ignores get_deterministic_id
@@ -282,4 +258,4 @@ class TestSourceStageSegment:
         parent._set_lineage([], 0)
         out = _NonSource().process_batch([parent])
         # Lineage uses positional "0", not content hash.
-        assert out[0]._lineage_path == "0_0"
+        assert out[0].task_id == "0_0"

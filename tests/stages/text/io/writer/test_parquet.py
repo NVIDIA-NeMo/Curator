@@ -22,7 +22,6 @@ import pytest
 
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.stages.text.io.writer import base as writer_base
-from nemo_curator.stages.text.io.writer import utils as writer_utils
 from nemo_curator.tasks import DocumentBatch
 
 
@@ -49,7 +48,7 @@ class TestParquetWriter:
         # Process
         with (
             mock.patch.object(
-                writer_utils, "get_deterministic_hash", return_value="_TEST_FILE_HASH"
+                writer_base, "get_deterministic_hash", return_value="_TEST_FILE_HASH"
             ) as mock_get_deterministic_hash,
             mock.patch.object(uuid, "uuid4", return_value=mock.Mock(hex="_TEST_FILE_HASH")) as mock_uuid4,
         ):

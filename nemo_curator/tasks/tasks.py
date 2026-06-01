@@ -12,15 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-
-import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
-if TYPE_CHECKING:
-    from nemo_curator.utils.performance_utils import StagePerfStats
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 T = TypeVar("T")
 
@@ -35,15 +31,15 @@ class Task(ABC, Generic[T]):
     Attributes:
         task_id: Deterministic identifier for this task. NOT user-settable —
             the framework assigns it via ``_set_lineage`` at every stage
-            boundary. Empty string until the first stage runs. Two runs
-            of the same pipeline on the same inputs produce byte-identical
+            boundary. It is the task's underscore-joined lineage path
+            through the pipeline DAG (e.g. ``"abc123_0_5"`` = source
+            ``abc123``, then child 0, then grandchild 5). Using the readable
+            path directly (rather than a hash of it) keeps task ids easy to
+            debug. Empty string until the first stage runs; two runs of the
+            same pipeline on the same inputs produce byte-identical
             ``task_id``s across all tasks.
         dataset_name: Name of the dataset this task belongs to.
         _stage_perf: List of stages perfs this task has passed through.
-        _lineage_path: Underscore-joined path through the pipeline DAG
-            (e.g. ``"abc123_0_5"`` = source ``abc123``, then child 0,
-            then grandchild 5). Hashed into ``task_id``. Empty until
-            ``_set_lineage`` runs.
     """
 
     dataset_name: str
@@ -51,7 +47,6 @@ class Task(ABC, Generic[T]):
     _stage_perf: list[StagePerfStats] = field(default_factory=list)
     _metadata: dict[str, Any] = field(default_factory=dict)
     task_id: str = field(init=False, default="")
-    _lineage_path: str = field(init=False, default="")
 
     def __post_init__(self) -> None:
         """Post-initialization hook."""
@@ -66,30 +61,31 @@ class Task(ABC, Generic[T]):
         """Add performance stats for a stage."""
         self._stage_perf.append(perf_stats)
 
-    def _set_lineage(self, parent_lineage_paths: list[str], current_task_id_suffix: str | int) -> None:
-        """Assign deterministic lineage to this task.
+    def _set_lineage(self, parent_task_ids: list[str], current_task_id_suffix: str | int) -> None:
+        """Assign this task's deterministic ``task_id`` from its lineage.
 
-        Always overwrites ``_lineage_path`` and ``task_id``. There is no
-        idempotency check — each stage transition re-hashes the task, so
-        the same physical Python object passing through N stages gets N
+        The ``task_id`` is the parent ids joined with this task's own
+        segment by ``"_"`` — e.g. parent ``"abc123"`` + suffix ``0`` →
+        ``"abc123_0"``. Always overwrites ``task_id``; there is no
+        idempotency check — each stage transition re-derives it, so the
+        same physical Python object passing through N stages gets N
         distinct ``task_id``s (one per stage boundary). The dedup keys
         used by resumability are captured BEFORE this method runs on a
-        given output, so the rehash is safe.
+        given output, so the rewrite is safe.
 
         Args:
-            parent_lineage_paths: Lineage paths of each parent. Empty
-                strings are filtered out (so an EmptyTask parent doesn't
-                contribute a leading ``"_"`` to the path).
+            parent_task_ids: ``task_id`` of each parent. Empty strings are
+                filtered out (so an EmptyTask parent doesn't contribute a
+                leading ``"_"`` to the path).
             current_task_id_suffix: This task's own segment of the lineage
-                path — appended after the parent path. Either a positional
+                path — appended after the parent ids. Either a positional
                 index (``int`` → coerced to ``str``) for plain emissions,
                 or a string id (e.g. a content-based hash from
                 :py:meth:`get_deterministic_id`) for source-stage emissions
                 where stability across input reordering matters.
         """
-        parts = [*[p for p in parent_lineage_paths if p], str(current_task_id_suffix)]
-        self._lineage_path = "_".join(parts)
-        self.task_id = hashlib.sha256(self._lineage_path.encode()).hexdigest()[:32]
+        parts = [*[p for p in parent_task_ids if p], str(current_task_id_suffix)]
+        self.task_id = "_".join(parts)
 
     def get_deterministic_id(self) -> str | None:
         """Return a content-based identifier for this task as a source,

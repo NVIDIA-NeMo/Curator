@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import dataclass
 from unittest.mock import Mock, patch
 
 import pytest
@@ -19,6 +20,21 @@ import pytest
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import Task
+
+
+@dataclass
+class _NoopStage(ProcessingStage[Task, Task]):
+    name: str = "noop"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def process(self, task: Task) -> Task:
+        return task
 
 
 def test_pipeline_uses_xenna_executor_by_default():
@@ -69,3 +85,42 @@ def test_raises_when_ray_serve_active_with_xenna_and_gpu_stages() -> None:
 
         with pytest.raises(RuntimeError, match="Cannot run XennaExecutor"):
             pipeline.run(executor=mock_executor)
+
+
+class TestPipelineBuild:
+    """Source/sink role assignment performed by ``Pipeline.build``."""
+
+    def test_default_first_source_last_sink_stage(self) -> None:
+        """With no explicit marks, the first stage is the source and the
+        last is the sink; a lone stage is both."""
+        s0, s1, s2 = _NoopStage(name="s0"), _NoopStage(name="s1"), _NoopStage(name="s2")
+        Pipeline(name="t", stages=[s0, s1, s2]).build()
+        assert [s.is_source_stage for s in (s0, s1, s2)] == [True, False, False]
+        assert [s.is_sink_stage for s in (s0, s1, s2)] == [False, False, True]
+
+        lone = _NoopStage(name="lone")
+        Pipeline(name="t", stages=[lone]).build()
+        assert lone.is_source_stage is True
+        assert lone.is_sink_stage is True
+
+    def test_explicit_marks_override_defaults(self) -> None:
+        s0, s1, s2 = _NoopStage(name="s0"), _NoopStage(name="s1"), _NoopStage(name="s2")
+        s1.is_source_stage = True
+        s1.is_sink_stage = True
+        Pipeline(name="t", stages=[s0, s1, s2]).build()
+        # Explicit source/sink win; defaults are not applied elsewhere.
+        assert [s.is_source_stage for s in (s0, s1, s2)] == [False, True, False]
+        assert [s.is_sink_stage for s in (s0, s1, s2)] == [False, True, False]
+
+    def test_multiple_explicit_marks_raise(self) -> None:
+        s0, s1 = _NoopStage(name="s0"), _NoopStage(name="s1")
+        s0.is_source_stage = True
+        s1.is_source_stage = True
+        with pytest.raises(ValueError, match="multiple source stages marked"):
+            Pipeline(name="t", stages=[s0, s1]).build()
+
+        t0, t1 = _NoopStage(name="t0"), _NoopStage(name="t1")
+        t0.is_sink_stage = True
+        t1.is_sink_stage = True
+        with pytest.raises(ValueError, match="multiple sink stages marked"):
+            Pipeline(name="t", stages=[t0, t1]).build()

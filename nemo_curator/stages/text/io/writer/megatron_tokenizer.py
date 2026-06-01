@@ -21,10 +21,10 @@ import numpy as np
 from loguru import logger
 from transformers import AutoTokenizer
 
-import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 from .base import BaseWriter
 from .utils import batched
@@ -96,7 +96,7 @@ class MegatronTokenizerWriter(BaseWriter):
         sequence_lengths: list[int] = []
         # Get source files from metadata for deterministic naming
         if source_files := task._metadata.get("source_files"):
-            filename = writer_utils.get_deterministic_hash(source_files, task.task_id)
+            filename = get_deterministic_hash(source_files, task.task_id)
         else:
             logger.warning("The task does not have source_files in metadata, using UUID for base filename")
             filename = uuid.uuid4().hex
