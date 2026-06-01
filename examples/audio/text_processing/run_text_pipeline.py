@@ -67,7 +67,10 @@ Architecture:
     ShardedManifestWriterStage (CPU)
         → writes per-shard JSONL output with .done markers
 
-All GPU stages share the same vLLM model instance (loaded once).
+Each GPU stage runs as its own Ray Data actor (one GPU each) and loads its own
+vLLM engine, so each stage may use its own max_model_len: the lightweight stages
+use --max_model_len (2048) while contextual ASR uses --context_asr_max_model_len
+(8192). They are NOT one shared engine.
 """
 
 from __future__ import annotations
@@ -299,9 +302,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=2048,
         help=(
-            "Max tokens generated per sample for context ASR extraction. The shared vLLM engine's "
-            "max_model_len must be ≥ this value plus prompt length — pass --max_model_len 8192 (or higher) "
-            "when enabling context ASR."
+            "Max tokens generated per sample for context ASR extraction. This stage's vLLM engine "
+            "max_model_len (--context_asr_max_model_len) must be ≥ this value plus prompt length."
+        ),
+    )
+    ctx.add_argument(
+        "--context_asr_max_model_len",
+        type=int,
+        default=8192,
+        help=(
+            "vLLM max_model_len for the contextual-ASR extraction stage ONLY. This stage runs as its "
+            "own Ray Data actor (one GPU, its own vLLM engine), so it can use a larger context window "
+            "than the lightweight stages without inflating their KV cache. The global --max_model_len "
+            "stays small (2048) for PnC/ITN/etc. Must exceed the extraction prompt + "
+            "--context_asr_max_output_tokens."
         ),
     )
     ctx.add_argument("--context_asr_seed", type=int, default=42, help="Base RNG seed for prompt-variant generation.")
@@ -519,9 +533,9 @@ def main() -> None:  # noqa: C901, PLR0915
 
     if args.enable_context_asr:
         context_asr_text_key = args.context_asr_text_key
-        # Engine-level kwargs are shared with the other TextLLMStage instances via the
-        # class-level vLLM cache in text_llm_stage.py.  Per-stage knobs (prompt file,
-        # max_output_tokens, batch size) stay local.
+        # This stage runs as its own Ray Data actor with its own vLLM engine, so it
+        # uses its own engine kwargs — note context_asr_max_model_len (8192), larger
+        # than the global --max_model_len (2048) used by the lightweight stages.
         stages.append(
             ContextualASRExtractionStage(
                 model_id=args.model_id,
@@ -531,7 +545,7 @@ def main() -> None:  # noqa: C901, PLR0915
                 output_key=args.context_asr_output_key,
                 tensor_parallel_size=args.tensor_parallel_size,
                 max_output_tokens=args.context_asr_max_output_tokens,
-                max_model_len=args.max_model_len,
+                max_model_len=args.context_asr_max_model_len,
                 max_num_seqs=args.max_num_seqs,
                 gpu_memory_utilization=args.gpu_memory_utilization,
                 kv_cache_dtype=args.kv_cache_dtype,
@@ -575,10 +589,10 @@ def main() -> None:  # noqa: C901, PLR0915
             f"Context ASR stages enabled: {context_asr_text_key} → {args.context_asr_output_key} "
             f"(extraction + 5 prompt variants)"
         )
-        if args.max_model_len < _CONTEXT_ASR_MIN_MAX_MODEL_LEN:
+        if args.context_asr_max_model_len < _CONTEXT_ASR_MIN_MAX_MODEL_LEN:
             logger.warning(
-                f"--max_model_len={args.max_model_len} may be too small for context ASR extraction. "
-                f"Consider --max_model_len 8192 or higher when --enable_context_asr is used."
+                f"--context_asr_max_model_len={args.context_asr_max_model_len} may be too small for context "
+                f"ASR extraction. Consider 8192 or higher when --enable_context_asr is used."
             )
     if args.enable_code_switching:
         stages.append(

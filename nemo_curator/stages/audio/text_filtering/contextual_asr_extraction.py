@@ -33,20 +33,22 @@ A downstream :class:`ContextualASRPromptVariantStage` (CPU-only) reads
 the extraction output and appends six prompt-variant fields to the same
 nested dict.
 
-Model sharing
--------------
-This stage uses the same class-level vLLM cache as
-:class:`TextLLMStage` (``_get_or_load_model``).  When several stages
-share the same ``model_id`` on a given GPU worker, the vLLM engine is
-loaded exactly once — so ITN, captioning, and contextual ASR
-extraction can all run on a single Qwen 35B engine per worker.
+Engine ownership
+----------------
+Each pipeline stage runs as its own actor (its own process) under the
+Ray Data / Xenna / Ray actor-pool executors, so this stage loads and
+owns its own vLLM engine via ``_get_or_load_model`` — independent of the
+other text-LLM stages. It therefore uses its OWN engine config
+(``max_model_len``, ``max_num_seqs``, etc.) and runs with a larger
+context window than the lightweight stages: see
+``--context_asr_max_model_len`` in :file:`run_text_pipeline.py` (default
+8192) vs the global ``--max_model_len`` (2048).
 
-The cache key is the bare ``model_id``, so the first stage to call
-``_get_or_load_model`` wins and sets the engine config (max_model_len,
-max_num_seqs, etc.) for everyone.  When chaining contextual ASR with
-the other text-LLM stages in :file:`run_text_pipeline.py`, all stages
-are configured from a single ``shared_model_kwargs`` dict so the cached
-engine is always consistent.
+The module-level ``_model_cache`` (keyed by the bare ``model_id``) only
+deduplicates loads *within a single process*; it does not share one
+engine across stages. The "first caller wins" behaviour would only
+matter if several stages were co-located in one process, which does not
+happen with the per-stage-actor executors used here.
 """
 
 from __future__ import annotations
@@ -201,9 +203,10 @@ class ContextualASRExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     On JSON parse failure, ``output_key`` is set to ``None`` and the
     failure is recorded via ``set_note(task.data, name, "json_parse_failed")``.
 
-    Shares the vLLM engine with other ``TextLLMStage`` instances using
-    the same ``model_id`` via the class-level ``_model_cache`` in
-    :mod:`text_llm_stage`.
+    Runs as its own actor/process and loads its own vLLM engine via the
+    per-process ``_model_cache`` in :mod:`text_llm_stage`; it does not
+    share an engine with the other stages, so it uses its own
+    ``max_model_len`` (typically larger — see ``--context_asr_max_model_len``).
 
     Args:
         model_id: HuggingFace model identifier for the text LLM.
@@ -224,11 +227,10 @@ class ContextualASRExtractionStage(ProcessingStage[AudioTask, AudioTask]):
             :func:`set_note` writes into.
         tensor_parallel_size: GPUs for tensor parallelism (None = auto).
         max_output_tokens: Maximum tokens to generate per sample.
-        max_model_len: Maximum context length passed to vLLM (used only
-            when this stage is the first to populate the shared model
-            cache for ``model_id``).
-        max_num_seqs: Maximum concurrent sequences in vLLM (same caveat
-            as ``max_model_len``).
+        max_model_len: Maximum context length for this stage's own vLLM
+            engine. Independent of the other stages' engines, so it can be
+            larger (default 8192) than the global ``--max_model_len``.
+        max_num_seqs: Maximum concurrent sequences in this stage's engine.
         gpu_memory_utilization: Fraction of GPU memory vLLM may use.
         kv_cache_dtype: KV-cache dtype for vLLM.
         num_workers_override: Explicit worker count for Xenna.
