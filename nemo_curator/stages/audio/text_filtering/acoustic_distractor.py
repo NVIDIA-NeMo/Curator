@@ -40,6 +40,11 @@ appended to ``distractor_terms``.  The combined list is then capped at
 
 The precomputed phoneme vocabulary is produced offline by
 ``scripts/build_phoneme_vocab.py``.  Build it once per target language.
+``phoneme_vocab_path`` may point either at a single ``{word: [phonemes]}``
+JSON file (one language, used for every sample) or at a **directory** of
+``phoneme_vocab_<lang>.json`` files — in directory mode every file is loaded
+and the per-sample ``source_lang`` selects the matching vocab, so a single
+stage instance can serve a multi-language job.
 
 This stage is CPU-only — no GPU or LLM is required at runtime.
 
@@ -253,8 +258,11 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
             When set, used for all samples and the per-sample
             ``source_lang`` is ignored.  Use this when you know the
             entire dataset is a single language.
-        phoneme_vocab_path: Path to the JSON file produced by
-            ``scripts/build_phoneme_vocab.py``.  Required.
+        phoneme_vocab_path: Path produced by ``scripts/build_phoneme_vocab.py``.
+            Either a single ``{word: [phonemes]}`` JSON file (single-language,
+            applied to all samples) or a directory of ``phoneme_vocab_<lang>.json``
+            files (multi-language; per-sample ``source_lang`` selects the vocab).
+            Required.
         max_acoustic_distractors: Maximum acoustic distractors appended
             per sample (combined across all entities of that sample).
         max_total_distractors: Cap on the combined ``distractor_terms``
@@ -288,6 +296,7 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
     batch_size: int = 256
 
     _vocab_items: list[tuple[str, list[str]]] = field(default_factory=list, init=False, repr=False)
+    _vocab_by_lang: dict[str, list[tuple[str, list[str]]]] = field(default_factory=dict, init=False, repr=False)
     _g2p_cache: dict[tuple[str, str], list[str]] = field(default_factory=dict, init=False, repr=False)
     _n_processed: int = field(default=0, init=False, repr=False)
     _n_appended: int = field(default=0, init=False, repr=False)
@@ -324,27 +333,73 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
 
         vocab_path = Path(self.phoneme_vocab_path)
         if not vocab_path.exists():
-            msg = f"AcousticDistractorStage: phoneme vocab file not found: {vocab_path}"
+            msg = f"AcousticDistractorStage: phoneme vocab path not found: {vocab_path}"
             raise FileNotFoundError(msg)
 
-        with vocab_path.open("r", encoding="utf-8") as fh:
+        if vocab_path.is_dir():
+            # Directory mode: load every ``phoneme_vocab_<lang>.json`` and key it
+            # by the espeak code that a sample of that language resolves to, so the
+            # per-sample ``source_lang`` selects the right vocab. Lets one stage
+            # instance serve a multi-language job. The filename code is the ISO
+            # code the file was built for (e.g. ``en`` → built with espeak ``en-us``),
+            # so it is normalised through the same map ``_resolve_language`` uses.
+            files = sorted(vocab_path.glob("phoneme_vocab_*.json"))
+            if not files:
+                msg = f"AcousticDistractorStage: no phoneme_vocab_*.json files in directory {vocab_path}"
+                raise FileNotFoundError(msg)
+            for fpath in files:
+                code = fpath.stem[len("phoneme_vocab_") :]
+                espeak = _normalize_lang_to_espeak(code)
+                if not espeak:
+                    logger.warning(
+                        "%s: skipping vocab file with unmappable language code %r (%s)",
+                        self.name,
+                        code,
+                        fpath.name,
+                    )
+                    continue
+                items = self._load_vocab_file(fpath)
+                self._vocab_by_lang[espeak] = items
+                logger.info(
+                    "%s: loaded %d entries for %s (espeak=%s) from %s",
+                    self.name,
+                    len(items),
+                    code,
+                    espeak,
+                    fpath.name,
+                )
+            if not self._vocab_by_lang:
+                msg = f"AcousticDistractorStage: no usable phoneme_vocab_*.json files under {vocab_path}"
+                raise ValueError(msg)
+            logger.info(
+                "%s: directory mode — %d language(s) loaded: %s",
+                self.name,
+                len(self._vocab_by_lang),
+                ",".join(sorted(self._vocab_by_lang)),
+            )
+        else:
+            self._vocab_items = self._load_vocab_file(vocab_path)
+            logger.info(
+                "%s: loaded %d phoneme vocab entries from %s (language=%s)",
+                self.name,
+                len(self._vocab_items),
+                vocab_path,
+                self.language or "(per-sample source_lang)",
+            )
+
+    @staticmethod
+    def _load_vocab_file(path: Path) -> list[tuple[str, list[str]]]:
+        """Load one ``{word: [phonemes]}`` JSON into a filtered item list."""
+        with path.open("r", encoding="utf-8") as fh:
             raw = json.load(fh)
         if not isinstance(raw, dict):
-            msg = f"Phoneme vocab must be a JSON object mapping word→[phonemes]; got {type(raw).__name__}."
+            msg = f"Phoneme vocab must be a JSON object mapping word→[phonemes]; got {type(raw).__name__} ({path})."
             raise TypeError(msg)
-
-        self._vocab_items = [
+        return [
             (str(word), [str(p) for p in phonemes])
             for word, phonemes in raw.items()
             if isinstance(phonemes, list) and phonemes
         ]
-        logger.info(
-            "%s: loaded %d phoneme vocab entries from %s (language=%s)",
-            self.name,
-            len(self._vocab_items),
-            vocab_path,
-            self.language or "(per-sample source_lang)",
-        )
 
     def teardown(self) -> None:
         if self._n_processed:
@@ -368,6 +423,17 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
         raw = task.data.get(self.source_lang_key) or self.default_source_lang
         return _normalize_lang_to_espeak(raw)
 
+    def _vocab_for_language(self, language: str) -> list[tuple[str, list[str]]]:
+        """Return the vocab items for ``language``.
+
+        Directory mode: look up the per-language vocab (empty list if the
+        directory has no file for this language). Single-file mode: the one
+        loaded vocab is used for every sample (legacy single-language behaviour).
+        """
+        if self._vocab_by_lang:
+            return self._vocab_by_lang.get(language, [])
+        return self._vocab_items
+
     def _g2p(self, text: str, language: str) -> list[str]:
         key = (language, text)
         cached = self._g2p_cache.get(key)
@@ -386,9 +452,10 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
         fine_terms: list[str],
         existing_distractors: list[str],
         language: str,
+        vocab_items: list[tuple[str, list[str]]],
     ) -> list[str]:
         """Return up to ``max_acoustic_distractors`` words from the vocab."""
-        if not fine_terms or not self._vocab_items:
+        if not fine_terms or not vocab_items:
             return []
 
         excluded = {w.lower() for w in fine_terms} | {w.lower() for w in existing_distractors}
@@ -400,7 +467,7 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
                 continue
             for word, dist in _vocab_search(
                 query,
-                self._vocab_items,
+                vocab_items,
                 min_npd=self.min_npd,
                 max_npd=self.max_npd,
                 excluded_words=excluded,
@@ -443,6 +510,12 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
             set_note(task.data, self.name, "unsupported_language", self.notes_key)
             return
 
+        vocab_items = self._vocab_for_language(language)
+        if not vocab_items:
+            # Directory mode with no vocab file for this language.
+            set_note(task.data, self.name, f"no_vocab_for_language:{language}", self.notes_key)
+            return
+
         raw_existing = extraction.get("distractor_terms") or []
         existing = [str(t) for t in raw_existing] if isinstance(raw_existing, list) else []
 
@@ -450,6 +523,7 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
             [str(t) for t in fine_terms],
             existing,
             language,
+            vocab_items,
         )
 
         self._n_processed += 1
