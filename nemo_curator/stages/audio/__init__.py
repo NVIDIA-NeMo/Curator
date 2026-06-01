@@ -47,12 +47,14 @@ from nemo_curator.stages.audio.segmentation import (
     SpeakerSeparationStage,
     VADSegmentationStage,
 )
+from nemo_curator.stages.audio.tts import ChatterboxTTSStage
 
 __all__ = [
     "ALMDataBuilderStage",
     "ALMDataOverlapStage",
     "AudioDataFilterStage",
     "BandFilterStage",
+    "ChatterboxTTSStage",
     "GetAudioDurationStage",
     "ManifestReader",
     "ManifestWriterStage",
