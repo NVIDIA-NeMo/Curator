@@ -23,7 +23,6 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-import nemo_curator.stages.text.io.writer.megatron_tokenizer as megatron_mod
 from nemo_curator.stages.text.io.writer.megatron_tokenizer import _INDEX_HEADER, MegatronTokenizerWriter
 from nemo_curator.tasks import DocumentBatch
 
@@ -113,8 +112,9 @@ class TestMegatronTokenizerWriter:
 
         # Process
         with (
-            mock.patch.object(
-                megatron_mod, "get_deterministic_hash", return_value="_TEST_FILE_HASH"
+            mock.patch(
+                "nemo_curator.stages.text.io.writer.megatron_tokenizer.get_deterministic_hash",
+                return_value="_TEST_FILE_HASH",
             ) as mock_get_deterministic_hash,
             mock.patch.object(uuid, "uuid4", return_value=mock.Mock(hex="_TEST_FILE_HASH")) as mock_uuid4,
         ):
