@@ -12,15 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Audio curation stages for NeMo Curator.
+"""Audio curation stages for NeMo Curator.
 
-This module provides stages for processing and curating audio data,
-including ASR inference, quality assessment, ALM data preparation,
-audio preprocessing (mono conversion, segment concatenation, timestamp mapping),
-audio quality filtering (SIGMOS, UTMOS, bandwidth classification filtering),
-VAD segmentation, speaker diarization/separation,
-and advanced audio processing pipelines.
+Lazy attribute resolution (PEP 562). Eagerly importing every subpackage at
+package-init time pulls in heavy ML deps (e.g. NeMo ASR -> lightning.pytorch
+-> torchvision) that most consumers don't need. Worse, it makes importing
+*any* nemo_curator.stages.audio.* submodule fail when those heavy deps are
+broken in the environment. Resolving names on first attribute access fixes
+both: each name still imports lazily from the same submodule it used to,
+preserving the public API.
 """
 
 import importlib as _importlib

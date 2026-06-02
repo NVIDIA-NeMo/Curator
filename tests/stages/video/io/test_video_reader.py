@@ -531,6 +531,62 @@ class TestVideoReaderStage:
 class TestVideoReader:
     """Test suite for VideoReader composite functionality."""
 
+    @pytest.fixture(autouse=True)
+    def mock_path_exists(self):
+        mock_instance = mock.Mock()
+        mock_instance.exists.return_value = True
+        mock_instance.is_file.return_value = False
+        mock_instance.rglob.side_effect = lambda *_: iter([mock.Mock()])
+        with patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance):
+            yield mock_instance
+
+    def test_nonexistent_video_dir_raises(self) -> None:
+        """Test that VideoReader raises FileNotFoundError for non-existent local path."""
+        mock_instance = mock.Mock()
+        mock_instance.exists.return_value = False
+        with patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance), pytest.raises(
+            FileNotFoundError, match="Video directory does not exist"
+        ):
+            VideoReader(input_video_path="/nonexistent/path")
+
+    def test_empty_video_dir_raises(self) -> None:
+        """Test that VideoReader raises FileNotFoundError when directory has no video files."""
+        mock_instance = mock.Mock()
+        mock_instance.exists.return_value = True
+        mock_instance.is_file.return_value = False
+        mock_instance.rglob.side_effect = lambda *_: iter([])
+        with patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance), pytest.raises(
+            FileNotFoundError, match="No video files found"
+        ):
+            VideoReader(input_video_path="/empty/dir")
+
+    def test_single_video_file_accepted(self) -> None:
+        """Test that VideoReader accepts a path to a single video file."""
+        mock_instance = mock.Mock()
+        mock_instance.exists.return_value = True
+        mock_instance.is_file.return_value = True
+        mock_instance.suffix = ".mp4"
+        with patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance):
+            stage = VideoReader(input_video_path="/data/video.mp4")
+            assert stage.input_video_path == "/data/video.mp4"
+
+    def test_single_non_video_file_raises(self) -> None:
+        """Test that VideoReader raises FileNotFoundError for a non-video file path."""
+        mock_instance = mock.Mock()
+        mock_instance.exists.return_value = True
+        mock_instance.is_file.return_value = True
+        mock_instance.suffix = ".txt"
+        with patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance), pytest.raises(
+            FileNotFoundError, match=r"Not a supported video file.*Supported formats"
+        ):
+            VideoReader(input_video_path="/data/document.txt")
+
+    def test_remote_url_skips_existence_check(self) -> None:
+        """Test that VideoReader does not validate existence for remote URLs."""
+        with patch("nemo_curator.stages.video.io.video_reader.is_remote_url", return_value=True):
+            stage = VideoReader(input_video_path="s3://bucket/videos")
+            assert stage.input_video_path == "s3://bucket/videos"
+
     def test_stage_initialization_default_values(self) -> None:
         """Test VideoReader initialization with default values."""
         stage = VideoReader(input_video_path="/test/videos")

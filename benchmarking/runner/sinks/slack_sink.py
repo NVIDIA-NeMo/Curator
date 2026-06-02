@@ -466,6 +466,11 @@ class SlackSink(Sink):
 
         self.live_updates: bool = sink_config.get("live_updates", False)
 
+        # Whether per-entry `ping_on_failure` user lists are honored. Set to False at
+        # sink config level to globally suppress @-mentions on failure without having
+        # to remove the per-entry lists. Default True preserves existing behavior.
+        self.ping_users_on_failure: bool = sink_config.get("ping_users_on_failure", True)
+
         self.default_metrics: list[str] = sink_config.get("default_metrics", [])
         if not self.default_metrics:
             msg = "SlackSink: No default metrics configured"
@@ -572,18 +577,15 @@ class SlackSink(Sink):
         # such as additional metrics to include in the report, pings, etc.
         sink_data = benchmark_entry.get_sink_data(self.name)
         additional_metrics = sink_data.get("additional_metrics", [])
-        pings = [] if result_dict["success"] else sink_data.get("ping_on_failure", [])
+        # Per-entry ping_on_failure lists are consulted on failure unless the sink
+        # globally disables pings via `ping_users_on_failure: false` in sink config.
+        if result_dict["success"] or not self.ping_users_on_failure:
+            pings = []
+        else:
+            pings = sink_data.get("ping_on_failure", [])
         status_text = "✅ success" if result_dict["success"] else "❌ FAILED"
 
-        # Warn if any GPU had memory in use before the benchmark started.
-        # TODO: This could be made into a more generic check that can be configured in the sink config.
-        warnings = []
-        for gpu_id, stats in result_dict.get("gpu_stats", {}).items():
-            if stats.get("memory_used", 0) > 0:
-                pct_used = stats["memory_used"] / stats["memory_total"] * 100
-                warnings.append(
-                    f"GPU {gpu_id} had {stats['memory_used']} MiB ({pct_used:.1f}% of total) used before benchmark started"
-                )
+        warnings = result_dict.get("warnings", [])
 
         # Create a new message for the entry to post in the thread.
         msg = self._create_benchmark_entry_message(

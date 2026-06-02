@@ -33,11 +33,15 @@ Note: you may only need to do this periodically when the environment needs to be
 
 **2. Update config:**
 
-Update `results_path` and `datasets_path` in the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/nightly-benchmark.yaml`
+Update the `host_path` values in the `paths` section of the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/nightly-benchmark.yaml`
 
 ```yaml
-results_path: /path/where/results/are/stored
-datasets_path: /path/to/datasets
+paths:
+  - name: results_path
+    host_path: /path/where/results/are/stored
+  - name: datasets_path
+    host_path: /path/to/datasets
+    container_path: /datasets
 ```
 
 **3. Run benchmarks:**
@@ -124,12 +128,22 @@ An example of a development scenario using this pattern looks like this:
 ### Configuration Structure
 
 ```yaml
-# Required: Base paths for results and datasets
-# These paths must exist on the host machine
-# When running in Docker with tools/run.sh, paths are automatically mapped to container volumes
-# These base paths can be referenced in other configuration values using {results_path}, {datasets_path}
-results_path: /path/to/results
-datasets_path: /path/to/datasets
+# Required: Paths to files and directories used by the benchmarks.
+# Each entry must have a "name" and a "host_path". The name can be referenced elsewhere
+# in the config using {name} placeholders (e.g. {datasets_path}).
+# When running in Docker with tools/run.sh, each path is automatically mounted into the
+# container. An optional "container_path" overrides the default mount point
+# (which is the host_path prefixed with "/MOUNT").
+# An entry with name "results_path" is required.
+paths:
+  - name: results_path
+    host_path: /path/to/results
+  - name: datasets_path
+    host_path: /path/to/datasets
+    container_path: /datasets  # optional override
+  - name: model_weights_path
+    host_path: /path/to/model_weights
+    container_path: /model_weights  # optional override
 
 # Optional: Global timeout for all entries (seconds)
 default_timeout_s: 7200
@@ -154,6 +168,12 @@ sinks:
     enabled: false
     drive_folder_id: ${GDRIVE_FOLDER_ID}
     service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
+
+# Optional: Global Ray settings inherited by all entries; per-entry ray sections override these values
+ray:
+  num_cpus: 64
+  num_gpus: 4
+  enable_object_spilling: false
 
 # Optional: Define datasets for template substitution
 datasets:
@@ -205,7 +225,45 @@ python benchmarking/run.py \
   --config machine_specific.yaml
 ```
 
-Files are merged in order. Later files override earlier ones for conflicting keys.
+Files are merged in order using a deep recursive merge, so later files can override or extend specific nested values without replacing entire top-level keys.
+
+**Merge behavior:**
+- **Scalar values** (strings, numbers, booleans): later file wins.
+- **Nested dicts**: merged recursively — only the keys present in the later file are updated.
+- **Lists of dicts** (e.g. `entries`, `paths`, `requirements`, `sinks`): items are matched by their `name` key when present (the canonical identifier for most list items), falling back to the first key otherwise. If a matching item is found, it is merged recursively; if not, the item is appended. Use `name` in override files whenever possible to ensure reliable matching.
+
+This makes it practical to write small override files that change only specific entries or requirements without duplicating the full configuration.
+
+**Example — overriding a single entry's timeout and requirements:**
+
+Base config (`nightly-benchmark.yaml`) defines many entries including:
+```yaml
+entries:
+  - name: domain_classification_xenna
+    timeout_s: 1400
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 3000
+```
+
+Override file (`my_overrides.yaml`) changes only that entry's timeout and requirement minimum:
+```yaml
+entries:
+  - name: domain_classification_xenna
+    timeout_s: 2000
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 2000
+```
+
+Running with both files:
+```bash
+python benchmarking/run.py \
+  --config nightly-benchmark.yaml \
+  --config my_overrides.yaml
+```
+
+Results in `domain_classification_xenna` using `timeout_s: 2000` and `min_value: 2000`, while all other entries remain unchanged.
 
 **Session naming:**
 
@@ -220,7 +278,9 @@ python benchmarking/run.py \
 Configuration values can reference environment variables using `${VAR_NAME}` syntax:
 
 ```yaml
-results_path: "${HOME}/benchmarks/results"
+paths:
+  - name: results_path
+    host_path: "${HOME}/benchmarks/results"
 sinks:
   - name: slack
     channel_id: ${SLACK_CHANNEL_ID}
@@ -232,7 +292,7 @@ sinks:
 
 The framework supports several types of placeholders in configuration values:
 
-**Base path references** - Reference the configured base paths:
+**Path references** - Reference paths by their `name` from the `paths` section:
 
 ```yaml
 datasets:
@@ -242,9 +302,7 @@ datasets:
         path: "{datasets_path}/subdir/data.parquet"
 ```
 
-Available base path placeholders:
-- `{results_path}` - Resolves to the configured `results_path`
-- `{datasets_path}` - Resolves to the configured `datasets_path`
+Any name defined in the `paths` section can be used as a placeholder. For example, if your `paths` section defines entries named `datasets_path` and `model_weights_path`, both `{datasets_path}` and `{model_weights_path}` are valid placeholders.
 
 **Dataset references** - Reference datasets in entry arguments:
 
@@ -284,13 +342,22 @@ requirements:
     max_value: 64
 ```
 
-**ray**: Configures Ray resources for the entry:
+**ray**: Configures Ray resources. A global `ray` section can be defined at the top level of the configuration to set defaults inherited by all entries. Per-entry `ray` sections override individual keys from the global defaults.
 
+Global defaults (applies to all entries unless overridden):
 ```yaml
 ray:
   num_cpus: 64
   num_gpus: 4
-  enable_object_spilling: false  # Disable object spilling to local disk
+  enable_object_spilling: false
+```
+
+Per-entry override (only the differing keys need to be specified):
+```yaml
+entries:
+  - name: my_benchmark
+    ray:
+      num_gpus: 0  # overrides global num_gpus; num_cpus and enable_object_spilling inherit global values
 ```
 
 ---

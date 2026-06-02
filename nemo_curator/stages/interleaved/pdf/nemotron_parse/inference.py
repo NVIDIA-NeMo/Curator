@@ -198,7 +198,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
             try:
                 outputs = self._llm.generate(prompts, self._sampling_params)
                 return [output.outputs[0].text for output in outputs]
-            except Exception as e:  # noqa: PERF203
+            except Exception as e:
                 logger.warning(f"[vLLM] Inference failed (attempt {attempt}/{max_retries}): {e}")
                 if attempt < max_retries:
                     self._reset_vllm()
@@ -223,7 +223,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         for img in images:
             try:
                 results.extend(self._infer_batch_hf([img]))
-            except (RuntimeError, ValueError, TypeError) as e:  # noqa: PERF203
+            except (RuntimeError, ValueError, TypeError) as e:
                 logger.warning(f"Single page fallback failed: {e}")
                 results.append("")
         return results
@@ -236,7 +236,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         for idx, b in enumerate(task_df["binary_content"]):
             try:
                 images.append(Image.open(io.BytesIO(b)))
-            except Exception as e:  # noqa: BLE001, PERF203
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Skipping page {idx} in {task.task_id}: {e}")
                 images.append(None)
 

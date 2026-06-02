@@ -181,6 +181,9 @@ class TestProcessingStageWith:
         # Verify that all threads completed successfully
         assert len(thread_results) == num_threads
 
+        # Concurrent appends are unordered; align results with worker_id before indexed asserts.
+        thread_results.sort(key=lambda r: r["worker_id"])
+
         # Verify that each thread got a unique modified stage
         modified_stages = [result["modified_stage"] for result in thread_results]
         modified_names = [stage.name for stage in modified_stages]

@@ -22,16 +22,17 @@ import pytest
 import ray
 from pytest import LogCaptureFixture
 
-from nemo_curator.backends import utils
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.backends.utils import (
     RayStageSpecKeys,
+    check_total_gpu_capacity,
     execute_setup_on_node,
-    get_head_node_id,
     merge_executor_configs,
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.utils import ray_utils
+from nemo_curator.utils.ray_utils import get_head_node_id
 
 if TYPE_CHECKING:
     from nemo_curator.tasks import Task
@@ -79,12 +80,12 @@ class TestMergeExecutorConfig:
 
 @contextmanager
 def _reset_head_node_cache_context() -> Iterator[None]:
-    original_value = utils._HEAD_NODE_ID_CACHE
-    utils._HEAD_NODE_ID_CACHE = None
+    original_value = ray_utils._HEAD_NODE_ID_CACHE
+    ray_utils._HEAD_NODE_ID_CACHE = None
     try:
         yield
     finally:
-        utils._HEAD_NODE_ID_CACHE = original_value
+        ray_utils._HEAD_NODE_ID_CACHE = original_value
 
 
 @pytest.fixture
@@ -192,7 +193,9 @@ class TestExecuteSetupOnNode:
         execute_setup_on_node([stage], ignore_head_node=True)
 
         # Verify the cache variable is set directly (not using the lazy function)
-        assert utils._HEAD_NODE_ID_CACHE is not None, "_HEAD_NODE_ID_CACHE should be set after execute_setup_on_node"
+        assert ray_utils._HEAD_NODE_ID_CACHE is not None, (
+            "_HEAD_NODE_ID_CACHE should be set after execute_setup_on_node"
+        )
 
         # Verify it matches the actual head node in the cluster
         expected_head_node_id = None
@@ -202,8 +205,8 @@ class TestExecuteSetupOnNode:
                 break
 
         assert expected_head_node_id is not None, "Expected head node ID should be set"
-        assert expected_head_node_id == utils._HEAD_NODE_ID_CACHE, (
-            f"_HEAD_NODE_ID_CACHE should be {expected_head_node_id}, got {utils._HEAD_NODE_ID_CACHE}"
+        assert expected_head_node_id == ray_utils._HEAD_NODE_ID_CACHE, (
+            f"_HEAD_NODE_ID_CACHE should be {expected_head_node_id}, got {ray_utils._HEAD_NODE_ID_CACHE}"
         )
 
         # Check the files written to the temp directory
@@ -223,13 +226,13 @@ class TestGetHeadNodeId:
         """Test that get_head_node_id uses lazy evaluation and caching."""
 
         # Cache should start cleared by fixture
-        assert utils._HEAD_NODE_ID_CACHE is None, "Cache should be cleared before test"
+        assert ray_utils._HEAD_NODE_ID_CACHE is None, "Cache should be cleared before test"
 
         # First call should compute and cache
         head_node_id_1 = get_head_node_id()
 
         # Cache should now be set
-        assert utils._HEAD_NODE_ID_CACHE is not None, "Cache should be set after first call"
+        assert ray_utils._HEAD_NODE_ID_CACHE is not None, "Cache should be set after first call"
 
         # Second call should return cached value
         head_node_id_2 = get_head_node_id()
@@ -271,3 +274,24 @@ class TestRayStageSpecKeys:
         for key in invalid_keys:
             result = key not in enum_values
             assert result is True, f"Invalid key '{key}' should not be found in enum values"
+
+
+class TestCheckTotalGpuCapacity:
+    """``check_total_gpu_capacity`` reuses ``get_available_cpu_gpu_resources``
+    and raises when aggregate demand exceeds the cluster-available GPU count."""
+
+    @pytest.mark.parametrize(
+        ("available_gpus", "needed", "should_raise"),
+        [(8.0, 4, False), (8.0, 8, False), (8.0, 9, True), (0.0, 1, True)],
+    )
+    def test_capacity_check(self, available_gpus: float, needed: int, should_raise: bool) -> None:
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                "nemo_curator.backends.utils.get_available_cpu_gpu_resources",
+                lambda *, ignore_head_node=False: (0.0, available_gpus),  # noqa: ARG005
+            )
+            if should_raise:
+                with pytest.raises(RuntimeError, match=f"Need {needed} GPUs"):
+                    check_total_gpu_capacity(needed)
+            else:
+                check_total_gpu_capacity(needed)
