@@ -193,15 +193,11 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         with each element corresponding to the result of processing the task
         at the same index.
 
-        Lineage contract: every emitted child gets its ``task_id``
-        assigned by ``_set_lineage`` based on the input task's ``task_id``
-        and the child's positional index. This is what makes ``task_id``
-        deterministic across runs.
-
-        If you override ``process_batch`` to do something custom (e.g.
-        cross-task aggregation), you're responsible for calling
-        ``_set_lineage`` on each emitted output yourself — otherwise
-        downstream stages will see an empty ``task_id``.
+        ``task_id`` assignment is NOT done here. The executor adapter
+        (``BaseStageAdapter._post_process_task_ids``) assigns a deterministic
+        lineage id to every emitted task — regardless of whether a stage uses
+        this default or overrides ``process_batch`` — so stages never have to
+        touch ``task_id`` themselves.
         """
         # Default implementation: process tasks one by one
         # This is only used as a fallback if a stage doesn't override this method
@@ -212,22 +208,10 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
                 raise ValueError(msg)
 
             result = self.process(task)
-            children = result if isinstance(result, list) else [result]
-            for i, child in enumerate(children):
-                if child is None:
-                    continue
-                # Source stages: prefer a content-based id from
-                # `get_deterministic_id()` (e.g. `FileGroupTask` hashes its
-                # file paths) for this task's lineage segment. Falls back to
-                # the positional index when the child's Task subclass doesn't
-                # implement one. This makes task_ids stable across
-                # reorderings of the source input.
-                if self.is_source_stage:
-                    current_task_id_suffix: str | int = child.get_deterministic_id() or i
-                else:
-                    current_task_id_suffix = i
-                child._set_lineage([task.task_id], current_task_id_suffix)
-                results.append(child)
+            if isinstance(result, list):
+                results.extend(result)
+            else:
+                results.append(result)
         return results
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:

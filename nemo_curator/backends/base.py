@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -84,6 +85,9 @@ class BaseStageAdapter:
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
 
+        # Guarantee every emitted task has a task_id (lineage or uuid fallback).
+        results = self._post_process_task_ids(tasks, results)
+
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
         # Consume and attach any custom metrics recorded by the stage during this call
@@ -94,6 +98,47 @@ class BaseStageAdapter:
             task.add_stage_perf(stage_perf_stats)
 
         return results
+
+    def _post_process_task_ids(self, tasks: list[Task], results: list[Task | None]) -> list[Task]:
+        """Assign a deterministic ``task_id`` to every emitted task.
+
+        This is the single place task ids are assigned — it runs for every
+        stage on every backend (all backend adapters subclass this), so it
+        makes no difference whether a stage defines ``process`` or overrides
+        ``process_batch``. ``task_id`` is the task's lineage path; ids are
+        re-derived at each stage boundary so the same object passing through
+        N stages gets N ids.
+
+        Mapping rules (``None`` results are dropped — Curator's "return None
+        to filter"):
+
+        - source stage → each output's segment is its content id
+          (``Task.get_deterministic_id()``) when available, else its index,
+          rooted at the input id: e.g. ``"0_<content_id>"``.
+        - single input → all outputs are its children: ``parent_0..N``
+        - positional ``M`` inputs → ``M`` outputs: each ``parent_i_0``
+        - any other (ambiguous) fan-out across a batch → a random ``uuid``,
+          so ``task_id`` is never empty even when lineage can't be derived.
+        """
+        out = [r for r in results if r is not None]
+        if not out:
+            return out
+
+        if getattr(self.stage, "is_source_stage", False):
+            parent_id = tasks[0].task_id if tasks else ""
+            for i, r in enumerate(out):
+                r._set_lineage([parent_id], r.get_deterministic_id() or i)
+        elif len(tasks) == 1:
+            parent_id = tasks[0].task_id
+            for i, r in enumerate(out):
+                r._set_lineage([parent_id], i)
+        elif len(out) == len(tasks):
+            for parent, r in zip(tasks, out, strict=True):
+                r._set_lineage([parent.task_id], 0)
+        else:
+            for r in out:
+                r.task_id = uuid.uuid4().hex
+        return out
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup the stage on a node.

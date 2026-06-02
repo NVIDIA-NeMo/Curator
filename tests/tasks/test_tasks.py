@@ -44,17 +44,16 @@ class Repeat(ProcessingStage[SimpleTask, SimpleTask]):
         return [], []
 
     def process(self, task: SimpleTask) -> list[SimpleTask]:
-        # Construct fresh Task objects; the framework's default process_batch
-        # will assign deterministic task_ids via _set_lineage.
+        # Construct fresh Task objects. task_id is assigned later by the
+        # executor adapter, not by process()/process_batch.
         return [
             SimpleTask(
-                # always overwritten by _set_lineage
                 dataset_name=task.dataset_name,
                 data=task.data,
                 _metadata=task._metadata.copy(),
                 _stage_perf=task._stage_perf.copy(),
             )
-            for i in range(self.times)
+            for _ in range(self.times)
         ]
 
 
@@ -62,18 +61,13 @@ def _sample_task() -> SimpleTask:
     return SimpleTask(dataset_name="test", data=[1, 2, 3])
 
 
-def test_fanout_tasks_have_unique_task_ids():
-    """The default process_batch should call _set_lineage on each emitted
-    child, giving them deterministic and unique task_ids derived from the
-    parent's lineage path."""
+def test_default_process_batch_does_not_assign_task_id():
+    """``process_batch`` (and ``process``) do not touch ``task_id`` — that's
+    the executor adapter's job (``BaseStageAdapter._post_process_task_ids``).
+    So fanned-out children come back here with empty ids; lineage assignment
+    is covered in tests/backends/test_task_id_postprocess.py."""
     task = _sample_task()
-    stage = Repeat(times=3)
-    output = stage.process_batch([task])
+    output = Repeat(times=3).process_batch([task])
 
     assert len(output) == 3
-    task_ids = [t.task_id for t in output]
-    assert len(set(task_ids)) == 3, f"Expected unique task_id per task, got {task_ids}"
-    # The parent task starts with an empty task_id, which _set_lineage
-    # filters out, so each child's id is just its positional index.
-    for i, t in enumerate(output):
-        assert t.task_id == str(i), t.task_id
+    assert all(t.task_id == "" for t in output)

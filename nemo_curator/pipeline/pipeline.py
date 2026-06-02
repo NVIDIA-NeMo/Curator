@@ -19,6 +19,24 @@ from loguru import logger
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import Task
+from nemo_curator.tasks.tasks import _EmptyTask
+
+
+def assign_root_lineage(initial_tasks: list[Task]) -> list[Task]:
+    """Assign root ``task_id``s to user-provided initial tasks.
+
+    Every task in a run descends from the implicit root ``"0"`` (the id of
+    :class:`_EmptyTask`). User-provided initial tasks are its direct
+    children, so they get ``"0_0"``, ``"0_1"``, … — consistent with the
+    EmptyTask-seeded case where source partitions become ``"0_<id>"``.
+    ``_EmptyTask`` instances are skipped (already ``"0"``). All downstream
+    ``task_id`` assignment happens in ``BaseStageAdapter``.
+    """
+    for i, task in enumerate(initial_tasks):
+        if isinstance(task, _EmptyTask):
+            continue
+        task._set_lineage(["0"], i)
+    return initial_tasks
 
 
 class Pipeline:
@@ -235,5 +253,8 @@ class Pipeline:
                     f"Ray Serve is active and pipeline has GPU stages: [{names}]. "
                     "The executor will schedule GPU stages on GPUs not held by Serve."
                 )
+
+        if initial_tasks:
+            assign_root_lineage(initial_tasks)
 
         return executor.execute(self.stages, initial_tasks)
