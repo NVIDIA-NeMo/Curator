@@ -381,7 +381,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1100
+    timeout_s: 1800  # observed wall ~1419s on EOS with real fuzzy_id_generator data (92% complete at the prior 1100s ceiling); +headroom for variance
     sink_data:
       - name: slack
         additional_metrics:
@@ -410,7 +410,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1500
+    timeout_s: 1800  # observed wall ~1523s on EOS with real fuzzy_id_generator data (passed at the prior 1500s ceiling with no margin); +headroom for variance
     sink_data:
       - name: slack
         additional_metrics:
