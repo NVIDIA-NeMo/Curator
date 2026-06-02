@@ -467,6 +467,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         "instead of starting one. Takes precedence over --use_inference_server.",
     )
     srv.add_argument(
+        "--inference_backend",
+        type=str,
+        default="dynamo",
+        choices=["dynamo", "ray_serve"],
+        help="Backend for --use_inference_server: 'dynamo' (NVIDIA Dynamo; needs etcd + nats-server "
+        "+ the dynamo package) or 'ray_serve' (Ray Serve + vLLM). Default: dynamo.",
+    )
+    srv.add_argument(
         "--inference_served_model_name",
         type=str,
         default=None,
@@ -529,11 +537,11 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         import torch
 
         from nemo_curator.core.client import RayClient
-        from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+        from nemo_curator.core.serve import InferenceServer
 
         # Count GPUs without Ray (ray.available_resources() requires a running
         # cluster). torch.cuda honours CUDA_VISIBLE_DEVICES. Start the cluster
-        # exposing those GPUs BEFORE Ray Serve deploys; the server is torn down
+        # exposing those GPUs BEFORE the backend deploys; the server is torn down
         # before the client at teardown (see finally).
         n_gpus = torch.cuda.device_count()
         ray_client = RayClient(num_gpus=n_gpus)
@@ -545,32 +553,54 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         server_max_len = args.max_model_len
         if args.enable_context_asr:
             server_max_len = max(server_max_len, args.context_asr_max_model_len)
+        engine_kwargs = {
+            "tensor_parallel_size": server_tp,
+            "max_model_len": server_max_len,
+            "gpu_memory_utilization": args.gpu_memory_utilization,
+            "kv_cache_dtype": args.kv_cache_dtype,
+            "trust_remote_code": True,
+        }
 
-        server_cfg = InferenceModelConfig(
-            model_identifier=args.model_id,
-            model_name=args.inference_served_model_name,
-            deployment_config={
-                "autoscaling_config": {
-                    "min_replicas": args.inference_min_replicas,
-                    "max_replicas": args.inference_max_replicas,
-                }
-            },
-            engine_kwargs={
-                "tensor_parallel_size": server_tp,
-                "max_model_len": server_max_len,
-                "gpu_memory_utilization": args.gpu_memory_utilization,
-                "kv_cache_dtype": args.kv_cache_dtype,
-                "trust_remote_code": True,
-            },
-        )
-        # Ray Serve LLM expects a newer vLLM protocol layout than 0.19.x ships;
-        # ensure the moved transcription module exists on disk (importable by the
-        # Serve replica worker processes) before ray.serve.llm is imported.
-        _install_vllm_translations_shim()
-        inference_server = InferenceServer(models=[server_cfg], port=args.inference_port)
+        if args.inference_backend == "dynamo":
+            from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig
+
+            # Dynamo uses a fixed replica count (no autoscaling), so map the
+            # requested max replicas onto num_replicas. engine_kwargs are
+            # forwarded to `python -m dynamo.vllm` as CLI flags. Needs the
+            # `dynamo` package plus `etcd` + `nats-server` on PATH.
+            model_cfg = DynamoVLLMModelConfig(
+                model_identifier=args.model_id,
+                model_name=args.inference_served_model_name,
+                engine_kwargs=engine_kwargs,
+                num_replicas=args.inference_max_replicas,
+            )
+            backend_cfg = DynamoServerConfig()
+        else:  # ray_serve (Ray Serve + vLLM; incompatible with vLLM>=0.19 layouts)
+            from nemo_curator.core.serve import RayServeModelConfig, RayServeServerConfig
+
+            # Ray Serve LLM expects a newer vLLM protocol layout than 0.19.x ships;
+            # ensure the moved transcription module exists on disk (importable by
+            # the Serve replica worker processes) before ray.serve.llm is imported.
+            _install_vllm_translations_shim()
+            model_cfg = RayServeModelConfig(
+                model_identifier=args.model_id,
+                model_name=args.inference_served_model_name,
+                deployment_config={
+                    "autoscaling_config": {
+                        "min_replicas": args.inference_min_replicas,
+                        "max_replicas": args.inference_max_replicas,
+                    }
+                },
+                engine_kwargs=engine_kwargs,
+            )
+            backend_cfg = RayServeServerConfig()
+
+        inference_server = InferenceServer(models=[model_cfg], backend=backend_cfg, port=args.inference_port)
         inference_server.start()
+        # endpoint/port are finalized during start() (Dynamo binds to the infra
+        # node IP and may reallocate the port), so read them after.
         remote_base_url = inference_server.endpoint
-        remote_model_name = args.inference_served_model_name or args.model_id
+        remote_model_name = model_cfg.resolved_model_name
 
     remote_kwargs: dict = {}
     if remote_base_url:
