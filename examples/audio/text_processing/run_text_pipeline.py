@@ -117,55 +117,6 @@ _SPEECH_QA_PROMPT = _PROMPT_DIR / "speech_qa_prompt.md"
 _LANGUAGE_ID_PROMPT = _PROMPT_DIR / "language_id_prompt.md"
 
 
-def _install_vllm_translations_shim() -> None:
-    """Compat shim for Ray Serve LLM against vLLM 0.19.x.
-
-    Ray 2.54's ``ray.serve.llm`` imports the transcription protocol classes from
-    ``vllm.entrypoints.openai.translations.protocol``, but vLLM 0.19.1 ships them
-    under ``vllm.entrypoints.openai.speech_to_text.protocol``.
-
-    This writes a real shim module to disk (not an in-process ``sys.modules``
-    alias) because Ray Serve deploys each replica in its OWN worker process that
-    re-imports the module at startup — an in-memory alias in the driver would not
-    reach those subprocesses. No-op if the module already resolves (newer vLLM or
-    the shim is already present). If site-packages is read-only, logs how to fix
-    it (run the container once with a writable rootfs).
-    """
-    import importlib.util
-    from pathlib import Path
-
-    try:
-        if importlib.util.find_spec("vllm.entrypoints.openai.translations.protocol") is not None:
-            return  # real module or a previously-written shim is already importable
-        openai_spec = importlib.util.find_spec("vllm.entrypoints.openai")
-        st_spec = importlib.util.find_spec("vllm.entrypoints.openai.speech_to_text.protocol")
-    except ModuleNotFoundError:
-        return  # vLLM not installed / unexpected layout — let the real error surface
-    if openai_spec is None or not openai_spec.submodule_search_locations or st_spec is None:
-        return
-
-    tdir = Path(next(iter(openai_spec.submodule_search_locations))) / "translations"
-    try:
-        tdir.mkdir(exist_ok=True)
-        (tdir / "__init__.py").write_text("")
-        (tdir / "protocol.py").write_text(
-            "# Auto-generated compat shim (Ray Serve LLM <-> vLLM 0.19.x).\n"
-            "from vllm.entrypoints.openai.speech_to_text.protocol import (  # noqa: F401\n"
-            "    TranscriptionRequest,\n"
-            "    TranscriptionResponse,\n"
-            "    TranscriptionStreamResponse,\n"
-            ")\n"
-        )
-        importlib.invalidate_caches()
-        logger.info(f"Wrote vllm.entrypoints.openai.translations compat shim to {tdir}")
-    except OSError as exc:
-        logger.warning(
-            f"vllm.entrypoints.openai.translations is missing and site-packages is not writable "
-            f"({exc}). Start the container once with a writable rootfs (e.g. `enroot start --rw`) so "
-            f"this shim can be created at {tdir}, then re-run. --use_inference_server needs it."
-        )
-
-
 def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap = argparse.ArgumentParser(description="Text post-processing pipeline for ASR output")
 
@@ -450,29 +401,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
 
     # ── Remote inference server (optional) ───────────────────────────
     # When enabled, the LLM stages send OpenAI-compatible requests to one
-    # shared Ray Serve + vLLM server instead of each loading its own engine.
+    # shared NVIDIA Dynamo (vLLM) server instead of each loading its own engine.
     srv = ap.add_argument_group("remote inference server")
     srv.add_argument(
         "--use_inference_server",
         action="store_true",
         default=False,
-        help="Start a local RayClient + InferenceServer (Ray Serve + vLLM) and route all LLM "
-        "stages to it as CPU-only HTTP clients. Mutually exclusive with --inference_base_url.",
-    )
-    srv.add_argument(
-        "--inference_base_url",
-        type=str,
-        default=None,
-        help="Connect to an ALREADY-running OpenAI-compatible server (e.g. http://host:8000/v1) "
-        "instead of starting one. Takes precedence over --use_inference_server.",
-    )
-    srv.add_argument(
-        "--inference_backend",
-        type=str,
-        default="dynamo",
-        choices=["dynamo", "ray_serve"],
-        help="Backend for --use_inference_server: 'dynamo' (NVIDIA Dynamo; needs etcd + nats-server "
-        "+ the dynamo package) or 'ray_serve' (Ray Serve + vLLM). Default: dynamo.",
+        help="Start a local RayClient + NVIDIA Dynamo InferenceServer and route all LLM "
+        "stages to it as CPU-only HTTP clients. Without this flag, stages run in-process vLLM.",
     )
     srv.add_argument(
         "--inference_served_model_name",
@@ -481,8 +417,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         help="Model name sent as 'model=' in requests. Defaults to --model_id.",
     )
     srv.add_argument("--inference_api_key", type=str, default="EMPTY", help="API key forwarded to the server.")
-    srv.add_argument("--inference_min_replicas", type=int, default=1, help="Ray Serve autoscaling min replicas.")
-    srv.add_argument("--inference_max_replicas", type=int, default=1, help="Ray Serve autoscaling max replicas.")
+    srv.add_argument(
+        "--inference_max_replicas", type=int, default=1, help="Number of Dynamo vLLM worker replicas (num_replicas)."
+    )
     srv.add_argument(
         "--inference_server_tp",
         type=int,
@@ -520,24 +457,21 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         )
         return
 
-    # ── Optional shared inference server ─────────────────────────────
-    # Resolve the remote endpoint (if any) BEFORE building stages so the
-    # server is healthy by the time the pipeline starts. Three modes:
-    #   --inference_base_url  -> connect to an already-running server
-    #   --use_inference_server -> start our own RayClient + InferenceServer
-    #   neither               -> unchanged in-process vLLM path
+    # ── Optional Dynamo inference server ─────────────────────────────
+    # Two modes:
+    #   --use_inference_server -> start a local RayClient + NVIDIA Dynamo server
+    #                             and route all LLM stages to it as HTTP clients
+    #   (default)              -> in-process vLLM, one engine per stage
+    # Resolved BEFORE building stages so the server is healthy at pipeline start.
     inference_server = None
     ray_client = None
     remote_base_url = None
     remote_model_name = None
-    if args.inference_base_url:
-        remote_base_url = args.inference_base_url
-        remote_model_name = args.inference_served_model_name or args.model_id
-    elif args.use_inference_server:
+    if args.use_inference_server:
         import torch
 
         from nemo_curator.core.client import RayClient
-        from nemo_curator.core.serve import InferenceServer
+        from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig, InferenceServer
 
         # Count GPUs without Ray (ray.available_resources() requires a running
         # cluster). torch.cuda honours CUDA_VISIBLE_DEVICES. Start the cluster
@@ -561,39 +495,16 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             "trust_remote_code": True,
         }
 
-        if args.inference_backend == "dynamo":
-            from nemo_curator.core.serve import DynamoServerConfig, DynamoVLLMModelConfig
-
-            # Dynamo uses a fixed replica count (no autoscaling), so map the
-            # requested max replicas onto num_replicas. engine_kwargs are
-            # forwarded to `python -m dynamo.vllm` as CLI flags. Needs the
-            # `dynamo` package plus `etcd` + `nats-server` on PATH.
-            model_cfg = DynamoVLLMModelConfig(
-                model_identifier=args.model_id,
-                model_name=args.inference_served_model_name,
-                engine_kwargs=engine_kwargs,
-                num_replicas=args.inference_max_replicas,
-            )
-            backend_cfg = DynamoServerConfig()
-        else:  # ray_serve (Ray Serve + vLLM; incompatible with vLLM>=0.19 layouts)
-            from nemo_curator.core.serve import RayServeModelConfig, RayServeServerConfig
-
-            # Ray Serve LLM expects a newer vLLM protocol layout than 0.19.x ships;
-            # ensure the moved transcription module exists on disk (importable by
-            # the Serve replica worker processes) before ray.serve.llm is imported.
-            _install_vllm_translations_shim()
-            model_cfg = RayServeModelConfig(
-                model_identifier=args.model_id,
-                model_name=args.inference_served_model_name,
-                deployment_config={
-                    "autoscaling_config": {
-                        "min_replicas": args.inference_min_replicas,
-                        "max_replicas": args.inference_max_replicas,
-                    }
-                },
-                engine_kwargs=engine_kwargs,
-            )
-            backend_cfg = RayServeServerConfig()
+        # Dynamo uses a fixed replica count (no autoscaling). engine_kwargs are
+        # forwarded to `python -m dynamo.vllm` as CLI flags. Needs the `dynamo`
+        # package plus `etcd` + `nats-server` on PATH.
+        model_cfg = DynamoVLLMModelConfig(
+            model_identifier=args.model_id,
+            model_name=args.inference_served_model_name,
+            engine_kwargs=engine_kwargs,
+            num_replicas=args.inference_max_replicas,
+        )
+        backend_cfg = DynamoServerConfig()
 
         inference_server = InferenceServer(models=[model_cfg], backend=backend_cfg, port=args.inference_port)
         inference_server.start()
