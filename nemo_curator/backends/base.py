@@ -117,8 +117,11 @@ class BaseStageAdapter:
         - single input → all outputs are its children (fan-out):
           ``parent_<seg_0..N>``
         - positional ``M`` inputs → ``M`` outputs (1:1): each ``parent_i_<seg>``
-        - any other (ambiguous) fan-out across a batch → a random ``uuid``,
-          so ``task_id`` is never empty even when lineage can't be derived.
+        - any other (ambiguous) fan-out across a batch → a random ``uuid``
+          prefixed with ``"r"`` (e.g. ``"r3f9a…"``), so ``task_id`` is never
+          empty even when lineage can't be derived. The ``"r"`` prefix flags
+          the id as non-deterministic / lineage-not-tracked (see
+          ``Task.task_id`` docstring).
 
         ``seg`` is the output's content id (``Task.get_deterministic_id()``)
         for a source stage when available, else the positional index — so a
@@ -141,8 +144,11 @@ class BaseStageAdapter:
                 suffix = (r.get_deterministic_id() or 0) if is_source else 0
                 r._set_lineage([parent.task_id], suffix)
         else:
+            # Ambiguous batch fan-out: lineage can't be derived. Use a random
+            # uuid prefixed with "r" so the id is non-empty but clearly marked
+            # as non-deterministic.
             for r in out:
-                r.task_id = uuid.uuid4().hex
+                r.task_id = "r" + uuid.uuid4().hex
         return out
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:

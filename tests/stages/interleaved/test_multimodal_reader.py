@@ -779,8 +779,6 @@ def test_reader_max_batch_bytes_splits(tmp_path: Path) -> None:
     result = reader.process(task)
     assert isinstance(result, list)
     assert len(result) >= 2
-    for batch in result:
-        assert "_processed_" in batch.task_id
 
 
 def test_reader_source_files_per_split_only_contributing_tars(tmp_path: Path) -> None:

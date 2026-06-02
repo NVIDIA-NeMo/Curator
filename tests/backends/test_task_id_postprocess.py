@@ -96,6 +96,8 @@ class TestPostProcessTaskIds:
         assert len(out) == 3
         assert all(t.task_id for t in out), "no output should be left without an id"
         assert len({t.task_id for t in out}) == 3, "uuid ids should be unique"
+        # Non-deterministic fallback ids are flagged with an "r" prefix.
+        assert all(t.task_id.startswith("r") for t in out)
         assert all("_" not in t.task_id for t in out)
 
 

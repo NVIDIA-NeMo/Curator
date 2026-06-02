@@ -51,9 +51,16 @@ class TestAddIdStage:
         assert stage.outputs() == (["data"], ["custom_id"])
 
     def test_unique_ids_across_batches(self) -> None:
-        """Ensure IDs are unique across different batches."""
+        """Ensure IDs are unique across different batches.
+
+        AddId derives doc ids from ``batch.task_id``. In a pipeline the
+        executor adapter gives each batch a unique task_id (its lineage
+        path); simulate that here so the two batches don't collide.
+        """
         batch1 = _sample_batch()
         batch2 = _sample_batch()
+        batch1._set_lineage([], 0)
+        batch2._set_lineage([], 1)
 
         stage = AddId(id_field="id")
 

@@ -63,7 +63,6 @@ class TestConvertImageBatchToDocumentBatchStage:
         assert df["image_id"].tolist() == [img.image_id for img in image_batch_with_embeddings.data]
 
         # Metadata and identifiers preserved
-        assert out.task_id == f"{image_batch_with_embeddings.task_id}_{stage.name}"
         assert out.dataset_name == image_batch_with_embeddings.dataset_name
         assert out._metadata == image_batch_with_embeddings._metadata
         assert out._stage_perf == image_batch_with_embeddings._stage_perf

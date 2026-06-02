@@ -138,7 +138,6 @@ class TestInferenceSortformerStage:
             {"start": 0.0, "end": 2.7, "speaker": "speaker_0"},
             {"start": 0.8, "end": 13.6, "speaker": "speaker_1"},
         ]
-        assert result.task_id.endswith("_sortformer")
         mock_model.diarize.assert_called_once_with(
             audio=["/test/audio1.wav"],
             batch_size=1,

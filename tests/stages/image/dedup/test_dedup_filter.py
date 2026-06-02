@@ -50,7 +50,6 @@ def test_filters_with_default_id_column(tmp_path: Path) -> None:
 
     kept_ids = [img.image_id for img in out.data]
     assert kept_ids == ["img1", "img3"]
-    assert out.task_id.endswith(stage._name)
     assert out.dataset_name == batch.dataset_name
 
 

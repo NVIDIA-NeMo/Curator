@@ -27,10 +27,17 @@ def assign_root_lineage(initial_tasks: list[Task]) -> list[Task]:
 
     Every task in a run descends from the implicit root ``"0"`` (the id of
     :class:`_EmptyTask`). User-provided initial tasks are its direct
-    children, so they get ``"0_0"``, ``"0_1"``, … — consistent with the
-    EmptyTask-seeded case where source partitions become ``"0_<id>"``.
-    ``_EmptyTask`` instances are skipped (already ``"0"``). All downstream
-    ``task_id`` assignment happens in ``BaseStageAdapter``.
+    children, so they get ``"0_0"``, ``"0_1"``, … ``_EmptyTask`` instances
+    are skipped (already ``"0"``). All downstream ``task_id`` assignment
+    happens in ``BaseStageAdapter``.
+
+    NOTE: we deliberately use the positional index here, NOT
+    ``get_deterministic_id()``, even for content-bearing tasks like
+    ``FileGroupTask``. The source stage is the single place content-based
+    ids are assigned (to its outputs); hashing here too would put the
+    content hash at two levels of the lineage path (``"0_<hashA>_<hashB>"``).
+    Passing initial tasks directly is rare; if you need reorder-stable
+    source ids, let a source stage emit them.
     """
     for i, task in enumerate(initial_tasks):
         if isinstance(task, _EmptyTask):

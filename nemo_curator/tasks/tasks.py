@@ -38,6 +38,12 @@ class Task(ABC, Generic[T]):
             debug. Empty string until the first stage runs; two runs of the
             same pipeline on the same inputs produce byte-identical
             ``task_id``s across all tasks.
+
+            A ``task_id`` that starts with ``"r"`` (followed by a uuid) is a
+            fallback assigned when lineage could NOT be derived — e.g. a
+            stage that overrides ``process_batch`` with an ambiguous batch
+            fan-out (M inputs → K≠M outputs). Such ids are NON-deterministic
+            (differ across runs) and their lineage is not tracked.
         dataset_name: Name of the dataset this task belongs to.
         _stage_perf: List of stages perfs this task has passed through.
     """

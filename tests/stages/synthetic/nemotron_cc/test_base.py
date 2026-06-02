@@ -122,7 +122,6 @@ def test_process_sync_single_row_no_system_prompt() -> None:
     out_batch = stage.process(batch)
     assert isinstance(out_batch, DocumentBatch)
     assert out_batch.dataset_name == "ds"
-    assert out_batch.task_id.endswith(stage.name)
     assert "out" in out_batch.data.columns
     assert out_batch.data["out"].iloc[0] == "resp-1"
     # Ensure user-only message when no system prompt

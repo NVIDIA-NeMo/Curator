@@ -143,9 +143,6 @@ class TestImageAestheticFilterStage:
             elif img.image_id == "img_004":
                 assert abs(img.aesthetic_score - 0.8) < 1e-5
 
-        # Check that the task has updated ID
-        assert result.task_id == f"{sample_image_batch.task_id}_{stage.name}"
-
     @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     def test_threshold_variations(
         self, mock_aesthetic_scorer: Mock, sample_image_batch: ImageBatch, mock_model: Mock

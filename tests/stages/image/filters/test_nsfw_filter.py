@@ -140,9 +140,6 @@ class TestImageNSFWFilterStage:
             elif img.image_id == "img_003":
                 assert abs(img.nsfw_score - 0.2) < 1e-5
 
-        # Check that the task has updated ID
-        assert result.task_id == f"{sample_image_batch.task_id}_{stage.name}"
-
     @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_process_high_nsfw_filtering(
         self,
@@ -237,7 +234,6 @@ class TestImageNSFWFilterStage:
 
         assert len(result.data) == 0
         assert result.dataset_name == sample_image_batch.dataset_name
-        assert result.task_id == f"{sample_image_batch.task_id}_{stage.name}"
 
     @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_no_images_filtered(
