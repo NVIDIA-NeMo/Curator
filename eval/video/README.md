@@ -7,11 +7,15 @@ drift. Run scoring after model updates or pipeline refactors.
 
 [CosmosEmbed1](https://huggingface.co/collections/nvidia/cosmos-embed1) is a
 family of video-text embedding models (ViT + QFormer) available in three
-resolutions: [224p](https://huggingface.co/nvidia/Cosmos-Embed1-224p),
-[336p](https://huggingface.co/nvidia/Cosmos-Embed1-336p), and
-[448p](https://huggingface.co/nvidia/Cosmos-Embed1-448p). They capture temporal
-motion and physical actions, projecting both video and text into a shared
-256-dim space where cosine similarity measures semantic alignment.
+resolutions:
+
+- [224p](https://huggingface.co/nvidia/Cosmos-Embed1-224p) — 8 frames, 224x224, 256-dim embeddings
+- [336p](https://huggingface.co/nvidia/Cosmos-Embed1-336p) — 8 frames, 336x336, 768-dim embeddings
+- [448p](https://huggingface.co/nvidia/Cosmos-Embed1-448p) — 8 frames, 448x448, 768-dim embeddings
+
+They capture temporal motion and physical actions, projecting both video and
+text into a shared embedding space where cosine similarity measures semantic
+alignment.
 
 CosmosEmbed1's text encoder is limited to 128 tokens. Since VLM captions sometimes
 exceed this limit, we use a summarizer LLM to extract visual elements and
