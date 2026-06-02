@@ -5,10 +5,13 @@ drift. Run scoring after model updates or pipeline refactors.
 
 ## Method
 
-CosmosEmbed1 is a video-text embedding model (ViT + QFormer) with understanding
-of temporal motion and physical actions. It projects both video and text into a
-shared continuous space, where cosine similarity directly measures semantic
-alignment.
+[CosmosEmbed1](https://huggingface.co/collections/nvidia/cosmos-embed1) is a
+family of video-text embedding models (ViT + QFormer) available in three
+resolutions: [224p](https://huggingface.co/nvidia/Cosmos-Embed1-224p),
+[336p](https://huggingface.co/nvidia/Cosmos-Embed1-336p), and
+[448p](https://huggingface.co/nvidia/Cosmos-Embed1-448p). They capture temporal
+motion and physical actions, projecting both video and text into a shared
+256-dim space where cosine similarity measures semantic alignment.
 
 CosmosEmbed1's text encoder is limited to 128 tokens. Since VLM captions sometimes
 exceed this limit, we use a summarizer LLM to extract visual elements and
@@ -30,6 +33,21 @@ is a set of 200 clips.
 3. Sample the 10 worst-scoring clips for human spot-check. Human review
    determines if the drop is a real quality regression or an alignment score
    artifact (e.g., the new model is just more verbose).
+
+## Dataset
+
+We use [OpenVid-1M](https://huggingface.co/datasets/nkp37/OpenVid-1M), a
+public high-quality video dataset (1M clips, CC-BY-4.0). From it we build a
+200-clip benchmark subset via the K-means procedure described above.
+
+## Baseline Scores
+
+Expected scores: Qwen2.5-VL and Qwen3-VL ~0.39, Nemotron-VL ~0.38. If
+scores drop >5% from these baselines, spot-check the 10 worst-scoring clips to
+determine whether it is a real quality regression.
+
+Scores are deterministic across runs on the same machine when using
+`enforce_eager=True` and `CUBLAS_WORKSPACE_CONFIG=:4096:8`.
 
 ## Quick Start
 
