@@ -35,6 +35,24 @@ if [ -n "${CURATOR_SHM_SIZE_BYTES:-}" ]; then
   fi
 fi
 
+# Optional: poll all GPUs every CURATOR_GPU_POLL_INTERVAL_S seconds and dump a
+# CSV per entry. Useful for verifying CUDA_VISIBLE_DEVICES is actually honored
+# by Ray/Xenna (so we can detect post-run if unmasked GPUs were touched).
+# Unset → no polling.
+NVSMI_PID=""
+if [ -n "${CURATOR_GPU_POLL_INTERVAL_S:-}" ] && [ "${CURATOR_GPU_POLL_INTERVAL_S}" -gt 0 ]; then
+    GPU_UTIL_DIR="/tmp/curator/results/${BRANCH_NAME}/benchmark_run_${CI_PIPELINE_ID}"
+    mkdir -p "${GPU_UTIL_DIR}"
+    GPU_UTIL_CSV="${GPU_UTIL_DIR}/gpu_util_${ENTRY_NAME}_slurm${SLURM_JOB_ID:-pid$$}.csv"
+    echo "[ci_benchmark_launcher] Polling GPUs every ${CURATOR_GPU_POLL_INTERVAL_S}s -> ${GPU_UTIL_CSV}"
+    nvidia-smi \
+        --query-gpu=timestamp,index,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu \
+        --format=csv,nounits \
+        -l "${CURATOR_GPU_POLL_INTERVAL_S}" > "${GPU_UTIL_CSV}" 2>&1 &
+    NVSMI_PID=$!
+    trap '[ -n "${NVSMI_PID}" ] && kill "${NVSMI_PID}" 2>/dev/null || true' EXIT
+fi
+
 cd /opt/Curator
 uv pip install GitPython pynvml pyyaml rich
 
