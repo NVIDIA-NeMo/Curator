@@ -117,6 +117,17 @@ class TestSourceStage:
         out = _assign([empty], [_task(), _task(), _task()], is_source=True)
         assert [t.task_id for t in out] == ["0_0", "0_1", "0_2"]
 
+    def test_n_to_n_source_parents_each_output_by_position(self) -> None:
+        # A source stage can also be N→N (each input → one partition). Each
+        # output must descend from ITS positional parent, not all from
+        # tasks[0]; the content id is the segment.
+        p0, p1 = _task("0_0"), _task("0_1")
+        a = FileGroupTask(dataset_name="d", data=["a.parquet"])
+        b = FileGroupTask(dataset_name="d", data=["b.parquet"])
+        _assign([p0, p1], [a, b], is_source=True)
+        assert a.task_id == f"0_0_{a.get_deterministic_id()}"
+        assert b.task_id == f"0_1_{b.get_deterministic_id()}"
+
     def test_non_source_stage_ignores_content_id(self) -> None:
         # The same FileGroupTask outputs from a NON-source stage use the
         # positional index, not the content id.

@@ -109,32 +109,37 @@ class BaseStageAdapter:
         re-derived at each stage boundary so the same object passing through
         N stages gets N ids.
 
-        Mapping rules (``None`` results are dropped — Curator's "return None
-        to filter"):
+        The input→output mapping decides each output's PARENT; whether the
+        stage is a source decides each output's SEGMENT (content id vs index)
+        — the two are independent. ``None`` results are dropped (Curator's
+        "return None to filter").
 
-        - source stage → each output's segment is its content id
-          (``Task.get_deterministic_id()``) when available, else its index,
-          rooted at the input id: e.g. ``"0_<content_id>"``.
-        - single input → all outputs are its children: ``parent_0..N``
-        - positional ``M`` inputs → ``M`` outputs: each ``parent_i_0``
+        - single input → all outputs are its children (fan-out):
+          ``parent_<seg_0..N>``
+        - positional ``M`` inputs → ``M`` outputs (1:1): each ``parent_i_<seg>``
         - any other (ambiguous) fan-out across a batch → a random ``uuid``,
           so ``task_id`` is never empty even when lineage can't be derived.
+
+        ``seg`` is the output's content id (``Task.get_deterministic_id()``)
+        for a source stage when available, else the positional index — so a
+        source partition keeps a stable id across reorderings regardless of
+        whether the source is 1→N or N→N.
         """
         out = [r for r in results if r is not None]
         if not out:
             return out
 
-        if getattr(self.stage, "is_source_stage", False):
-            parent_id = tasks[0].task_id if tasks else ""
-            for i, r in enumerate(out):
-                r._set_lineage([parent_id], r.get_deterministic_id() or i)
-        elif len(tasks) == 1:
+        is_source = getattr(self.stage, "is_source_stage", False)
+
+        if len(tasks) == 1:
             parent_id = tasks[0].task_id
             for i, r in enumerate(out):
-                r._set_lineage([parent_id], i)
+                suffix = (r.get_deterministic_id() or i) if is_source else i
+                r._set_lineage([parent_id], suffix)
         elif len(out) == len(tasks):
             for parent, r in zip(tasks, out, strict=True):
-                r._set_lineage([parent.task_id], 0)
+                suffix = (r.get_deterministic_id() or 0) if is_source else 0
+                r._set_lineage([parent.task_id], suffix)
         else:
             for r in out:
                 r.task_id = uuid.uuid4().hex
