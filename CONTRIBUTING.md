@@ -39,9 +39,8 @@ If you're planning a larger change (new modality, new executor, breaking API cha
 New to the project? Start here:
 
 1. Browse issues labeled [`good first issue`](https://github.com/NVIDIA-NeMo/Curator/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) — these are scoped to be approachable without deep familiarity with the codebase.
-2. For slightly larger work, look at [`help wanted`](https://github.com/NVIDIA-NeMo/Curator/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
-3. Comment on the issue to claim it before you start work, so we don't duplicate effort.
-4. Read [General Principles](#general-principles) and follow the [PR Guidelines](#pull-requests-pr-guidelines) below.
+2. Comment on the issue to claim it before you start work, so we don't duplicate effort.
+3. Read [General Principles](#general-principles) and follow the [PR Guidelines](#pull-requests-pr-guidelines) below.
 
 Good starter areas if no labeled issue catches your eye: docs typos and clarifications, missing docstrings, additional unit-test coverage, and small isolated Python-stage fixes.
 
