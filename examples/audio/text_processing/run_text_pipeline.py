@@ -86,8 +86,12 @@ from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifes
 from nemo_curator.stages.audio.text_filtering.acoustic_distractor import AcousticDistractorStage
 from nemo_curator.stages.audio.text_filtering.contextual_asr_extraction import ContextualASRExtractionStage
 from nemo_curator.stages.audio.text_filtering.contextual_asr_prompt_variant import ContextualASRPromptVariantStage
-from nemo_curator.stages.audio.text_filtering.llm_language_verification import LLMLanguageVerificationStage
 from nemo_curator.stages.audio.text_filtering.instruction_packer import InstructionPackerStage
+from nemo_curator.stages.audio.text_filtering.llm_language_verification import LLMLanguageVerificationStage
+from nemo_curator.stages.audio.text_filtering.remote_contextual_asr_extraction import (
+    RemoteContextualASRExtractionStage,
+)
+from nemo_curator.stages.audio.text_filtering.remote_text_llm_stage import RemoteTextLLMStage
 from nemo_curator.stages.audio.text_filtering.text_llm_stage import TextLLMStage
 from nemo_curator.stages.resources import Resources
 
@@ -113,7 +117,56 @@ _SPEECH_QA_PROMPT = _PROMPT_DIR / "speech_qa_prompt.md"
 _LANGUAGE_ID_PROMPT = _PROMPT_DIR / "language_id_prompt.md"
 
 
-def _build_arg_parser() -> argparse.ArgumentParser:
+def _install_vllm_translations_shim() -> None:
+    """Compat shim for Ray Serve LLM against vLLM 0.19.x.
+
+    Ray 2.54's ``ray.serve.llm`` imports the transcription protocol classes from
+    ``vllm.entrypoints.openai.translations.protocol``, but vLLM 0.19.1 ships them
+    under ``vllm.entrypoints.openai.speech_to_text.protocol``.
+
+    This writes a real shim module to disk (not an in-process ``sys.modules``
+    alias) because Ray Serve deploys each replica in its OWN worker process that
+    re-imports the module at startup — an in-memory alias in the driver would not
+    reach those subprocesses. No-op if the module already resolves (newer vLLM or
+    the shim is already present). If site-packages is read-only, logs how to fix
+    it (run the container once with a writable rootfs).
+    """
+    import importlib.util
+    from pathlib import Path
+
+    try:
+        if importlib.util.find_spec("vllm.entrypoints.openai.translations.protocol") is not None:
+            return  # real module or a previously-written shim is already importable
+        openai_spec = importlib.util.find_spec("vllm.entrypoints.openai")
+        st_spec = importlib.util.find_spec("vllm.entrypoints.openai.speech_to_text.protocol")
+    except ModuleNotFoundError:
+        return  # vLLM not installed / unexpected layout — let the real error surface
+    if openai_spec is None or not openai_spec.submodule_search_locations or st_spec is None:
+        return
+
+    tdir = Path(next(iter(openai_spec.submodule_search_locations))) / "translations"
+    try:
+        tdir.mkdir(exist_ok=True)
+        (tdir / "__init__.py").write_text("")
+        (tdir / "protocol.py").write_text(
+            "# Auto-generated compat shim (Ray Serve LLM <-> vLLM 0.19.x).\n"
+            "from vllm.entrypoints.openai.speech_to_text.protocol import (  # noqa: F401\n"
+            "    TranscriptionRequest,\n"
+            "    TranscriptionResponse,\n"
+            "    TranscriptionStreamResponse,\n"
+            ")\n"
+        )
+        importlib.invalidate_caches()
+        logger.info(f"Wrote vllm.entrypoints.openai.translations compat shim to {tdir}")
+    except OSError as exc:
+        logger.warning(
+            f"vllm.entrypoints.openai.translations is missing and site-packages is not writable "
+            f"({exc}). Start the container once with a writable rootfs (e.g. `enroot start --rw`) so "
+            f"this shim can be created at {tdir}, then re-run. --use_inference_server needs it."
+        )
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap = argparse.ArgumentParser(description="Text post-processing pipeline for ASR output")
 
     ap.add_argument(
@@ -395,10 +448,52 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
     ap.add_argument("--execution_mode", type=str, default="streaming", choices=["streaming", "batch"])
 
+    # ── Remote inference server (optional) ───────────────────────────
+    # When enabled, the LLM stages send OpenAI-compatible requests to one
+    # shared Ray Serve + vLLM server instead of each loading its own engine.
+    srv = ap.add_argument_group("remote inference server")
+    srv.add_argument(
+        "--use_inference_server",
+        action="store_true",
+        default=False,
+        help="Start a local RayClient + InferenceServer (Ray Serve + vLLM) and route all LLM "
+        "stages to it as CPU-only HTTP clients. Mutually exclusive with --inference_base_url.",
+    )
+    srv.add_argument(
+        "--inference_base_url",
+        type=str,
+        default=None,
+        help="Connect to an ALREADY-running OpenAI-compatible server (e.g. http://host:8000/v1) "
+        "instead of starting one. Takes precedence over --use_inference_server.",
+    )
+    srv.add_argument(
+        "--inference_served_model_name",
+        type=str,
+        default=None,
+        help="Model name sent as 'model=' in requests. Defaults to --model_id.",
+    )
+    srv.add_argument("--inference_api_key", type=str, default="EMPTY", help="API key forwarded to the server.")
+    srv.add_argument("--inference_min_replicas", type=int, default=1, help="Ray Serve autoscaling min replicas.")
+    srv.add_argument("--inference_max_replicas", type=int, default=1, help="Ray Serve autoscaling max replicas.")
+    srv.add_argument(
+        "--inference_server_tp",
+        type=int,
+        default=None,
+        help="tensor_parallel_size for the server engine (default: auto = visible GPU count).",
+    )
+    srv.add_argument("--inference_port", type=int, default=8000, help="Server HTTP port.")
+    srv.add_argument(
+        "--inference_max_concurrent_requests",
+        type=int,
+        default=64,
+        help="Max in-flight requests per stage actor (async client semaphore bound).",
+    )
+    srv.add_argument("--inference_request_timeout", type=int, default=120, help="Per-request timeout (seconds).")
+
     return ap
 
 
-def main() -> None:  # noqa: C901, PLR0915
+def main() -> None:  # noqa: C901, PLR0912, PLR0915
     args = _build_arg_parser().parse_args()
 
     if (
@@ -416,6 +511,82 @@ def main() -> None:  # noqa: C901, PLR0915
             "--enable_captioning, --enable_context_asr, --enable_code_switching, or --enable_speech_qa."
         )
         return
+
+    # ── Optional shared inference server ─────────────────────────────
+    # Resolve the remote endpoint (if any) BEFORE building stages so the
+    # server is healthy by the time the pipeline starts. Three modes:
+    #   --inference_base_url  -> connect to an already-running server
+    #   --use_inference_server -> start our own RayClient + InferenceServer
+    #   neither               -> unchanged in-process vLLM path
+    inference_server = None
+    ray_client = None
+    remote_base_url = None
+    remote_model_name = None
+    if args.inference_base_url:
+        remote_base_url = args.inference_base_url
+        remote_model_name = args.inference_served_model_name or args.model_id
+    elif args.use_inference_server:
+        import torch
+
+        from nemo_curator.core.client import RayClient
+        from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+
+        # Count GPUs without Ray (ray.available_resources() requires a running
+        # cluster). torch.cuda honours CUDA_VISIBLE_DEVICES. Start the cluster
+        # exposing those GPUs BEFORE Ray Serve deploys; the server is torn down
+        # before the client at teardown (see finally).
+        n_gpus = torch.cuda.device_count()
+        ray_client = RayClient(num_gpus=n_gpus)
+        ray_client.start()
+
+        server_tp = args.inference_server_tp or n_gpus
+        # One engine serves every stage, so its max_model_len must cover the
+        # largest requirement (context_asr 8192 vs the text stages' 2048).
+        server_max_len = args.max_model_len
+        if args.enable_context_asr:
+            server_max_len = max(server_max_len, args.context_asr_max_model_len)
+
+        server_cfg = InferenceModelConfig(
+            model_identifier=args.model_id,
+            model_name=args.inference_served_model_name,
+            deployment_config={
+                "autoscaling_config": {
+                    "min_replicas": args.inference_min_replicas,
+                    "max_replicas": args.inference_max_replicas,
+                }
+            },
+            engine_kwargs={
+                "tensor_parallel_size": server_tp,
+                "max_model_len": server_max_len,
+                "gpu_memory_utilization": args.gpu_memory_utilization,
+                "kv_cache_dtype": args.kv_cache_dtype,
+                "trust_remote_code": True,
+            },
+        )
+        # Ray Serve LLM expects a newer vLLM protocol layout than 0.19.x ships;
+        # ensure the moved transcription module exists on disk (importable by the
+        # Serve replica worker processes) before ray.serve.llm is imported.
+        _install_vllm_translations_shim()
+        inference_server = InferenceServer(models=[server_cfg], port=args.inference_port)
+        inference_server.start()
+        remote_base_url = inference_server.endpoint
+        remote_model_name = args.inference_served_model_name or args.model_id
+
+    remote_kwargs: dict = {}
+    if remote_base_url:
+        remote_kwargs = {
+            "inference_base_url": remote_base_url,
+            "served_model_name": remote_model_name,
+            "inference_api_key": args.inference_api_key,
+            "max_concurrent_requests": args.inference_max_concurrent_requests,
+            "request_timeout": args.inference_request_timeout,
+        }
+        logger.info(f"Routing LLM stages to remote inference server at {remote_base_url} (model={remote_model_name})")
+    # Pick in-process vs remote stage classes. The Remote* classes subclass
+    # the in-process ones, inherit (and ignore) the GPU engine kwargs, and
+    # force CPU-only resources in their __post_init__.
+    text_stage_cls = RemoteTextLLMStage if remote_base_url else TextLLMStage
+    ctx_stage_cls = RemoteContextualASRExtractionStage if remote_base_url else ContextualASRExtractionStage
 
     itn_prompt = args.itn_prompt_file or str(_ITN_PROMPT)
     itn_no_disfl_prompt = args.itn_no_disfluencies_prompt_file or str(_CORRECTION_PROMPT)
@@ -436,6 +607,7 @@ def main() -> None:  # noqa: C901, PLR0915
         "kv_cache_dtype": args.kv_cache_dtype,
         "num_workers_override": args.num_workers,
         "batch_size": args.batch_size,
+        **remote_kwargs,
     }
 
     stages = [
@@ -445,7 +617,7 @@ def main() -> None:  # noqa: C901, PLR0915
     if args.enable_pnc:
         pnc_input_key = "abbreviated_text" if args.text_key == "pnc_text" else args.text_key
         stages.append(
-            TextLLMStage(
+            text_stage_cls(
                 name="PnCRestoration",
                 prompt_file=pnc_prompt,
                 text_key=pnc_input_key,
@@ -458,7 +630,7 @@ def main() -> None:  # noqa: C901, PLR0915
 
     if args.enable_language_id:
         stages.append(
-            TextLLMStage(
+            text_stage_cls(
                 name="LanguageID",
                 prompt_file=language_id_prompt,
                 text_key="pnc_text",
@@ -477,7 +649,7 @@ def main() -> None:  # noqa: C901, PLR0915
 
     if args.enable_itn:
         stages.append(
-            TextLLMStage(
+            text_stage_cls(
                 name="ITNRestoration",
                 prompt_file=itn_prompt,
                 text_key=args.text_key,
@@ -494,7 +666,7 @@ def main() -> None:  # noqa: C901, PLR0915
                 "--enable_itn_no-disfluencies requires --enable_itn (needs itn_text as input). Enabling ITN automatically."
             )
             stages.append(
-                TextLLMStage(
+                text_stage_cls(
                     name="ITNRestoration",
                     prompt_file=itn_prompt,
                     text_key=args.text_key,
@@ -505,7 +677,7 @@ def main() -> None:  # noqa: C901, PLR0915
             )
 
         stages.append(
-            TextLLMStage(
+            text_stage_cls(
                 name="DisfluencyRemoval",
                 prompt_file=itn_no_disfl_prompt,
                 text_key=args.itn_output_key,
@@ -519,7 +691,7 @@ def main() -> None:  # noqa: C901, PLR0915
 
     if args.enable_captioning:
         stages.append(
-            TextLLMStage(
+            text_stage_cls(
                 name="Captioning",
                 prompt_file=captioning_prompt,
                 text_key=args.text_key,
@@ -537,7 +709,7 @@ def main() -> None:  # noqa: C901, PLR0915
         # uses its own engine kwargs — note context_asr_max_model_len (8192), larger
         # than the global --max_model_len (2048) used by the lightweight stages.
         stages.append(
-            ContextualASRExtractionStage(
+            ctx_stage_cls(
                 model_id=args.model_id,
                 prompt_file=context_asr_prompt,
                 text_key=context_asr_text_key,
@@ -552,6 +724,7 @@ def main() -> None:  # noqa: C901, PLR0915
                 num_workers_override=args.num_workers,
                 batch_size=args.batch_size,
                 resources=Resources(gpus=1.0),
+                **remote_kwargs,
             )
         )
         if args.enable_acoustic_distractor:
@@ -596,7 +769,7 @@ def main() -> None:  # noqa: C901, PLR0915
             )
     if args.enable_code_switching:
         stages.append(
-            TextLLMStage(
+            text_stage_cls(
                 name="CodeSwitching",
                 prompt_file=code_switching_prompt,
                 text_key=args.text_key,
@@ -610,7 +783,7 @@ def main() -> None:  # noqa: C901, PLR0915
 
     if args.enable_speech_qa:
         stages.append(
-            TextLLMStage(
+            text_stage_cls(
                 name="SpeechQA",
                 prompt_file=speech_qa_prompt,
                 text_key=args.text_key,
@@ -647,7 +820,15 @@ def main() -> None:  # noqa: C901, PLR0915
     executor = RayDataExecutor()
 
     logger.info(f"Running text pipeline: {len(stages)} stages, mode={args.execution_mode}")
-    pipeline.run(executor=executor)
+    try:
+        pipeline.run(executor=executor)
+    finally:
+        # Stop the server before the Ray client so Serve actors can shut down
+        # cleanly while the cluster is still up.
+        if inference_server is not None:
+            inference_server.stop()
+        if ray_client is not None:
+            ray_client.stop()
     logger.info("Text pipeline complete.")
 
 
