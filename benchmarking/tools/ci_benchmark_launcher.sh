@@ -24,17 +24,6 @@ mkdir -p "/tmp/curator/results/${BRANCH_NAME}"
 # discarded with the container.
 apt-get update -qq && apt-get install -y --no-install-recommends lynx
 
-# Optional: cap /dev/shm to CURATOR_SHM_SIZE_BYTES bytes for cross-host
-# (e.g. A100 vs H100) comparison runs. Unset → no remount, leaving the
-# container's default /dev/shm size (host tmpfs) in place.
-if [ -n "${CURATOR_SHM_SIZE_BYTES:-}" ]; then
-  if mount -o remount,size="${CURATOR_SHM_SIZE_BYTES}" /dev/shm 2>/dev/null; then
-    echo "[ci_benchmark_launcher] /dev/shm remounted to ${CURATOR_SHM_SIZE_BYTES} bytes"
-  else
-    echo "[ci_benchmark_launcher] WARNING: failed to remount /dev/shm to ${CURATOR_SHM_SIZE_BYTES} bytes (insufficient caps?); continuing"
-  fi
-fi
-
 # Optional: poll all GPUs every CURATOR_GPU_POLL_INTERVAL_S seconds and dump a
 # CSV per entry. Useful for verifying CUDA_VISIBLE_DEVICES is actually honored
 # by Ray/Xenna (so we can detect post-run if unmasked GPUs were touched).

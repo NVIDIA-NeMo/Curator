@@ -37,7 +37,7 @@ _KB = 1024
 _MB = 1024 * _KB
 _GB = 1024 * _MB
 _TB = 1024 * _GB
-_max_container_memory_bytes = 1 * _TB
+_max_container_memory_bytes = 2 * _TB
 _shm_size_container_memory_percentage = 0.5  # 50%
 
 CURATOR_BENCHMARKING_IMAGE = os.environ.get("CURATOR_BENCHMARKING_IMAGE", "nemo_curator_benchmarking:latest")
