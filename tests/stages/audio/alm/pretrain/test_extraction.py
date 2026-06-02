@@ -66,7 +66,7 @@ def _task_with_plan(audio_path: Path, plan: list[dict], extras: dict | None = No
     data = {"id": "X", "audio_filepath": str(audio_path), _PLAN_DATA_KEY: plan}
     if extras:
         data.update(extras)
-    return AudioTask(task_id="t1", dataset_name="ds", data=data)
+    return AudioTask(dataset_name="ds", data=data)
 
 
 # ----------------------------------------------------------------------
@@ -160,11 +160,7 @@ class TestSnippetExtractionStageReal:
 
         # Source row has audio_sample_rate / audio_num_channels populated, so
         # the extractor's conditional updates fire.
-        out = stage.process(
-            _task_with_plan(
-                src, plan, extras={"audio_sample_rate": 22050, "audio_num_channels": 2}
-            )
-        )
+        out = stage.process(_task_with_plan(src, plan, extras={"audio_sample_rate": 22050, "audio_num_channels": 2}))
         stage.teardown()
         d = out[0].data
         # Snippet ID + tar-internal basename (no slashes, no directory prefix)
@@ -275,10 +271,6 @@ class TestSnippetExtractionStageDryRun:
     def test_invalid_output_format_rejected(self, tmp_path: Path) -> None:
         tar_path = str(tmp_path / "snips.tar")
         with pytest.raises(ValueError, match="output_format"):
-            SnippetExtractionStage(
-                output_dir=str(tmp_path), output_audio_tar_path=tar_path, output_format="m4a"
-            )
+            SnippetExtractionStage(output_dir=str(tmp_path), output_audio_tar_path=tar_path, output_format="m4a")
         with pytest.raises(ValueError, match="target_sample_rate"):
-            SnippetExtractionStage(
-                output_dir=str(tmp_path), output_audio_tar_path=tar_path, target_sample_rate=0
-            )
+            SnippetExtractionStage(output_dir=str(tmp_path), output_audio_tar_path=tar_path, target_sample_rate=0)

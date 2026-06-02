@@ -57,9 +57,7 @@ if TYPE_CHECKING:
 # ----------------------------------------------------------------------
 
 
-def _read_manifest_row_id(
-    stage_name: str, lineno: int, entry: dict[str, Any], seen_ids: set[str]
-) -> str | None:
+def _read_manifest_row_id(stage_name: str, lineno: int, entry: dict[str, Any], seen_ids: set[str]) -> str | None:
     # `id` is required by the pipeline contract: downstream snippet ids
     # embed it, the metrics aggregator keys per-source records on it, and
     # tar members are named with it. A row without a usable id can't be
@@ -202,16 +200,13 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
                     logger.warning(f"[{self.name}] line {lineno}: missing {self.audio_filepath_key!r}; skipping")
                     continue
                 if self.audio_path_resolution == AUDIO_PATH_RESOLUTION_BASENAME:
-                    _check_duplicate_audio_basename(
-                        self.name, lineno, original_path, row_id, seen_basenames
-                    )
+                    _check_duplicate_audio_basename(self.name, lineno, original_path, row_id, seen_basenames)
                 entry[self.audio_filepath_key] = _resolve_audio_path(
                     self.audio_dir, original_path, self.audio_path_resolution
                 )
 
                 tasks.append(
                     AudioTask(
-                        task_id=row_id,
                         dataset_name=self.dataset_name,
                         data=entry,
                         filepath_key=self.audio_filepath_key,

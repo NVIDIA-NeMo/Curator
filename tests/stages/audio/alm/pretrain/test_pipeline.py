@@ -163,7 +163,7 @@ def _run_pipeline_inline(  # noqa: PLR0913
     aggregator.setup_on_node()
     aggregator.setup()
 
-    for input_task in reader.process(_EmptyTask(task_id="e", dataset_name="e", data=None)):
+    for input_task in reader.process(_EmptyTask(dataset_name="e", data=None)):
         filtered = overlap.process(input_task)
         planned = planner.process(filtered)
         rep_filtered = rep_filter.process(planned)
