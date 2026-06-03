@@ -53,6 +53,10 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/mscoco/model_weights"
+  - name: "ocr_textvqa"
+    formats:
+    - type: "imagefolder"
+      path: "{datasets_path}/ocr/textvqa_100"
   - name: "videos"
     formats:
     - type: "mp4"
@@ -1287,3 +1291,32 @@ entries:
         exact_value: 2384
       - metric: num_cc_index_files
         exact_value: 50
+
+  - name: ocr_scoring_qa_async_xenna
+    enabled: true
+    script: ocr_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --hf-dataset={dataset:ocr_textvqa,imagefolder}
+      --hf-image-dir={session_entry_dir}/scratch/images
+      --output-path={session_entry_dir}/scratch/output
+      --run-scoring-qa
+      --scoring-qa-dense-dump-prob=0.05
+      --executor=xenna
+    timeout_s: 1800
+    ray:
+      num_gpus: 1
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_images_processed
+          - num_conversations_generated
+          - scoring_api_success_rate
+          - throughput_images_per_sec
+        ping_on_failure:
+          - U020C9VC05N  # Ao Tang
+    requirements:
+      - metric: num_images_processed
+        exact_value: 100
+      - metric: num_conversations_generated
+        min_value: 40

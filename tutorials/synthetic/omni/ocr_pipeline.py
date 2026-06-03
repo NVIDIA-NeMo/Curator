@@ -49,6 +49,7 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
     nemotron_model_dir: Path | None = None,
     run_scoring_qa: bool = False,
     scoring_qa_model_id: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    scoring_qa_max_tokens: int = 16384,
     scoring_qa_min_bbox_match: int = 5,
     scoring_qa_max_text_errors: int = 0,
     scoring_qa_fail_on_missing_text: bool = False,
@@ -110,6 +111,7 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
         pipeline.add_stage(
             OCRScoringQAStage(
                 model_id=scoring_qa_model_id,
+                max_tokens=scoring_qa_max_tokens,
                 min_bbox_match=scoring_qa_min_bbox_match,
                 max_text_errors=scoring_qa_max_text_errors,
                 fail_on_missing_text=scoring_qa_fail_on_missing_text,
@@ -220,6 +222,13 @@ def create_ocr_argparser() -> argparse.ArgumentParser:
         help="NVIDIA Inference API model ID for scoring QA",
     )
     parser.add_argument(
+        "--scoring-qa-max-tokens",
+        type=int,
+        default=16384,
+        help="Max tokens for the verifier response. Reasoning models spend most of this on "
+        "chain-of-thought before emitting JSON; raise (e.g. 32768) if responses come back empty.",
+    )
+    parser.add_argument(
         "--scoring-qa-min-bbox-match",
         type=int,
         default=5,
@@ -267,6 +276,7 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
         nemotron_model_dir=Path(args.nemotron_model_dir) if args.nemotron_model_dir else None,
         run_scoring_qa=args.run_scoring_qa,
         scoring_qa_model_id=args.scoring_qa_model_id,
+        scoring_qa_max_tokens=args.scoring_qa_max_tokens,
         scoring_qa_min_bbox_match=args.scoring_qa_min_bbox_match,
         scoring_qa_max_text_errors=args.scoring_qa_max_text_errors,
         scoring_qa_fail_on_missing_text=args.scoring_qa_fail_on_missing_text,

@@ -28,6 +28,10 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/mscoco/model_weights"
+  - name: "ocr_textvqa"
+    formats:
+    - type: "imagefolder"
+      path: "{datasets_path}/ocr/textvqa_100"
   - name: "videos"
     formats:
     - type: "mp4"

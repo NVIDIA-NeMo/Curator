@@ -25,6 +25,12 @@ SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-""}
 GDRIVE_FOLDER_ID=${GDRIVE_FOLDER_ID:-""}
 GDRIVE_SERVICE_ACCOUNT_FILE=${GDRIVE_SERVICE_ACCOUNT_FILE:-""}
 NVIDIA_API_KEY=${NVIDIA_API_KEY:-""}
+NVINFERENCE_API_KEY=${NVINFERENCE_API_KEY:-""}
+# Optional persistent HuggingFace cache: if HF_HOME is set on the host, mount it into the
+# container at the same path so datasets / model weights (e.g. nemotron-ocr-v2) are downloaded
+# once and reused across runs instead of re-downloading every time.
+HF_HOME=${HF_HOME:-""}
+HF_TOKEN=${HF_TOKEN:-""}
 
 # get the following vars from the command line, config file(s), etc. and
 # set them in this environment:
@@ -56,6 +62,13 @@ if [ "${GPUS}" != "none" ]; then
   GPUS_FLAG="--gpus=\"${GPUS}\""
 fi
 
+# Mount a persistent HuggingFace cache (and pass HF_HOME/HF_TOKEN) when HF_HOME is set.
+HF_CACHE_FLAG=""
+if [ -n "${HF_HOME}" ]; then
+  mkdir -p "${HF_HOME}"
+  HF_CACHE_FLAG="--volume=${HF_HOME}:${HF_HOME} --env=HF_HOME=${HF_HOME} --env=HF_TOKEN=${HF_TOKEN}"
+fi
+
 # --net=host allows the container to use the host's network stack, which Ray requires to
 # communicate between the container and the host. When running multiple benchmarks in parallel,
 # remove this flag so each container uses its own network namespace — this ensures each Ray
@@ -72,6 +85,7 @@ docker run \
   --shm-size=${SHM_SIZE_BYTES} \
   \
   ${VOLUME_MOUNTS} \
+  ${HF_CACHE_FLAG} \
   \
   --env=NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
   --env=IMAGE_DIGEST=${IMAGE_DIGEST} \
@@ -83,6 +97,7 @@ docker run \
   --env=CURATOR_BENCHMARKING_DEBUG=${CURATOR_BENCHMARKING_DEBUG} \
   --env=HOST_HOSTNAME=$(hostname) \
   --env=NVIDIA_API_KEY=${NVIDIA_API_KEY} \
+  --env=NVINFERENCE_API_KEY=${NVINFERENCE_API_KEY} \
   \
   ${BASH_ENTRYPOINT_OVERRIDE} \
   ${CURATOR_BENCHMARKING_IMAGE} \

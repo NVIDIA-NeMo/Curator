@@ -27,9 +27,12 @@ RUN apt-get update \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-# Ensure all extras and dependency groups (including test) are synced
+# Ensure all extras and dependency groups (including test) are synced.
+# --inexact keeps packages that were installed in the base image outside of
+# uv's lockfile (e.g. nemotron-ocr, built with --no-build-isolation); a plain
+# `uv sync` would prune them and break stages that import them (OCR).
 RUN cd /opt/Curator \
- && uv sync --extra all --all-groups \
+ && uv sync --extra all --all-groups --inexact \
  && uv cache prune
 
 # Add the Curator repo to the safe.directory list to avoid GitPython warnings
