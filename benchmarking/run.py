@@ -349,6 +349,22 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
             "replaced with an empty string and a warning is logged."
         ),
     )
+    parser.add_argument(
+        "--viewer-url",
+        default=None,
+        help=(
+            "Run-viewer URL to surface in sinks (e.g. Slack parent message footer). "
+            "When set, the Slack sink renders a 'Results viewer' section linking to this URL."
+        ),
+    )
+    parser.add_argument(
+        "--run-reason",
+        default=None,
+        help=(
+            "Free-text reason for this run, recorded in env.json and surfaced in the Slack "
+            "environment block. Useful for audit trails on ad-hoc runs."
+        ),
+    )
     args = parser.parse_args()
 
     # Consolidate the configuration from all YAML files into a single dict
@@ -402,6 +418,18 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
     session_overall_success = True
     logger.info(f"Started session {session_name}...")
     env_dict = dump_env(session_obj=session, output_path=session_path)
+
+    # Record an optional free-text reason for the run (e.g. "regression check after MR !2442").
+    # Appears in env.json and the Slack environment block. No-op when unset.
+    if args.run_reason:
+        env_dict["run_reason"] = args.run_reason
+
+    # Surface an optional run-viewer URL in the Slack sink. Patch sink_config in-process
+    # so we don't have to teach the YAML config loader about a per-launch viewer URL.
+    if args.viewer_url:
+        for sink in session.sinks:
+            if getattr(sink, "name", None) == "slack":
+                sink.sink_config["viewer_url"] = args.viewer_url
 
     for sink in session.sinks:
         sink.initialize(session_name=session_name, session=session, env_dict=env_dict)
