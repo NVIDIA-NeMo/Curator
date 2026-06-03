@@ -443,8 +443,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         return f"{conv_hash}_{speaker}_{text_hash}.wav"
 
     def process(self, task: AudioTask) -> AudioTask:
-        """Generate audio for a single conversation turn."""
-        return self.process_batch([task])[0]
+        """Not supported; use ``process_batch()`` for TTS inference."""
+        msg = f"[{self.name}] is a GPU/batched inference stage. Use process_batch() instead."
+        raise NotImplementedError(msg)
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Generate audio for a batch of conversation turns.
