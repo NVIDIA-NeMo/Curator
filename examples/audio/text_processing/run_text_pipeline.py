@@ -494,6 +494,13 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             "kv_cache_dtype": args.kv_cache_dtype,
             "trust_remote_code": True,
         }
+        if server_tp == 1:
+            # TP=1: force the uniprocessor executor so each replica skips
+            # torch.distributed init (no TCPStore / rendezvous port). For TP>1 leave
+            # it unset — vLLM picks 'mp' for single-node TP, and Dynamo drives
+            # multi-node TP via --nnodes/--node-rank/--master-addr; forcing 'mp'
+            # would break the multi-node case.
+            engine_kwargs["distributed_executor_backend"] = "uni"
 
         # Dynamo uses a fixed replica count (no autoscaling). engine_kwargs are
         # forwarded to `python -m dynamo.vllm` as CLI flags. Needs the `dynamo`
