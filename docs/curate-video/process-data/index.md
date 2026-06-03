@@ -14,7 +14,7 @@ modality: "video-only"
 
 Use NeMo Curator stages to split videos into clips, encode them, generate embeddings or captions, and remove duplicates.
 
-## How it Works
+## How It Works
 
 Create a `Pipeline` and add stages for clip extraction, optional re-encoding and filtering, embeddings or captions, previews, and writing outputs. Each stage is modular and configurable to match your quality and performance needs.
 
@@ -42,7 +42,6 @@ Encode clips to H.264 using CPU or GPU encoders and tune performance.
 +++
 {bdg-primary}`clips`
 {bdg-secondary}`h264_nvenc`
-{bdg-secondary}`libopenh264`
 :::
 
 :::{grid-item-card} {octicon}`filter;1.5em;sd-mr-1` Filter Clips and Frames
@@ -89,7 +88,7 @@ Produce clip captions and optional preview images for review workflows.
 :::{grid-item-card} {octicon}`git-branch;1.5em;sd-mr-1` Remove Duplicate Embeddings
 :link: video-process-dedup
 :link-type: ref
-Remove near-duplicates using semantic clustering and similarity with generated embeddings.
+Remove near-duplicates using semantic clustering and pairwise similarity of generated embeddings.
 +++
 {bdg-primary}`clips`
 {bdg-secondary}`semantic`
