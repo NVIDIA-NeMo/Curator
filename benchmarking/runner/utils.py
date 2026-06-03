@@ -218,20 +218,39 @@ def get_gpu_stats() -> dict:
     return query_data
 
 
-def log_gpu_stats(gpu_stats: dict, warn_if_in_use: bool = False) -> None:
+def log_gpu_stats(
+    gpu_stats: dict,
+    warn_if_in_use: bool = False,
+    warning_threshold: float | None = None,
+    warning_threshold_msg: str = "still in use",
+) -> list[str]:
     """Log GPU memory usage for each GPU as a percentage of total memory.
 
     Args:
         gpu_stats: Dictionary as returned by get_gpu_stats().
-        warn_if_in_use: If True, emit a warning for any GPU with memory_used > 0.
+        warn_if_in_use: If True, emit a warning for any GPU that exceeds the usage threshold.
+        warning_threshold: Fraction of total GPU memory (0.0-1.0) above which a warning is
+            emitted. If None and warn_if_in_use is True, any usage > 0 triggers a warning.
+        warning_threshold_msg: Trailing context phrase appended to each warning message
+            (e.g. "used before benchmark started"). Defaults to "still in use".
+
+    Returns:
+        List of warning strings for any GPUs that triggered a warning.
     """
+    warnings = []
     for gpu_id, stats in gpu_stats.items():
         pct_used = stats["memory_used"] / stats["memory_total"] * 100
         logger.info(f"GPU {gpu_id} : {pct_used:.1f}%")
-        if warn_if_in_use and stats["memory_used"] > 0:
-            logger.warning(
-                f"GPU {gpu_id} has {stats['memory_used']} MiB ({pct_used:.1f}% of total) used before benchmark started"
+        if warn_if_in_use:
+            fraction_used = stats["memory_used"] / stats["memory_total"]
+            threshold_exceeded = (
+                fraction_used > warning_threshold if warning_threshold is not None else stats["memory_used"] > 0
             )
+            if threshold_exceeded:
+                msg = f"GPU {gpu_id}: {stats['memory_used']} MiB ({pct_used:.1f}% of total) {warning_threshold_msg}"
+                logger.warning(msg)
+                warnings.append(msg)
+    return warnings
 
 
 _LEGACY_PATH_FIELDS = ["results_path", "datasets_path", "model_weights_path"]

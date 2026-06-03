@@ -47,12 +47,22 @@ class Entry:
     object_store_size: int | float | str | None = None
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
+    # If set, overrides the session-level gpu_mem_use_warning_threshold for this entry
+    gpu_mem_use_warning_threshold: float | None = None
 
     def __post_init__(self) -> None:  # noqa: C901, PLR0912
         """Post-initialization checks and updates for dataclass."""
         # Process object_store_size by converting values representing fractions of system memory to bytes.
         if isinstance(self.object_store_size, float):
             self.object_store_size = int(get_total_memory_bytes() * self.object_store_size)
+
+        # Validate the warning threshold range, if set.
+        if self.gpu_mem_use_warning_threshold is not None and not (0 <= self.gpu_mem_use_warning_threshold <= 1):
+            msg = (
+                f"Invalid gpu_mem_use_warning_threshold for entry '{self.name}': "
+                f"{self.gpu_mem_use_warning_threshold}; must be between 0 and 1 inclusive."
+            )
+            raise ValueError(msg)
 
         # Convert the sink_data list of dicts to a dict of dicts for easier lookup with key from "name".
         # sink_data typically starts as a list of dicts from reading YAML, like this:
