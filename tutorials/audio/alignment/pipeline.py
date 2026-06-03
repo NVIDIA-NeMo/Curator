@@ -190,8 +190,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-jobs",
         type=int,
-        default=0,
-        help="Number of parallel MFA jobs (0 = auto)",
+        default=1,
+        help="Number of parallel MFA jobs passed to MFA -j",
     )
     parser.add_argument(
         "--batch-size",

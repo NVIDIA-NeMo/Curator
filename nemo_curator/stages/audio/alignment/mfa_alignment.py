@@ -54,6 +54,14 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 _DEFAULT_SILENCE_MARKERS = ("", "sp", "sil", "spn", "<eps>")
+_WORD_TIER_NAMES = ("words", "word")
+_PHONE_TIER_NAMES = frozenset({
+    "phones",
+    "phone",
+    "phonemes",
+    "phoneme",
+    "phons",
+})
 
 
 @dataclass
@@ -80,7 +88,8 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             automatically if missing.
         max_gap_for_merge: Maximum gap (seconds) between speech intervals
             before they are merged in the RTTM output.
-        num_jobs: Number of parallel MFA jobs.  ``0`` means ``os.cpu_count()``.
+        num_jobs: Number of parallel MFA jobs (``-j`` flag passed to MFA).
+            Set explicitly for your deployment; not inferred by the stage.
         beam: MFA beam size for alignment search.
         retry_beam: MFA retry beam when initial alignment fails.
         single_speaker: Pass ``--single_speaker`` to MFA.
@@ -88,10 +97,10 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         use_mp: Pass ``--use_mp`` to MFA (use multiprocessing).
         output_format: MFA output format (``long_textgrid`` or
             ``short_textgrid``).
-        mfa_root_dir: MFA root directory containing pretrained models.
-            Defaults to ``MFA_ROOT_DIR`` env var or ``~/.mfa``.
-        local_mfa_base_dir: Base directory for node-local model copies.
-            Defaults to ``tempfile.gettempdir()`` (typically ``/tmp``).
+        mfa_root_dir: MFA root directory containing pretrained models, or
+            ``None`` to use ``MFA_ROOT_DIR`` / ``~/.mfa``.
+        local_mfa_base_dir: Base directory for node-local model copies, or
+            ``None`` to use ``tempfile.gettempdir()`` (typically ``/tmp``).
         copy_models_to_local: Whether ``setup_on_node`` should copy models
             to node-local storage.
         silence_markers: Labels to treat as silence when converting TextGrids.
@@ -99,26 +108,26 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         create_ctm: Whether to convert TextGrids to CTM files.
     """
 
+    output_dir: str
     name: str = "MFAAlignmentStage"
     mfa_command: str = "mfa"
     acoustic_model: str = "english_us_arpa"
     dictionary: str = "english_us_arpa"
     g2p_model: str = "english_us_arpa"
-    output_dir: str = ""
     audio_filepath_key: str = "audio_filepath"
     text_key: str = "text"
     speaker_key: str = "speaker"
     duration_key: str = "duration"
     max_gap_for_merge: float = 0.3
-    num_jobs: int = 0
+    num_jobs: int = 1
     beam: int = 100
     retry_beam: int = 400
     single_speaker: bool = True
     clean: bool = True
     use_mp: bool = True
     output_format: str = "long_textgrid"
-    mfa_root_dir: str = ""
-    local_mfa_base_dir: str = ""
+    mfa_root_dir: str | None = None
+    local_mfa_base_dir: str | None = None
     copy_models_to_local: bool = True
     silence_markers: tuple[str, ...] = _DEFAULT_SILENCE_MARKERS
     create_rttm: bool = True
@@ -129,10 +138,6 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
     _textgrid_mod: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not self.output_dir:
-            msg = "output_dir is required for MFAAlignmentStage"
-            raise ValueError(msg)
-        self._effective_num_jobs = self.num_jobs or os.cpu_count()
         self._effective_mfa_root = self.mfa_root_dir or os.environ.get(
             "MFA_ROOT_DIR", os.path.expanduser("~/.mfa")
         )
@@ -200,7 +205,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         except ImportError:
             raise ImportError(
                 "praatio is required for MFA alignment. "
-                "Install with: pip install 'praatio>=6.0'"
+                "Install audio dependencies with: uv sync --extra audio_cuda12"
             ) from None
 
         if not self._mfa_root:
@@ -271,7 +276,6 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                     f"Duplicate stem '{original_stem}' — renamed to "
                     f"'{file_stem}' to avoid silent data loss"
                 )
-                task.data["_mfa_stem"] = file_stem
             if not task.data.get(self.duration_key):
                 task.data[self.duration_key] = self._get_audio_duration(
                     str(audio_path)
@@ -392,11 +396,13 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             env["PATH"] = f"{mfa_bin_dir}:{env.get('PATH', '')}"
 
         history_file = Path(self._mfa_root) / "command_history.yaml"
-        if history_file.exists():
+        if history_file.exists() and self._is_node_local_mfa_root():
             try:
                 history_file.unlink()
-            except Exception:  # noqa: BLE001
-                pass
+            except OSError:
+                logger.debug(
+                    f"Could not remove MFA history file: {history_file}"
+                )
 
         cmd = mfa_cmd_parts + [
             "align",
@@ -407,7 +413,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             "--output_format",
             self.output_format,
             "-j",
-            str(self._effective_num_jobs),
+            str(self.num_jobs),
             "--beam",
             str(self.beam),
             "--retry_beam",
@@ -476,18 +482,58 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
     # TextGrid -> RTTM
     # ------------------------------------------------------------------
 
+    def _get_word_alignment_tier(self, tg: Any, textgrid_path: Path) -> Any:  # noqa: ANN401
+        """Select the word-level tier, avoiding phone-level tiers when possible."""
+        for tier_name in _WORD_TIER_NAMES:
+            if tier_name in tg.tierNames:
+                return tg.getTier(tier_name)
+
+        if not tg.tierNames:
+            msg = f"No tiers found in TextGrid: {textgrid_path}"
+            raise ValueError(msg)
+
+        non_phone_tiers = [
+            name
+            for name in tg.tierNames
+            if name.lower() not in _PHONE_TIER_NAMES
+        ]
+        if non_phone_tiers:
+            fallback_name = non_phone_tiers[0]
+            logger.warning(
+                f"No 'words' tier in {textgrid_path}; "
+                f"available tiers: {list(tg.tierNames)}. "
+                f"Using '{fallback_name}'."
+            )
+            return tg.getTier(fallback_name)
+
+        msg = (
+            f"No word alignment tier in {textgrid_path}; "
+            f"available tiers: {list(tg.tierNames)}. "
+            "Refusing to parse phone-level tiers as words."
+        )
+        raise ValueError(msg)
+
     def _parse_textgrid_words(self, textgrid_path: Path) -> list[tuple]:
-        """Return ``[(start, end, label), ...]`` from the words tier."""
+        """Return ``[(start, end, label), ...]`` from the word alignment tier."""
         tg = self._textgrid_mod.openTextgrid(
             str(textgrid_path), includeEmptyIntervals=False
         )
-        tier_name = "words"
-        tier = (
-            tg.getTier(tier_name)
-            if tier_name in tg.tierNames
-            else tg.getTier(tg.tierNames[0])
-        )
+        tier = self._get_word_alignment_tier(tg, textgrid_path)
         return [(e.start, e.end, e.label) for e in tier.entries]
+
+    def _is_node_local_mfa_root(self) -> bool:
+        """True when MFA root is the per-node local copy (safe to mutate)."""
+        if self.copy_models_to_local:
+            return True
+        try:
+            mfa_root = Path(self._mfa_root).resolve()
+            local_mfa = (
+                Path(self._effective_local_base)
+                / f"mfa_models_{socket.gethostname()}"
+            ).resolve()
+        except OSError:
+            return False
+        return mfa_root == local_mfa or local_mfa in mfa_root.parents
 
     def _textgrid_to_rttm(
         self,

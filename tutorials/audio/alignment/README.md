@@ -20,14 +20,10 @@ The `MFAAlignmentStage` wraps MFA as a NeMo Curator processing stage, enabling:
 ### 1. Install NeMo Curator with alignment dependencies
 
 ```bash
-# Using uv (recommended)
-uv sync --extra audio_alignment
-
-# Using pip
-pip install "nemo-curator[audio_alignment]"
+uv sync --extra audio_cuda12
 ```
 
-This installs `praatio` (for TextGrid parsing) and `soundfile`.
+This installs `praatio` (for TextGrid parsing) and other audio dependencies via `audio_common`.
 
 ### 2. Install Montreal Forced Aligner
 
@@ -140,7 +136,7 @@ JsonlWriter -> Output JSONL Manifest
 | `--speaker-key` | `speaker` | Manifest key for speaker label |
 | `--beam` | `100` | MFA beam size |
 | `--retry-beam` | `400` | MFA retry beam for failed alignments |
-| `--num-jobs` | `0` (auto) | Parallel MFA jobs (0 = CPU count) |
+| `--num-jobs` | `1` | Parallel MFA jobs passed to MFA ``-j`` |
 | `--batch-size` | `256` | Files per `mfa align` invocation |
 | `--no-rttm` | `false` | Skip RTTM generation |
 | `--no-ctm` | `false` | Skip CTM generation |
@@ -222,7 +218,7 @@ python tutorials/audio/alignment/run.py \
 When running on multiple nodes (e.g., via Xenna or Ray cluster), `MFAAlignmentStage` handles distributed MFA gracefully:
 
 - **`setup_on_node()`** copies MFA pretrained models from shared storage (NFS/Lustre) to each node's local storage (e.g., `/tmp`). This avoids file-locking issues that Kaldi (used internally by MFA) has with network filesystems.
-- **`xenna_stage_spec()`** requests exactly 1 MFA worker per node, since MFA itself uses internal parallelism via `--num-jobs`.
+- **`xenna_stage_spec()`** requests exactly 1 MFA worker per node, since MFA itself uses internal parallelism via ``num_jobs`` (MFA ``-j``).
 - Set `copy_models_to_local=False` if MFA models are already on local storage.
 
 ## Non-English Languages
@@ -263,7 +259,7 @@ You can filter these entries downstream or audit them separately.
 | Issue | Solution |
 |-------|----------|
 | `mfa: command not found` | Provide the full path via `--mfa-command /path/to/mfa` |
-| `praatio` import error | Install with `pip install 'praatio>=6.0'` or `uv sync --extra audio_alignment` |
+| `praatio` import error | Run `uv sync --extra audio_cuda12` (or `audio_cpu`) from the Curator repo root |
 | `Kaldi error: cannot lock file` | Enable `copy_models_to_local=True` (default) or use local storage for `--mfa-root-dir` |
 | Many files silently skipped | Check for OOV words; provide a G2P model or expand the dictionary |
 | `mfa align` OOM | Reduce `--batch-size` to process fewer files per invocation |

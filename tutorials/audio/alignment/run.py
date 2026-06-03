@@ -20,6 +20,8 @@ Usage::
     python run.py --config-path=. --config-name=pipeline
 """
 
+import importlib
+
 import hydra
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
@@ -33,8 +35,6 @@ _EXECUTOR_FACTORIES = {
 
 
 def _create_executor(backend: str) -> object:
-    import importlib
-
     module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
     mod = importlib.import_module(module_path)
     return getattr(mod, class_name)()

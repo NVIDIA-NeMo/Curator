@@ -107,6 +107,7 @@ audio_common = [
     "librosa",
     "scipy",
     "pydub>=0.25.1",
+    "praatio>=6.0",
     "transformers",
     "accelerate",
     "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
@@ -282,11 +283,6 @@ all = [
     "nemo_curator[text_cuda12]",
     "nemo_curator[translation_all]",
     "nemo_curator[video_cuda12]",
-]
-
-audio_alignment = [
-    "praatio>=6.0",
-    "soundfile>=0.12.0",
 ]
 
 [dependency-groups]
