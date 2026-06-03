@@ -200,14 +200,13 @@ def test_resources_without_cuda() -> None:
     assert res.requires_gpu is False
 
 
-@pytest.mark.skip(reason="Image data files have not been added yet")
 @pytest.mark.gpu
 def test_dali_image_reader_on_gpu() -> None:
     """Test DALI image reader on GPU."""
 
     # Reuse sample webdataset tar from repository-level tests assets
-    # Project root is parents[5] from this file (nemo_curator/tests/stages/image/io)
-    tar_path = pathlib.Path(__file__).resolve().parents[5] / "tests" / "image_data" / "00000.tar"
+    # Project root is parents[4] from this file (tests/stages/image/io)
+    tar_path = pathlib.Path(__file__).resolve().parents[4] / "tests" / "image_data" / "00000.tar"
     if not tar_path.exists():
         msg = f"Sample dataset not found at {tar_path}"
         raise FileNotFoundError(msg)
