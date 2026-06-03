@@ -193,6 +193,7 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     skip_me_key: str = "_skipme"
     notes_key: str = "additional_notes"
     enable_validation: bool = True
+    skip_if_output_exists: bool = False
     max_deletion_ratio: float = 0.3
     min_words_for_deletion_check: int = 8
     tensor_parallel_size: int | None = None
@@ -424,6 +425,9 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
         for i, task in enumerate(tasks):
             text = task.data.get(self.text_key, "")
             skip = task.data.get(self.skip_me_key, "")
+            if self.skip_if_output_exists and task.data.get(self.output_text_key):
+                set_note(task.data, self.name, "skipped (output exists)", self.notes_key)
+                continue
             if skip:
                 task.data[self.output_text_key] = ""
                 set_note(task.data, self.name, "skipped (flagged)", self.notes_key)

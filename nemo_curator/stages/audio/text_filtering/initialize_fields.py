@@ -33,6 +33,23 @@ _DEFAULT_DROP_KEYS: list[str] = [
     "orig_answer",
 ]
 
+_PIPELINE_OUTPUT_KEYS: set[str] = {
+    "pnc_text",
+    "itn_text",
+    "itn_no-disfluencies_text",
+    "captioning_text",
+    "code_switched_text",
+    "speech_qa_text",
+    "context_asr",
+    "llm_language_prediction",
+    "sed_events",
+    "language",
+    "language_confidence",
+    "num_speakers",
+    "diar_segments",
+    "preference_instructions",
+}
+
 
 def _coerce_shard_id(value: object) -> object:
     """Normalize shard_id to int when it is numeric (NeMo tarred manifests expect int)."""
@@ -76,6 +93,7 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     default_source_lang: str = "en"
     shard_id_key: str = "shard_id"
     drop_keys: list[str] = field(default_factory=lambda: list(_DEFAULT_DROP_KEYS))
+    preserve_pipeline_outputs: bool = False
     pipeline_notes: dict[str, str] = field(default_factory=dict)
     name: str = "InitializeFields"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
@@ -106,6 +124,8 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
         if self.shard_id_key and self.shard_id_key in task.data:
             task.data[self.shard_id_key] = _coerce_shard_id(task.data[self.shard_id_key])
         for key in self.drop_keys:
+            if self.preserve_pipeline_outputs and key in _PIPELINE_OUTPUT_KEYS:
+                continue
             task.data.pop(key, None)
 
     def process(self, task: AudioTask) -> AudioTask:

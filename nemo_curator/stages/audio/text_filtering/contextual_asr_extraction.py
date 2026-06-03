@@ -244,6 +244,7 @@ class ContextualASRExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     source_lang_key: str = "source_lang"
     default_source_lang: str = "English"
     output_key: str = "context_asr"
+    skip_if_output_exists: bool = False
     skip_me_key: str = "_skipme"
     notes_key: str = "additional_notes"
     tensor_parallel_size: int | None = None
@@ -382,6 +383,9 @@ class ContextualASRExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         for i, task in enumerate(tasks):
             text = task.data.get(self.text_key, "")
             skip = task.data.get(self.skip_me_key, "")
+            if self.skip_if_output_exists and task.data.get(self.output_key) is not None:
+                set_note(task.data, self.name, "skipped (output exists)", self.notes_key)
+                continue
             if skip:
                 task.data[self.output_key] = None
                 set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
