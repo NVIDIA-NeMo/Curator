@@ -321,14 +321,6 @@ def _launch_vllm_worker(  # noqa: PLR0913
     kv_events_enabled = is_rank_zero and aggregated_model_uses_exact_kv_events(
         model_config, router_mode=router_mode, router_kv_events=router_kv_events
     )
-    kv_events_config = build_worker_kv_events_config(
-        model_config,
-        pg=pg,
-        bundle_index=node_rank,
-        port_seed=20080 + replica_index + node_rank,
-        enabled=kv_events_enabled,
-    )
-
     python_args: list[str] = [
         "-m",
         "dynamo.vllm",
@@ -351,7 +343,21 @@ def _launch_vllm_worker(  # noqa: PLR0913
     else:
         python_args.append("--headless")
 
-    python_args += ["--kv-events-config", kv_events_config]
+    # Only pass --kv-events-config when KV events are actually enabled (kv-router
+    # mode). Passing a *disabled* config still hands vLLM a non-None
+    # kv_events_config, which forces `disable_hybrid_kv_cache_manager=True` and
+    # breaks hybrid Mamba/GDN models (e.g. Qwen3.5) — vLLM then can't unify the
+    # mamba + attention KV specs and the EngineCore dies. When omitted, Dynamo's
+    # create_kv_events_config() returns None, keeping the hybrid manager enabled.
+    if kv_events_enabled:
+        kv_events_config = build_worker_kv_events_config(
+            model_config,
+            pg=pg,
+            bundle_index=node_rank,
+            port_seed=20080 + replica_index + node_rank,
+            enabled=True,
+        )
+        python_args += ["--kv-events-config", kv_events_config]
 
     if spec.is_multi_node:
         assert master_addr is not None, "master_addr must be set for multi-node replicas"  # noqa: S101
