@@ -22,6 +22,7 @@ import sys
 import time
 import traceback
 from collections.abc import Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,7 @@ sys.path.insert(0, _this_script_dir)
 from runner.datasets import DatasetResolver
 from runner.entry import Entry
 from runner.env_capture import dump_env
+from runner.gpu_stats_recorder import GPUStatsRecorder
 from runner.path_resolver import PathResolver
 from runner.process import run_command_with_timeout
 from runner.ray_cluster import (
@@ -148,12 +150,13 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
     return meets_requirements
 
 
-def run_entry(
+def run_entry(  # noqa: PLR0913
     entry: Entry,
     path_resolver: PathResolver,
     dataset_resolver: DatasetResolver,
     session_entry_path: Path,
     result_data: dict[str, Any],
+    gpu_stats_recorder_interval_s: float = 1.0,
 ) -> bool:
     # session_entry_path : This is the directory where benchmark results are stored
     # scratch_path : This is the directory provided to users for saving scratch/temp data; it'll be cleaned up after the entry is done if delete_scratch is True
@@ -212,14 +215,25 @@ def run_entry(
             warning_threshold_msg="used before benchmark started",
         )
         logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
-        started_exec = time.time()
-        run_data = run_command_with_timeout(
-            command=cmd,
-            timeout=entry.timeout_s,
-            stdouterr_path=stdouterr_path,
-            run_id=run_id,
-            fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
+        # Background poller writes per-GPU stats (utilization, memory, temperature, processes) to
+        # gpustats.csv every gpu_stats_recorder_interval_s seconds. Set to 0 in YAML to disable.
+        gpu_stats_recorder_ctx = (
+            GPUStatsRecorder(
+                output_path=session_entry_path / "gpustats.csv",
+                interval_s=gpu_stats_recorder_interval_s,
+            )
+            if gpu_stats_recorder_interval_s > 0
+            else nullcontext()
         )
+        started_exec = time.time()
+        with gpu_stats_recorder_ctx:
+            run_data = run_command_with_timeout(
+                command=cmd,
+                timeout=entry.timeout_s,
+                stdouterr_path=stdouterr_path,
+                run_id=run_id,
+                fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
+            )
         ended_exec = time.time()
         logger.info("\tGPU stats (after):")
         warnings += log_gpu_stats(
@@ -371,6 +385,10 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
         logger.error(str(e))
         return 1
 
+    # GPU stats recorder config: polls every interval_s seconds while each entry runs.
+    # Default 1.0 (1 Hz). Set to 0 to disable.
+    gpu_stats_recorder_interval_s = float(config_dict.get("gpu_stats_recorder", {}).get("interval_s", 1.0))
+
     if args.list:
         for entry in session.entries:
             logger.info(f"\t{entry.name}")
@@ -421,6 +439,7 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
                 dataset_resolver=session.dataset_resolver,
                 session_entry_path=session_entry_path,
                 result_data=result_data,
+                gpu_stats_recorder_interval_s=gpu_stats_recorder_interval_s,
             )
 
         except Exception as e:

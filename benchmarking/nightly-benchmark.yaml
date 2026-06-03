@@ -24,6 +24,12 @@ paths:
 # datasets_path: "/path/to/datasets"
 # model_weights_path: "/path/to/model_weights"
 
+# Background per-GPU stats recorder. While each entry runs, polls all visible GPUs
+# (independent of CUDA_VISIBLE_DEVICES) at `interval_s` and writes one row per
+# (timestamp, GPU) to {session_entry_path}/gpustats.csv. Set interval_s to 0 to disable.
+gpu_stats_recorder:
+  interval_s: 1.0
+
 datasets:
   - name: "tinystories"
     formats:
