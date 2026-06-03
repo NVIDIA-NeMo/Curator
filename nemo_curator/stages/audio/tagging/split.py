@@ -70,7 +70,7 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
         split_start = 0
         prev_end = 0
 
-        segments = metadata.get("segments", [])
+        segments = sorted(metadata.get("segments", []), key=lambda s: s.get("start", 0))
         for segment in segments:
             end = segment.get("end", 0)
 
@@ -206,16 +206,20 @@ class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
     Combines the metadata (transcripts and alignments) of audio files that were
     previously split by SplitLongAudioStage. Adjusts timestamps and concatenates
     transcripts to recreate the original audio's metadata.
+
+    Args:
+        text_key: Key used for transcript text in split entries.
+                  Defaults to ``"text"`` for backward compatibility.
     """
 
-    # Stage metadata
+    text_key: str = "text"
     name: str = "JoinSplitAudioMetadata"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], ["split_filepaths", "split_metadata", "split_offsets", "split_timestamps"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["text", "alignment"]
+        return [], [self.text_key, "alignment"]
 
     def process(self, task: AudioTask) -> AudioTask:
         """
@@ -261,7 +265,7 @@ class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
 
         # Find and join metadata from each split
         for idx, split_entry in enumerate(split_metadata):
-            text = split_entry.get("text", "")
+            text = split_entry.get(self.text_key, "")
             if text:
                 transcripts.append(text)
 
@@ -275,7 +279,7 @@ class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
                 alignments.append(adjusted_word)
 
         # Create joined entry
-        meta_entry["text"] = " ".join(transcripts)
+        meta_entry[self.text_key] = " ".join(transcripts)
         meta_entry["alignment"] = alignments
 
         # Remove split-related fields

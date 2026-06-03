@@ -46,12 +46,16 @@ class Session:
     object_store_size: int | float | str | None = 0.5
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
+    # Fraction of total GPU memory (0.0-1.0) above which a warning is emitted, both
+    # before and after each benchmark run. If None, any usage > 0 triggers a warning.
+    # Entries can override this value.
+    gpu_mem_use_warning_threshold: float | None = None
     # Global ray settings inherited by all entries; per-entry ray sections override these values.
     ray: dict = field(default_factory=dict)
     path_resolver: PathResolver = None
     dataset_resolver: DatasetResolver = None
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: C901
         """Post-initialization checks and updates for dataclass."""
         names = [entry.name for entry in self.entries]
         if len(names) != len(set(names)):
@@ -62,6 +66,14 @@ class Session:
         # Process object_store_size by converting values representing fractions of system memory to bytes.
         if isinstance(self.object_store_size, float):
             self.object_store_size = int(get_total_memory_bytes() * self.object_store_size)
+
+        # Validate the session-level warning threshold range, if set.
+        if self.gpu_mem_use_warning_threshold is not None and not (0 <= self.gpu_mem_use_warning_threshold <= 1):
+            msg = (
+                f"Invalid session-level gpu_mem_use_warning_threshold: "
+                f"{self.gpu_mem_use_warning_threshold}; must be between 0 and 1 inclusive."
+            )
+            raise ValueError(msg)
 
         # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
         for entry in self.entries:
@@ -77,6 +89,11 @@ class Session:
         for entry in self.entries:
             if entry.object_store_size is None:
                 entry.object_store_size = self.object_store_size
+
+        # Update gpu_mem_use_warning_threshold for each entry that has not been set.
+        for entry in self.entries:
+            if entry.gpu_mem_use_warning_threshold is None:
+                entry.gpu_mem_use_warning_threshold = self.gpu_mem_use_warning_threshold
 
         # Apply global ray defaults to each entry, with per-entry ray values taking precedence.
         for entry in self.entries:
