@@ -12,17 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""I/O stages for reading and writing image caption tasks.
-
-Based on NeMo Curator's VideoReader pattern.
-"""
+"""I/O stages for reading images from HF datasets and writing JSONL results."""
 
 from __future__ import annotations
 
 import io
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
     from datasets import Dataset
@@ -36,18 +33,17 @@ from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import _EmptyTask
-from nemo_curator.tasks.image import ImageTaskData, SingleDataTask
+from nemo_curator.tasks.image import ImageSampleTask, ImageTaskData
 
 T_TaskData = TypeVar("T_TaskData", bound=ImageTaskData)
 
 
-class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_TaskData]], Generic[T_TaskData]):
+class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, ImageSampleTask[T_TaskData]]):
     """Reads images from a HuggingFace dataset and creates image tasks.
 
     Accepts either a HF Hub dataset name or a local path.  Images are saved
     as JPEGs to ``image_dir`` on first run and reused on subsequent runs
-    (idempotent).  Replaces ``FilePartitioningStage`` + ``JsonlTarImageReaderStage``
-    when the source is a HuggingFace dataset rather than tar shards.
+    (idempotent).
 
     Args:
         dataset_name: HuggingFace Hub dataset id (e.g. ``"lmms-lab/textvqa"``) **or** a
@@ -119,21 +115,15 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["image_path", "image_id"], []
 
-    # ------------------------------------------------------------------
-    # Dataset loading
-    # ------------------------------------------------------------------
-
     def _load_dataset(self) -> Dataset:
-        """Load a HuggingFace Dataset, handling hub, save_to_disk, and imagefolder paths."""
+        """Load a HuggingFace Dataset from hub, save_to_disk dir, or imagefolder dir."""
         from datasets import load_dataset, load_from_disk
 
         local_path = Path(self.dataset_name)
 
         if local_path.exists():
             if (local_path / "dataset_info.json").exists():
-                # Saved with dataset.save_to_disk()
                 ds = load_from_disk(str(local_path))
-                # DatasetDict → pick the requested split
                 if hasattr(ds, "keys"):
                     if self.split not in ds:
                         available = list(ds.keys())
@@ -145,18 +135,11 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
                 if self.limit is not None:
                     ds = ds.select(range(min(self.limit, len(ds))))
                 return ds
-            else:
-                # Raw image folder
-                split_arg = self.split if self.limit is None else f"{self.split}[:{self.limit}]"
-                return load_dataset("imagefolder", data_dir=str(local_path), split=split_arg)
+            split_arg = self.split if self.limit is None else f"{self.split}[:{self.limit}]"
+            return load_dataset("imagefolder", data_dir=str(local_path), split=split_arg)
 
-        # HF Hub
         split_arg = self.split if self.limit is None else f"{self.split}[:{self.limit}]"
         return load_dataset(self.dataset_name, self.config_name, split=split_arg)
-
-    # ------------------------------------------------------------------
-    # Image normalisation
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _to_pil(value: Any) -> Image.Image:  # noqa: ANN401
@@ -177,28 +160,22 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
         msg = f"Cannot convert value of type {type(value).__name__} to PIL Image. Expected a PIL Image, bytes, or a HF Image feature dict."
         raise ValueError(msg)
 
-    # ------------------------------------------------------------------
-    # Stage entry point
-    # ------------------------------------------------------------------
-
-    def process(self, _: _EmptyTask) -> list[SingleDataTask[T_TaskData]]:
+    def process(self, _: _EmptyTask) -> list[ImageSampleTask[T_TaskData]]:
         self.image_dir.mkdir(parents=True, exist_ok=True)
         dataset = self._load_dataset()
         dataset_tag = Path(self.dataset_name).name.replace("/", "_")
 
         seen_ids: set[str] = set()
-        tasks: list[SingleDataTask[T_TaskData]] = []
+        tasks: list[ImageSampleTask[T_TaskData]] = []
 
         for idx, example in enumerate(dataset):
-            # Determine image_id
             image_id = str(example[self.id_column]) if self.id_column is not None else f"{idx:06d}"
 
-            # Deduplicate images that appear in multiple rows (e.g. VQA datasets)
+            # Deduplicate images that appear in multiple rows (e.g. VQA datasets).
             if image_id in seen_ids:
                 continue
             seen_ids.add(image_id)
 
-            # Save image to disk (skip if already present)
             image_path = self.image_dir / f"{image_id}.jpg"
             if not image_path.exists():
                 pil_image = self._to_pil(example[self.image_column])
@@ -207,7 +184,7 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
                 pil_image.save(image_path, format="JPEG")
 
             tasks.append(
-                SingleDataTask(
+                ImageSampleTask(
                     task_id=image_id,
                     dataset_name=dataset_tag,
                     data=self.task_type(
@@ -224,15 +201,15 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, SingleDataTask[T_Tas
         return tasks
 
 
-class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTask[T_TaskData]], Generic[T_TaskData]):
-    """Stage for writing pipeline results to JSONL file.
+class JsonlSampleWriterStage(ProcessingStage[ImageSampleTask[T_TaskData], ImageSampleTask[T_TaskData]]):
+    """Writes one JSONL line per sample task to a per-worker shard.
 
-    In distributed execution, each worker writes to a separate file
-    with a worker-specific suffix to avoid conflicts. Use single_file=True
-    to write to exactly the specified output path without any suffix.
+    Each worker writes to ``<stem>_worker<id><suffix>`` to avoid concurrent-write
+    conflicts. Call :func:`merge_output_shards` after ``pipeline.run()`` to
+    consolidate the shards into a single ``<stem><suffix>`` file.
     """
 
-    name: str = "result_writer"
+    name: str = "jsonl_sample_writer"
     resources = Resources(cpus=2.0)
 
     def __init__(
@@ -240,55 +217,35 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
         output_path: str,
         valid_only: bool = True,
         image_parent: str | None = None,
-        single_file: bool = False,
     ) -> None:
-        """Initialize the result writer stage.
+        """Initialize the writer stage.
 
         Args:
-            output_path: Base path for output JSONL file.
+            output_path: Base path for output JSONL shards.
             valid_only: If True, only write valid records.
             image_parent: If provided, make image paths relative to this directory.
-            single_file: If True, write to exactly output_path without worker_id suffix.
         """
         self.output_path = output_path
         self.valid_only = valid_only
         self.image_parent = Path(image_parent) if image_parent else None
-        self.single_file = single_file
         self._file: Any = None
         self._saved_count: int = 0
         self._skipped_count: int = 0
         self._worker_id: str = ""
 
     def setup(self, worker_metadata: WorkerMetadata) -> None:
-        """Open output file for writing.
-
-        Creates a unique filename per worker for distributed execution,
-        unless single_file mode is enabled.
-        """
-        # Get worker ID for unique filename in distributed mode
         self._worker_id = str(worker_metadata.worker_id)
-
-        # Check if worker_metadata requests single_file mode
-        use_single_file = self.single_file
-
-        # Create output path (per-worker or single file).
-        # With multiple workers, single_file=True would have every worker open the same path
-        # with mode "w", causing truncation; use single_file=False for distributed runs.
         base_path = Path(self.output_path)
-        if self._worker_id and not use_single_file:
-            suffix = base_path.suffix or ".jsonl"
-            output = base_path.parent / f"{base_path.stem}_worker{self._worker_id}{suffix}"
-        else:
-            output = base_path
+        suffix = base_path.suffix or ".jsonl"
+        output = base_path.parent / f"{base_path.stem}_worker{self._worker_id}{suffix}"
 
         output.parent.mkdir(parents=True, exist_ok=True)
         self._file = open(output, "w", encoding="utf-8")  # noqa: SIM115
         self._saved_count = 0
         self._skipped_count = 0
-        logger.info(f"ResultWriter: opened {output} for writing")
+        logger.info(f"JsonlSampleWriter: opened {output} for writing")
 
     def _get_image_path_str(self, image_path: Path | None) -> str | None:
-        """Get image path string, optionally relative to image_parent."""
         if image_path is None:
             return None
         if self.image_parent is not None:
@@ -298,46 +255,29 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
                 pass
         return str(image_path)
 
-    def process(self, task: SingleDataTask[T_TaskData]) -> SingleDataTask[T_TaskData]:
-        """Write task to output file.
-
-        Args:
-            task: ImageCaptionTask to write.
-
-        Returns:
-            The same task (pass-through).
-        """
-        if task.data.is_valid:
-            data = task.data.to_dict()
-            data["image_path"] = self._get_image_path_str(task.data.image_path)
-            # Keep empty lists/strings/False (e.g. OCR may legitimately be []).
-            # Only drop fields that are explicitly None, and always omit is_valid.
-            self._file.write(
-                json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}, default=str) + "\n"
-            )
-        elif self.valid_only:
+    def process(self, task: ImageSampleTask[T_TaskData]) -> ImageSampleTask[T_TaskData]:
+        if not task.data.is_valid and self.valid_only:
             self._skipped_count += 1
             return task
-        else:
-            data = task.data.to_dict()
-            data["image_path"] = self._get_image_path_str(task.data.image_path)
-            self._file.write(
-                json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}, default=str) + "\n"
-            )
-        self._file.flush()  # Flush after each write for safety
+
+        data = task.data.to_dict()
+        data["image_path"] = self._get_image_path_str(task.data.image_path)
+        # Keep empty lists/strings/False (e.g. OCR may legitimately be []); drop only None.
+        self._file.write(
+            json.dumps({k: v for k, v in data.items() if v is not None and k != "is_valid"}, default=str) + "\n"
+        )
+        self._file.flush()
         self._saved_count += 1
         return task
 
     def teardown(self) -> None:
-        """Close output file."""
         if self._file:
             self._file.close()
             self._file = None
-            logger.info(f"ResultWriter: wrote {self._saved_count} results, skipped {self._skipped_count}")
+            logger.info(f"JsonlSampleWriter: wrote {self._saved_count} results, skipped {self._skipped_count}")
 
     @property
     def stats(self) -> dict[str, int]:
-        """Return write statistics."""
         return {
             "saved": self._saved_count,
             "skipped": self._skipped_count,
@@ -345,15 +285,15 @@ class ResultWriterStage(ProcessingStage[SingleDataTask[T_TaskData], SingleDataTa
 
 
 def merge_output_shards(output_path: Path, *, delete_shards: bool = True) -> Path:
-    """Merge per-worker JSONL shards from ResultWriterStage into a single file.
+    """Merge per-worker JSONL shards from JsonlSampleWriterStage into a single file.
 
-    ResultWriterStage writes one shard per worker named
+    JsonlSampleWriterStage writes one shard per worker named
     ``<stem>_worker<id><suffix>`` in the same directory as ``output_path``.
     Call this after ``pipeline.run()`` returns — by that point every worker
     has flushed its writes, so the merge is race-free regardless of node count.
 
     Args:
-        output_path: The base output path passed to ResultWriterStage.
+        output_path: The base output path passed to JsonlSampleWriterStage.
         delete_shards: Remove shard files after a successful merge (default True).
 
     Returns:

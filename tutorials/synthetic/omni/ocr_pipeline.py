@@ -8,7 +8,7 @@ Stages:
   1. hf_dataset_image_reader   Extract images from HF dataset to local dir
   2. ocr_nemotron_v2           NemotronOCR-v2 word-level OCR
   3. ocr_scoring_qa            Nemotron-Nano-Omni bbox scoring + QA generation (optional)
-  4. result_writer             Write output JSONL
+  4. jsonl_sample_writer       Write output JSONL
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.omni.io import (
     HFDatasetImageReaderStage,
-    ResultWriterStage,
+    JsonlSampleWriterStage,
     merge_output_shards,
 )
 from nemo_curator.stages.synthetic.omni.ocr_nemotron_v2 import OCRNemotronV2Stage
@@ -118,11 +118,10 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
         )
 
     pipeline.add_stage(
-        ResultWriterStage(
+        JsonlSampleWriterStage(
             output_path=str(output_path),
             valid_only=valid_only,
             image_parent=str(image_parent) if image_parent else None,
-            single_file=False,
         )
     )
 

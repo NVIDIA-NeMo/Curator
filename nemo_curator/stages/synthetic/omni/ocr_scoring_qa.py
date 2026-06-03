@@ -14,20 +14,10 @@
 
 """Combined bbox scoring + dense QA generation stage.
 
-Replaces running ``OCRScoringVerificationStage`` followed by
-``OCRDenseQAStage`` as two separate pipeline stages.  In a single verifier
-call per image it:
-
-  1. Scores every bbox (``bbox_match`` 0-10, ``text_errors`` count).
-  2. Marks low-quality bboxes ``valid=False``.
-  3. Detects missing text regions (``ocr_scoring_missing``).
-  4. Generates up to 100 multi-turn QA pairs via ``build_qa_tagged`` /
-     ``build_conversation`` from ``ocr_dense_qa``.
-  5. Includes a dense-dump (list-all-bboxes) QA turn **only** when
-     ``ocr_scoring_missing`` is empty — verifier predictions are used
-     for filtering, not as training labels.
-
-Output task data is ``OCRConversationData`` (``OCRData`` + ``conversation``).
+In a single verifier call per image: scores every bbox, marks low-quality
+ones invalid, detects missing text regions, then builds up to 100 multi-turn
+QA pairs. A dense-dump turn is added only when no missing text was reported
+(verifier output is used for filtering, not as training labels).
 """
 
 from __future__ import annotations
@@ -39,7 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from nemo_curator.tasks.image import SingleDataTask
+    from nemo_curator.tasks.image import ImageSampleTask
 
 from nemo_curator.models.omni.base import NVInferenceModel
 from nemo_curator.stages.resources import Resources
@@ -55,7 +45,6 @@ from nemo_curator.tasks.ocr import OCRData
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 _BBOX_COORD_COUNT = 4
 
-# Reuse exact same prompt as OCRScoringVerificationStage
 _PROMPT = """\
 Please check if the following OCR bounding boxes are correct and respond ONLY with JSON \
 in this exact format:
@@ -132,23 +121,14 @@ def _copy_to_conversation_data(src: OCRData) -> OCRConversationData:
 class OCRScoringQAStage(ModelProcessingStage[OCRData]):
     """Bbox scoring + multi-turn QA generation in a single pipeline stage.
 
-    * Calls the verifier model once per image to score every bbox.
-    * Marks low-quality bboxes ``valid=False`` (below ``min_bbox_match`` or
-      above ``max_text_errors``).
-    * Calls ``build_qa_tagged`` / ``build_conversation`` to produce up to 100
-      multi-turn QA pairs.
-    * Adds a dense-dump turn only when ``ocr_scoring_missing`` is empty
-      (verifier predictions are used for filtering only, not as training
-      labels).
+    Calls the verifier model once per image to score every bbox, marks
+    low-quality bboxes ``valid=False`` (below ``min_bbox_match`` or above
+    ``max_text_errors``), and produces up to 100 multi-turn QA pairs. A
+    dense-dump turn is added only when ``ocr_scoring_missing`` is empty.
 
-    Default verifier is ``NemotronNanoOmni`` (Nemotron-Nano-Omni reasoning
-    model on NVIDIA Inference API).  Defaults for ``max_tokens``,
-    ``min_bbox_match``, and ``dense_dump_prob`` are calibrated for that
-    verifier on a 500-image textvqa sample; revisit them if you swap models.
-
-    Unlike ``OCRScoringVerificationStage``, ``fail_on_missing_text`` defaults
-    to ``False`` here: missing text regions disable the dense dump but do not
-    invalidate the whole image — the partial QA pairs are still useful.
+    Defaults for ``max_tokens``, ``min_bbox_match``, and ``dense_dump_prob``
+    are calibrated for Nemotron-Nano-Omni on a 500-image textvqa sample;
+    revisit them if you swap verifier models.
 
     Reads:  ``ocr_dense``
     Writes: all ``ocr_scoring_*`` fields, per-bbox ``bbox_match`` / ``text_errors``
@@ -172,6 +152,7 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         dense_dump_prob: float = 0.05,
         batch_size: int | None = None,
         priority_mode: bool = False,
+        use_async: bool = True,
     ) -> None:
         """Initialise the combined scoring + QA stage.
 
@@ -198,6 +179,9 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
                 underlying coverage warrants.
             batch_size: Override the default batch size of 16.
             priority_mode: Use priority API queue (lower latency, higher cost).
+            use_async: Issue the per-batch verifier calls concurrently via an
+                async client (recommended for API-backed inference). When
+                ``False``, prompts are processed sequentially.
         """
         self._scoring_model_id = model_id
         self.min_bbox_match = min_bbox_match
@@ -211,11 +195,12 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
                 temperature=temperature,
                 top_p=1.0,
                 priority_mode=priority_mode,
+                use_async=use_async,
             ),
             batch_size=batch_size or self.batch_size,
         )
 
-    def build_prompt(self, task: SingleDataTask[OCRData]) -> str:
+    def build_prompt(self, task: ImageSampleTask[OCRData]) -> str:
         ocr_items = task.data.ocr_dense
         if not ocr_items:
             raise SkipSample
@@ -241,8 +226,8 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         return prompt
 
     def handle_response(  # noqa: C901
-        self, task: SingleDataTask[OCRData], response: str
-    ) -> SingleDataTask[OCRData]:
+        self, task: ImageSampleTask[OCRData], response: str
+    ) -> ImageSampleTask[OCRData]:
         # --- 1. Convert to OCRConversationData so we can set .conversation ---
         task.data = _copy_to_conversation_data(task.data)
 

@@ -108,7 +108,7 @@ class OCRData(ImageTaskData):
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> OCRData:
-        """Deserialize from a JSONL record (produced by ResultWriterStage)."""
+        """Deserialize from a JSONL record (produced by JsonlSampleWriterStage)."""
         qwen_raw = data.get("ocr_dense")
         if isinstance(qwen_raw, list):
             ocr_items: list[OCRDenseItem] | None = [

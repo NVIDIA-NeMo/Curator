@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from abc import abstractmethod
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 from loguru import logger
 from PIL import Image
@@ -21,25 +21,20 @@ from PIL import Image
 from nemo_curator.models.omni.base import NVInferenceModel
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks.image import SingleDataTask
+from nemo_curator.tasks.image import ImageSampleTask, ImageTaskData
 
-T = TypeVar("T")
+T = TypeVar("T", bound=ImageTaskData)
 
 
 class SkipSample(Exception):  # noqa: N818
     """Exception to be raised in build_prompt to skip a sample."""
 
 
-class ModelProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]], Generic[T]):
-    """Base stage for cloud-API VLM inference.
+class ModelProcessingStage(ProcessingStage[ImageSampleTask[T], ImageSampleTask[T]]):
+    """Base stage for batched VLM inference.
 
-    Concrete subclasses implement ``build_prompt`` and ``handle_response``;
-    image loading and batch dispatch are handled here. Sampling kwargs
-    (temperature, top_p, max_tokens, etc.) live on the model instance —
-    set them at construction.
-
-    GPU placement is delegated to the executor (Xenna/Ray) via the
-    ``resources`` declaration; the stage itself never touches CUDA.
+    Subclasses implement ``build_prompt`` and ``handle_response``; image
+    loading and batch dispatch are handled here.
     """
 
     name: str = "model_base_stage"
@@ -56,11 +51,10 @@ class ModelProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]]
         self.batch_size = batch_size
 
     def setup(self, _worker_metadata: dict | None = None) -> None:
-        """Initialize the API client (idempotent)."""
         self.model.setup()
 
     @abstractmethod
-    def build_prompt(self, task: SingleDataTask[T]) -> str:
+    def build_prompt(self, task: ImageSampleTask[T]) -> str:
         """Build the text prompt for a task.
 
         Raises:
@@ -70,17 +64,16 @@ class ModelProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]]
         ...
 
     @abstractmethod
-    def handle_response(self, task: SingleDataTask[T], response: str) -> SingleDataTask[T]:
-        """Apply the model response to the task."""
-        ...
+    def handle_response(self, task: ImageSampleTask[T], response: str) -> ImageSampleTask[T]: ...
 
-    def load_image(self, task: SingleDataTask[T]) -> Image.Image:
+    def load_image(self, task: ImageSampleTask[T]) -> Image.Image:
         return Image.open(task.data.image_path)
 
-    def process(self, task: SingleDataTask[T]) -> SingleDataTask[T]:
-        return self.process_batch([task])[0]
+    def process(self, task: ImageSampleTask[T]) -> ImageSampleTask[T]:
+        msg = f"{self.name} does not support single-task processing; use process_batch"
+        raise NotImplementedError(msg)
 
-    def _handle_response_one(self, tasks: list[SingleDataTask[T]], idx: int, response: str) -> None:
+    def _handle_response_one(self, tasks: list[ImageSampleTask[T]], idx: int, response: str) -> None:
         """Call handle_response for one task, catching and logging errors."""
         try:
             self.handle_response(tasks[idx], response)
@@ -93,7 +86,7 @@ class ModelProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]]
 
     def _dispatch_responses(
         self,
-        tasks: list[SingleDataTask[T]],
+        tasks: list[ImageSampleTask[T]],
         valid_indices: list[int],
         responses: list[str],
     ) -> None:
@@ -110,7 +103,7 @@ class ModelProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]]
         for idx, response in zip(valid_indices, responses, strict=False):
             self._handle_response_one(tasks, idx, response)
 
-    def process_batch(self, tasks: list[SingleDataTask[T]]) -> list[SingleDataTask[T]]:
+    def process_batch(self, tasks: list[ImageSampleTask[T]]) -> list[ImageSampleTask[T]]:
         """Process a batch, skipping tasks already failed in previous stages."""
         if not tasks:
             return []
@@ -155,5 +148,4 @@ class ModelProcessingStage(ProcessingStage[SingleDataTask[T], SingleDataTask[T]]
         return tasks
 
     def teardown(self) -> None:
-        """Release the API client."""
         self.model.unload()

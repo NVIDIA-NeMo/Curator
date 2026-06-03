@@ -29,12 +29,12 @@ from nemo_curator.stages.synthetic.omni.ocr_nemotron_v2 import (
     OCRNemotronV2Stage,
     _to_ocr_dense_item,
 )
-from nemo_curator.tasks.image import SingleDataTask
+from nemo_curator.tasks.image import ImageSampleTask
 from nemo_curator.tasks.ocr import OCRData
 
 
-def _make_task(image_path: Path, *, is_valid: bool = True, task_id: str = "t0") -> SingleDataTask[OCRData]:
-    return SingleDataTask(
+def _make_task(image_path: Path, *, is_valid: bool = True, task_id: str = "t0") -> ImageSampleTask[OCRData]:
+    return ImageSampleTask(
         task_id=task_id,
         dataset_name="test",
         data=OCRData(image_path=image_path, image_id="img_0", is_valid=is_valid),

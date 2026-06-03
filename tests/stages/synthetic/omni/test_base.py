@@ -26,7 +26,7 @@ from PIL import Image
 
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.synthetic.omni.base import ModelProcessingStage, SkipSample
-from nemo_curator.tasks.image import SingleDataTask
+from nemo_curator.tasks.image import ImageSampleTask
 from nemo_curator.tasks.ocr import OCRData
 
 
@@ -34,20 +34,20 @@ class _SimpleModelStage(ModelProcessingStage):
     name = "_test_simple_model_stage"
     resources = Resources(gpus=1)
 
-    def build_prompt(self, task: SingleDataTask) -> str:
+    def build_prompt(self, task: ImageSampleTask) -> str:
         return "test prompt"
 
-    def handle_response(self, task: SingleDataTask, response: str) -> SingleDataTask:
+    def handle_response(self, task: ImageSampleTask, response: str) -> ImageSampleTask:
         task.data.error = response  # record for assertions
         return task
 
-    def load_image(self, task: SingleDataTask) -> Image.Image:
+    def load_image(self, task: ImageSampleTask) -> Image.Image:
         return Image.new("RGB", (4, 4))
 
 
-def _make_task(*, task_id: str = "t0", is_valid: bool = True) -> SingleDataTask[OCRData]:
+def _make_task(*, task_id: str = "t0", is_valid: bool = True) -> ImageSampleTask[OCRData]:
     data = OCRData(image_path=Path("test.jpg"), image_id="img_0", is_valid=is_valid)
-    return SingleDataTask(task_id=task_id, dataset_name="test", data=data)
+    return ImageSampleTask(task_id=task_id, dataset_name="test", data=data)
 
 
 def _make_model_stage() -> _SimpleModelStage:

@@ -19,15 +19,18 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from PIL import Image
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks.image import SingleDataTask
+from nemo_curator.tasks.image import ImageSampleTask
 from nemo_curator.tasks.ocr import OCRData, OCRDenseItem
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 _HF_REPO_ID = "nvidia/nemotron-ocr-v2"
 _DEFAULT_SUBDIR = "v2_multilingual"
@@ -50,22 +53,15 @@ def _to_ocr_dense_item(pred: dict[str, Any]) -> OCRDenseItem:
     )
 
 
-class OCRNemotronV2Stage(ProcessingStage[SingleDataTask[OCRData], SingleDataTask[OCRData]]):
+class OCRNemotronV2Stage(ProcessingStage[ImageSampleTask[OCRData], ImageSampleTask[OCRData]]):
     """Word-level dense OCR using NemotronOCR-v2 (multilingual).
 
-    Processes every valid task in the pipeline. The ``model_dir`` parameter
-    should point to the ``v2_multilingual`` directory inside the NemotronOCR-v2
-    model checkout. If ``model_dir`` is None the stage downloads the model
-    from HuggingFace on first use (``nvidia/nemotron-ocr-v2``).
-
-    Output field ``ocr_dense`` is populated with a list of
+    ``model_dir`` should point to the ``v2_multilingual`` directory of the
+    NemotronOCR-v2 checkout; if None, it's downloaded from HuggingFace on
+    ``setup()``. Populates ``ocr_dense`` with
     ``{"bbox_2d": [x1, y1, x2, y2], "text_content": "..."}`` entries
-    (normalized 0-1000 coordinates, y=0 at top).
-
-    Note: The ``nemotron-ocr`` package must be installed in the runtime
-    environment. GPU placement is delegated to the executor via the
-    ``resources`` declaration — override ``num_workers()`` in a subclass if
-    you need to pin worker count instead of letting the autoscaler decide.
+    (normalized 0-1000 coordinates, y=0 at top). Requires the ``nemotron-ocr``
+    package in the runtime environment.
     """
 
     name = "ocr_nemotron_v2"
@@ -77,17 +73,9 @@ class OCRNemotronV2Stage(ProcessingStage[SingleDataTask[OCRData], SingleDataTask
         model_dir: str | Path | None = None,
         merge_level: str = "word",
     ) -> None:
-        """Initialize the NemotronOCR-v2 stage.
-
-        Args:
-            model_dir: Path to the model directory (e.g. ``<repo>/v2_multilingual``).
-                If None, the model is downloaded from HuggingFace on ``setup()``.
-            merge_level: NemotronOCR merge level — "word", "sentence", or
-                "paragraph". Defaults to "word".
-        """
         self.model_dir = Path(model_dir) if model_dir is not None else None
         self.merge_level = merge_level
-        self._model: Any = None  # NemotronOCRV2, loaded in setup()
+        self._model: Any = None
 
     def _resolve_model_dir(self) -> str:
         if self.model_dir is not None:
@@ -97,8 +85,18 @@ class OCRNemotronV2Stage(ProcessingStage[SingleDataTask[OCRData], SingleDataTask
         snapshot = snapshot_download(repo_id=_HF_REPO_ID)
         return str(Path(snapshot) / _DEFAULT_SUBDIR)
 
-    def setup(self, _worker_metadata: dict | None = None) -> None:
-        """Load NemotronOCRV2 onto the GPU."""
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        """Pre-download weights once per node so concurrent workers don't race."""
+        if self.model_dir is None:
+            from huggingface_hub import snapshot_download
+
+            snapshot_download(repo_id=_HF_REPO_ID)
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         from nemotron_ocr.inference.pipeline_v2 import NemotronOCRV2
 
         model_dir = self._resolve_model_dir()
@@ -106,11 +104,11 @@ class OCRNemotronV2Stage(ProcessingStage[SingleDataTask[OCRData], SingleDataTask
         self._model = NemotronOCRV2(model_dir=model_dir)
         logger.info(f"{self.name}: model loaded")
 
-    def process(self, task: SingleDataTask[OCRData]) -> SingleDataTask[OCRData]:
-        return self.process_batch([task])[0]
+    def process(self, task: ImageSampleTask[OCRData]) -> ImageSampleTask[OCRData]:
+        msg = "OCRNemotronV2Stage does not support single-task processing; use process_batch"
+        raise NotImplementedError(msg)
 
-    def process_batch(self, tasks: list[SingleDataTask[OCRData]]) -> list[SingleDataTask[OCRData]]:
-        """Run NemotronOCR-v2 on eligible tasks in the batch."""
+    def process_batch(self, tasks: list[ImageSampleTask[OCRData]]) -> list[ImageSampleTask[OCRData]]:
         for task in tasks:
             if not task.data.is_valid:
                 continue
@@ -123,11 +121,10 @@ class OCRNemotronV2Stage(ProcessingStage[SingleDataTask[OCRData], SingleDataTask
 
         return tasks
 
-    def _process_one(self, task: SingleDataTask[OCRData]) -> None:
-        """Run inference on a single image task (mutates task in-place)."""
+    def _process_one(self, task: ImageSampleTask[OCRData]) -> None:
         image = Image.open(task.data.image_path)
 
-        # NemotronOCRV2 takes a file path — write to a temp file.
+        # NemotronOCRV2 takes a file path.
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp_path = tmp.name
         try:
@@ -141,7 +138,6 @@ class OCRNemotronV2Stage(ProcessingStage[SingleDataTask[OCRData], SingleDataTask
         task.data.ocr_dense = [_to_ocr_dense_item(p) for p in preds]
 
     def teardown(self) -> None:
-        """Release GPU memory."""
         if self._model is not None:
             del self._model
             self._model = None

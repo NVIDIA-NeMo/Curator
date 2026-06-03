@@ -28,7 +28,7 @@ import pytest
 
 from nemo_curator.stages.synthetic.omni.base import SkipSample
 from nemo_curator.stages.synthetic.omni.ocr_scoring_qa import OCRScoringQAStage, _parse_json_object
-from nemo_curator.tasks.image import SingleDataTask
+from nemo_curator.tasks.image import ImageSampleTask
 from nemo_curator.tasks.ocr import OCRData, OCRDenseItem
 
 
@@ -36,8 +36,8 @@ def _make_word(bbox: list[int], text: str, *, valid: bool = True) -> OCRDenseIte
     return OCRDenseItem(bbox_2d=bbox, text_content=text, valid=valid)
 
 
-def _make_task(words: list[OCRDenseItem] | None = None) -> SingleDataTask[OCRData]:
-    return SingleDataTask(
+def _make_task(words: list[OCRDenseItem] | None = None) -> ImageSampleTask[OCRData]:
+    return ImageSampleTask(
         task_id="t0",
         dataset_name="test",
         data=OCRData(image_path=Path("test.jpg"), image_id="img_0", ocr_dense=words),

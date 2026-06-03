@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 from .tasks import Task
 
-T = TypeVar("T")
+T_ImageData = TypeVar("T_ImageData", bound="ImageTaskData")
 
 
 @dataclass
@@ -93,16 +93,14 @@ class ImageTaskData:
 
 
 @dataclass(kw_only=True)
-class SingleDataTask(Task[T], Generic[T]):
-    """Task that contains a single data item."""
+class ImageSampleTask(Task[T_ImageData]):
+    """Single-sample image task. ``data`` is an :class:`ImageTaskData` (or subclass)."""
 
-    data: T
+    data: T_ImageData
 
     def validate(self) -> bool:
-        """Validate the task data."""
         return True
 
     @property
     def num_items(self) -> int:
-        """Number of items in the task."""
         return 1

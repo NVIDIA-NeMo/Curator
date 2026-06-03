@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""End-to-end I/O tests for ResultWriterStage + merge_output_shards.
+"""End-to-end I/O tests for JsonlSampleWriterStage + merge_output_shards.
 
 All tests write real files to ``tmp_path`` and read them back; no mocks.
 """
@@ -23,8 +23,8 @@ from pathlib import Path
 from PIL import Image
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.synthetic.omni.io import ResultWriterStage, merge_output_shards
-from nemo_curator.tasks.image import ImageTaskData, SingleDataTask
+from nemo_curator.stages.synthetic.omni.io import JsonlSampleWriterStage, merge_output_shards
+from nemo_curator.tasks.image import ImageSampleTask, ImageTaskData
 from nemo_curator.tasks.ocr import OCRData
 
 
@@ -40,16 +40,16 @@ def _make_image_task(
     task_id: str = "t0",
     image_id: str = "img_0",
     is_valid: bool = True,
-) -> SingleDataTask[ImageTaskData]:
-    return SingleDataTask(
+) -> ImageSampleTask[ImageTaskData]:
+    return ImageSampleTask(
         task_id=task_id,
         dataset_name="test",
         data=ImageTaskData(image_path=image_path, image_id=image_id, is_valid=is_valid),
     )
 
 
-def _make_ocr_task(image_path: Path) -> SingleDataTask[OCRData]:
-    return SingleDataTask(
+def _make_ocr_task(image_path: Path) -> ImageSampleTask[OCRData]:
+    return ImageSampleTask(
         task_id="t0",
         dataset_name="test",
         data=OCRData(image_path=image_path, image_id="img_0", ocr_dense=None),
@@ -63,94 +63,80 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
             f.write(json.dumps(rec) + "\n")
 
 
-class TestResultWriterStage:
+class TestJsonlSampleWriterStage:
     """Per-worker JSONL writes, valid_only filtering, image-path relativization."""
 
     def _run(
         self,
         output: Path,
-        tasks: list[SingleDataTask],
+        tasks: list[ImageSampleTask],
         *,
         worker_id: str = "w1",
         **kwargs: object,
-    ) -> ResultWriterStage:
-        stage = ResultWriterStage(str(output), **kwargs)
+    ) -> tuple[JsonlSampleWriterStage, Path]:
+        stage = JsonlSampleWriterStage(str(output), **kwargs)
         stage.setup(WorkerMetadata(worker_id=worker_id))
         for t in tasks:
             stage.process(t)
         stage.teardown()
-        return stage
+        shard = output.parent / f"{output.stem}_worker{worker_id}{output.suffix or '.jsonl'}"
+        return stage, shard
 
-    def test_default_writes_per_worker_shard(self, tmp_path: Path) -> None:
+    def test_writes_per_worker_shard(self, tmp_path: Path) -> None:
         p = _make_rgb_jpeg(tmp_path)
-        self._run(tmp_path / "out.jsonl", [_make_image_task(p)], worker_id="w1")
-        # Worker-suffixed file exists; bare path does not.
-        assert (tmp_path / "out_workerw1.jsonl").exists()
+        _, shard = self._run(tmp_path / "out.jsonl", [_make_image_task(p)], worker_id="w1")
+        assert shard.exists()
+        # Base path is not written to directly; merge_output_shards is the consolidation step.
         assert not (tmp_path / "out.jsonl").exists()
-
-    def test_single_file_writes_to_exact_path(self, tmp_path: Path) -> None:
-        p = _make_rgb_jpeg(tmp_path)
-        output = tmp_path / "out.jsonl"
-        self._run(output, [_make_image_task(p)], single_file=True)
-        assert output.exists()
-        assert not (tmp_path / "out_workerw1.jsonl").exists()
 
     def test_written_record_has_expected_shape(self, tmp_path: Path) -> None:
         p = _make_rgb_jpeg(tmp_path)
-        output = tmp_path / "out.jsonl"
-        self._run(output, [_make_image_task(p, image_id="my_img")], single_file=True)
-        records = [json.loads(line) for line in output.read_text().splitlines() if line.strip()]
+        _, shard = self._run(tmp_path / "out.jsonl", [_make_image_task(p, image_id="my_img")])
+        records = [json.loads(line) for line in shard.read_text().splitlines() if line.strip()]
         assert len(records) == 1
         assert records[0]["image_id"] == "my_img"
         assert "is_valid" not in records[0], "is_valid is always stripped from output"
 
     def test_valid_only_filters_invalid_tasks(self, tmp_path: Path) -> None:
         p = _make_rgb_jpeg(tmp_path)
-        output = tmp_path / "out.jsonl"
-        stage = self._run(
-            output,
+        stage, shard = self._run(
+            tmp_path / "out.jsonl",
             [
                 _make_image_task(p, task_id="ok", is_valid=True),
                 _make_image_task(p, task_id="bad", is_valid=False),
             ],
             valid_only=True,
-            single_file=True,
         )
-        lines = [line for line in output.read_text().splitlines() if line.strip()]
+        lines = [line for line in shard.read_text().splitlines() if line.strip()]
         assert len(lines) == 1
         assert stage.stats == {"saved": 1, "skipped": 1}
 
     def test_valid_only_false_keeps_invalid_records(self, tmp_path: Path) -> None:
         p = _make_rgb_jpeg(tmp_path)
-        output = tmp_path / "out.jsonl"
-        self._run(
-            output,
+        _, shard = self._run(
+            tmp_path / "out.jsonl",
             [_make_image_task(p, is_valid=False)],
             valid_only=False,
-            single_file=True,
         )
-        lines = [line for line in output.read_text().splitlines() if line.strip()]
+        lines = [line for line in shard.read_text().splitlines() if line.strip()]
         assert len(lines) == 1
 
     def test_image_path_relativized_to_image_parent(self, tmp_path: Path) -> None:
         img_dir = tmp_path / "images"
         img_dir.mkdir()
         p = _make_rgb_jpeg(img_dir)
-        output = tmp_path / "out.jsonl"
-        self._run(
-            output,
+        _, shard = self._run(
+            tmp_path / "out.jsonl",
             [_make_image_task(p)],
             image_parent=str(img_dir),
-            single_file=True,
         )
-        rec = json.loads(output.read_text().splitlines()[0])
+        rec = json.loads(shard.read_text().splitlines()[0])
         assert rec["image_path"] == "img.jpg"
 
     def test_none_fields_are_stripped(self, tmp_path: Path) -> None:
         p = _make_rgb_jpeg(tmp_path)
-        output = tmp_path / "out.jsonl"
-        self._run(output, [_make_ocr_task(p)], single_file=True)
-        rec = json.loads(output.read_text().splitlines()[0])
+        _, shard = self._run(tmp_path / "out.jsonl", [_make_ocr_task(p)])
+        rec = json.loads(shard.read_text().splitlines()[0])
         assert "ocr_dense" not in rec
         assert "ocr_scoring_prompt" not in rec
 
