@@ -79,6 +79,17 @@ class TestPostProcessTaskIds:
         out = _assign([p0, p1], [c0, c1])
         assert [t.task_id for t in out] == ["0_0_0", "0_1_0"]
 
+    def test_filter_stage_keeps_positional_alignment(self) -> None:
+        # A filter stage returns None in the filtered slot. None is NOT
+        # dropped before the length check, so the surviving outputs still map
+        # to their OWN parents (not shifted), then None slots are removed.
+        p0, p1, p2 = _task("0_0"), _task("0_1"), _task("0_2")
+        c0, c2 = _task(), _task()
+        out = _assign([p0, p1, p2], [c0, None, c2])
+        assert out == [c0, c2]
+        assert c0.task_id == "0_0_0"  # child of p0, not shifted
+        assert c2.task_id == "0_2_0"  # child of p2, not p1
+
     def test_in_place_return_is_relineaged(self) -> None:
         # A 1:1 stage that returns its input unchanged still gets a fresh
         # segment appended (ids are re-derived at each stage boundary).

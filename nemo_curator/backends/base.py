@@ -99,7 +99,7 @@ class BaseStageAdapter:
 
         return results
 
-    def _post_process_task_ids(self, tasks: list[Task], results: list[Task | None]) -> list[Task]:
+    def _post_process_task_ids(self, input_tasks: list[Task], output_tasks: list[Task | None]) -> list[Task]:
         """Assign a deterministic ``task_id`` to every emitted task.
 
         This is the single place task ids are assigned — it runs for every
@@ -111,13 +111,15 @@ class BaseStageAdapter:
 
         The input→output mapping decides each output's PARENT; whether the
         stage is a source decides each output's SEGMENT (content id vs index)
-        — the two are independent. ``None`` results are dropped (Curator's
-        "return None to filter").
+        — the two are independent. ``None`` outputs (Curator's "return None to
+        filter") are NOT removed before the length check — keeping them in
+        place preserves positional alignment for filter stages — and are then
+        dropped from the returned list.
 
-        - single input → all outputs are its children (fan-out):
-          ``parent_<seg_0..N>``
-        - positional ``M`` inputs → ``M`` outputs (1:1): each ``parent_i_<seg>``
-        - any other (ambiguous) fan-out across a batch → a random ``uuid``
+        - single input → every output is its child (fan-out): ``parent_<seg>``
+        - ``len(output) == len(input)`` → positional 1:1: each ``parent_i_<seg>``;
+          a ``None`` slot just means input ``i`` was filtered.
+        - any other (ambiguous) cardinality across a batch → a random ``uuid``
           prefixed with ``"r"`` (e.g. ``"r3f9a…"``), so ``task_id`` is never
           empty even when lineage can't be derived. The ``"r"`` prefix flags
           the id as non-deterministic / lineage-not-tracked (see
@@ -127,28 +129,43 @@ class BaseStageAdapter:
         for a source stage when available, else the positional index — so a
         source partition keeps a stable id across reorderings regardless of
         whether the source is 1→N or N→N.
-        """
-        out = [r for r in results if r is not None]
-        if not out:
-            return out
 
+        Note: a stage that BOTH filters and fans out within a single batch
+        (returning a flat list rather than a per-input slot) cannot be mapped
+        positionally; if its length happens to equal the input length the 1:1
+        assumption may misattribute parents. That combination is unsupported
+        until per-slot sentinels (NoneTask/FailedTask) land in a later PR.
+        """
         is_source = getattr(self.stage, "is_source_stage", False)
 
-        if len(tasks) == 1:
-            parent_id = tasks[0].task_id
-            for i, r in enumerate(out):
-                suffix = (r.get_deterministic_id() or i) if is_source else i
-                r._set_lineage([parent_id], suffix)
-        elif len(out) == len(tasks):
-            for parent, r in zip(tasks, out, strict=True):
-                suffix = (r.get_deterministic_id() or 0) if is_source else 0
-                r._set_lineage([parent.task_id], suffix)
-        else:
-            # Ambiguous batch fan-out: lineage can't be derived. Use a random
-            # uuid prefixed with "r" so the id is non-empty but clearly marked
-            # as non-deterministic.
-            for r in out:
-                r.task_id = "r" + uuid.uuid4().hex
+        if len(input_tasks) == 1:
+            # Fan-out (incl. a source reading from EmptyTask): every non-None
+            # output is a child of the single input.
+            parent_id = input_tasks[0].task_id
+            out: list[Task] = [t for t in output_tasks if t is not None]
+            for i, task in enumerate(out):
+                suffix = (task.get_deterministic_id() or i) if is_source else i
+                task._set_lineage([parent_id], suffix)
+            return out
+
+        if len(output_tasks) == len(input_tasks):
+            # Positional 1:1. None is kept above so a filtered slot still lines
+            # up with its own parent; drop the None slots from the result.
+            out = []
+            for parent, task in zip(input_tasks, output_tasks, strict=True):
+                if task is None:
+                    continue
+                suffix = (task.get_deterministic_id() or 0) if is_source else 0
+                task._set_lineage([parent.task_id], suffix)
+                out.append(task)
+            return out
+
+        # Ambiguous cardinality across a batch: lineage can't be derived. Use a
+        # random "r"-prefixed uuid so task_id is non-empty but clearly flagged
+        # non-deterministic.
+        out = [t for t in output_tasks if t is not None]
+        for task in out:
+            task.task_id = "r" + uuid.uuid4().hex
         return out
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
