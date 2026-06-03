@@ -23,7 +23,7 @@ from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.tasks import FileGroupTask
-from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
+from nemo_curator.utils.file_utils import get_default_file_extensions
 
 from .removal import TextDuplicatesRemovalStage
 
@@ -85,9 +85,7 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
                     file_paths=self.input_path,
                     files_per_partition=self.input_files_per_partition,
                     blocksize=self.input_blocksize,
-                    file_extensions=(
-                        self.input_file_extensions or FILETYPE_TO_DEFAULT_EXTENSIONS[self.input_filetype]
-                    ),
+                    file_extensions=(self.input_file_extensions or get_default_file_extensions(self.input_filetype)),
                     storage_options=(self.input_kwargs or {}).get("storage_options"),
                     limit=self.input_task_limit,
                 )
