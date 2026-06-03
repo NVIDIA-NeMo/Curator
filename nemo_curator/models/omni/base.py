@@ -28,7 +28,7 @@ class NVInferenceModel(ModelInterface):
         model_id: str,
         *,
         max_tokens: int = 2048,
-        base_url: str = "https://inference-api.nvidia.com",
+        base_url: str = "https://integrate.api.nvidia.com/v1",
         api_key_env_var: str = "NVINFERENCE_API_KEY",
         temperature: float = 0.0,
         top_p: float = 1.0,

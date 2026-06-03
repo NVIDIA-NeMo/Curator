@@ -143,7 +143,7 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
 
     def __init__(  # noqa: PLR0913
         self,
-        model_id: str = "nvidia/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        model_id: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         temperature: float = 1.0,
         max_tokens: int = 16384,
         min_bbox_match: int = 5,

@@ -48,7 +48,7 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
     valid_only: bool = False,
     nemotron_model_dir: Path | None = None,
     run_scoring_qa: bool = False,
-    scoring_qa_model_id: str = "nvidia/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    scoring_qa_model_id: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
     scoring_qa_min_bbox_match: int = 5,
     scoring_qa_max_text_errors: int = 0,
     scoring_qa_fail_on_missing_text: bool = False,
@@ -128,7 +128,7 @@ def create_hf_ocr_pipeline(  # noqa: PLR0913
     return pipeline
 
 
-def parse_args() -> argparse.Namespace:
+def create_ocr_argparser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="OCR pipeline for HuggingFace datasets (NemotronOCR-v2 + optional Nemotron-Nano-Omni QA)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -216,7 +216,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scoring-qa-model-id",
         type=str,
-        default="nvidia/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        default="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         help="NVIDIA Inference API model ID for scoring QA",
     )
     parser.add_argument(
@@ -244,13 +244,16 @@ def parse_args() -> argparse.Namespace:
         help="Probability of dense-dump conversation for complete-OCR images",
     )
 
-    return parser.parse_args()
+    return parser
 
 
-def main() -> None:
-    args = parse_args()
+def parse_args() -> argparse.Namespace:
+    return create_ocr_argparser().parse_args()
 
-    pipeline = create_hf_ocr_pipeline(
+
+def build_pipeline(args: argparse.Namespace) -> Pipeline:
+    """Build the OCR pipeline from parsed CLI args (shared by main() and benchmarks)."""
+    return create_hf_ocr_pipeline(
         dataset_name=args.hf_dataset,
         image_dir=Path(args.hf_image_dir),
         output_path=Path(args.output_path),
@@ -269,6 +272,12 @@ def main() -> None:
         scoring_qa_fail_on_missing_text=args.scoring_qa_fail_on_missing_text,
         scoring_qa_dense_dump_prob=args.scoring_qa_dense_dump_prob,
     )
+
+
+def main() -> None:
+    args = parse_args()
+
+    pipeline = build_pipeline(args)
 
     logger.info("\n" + pipeline.describe())
 
