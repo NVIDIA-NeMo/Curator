@@ -12,8 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Speaker diarization inference stages."""
+from nemo_curator.models.qwen_text_llm import QwenTextLLM
 
-from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
 
-__all__ = ["PyAnnoteDiarizationStage"]
+def test_prepare_single_formats_language_placeholder() -> None:
+    model = QwenTextLLM(model_id="mock/model")
+    prompt = "Restore punctuation in {language}: {text}"
+
+    prepared = model._prepare_single("bonjour le monde", prompt, language="French")
+
+    assert prepared == {"prompt": "Restore punctuation in French: bonjour le monde"}

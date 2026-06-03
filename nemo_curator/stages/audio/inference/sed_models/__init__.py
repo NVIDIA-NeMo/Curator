@@ -12,8 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Speaker diarization inference stages."""
-
-from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
-
-__all__ = ["PyAnnoteDiarizationStage"]
+"""Sound Event Detection model definitions."""

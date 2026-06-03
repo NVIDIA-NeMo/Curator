@@ -207,6 +207,84 @@ Every stage (CPU or GPU) should declare:
   pipeline introspection and documentation.
 - **`name`** — a human-readable stage name for logging and metrics.
 
+## Logging and throughput metrics
+
+Curator already records baseline per-stage performance for every backend
+batch invocation.  The backend wraps each `process_batch()` call in a
+`StageTimer`, stores the result in `StagePerfStats`, and appends that
+object to every output task's `_stage_perf` list.  Do not add backend-wide
+log lines for modality-specific throughput analysis; use the task perf
+chain instead.
+
+For processor-specific counters or timings, call `_log_metrics()` inside
+the stage:
+
+```python
+def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+    t0 = time.perf_counter()
+    outputs = self.model_infer(tasks)
+    self._log_metrics({
+        "utterances_input": float(len(tasks)),
+        "utterances_processed": float(len(outputs)),
+        "audio_duration_s": sum(float(t.data.get("duration", 0.0)) for t in outputs),
+        "inference_time_s": time.perf_counter() - t0,
+    })
+    return outputs
+```
+
+Metric values must be numeric.  They are attached to the corresponding
+`StagePerfStats.custom_metrics` entry and can be collected later with
+`TaskPerfUtils.collect_stage_metrics()` or by a terminal audio stage.
+
+Fan-out stages should log their own input/output counters rather than
+relying on the backend to invent generic counters.  For example, a shard
+reader can log `input_shards=1.0`, `utterances_emitted=N`, and
+`output_tasks=N`; a batch text filter can log `utterances_input=N`,
+`utterances_filtered=M`, and `utterances_processed=K`.  These counters
+make ratios meaningful for that processor and avoid polluting all Curator
+pipelines.
+
+Terminal audio stages that need durable throughput artifacts can use the
+shared helpers in `nemo_curator.stages.audio.metrics.performance`:
+
+```python
+from nemo_curator.stages.audio.metrics.performance import (
+    AudioPerformanceSummary,
+    serialize_stage_perf,
+)
+
+summary = AudioPerformanceSummary(duration_key="duration")
+for task in output_tasks:
+    summary.record_task(task, shard_key=task._metadata.get("_shard_key"))
+
+perf_line = {
+    "task_id": output_tasks[0].task_id,
+    "stages": serialize_stage_perf(output_tasks[0]._stage_perf),
+}
+perf_summary = summary.build_summary()
+```
+
+`ShardedManifestWriterStage` uses this pattern to write per-task
+`*_perf.jsonl` files and a root `perf_summary.json`.  The summary includes
+per-stage totals from `StagePerfStats`, custom metric sums, audio-hour
+totals, per-shard totals when shard keys are present, and derived
+throughput fields such as items/sec, audio-sec/process-sec,
+audio-sec/inference-sec, output-token rates, output-char rates, and
+waveform MB/sec.
+
+## Segment Extraction Stages
+
+There are two segment extraction stages with different contracts:
+
+- `segmentation.segment_extractor.SegmentExtractorStage` is an in-pipeline
+  fan-out stage.  It reads `sed_events` from an `AudioTask`, emits one
+  `AudioTask` per event, and adds `segment_start`, `segment_end`,
+  `segment_idx`, and `segment_confidence`.  It does not write audio files.
+- `io.extract_segments.SegmentExtractionStage` is a post-pipeline
+  materialization stage.  It reads final manifest-style entries, extracts
+  actual audio clips from source files, writes audio files and metadata, and
+  is not a drop-in replacement for the SED event fan-out stage.
+
 ## Filtering entries
 
 To drop an entry from the pipeline:
@@ -262,8 +340,10 @@ process_batch(list[AudioTask]) -> list[AudioTask]
    instead of `not tasks` because Ray Data's `map_batches` passes
    `tasks` as a numpy array, and `not ndarray` raises `ValueError`
    for arrays with more than one element.  This applies to
-   `process_batch` in `InferenceAsrNemoStage` and
-   `AudioToDocumentStage`.
+   `process_batch` in `InferenceAsrNemoStage`,
+   `AudioToDocumentStage`, `InferenceQwenOmniStage`,
+   `InferenceQwenASRStage`, `PnCRestorationStage`, and
+   `ITNRestorationStage`.
 
 ## How backends parallelise your stage
 
@@ -989,6 +1069,89 @@ Appends the entry as a single JSON line to
 | `ALMDataBuilderStage` | 55 (−2, +3) | Drops `segments`/`words`; adds `windows`, `stats`, `truncation_events` | Yes (clear + update) |
 | `ALMDataOverlapStage` | 64 (+9) | Adds `filtered_windows`, `filtered_dur`, overlap metadata | Yes (clear + update) |
 | `ManifestWriterStage` | — | Writes JSON line to disk, returns `AudioTask` | N/A |
+
+## Text filtering stages (CPU)
+
+The `text_filtering/` directory contains lightweight CPU stages that
+post-process model predictions without requiring a GPU.  They follow
+the same dataclass conventions as other CPU stages (`name` first, then
+params, then `resources`).
+
+| Stage | Purpose |
+|---|---|
+| `InitializeFieldsStage` | Seed `_skip_me`, copy original text, drop unwanted keys |
+| `WhisperHallucinationStage` | Detect hallucinated transcriptions (unique-word ratio, char rate, long words) |
+| `DisfluencyWerGuardStage` | Flag samples whose two Qwen passes disagree beyond a WER threshold |
+| `FastTextLIDStage` | Language-ID filtering via fastText |
+| `AbbreviationConcatStage` | Expand/concatenate detected abbreviations |
+| `RegexSubstitutionStage` | Apply regex-based text cleaning rules from a YAML config |
+| `SelectBestPredictionStage` | Choose between Omni and ASR predictions using WER agreement |
+| `PnCContentGuardStage` | Reject PnC output that changed content beyond punctuation/casing |
+| `FinalizeFieldsStage` | Promote cleaned text to `text`, drop intermediate keys |
+
+All text filtering stages respect the `_skip_me` convention: if
+`task.data["_skip_me"]` is set to a non-empty string, the stage
+returns the task unchanged (the string records the reason for
+skipping).  This avoids downstream GPU work on already-rejected
+samples.
+
+## Qwen Omni in-process pipeline
+
+The `examples/audio/qwen_omni_inprocess/` directory demonstrates a
+complete transcription pipeline built on the new stages:
+
+```
+NemoTarredAudioReader          (io/)
+  → InferenceQwenOmniStage     (inference/ — 2 passes, GPU)
+  → InferenceQwenASRStage      (inference/ — ASR recovery, GPU)
+  → InitializeFieldsStage      (text_filtering/)
+  → WhisperHallucinationStage  (text_filtering/)
+  → SelectBestPredictionStage  (text_filtering/)
+  → DisfluencyWerGuardStage    (text_filtering/)
+  → FastTextLIDStage           (text_filtering/)
+  → PnCRestorationStage        (text_filtering/ — GPU)
+  → PnCContentGuardStage       (text_filtering/)
+  → ITNRestorationStage        (text_filtering/ — GPU)
+  → AbbreviationConcatStage    (text_filtering/)
+  → RegexSubstitutionStage     (text_filtering/)
+  → FinalizeFieldsStage        (text_filtering/)
+  → ShardedManifestWriterStage (io/)
+```
+
+### GPU memory requirements for the full pipeline
+
+| Stage | Model | VRAM per GPU | Recommended GPU | TP |
+|---|---|---|---|---|
+| `InferenceQwenOmniStage` | Qwen3-Omni-30B-A3B | ~40 GB | 1×A100-80GB | 1 |
+| `InferenceQwenASRStage` | Qwen3-ASR-0.6B | ~2 GB | Any (shares GPU) | 1 |
+| `PnCRestorationStage` | Qwen3.5-35B-A3B-FP8 | ~20 GB | 1×A100-40GB+ | 1 |
+| `ITNRestorationStage` | Qwen3.5-35B-A3B-FP8 | ~20 GB (FP8 KV) | 1×A100-40GB+ | 1 |
+
+**Minimum hardware**: 4×A100-80GB (one per GPU stage running in parallel).
+**Recommended**: 8×A100-80GB for production throughput (~500 audio-hrs/day).
+
+### Throughput estimates (A100-80GB, batch_size=32)
+
+| Stage | Throughput | Bottleneck |
+|---|---|---|
+| `InferenceQwenOmniStage` | ~50–80 audio-sec/GPU-sec | Audio encoding + LLM decode |
+| `InferenceQwenASRStage` | ~200–400 audio-sec/GPU-sec | Small model, fast |
+| `PnCRestorationStage` | ~100–200 samples/min | 2-pass generation (completeness + PnC) |
+| `ITNRestorationStage` | ~150–300 samples/min | Single-pass with prefix caching |
+| All CPU stages combined | ~5000+ samples/min | IO-bound (regex, WER, LID) |
+
+The pipeline is throughput-bound by `InferenceQwenOmniStage`. All
+downstream stages (including the two GPU LLM stages) process faster
+than Omni produces output, so no backpressure builds.
+
+### Composability with other tutorials
+
+The Qwen Omni pipeline produces sharded manifests that can be fed
+directly into:
+
+- **`granary_v2_postprocessing/`** — for additional regex and LID cleanup
+- **`alm/`** — to build ALM training windows from the cleaned output
+- **`readspeech/`** — for audio-quality filtering (UTMOS/SIGMOS) on raw audio
 
 ---
 

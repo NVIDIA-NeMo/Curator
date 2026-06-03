@@ -1,0 +1,398 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Inverse Text Normalization (ITN) stage using vLLM.
+
+Converts spoken-form text (e.g. "fourteen dollars") to written form
+(e.g. "$14") while preserving disfluencies and filler words.
+
+Uses a text-only LLM (Qwen3.5 by default) with a system prompt that
+specifies ITN conversion rules.  A validation step catches hallucinated
+or unfaithful outputs and falls back to the original text.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from loguru import logger
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.vllm_utils import resolve_local_model_path
+
+try:
+    from vllm import LLM, SamplingParams
+
+    VLLM_AVAILABLE = True
+except ImportError:
+    VLLM_AVAILABLE = False
+
+_DEFAULT_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "itn_prompt.md"
+
+_MIN_WORDS_FOR_DELETION_CHECK = 8
+_MAX_DELETION_RATIO = 0.3
+
+
+def _validate_itn_output(input_text: str, output_text: str) -> tuple[bool, str]:
+    """Check that ITN output is a faithful conversion, not a hallucination."""
+    in_words = input_text.lower().split()
+    out_words = output_text.lower().split()
+
+    if not in_words or not out_words:
+        return True, "ok"
+
+    if len(out_words) > len(in_words):
+        return False, f"word_count_increase ({len(in_words)}->{len(out_words)})"
+
+    if len(in_words) >= _MIN_WORDS_FOR_DELETION_CHECK and len(out_words) < len(in_words) * _MAX_DELETION_RATIO:
+        return False, f"excessive_deletion ({len(in_words)}->{len(out_words)})"
+
+    return True, "ok"
+
+
+def _count_output_tokens(outputs: list[Any]) -> float:
+    total = 0.0
+    for output in outputs:
+        sequences = getattr(output, "outputs", None) or []
+        if not sequences:
+            continue
+        token_ids = getattr(sequences[0], "token_ids", None)
+        if token_ids is not None:
+            total += float(len(token_ids))
+    return total
+
+
+@dataclass
+class ITNRestorationStage(ProcessingStage[AudioTask, AudioTask]):
+    """Inverse Text Normalization via batched LLM inference.
+
+    Reads spoken-form text from ``text_key``, converts to written form
+    using a vLLM-served text LLM, validates the output, and writes the
+    result to ``output_text_key``.  Invalid outputs (hallucinations,
+    insertions, excessive deletions) fall back to the original text and
+    are flagged in ``itn_filtered_key``.
+
+    The stage ships with a default ITN prompt bundled at
+    ``prompts/itn_prompt.md``.  Override with ``prompt_text`` (inline
+    string) or ``prompt_file`` (path to a markdown file).
+
+    Uses ``process_batch`` for efficient batched GPU inference via vLLM
+    with prefix caching enabled (the shared system prompt is cached
+    across all requests).
+
+    Resource requirements:
+        - **GPU VRAM**: ~20 GB for Qwen3.5-35B-A3B-FP8 with FP8 KV-cache.
+          Requires 1x A100-40GB or 1x A100-80GB. With ``kv_cache_dtype="auto"``
+          (FP16 cache), VRAM doubles; use ``tensor_parallel_size=2``.
+        - **Throughput**: ~150-300 samples/min on A100-80GB with
+          ``batch_size=64`` and prefix caching enabled.
+        - **Model download**: ~18 GB on first run (cached via HuggingFace Hub).
+
+    Args:
+        model_id: HuggingFace model identifier for the text LLM.
+        prompt_text: System prompt string.  Takes precedence over
+            ``prompt_file``.
+        prompt_file: Path to a file containing the system prompt.
+            Falls back to the bundled default if neither ``prompt_text``
+            nor ``prompt_file`` is set.
+        text_key: Input manifest key to read spoken-form text from.
+        output_text_key: Output manifest key for the ITN result.
+        skip_me_key: Key used to flag entries for downstream filtering.
+        itn_filtered_key: Key where validation failure reasons are stored.
+        enable_validation: Run output validation and fall back on failure.
+        tensor_parallel_size: GPUs for tensor parallelism (``None`` =
+            auto-detect).
+        max_output_tokens: Maximum tokens to generate per sample.
+        max_model_len: Maximum context length passed to vLLM.
+        max_num_seqs: Maximum concurrent sequences in vLLM.
+        gpu_memory_utilization: Fraction of GPU memory vLLM may use.
+        kv_cache_dtype: KV-cache dtype (``fp8`` halves memory, 2x
+            concurrent sequences on Hopper).
+    """
+
+    name: str = "ITNRestoration"
+    model_id: str = "Qwen/Qwen3.5-35B-A3B-FP8"
+    prompt_text: str | None = None
+    prompt_file: str | None = None
+    text_key: str = "pnc_text"
+    output_text_key: str = "itn_text"
+    skip_me_key: str = "_skip_me"
+    itn_filtered_key: str = "itn_filtered"
+    enable_validation: bool = True
+    tensor_parallel_size: int | None = None
+    max_output_tokens: int = 512
+    max_model_len: int = 2048
+    max_num_seqs: int = 64
+    gpu_memory_utilization: float = 0.95
+    kv_cache_dtype: str = "fp8"
+    num_workers_override: int | None = None
+    resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
+    batch_size: int = 64
+
+    _llm: Any = field(default=None, init=False, repr=False)
+    _tokenizer: Any = field(default=None, init=False, repr=False)
+    _sampling_params: Any = field(default=None, init=False, repr=False)
+    _system_prompt: str = field(default="", init=False, repr=False)
+    _n_processed: int = field(default=0, init=False, repr=False)
+    _n_filtered: int = field(default=0, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        tp = self.tensor_parallel_size
+        if tp and tp > 0:
+            self.resources = Resources(gpus=float(tp))
+
+    def num_workers(self) -> int | None:
+        return self.num_workers_override
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        if self.num_workers_override is None:
+            return {}
+        return {"num_workers": self.num_workers_override}
+
+    # ------------------------------------------------------------------
+    # Prompt resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_prompt(self) -> str:
+        if self.prompt_text:
+            return self.prompt_text
+
+        path = Path(self.prompt_file) if self.prompt_file else _DEFAULT_PROMPT_PATH
+        if not path.exists():
+            msg = f"ITN prompt file not found: {path}"
+            raise FileNotFoundError(msg)
+        return path.read_text(encoding="utf-8").strip()
+
+    # ------------------------------------------------------------------
+    # Model initialisation
+    # ------------------------------------------------------------------
+
+    def _init_model(self) -> None:
+        if not VLLM_AVAILABLE:
+            msg = "vLLM is required for ITNRestorationStage. pip install vllm"
+            raise ImportError(msg)
+
+        setup_t0 = time.perf_counter()
+        self._system_prompt = self._resolve_prompt()
+
+        from nemo_curator.utils.gpu_utils import get_gpu_count
+
+        tp = self.tensor_parallel_size or get_gpu_count()
+        model_path = resolve_local_model_path(self.model_id)
+
+        logger.info(
+            "ITN: loading {} from {} (tp={}, max_model_len={}, kv_cache_dtype={})",
+            self.model_id,
+            model_path,
+            tp,
+            self.max_model_len,
+            self.kv_cache_dtype,
+        )
+
+        # trust_remote_code is required for Qwen model architectures;
+        # operators changing model_id should audit the target repo first.
+        self._llm = LLM(
+            model=model_path,
+            trust_remote_code=True,
+            gpu_memory_utilization=self.gpu_memory_utilization,
+            tensor_parallel_size=tp,
+            max_model_len=self.max_model_len,
+            max_num_seqs=self.max_num_seqs,
+            max_num_batched_tokens=8192,
+            enable_prefix_caching=True,
+            prefix_caching_hash_algo="xxhash",
+            kv_cache_dtype=self.kv_cache_dtype,
+            enforce_eager=False,
+            seed=1234,
+        )
+        self._tokenizer = self._llm.get_tokenizer()
+        self._sampling_params = SamplingParams(
+            temperature=0,
+            max_tokens=self.max_output_tokens,
+        )
+
+        logger.info(
+            "ITN: model ready (prefix_caching=True, prompt={} chars, setup_time_s={:.3f})",
+            len(self._system_prompt),
+            time.perf_counter() - setup_t0,
+        )
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        """Pre-download model weights and validate prompts once per node.
+
+        GPU/vLLM engine creation belongs in setup(), where the executor has
+        assigned this stage replica's resources.
+        """
+        try:
+            from huggingface_hub import snapshot_download
+
+            prefetch_t0 = time.perf_counter()
+            model_path = self.model_id if Path(self.model_id).is_dir() else snapshot_download(self.model_id)
+            self._resolve_prompt()
+            logger.info(
+                "ITN: weights cached on node for {} at {} in {:.3f}s",
+                self.model_id,
+                model_path,
+                time.perf_counter() - prefetch_t0,
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("ITN: setup_on_node prefetch failed; setup() will retry")
+
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        if self._llm is None:
+            self._init_model()
+
+    def teardown(self) -> None:
+        if self._n_processed:
+            logger.info(
+                "ITN: processed %d, filtered %d (%.1f%%)",
+                self._n_processed,
+                self._n_filtered,
+                100.0 * self._n_filtered / self._n_processed if self._n_processed else 0,
+            )
+        if self._llm is not None:
+            del self._llm
+            self._llm = None
+            self._tokenizer = None
+            self._sampling_params = None
+
+    # ------------------------------------------------------------------
+    # I/O contract
+    # ------------------------------------------------------------------
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.text_key, self.skip_me_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.output_text_key, self.itn_filtered_key]
+
+    # ------------------------------------------------------------------
+    # Prompt formatting
+    # ------------------------------------------------------------------
+
+    def _format_prompt(self, user_text: str) -> str:
+        messages = [
+            {"role": "system", "content": self._system_prompt},
+            {"role": "user", "content": user_text},
+        ]
+        return self._tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+
+    # ------------------------------------------------------------------
+    # Processing
+    # ------------------------------------------------------------------
+
+    def process(self, task: AudioTask) -> AudioTask:
+        msg = "ITNRestorationStage only supports process_batch"
+        raise NotImplementedError(msg)
+
+    def _collect_prompts(self, tasks: list[AudioTask]) -> tuple[list[int], list[str]]:
+        """Partition tasks into skipped/empty (handled inline) and valid (need inference)."""
+        valid_indices: list[int] = []
+        prompts: list[str] = []
+        for i, task in enumerate(tasks):
+            text = task.data.get(self.text_key, "")
+            skip = task.data.get(self.skip_me_key, "")
+            if skip:
+                task.data[self.output_text_key] = ""
+            elif not text or not text.strip():
+                task.data[self.output_text_key] = text
+            else:
+                valid_indices.append(i)
+                prompts.append(self._format_prompt(text))
+        return valid_indices, prompts
+
+    def _apply_output(self, task: AudioTask, itn_text: str) -> None:
+        """Validate and assign a single ITN output to the task."""
+        input_text = task.data[self.text_key]
+        if self.enable_validation:
+            ok, reason = _validate_itn_output(input_text, itn_text)
+            if ok:
+                task.data[self.output_text_key] = itn_text
+            else:
+                task.data[self.output_text_key] = input_text
+                task.data[self.itn_filtered_key] = reason
+                self._n_filtered += 1
+        else:
+            task.data[self.output_text_key] = itn_text
+        self._n_processed += 1
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        if len(tasks) == 0:
+            return []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
+
+        if self._llm is None:
+            msg = "Model not initialised — setup() was not called"
+            raise RuntimeError(msg)
+
+        valid_indices, prompts = self._collect_prompts(tasks)
+        valid_texts = [tasks[i].data.get(self.text_key, "") for i in valid_indices]
+
+        if prompts:
+            inference_t0 = time.perf_counter()
+            filtered_before = self._n_filtered
+            outputs = self._llm.generate(
+                prompts,
+                sampling_params=self._sampling_params,
+                use_tqdm=False,
+            )
+            inference_elapsed = time.perf_counter() - inference_t0
+            output_tokens = _count_output_tokens(outputs)
+            for seq_idx, task_idx in enumerate(valid_indices):
+                itn_text = outputs[seq_idx].outputs[0].text.strip()
+                self._apply_output(tasks[task_idx], itn_text)
+            filtered_batch = self._n_filtered - filtered_before
+        else:
+            inference_elapsed = 0.0
+            filtered_batch = 0
+            output_tokens = 0.0
+
+        self._log_metrics({
+            "utterances_input": float(len(tasks)),
+            "utterances_inferred": float(len(prompts)),
+            "utterances_skipped": float(len(tasks) - len(valid_indices)),
+            "utterances_filtered": float(filtered_batch),
+            "input_chars": float(sum(len(str(text)) for text in valid_texts)),
+            "input_words": float(sum(len(str(text).split()) for text in valid_texts)),
+            "output_chars": float(sum(len(str(tasks[i].data.get(self.output_text_key, ""))) for i in valid_indices)),
+            "output_tokens": output_tokens,
+            "inference_time_s": inference_elapsed,
+            "inference_time": inference_elapsed,
+        })
+        logger.debug("ITN: batch of %d tasks (%d inferred)", len(tasks), len(prompts))
+        return tasks

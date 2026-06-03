@@ -12,9 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio segmentation stages."""
+"""Audio segmentation stages.
 
-from .speaker_separation import SpeakerSeparationStage
-from .vad_segmentation import VADSegmentationStage
+Submodules are imported lazily so optional segmentation dependencies are only
+loaded when a specific stage is requested.
+"""
 
-__all__ = ["SpeakerSeparationStage", "VADSegmentationStage"]
+__all__ = ["SegmentExtractorStage", "SpeakerSeparationStage", "VADSegmentationStage"]
+
+
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "SegmentExtractorStage": (
+        "nemo_curator.stages.audio.segmentation.segment_extractor",
+        "SegmentExtractorStage",
+    ),
+    "SpeakerSeparationStage": (
+        "nemo_curator.stages.audio.segmentation.speaker_separation",
+        "SpeakerSeparationStage",
+    ),
+    "VADSegmentationStage": ("nemo_curator.stages.audio.segmentation.vad_segmentation", "VADSegmentationStage"),
+}
+
+
+def __getattr__(name: str) -> type:
+    if name in _LAZY_IMPORTS:
+        import importlib
+
+        module_path, attr = _LAZY_IMPORTS[name]
+        module = importlib.import_module(module_path)
+        return getattr(module, attr)
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

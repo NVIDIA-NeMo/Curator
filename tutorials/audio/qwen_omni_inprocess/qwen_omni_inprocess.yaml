@@ -1,0 +1,383 @@
+# Granary v2 — Qwen-Omni In-Process Pipeline (Hydra Config)
+#
+# Full ASR postprocessing pipeline:
+#   NemoTarredAudioReader -> InitializeFields -> QwenOmni inference
+#   -> [SED inference/postprocessing]
+#   -> WhisperHallucination -> [QwenASR recovery] -> SelectBestPrediction
+#   -> FastTextLID -> RegexSubstitution -> AbbreviationConcat
+#   -> [PnC restoration] -> [ITN] -> ShardedManifestWriter
+#
+# Invoked by NvLLMOps Kratos via:
+#   python tutorials/audio/qwen_omni_inprocess/main.py \
+#       --config-path=<path> --config-name=qwen_omni_inprocess \
+#       workspace_dir=/work input_manifest=/data/config.yaml
+#
+# The NvLLMOps run_curator() passes `input_manifest` as a Hydra override.
+# For tarred data, this should point to the Granary YAML data config.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+# ===========================================================================
+# CORE — these are overridden at runtime by NvLLMOps run_curator()
+# ===========================================================================
+input_manifest: ???
+workspace_dir: /local/qwen_omni_workspace
+final_manifest: ${workspace_dir}/output.jsonl
+language_short: en
+max_segment_length: 40
+hf_token: ""
+backend: xenna
+execution_mode: streaming
+autoscale_interval_s: 30
+processors_to_run: all
+processors_to_skip: []
+
+# data_config defaults to input_manifest (NvLLMOps passes the Granary YAML
+# data config path as input_manifest)
+data_config: ${input_manifest}
+output_dir: ${workspace_dir}
+corpus: null
+s3_endpoint_url: null
+max_utterances_per_shard: null
+source_lang_key: source_lang
+cpu_batch_size: 64
+
+# Populated by NvLLMOps when available. The tutorial does not derive stage
+# behavior from these values by default; they are visible metadata/override
+# anchors for controlled throughput experiments.
+curator_num_nodes: null
+curator_gpus_per_node: null
+curator_total_gpus: null
+
+# ===========================================================================
+# MULTI-NODE SCALING
+# ===========================================================================
+# Leave null to let Xenna autoscale. Set these for controlled throughput tests.
+reader_num_workers: null
+reader_num_workers_per_node: null
+omni_num_workers: null
+asr_num_workers: null
+pnc_num_workers: null
+itn_num_workers: null
+sed_num_workers: null
+
+# ===========================================================================
+# QWEN-OMNI INFERENCE
+# ===========================================================================
+model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+ml_prompt: "Transcribe the audio."
+ml_prompt_file: null
+en_prompt_file: /opt/Curator/examples/audio/qwen_omni_inprocess/prompts/en_qwen3_omni_disfluency_asr.md
+followup_prompt: null
+followup_prompt_file: null
+system_prompt: null
+tensor_parallel_size: 2
+omni_resource_gpus: 2.0
+batch_size: 32
+max_output_tokens: 256
+max_model_len: 4096
+max_num_seqs: 16
+gpu_memory_utilization: 0.90
+prep_workers: 16
+enable_disfluency_guard: false
+omni_hallucination_text_key: qwen3_prediction_s1
+keep_waveform: false
+
+# ===========================================================================
+# TEXT FILTERING
+# ===========================================================================
+hall_phrases: /opt/Curator/tutorials/audio/granary_v2_postprocessing/en.txt
+fasttext_model: "facebook/fasttext-language-identification"
+regex_yaml: /opt/Curator/tutorials/audio/granary_v2_postprocessing/common.yaml
+min_lang_prob: 0.8
+unique_words_threshold: 0.4
+long_word_threshold: 25
+long_word_rel_threshold: 3.0
+max_char_rate: 40.0
+
+# ===========================================================================
+# QWEN-ASR HALLUCINATION RECOVERY (optional; set enable_asr true)
+# ===========================================================================
+enable_asr: false
+asr_model_id: null
+asr_resource_gpus: 1.0
+asr_batch_size: 128
+asr_gpu_memory_utilization: 0.95
+asr_max_model_len: null
+asr_max_new_tokens: 4096
+
+# ===========================================================================
+# SOUND EVENT DETECTION (optional; set enable_sed true)
+# ===========================================================================
+enable_sed: false
+sed_checkpoint: null
+sed_model_type: Cnn14_DecisionLevelMax
+sed_speech_threshold: 0.5
+sed_min_duration: 0.3
+sed_merge_gap: 0.0
+sed_batch_size: 32
+sed_gpu_memory_gb: 4.0
+sed_subcategories: false
+
+# ===========================================================================
+# PNC RESTORATION (optional; set enable_pnc false to disable)
+# ===========================================================================
+enable_pnc: true
+pnc_model_id: "Qwen/Qwen3.5-35B-A3B-FP8"
+pnc_prompt: null
+pnc_prompt_file: /opt/Curator/nemo_curator/stages/audio/text_filtering/prompts/pnc_prompt.md
+completeness_prompt: null
+pnc_tensor_parallel_size: 1
+pnc_resource_gpus: 1.0
+pnc_batch_size: 128
+pnc_max_model_len: 2048
+pnc_max_num_seqs: 64
+pnc_gpu_memory_utilization: 0.90
+pnc_prep_workers: 8
+pnc_source_lang_key: source_lang
+
+# ===========================================================================
+# ITN (optional — set enable_itn: true to activate)
+# ===========================================================================
+enable_itn: false
+itn_model_id: "Qwen/Qwen3.5-35B-A3B-FP8"
+itn_prompt_file: null
+itn_text_key: pnc_text
+itn_output_key: "itn_text"
+itn_batch_size: 128
+itn_tensor_parallel_size: 1
+itn_resource_gpus: 1.0
+itn_max_output_tokens: 512
+itn_max_model_len: 2048
+itn_max_num_seqs: 64
+itn_gpu_memory_utilization: 0.90
+itn_enable_validation: true
+
+# ===========================================================================
+# DISFLUENCY WER GUARD (active only when followup_prompt is set)
+# ===========================================================================
+max_wer_pct: 50.0
+
+# ===========================================================================
+# PROCESSOR GRAPH
+# ===========================================================================
+# This explicit list is the only source of truth for the tutorial stage graph.
+# Use `enabled`, `processors_to_run`, or `processors_to_skip` to choose stages.
+processors:
+  - processor_id: reader
+    _target_: nemo_curator.stages.audio.io.nemo_tarred_reader.NemoTarredAudioReader
+    yaml_path: ${data_config}
+    corpus_filter: ${corpus}
+    s3_endpoint_url: ${s3_endpoint_url}
+    output_dir: ${output_dir}
+    max_utterances_per_shard: ${max_utterances_per_shard}
+    reader_num_workers: ${reader_num_workers}
+    reader_num_workers_per_node: ${reader_num_workers_per_node}
+    stage_with:
+      nemo_tar_shard_reader:
+        resources:
+          _target_: nemo_curator.stages.resources.Resources
+          cpus: 4.0
+
+  - processor_id: initialize_fields
+    _target_: nemo_curator.stages.audio.text_filtering.InitializeFieldsStage
+    stage_with:
+      batch_size: ${cpu_batch_size}
+
+  - processor_id: sed_inference
+    enabled: ${enable_sed}
+    _target_: nemo_curator.stages.audio.inference.sed.SEDInferenceStage
+    checkpoint_path: ${sed_checkpoint}
+    model_type: ${sed_model_type}
+    batch_size: ${sed_batch_size}
+    num_workers_override: ${sed_num_workers}
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      cpus: 1.0
+      gpu_memory_gb: ${sed_gpu_memory_gb}
+
+  - processor_id: sed_postprocessing
+    enabled: ${enable_sed}
+    _target_: nemo_curator.stages.audio.postprocessing.sed_postprocessing.SEDPostprocessingStage
+    threshold: ${sed_speech_threshold}
+    min_duration_sec: ${sed_min_duration}
+    merge_gap_sec: ${sed_merge_gap}
+    emit_subcategories: ${sed_subcategories}
+    stage_with:
+      batch_size: ${cpu_batch_size}
+
+  - processor_id: qwen_omni
+    _target_: nemo_curator.stages.audio.inference.qwen_omni.InferenceQwenOmniStage
+    model_id: ${model_id}
+    prompt_text: ${ml_prompt}
+    prompt_file: ${ml_prompt_file}
+    en_prompt_file: ${en_prompt_file}
+    followup_prompt: ${followup_prompt}
+    followup_prompt_file: ${followup_prompt_file}
+    system_prompt: ${system_prompt}
+    tensor_parallel_size: ${tensor_parallel_size}
+    batch_size: ${batch_size}
+    max_output_tokens: ${max_output_tokens}
+    max_model_len: ${max_model_len}
+    max_num_seqs: ${max_num_seqs}
+    gpu_memory_utilization: ${gpu_memory_utilization}
+    prep_workers: ${prep_workers}
+    source_lang_key: ${source_lang_key}
+    pred_text_key: qwen3_prediction_s1
+    disfluency_text_key: qwen3_prediction_s2
+    keep_waveform: ${keep_waveform}
+    num_workers_override: ${omni_num_workers}
+    stage_with:
+      resources:
+        _target_: nemo_curator.stages.resources.Resources
+        gpus: ${omni_resource_gpus}
+
+  - processor_id: disfluency_wer_guard
+    enabled: ${enable_disfluency_guard}
+    _target_: nemo_curator.stages.audio.text_filtering.DisfluencyWerGuardStage
+    ref_text_key: qwen3_prediction_s1
+    hyp_text_key: qwen3_prediction_s2
+    max_wer_pct: ${max_wer_pct}
+    stage_with:
+      batch_size: ${cpu_batch_size}
+
+  - processor_id: whisper_hallucination_omni
+    _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    name: WhisperHallucination_omni
+    common_hall_file: ${hall_phrases}
+    text_key: ${omni_hallucination_text_key}
+    unique_words_threshold: ${unique_words_threshold}
+    long_word_threshold: ${long_word_threshold}
+    long_word_rel_threshold: ${long_word_rel_threshold}
+    max_char_rate: ${max_char_rate}
+    stage_with:
+      batch_size: ${cpu_batch_size}
+
+  - processor_id: qwen_asr
+    enabled: ${enable_asr}
+    _target_: nemo_curator.stages.audio.inference.qwen_asr.InferenceQwenASRStage
+    model_id: ${asr_model_id}
+    source_lang_key: ${source_lang_key}
+    batch_size: ${asr_batch_size}
+    gpu_memory_utilization: ${asr_gpu_memory_utilization}
+    max_model_len: ${asr_max_model_len}
+    max_new_tokens: ${asr_max_new_tokens}
+    run_only_if_key: _skip_me
+    run_only_if_prefix: Hallucination
+    num_workers_override: ${asr_num_workers}
+    stage_with:
+      resources:
+        _target_: nemo_curator.stages.resources.Resources
+        gpus: ${asr_resource_gpus}
+
+  - processor_id: whisper_hallucination_asr
+    enabled: ${enable_asr}
+    _target_: nemo_curator.stages.audio.text_filtering.WhisperHallucinationStage
+    name: WhisperHallucination_asr
+    common_hall_file: ${hall_phrases}
+    text_key: qwen3_asr_prediction
+    overwrite: true
+    recovery_value: Recovered:QwenASR
+    unique_words_threshold: ${unique_words_threshold}
+    long_word_threshold: ${long_word_threshold}
+    long_word_rel_threshold: ${long_word_rel_threshold}
+    max_char_rate: ${max_char_rate}
+    stage_with:
+      batch_size: ${cpu_batch_size}
+
+  - processor_id: select_best_prediction
+    _target_: nemo_curator.stages.audio.text_filtering.select_best_prediction.SelectBestPredictionStage
+    primary_text_key: ${omni_hallucination_text_key}
+    asr_text_key: qwen3_asr_prediction
+    stage_with:
+      batch_size: ${cpu_batch_size}
+
+  - processor_id: fasttext_lid
+    _target_: nemo_curator.stages.audio.text_filtering.FastTextLIDStage
+    model_path: ${fasttext_model}
+    text_key: best_prediction
+    source_lang_key: ${source_lang_key}
+    min_lang_prob: ${min_lang_prob}
+    stage_with:
+      batch_size: ${cpu_batch_size}
+
+  - processor_id: regex_substitution
+    _target_: nemo_curator.stages.audio.text_filtering.RegexSubstitutionStage
+    regex_params_yaml: ${regex_yaml}
+    text_key: best_prediction
+    output_text_key: cleaned_text
+    stage_with:
+      batch_size: ${cpu_batch_size}
+
+  - processor_id: abbreviation_concat
+    _target_: nemo_curator.stages.audio.text_filtering.AbbreviationConcatStage
+    text_key: cleaned_text
+    output_text_key: abbreviated_text
+    source_lang_key: ${source_lang_key}
+    stage_with:
+      batch_size: ${cpu_batch_size}
+
+  - processor_id: pnc_restoration
+    enabled: ${enable_pnc}
+    _target_: nemo_curator.stages.audio.text_filtering.PnCRestorationStage
+    model_id: ${pnc_model_id}
+    text_key: abbreviated_text
+    output_text_key: pnc_text
+    pnc_prompt: ${pnc_prompt}
+    pnc_prompt_file: ${pnc_prompt_file}
+    completeness_prompt: ${completeness_prompt}
+    tensor_parallel_size: ${pnc_tensor_parallel_size}
+    batch_size: ${pnc_batch_size}
+    max_model_len: ${pnc_max_model_len}
+    max_num_seqs: ${pnc_max_num_seqs}
+    gpu_memory_utilization: ${pnc_gpu_memory_utilization}
+    prep_workers: ${pnc_prep_workers}
+    source_lang_key: ${pnc_source_lang_key}
+    num_workers_override: ${pnc_num_workers}
+    stage_with:
+      resources:
+        _target_: nemo_curator.stages.resources.Resources
+        gpus: ${pnc_resource_gpus}
+
+  - processor_id: pnc_content_guard
+    enabled: ${enable_pnc}
+    _target_: nemo_curator.stages.audio.text_filtering.PnCContentGuardStage
+    text_key: abbreviated_text
+    pnc_text_key: pnc_text
+    rejected_text_key: rejected_pnc_text
+    stage_with:
+      batch_size: ${cpu_batch_size}
+
+  - processor_id: itn_restoration
+    enabled: ${enable_itn}
+    _target_: nemo_curator.stages.audio.text_filtering.ITNRestorationStage
+    model_id: ${itn_model_id}
+    prompt_file: ${itn_prompt_file}
+    text_key: ${itn_text_key}
+    output_text_key: ${itn_output_key}
+    tensor_parallel_size: ${itn_tensor_parallel_size}
+    max_output_tokens: ${itn_max_output_tokens}
+    max_model_len: ${itn_max_model_len}
+    max_num_seqs: ${itn_max_num_seqs}
+    gpu_memory_utilization: ${itn_gpu_memory_utilization}
+    batch_size: ${itn_batch_size}
+    enable_validation: ${itn_enable_validation}
+    num_workers_override: ${itn_num_workers}
+    stage_with:
+      resources:
+        _target_: nemo_curator.stages.resources.Resources
+        gpus: ${itn_resource_gpus}
+
+  - processor_id: sharded_manifest_writer
+    _target_: nemo_curator.stages.audio.io.sharded_manifest_writer.ShardedManifestWriterStage
+    output_dir: ${output_dir}
+    stage_with:
+      batch_size: ${cpu_batch_size}

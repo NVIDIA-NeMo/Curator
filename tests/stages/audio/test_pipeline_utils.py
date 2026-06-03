@@ -12,8 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Speaker diarization inference stages."""
+from nemo_curator.stages.audio.pipeline_utils import set_note
 
-from nemo_curator.stages.audio.inference.speaker_diarization.pyannote import PyAnnoteDiarizationStage
 
-__all__ = ["PyAnnoteDiarizationStage"]
+def test_set_note_writes_structured_stage_notes() -> None:
+    data: dict = {}
+
+    set_note(data, "StageA", "applied")
+
+    assert data["additional_notes"] == {"StageA": "applied"}
+
+
+def test_set_note_preserves_legacy_string_note() -> None:
+    data = {"additional_notes": "Recovered:ASR"}
+
+    set_note(data, "QwenASR", "skipped unsupported language")
+
+    assert data["additional_notes"] == {
+        "_legacy": "Recovered:ASR",
+        "QwenASR": "skipped unsupported language",
+    }

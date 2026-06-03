@@ -1,0 +1,8 @@
+# Granary v2 Postprocessing Pipeline
+# Install: pip install nemo-curator[audio_cpu]
+# Or for the full audio stack with GPU stages: pip install nemo-curator[audio_cuda12]
+
+nemo-curator[audio_cpu]
+
+# FastText LID model (download separately):
+#   wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz
