@@ -22,17 +22,23 @@ Model selection:
 
     ``--primary_model``   (required unless --language is given)
         qwen_omni  → InferenceQwenOmniStage       (Qwen3-Omni vLLM, ``--model_id``)
-                     recommended: en de es fr it pt ru nl ur
+                     recommended: en de es fr it pt ru nl
         qwen_asr   → InferenceQwenASRStage         (Qwen3-ASR, ``--asr_model_id``)
-                     recommended: pl cs ro hu el fi da sv hi
+                     recommended: pl cs ro hu el fi da sv
         whisper    → InferenceFasterWhisperStage   (Whisper Large V3, ``--whisper_model_size_or_path``)
                      recommended: lt lv hr et bg sk sl mt uk
+        parakeet_riva→ InferenceParakeetStage      (local Riva Parakeet ``.nemo``, ``--parakeet_riva_model_id``)
+                     recommended: hi ta bn (fallback: indic_hybrid)
+        indic_hybrid→ InferenceIndicConformerHybridStage (AI4Bharat per-language hybrid CTC+RNNT
+                     ``.nemo``, ``--indic_hybrid_model_id``)
+                     recommended: other Indic ISO codes (no fallback)
 
     ``--recovery_model``  (optional; auto-derived from primary when omitted)
         qwen_asr       → InferenceQwenASRStage        (default recovery for qwen_omni primary)
         whisper        → InferenceFasterWhisperStage   (default recovery for qwen_asr primary)
-        parakeet       → InferenceParakeetStage        (default recovery for whisper primary)
-        indic_conformer→ InferenceIndicConformerStage  (auto-set for hi/ur via --language)
+        parakeet_v3    → InferenceParakeetStage        (Parakeet-TDT v3; default recovery for whisper primary)
+        indic_hybrid   → InferenceIndicConformerHybridStage (default recovery for parakeet_riva primary on hi/ta/bn)
+        none           → skip recovery (default for indic_hybrid primary)
 
 Architecture:
     NemoTarredAudioReader (CPU)
@@ -78,29 +84,14 @@ from loguru import logger
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.pipeline import Pipeline
 
-QWEN_ASR_DEFAULT_MODEL_ID = "Qwen/Qwen3-ASR-0.6B"
-INDIC_CONFORMER_DEFAULT_MODEL_ID = "ai4bharat/indic-conformer-600m-multilingual"
-#faster-whisper alias; equivalent HF openai/whisper-large-v3 in Transformers format.
-WHISPER_DEFAULT_MODEL = "large-v3"
-PARAKEET_DEFAULT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
-
-# Recommended language codes for each primary inference model (used for auto-selection via --language).
-QWEN_OMNI_RECOMMENDED_LANGS     = {"en", "de", "es", "fr", "it", "pt", "ru", "nl", "ur"}
-QWEN_ASR_RECOMMENDED_LANGS      = {"pl", "cs", "ro", "hu", "el", "fi", "da", "sv", "hi"}
-WHISPER_RECOMMENDED_LANGS       = {"lt", "lv", "hr", "et", "bg", "sk", "sl", "mt", "uk"}
-
-# Default recovery model paired with each primary (when --recovery_model is not set):
-#   qwen_omni → qwen_asr;  qwen_asr → whisper;  whisper → parakeet
-# Indic languages override recovery to indic_conformer automatically via --language.
-INDIC_CONFORMER_RECOMMENDED_LANGS = {"hi", "ur"}
-
 from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.stages.audio.inference.faster_whisper import InferenceFasterWhisperStage
-from nemo_curator.stages.audio.inference.indic_conformer import InferenceIndicConformerStage
+from nemo_curator.stages.audio.inference.indic_conformer_hybrid import InferenceIndicConformerHybridStage
 from nemo_curator.stages.audio.inference.parakeet import InferenceParakeetStage
 from nemo_curator.stages.audio.inference.qwen_asr import InferenceQwenASRStage
 from nemo_curator.stages.audio.inference.qwen_omni import InferenceQwenOmniStage
 from nemo_curator.stages.audio.io.nemo_speech_reader import NeMoSpeechAudioReader
+from nemo_curator.stages.audio.pipeline_utils import INDIC_CONFORMER_LANGUAGE_CODES
 from nemo_curator.stages.audio.text_filtering import (
     AbbreviationConcatStage,
     DisfluencyWerGuardStage,
@@ -111,6 +102,30 @@ from nemo_curator.stages.audio.text_filtering import (
 )
 from nemo_curator.stages.audio.text_filtering.select_best_prediction import SelectBestPredictionStage
 from nemo_curator.stages.resources import Resources
+
+QWEN_ASR_DEFAULT_MODEL_ID = "Qwen/Qwen3-ASR-0.6B"
+# Per-language AI4Bharat IndicConformer hybrid (CTC+RNNT) checkpoints. {lang} is filled from --language.
+INDIC_CONFORMER_HYBRID_DEFAULT_MODEL_ID = "ai4bharat/indicconformer_stt_{lang}_hybrid_ctc_rnnt_large"
+# faster-whisper alias; equivalent HF openai/whisper-large-v3 in Transformers format.
+WHISPER_DEFAULT_MODEL = "large-v3"
+PARAKEET_V3_DEFAULT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
+PARAKEET_RIVA_DEFAULT_MODEL_ID = (
+    "/lustre/fsw/portfolios/llmservice/users/ntadevosyan/projects/granary-v2-asr/"
+    "checkpoints/parakeet_1.1b_indic_multilingual_v1.0_epoch_37.nemo"
+)
+
+# Recommended language codes for each primary inference model (used for auto-selection via --language).
+QWEN_OMNI_RECOMMENDED_LANGS     = {"en", "de", "es", "fr", "it", "pt", "ru", "nl"}
+QWEN_ASR_RECOMMENDED_LANGS      = {"pl", "cs", "ro", "hu", "el", "fi", "da", "sv"}
+WHISPER_RECOMMENDED_LANGS       = {"lt", "lv", "hr", "et", "bg", "sk", "sl", "mt", "uk"}
+PARAKEET_RIVA_PRIMARY_LANGS     = frozenset({"hi", "ta", "bn"})  # languages covered by the local Riva Parakeet .nemo
+# Indic languages handled directly by a per-language IndicConformer hybrid monolingual
+# model (every Indic language except the hi/ta/bn covered by the Riva Parakeet primary).
+INDIC_HYBRID_PRIMARY_LANGS      = INDIC_CONFORMER_LANGUAGE_CODES - PARAKEET_RIVA_PRIMARY_LANGS
+
+# Default recovery model paired with each primary (when --recovery_model is not set):
+#   qwen_omni → qwen_asr;  qwen_asr → whisper;  whisper → parakeet_v3
+#   parakeet_riva (hi/ta/bn) → indic_hybrid (matching monolingual);  indic_hybrid → none
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -173,23 +188,26 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "ISO 639-1 language code for this pipeline invocation. "
             "Auto-selects --primary_model and --recovery_model when they are not set explicitly: "
+            f"{sorted(PARAKEET_RIVA_PRIMARY_LANGS)} → primary=parakeet_riva, recovery=indic_hybrid; "
+            f"{sorted(INDIC_HYBRID_PRIMARY_LANGS)} → primary=indic_hybrid, recovery=none; "
             f"{sorted(QWEN_OMNI_RECOMMENDED_LANGS)} → primary=qwen_omni, recovery=qwen_asr; "
             f"{sorted(QWEN_ASR_RECOMMENDED_LANGS)} → primary=qwen_asr, recovery=whisper; "
-            f"{sorted(WHISPER_RECOMMENDED_LANGS)} → primary=whisper, recovery=parakeet. "
-            f"Indic languages {sorted(INDIC_CONFORMER_RECOMMENDED_LANGS)} set recovery=indic_conformer "
-            "(unless --recovery_model is set explicitly)."
+            f"{sorted(WHISPER_RECOMMENDED_LANGS)} → primary=whisper, recovery=parakeet_v3."
         ),
     )
     primary.add_argument(
         "--primary_model",
         type=str,
-        choices=["qwen_omni", "qwen_asr", "whisper"],
+        choices=["qwen_omni", "qwen_asr", "whisper", "parakeet_riva", "indic_hybrid"],
         default=None,
         help=(
             "Primary ASR model placed after SED. "
             "qwen_omni: Qwen3-Omni vLLM (--model_id); "
             "qwen_asr: Qwen3-ASR (--asr_model_id); "
-            "whisper: Faster-Whisper Large V3 (--whisper_model_size_or_path). "
+            "whisper: Faster-Whisper Large V3 (--whisper_model_size_or_path); "
+            "parakeet_riva: local Indic Riva Parakeet .nemo (--parakeet_riva_model_id), used for hi/ta/bn; "
+            "indic_hybrid: AI4Bharat IndicConformer hybrid CTC+RNNT per-language .nemo (--indic_hybrid_model_id), "
+            "used for the other Indic languages. "
             "Set automatically by --language when omitted."
         ),
     )
@@ -256,19 +274,22 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "recovery ASR (secondary inference)",
         "Use --recovery_model to pick the fallback model explicitly, or let --language set it automatically. "
         "Default auto-pairing (when neither --recovery_model nor --language is given): "
-        "primary=qwen_omni → qwen_asr; primary=qwen_asr → whisper; primary=whisper → parakeet.",
+        "primary=qwen_omni → qwen_asr; primary=qwen_asr → whisper; primary=whisper → parakeet_v3; "
+        "primary=parakeet_riva → indic_hybrid; primary=indic_hybrid → none.",
     )
     asr.add_argument(
         "--recovery_model",
         type=str,
-        choices=["qwen_asr", "whisper", "parakeet", "indic_conformer"],
+        choices=["qwen_asr", "whisper", "parakeet_v3", "indic_hybrid", "none"],
         default=None,
         help=(
             "Recovery (fallback) ASR model. "
             "qwen_asr: Qwen3-ASR (--asr_model_id); "
             "whisper: Faster-Whisper Large V3 (--whisper_model_size_or_path); "
-            "parakeet: Parakeet-TDT v3 (--parakeet_model_id); "
-            "indic_conformer: AI4Bharat Indic Conformer (--indic_conformer_model_id). "
+            "parakeet_v3: Parakeet-TDT v3 (--parakeet_v3_model_id); "
+            "indic_hybrid: AI4Bharat IndicConformer hybrid per-language .nemo (--indic_hybrid_model_id), "
+            "fallback for the hi/ta/bn Parakeet primary; "
+            "none: skip recovery entirely. "
             "Auto-derived from --primary_model or --language when omitted."
         ),
     )
@@ -282,22 +303,22 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     asr.add_argument(
-        "--indic_conformer_model_id",
+        "--indic_hybrid_model_id",
         type=str,
-        default=INDIC_CONFORMER_DEFAULT_MODEL_ID,
+        default=INDIC_CONFORMER_HYBRID_DEFAULT_MODEL_ID,
         metavar="HF_REPO_OR_PATH",
         help=(
-            f"AI4Bharat Indic Conformer model ID (default: {INDIC_CONFORMER_DEFAULT_MODEL_ID}). "
-            "Used when --recovery_model indic_conformer. "
-            "The HF repo is gated — set HF_TOKEN in the environment."
+            f"AI4Bharat IndicConformer hybrid per-language .nemo (default: {INDIC_CONFORMER_HYBRID_DEFAULT_MODEL_ID}). "
+            "A literal '{lang}' is replaced by --language. Local .nemo path or gated HF repo (set HF_TOKEN). "
+            "Used when --primary_model/--recovery_model is indic_hybrid."
         ),
     )
     asr.add_argument(
-        "--indic_conformer_decode",
+        "--indic_hybrid_decode",
         type=str,
         default="rnnt",
         choices=["ctc", "rnnt"],
-        help="Decoding mode for Indic Conformer (model card).",
+        help="Decoding mode for the IndicConformer hybrid model (model card recommends rnnt).",
     )
     asr.add_argument(
         "--whisper_model_size_or_path",
@@ -323,13 +344,26 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="faster-whisper compute_type (e.g. float16, int8_float16, int8).",
     )
     asr.add_argument(
-        "--parakeet_model_id",
+        "--parakeet_v3_model_id",
         type=str,
-        default=PARAKEET_DEFAULT_MODEL_ID,
+        default=PARAKEET_V3_DEFAULT_MODEL_ID,
         metavar="HF_REPO_OR_PATH",
         help=(
-            f"NVIDIA Parakeet-TDT v3 model ID (default: {PARAKEET_DEFAULT_MODEL_ID}). "
-            "Used when --recovery_model parakeet."
+            f"NVIDIA Parakeet-TDT v3 model ID (default: {PARAKEET_V3_DEFAULT_MODEL_ID}). "
+            "Multilingual European model used as the recovery model for --recovery_model parakeet "
+            "(whisper-primary European languages)."
+        ),
+    )
+    asr.add_argument(
+        "--parakeet_riva_model_id",
+        type=str,
+        default=PARAKEET_RIVA_DEFAULT_MODEL_ID,
+        metavar="NEMO_OR_PATH",
+        help=(
+            f"Local Indic Riva Parakeet NeMo checkpoint (default: {PARAKEET_RIVA_DEFAULT_MODEL_ID}). "
+            "Not on HuggingFace — must be a reachable ``.nemo`` path on the compute nodes. "
+            "Indic hi/ta/bn model used as the primary for --primary_model parakeet. "
+            "Distinct model from --parakeet_v3_model_id."
         ),
     )
     asr.add_argument(
@@ -344,8 +378,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
     scaling = ap.add_argument_group("multi-node scaling")
     scaling.add_argument("--primary_num_workers", type=int, default=None,
-                         help="Fixed actor count for primary ASR stage (qwen_omni, qwen_asr, whisper). "
-                              "Default: autoscaler decides.")
+                         help="Fixed actor count for primary ASR stage. Default: autoscaler decides.")
     scaling.add_argument("--fallback_num_workers", type=int, default=None,
                          help="Fixed actor count for fallback/recovery ASR stage. Default: autoscaler decides.")
     return ap
@@ -360,28 +393,43 @@ def _resolve_language_flags(args: argparse.Namespace) -> None:
     if args.language is None:
         return
     lang = args.language.lower().strip()
-    all_known = QWEN_OMNI_RECOMMENDED_LANGS | QWEN_ASR_RECOMMENDED_LANGS | WHISPER_RECOMMENDED_LANGS
+    all_known = (
+        QWEN_OMNI_RECOMMENDED_LANGS
+        | QWEN_ASR_RECOMMENDED_LANGS
+        | WHISPER_RECOMMENDED_LANGS
+        | PARAKEET_RIVA_PRIMARY_LANGS
+        | INDIC_HYBRID_PRIMARY_LANGS
+    )
     if lang not in all_known:
         raise SystemExit(
             f"Unknown --language '{lang}'. Supported codes: {sorted(all_known)}. "
             "Or omit --language and set --primary_model / --recovery_model manually."
         )
     primary_was_explicit = args.primary_model is not None
+    recovery_was_explicit = args.recovery_model is not None
     if not primary_was_explicit:
-        if lang in QWEN_OMNI_RECOMMENDED_LANGS:
+        if lang in PARAKEET_RIVA_PRIMARY_LANGS:
+            args.primary_model = "parakeet_riva"
+        elif lang in INDIC_HYBRID_PRIMARY_LANGS:
+            args.primary_model = "indic_hybrid"
+        elif lang in QWEN_OMNI_RECOMMENDED_LANGS:
             args.primary_model = "qwen_omni"
         elif lang in QWEN_ASR_RECOMMENDED_LANGS:
             args.primary_model = "qwen_asr"
         else:
             args.primary_model = "whisper"
-    if args.recovery_model is None and lang in INDIC_CONFORMER_RECOMMENDED_LANGS:
-        args.recovery_model = "indic_conformer"
+    if not recovery_was_explicit:
+        if lang in PARAKEET_RIVA_PRIMARY_LANGS:
+            args.recovery_model = "indic_hybrid"
+        elif lang in INDIC_HYBRID_PRIMARY_LANGS:
+            args.recovery_model = "none"
     logger.info(
-        "Language '{}' → primary_model={} ({}), recovery_model={}",
+        "Language '{}' → primary_model={} ({}), recovery_model={} ({})",
         lang,
         args.primary_model,
         "explicit" if primary_was_explicit else "auto",
         args.recovery_model or "(auto from primary)",
+        "explicit" if recovery_was_explicit else "auto",
     )
 
 
@@ -413,18 +461,34 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             system_prompt = args.system_prompt
 
     # Auto-derive recovery_model from primary when not set by --recovery_model or --language.
-    _PRIMARY_TO_RECOVERY = {"qwen_omni": "qwen_asr", "qwen_asr": "whisper", "whisper": "parakeet"}
+    _PRIMARY_TO_RECOVERY = {
+        "qwen_omni": "qwen_asr",
+        "qwen_asr": "whisper",
+        "whisper": "parakeet_v3",
+        "parakeet_riva": "indic_hybrid",
+        "indic_hybrid": "none",
+    }
+
+    def _resolve_indic_hybrid_model_id() -> str:
+        mid = args.indic_hybrid_model_id
+        if "{lang}" in mid:
+            if not args.language:
+                raise SystemExit("--indic_hybrid_model_id uses '{lang}' but --language is not set.")
+            mid = mid.format(lang=args.language.lower().strip())
+        return mid
     if args.primary_model is None:
         raise SystemExit(
-            "Either --language <code> or --primary_model {qwen_omni,qwen_asr,whisper} is required."
+            "Either --language <code> or --primary_model "
+            "{qwen_omni,qwen_asr,whisper,parakeet_riva,indic_hybrid} is required."
         )
     if args.recovery_model is None:
         args.recovery_model = _PRIMARY_TO_RECOVERY[args.primary_model]
+    has_recovery = args.recovery_model != "none"
     if args.tensor_parallel_size is None:
         args.tensor_parallel_size = 2 if args.primary_model == "qwen_omni" else 1
     logger.info(
-        "primary_model={}, recovery_model={}, tensor_parallel_size={}",
-        args.primary_model, args.recovery_model, args.tensor_parallel_size,
+        "primary_model={}, recovery_model={}, has_recovery={}, tensor_parallel_size={}",
+        args.primary_model, args.recovery_model, has_recovery, args.tensor_parallel_size,
     )
 
     # Key that holds the primary model's transcription used by all downstream stages.
@@ -516,6 +580,31 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             num_workers_override=args.primary_num_workers,
         ))
 
+    elif args.primary_model == "parakeet_riva":
+        stages.append(InferenceParakeetStage(
+            name="ParakeetRiva_primary",
+            model_id=args.parakeet_riva_model_id,
+            supported_langs=PARAKEET_RIVA_PRIMARY_LANGS,
+            inference_batch_size=args.parakeet_inference_batch_size,
+            source_lang_key=args.source_lang_key,
+            pred_text_key="primary_model_prediction",
+            keep_waveform=True,
+            batch_size=args.asr_batch_size,
+            num_workers_override=args.primary_num_workers,
+        ))
+
+    elif args.primary_model == "indic_hybrid":
+        stages.append(InferenceIndicConformerHybridStage(
+            name="IndicConformerHybrid_primary",
+            model_id=_resolve_indic_hybrid_model_id(),
+            decode_mode=args.indic_hybrid_decode,
+            source_lang_key=args.source_lang_key,
+            pred_text_key="primary_model_prediction",
+            keep_waveform=True,
+            batch_size=args.asr_batch_size,
+            num_workers_override=args.primary_num_workers,
+        ))
+
     if args.primary_model == "qwen_omni" and followup_prompt:
         stages.append(DisfluencyWerGuardStage(
             ref_text_key="primary_model_prediction",
@@ -532,64 +621,65 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         long_word_rel_threshold=args.long_word_rel_threshold,
         max_char_rate=args.max_char_rate,
     ))
-    if args.recovery_model == "indic_conformer":
-        recovery_stage = InferenceIndicConformerStage(
-            name="IndicConformer_recovery",
-            model_id=args.indic_conformer_model_id,
-            decode_mode=args.indic_conformer_decode,
-            source_lang_key=args.source_lang_key,
-            pred_text_key="fallback_model_prediction",
-            batch_size=args.asr_batch_size,
-            num_workers_override=args.fallback_num_workers,
-        )
-    elif args.recovery_model == "qwen_asr":
-        recovery_stage = InferenceQwenASRStage(
-            name="QwenASR_recovery",
-            model_id=args.asr_model_id,
-            source_lang_key=args.source_lang_key,
-            pred_text_key="fallback_model_prediction",
-            batch_size=args.asr_batch_size,
-            gpu_memory_utilization=args.asr_gpu_memory_utilization,
-            max_new_tokens=args.asr_max_new_tokens,
-            max_inference_batch_size=args.asr_batch_size,
-            num_workers_override=args.fallback_num_workers,
-        )
-    elif args.recovery_model == "whisper":
-        recovery_stage = InferenceFasterWhisperStage(
-            name="Whisper_recovery",
-            model_size_or_path=args.whisper_model_size_or_path,
-            device=args.whisper_device,
-            compute_type=args.whisper_compute_type,
-            source_lang_key=args.source_lang_key,
-            pred_text_key="fallback_model_prediction",
-            batch_size=args.asr_batch_size,
-            num_workers_override=args.fallback_num_workers,
-        )
-    elif args.recovery_model == "parakeet":
-        recovery_stage = InferenceParakeetStage(
-            name="Parakeet_recovery",
-            model_id=args.parakeet_model_id,
-            inference_batch_size=args.parakeet_inference_batch_size,
-            source_lang_key=args.source_lang_key,
-            pred_text_key="fallback_model_prediction",
-            batch_size=args.asr_batch_size,
-            num_workers_override=args.fallback_num_workers,
-        )
+    if has_recovery:
+        if args.recovery_model == "indic_hybrid":
+            recovery_stage = InferenceIndicConformerHybridStage(
+                name="IndicConformerHybrid_recovery",
+                model_id=_resolve_indic_hybrid_model_id(),
+                decode_mode=args.indic_hybrid_decode,
+                source_lang_key=args.source_lang_key,
+                pred_text_key="fallback_model_prediction",
+                batch_size=args.asr_batch_size,
+                num_workers_override=args.fallback_num_workers,
+            )
+        elif args.recovery_model == "qwen_asr":
+            recovery_stage = InferenceQwenASRStage(
+                name="QwenASR_recovery",
+                model_id=args.asr_model_id,
+                source_lang_key=args.source_lang_key,
+                pred_text_key="fallback_model_prediction",
+                batch_size=args.asr_batch_size,
+                gpu_memory_utilization=args.asr_gpu_memory_utilization,
+                max_new_tokens=args.asr_max_new_tokens,
+                max_inference_batch_size=args.asr_batch_size,
+                num_workers_override=args.fallback_num_workers,
+            )
+        elif args.recovery_model == "whisper":
+            recovery_stage = InferenceFasterWhisperStage(
+                name="Whisper_recovery",
+                model_size_or_path=args.whisper_model_size_or_path,
+                device=args.whisper_device,
+                compute_type=args.whisper_compute_type,
+                source_lang_key=args.source_lang_key,
+                pred_text_key="fallback_model_prediction",
+                batch_size=args.asr_batch_size,
+                num_workers_override=args.fallback_num_workers,
+            )
+        elif args.recovery_model == "parakeet_v3":
+            recovery_stage = InferenceParakeetStage(
+                name="ParakeetV3_recovery",
+                model_id=args.parakeet_v3_model_id,
+                inference_batch_size=args.parakeet_inference_batch_size,
+                source_lang_key=args.source_lang_key,
+                pred_text_key="fallback_model_prediction",
+                batch_size=args.asr_batch_size,
+                num_workers_override=args.fallback_num_workers,
+            )
 
-    stages.extend([
-        recovery_stage,
-        WhisperHallucinationStage(
-            name="WhisperHallucination_asr",
-            common_hall_file=args.hall_phrases,
-            text_key="fallback_model_prediction",
-            overwrite=True,
-            recovery_value="Recovered:ASR",
-            unique_words_threshold=args.unique_words_threshold,
-            long_word_threshold=args.long_word_threshold,
-            long_word_rel_threshold=args.long_word_rel_threshold,
-            max_char_rate=args.max_char_rate,
-        ),
-    ])
+        stages.extend([
+            recovery_stage,
+            WhisperHallucinationStage(
+                name="WhisperHallucination_asr",
+                common_hall_file=args.hall_phrases,
+                text_key="fallback_model_prediction",
+                overwrite=True,
+                recovery_value="Recovered:ASR",
+                unique_words_threshold=args.unique_words_threshold,
+                long_word_threshold=args.long_word_threshold,
+                long_word_rel_threshold=args.long_word_rel_threshold,
+                max_char_rate=args.max_char_rate,
+            ),
+        ])
 
     stages.append(SelectBestPredictionStage(
         primary_text_key=primary_text_key,

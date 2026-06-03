@@ -41,7 +41,7 @@ PARAKEET_TDT_0_6B_V3_LANGS: frozenset[str] = frozenset({
 
 @dataclass
 class InferenceParakeetStage(ProcessingStage[AudioTask, AudioTask]):
-    """Audio transcription using NVIDIA Parakeet-TDT v3 (in-memory waveforms).
+    """Audio transcription using the HuggingFace Parakeet-TDT v3 checkpoint.
 
     Designed for single-language-group invocations where every sample belongs to
     the Parakeet language family (WHISPER_PRIMARY_LANGUAGE_CODES recovery group).
@@ -59,10 +59,15 @@ class InferenceParakeetStage(ProcessingStage[AudioTask, AudioTask]):
         keep_waveform: When True the waveform stays on the task so a downstream
             stage can re-use it.
         num_workers_override: Fixed Ray actor count. None = autoscaler decides.
+        supported_langs: ISO codes accepted for inference. Defaults to
+            ``PARAKEET_TDT_0_6B_V3_LANGS``. Set this explicitly (e.g. ``{"hi","ta","bn"}``)
+            when loading a local Indic Riva Parakeet ``.nemo`` via ``model_id``; the
+            underlying ``NemoASRModel`` loads both pretrained names and local ``.nemo`` files.
     """
 
     name: str = "Parakeet_inference"
     model_id: str = "nvidia/parakeet-tdt-0.6b-v3"
+    supported_langs: frozenset[str] | None = None
     inference_batch_size: int = 16
     waveform_key: str = "waveform"
     sample_rate_key: str = "sampling_rate"
@@ -152,10 +157,11 @@ class InferenceParakeetStage(ProcessingStage[AudioTask, AudioTask]):
             task.data.setdefault(self.pred_text_key, "")
             task.data.setdefault(self.language_key, "")
 
+        accepted_langs = self.supported_langs or PARAKEET_TDT_0_6B_V3_LANGS
         eligible_indices: list[int] = []
         for i, task in enumerate(tasks):
             lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
-            if lang not in PARAKEET_TDT_0_6B_V3_LANGS:
+            if lang not in accepted_langs:
                 set_note(task.data, self.name, f"skipped (unsupported language: {lang})", self.notes_key)
                 set_note(task.data, self.pred_text_key, f"lang_not_supported:{lang}", self.notes_key)
             else:
