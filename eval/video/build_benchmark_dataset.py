@@ -137,7 +137,7 @@ def _kmeans_select(
                 uid_to_meta[uid] = json.load(fh)
 
     logger.info(f"K-means K={num_clusters} ...")
-    kmeans = KMeans(n_clusters=num_clusters, random_state=seed, n_init=10, max_iter=300)
+    kmeans = KMeans(n_clusters=num_clusters, random_state=seed)
     labels = kmeans.fit_predict(emb_matrix)
     centers = kmeans.cluster_centers_
     cluster_sizes = np.bincount(labels, minlength=num_clusters)
