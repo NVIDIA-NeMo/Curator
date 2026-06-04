@@ -67,7 +67,7 @@ class RemoteContextualASRExtractionStage(ContextualASRExtractionStage):
 
     def __post_init__(self) -> None:
         # CPU-only: the GPUs belong to the server (see RemoteTextLLMStage).
-        self.resources = Resources(cpus=1.0)
+        self.resources = Resources(cpus=2.0)
 
     # ── Lifecycle ────────────────────────────────────────────────────
 

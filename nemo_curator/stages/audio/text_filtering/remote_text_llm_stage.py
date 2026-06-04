@@ -82,7 +82,7 @@ class RemoteTextLLMStage(TextLLMStage):
         # executor schedules these client actors OFF the GPUs the server
         # occupies (asking for a GPU here would deadlock waiting for one
         # the server never frees).
-        self.resources = Resources(cpus=1.0)
+        self.resources = Resources(cpus=2.0)
 
     # ── Lifecycle ────────────────────────────────────────────────────
 
