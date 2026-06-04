@@ -205,7 +205,12 @@ def run_entry(
         ray_cluster_data = get_ray_cluster_data()
         gpu_stats_before = get_gpu_stats()
         logger.info("\tGPU stats (before):")
-        log_gpu_stats(gpu_stats_before, warn_if_in_use=True)
+        warnings = log_gpu_stats(
+            gpu_stats_before,
+            warn_if_in_use=True,
+            warning_threshold=entry.gpu_mem_use_warning_threshold,
+            warning_threshold_msg="used before benchmark started",
+        )
         logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
         run_data = run_command_with_timeout(
@@ -217,7 +222,12 @@ def run_entry(
         )
         ended_exec = time.time()
         logger.info("\tGPU stats (after):")
-        log_gpu_stats(get_gpu_stats())
+        warnings += log_gpu_stats(
+            get_gpu_stats(),
+            warn_if_in_use=True,
+            warning_threshold=entry.gpu_mem_use_warning_threshold,
+            warning_threshold_msg="left in use after benchmark ended",
+        )
         duration = ended_exec - started_exec
 
         # Update result_data
@@ -231,6 +241,7 @@ def run_entry(
                 "logs_dir": logs_path,
                 "ray_cluster_data": ray_cluster_data,
                 "gpu_stats": gpu_stats_before,
+                "warnings": warnings,
             }
         )
         # script_persisted_data is a dictionary with keys "params" and "metrics"

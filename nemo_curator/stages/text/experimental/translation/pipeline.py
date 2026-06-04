@@ -59,6 +59,11 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
     client: AsyncLLMClient | None = None
     model_name: str = ""
     generation_config: GenerationConfig | None = None
+    translation_prompt_path: str | None = None
+    max_concurrent_requests: int = 64
+    health_check: bool = True
+    dry_run: bool = False
+    dry_run_log_count: int = 5
 
     backend_type: str = "llm"
     backend_config: dict = field(default_factory=dict)
@@ -67,6 +72,9 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
     faith_threshold: float = 2.5
     faith_model_name: str = ""
     filter_enabled: bool = True
+    faith_generation_config: GenerationConfig | None = None
+    faith_prompt_path: str | None = None
+    faith_max_concurrent_requests: int = 64
 
     output_mode: str = "replaced"
     merge_scores: bool = False
@@ -178,6 +186,11 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
                 backend_type=self.backend_type,
                 backend_config=self.backend_config,
                 generation_config=self.generation_config,
+                prompt_path=self.translation_prompt_path,
+                max_concurrent_requests=self.max_concurrent_requests,
+                health_check=self.health_check,
+                dry_run=self.dry_run,
+                dry_run_log_count=self.dry_run_log_count,
             )
         )
 
@@ -193,6 +206,9 @@ class TranslationStage(CompositeStage[DocumentBatch, DocumentBatch]):
                     translated_text_field="_translated",
                     threshold=self.faith_threshold,
                     filter_enabled=False,
+                    generation_config=self.faith_generation_config,
+                    prompt_path=self.faith_prompt_path,
+                    max_concurrent_requests=self.faith_max_concurrent_requests,
                 )
             )
 
