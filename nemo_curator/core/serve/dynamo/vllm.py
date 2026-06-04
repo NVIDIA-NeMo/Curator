@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from functools import reduce
 from pathlib import Path
@@ -117,6 +118,31 @@ def merge_model_runtime_envs(models: list[DynamoVLLMModelConfig]) -> dict[str, A
     envs = [m.runtime_env for m in models if m.runtime_env]
     user_merged = reduce(BaseModelConfig.merge_runtime_envs, envs) if envs else None
     return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, user_merged)
+
+
+def _async_scheduling_cli_flags(engine_kwargs: dict[str, Any]) -> list[str]:
+    """Translate ``VLLM_ASYNC_SCHEDULING`` into an explicit CLI flag for the worker.
+
+    vLLM V1 enables async scheduling by default; its ``step_with_batch_queue``
+    path can deadlock (SM-100% / mem-0% spin). ``engine_kwargs_to_cli_flags``
+    drops ``False`` booleans, so ``async_scheduling: False`` can't disable it —
+    only an explicit ``--no-async-scheduling`` does. Honor the same env var the
+    in-process ``TextLLMStage`` reads so the Dynamo path matches it.
+
+        0/false/no  -> --no-async-scheduling
+        1/true/yes  -> --async-scheduling
+        unset/empty -> nothing (keep vLLM default)
+
+    Skipped when the caller already set ``async_scheduling`` in ``engine_kwargs``.
+    """
+    if "async_scheduling" in engine_kwargs:
+        return []
+    val = os.environ.get("VLLM_ASYNC_SCHEDULING", "").strip().lower()
+    if val in ("0", "false", "no"):
+        return ["--no-async-scheduling"]
+    if val in ("1", "true", "yes"):
+        return ["--async-scheduling"]
+    return []
 
 
 def _worker_subprocess_env(base_env: dict[str, str], runtime_dir: str) -> dict[str, str]:
@@ -372,6 +398,7 @@ def _launch_vllm_worker(  # noqa: PLR0913
 
     python_args += engine_kwargs_to_cli_flags(model_config.engine_kwargs)
     python_args += engine_kwargs_to_cli_flags(model_config.dynamo_kwargs)
+    python_args += _async_scheduling_cli_flags(model_config.engine_kwargs)
 
     label = build_worker_actor_name(model_name, replica_index, node_rank, tp_size)
     return ManagedSubprocess.spawn(
@@ -535,6 +562,7 @@ def _launch_disagg_role(  # noqa: PLR0913
         ]
         python_args += engine_kwargs_to_cli_flags(engine_kwargs)
         python_args += engine_kwargs_to_cli_flags(model_config.dynamo_kwargs)
+        python_args += _async_scheduling_cli_flags(engine_kwargs)
 
         label = build_worker_actor_name(model_name, i, 0, tp_size, role=role)
         logger.info(f"Disagg {role} worker {i}: {spec.per_node_gpus} GPU(s), nixl_port={nixl_port}")

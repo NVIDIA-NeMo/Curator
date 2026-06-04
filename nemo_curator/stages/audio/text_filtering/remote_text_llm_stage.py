@@ -30,7 +30,8 @@ loads a tokenizer — the server applies the chat template.
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
+import contextlib
+import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -74,6 +75,7 @@ class RemoteTextLLMStage(TextLLMStage):
 
     _client: Any = field(default=None, init=False, repr=False)
     _gen_config: Any = field(default=None, init=False, repr=False)
+    _loop_runner: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         # Remote mode holds no in-process engine. Force CPU-only so the
@@ -91,6 +93,7 @@ class RemoteTextLLMStage(TextLLMStage):
             msg = "RemoteTextLLMStage requires inference_base_url"
             raise ValueError(msg)
 
+        from nemo_curator.models.client.async_runner import PersistentEventLoop
         from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 
         self._system_prompt = self._resolve_prompt()  # inherited
@@ -101,6 +104,12 @@ class RemoteTextLLMStage(TextLLMStage):
             timeout=self.request_timeout,
         )
         self._client.setup()
+        # One event loop for this actor's lifetime so the async client (and its
+        # connection pool) stays bound to a single, always-running loop. Driving
+        # it via a fresh asyncio.run() per batch can wedge on a primitive bound
+        # to a since-closed loop — a silent, timeout-immune hang.
+        self._loop_runner = PersistentEventLoop(name=self.name)
+        self._loop_runner.start()
         # temperature 0 with top_p 1 gives greedy decoding, matching the local
         # in-process path. The chat-template flag is forwarded to vLLM through
         # the OpenAI SDK extra_body so the server disables thinking exactly as
@@ -122,6 +131,12 @@ class RemoteTextLLMStage(TextLLMStage):
 
     def teardown(self) -> None:
         super().teardown()
+        if self._loop_runner is not None:
+            if self._client is not None:
+                with contextlib.suppress(Exception):
+                    self._loop_runner.run(self._client.client.close(), timeout=30)
+            self._loop_runner.close()
+            self._loop_runner = None
         self._client = None
 
     # ── Prompt / inference ───────────────────────────────────────────
@@ -144,6 +159,21 @@ class RemoteTextLLMStage(TextLLMStage):
             {"role": "user", "content": user_text},
         ]
 
+    def _batch_timeout(self, n_requests: int) -> float:
+        """Generous wall-clock cap for a whole batch, so a real hang surfaces.
+
+        Per request worst case is ``request_timeout * (max_retries + 1)``
+        (retries live in :class:`AsyncLLMClient`); the semaphore lets
+        ``max_concurrent_requests`` run at once, so the batch takes
+        ``ceil(n / max_concurrent_requests)`` waves. A fixed buffer covers retry
+        backoff and scheduling slack.
+        """
+        max_retries = getattr(self._client, "max_retries", 3)
+        per_request = self.request_timeout * (max_retries + 1)
+        concurrency = max(1, self.max_concurrent_requests)
+        waves = max(1, math.ceil(n_requests / concurrency))
+        return per_request * waves + 120
+
     def _generate_remote(self, messages_list: list[list[dict]]) -> list[str]:
         """Fan out one chat request per message list, preserving order."""
         model = self.served_model_name or self.model_id
@@ -159,15 +189,10 @@ class RemoteTextLLMStage(TextLLMStage):
         async def _all() -> list[str]:
             return await asyncio.gather(*[_one(m) for m in messages_list])
 
-        # Ray Data actors may already run inside an event loop; if so, run
-        # the coroutine on a separate thread (same approach as the
-        # synthetic stages).
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(_all())
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            return ex.submit(asyncio.run, _all()).result()
+        # Drive every batch on the actor's single persistent event loop (bound
+        # in setup()), with a wall-clock cap so a stuck request raises a loud
+        # TimeoutError instead of wedging the actor silently.
+        return self._loop_runner.run(_all(), timeout=self._batch_timeout(len(messages_list)))
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         if len(tasks) == 0:
