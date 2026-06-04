@@ -26,6 +26,7 @@ from nemo_curator.stages.interleaved.io.reader import InterleavedWebdatasetReade
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
     BaseInterleavedFilterStage,
+    BaseInterleavedScoreFilterStage,
     InterleavedAspectRatioFilterStage,
 )
 from nemo_curator.stages.interleaved.utils.materialization import (
@@ -1149,3 +1150,96 @@ def test_iter_materialized_bytes_missing_column_yields_none() -> None:
 
 def test_iter_materialized_bytes_non_bytes_value_yields_none() -> None:
     assert all(v is None for _, v in _materialized_bytes("not-bytes"))
+
+
+# --- iter_materialized_bytes is accessible from BaseInterleavedAnnotatorStage ---
+
+
+def test_iter_materialized_bytes_accessible_from_score_filter_stage(tmp_path: Path) -> None:
+    """BaseInterleavedScoreFilterStage inherits iter_materialized_bytes from
+    BaseInterleavedAnnotatorStage after the method was promoted to the base class.
+    """
+    img_bytes = b"score-stage-bytes"
+    img_path = tmp_path / "img.jpg"
+    img_path.write_bytes(img_bytes)
+
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": InterleavedBatch.build_source_ref(path=str(img_path), member=None),
+            "materialize_error": None,
+        },
+    ]
+    task = InterleavedBatch(
+        task_id="score_stage_test",
+        dataset_name="d",
+        data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
+    )
+    df = task.to_pandas().copy()
+
+    class _ScoreStage(BaseInterleavedScoreFilterStage):
+        name: str = "score_stage"
+
+        def annotation_columns(self, task: InterleavedBatch, df: pd.DataFrame) -> dict[str, pd.Series]:
+            image_mask = df["modality"] == "image"
+            scores: pd.Series = pd.Series(float("nan"), index=df.index, dtype=float)
+            for idx, raw in self.iter_materialized_bytes(task, df, image_mask):
+                scores.loc[idx] = float(len(raw)) if raw is not None else float("nan")
+            return {"byte_len": scores}
+
+    stage = _ScoreStage()
+    mask = df["modality"] == "image"
+    yielded = list(stage.iter_materialized_bytes(task, df, mask))
+    assert len(yielded) == 1
+    assert yielded[0][1] == img_bytes
+
+
+def test_iter_materialized_bytes_accessible_from_annotator_stage(tmp_path: Path) -> None:
+    """A plain BaseInterleavedAnnotatorStage subclass can call iter_materialized_bytes
+    directly, confirming it lives on the base class.
+    """
+    img_bytes = b"annotator-base-bytes"
+    img_path = tmp_path / "img2.jpg"
+    img_path.write_bytes(img_bytes)
+
+    rows = [
+        {
+            "sample_id": "s1",
+            "position": 0,
+            "modality": "image",
+            "content_type": "image/jpeg",
+            "text_content": None,
+            "binary_content": None,
+            "source_ref": InterleavedBatch.build_source_ref(path=str(img_path), member=None),
+            "materialize_error": None,
+        },
+    ]
+    task = InterleavedBatch(
+        task_id="annotator_base_test",
+        dataset_name="d",
+        data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
+    )
+    df = task.to_pandas().copy()
+
+    class _AnnotatorUsingBytes(BaseInterleavedAnnotatorStage):
+        name: str = "annotator_using_bytes"
+
+        def annotate(self, task: InterleavedBatch, df: pd.DataFrame) -> pd.DataFrame:
+            out = df.copy()
+            image_mask = df["modality"] == "image"
+            byte_lens: pd.Series = pd.Series(float("nan"), index=df.index, dtype=float)
+            for idx, raw in self.iter_materialized_bytes(task, df, image_mask):
+                byte_lens.loc[idx] = float(len(raw)) if raw is not None else float("nan")
+            out["byte_len"] = byte_lens
+            return out
+
+    stage = _AnnotatorUsingBytes()
+    mask = df["modality"] == "image"
+    yielded = list(stage.iter_materialized_bytes(task, df, mask))
+    assert len(yielded) == 1
+    assert yielded[0][1] == img_bytes

@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from nemo_curator.stages.interleaved.filter.annotation_threshold_filter import (
+    InterleavedAnnotationThresholdFilterStage,
+)
 from nemo_curator.stages.interleaved.filter.blur_filter import InterleavedBlurFilterStage
 from nemo_curator.stages.interleaved.filter.clip_score_filter import InterleavedCLIPScoreFilterStage
 from nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter import (
@@ -20,6 +23,7 @@ from nemo_curator.stages.interleaved.filter.image_to_text_ratio_filter import (
 from nemo_curator.stages.interleaved.filter.qrcode_filter import InterleavedQRCodeFilterStage
 
 __all__ = [
+    "InterleavedAnnotationThresholdFilterStage",
     "InterleavedBlurFilterStage",
     "InterleavedCLIPScoreFilterStage",
     "InterleavedImageToTextRatioFilterStage",

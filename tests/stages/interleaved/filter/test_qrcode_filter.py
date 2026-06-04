@@ -106,7 +106,7 @@ def test_qrcode_filter_text_only_passthrough() -> None:
     assert len(out_frame) == 1
 
 
-@patch("nemo_curator.stages.interleaved.filter.qrcode_filter.image_bytes_to_array")
+@patch("nemo_curator.stages.interleaved.stages.image_bytes_to_array")
 def test_qrcode_filter_image_decode_error_drops_row(mock_to_array: MagicMock) -> None:
     mock_to_array.return_value = None
     rows = [

@@ -21,7 +21,6 @@ import pandas as pd
 
 from nemo_curator.models.clip import CLIPImageEmbeddings
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
-from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 from nemo_curator.stages.resources import Resources
 
 if TYPE_CHECKING:
@@ -41,22 +40,6 @@ def _sample_texts_list_from_df(df: pd.DataFrame, sample_id: str) -> list[str]:
     if subset.empty:
         return []
     return [s.strip() for s in subset["text_content"].dropna().astype(str).tolist() if s.strip()]
-
-
-def _indices_and_decoded_images_from_rows(
-    rows: list[tuple[int, bytes]], keep_mask: pd.Series
-) -> tuple[list[int], list[np.ndarray]]:
-    """Decode image bytes per row; clear keep_mask entries where decode fails."""
-    indices: list[int] = []
-    images: list[np.ndarray] = []
-    for idx, b in rows:
-        arr = image_bytes_to_array(b, row_index=idx)
-        if arr is None:
-            keep_mask.loc[idx] = False
-            continue
-        indices.append(idx)
-        images.append(arr)
-    return indices, images
 
 
 @dataclass
@@ -90,13 +73,13 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
         if not image_mask.any():
             return keep_mask
 
-        sample_id_to_rows: dict[str, list[tuple[int, bytes]]] = {}
-        for idx, image_bytes in self.iter_materialized_bytes(task=task, df=df, row_mask=image_mask):
-            if image_bytes is None:
+        sample_id_to_rows: dict[str, list[tuple[int, np.ndarray]]] = {}
+        for idx, image in self.iter_decoded_images(task=task, df=df, row_mask=image_mask):
+            if image is None:
                 keep_mask.loc[idx] = False
                 continue
             sample_id = df.loc[idx, "sample_id"]
-            sample_id_to_rows.setdefault(sample_id, []).append((idx, image_bytes))
+            sample_id_to_rows.setdefault(sample_id, []).append((idx, image))
 
         for sample_id, rows in sample_id_to_rows.items():
             texts = _sample_texts_list_from_df(df, sample_id)
@@ -104,9 +87,8 @@ class InterleavedCLIPScoreFilterStage(BaseInterleavedFilterStage):
                 for idx, _ in rows:
                     keep_mask.loc[idx] = False
                 continue
-            indices, images = _indices_and_decoded_images_from_rows(rows, keep_mask)
-            if not images:
-                continue
+            indices = [idx for idx, _ in rows]
+            images = [img for _, img in rows]
             img_emb = self._model(images)
             text_emb = self._model.encode_text(texts)
             scores = img_emb @ text_emb.T
