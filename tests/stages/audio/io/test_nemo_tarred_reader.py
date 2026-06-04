@@ -58,6 +58,38 @@ def test_reader_manifest_lookup_accepts_common_path_variants(tmp_path) -> None:
     assert lookup["audio_0.wav"]["duration"] == 1.0
 
 
+def test_read_manifest_skips_lines_missing_filepath_key(tmp_path) -> None:
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        '{"audio_filepath": "a.wav", "duration": 1.0}\n'
+        '{"duration": 2.0}\n'
+        '{"audio_filepath": "c.wav", "duration": 3.0}\n',
+        encoding="utf-8",
+    )
+    stage = NemoTarShardReaderStage()
+
+    lookup, entry_count = stage._read_manifest(str(manifest))
+
+    assert entry_count == 3
+    assert lookup["a.wav"]["duration"] == 1.0
+    assert lookup["c.wav"]["duration"] == 3.0
+
+
+def test_read_manifest_skips_invalid_json_lines(tmp_path) -> None:
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        '{"audio_filepath": "ok.wav", "duration": 1.0}\n'
+        "not json\n",
+        encoding="utf-8",
+    )
+    stage = NemoTarShardReaderStage()
+
+    lookup, entry_count = stage._read_manifest(str(manifest))
+
+    assert entry_count == 2
+    assert lookup["ok.wav"]["duration"] == 1.0
+
+
 def test_reader_skips_tar_members_when_extractfile_returns_none(tmp_path, monkeypatch) -> None:
     """Non-regular tar members (hard links, sparse/unknown types) can slip past
     tar_info.isfile() and produce None from extractfile(); the stage must skip

@@ -193,11 +193,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         resources / batch_size: Standard Curator stage knobs.
     """
 
-    name: str = "ASR_inference"
-
     # ---- Tier 1: swap surface ----
-    adapter_target: str = ""
-    model_id: str = ""
+    adapter_target: str
+    model_id: str
+    name: str = "ASR_inference"
     revision: str | None = None
 
     # ---- Tier 1: universal stage knobs ----
@@ -229,12 +228,6 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     batch_size: int = 32
 
     def __post_init__(self) -> None:
-        if not self.adapter_target:
-            msg = (
-                "ASRStage.adapter_target is required - set it in YAML to a fully-qualified "
-                "adapter class path (e.g. 'nemo_curator.adapters.asr.QwenOmniASRAdapter')."
-            )
-            raise ValueError(msg)
         if self.ideal_inference_segment_s <= 0:
             msg = f"ASRStage.ideal_inference_segment_s must be > 0 s, got {self.ideal_inference_segment_s}"
             raise ValueError(msg)
@@ -258,9 +251,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         self._adapter: ASRAdapter | None = None
 
     # ------------------------------------------------------------------
-    # Adapter lifecycle - thin wrappers around the doc-prescribed shape:
-    #   cls = hydra.utils.get_class(self.adapter_target)
-    #   self._adapter = cls(model_id=..., revision=..., **self.adapter_kwargs)
+    # Adapter lifecycle
     # ------------------------------------------------------------------
 
     def _adapter_class(self) -> type:

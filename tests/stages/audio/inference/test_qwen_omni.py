@@ -15,11 +15,11 @@
 """Tests for the generic ``ASRStage`` driven by ``QwenOmniASRAdapter``.
 
 Covers:
-    * the SDP-V2 §6 (a) Tier-1 / Tier-2 stage<->adapter contract;
-    * the §6 (b) stage-side pre-slice + stitch-back;
-    * the §6 (c) ``keep_waveform: True`` SDP-V2 default;
-    * the §6 (d) adapter-knob elevation (vLLM prefix-cache / seed / etc.);
-    * the §0.3 best-effort within-call duration-bucketed batching.
+    * the SDP-V2 ?6 (a) Tier-1 / Tier-2 stage<->adapter contract;
+    * the ?6 (b) stage-side pre-slice + stitch-back;
+    * the ?6 (c) ``keep_waveform: True`` SDP-V2 default;
+    * the ?6 (d) adapter-knob elevation (vLLM prefix-cache / seed / etc.);
+    * the ?0.3 best-effort within-call duration-bucketed batching.
 """
 
 from types import SimpleNamespace
@@ -28,7 +28,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from nemo_curator.adapters.asr.base import ASRResult
+from nemo_curator.adapters.asr.base import ASRAdapter, ASRResult
 from nemo_curator.adapters.asr.qwen_omni import QwenOmniASRAdapter
 from nemo_curator.stages.audio.batch_policy import BatchPolicy
 from nemo_curator.stages.audio.inference.asr import ASRStage
@@ -102,8 +102,8 @@ def test_basic_inference_single_turn() -> None:
 
 
 def test_keep_waveform_default_is_true() -> None:
-    """SDP-V2 §6 (c): the stage-level default is now keep_waveform=True so
-    downstream §7 / §8 / §14 stages can reuse the in-memory waveform."""
+    """SDP-V2 ?6 (c): the stage-level default is now keep_waveform=True so
+    downstream ?7 / ?8 / ?14 stages can reuse the in-memory waveform."""
     stage = _make_stage()  # no keep_waveform override
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello world")]
 
@@ -168,7 +168,7 @@ def test_adapter_result_length_mismatch_raises() -> None:
 
 
 # ----------------------------------------------------------------------
-# SDP-V2 §6 (b): stage-side pre-slice + stitch-back
+# SDP-V2 ?6 (b): stage-side pre-slice + stitch-back
 # ----------------------------------------------------------------------
 
 
@@ -293,7 +293,7 @@ def test_pre_slice_metrics_count_parents_not_chunks() -> None:
 
 
 # ----------------------------------------------------------------------
-# SDP-V2 §0.3: best-effort within-call duration-bucketed batching
+# SDP-V2 ?0.3: best-effort within-call duration-bucketed batching
 # ----------------------------------------------------------------------
 
 
@@ -308,8 +308,8 @@ def test_batch_policy_partitions_items_by_bucket() -> None:
         flush_interval_ms=250,
     )
     stage = _make_stage(batch_policy=policy)
-    # Three tasks: 5 s, 10 s, 600 s. Bucket 1 (≤ 30 s) gets [5s, 10s];
-    # bucket 2 (≤ 1200 s) gets [600 s]. Two adapter calls expected.
+    # Three tasks: 5 s, 10 s, 600 s. Bucket 1 (��� 30 s) gets [5s, 10s];
+    # bucket 2 (��� 1200 s) gets [600 s]. Two adapter calls expected.
     short_a = AudioTask(data={"waveform": np.zeros(_SR * 5, dtype=np.float32), "sample_rate": _SR})
     short_b = AudioTask(data={"waveform": np.zeros(_SR * 10, dtype=np.float32), "sample_rate": _SR})
     long_a = AudioTask(data={"waveform": np.zeros(_SR * 600, dtype=np.float32), "sample_rate": _SR})
@@ -370,7 +370,7 @@ def test_batch_policy_respects_audio_sec_cap() -> None:
 
 
 def test_batch_policy_none_runs_single_adapter_call() -> None:
-    """Default (no policy) keeps the pre-§0.3 single-adapter-call shape."""
+    """Default (no policy) keeps the pre-?0.3 single-adapter-call shape."""
     stage = _make_stage(batch_policy=None)
     stage._adapter.transcribe_batch.return_value = [
         ASRResult(text="a"), ASRResult(text="b"),
@@ -547,12 +547,17 @@ def test_setup_on_node_can_warn_and_retry_later(mock_download: MagicMock) -> Non
 
 
 def test_adapter_target_required() -> None:
-    with pytest.raises(ValueError, match="adapter_target is required"):
+    with pytest.raises(TypeError):
         ASRStage(model_id="mock/model")
 
 
+def test_model_id_required() -> None:
+    with pytest.raises(TypeError):
+        ASRStage(adapter_target=_QWEN_ADAPTER_TARGET)
+
+
 def test_max_inference_duration_must_not_exceed_ideal() -> None:
-    with pytest.raises(ValueError, match="must be ≤ ideal_inference_segment_s"):
+    with pytest.raises(ValueError, match=r"must be .* ideal_inference_segment_s"):
         ASRStage(
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
@@ -594,6 +599,24 @@ def test_setup_uses_adapter_target_and_kwargs() -> None:
     )
     fake_adapter.setup.assert_called_once_with()
     assert stage._adapter is fake_adapter
+
+
+# ----------------------------------------------------------------------
+# Adapter-level: protocol conformance (requires @runtime_checkable)
+# ----------------------------------------------------------------------
+
+
+def test_qwen_adapter_conforms_to_asr_protocol() -> None:
+    """Smoke-check that QwenOmniASRAdapter satisfies the structural ASRAdapter contract.
+
+    ``isinstance(..., ASRAdapter)`` only works because ``ASRAdapter`` is
+    decorated with ``@runtime_checkable``; without it Python raises
+    ``TypeError`` and we cannot write this (or future adapter-family)
+    conformance tests. Mirrors ``test_conforms_to_protocol`` on the
+    diarization / VAD / alignment adapter tests on main.
+    """
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
+    assert isinstance(adapter, ASRAdapter)
 
 
 # ----------------------------------------------------------------------
@@ -647,12 +670,12 @@ def test_qwen_adapter_single_turn_drops_secondary_text() -> None:
 
 
 # ----------------------------------------------------------------------
-# Adapter-level: SDP-V2 §6 (d) - elevated vLLM knobs
+# Adapter-level: SDP-V2 ?6 (d) - elevated vLLM knobs
 # ----------------------------------------------------------------------
 
 
 def test_qwen_adapter_has_elevated_vllm_knobs_as_dataclass_fields() -> None:
-    """SDP-V2 §6 (d): enable_prefix_caching / prefix_caching_hash_algo /
+    """SDP-V2 ?6 (d): enable_prefix_caching / prefix_caching_hash_algo /
     limit_mm_per_prompt_audio / seed must be settable from YAML
     adapter_kwargs (so they're dataclass fields, not hardcoded constants).
     """
@@ -670,7 +693,7 @@ def test_qwen_adapter_has_elevated_vllm_knobs_as_dataclass_fields() -> None:
 
 
 def test_qwen_adapter_vllm_knob_defaults_match_doc() -> None:
-    """Defaults must match the SDP-V2 §6 design-doc values so an YAML
+    """Defaults must match the SDP-V2 ?6 design-doc values so an YAML
     with no overrides reproduces the pre-elevation behaviour."""
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
     assert adapter.enable_prefix_caching is True
@@ -709,3 +732,28 @@ def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
     assert kwargs["prefix_caching_hash_algo"] == "sha256"
     assert kwargs["limit_mm_per_prompt"] == {"image": 1, "video": 1, "audio": 3}
     assert kwargs["seed"] == 42
+    assert "revision" not in kwargs
+
+
+def test_qwen_adapter_setup_forwards_revision_to_llm_and_processor() -> None:
+    """Tier-1 revision must reach inference loaders, not only prefetch_weights."""
+    adapter = QwenOmniASRAdapter(
+        model_id="mock/qwen-omni",
+        revision="abc123",
+        tensor_parallel_size=1,
+    )
+    fake_llm = MagicMock()
+    fake_processor = MagicMock()
+    with (
+        patch("nemo_curator.adapters.asr.qwen_omni.VLLM_AVAILABLE", new=True),
+        patch("nemo_curator.adapters.asr.qwen_omni.LLM", return_value=fake_llm) as LLM_ctor,
+        patch(
+            "nemo_curator.adapters.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
+            return_value=fake_processor,
+        ) as proc_ctor,
+        patch("nemo_curator.adapters.asr.qwen_omni.SamplingParams"),
+    ):
+        adapter.setup()
+
+    assert LLM_ctor.call_args.kwargs["revision"] == "abc123"
+    proc_ctor.assert_called_once_with("mock/qwen-omni", revision="abc123")

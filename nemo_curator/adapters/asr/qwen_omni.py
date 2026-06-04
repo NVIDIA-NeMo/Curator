@@ -39,14 +39,22 @@ from typing import TYPE_CHECKING, Any
 import torch
 from huggingface_hub import snapshot_download
 from loguru import logger
-from qwen_omni_utils import process_mm_info
-from transformers import Qwen3OmniMoeProcessor
 
 from nemo_curator.adapters.asr.base import ASRResult
 from nemo_curator.utils.gpu_utils import get_gpu_count
 
 if TYPE_CHECKING:
     import numpy as np
+
+try:
+    from qwen_omni_utils import process_mm_info
+except ImportError:
+    process_mm_info = None  # type: ignore[assignment,misc]
+
+try:
+    from transformers import Qwen3OmniMoeProcessor
+except ImportError:
+    Qwen3OmniMoeProcessor = None  # type: ignore[assignment,misc]
 
 try:
     from vllm import LLM, SamplingParams
@@ -60,6 +68,23 @@ except ImportError:
 
     class SamplingParams:  # type: ignore[no-redef]
         pass
+
+
+def _require_audio_cuda12_stack(*, context: str) -> None:
+    """Raise a single ImportError listing missing audio_cuda12-only deps."""
+    missing: list[str] = []
+    if not VLLM_AVAILABLE:
+        missing.append("vllm")
+    if process_mm_info is None:
+        missing.append("qwen-omni-utils")
+    if Qwen3OmniMoeProcessor is None:
+        missing.append("transformers (Qwen3OmniMoeProcessor)")
+    if missing:
+        msg = (
+            f"QwenOmniASRAdapter {context} requires the audio_cuda12 extra. "
+            f"Missing: {', '.join(missing)}. Install with: uv sync --extra audio_cuda12"
+        )
+        raise ImportError(msg)
 
 
 _QWEN3_OMNI_MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
@@ -199,9 +224,7 @@ class QwenOmniASRAdapter:
     def setup(self) -> None:
         if self._llm is not None:
             return
-        if not VLLM_AVAILABLE:
-            msg = "vLLM is required for QwenOmniASRAdapter. Install it: pip install vllm"
-            raise ImportError(msg)
+        _require_audio_cuda12_stack(context="setup()")
 
         setup_t0 = time.perf_counter()
         tp_size = self.tensor_parallel_size or get_gpu_count()
@@ -209,8 +232,12 @@ class QwenOmniASRAdapter:
         logger.info(
             f"Loading QwenOmni model={self.model_id}  tp={tp_size}  "
             f"max_model_len={self.max_model_len}  max_num_seqs={self.max_num_seqs}"
+            + (f"  revision={self.revision}" if self.revision is not None else "")
         )
 
+        llm_kwargs: dict[str, Any] = {}
+        if self.revision is not None:
+            llm_kwargs["revision"] = self.revision
         self._llm = LLM(
             model=self.model_id,
             trust_remote_code=True,
@@ -222,9 +249,13 @@ class QwenOmniASRAdapter:
             seed=int(self.seed),
             enable_prefix_caching=bool(self.enable_prefix_caching),
             prefix_caching_hash_algo=str(self.prefix_caching_hash_algo),
+            **llm_kwargs,
         )
 
-        self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id)
+        proc_kwargs: dict[str, Any] = {}
+        if self.revision is not None:
+            proc_kwargs["revision"] = self.revision
+        self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id, **proc_kwargs)
 
         self._sampling_params = SamplingParams(
             temperature=self.temperature,

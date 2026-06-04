@@ -142,7 +142,8 @@ audio_cuda12 = [
     "qwen-asr>=0.0.6,<0.1",
     # Granary v2 LID stage uses fasttext directly; it also lives in text_cpu but
     # audio_cuda12 does not pull text_cpu, so declare it explicitly here.
-    "fasttext>=0.9.3,<0.10",
+    # Upstream facebookresearch/fastText is archived (2024); no version pin needed.
+    "fasttext",
     "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 

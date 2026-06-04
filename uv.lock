@@ -5791,7 +5791,7 @@ requires-dist = [
     { name = "data-designer", marker = "extra == 'sdg-cpu'", specifier = "==0.5.5" },
     { name = "easydict", marker = "extra == 'video-cpu'" },
     { name = "einops", marker = "extra == 'video-cpu'" },
-    { name = "fasttext", marker = "extra == 'audio-cuda12'", specifier = ">=0.9.3,<0.10" },
+    { name = "fasttext", marker = "extra == 'audio-cuda12'" },
     { name = "fasttext", marker = "extra == 'text-cpu'", specifier = "==0.9.3" },
     { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "<=2.8.3" },
     { name = "fsspec" },

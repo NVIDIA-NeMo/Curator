@@ -296,6 +296,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         entries: dict[str, dict] = {}
         duplicate_keys: set[str] = set()
         entry_count = 0
+        skipped_lines = 0
         with _open_text_stream(path) as f:
             for raw_line in f:
                 if isinstance(raw_line, bytes):
@@ -303,13 +304,34 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 stripped = raw_line.strip()
                 if stripped:
                     entry_count += 1
-                    entry = json.loads(stripped)
-                    audio_path = str(entry[self.filepath_key])
+                    try:
+                        entry = json.loads(stripped)
+                    except json.JSONDecodeError:
+                        skipped_lines += 1
+                        logger.warning("Skipping invalid JSON line in manifest {}", path)
+                        continue
+                    audio_path = entry.get(self.filepath_key)
+                    if audio_path is None:
+                        skipped_lines += 1
+                        logger.warning(
+                            "Skipping manifest line missing {!r} in {}",
+                            self.filepath_key,
+                            path,
+                        )
+                        continue
+                    audio_path = str(audio_path)
                     for lookup_key in self._manifest_lookup_keys(audio_path):
                         if lookup_key in entries and entries[lookup_key] != entry:
                             duplicate_keys.add(lookup_key)
                         else:
                             entries[lookup_key] = entry
+        if skipped_lines:
+            logger.warning(
+                "Manifest {}: skipped {} line(s) (invalid JSON or missing {})",
+                path,
+                skipped_lines,
+                self.filepath_key,
+            )
         for lookup_key in duplicate_keys:
             entries.pop(lookup_key, None)
         return entries, entry_count

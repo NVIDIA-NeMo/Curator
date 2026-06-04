@@ -14,17 +14,30 @@
 
 """ASR adapter family for the SDP-V2 stage-adapter split.
 
-Public surface (the only symbols the stage imports):
+Public surface for stages and type checkers:
 
-* :class:`ASRAdapter` - structural protocol every ASR adapter implements.
-* :class:`ASRResult` - canonical per-utterance result dataclass.
+* :class:`ASRAdapter`, :class:`ASRResult` from ``base`` (always importable).
 
-Concrete adapters live in their own modules (e.g. ``qwen_omni.py``) and are
-resolved at runtime by their fully-qualified class path in YAML's
-``adapter_target`` field.
+Concrete adapters (e.g. :class:`QwenOmniASRAdapter`) live in submodules and
+are normally resolved via YAML ``adapter_target`` + ``hydra.utils.get_class``.
+They are also available from this package via lazy attribute access (PEP 562),
+matching ``nemo_curator.stages.text.classifiers``.
 """
 
 from nemo_curator.adapters.asr.base import ASRAdapter, ASRResult
-from nemo_curator.adapters.asr.qwen_omni import QwenOmniASRAdapter
 
-__all__ = ["ASRAdapter", "ASRResult", "QwenOmniASRAdapter"]
+_LAZY: dict[str, str] = {
+    "QwenOmniASRAdapter": ".qwen_omni",
+}
+
+__all__ = ["ASRAdapter", "ASRResult", *list(_LAZY)]
+
+
+def __getattr__(name: str) -> object:
+    if name in _LAZY:
+        import importlib
+
+        mod = importlib.import_module(_LAZY[name], package=__name__)
+        return getattr(mod, name)
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
