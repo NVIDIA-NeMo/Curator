@@ -206,6 +206,65 @@ class TestMinHashStage:
             else cudf.core.dtypes.ListDtype("uint32")
         )
 
+    @pytest.mark.parametrize("sample_files", ["jsonl", "parquet"], indirect=True)
+    @pytest.mark.usefixtures("ray_client_with_id_generator")
+    def test_minhash_process_batch_combines_tasks(
+        self, sample_files: tuple[list[str], str], tmp_path: Path
+    ) -> None:
+        """Test that process_batch combines multiple FileGroupTasks into one minhash output."""
+        files, read_format = sample_files
+        tasks = [
+            FileGroupTask(
+                task_id=f"batch_task_{idx}",
+                dataset_name="test_dataset",
+                data=[file],
+                _metadata={"batch_id": idx, "format": read_format},
+            )
+            for idx, file in enumerate(files)
+        ]
+
+        stage = MinHashStage(
+            output_path=str(tmp_path / f"output_batch_{read_format}"),
+            text_field="text",
+            minhash_field="_minhash_signature",
+            char_ngrams=3,
+            num_hashes=64,
+            seed=42,
+            read_format=read_format,
+            pool=False,
+            batch_size=2,
+        )
+
+        assert stage.batch_size == 2
+        assert stage.supports_batch_processing()
+
+        stage.setup()
+        output_tasks = stage.process_batch(tasks)
+
+        assert len(output_tasks) == 1
+        output_task = output_tasks[0]
+        assert output_task.task_id == tasks[0].task_id
+        assert output_task.dataset_name == "test_dataset_minhash"
+        assert output_task._metadata["minhash_field"] == "_minhash_signature"
+        assert output_task._metadata["num_hashes"] == 64
+
+        result_df = cudf.read_parquet(output_task.data[0])
+        assert len(result_df) == 9
+
+        minhashes = result_df["_minhash_signature"].to_pandas().tolist()
+        assert minhashes[3] == minhashes[4], "Intra-file duplicates should have identical minhashes"
+        assert minhashes[0] == minhashes[5], "Cross-file duplicates should have identical minhashes"
+
+    def test_invalid_batch_size(self, tmp_path: Path) -> None:
+        """Test that batch_size must be positive."""
+        with pytest.raises(ValueError, match="batch_size must be at least 1"):
+            MinHashStage(output_path=str(tmp_path / "output"), batch_size=0)
+
+    def test_process_batch_empty(self, tmp_path: Path) -> None:
+        """Test that an empty task batch returns no outputs."""
+        stage = MinHashStage(output_path=str(tmp_path / "output"), pool=False, batch_size=2)
+        assert stage.process_batch([]) == []
+
     @pytest.mark.usefixtures("ray_client_with_id_generator")
     def test_error_handling_missing_column(self, tmp_path: Path) -> None:
         """Test error handling when text column is missing."""
