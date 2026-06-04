@@ -287,7 +287,7 @@ entries:
       --input-filetype=parquet
       --text-field=raw_content
       --input-blocksize=3GiB
-    timeout_s: 1500  # observed shuffler ~410s on EOS H100 on real data; +headroom for setup + post-shuffle stages. 500s was sufficient on a faster system — revisit if EOS becomes a bottleneck
+    timeout_s: 1500
     sink_data:
       - name: slack
         additional_metrics:
@@ -383,7 +383,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1800  # observed wall ~1419s on EOS with real fuzzy_id_generator data (92% complete at the prior 1100s ceiling); +headroom for variance
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
@@ -412,7 +412,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1800  # observed wall ~1523s on EOS with real fuzzy_id_generator data (passed at the prior 1500s ceiling with no margin); +headroom for variance
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
@@ -1033,7 +1033,7 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
-    timeout_s: 1200  # warm-run wall ~700s observed; headroom added for cold vLLM model load (cf. ndd_dynamo_dp4: 2700)
+    timeout_s: 1200
     ray:
       num_cpus: 16
     sink_data:
