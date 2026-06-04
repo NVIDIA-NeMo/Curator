@@ -543,9 +543,6 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
     def decompose(self) -> list[ProcessingStage]:
         # Set default file extensions based on input_filetype if not provided
         file_extensions = self.input_file_extensions or get_default_file_extensions(self.input_filetype)
-        if not file_extensions:
-            msg = f"Unsupported filetype: {self.input_filetype}"
-            raise ValueError(msg)
 
         return [
             FilePartitioningStage(
