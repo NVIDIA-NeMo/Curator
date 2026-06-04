@@ -51,6 +51,9 @@ class GPUStatsRecorder:
         "utilization_gpu_pct",
         "utilization_memory_pct",
         "temperature_c",
+        "power_draw_w",
+        "power_limit_w",
+        "fan_speed_pct",
         "processes",
     ]
 
@@ -118,6 +121,10 @@ class GPUStatsRecorder:
             mem_total = gpu.memory_total or 0
             mem_pct = (gpu.memory_used / mem_total * 100.0) if mem_total else 0.0
             procs = [{k: p.get(k) for k in ("pid", "username", "command", "gpu_memory_usage")} for p in gpu.processes]
+            # power_draw / power_limit / fan_speed are part of the same NVML query
+            # gpustat already issued — reading them is free. Datacenter SKUs often
+            # return None for fan_speed (no controllable per-card fan); render
+            # None as empty string for CSV cleanliness.
             self._csv_writer.writerow(
                 [
                     ts,
@@ -125,6 +132,9 @@ class GPUStatsRecorder:
                     gpu.utilization,
                     round(mem_pct, 2),
                     gpu.temperature,
+                    "" if gpu.power_draw is None else round(gpu.power_draw, 1),
+                    "" if gpu.power_limit is None else int(gpu.power_limit),
+                    "" if gpu.fan_speed is None else int(gpu.fan_speed),
                     json.dumps(procs, separators=(",", ":")),
                 ]
             )
