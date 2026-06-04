@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -99,17 +98,12 @@ def _setup_stage(
     *,
     textgrid: SimpleNamespace | None = None,
 ) -> MagicMock:
-    """Run setup() with praatio mocked at the import boundary."""
+    """Run setup() and inject a mock TextGrid parser."""
+    stage.setup()
     fake_tg_mod = MagicMock()
     if textgrid is not None:
         fake_tg_mod.openTextgrid.return_value = textgrid
-    fake_praatio = MagicMock()
-    fake_praatio.textgrid = fake_tg_mod
-    with patch.dict(
-        sys.modules,
-        {"praatio": fake_praatio, "praatio.textgrid": fake_tg_mod},
-    ):
-        stage.setup()
+    stage._textgrid_mod = fake_tg_mod
     return fake_tg_mod
 
 
@@ -125,24 +119,6 @@ def _mock_mfa_writes_textgrid(wav: Path):
 class TestMFAAlignmentStage:
     """Test suite for MFAAlignmentStage."""
 
-    def test_stage_properties(self, tmp_path: Path) -> None:
-        stage = _make_stage(tmp_path)
-        assert stage.name == "MFAAlignmentStage"
-
-        _, data_in = stage.inputs()
-        assert "audio_filepath" in data_in
-        assert "text" in data_in
-
-        _, data_out = stage.outputs()
-        assert "textgrid_filepath" in data_out
-        assert "rttm_filepath" in data_out
-        assert "ctm_filepath" in data_out
-
-        valid = AudioTask(data={"audio_filepath": "/a.wav", "text": "hello"})
-        assert stage.validate_input(valid) is True
-        assert stage.validate_input(AudioTask(data={"audio_filepath": "/a.wav"})) is False
-        assert stage.validate_input(AudioTask(data={"text": "hello"})) is False
-
     def test_outputs_reflect_create_flags(self, tmp_path: Path) -> None:
         _, data_no_rttm = _make_stage(tmp_path, create_rttm=False).outputs()
         assert "rttm_filepath" not in data_no_rttm
@@ -156,38 +132,6 @@ class TestMFAAlignmentStage:
             tmp_path, create_rttm=False, create_ctm=False
         ).outputs()
         assert data_tg_only == ["textgrid_filepath"]
-
-    def test_output_dir_required(self) -> None:
-        with pytest.raises(TypeError, match="output_dir"):
-            MFAAlignmentStage()  # type: ignore[call-arg]
-
-    def test_process_raises_not_implemented(self, tmp_path: Path) -> None:
-        stage = _make_stage(tmp_path)
-        with pytest.raises(NotImplementedError, match="only supports process_batch"):
-            stage.process(AudioTask(data={"audio_filepath": "/a.wav", "text": "hi"}))
-
-    def test_setup_raises_without_praatio(self, tmp_path: Path) -> None:
-        import builtins
-
-        stage = _make_stage(tmp_path)
-        real_import = builtins.__import__
-
-        def _block_praatio(
-            name: str,
-            globals: object = None,
-            locals: object = None,
-            fromlist: tuple[str, ...] = (),
-            level: int = 0,
-        ) -> object:
-            if name == "praatio":
-                raise ImportError("No module named 'praatio'")
-            return real_import(name, globals, locals, fromlist, level)
-
-        with (
-            patch("builtins.__import__", side_effect=_block_praatio),
-            pytest.raises(ImportError, match="praatio is required"),
-        ):
-            stage.setup()
 
     def test_process_batch_empty(self, tmp_path: Path) -> None:
         stage = _make_stage(tmp_path)

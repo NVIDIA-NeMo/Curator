@@ -27,6 +27,7 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.alignment import MFAAlignmentStage
 
 _EXECUTOR_FACTORIES = {
     "xenna": "nemo_curator.backends.xenna:XennaExecutor",
@@ -48,7 +49,7 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
     batch_size = cfg.get("batch_size", None)
     for p in cfg.processors:
         stage = hydra.utils.instantiate(p)
-        if batch_size and hasattr(stage, "with_"):
+        if batch_size and isinstance(stage, MFAAlignmentStage):
             stage = stage.with_(batch_size=batch_size)
         pipeline.add_stage(stage)
     return pipeline

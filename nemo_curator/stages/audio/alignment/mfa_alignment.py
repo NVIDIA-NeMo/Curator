@@ -49,6 +49,7 @@ from typing import Any
 
 import soundfile as sf
 from loguru import logger
+from praatio import textgrid as praatio_textgrid
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -135,7 +136,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Set during lifecycle hooks -- not user-configurable
     _mfa_root: str = field(default="", init=False, repr=False)
-    _textgrid_mod: Any = field(default=None, init=False, repr=False)
+    _textgrid_mod: Any = field(default=praatio_textgrid, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._effective_mfa_root = self.mfa_root_dir or os.environ.get(
@@ -148,10 +149,6 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         self._rttm_dir = Path(self.output_dir) / "rttms"
         self._ctm_dir = Path(self.output_dir) / "ctms"
 
-    # ------------------------------------------------------------------
-    # Schema
-    # ------------------------------------------------------------------
-
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.text_key]
 
@@ -163,18 +160,10 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             data_keys.append("ctm_filepath")
         return [], data_keys
 
-    # ------------------------------------------------------------------
-    # Xenna scheduling
-    # ------------------------------------------------------------------
-
     def xenna_stage_spec(self) -> dict[str, Any]:
         # Current implementation is meant to run with one worker per node. because the MFA library has issues when running in parallel.
         # We are copying the MFA models to node-local storage to avoid race conditions and Kaldi errors when multiple distributed nodes share the same model directory.
         return {"num_workers_per_node": 1}
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
 
     def setup_on_node(
         self,
@@ -197,17 +186,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         self,
         worker_metadata: Any = None,  # noqa: ARG002, ANN401
     ) -> None:
-        """Import praatio and verify MFA root is available."""
-        try:
-            from praatio import textgrid as tg_mod
-
-            self._textgrid_mod = tg_mod
-        except ImportError:
-            raise ImportError(
-                "praatio is required for MFA alignment. "
-                "Install audio dependencies with: uv sync --extra audio_cuda12"
-            ) from None
-
+        """Resolve the MFA root and create output directories."""
         if not self._mfa_root:
             if self.copy_models_to_local:
                 hostname = socket.gethostname()
@@ -233,13 +212,6 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             self._rttm_dir.mkdir(parents=True, exist_ok=True)
         if self.create_ctm:
             self._ctm_dir.mkdir(parents=True, exist_ok=True)
-
-    def teardown(self) -> None:
-        pass
-
-    # ------------------------------------------------------------------
-    # Processing
-    # ------------------------------------------------------------------
 
     def process(self, task: AudioTask) -> AudioTask:
         msg = "MFAAlignmentStage only supports process_batch"
@@ -327,10 +299,6 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
         return results
 
-    # ------------------------------------------------------------------
-    # Result handlers
-    # ------------------------------------------------------------------
-
     def _handle_successful_textgrid(
         self, file_stem: str, task: AudioTask, tg_path: Path
     ) -> None:
@@ -375,10 +343,6 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                 file_stem, text, duration, ctm_path
             )
             task.data["ctm_filepath"] = str(ctm_path)
-
-    # ------------------------------------------------------------------
-    # MFA subprocess
-    # ------------------------------------------------------------------
 
     def _run_mfa_align(
         self, corpus_dir: Path, textgrid_output_dir: Path
@@ -478,10 +442,6 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                 f"STDERR:\n{result.stderr}"
             )
 
-    # ------------------------------------------------------------------
-    # TextGrid -> RTTM
-    # ------------------------------------------------------------------
-
     def _get_word_alignment_tier(self, tg: Any, textgrid_path: Path) -> Any:  # noqa: ANN401
         """Select the word-level tier, avoiding phone-level tiers when possible."""
         for tier_name in _WORD_TIER_NAMES:
@@ -561,10 +521,6 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                     f"<NA> <NA> {speaker} <NA> <NA>\n"
                 )
 
-    # ------------------------------------------------------------------
-    # TextGrid -> CTM
-    # ------------------------------------------------------------------
-
     def _textgrid_to_ctm(
         self,
         textgrid_path: Path,
@@ -581,10 +537,6 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                     f.write(
                         f"{file_stem} 1 {start:.3f} {end - start:.3f} {word}\n"
                     )
-
-    # ------------------------------------------------------------------
-    # Interval merging
-    # ------------------------------------------------------------------
 
     def _merge_intervals(self, intervals: list[dict]) -> list[dict]:
         if not intervals:
@@ -608,10 +560,6 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
         merged.append({"start": cur_start, "duration": cur_end - cur_start})
         return merged
-
-    # ------------------------------------------------------------------
-    # Fallback helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _get_audio_duration(audio_path: str) -> float:
@@ -642,10 +590,6 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                 f.write(
                     f"{file_stem} 1 {i * word_dur:.3f} {word_dur:.3f} {word}\n"
                 )
-
-    # ------------------------------------------------------------------
-    # Node-local MFA setup
-    # ------------------------------------------------------------------
 
     def _setup_local_mfa(self, shared_mfa_root: str, hostname: str) -> str:
         local_mfa_root = Path(self._effective_local_base) / f"mfa_models_{hostname}"

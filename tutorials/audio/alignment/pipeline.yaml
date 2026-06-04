@@ -30,6 +30,7 @@ documentation: |
 
   **Required arguments**.
 
+  * **input_manifest**: Path to the input JSONL manifest with ``audio_filepath`` and ``text`` keys.
   * **output_dir**: Root directory for TextGrid/RTTM/CTM output and result manifest.
 
   The pipeline reads AudioTask entries, aligns them with MFA, converts
@@ -46,11 +47,15 @@ documentation: |
   * **rttm_filepath (str)**: path to the RTTM speech-activity file (if enabled).
   * **ctm_filepath (str)**: path to the CTM word-timing file (if enabled).
 
+input_manifest: ???
 output_dir: ???
 backend: xenna
 batch_size: 256
 
 processors:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+
   - _target_: nemo_curator.stages.audio.alignment.MFAAlignmentStage
     output_dir: ${output_dir}
     mfa_command: "mfa"
