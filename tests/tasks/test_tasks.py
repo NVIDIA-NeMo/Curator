@@ -64,7 +64,7 @@ def _sample_task() -> SimpleTask:
 def test_default_process_batch_does_not_assign_task_id():
     """``process_batch`` (and ``process``) do not touch ``task_id`` — that's
     the executor adapter's job (``BaseStageAdapter._post_process_task_ids``).
-    So fanned-out children come back here with empty ids; lineage assignment
+    So fanned-out children come back here with empty ids; task_id assignment
     is covered in tests/backends/test_task_id_postprocess.py."""
     task = _sample_task()
     output = Repeat(times=3).process_batch([task])

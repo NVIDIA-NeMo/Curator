@@ -136,8 +136,8 @@ class TestBackendIntegrations:
             "Mismatch in dataset names"
         )
 
-    def test_task_id_lineage(self):
-        """task_ids are deterministic lineage paths assigned as tasks flow
+    def test_task_ids(self):
+        """task_ids are deterministic id paths assigned as tasks flow
         through the pipeline: non-empty, unique, and a clean underscore-joined
         path (no empty segments from the leading EmptyTask)."""
         assert self.output_tasks is not None, "Expected output tasks"
@@ -147,15 +147,15 @@ class TestBackendIntegrations:
         # Every task that made it through the pipeline has an id assigned.
         assert all(task_ids), "Every output task should have a non-empty task_id"
 
-        # Lineage paths are unique per task.
+        # Task ids are unique per task.
         assert len(set(task_ids)) == len(task_ids), "task_ids should be unique"
 
-        # Each id is a clean "_"-joined lineage path: no empty segments, so no
+        # Each id is a clean "_"-joined id path: no empty segments, so no
         # leading/trailing/double underscores (the source's EmptyTask parent,
-        # whose id is "", is filtered out by _set_lineage).
+        # whose id is "", is filtered out by _set_task_id).
         for tid in task_ids:
             segments = tid.split("_")
-            assert all(segments), f"task_id {tid!r} has an empty lineage segment"
+            assert all(segments), f"task_id {tid!r} has an empty id segment"
 
     def test_perf_stats(self):
         """Test that performance statistics are correctly recorded for all stages."""

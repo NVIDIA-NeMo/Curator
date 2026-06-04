@@ -67,13 +67,13 @@ class TestPostProcessTaskIds:
         out = _assign([_task("0")], [a, None])
         assert out == [a]
 
-    def test_single_input_fanout_gets_lineage(self) -> None:
+    def test_single_input_fanout_gets_id(self) -> None:
         parent = _task("0_3")
         c0, c1, c2 = _task(), _task(), _task()
         out = _assign([parent], [c0, c1, c2])
         assert [t.task_id for t in out] == ["0_3_0", "0_3_1", "0_3_2"]
 
-    def test_positional_one_to_one_gets_lineage(self) -> None:
+    def test_positional_one_to_one_gets_id(self) -> None:
         p0, p1 = _task("0_0"), _task("0_1")
         c0, c1 = _task(), _task()
         out = _assign([p0, p1], [c0, c1])
@@ -90,7 +90,7 @@ class TestPostProcessTaskIds:
         assert c0.task_id == "0_0_0"  # child of p0, not shifted
         assert c2.task_id == "0_2_0"  # child of p2, not p1
 
-    def test_in_place_return_is_relineaged(self) -> None:
+    def test_in_place_return_is_reassigned(self) -> None:
         # A 1:1 stage that returns its input unchanged still gets a fresh
         # segment appended (ids are re-derived at each stage boundary).
         t = _task("0_5")

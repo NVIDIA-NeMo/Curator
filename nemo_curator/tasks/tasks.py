@@ -30,20 +30,20 @@ class Task(ABC, Generic[T]):
 
     Attributes:
         task_id: Deterministic identifier for this task. NOT user-settable —
-            the framework assigns it via ``_set_lineage`` at every stage
-            boundary. It is the task's underscore-joined lineage path
-            through the pipeline DAG (e.g. ``"abc123_0_5"`` = source
-            ``abc123``, then child 0, then grandchild 5). Using the readable
-            path directly (rather than a hash of it) keeps task ids easy to
-            debug. Empty string until the first stage runs; two runs of the
-            same pipeline on the same inputs produce byte-identical
-            ``task_id``s across all tasks.
+            the framework assigns it via ``_set_task_id`` at every stage
+            boundary. It is an underscore-joined id path through the pipeline
+            DAG — the parents' ids plus this task's own segment (e.g.
+            ``"abc123_0_5"`` = source ``abc123``, then child 0, then
+            grandchild 5). Using the readable path directly (rather than a
+            hash of it) keeps task ids easy to debug. Empty string until the
+            first stage runs; two runs of the same pipeline on the same
+            inputs produce byte-identical ``task_id``s across all tasks.
 
             A ``task_id`` that starts with ``"r"`` (followed by a uuid) is a
-            fallback assigned when lineage could NOT be derived — e.g. a
-            stage that overrides ``process_batch`` with an ambiguous batch
-            fan-out (M inputs → K≠M outputs). Such ids are NON-deterministic
-            (differ across runs) and their lineage is not tracked.
+            fallback assigned when the parent→child mapping could NOT be
+            derived — e.g. a stage that overrides ``process_batch`` with an
+            ambiguous batch fan-out (M inputs → K≠M outputs). Such ids are
+            NON-deterministic (differ across runs).
         dataset_name: Name of the dataset this task belongs to.
         _stage_perf: List of stages perfs this task has passed through.
     """
@@ -67,8 +67,8 @@ class Task(ABC, Generic[T]):
         """Add performance stats for a stage."""
         self._stage_perf.append(perf_stats)
 
-    def _set_lineage(self, parent_task_ids: list[str], current_task_id_suffix: str | int) -> None:
-        """Assign this task's deterministic ``task_id`` from its lineage.
+    def _set_task_id(self, parent_task_ids: list[str], current_task_id_suffix: str | int) -> None:
+        """Assign this task's deterministic ``task_id`` from its parents.
 
         The ``task_id`` is the parent ids joined with this task's own
         segment by ``"_"`` — e.g. parent ``"abc123"`` + suffix ``0`` →
@@ -83,7 +83,7 @@ class Task(ABC, Generic[T]):
             parent_task_ids: ``task_id`` of each parent. Empty strings are
                 filtered out (so an EmptyTask parent doesn't contribute a
                 leading ``"_"`` to the path).
-            current_task_id_suffix: This task's own segment of the lineage
+            current_task_id_suffix: This task's own segment of the id
                 path — appended after the parent ids. Either a positional
                 index (``int`` → coerced to ``str``) for plain emissions,
                 or a string id (e.g. a content-based hash from
@@ -119,8 +119,8 @@ class Task(ABC, Generic[T]):
 class _EmptyTask(Task[None]):
     """Placeholder input that seeds a pipeline (e.g. for ``ls``/source stages).
 
-    Its ``task_id`` is fixed to ``"0"`` — the implicit root of the lineage
-    tree. Every task in a run descends from this root, so all ``task_id``s
+    Its ``task_id`` is fixed to ``"0"`` — the implicit root that every task
+    in a run descends from, so all ``task_id``s
     share the ``"0"`` prefix (source partitions become ``"0_<id>"``,
     user-provided initial tasks become ``"0_0"``, ``"0_1"``, …).
     """

@@ -85,7 +85,7 @@ class BaseStageAdapter:
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
 
-        # Guarantee every emitted task has a task_id (lineage or uuid fallback).
+        # Guarantee every emitted task has a task_id (derived id, or uuid fallback).
         results = self._post_process_task_ids(tasks, results)
 
         # Log performance stats and add to result tasks
@@ -105,7 +105,7 @@ class BaseStageAdapter:
         This is the single place task ids are assigned — it runs for every
         stage on every backend (all backend adapters subclass this), so it
         makes no difference whether a stage defines ``process`` or overrides
-        ``process_batch``. ``task_id`` is the task's lineage path; ids are
+        ``process_batch``. ``task_id`` is the task's id path (parents + own segment); ids are
         re-derived at each stage boundary so the same object passing through
         N stages gets N ids.
 
@@ -121,8 +121,8 @@ class BaseStageAdapter:
           a ``None`` slot just means input ``i`` was filtered.
         - any other (ambiguous) cardinality across a batch → a random ``uuid``
           prefixed with ``"r"`` (e.g. ``"r3f9a…"``), so ``task_id`` is never
-          empty even when lineage can't be derived. The ``"r"`` prefix flags
-          the id as non-deterministic / lineage-not-tracked (see
+          empty even when a derived id is not possible. The ``"r"`` prefix flags
+          the id as non-deterministic / ancestry-not-tracked (see
           ``Task.task_id`` docstring).
 
         ``seg`` is the output's content id (``Task.get_deterministic_id()``)
@@ -145,7 +145,7 @@ class BaseStageAdapter:
             out: list[Task] = [t for t in output_tasks if t is not None]
             for i, task in enumerate(out):
                 suffix = (task.get_deterministic_id() or i) if is_source else i
-                task._set_lineage([parent_id], suffix)
+                task._set_task_id([parent_id], suffix)
             return out
 
         if len(output_tasks) == len(input_tasks):
@@ -156,11 +156,11 @@ class BaseStageAdapter:
                 if task is None:
                     continue
                 suffix = (task.get_deterministic_id() or 0) if is_source else 0
-                task._set_lineage([parent.task_id], suffix)
+                task._set_task_id([parent.task_id], suffix)
                 out.append(task)
             return out
 
-        # Ambiguous cardinality across a batch: lineage can't be derived. Use a
+        # Ambiguous cardinality across a batch: a derived id is not possible. Use a
         # random "r"-prefixed uuid so task_id is non-empty but clearly flagged
         # non-deterministic.
         out = [t for t in output_tasks if t is not None]

@@ -54,13 +54,13 @@ class TestAddIdStage:
         """Ensure IDs are unique across different batches.
 
         AddId derives doc ids from ``batch.task_id``. In a pipeline the
-        executor adapter gives each batch a unique task_id (its lineage
+        executor adapter gives each batch a unique task_id (its id
         path); simulate that here so the two batches don't collide.
         """
         batch1 = _sample_batch()
         batch2 = _sample_batch()
-        batch1._set_lineage([], 0)
-        batch2._set_lineage([], 1)
+        batch1._set_task_id([], 0)
+        batch2._set_task_id([], 1)
 
         stage = AddId(id_field="id")
 

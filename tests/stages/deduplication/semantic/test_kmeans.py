@@ -246,7 +246,7 @@ class TestKMeansStageIntegration:
         partitioned by centroid.
 
         Each GPU actor writes ``{input_task_id}_{subgroup}.parquet`` where the
-        input task id is the FilePartitioning lineage id (``0_<file_hash>``).
+        input task id is the FilePartitioning id (``0_<file_hash>``).
         We assert the names match that deterministic pattern (never a random
         ``r<uuid>`` fallback) and that the centroid partitioning is correct.
 
@@ -264,13 +264,13 @@ class TestKMeansStageIntegration:
         actual_filenames = {f.name for d in centroid_dirs for f in d.glob("*.parquet")}
 
         # Two distinct output files (one per actor), each deterministically
-        # named from its input partition's lineage id: "0_<file_hash>_<subgroup>".
+        # named from its input partition's id: "0_<file_hash>_<subgroup>".
         assert len(actual_filenames) == 2, f"Expected 2 distinct output files, got {actual_filenames}"
         deterministic_name = re.compile(r"^0_[0-9a-f]+_\d+\.parquet$")
         for name in actual_filenames:
             assert deterministic_name.match(name), (
                 f"Output filename {name!r} is not deterministic/input-derived "
-                f"(an 'r<uuid>' name would mean lineage was lost)"
+                f"(an 'r<uuid>' name would mean ancestry was lost)"
             )
 
         # Exactly N_CLUSTERS centroid partitions.
