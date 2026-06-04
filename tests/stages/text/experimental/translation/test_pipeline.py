@@ -839,7 +839,7 @@ class TestSkipTranslated:
                 "translated_text": ["Bereits uebersetzt", "Auch bereits uebersetzt"],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="resume-test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="resume-test")
         pipeline = TranslationStage(
             source_lang="en",
             target_lang="de",

@@ -322,7 +322,6 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             out_df["_seg_metadata"] = pd.Series(dtype="object")
             out_df["_seg_doc_id"] = pd.Series(dtype="int64")
             return DocumentBatch(
-                task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
                 data=out_df,
                 _metadata=batch._metadata,
