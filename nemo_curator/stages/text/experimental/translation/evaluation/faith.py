@@ -137,6 +137,8 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         downstream score analysis before committing to a threshold.
     generation_config : GenerationConfig | None
         LLM generation parameters. Defaults to ``temperature=0.0, max_tokens=256``.
+    prompt_path : str | None
+        Absolute local YAML prompt path, or ``None`` for the packaged prompt.
     """
 
     name: str = "FaithEvalFilter"
@@ -149,6 +151,7 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     threshold: float = 2.5
     filter_enabled: bool = True
     generation_config: GenerationConfig | None = None
+    prompt_path: str | None = None
     max_concurrent_requests: int = 64
 
     # -- internal state (not constructor args) ---------------------------------
@@ -191,7 +194,8 @@ class FaithEvalFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         runs on the driver, while ``setup()`` runs on the worker.
         """
         if not self._initialized:
-            self._system_prompt, self._user_template = load_prompt_template("faith_eval.yaml")
+            prompt_file = self.prompt_path or "faith_eval.yaml"
+            self._system_prompt, self._user_template = load_prompt_template(prompt_file)
 
             if self.generation_config is None:
                 self.generation_config = GenerationConfig(

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
@@ -41,6 +42,9 @@ from nemo_curator.stages.text.experimental.translation.stages.translate import (
     SegmentTranslationStage,
 )
 from nemo_curator.tasks import DocumentBatch
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from .conftest import MockAsyncLLMClient
 
@@ -86,6 +90,27 @@ class TestTranslationStageDecompose:
         stages = pipeline.decompose()
         faith_stage = _only_stage_of_type(stages, FaithEvalFilter)
         assert faith_stage.model_name == "translate-model"
+
+    def test_decompose_faith_eval_inherits_control_knobs(self, mock_client: MockAsyncLLMClient) -> None:
+        """FaithEvalFilter receives model, prompt, generation, and concurrency config."""
+        gen_cfg = GenerationConfig(temperature=0.0, max_tokens=128)
+        pipeline = TranslationStage(
+            source_lang="en",
+            target_lang="de",
+            client=mock_client,
+            model_name="translate-model",
+            enable_faith_eval=True,
+            faith_model_name="faith-model",
+            faith_generation_config=gen_cfg,
+            faith_prompt_path="/opt/prompts/custom_faith.yaml",
+            faith_max_concurrent_requests=3,
+        )
+        stages = pipeline.decompose()
+        faith_stage = _only_stage_of_type(stages, FaithEvalFilter)
+        assert faith_stage.model_name == "faith-model"
+        assert faith_stage.generation_config is gen_cfg
+        assert faith_stage.prompt_path == "/opt/prompts/custom_faith.yaml"
+        assert faith_stage.max_concurrent_requests == 3
 
     def test_llm_backend_requires_model_name(self, mock_client: MockAsyncLLMClient) -> None:
         """LLM translation should fail fast when model_name is unset."""
@@ -197,6 +222,11 @@ class TestTranslationStageDecompose:
             client=mock_client,
             model_name="m",
             generation_config=gen_cfg,
+            translation_prompt_path="/opt/prompts/custom_translate.yaml",
+            max_concurrent_requests=7,
+            health_check=False,
+            dry_run=True,
+            dry_run_log_count=2,
             backend_type="llm",
         )
         tr = pipeline.decompose()[1]
@@ -205,6 +235,11 @@ class TestTranslationStageDecompose:
         assert tr.target_lang == "ja"
         assert tr.model_name == "m"
         assert tr.generation_config is gen_cfg
+        assert tr.prompt_path == "/opt/prompts/custom_translate.yaml"
+        assert tr.max_concurrent_requests == 7
+        assert tr.health_check is False
+        assert tr.dry_run is True
+        assert tr.dry_run_log_count == 2
 
     def test_reassembly_stage_inherits_config(self, mock_client: MockAsyncLLMClient) -> None:
         """ReassemblyStage receives text_field and output_field from the pipeline."""
@@ -259,6 +294,26 @@ class TestTranslationStageDecompose:
 
 class TestFaithEvalFilter:
     """Tests for FaithEvalFilter score parsing and filtering."""
+
+    def test_setup_loads_custom_prompt_path(self, mock_client: MockAsyncLLMClient, tmp_path: Path) -> None:
+        """Verify setup() can load a caller-provided absolute FAITH prompt path."""
+        prompt_path = tmp_path / "custom_faith.yaml"
+        prompt_path.write_text(
+            "system: custom faith {source_language} {target_language}\nuser: custom {source_text} {translated_text}\n",
+            encoding="utf-8",
+        )
+        stage = FaithEvalFilter(
+            source_lang="en",
+            target_lang="de",
+            client=mock_client,
+            model_name="faith-model",
+            prompt_path=str(prompt_path),
+        )
+
+        stage.setup(worker_metadata=None)
+
+        assert stage._system_prompt == "custom faith {source_language} {target_language}"
+        assert stage._user_template == "custom {source_text} {translated_text}"
 
     def test_extract_scores_valid_json(self) -> None:
         """Valid JSON with all 5 keys is parsed correctly."""
@@ -774,6 +829,35 @@ class TestSkipTranslated:
         # All rows should have been (re)translated
         assert len(result_df) == 3
         assert all(len(t) > 0 for t in result_df["translated_text"])
+
+    def test_skip_translated_all_rows_already_translated(self, mock_client: MockAsyncLLMClient) -> None:
+        """An all-skipped batch should pass through and restore rows without missing-column errors."""
+        df = pd.DataFrame(
+            {
+                "id": [100, 200],
+                "text": ["Already translated", "Already translated too"],
+                "translated_text": ["Bereits uebersetzt", "Auch bereits uebersetzt"],
+            }
+        )
+        batch = DocumentBatch(data=df, dataset_name="resume-test", task_id="1")
+        pipeline = TranslationStage(
+            source_lang="en",
+            target_lang="de",
+            client=mock_client,
+            model_name="test-model",
+            skip_translated=True,
+            health_check=False,
+        )
+
+        result = batch
+        for stage in pipeline.decompose():
+            stage.setup()
+            result = stage.process(result)
+
+        result_df = result.to_pandas()
+        assert list(result_df["id"]) == [100, 200]
+        assert list(result_df["translated_text"]) == ["Bereits uebersetzt", "Auch bereits uebersetzt"]
+        assert "_skipped_rows_state" not in result._metadata
 
     def test_merge_skipped_reads_batch_metadata(self) -> None:
         """Skipped-row state should travel with the batch, not the stage instance."""
