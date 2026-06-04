@@ -100,7 +100,7 @@ def get_free_port(start_port: int, get_next_free_port: bool = True) -> int:
     If not, it will get the next free port starting from start_port if get_next_free_port is True.
     Else, it will raise an error if the free port is not equal to start_port.
     """
-    for port in range(start_port, 65535):
+    for port in range(start_port, 65536):
         if port >= DEFAULT_RAY_MIN_WORKER_PORT and port <= DEFAULT_RAY_MAX_WORKER_PORT:
             continue
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

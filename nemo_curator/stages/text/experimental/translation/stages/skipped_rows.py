@@ -77,6 +77,11 @@ class SkipExistingTranslationsStage(ProcessingStage[DocumentBatch, DocumentBatch
                 "translation_column": self.translation_column,
             }
 
+        if len(df) > 0 and remaining_df.empty:
+            logger.warning(
+                "SkipExistingTranslationsStage: no rows require translation after skipping already-translated rows"
+            )
+
         logger.info(
             "SkipExistingTranslationsStage: skipping {} already-translated rows, processing {} rows",
             len(skipped_rows),
@@ -150,7 +155,7 @@ class RestoreSkippedRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 continue
             skipped_df[col] = self._COLUMN_DEFAULTS.get(col, "")
 
-        merged = pd.concat([df, skipped_df], ignore_index=True)
+        merged = skipped_df.reset_index(drop=True) if df.empty else pd.concat([df, skipped_df], ignore_index=True)
         if order_col in merged.columns:
             merged = merged.sort_values(order_col).reset_index(drop=True)
             merged = merged.drop(columns=[order_col])

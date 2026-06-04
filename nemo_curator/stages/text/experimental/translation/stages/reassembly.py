@@ -48,6 +48,17 @@ _FAITH_SCORE_COLUMNS = {
     "faith_handling_of_format": "Handling_of_Format",
 }
 
+_OUTPUT_COLUMN_DTYPES = {
+    "translation_time": "float64",
+    "faith_fluency": "float64",
+    "faith_accuracy": "float64",
+    "faith_idiomaticity": "float64",
+    "faith_terminology": "float64",
+    "faith_handling_of_format": "float64",
+    "faith_avg": "float64",
+    "faith_parse_failed": "bool",
+}
+
 
 @dataclass
 class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -85,6 +96,21 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         """Reassemble translated segments into full documents."""
         df = batch.to_pandas()
+
+        if df.empty:
+            logger.info("ReassemblyStage: no translated segment rows to reassemble")
+            base_cols = [col for col in df.columns if col not in _INTERNAL_COLUMNS]
+            out_df = df.loc[:, base_cols].copy()
+            for col in self.outputs()[1]:
+                if col not in out_df.columns:
+                    out_df[col] = pd.Series(dtype=_OUTPUT_COLUMN_DTYPES.get(col, "object"))
+            return DocumentBatch(
+                task_id=batch.task_id,
+                dataset_name=batch.dataset_name,
+                data=out_df,
+                _metadata=batch._metadata,
+                _stage_perf=batch._stage_perf,
+            )
 
         result_rows: list[dict[str, Any]] = []
 

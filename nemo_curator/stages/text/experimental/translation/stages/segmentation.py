@@ -315,6 +315,20 @@ class SegmentationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         df = batch.to_pandas()
         field_paths = normalize_text_field(self.text_field)
 
+        if df.empty:
+            logger.info("SegmentationStage: no documents to segment")
+            out_df = df.copy()
+            out_df["_seg_segments"] = pd.Series(dtype="object")
+            out_df["_seg_metadata"] = pd.Series(dtype="object")
+            out_df["_seg_doc_id"] = pd.Series(dtype="int64")
+            return DocumentBatch(
+                task_id=batch.task_id,
+                dataset_name=batch.dataset_name,
+                data=out_df,
+                _metadata=batch._metadata,
+                _stage_perf=batch._stage_perf,
+            )
+
         all_rows: list[dict[str, Any]] = []
 
         total_docs = len(df)

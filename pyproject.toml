@@ -112,7 +112,7 @@ audio_common = [
     "pydub>=0.25.1",
     "transformers",
     "accelerate",
-    "nemo_text_processing",
+    "nemo_text_processing; platform_machine == 'x86_64' and platform_system != 'Darwin'",  # pulls pynini, which ships x86_64-only wheels and fails to build on aarch64
     "opencc-python-reimplemented",
     "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "whisperx>=3.8.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
