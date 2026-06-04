@@ -30,15 +30,16 @@ import pytest
 
 from nemo_curator.adapters.asr.base import ASRAdapter, ASRResult
 from nemo_curator.adapters.asr.qwen_omni import QwenOmniASRAdapter
-from nemo_curator.stages.audio.batch_policy import BatchPolicy
 from nemo_curator.stages.audio.inference.asr import ASRStage
+from nemo_curator.stages.inference.batch_policy import BatchPolicy, run_bucketed
+from nemo_curator.stages.inference.bucketed_stage import BucketedInferenceStage
 from nemo_curator.tasks import AudioTask
 
 _QWEN_ADAPTER_TARGET = "nemo_curator.adapters.asr.qwen_omni.QwenOmniASRAdapter"
 _SR = 16000
 
 
-def _make_stage(
+def _make_stage(  # noqa: PLR0913
     *,
     disfluency_text_key: str | None = None,
     keep_waveform: bool = True,
@@ -307,8 +308,8 @@ def test_batch_policy_partitions_items_by_bucket() -> None:
         flush_interval_ms=250,
     )
     stage = _make_stage(batch_policy=policy)
-    # Three tasks: 5 s, 10 s, 600 s. Bucket 1 (ÿÿÿ 30 s) gets [5s, 10s];
-    # bucket 2 (ÿÿÿ 1200 s) gets [600 s]. Two adapter calls expected.
+    # Three tasks: 5 s, 10 s, 600 s. Bucket 1 (<= 30 s) gets [5s, 10s];
+    # bucket 2 (<= 1200 s) gets [600 s]. Two adapter calls expected.
     short_a = AudioTask(data={"waveform": np.zeros(_SR * 5, dtype=np.float32), "sample_rate": _SR})
     short_b = AudioTask(data={"waveform": np.zeros(_SR * 10, dtype=np.float32), "sample_rate": _SR})
     long_a = AudioTask(data={"waveform": np.zeros(_SR * 600, dtype=np.float32), "sample_rate": _SR})
@@ -397,6 +398,136 @@ def test_batch_policy_bucket_for_clamps_above_top_edge() -> None:
     assert p.bucket_for(599.0) == 1   # [60, 600)
     assert p.bucket_for(600.0) == 2   # [600, +inf)
     assert p.bucket_for(9999.0) == 2  # clamped into top bucket
+
+
+# ----------------------------------------------------------------------
+# run_bucketed: the shared, stage-agnostic dispatch helper
+# ----------------------------------------------------------------------
+
+
+def test_run_bucketed_preserves_input_order_across_buckets() -> None:
+    """Results realign to input order regardless of internal bucket order."""
+    policy = BatchPolicy(
+        buckets_sec=[0, 30, 1200],
+        max_items_per_batch_by_bucket=[32, 16, 8],
+        max_audio_sec_per_batch=None,
+    )
+    # durations: long, short, long, short -> two buckets, interleaved input.
+    items = [{"d": 600.0, "v": "L0"}, {"d": 5.0, "v": "S1"}, {"d": 700.0, "v": "L2"}, {"d": 10.0, "v": "S3"}]
+    calls: list[list[str]] = []
+
+    def run_fn(sub: list[dict]) -> list[str]:
+        calls.append([it["v"] for it in sub])
+        return [it["v"] for it in sub]
+
+    out = run_bucketed(items, run_fn, cost_fn=lambda it: it["d"], policy=policy)
+
+    assert out == ["L0", "S1", "L2", "S3"]
+    assert len(calls) == 2  # one per occupied bucket
+
+
+def test_run_bucketed_without_policy_runs_single_call() -> None:
+    items = [{"d": 1.0}, {"d": 2.0}, {"d": 3.0}]
+    calls = 0
+
+    def run_fn(sub: list[dict]) -> list[int]:
+        nonlocal calls
+        calls += 1
+        return list(range(len(sub)))
+
+    out = run_bucketed(items, run_fn, cost_fn=lambda it: it["d"], policy=None)
+
+    assert calls == 1
+    assert out == [0, 1, 2]
+
+
+def test_run_bucketed_empty_items_short_circuits() -> None:
+    def run_fn(_sub: list) -> list:
+        msg = "run_fn must not be called for empty items"
+        raise AssertionError(msg)
+
+    assert run_bucketed([], run_fn, cost_fn=lambda _it: 0.0) == []
+
+
+def test_run_bucketed_mismatched_result_count_raises() -> None:
+    def run_fn(_sub: list) -> list:
+        return ["only-one"]
+
+    with pytest.raises(RuntimeError, match=r"returned 1 results for 2 items"):
+        run_bucketed([{"d": 1.0}, {"d": 2.0}], run_fn, cost_fn=lambda it: it["d"])
+
+
+# ----------------------------------------------------------------------
+# BucketedInferenceStage: the generic, importable bucketed-dispatch base
+# ----------------------------------------------------------------------
+
+
+class _SumBucketStage(BucketedInferenceStage):
+    """Minimal concrete stage: fan a task's ``vals`` out into items, x10 each,
+    then sum the per-item results back onto the parent task."""
+
+    name = "test_sum_bucket"
+
+    def process(self, task: AudioTask) -> AudioTask:
+        raise NotImplementedError
+
+    def build_items(self, tasks: list[AudioTask]) -> tuple[list[float], list[int]]:
+        items: list[float] = []
+        parent_of: list[int] = []
+        for i, t in enumerate(tasks):
+            for v in t.data["vals"]:
+                items.append(v)
+                parent_of.append(i)
+        return items, parent_of
+
+    def item_cost(self, item: float) -> float:
+        return float(item)
+
+    def run_inference(self, items: list[float]) -> list[float]:
+        self.calls.append(list(items))
+        return [v * 10 for v in items]
+
+    def assemble(
+        self,
+        tasks: list[AudioTask],
+        items: list[float],
+        parent_of: list[int],
+        results: list[float],
+    ) -> list[AudioTask]:
+        sums = [0.0 for _ in tasks]
+        for r, p in zip(results, parent_of, strict=True):
+            sums[p] += r
+        for t, s in zip(tasks, sums, strict=True):
+            t.data["out"] = s
+        return tasks
+
+
+def test_bucketed_inference_stage_fans_out_buckets_and_reassembles() -> None:
+    """The base drives build_items -> bucketed dispatch -> assemble, with one
+    output per input task and per-parent fan-in preserved across buckets."""
+    stage = _SumBucketStage()
+    stage.calls = []
+    stage.batch_policy = BatchPolicy(
+        buckets_sec=[0, 30],
+        max_items_per_batch_by_bucket=[8, 8],
+        max_audio_sec_per_batch=None,
+    )
+    t0 = AudioTask(data={"vals": [5.0, 100.0]})  # short + long -> two buckets
+    t1 = AudioTask(data={"vals": [10.0]})  # short
+
+    out = stage.process_batch([t0, t1])
+
+    assert out == [t0, t1]
+    assert t0.data["out"] == (5.0 + 100.0) * 10
+    assert t1.data["out"] == 10.0 * 10
+    assert len(stage.calls) == 2  # one dispatch per occupied bucket
+
+
+def test_bucketed_inference_stage_empty_batch_short_circuits() -> None:
+    stage = _SumBucketStage()
+    stage.calls = []
+    assert stage.process_batch([]) == []
+    assert stage.calls == []
 
 
 # ----------------------------------------------------------------------
@@ -633,7 +764,7 @@ def test_qwen_adapter_count_output_tokens_handles_empty_vllm_output() -> None:
 
 def test_qwen_adapter_transcribe_batch_packages_results() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt="refine")
-    adapter._generate = MagicMock(  # type: ignore[method-assign]
+    adapter._run_two_turn = MagicMock(  # type: ignore[method-assign]
         return_value=(
             ["text-a", "text-b", ""],
             ["refined-a", "", ""],
@@ -652,14 +783,14 @@ def test_qwen_adapter_transcribe_batch_packages_results() -> None:
     assert [r.skipped for r in results] == [False, False, True]
     assert all(r.model_id == "mock/qwen-omni" for r in results)
 
-    adapter._generate.assert_called_once()
-    _waveforms, _srs, langs = adapter._generate.call_args[0]
+    adapter._run_two_turn.assert_called_once()
+    _waveforms, _srs, langs = adapter._run_two_turn.call_args[0]
     assert langs == ["English", "English", None]
 
 
 def test_qwen_adapter_single_turn_drops_secondary_text() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt=None)
-    adapter._generate = MagicMock(  # type: ignore[method-assign]
+    adapter._run_two_turn = MagicMock(  # type: ignore[method-assign]
         return_value=(["text-a"], [""], set()),
     )
     results = adapter.transcribe_batch([
@@ -714,17 +845,17 @@ def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
     fake_processor = MagicMock()
     with (
         patch("nemo_curator.adapters.asr.qwen_omni.VLLM_AVAILABLE", new=True),
-        patch("nemo_curator.adapters.asr.qwen_omni.LLM", return_value=fake_llm) as LLM_ctor,
+        patch("nemo_curator.models.vllm_model.LLM", return_value=fake_llm) as llm_ctor,
         patch(
             "nemo_curator.adapters.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
             return_value=fake_processor,
         ),
-        patch("nemo_curator.adapters.asr.qwen_omni.SamplingParams"),
+        patch("nemo_curator.models.vllm_model.SamplingParams"),
     ):
         adapter.setup()
 
-    LLM_ctor.assert_called_once()
-    kwargs = LLM_ctor.call_args.kwargs
+    llm_ctor.assert_called_once()
+    kwargs = llm_ctor.call_args.kwargs
     assert kwargs["enable_prefix_caching"] is False
     assert kwargs["prefix_caching_hash_algo"] == "sha256"
     assert kwargs["limit_mm_per_prompt"] == {"image": 1, "video": 1, "audio": 3}
@@ -743,14 +874,14 @@ def test_qwen_adapter_setup_forwards_revision_to_llm_and_processor() -> None:
     fake_processor = MagicMock()
     with (
         patch("nemo_curator.adapters.asr.qwen_omni.VLLM_AVAILABLE", new=True),
-        patch("nemo_curator.adapters.asr.qwen_omni.LLM", return_value=fake_llm) as LLM_ctor,
+        patch("nemo_curator.models.vllm_model.LLM", return_value=fake_llm) as llm_ctor,
         patch(
             "nemo_curator.adapters.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
             return_value=fake_processor,
         ) as proc_ctor,
-        patch("nemo_curator.adapters.asr.qwen_omni.SamplingParams"),
+        patch("nemo_curator.models.vllm_model.SamplingParams"),
     ):
         adapter.setup()
 
-    assert LLM_ctor.call_args.kwargs["revision"] == "abc123"
+    assert llm_ctor.call_args.kwargs["revision"] == "abc123"
     proc_ctor.assert_called_once_with("mock/qwen-omni", revision="abc123")

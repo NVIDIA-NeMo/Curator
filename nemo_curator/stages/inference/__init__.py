@@ -12,15 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Back-compat re-export of the modality-agnostic batch policy.
-
-The implementation now lives in
-:mod:`nemo_curator.stages.inference.batch_policy` so non-audio GPU
-inference stages can reuse it. This shim keeps the historical import path
-(and the tutorial YAML ``_target_:
-nemo_curator.stages.audio.batch_policy.BatchPolicy``) working.
-"""
-
-from nemo_curator.stages.inference.batch_policy import BatchPolicy, run_bucketed
-
-__all__ = ["BatchPolicy", "run_bucketed"]
+"""Modality-agnostic building blocks for GPU inference stages."""

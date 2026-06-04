@@ -19,28 +19,28 @@ top of the in-process vLLM thinker-only path. Two-turn output (Turn-1
 transcribe, Turn-2 disfluency/refinement) is supported when
 ``followup_prompt`` is set; single-turn otherwise.
 
-Core inference logic (vLLM engine setup, ``qwen_omni_utils.process_mm_info``
-preprocessing, Turn-1/Turn-2 prompt construction, batched preprocessing
-thread pool) is preserved verbatim from the pre-split ``QwenOmni`` model
-wrapper - this module only re-houses that code inside the adapter
-protocol and adds ``prefetch_weights`` + ``transcribe_batch`` thin
-wrappers around the existing ``generate`` flow.
+The engine plumbing (vLLM ``LLM`` creation, ``SamplingParams``, batched
+``generate``, GPU teardown) is inherited from
+:class:`nemo_curator.models.vllm_model.VLLMBase`. This module adds the
+Qwen-Omni-specific surface: ``qwen_omni_utils.process_mm_info`` multimodal
+preprocessing, Turn-1/Turn-2 prompt construction, a batched preprocessing
+thread pool, and the ``prefetch_weights`` / ``transcribe_batch`` adapter
+protocol methods.
 """
 
 from __future__ import annotations
 
-import gc
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import torch
 from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.adapters.asr.base import ASRResult
+from nemo_curator.models.vllm_model import VLLM_AVAILABLE, VLLMBase
 from nemo_curator.utils.gpu_utils import get_gpu_count
 
 if TYPE_CHECKING:
@@ -55,19 +55,6 @@ try:
     from transformers import Qwen3OmniMoeProcessor
 except ImportError:
     Qwen3OmniMoeProcessor = None  # type: ignore[assignment,misc]
-
-try:
-    from vllm import LLM, SamplingParams
-
-    VLLM_AVAILABLE = True
-except ImportError:
-    VLLM_AVAILABLE = False
-
-    class LLM:  # type: ignore[no-redef]
-        pass
-
-    class SamplingParams:  # type: ignore[no-redef]
-        pass
 
 
 def _require_audio_cuda12_stack(*, context: str) -> None:
@@ -97,7 +84,7 @@ _FOLLOWUP_PROMPT_DEFAULT = (
 
 
 @dataclass
-class QwenOmniASRAdapter:
+class QwenOmniASRAdapter(VLLMBase):
     """Qwen3-Omni in-process vLLM adapter (thinker-only path).
 
     Stages instantiate adapters as
@@ -192,8 +179,6 @@ class QwenOmniASRAdapter:
         self.followup_prompt = self._load_text(self.followup_prompt, self.followup_prompt_file)
         self.system_prompt = self._load_text(self.system_prompt, self.system_prompt_file)
 
-        self._llm: LLM | None = None
-        self._sampling_params: SamplingParams | None = None
         self._processor: Any = None
         self._prep_pool: ThreadPoolExecutor | None = None
 
@@ -224,60 +209,49 @@ class QwenOmniASRAdapter:
             return
         _require_audio_cuda12_stack(context="setup()")
 
-        setup_t0 = time.perf_counter()
         tp_size = self.tensor_parallel_size or get_gpu_count()
-
         logger.info(
             f"Loading QwenOmni model={self.model_id}  tp={tp_size}  "
             f"max_model_len={self.max_model_len}  max_num_seqs={self.max_num_seqs}"
             + (f"  revision={self.revision}" if self.revision is not None else "")
         )
 
-        llm_kwargs: dict[str, Any] = {}
+        model_kwargs: dict[str, Any] = {
+            "model": self.model_id,
+            "trust_remote_code": True,
+            "gpu_memory_utilization": self.gpu_memory_utilization,
+            "tensor_parallel_size": tp_size,
+            "limit_mm_per_prompt": {"image": 1, "video": 1, "audio": int(self.limit_mm_per_prompt_audio)},
+            "max_num_seqs": self.max_num_seqs,
+            "max_model_len": self.max_model_len,
+            "seed": int(self.seed),
+            "enable_prefix_caching": bool(self.enable_prefix_caching),
+            "prefix_caching_hash_algo": str(self.prefix_caching_hash_algo),
+        }
         if self.revision is not None:
-            llm_kwargs["revision"] = self.revision
-        self._llm = LLM(
-            model=self.model_id,
-            trust_remote_code=True,
-            gpu_memory_utilization=self.gpu_memory_utilization,
-            tensor_parallel_size=tp_size,
-            limit_mm_per_prompt={"image": 1, "video": 1, "audio": int(self.limit_mm_per_prompt_audio)},
-            max_num_seqs=self.max_num_seqs,
-            max_model_len=self.max_model_len,
-            seed=int(self.seed),
-            enable_prefix_caching=bool(self.enable_prefix_caching),
-            prefix_caching_hash_algo=str(self.prefix_caching_hash_algo),
-            **llm_kwargs,
-        )
+            model_kwargs["revision"] = self.revision
+
+        sampling_kwargs: dict[str, Any] = {
+            "temperature": self.temperature,
+            "top_k": self.top_k,
+            "max_tokens": self.max_output_tokens,
+        }
+
+        self._init_engine(model_kwargs, sampling_kwargs)
 
         proc_kwargs: dict[str, Any] = {}
         if self.revision is not None:
             proc_kwargs["revision"] = self.revision
         self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id, **proc_kwargs)
 
-        self._sampling_params = SamplingParams(
-            temperature=self.temperature,
-            top_k=self.top_k,
-            max_tokens=self.max_output_tokens,
-        )
-
         self._prep_pool = ThreadPoolExecutor(max_workers=self.prep_workers)
-
-        logger.info("QwenOmni model loaded in {:.3f}s", time.perf_counter() - setup_t0)
 
     def teardown(self) -> None:
         if self._prep_pool is not None:
             self._prep_pool.shutdown(wait=False)
             self._prep_pool = None
-        del self._llm
-        self._llm = None
         self._processor = None
-        self._sampling_params = None
-        gc.collect()
-        try:
-            torch.cuda.empty_cache()
-        except Exception as e:  # noqa: BLE001
-            logger.debug("CUDA cache clear skipped: {}", e)
+        self._cleanup_gpu()
 
     def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         """Run batched Qwen-Omni inference over a batch of per-task dicts.
@@ -292,7 +266,7 @@ class QwenOmniASRAdapter:
         waveforms = [it["waveform"] for it in items]
         sample_rates = [it["sample_rate"] for it in items]
         languages = [it.get("language") for it in items]
-        pred_texts, disfl_texts, skipped_indices = self._generate(waveforms, sample_rates, languages)
+        pred_texts, disfl_texts, skipped_indices = self._run_two_turn(waveforms, sample_rates, languages)
         has_t2 = bool(self.followup_prompt)
         return [
             ASRResult(
@@ -469,7 +443,7 @@ class QwenOmniASRAdapter:
         return total
 
     @staticmethod
-    def _first_output_text(output: Any) -> str:
+    def _first_output_text(output: Any) -> str:  # noqa: ANN401
         sequences = getattr(output, "outputs", None) or []
         if not sequences:
             return ""
@@ -479,7 +453,7 @@ class QwenOmniASRAdapter:
     # Two-turn generation - logic preserved from pre-split QwenOmni
     # ------------------------------------------------------------------
 
-    def _generate(
+    def _run_two_turn(
         self,
         waveforms: list[np.ndarray],
         sample_rates: list[int],
@@ -491,10 +465,6 @@ class QwenOmniASRAdapter:
         ``disfluency_texts`` is all empty strings when ``followup_prompt``
         is not set.
         """
-        if self._llm is None or self._sampling_params is None:
-            msg = "Adapter not initialized. Call setup() first."
-            raise RuntimeError(msg)
-
         n = len(waveforms)
         metrics: dict[str, float] = {
             "utterances_input": float(n),
@@ -540,7 +510,7 @@ class QwenOmniASRAdapter:
             logger.warning(f"Skipped {n - len(valid_inputs)}/{n} corrupt audio samples")
 
         t1_t0 = time.perf_counter()
-        t1_outputs = self._llm.generate(valid_inputs, sampling_params=self._sampling_params, use_tqdm=False)
+        t1_outputs = self._generate(valid_inputs)
         metrics["turn1_generation_time_s"] = time.perf_counter() - t1_t0
         metrics["turn1_output_tokens"] = self._count_output_tokens(t1_outputs)
         metrics["output_tokens"] += metrics["turn1_output_tokens"]
@@ -573,9 +543,7 @@ class QwenOmniASRAdapter:
             return pred_texts, [""] * n, skipped_indices
 
         t2_t0 = time.perf_counter()
-        t2_outputs = self._llm.generate(
-            [p for _, p in t2_valid], sampling_params=self._sampling_params, use_tqdm=False,
-        )
+        t2_outputs = self._generate([p for _, p in t2_valid])
         metrics["turn2_generation_time_s"] = time.perf_counter() - t2_t0
         metrics["turn2_output_tokens"] = self._count_output_tokens(t2_outputs)
         metrics["output_tokens"] += metrics["turn2_output_tokens"]

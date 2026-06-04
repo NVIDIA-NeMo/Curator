@@ -12,8 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""vLLM model wrappers.
+
+Provides:
+
+- :class:`VLLMBase` - shared vLLM engine management (engine creation,
+  generation, GPU cleanup). ``_generate`` accepts plain text prompts *or*
+  multimodal prompt dicts (``{"prompt": ..., "multi_modal_data": {...}}``),
+  because ``vllm.LLM.generate`` handles both transparently, so audio/vision
+  adapters can build on the same engine plumbing.
+- :class:`VLLMModel` - generic text-generation wrapper implementing
+  :class:`ModelInterface`.
+"""
+
+from __future__ import annotations
+
+import gc
+import time
 from typing import Any
 
+import torch
+import torch.distributed as dist
 from loguru import logger
 
 from nemo_curator.models.base import ModelInterface
@@ -33,7 +52,81 @@ except ImportError:
         pass
 
 
-class VLLMModel(ModelInterface):
+class VLLMBase:
+    """Shared vLLM engine management for text and multimodal generation.
+
+    Holds the loaded ``LLM`` engine plus its ``SamplingParams`` and exposes
+    protected helpers so subclasses can create the engine, run generation, and
+    release GPU memory without duplicating boilerplate. Not intended for direct
+    instantiation.
+
+    ``_generate`` returns the raw vLLM ``RequestOutput`` list so callers can
+    read generated text *and* token-level metadata. Prompts may be text strings
+    or multimodal prompt dicts.
+    """
+
+    _llm: LLM | None = None
+    _sampling_params: SamplingParams | None = None
+
+    def _init_engine(self, model_kwargs: dict[str, Any], sampling_kwargs: dict[str, Any]) -> None:
+        """Create the vLLM ``LLM`` engine and ``SamplingParams``.
+
+        Args:
+            model_kwargs: Keyword arguments forwarded to ``vllm.LLM``.
+            sampling_kwargs: Keyword arguments forwarded to ``vllm.SamplingParams``.
+
+        Raises:
+            RuntimeError: If engine construction fails.
+        """
+        start_time = time.perf_counter()
+        try:
+            self._llm = LLM(**model_kwargs)
+        except Exception as e:
+            msg = f"vLLM model loading failed: {e}"
+            logger.error(msg)
+            raise RuntimeError(msg) from e
+        logger.info("vLLM engine loaded in {:.3f}s", time.perf_counter() - start_time)
+        self._sampling_params = SamplingParams(**sampling_kwargs)
+
+    def _generate(self, prompts: list, *, use_tqdm: bool = False) -> list:
+        """Run generation on the loaded engine and return raw outputs.
+
+        Args:
+            prompts: Text prompt strings or multimodal prompt dicts.
+            use_tqdm: Forwarded to ``vllm.LLM.generate``.
+
+        Returns:
+            The vLLM ``RequestOutput`` objects, one per prompt.
+
+        Raises:
+            RuntimeError: If the engine is not initialized or generation fails.
+        """
+        if self._llm is None or self._sampling_params is None:
+            msg = "vLLM engine not initialized. Call setup() first."
+            raise RuntimeError(msg)
+        try:
+            return self._llm.generate(prompts, sampling_params=self._sampling_params, use_tqdm=use_tqdm)
+        except (RuntimeError, ValueError, TypeError) as e:
+            msg = f"Error generating text: {e}"
+            raise RuntimeError(msg) from e
+
+    def _cleanup_gpu(self) -> None:
+        """Release the engine and GPU memory; destroy any TP process group."""
+        if self._llm is not None:
+            del self._llm
+            self._llm = None
+        self._sampling_params = None
+        if dist.is_initialized():
+            dist.destroy_process_group()
+        gc.collect()
+        try:
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        except Exception as e:  # noqa: BLE001
+            logger.debug("CUDA cache clear skipped: {}", e)
+
+
+class VLLMModel(VLLMBase, ModelInterface):
     """Generic vLLM language model wrapper for text generation."""
 
     def __init__(  # noqa: PLR0913
@@ -77,8 +170,6 @@ class VLLMModel(ModelInterface):
         self.min_p = min_p
         self.max_tokens = max_tokens
         self.cache_dir = cache_dir
-        self._llm: LLM | None = None
-        self._sampling_params: SamplingParams | None = None
         self._final_max_model_len: int | None = None
         self._is_qwen3: bool = False
 
@@ -126,9 +217,6 @@ class VLLMModel(ModelInterface):
             f"max_num_batched_tokens={final_max_batched}"
         )
 
-        self._llm = LLM(**llm_kwargs)
-        self._final_max_model_len = final_max_model_len
-
         max_gen_tokens = self.max_tokens if self.max_tokens is not None else final_max_model_len
         if max_gen_tokens is None:
             logger.warning(
@@ -153,7 +241,8 @@ class VLLMModel(ModelInterface):
         else:
             sampling_kwargs["top_p"] = self.top_p
 
-        self._sampling_params = SamplingParams(**sampling_kwargs)
+        self._init_engine(llm_kwargs, sampling_kwargs)
+        self._final_max_model_len = final_max_model_len
         self._is_qwen3 = is_qwen3
 
     def generate(
@@ -173,20 +262,8 @@ class VLLMModel(ModelInterface):
         Raises:
             RuntimeError: If the model is not set up or generation fails.
         """
-        if self._llm is None or self._sampling_params is None:
-            msg = "Model not initialized. Call setup() first."
-            raise RuntimeError(msg)
-
-        try:
-            outputs = self._llm.generate(
-                prompts,
-                sampling_params=self._sampling_params,
-                use_tqdm=False,
-            )
-            return [out.outputs[0].text if out.outputs else "" for out in outputs]
-        except (RuntimeError, ValueError, TypeError) as e:
-            msg = f"Error generating text: {e}"
-            raise RuntimeError(msg) from e
+        outputs = self._generate(prompts)
+        return [out.outputs[0].text if out.outputs else "" for out in outputs]
 
     def get_tokenizer(self) -> Any:  # noqa: ANN401
         """Get the tokenizer from the LLM instance."""

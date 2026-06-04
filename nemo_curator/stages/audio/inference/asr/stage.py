@@ -42,8 +42,7 @@ import hydra.utils
 from loguru import logger
 
 from nemo_curator.adapters.asr.base import ASRAdapter, ASRResult
-from nemo_curator.stages.audio.batch_policy import BatchPolicy
-from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.inference.bucketed_stage import BucketedInferenceStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
@@ -51,6 +50,7 @@ if TYPE_CHECKING:
     import numpy as np
 
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+    from nemo_curator.stages.inference.batch_policy import BatchPolicy
 
 
 # ISO-code -> human-readable language name mapping lives on the stage.
@@ -110,7 +110,7 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
 
 
 @dataclass
-class ASRStage(ProcessingStage[AudioTask, AudioTask]):
+class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", ASRResult]):
     """Audio speech-recognition Curator stage with pluggable adapter.
 
     Tier-1 fields (``adapter_target``, ``model_id``, I/O keys, chunking limits)
@@ -158,7 +158,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         prefetch_fail_on_error: When False, ``setup_on_node`` warns and
             defers weight prefetch to ``setup()`` instead of raising.
         batch_policy: Optional duration-bucketed batching policy
-            (:class:`~nemo_curator.stages.audio.batch_policy.BatchPolicy`).
+            (:class:`~nemo_curator.stages.inference.batch_policy.BatchPolicy`).
             When set, every ``process_batch`` invocation internally
             re-partitions its items into bucket-respecting sub-batches
             before dispatching the adapter, so a single vLLM call
@@ -227,6 +227,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             )
             raise ValueError(msg)
         self._adapter: ASRAdapter | None = None
+        # Per-``process_batch`` accumulators, reset in ``build_items`` (the
+        # first hook invoked each call) and consumed in ``assemble``.
+        self._acc_model_metrics: dict[str, float] = defaultdict(float)
+        self._inference_elapsed_s: float = 0.0
 
     # ------------------------------------------------------------------
     # Adapter lifecycle
@@ -250,7 +254,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 self.adapter_target,
                 time.perf_counter() - prefetch_t0,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             msg = f"ASRStage: prefetch_weights failed for {self.model_id}"
             if self.prefetch_fail_on_error:
                 raise RuntimeError(msg) from exc
@@ -327,11 +331,15 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             chunks.append(waveform[start : start + max_samples])
         return chunks
 
-    def _build_items(
+    def build_items(
         self,
         tasks: list[AudioTask],
     ) -> tuple[list[dict[str, Any]], list[int]]:
-        """Build the flat per-sub-chunk item list + parent-index map.
+        """Pre-slice tasks into the flat per-sub-chunk item list + parent map.
+
+        :class:`~nemo_curator.stages.inference.bucketed_stage.BucketedInferenceStage`
+        hook (runs first each call): validates inputs, resets the per-call
+        metric accumulators, then expands long clips into contiguous chunks.
 
         Returns:
             ``(items, parent_of)`` where ``items[i]`` is the dict the
@@ -346,6 +354,20 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 * ``audio_seconds``: this sub-chunk's duration in seconds
                 * ``chunk_idx`` / ``chunk_count``: position within parent
         """
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = (
+                    f"Task {task.task_id} missing required columns for "
+                    f"{type(self).__name__}: {self.inputs()}"
+                )
+                raise ValueError(msg)
+        if self._adapter is None:
+            msg = "Adapter not initialized - setup() was not called"
+            raise RuntimeError(msg)
+
+        self._acc_model_metrics = defaultdict(float)
+        self._inference_elapsed_s = 0.0
+
         items: list[dict[str, Any]] = []
         parent_of: list[int] = []
         slice_ceiling = float(self.max_inference_duration_s or self.ideal_inference_segment_s)
@@ -439,67 +461,52 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         msg = f"{type(self).__name__} only supports process_batch"
         raise NotImplementedError(msg)
 
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        if not tasks:
-            return []
-        for task in tasks:
-            if not self.validate_input(task):
-                msg = (
-                    f"Task {task.task_id} missing required columns for "
-                    f"{type(self).__name__}: {self.inputs()}"
-                )
-                raise ValueError(msg)
+    # ------------------------------------------------------------------
+    # BucketedInferenceStage hooks (process_batch lives in the base)
+    # ------------------------------------------------------------------
 
-        if self._adapter is None:
-            msg = "Adapter not initialized - setup() was not called"
-            raise RuntimeError(msg)
+    def item_cost(self, item: dict[str, Any]) -> float:
+        """Bucketing cost of one sub-chunk: its audio duration in seconds."""
+        return float(item.get("audio_seconds", 0.0))
 
-        # 1. Pre-slice into sub-chunk items
-        items, parent_of = self._build_items(tasks)
+    def run_inference(self, items: list[dict[str, Any]]) -> list[ASRResult]:
+        """Transcribe ONE bucket-respecting sub-batch via the adapter.
 
-        # 2. Bucket-partition into sub-batches when batch_policy is set
-        if self.batch_policy is not None and items:
-            sub_batches = self.batch_policy.bucketize(
-                items,
-                duration_fn=lambda it: float(it.get("audio_seconds", 0.0)),
-            )
-        else:
-            sub_batches = [(list(range(len(items))), items)]
-
-        # 3. One adapter call per sub-batch; accumulate ordered results + metrics
-        all_results: list[ASRResult | None] = [None] * len(items)
-        accumulated_model_metrics: dict[str, float] = defaultdict(float)
+        Also folds the adapter's per-call ``last_metrics`` and the wall-clock
+        inference time into the per-``process_batch`` accumulators that
+        :meth:`assemble` later reports.
+        """
         inference_t0 = time.perf_counter()
-        for sub_indices, sub_items in sub_batches:
-            if not sub_items:
-                continue
-            sub_results = self._adapter.transcribe_batch(sub_items)
-            if len(sub_results) != len(sub_items):
-                msg = (
-                    f"Adapter {self.adapter_target} returned {len(sub_results)} results "
-                    f"for {len(sub_items)} items (must match 1:1)"
-                )
-                raise RuntimeError(msg)
-            for i, r in zip(sub_indices, sub_results, strict=True):
-                all_results[i] = r
-            last_m = dict(getattr(self._adapter, "last_metrics", {}) or {})
-            for k, v in last_m.items():
-                if isinstance(v, (int, float)):
-                    accumulated_model_metrics[k] += float(v)
-        inference_elapsed = time.perf_counter() - inference_t0
+        sub_results = self._adapter.transcribe_batch(items)
+        self._inference_elapsed_s += time.perf_counter() - inference_t0
+        last_m = dict(getattr(self._adapter, "last_metrics", {}) or {})
+        for k, v in last_m.items():
+            if isinstance(v, (int, float)):
+                self._acc_model_metrics[k] += float(v)
+        return sub_results
+
+    def assemble(
+        self,
+        tasks: list[AudioTask],
+        items: list[dict[str, Any]],
+        parent_of: list[int],
+        results: list[ASRResult],
+    ) -> list[AudioTask]:
+        """Stitch sub-chunk results per parent task, write outputs, emit metrics."""
+        accumulated_model_metrics = self._acc_model_metrics
+        inference_elapsed = self._inference_elapsed_s
 
         # Defensive: turn any None slots into skipped placeholders (won't
         # happen in correct adapter implementations; guards against silent
         # data loss if a future adapter forgets a slot).
-        for i, r in enumerate(all_results):
-            if r is None:
-                all_results[i] = ASRResult(text="", skipped=True)
-        chunk_results: list[ASRResult] = [r for r in all_results if r is not None]
+        chunk_results: list[ASRResult] = [
+            r if r is not None else ASRResult(text="", skipped=True) for r in results
+        ]
 
-        # 4. Stitch sub-chunk results back per parent task
+        # Stitch sub-chunk results back per parent task
         per_parent_results = self._stitch(chunk_results, parent_of, num_parents=len(tasks))
 
-        # 5. Write outputs onto tasks
+        # Write outputs onto tasks
         skipped_count = 0
         for task, parent_result in zip(tasks, per_parent_results, strict=True):
             task.data[self.pred_text_key] = parent_result.text
@@ -511,11 +518,11 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             if not self.keep_waveform:
                 task.data.pop(self.waveform_key, None)
 
-        # 6. Metrics. ``utterances_input``/``utterances_processed`` count
-        #    PARENT tasks (preserves the pre-refactor 1-row-per-input
-        #    semantic that downstream consumers rely on);
-        #    ``sub_chunks_generated`` surfaces the pre-slicer's fan-out
-        #    factor for transparency.
+        # Metrics. ``utterances_input``/``utterances_processed`` count
+        # PARENT tasks (preserves the pre-refactor 1-row-per-input
+        # semantic that downstream consumers rely on);
+        # ``sub_chunks_generated`` surfaces the pre-slicer's fan-out
+        # factor for transparency.
         waveforms_for_metric = [it["waveform"] for it in items]
         sample_rates_for_metric = [it["sample_rate"] for it in items]
         metrics: dict[str, float] = {
@@ -560,7 +567,6 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         logger.info(
             f"ASRStage ({self.adapter_target}): generated {len(per_parent_results)} parent predictions "
             f"from {len(items)} sub-chunk(s) "
-            f"(disfluency_text={'on' if self.disfluency_text_key else 'off'}, "
-            f"sub_batches={len(sub_batches)})",
+            f"(disfluency_text={'on' if self.disfluency_text_key else 'off'})",
         )
         return tasks
