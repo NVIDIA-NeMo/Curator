@@ -12,7 +12,7 @@
     "paths": ["tests/stages/image"]
   },
   "audio": {
-    "extras": ["audio_cuda12"],
+    "extras": ["audio_cuda12", "vllm"],
     "paths": ["tests/stages/audio"]
   },
   "sdg": {
