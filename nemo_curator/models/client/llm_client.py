@@ -154,8 +154,17 @@ class AsyncLLMClient(ABC):
                         or "APIConnectionError" in str(last_exception)
                         or "httpx.ReadError" in str(last_exception)
                     )
+                    # Read/request timeouts are transient under server load (the vLLM
+                    # queue drains and a retry usually succeeds), so treat them as
+                    # retryable rather than fatal. Covers httpx.ReadTimeout and
+                    # openai.APITimeoutError ("Request timed out.").
+                    is_timeout = (
+                        "timeout" in str(last_exception).lower()
+                        or "timed out" in str(last_exception).lower()
+                        or isinstance(last_exception, TimeoutError)
+                    )
 
-                    if is_rate_limit or is_connection_error:
+                    if is_rate_limit or is_connection_error or is_timeout:
                         if is_rate_limit:
                             logger.warning(
                                 f"Rate limit error (429) detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s..."
