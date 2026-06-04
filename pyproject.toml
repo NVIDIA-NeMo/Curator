@@ -60,6 +60,7 @@ dependencies = [
     "fsspec",
     "hydra-core",
     "jieba==0.42.1",
+    "lmdb>=1.4",
     "loguru",
     "mecab-python3",
     "omegaconf",

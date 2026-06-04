@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -222,17 +223,34 @@ class Pipeline:
 
         return "\n".join(lines)
 
-    def run(self, executor: BaseExecutor | None = None, initial_tasks: list[Task] | None = None) -> list[Task] | None:
+    def run(
+        self,
+        executor: BaseExecutor | None = None,
+        initial_tasks: list[Task] | None = None,
+        checkpoint_path: str | Path | None = None,
+    ) -> list[Task] | None:
         """Run the pipeline.
 
         Args:
             executor (BaseExecutor): Executor to use
             initial_tasks (list[Task], optional): Initial tasks to start the pipeline with. Defaults to None.
+            checkpoint_path (str | Path, optional): Directory used for
+                resumability. When set, completed source partitions are tracked
+                across runs and skipped on rerun; the tracking state lives in a
+                ``.nemo_curator_metadata`` subdirectory. Multiple independent
+                runs (e.g. the tasks of a SLURM array) may point at the same
+                directory — each writes its own LMDB file, so there is no
+                shared-file contention. The actor lifecycle is owned by this
+                method; executors are not modified.
 
         Returns:
             list[Task] | None: List of tasks
         """
         self.build()
+
+        if checkpoint_path is not None:
+            checkpoint_path = Path(checkpoint_path).absolute()
+            checkpoint_path.mkdir(parents=True, exist_ok=True)
 
         if executor is None:
             from nemo_curator.backends.xenna import XennaExecutor
@@ -263,4 +281,46 @@ class Pipeline:
         if initial_tasks:
             assign_root_task_ids(initial_tasks)
 
-        return executor.execute(self.stages, initial_tasks)
+        if checkpoint_path is None:
+            return executor.execute(self.stages, initial_tasks)
+        return self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+
+    def _run_with_resumability(
+        self,
+        executor: BaseExecutor,
+        initial_tasks: list[Task] | None,
+        checkpoint_path: Path,
+    ) -> list[Task] | None:
+        """Owns the full resumability-actor lifecycle. Per-backend executors
+        are not modified — the actor is spawned ``lifetime="detached"`` so
+        it survives executor-local ``ray.shutdown()`` calls.
+
+        The actor never raises (see ``ResumabilityActor.apply_deltas``), so
+        there's no watchdog and no error propagation path here — just spawn,
+        run, close.
+        """
+        import ray
+
+        from nemo_curator.utils.resumability_actor import ResumabilityActor
+        from nemo_curator.utils.resumability_client import ACTOR_NAME
+
+        ray.init(ignore_reinit_error=True)
+        ResumabilityActor.options(  # type: ignore[attr-defined]
+            name=ACTOR_NAME,
+            lifetime="detached",
+            get_if_exists=True,
+            max_pending_calls=100,
+        ).remote(str(checkpoint_path))
+
+        try:
+            return executor.execute(self.stages, initial_tasks)
+        finally:
+            # The executor's ray.shutdown() may have run in its own
+            # finally:; reconnect to clean up the detached actor.
+            try:
+                ray.init(ignore_reinit_error=True)
+                actor_handle = ray.get_actor(ACTOR_NAME)
+                ray.get(actor_handle.close.remote(), timeout=10)  # type: ignore[attr-defined]
+                ray.kill(actor_handle)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"resumability actor cleanup failed: {e}")
