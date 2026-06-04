@@ -151,8 +151,8 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `disfluency_text_key` | Output key for the optional Turn-2 (disfluency) transcription; set to `null` to disable | `qwen3_prediction_s2` |
 | `model_id` | Hugging Face model identifier | `Qwen/Qwen3-Omni-30B-A3B-Instruct` |
 | `revision` | Optional Hugging Face revision to pin | `null` |
-| `ideal_inference_segment_s` | SDP-V2 §6 model-card per-turn audio cap. Also anchors the bucket shape under `batch_policy`. | `2400` (40 min) |
-| `max_inference_duration_s` | SDP-V2 §6 (b) stage-level chunking ceiling. Clips longer than this are pre-sliced into contiguous sub-chunks before inference and stitched back per parent task. | `2400` (= `ideal_inference_segment_s`) |
+| `ideal_inference_segment_s` | Model per-turn audio cap; also anchors the bucket shape under `batch_policy`. | `2400` (40 min) |
+| `max_inference_duration_s` | Stage-level chunking ceiling. Clips longer than this are pre-sliced into contiguous sub-chunks before inference and stitched back per parent task. | `2400` (= `ideal_inference_segment_s`) |
 | `ml_prompt` | Default prompt sent with audio | `Transcribe the audio.` |
 | `ml_prompt_file` | File containing the default prompt | `null` |
 | `en_prompt_file` | File containing an English-specific prompt | `null` |
@@ -167,16 +167,16 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `max_num_seqs` | vLLM maximum concurrent sequences | `16` |
 | `gpu_memory_utilization` | vLLM GPU memory utilization fraction | `0.90` |
 | `prep_workers` | Thread workers for audio preprocessing | `16` |
-| `enable_prefix_caching` | SDP-V2 §6 (d): vLLM prefix-cache toggle. Repeating prompts (system + user + follow-up) benefit hugely. | `true` |
+| `enable_prefix_caching` | vLLM prefix-cache toggle. Repeating prompts (system + user + follow-up) benefit when enabled. | `true` |
 | `prefix_caching_hash_algo` | Hash algorithm backing the prefix cache (`xxhash` or `sha256`). | `xxhash` |
 | `limit_mm_per_prompt_audio` | vLLM multi-modal audio-token cap per prompt. Two-turn flow needs `≥ 2`. | `2` |
 | `seed` | vLLM scheduler / sampling seed. | `1234` |
-| `keep_waveform` | SDP-V2 §6 (c): keep waveform arrays after inference so downstream §7 / §8 stages can reuse the in-memory buffer; the writer still drops arrays from JSONL. | `true` |
+| `keep_waveform` | Keep waveform arrays after inference so downstream stages can reuse the in-memory buffer; the writer still drops arrays from JSONL. | `true` |
 | `cpu_batch_size` | Writer batch size | `64` |
 
 #### Duration-aware bucketed batching (`batch_policy`)
 
-The `qwen_omni` stage declares an optional `batch_policy` block (SDP-V2 §0.3):
+The `qwen_omni` stage declares an optional `batch_policy` block:
 
 ```yaml
 batch_policy:
@@ -196,10 +196,10 @@ short clips fire in larger batches, long clips fire alone or near-alone.
 Set `batch_policy: null` to disable bucketing (single adapter call per
 `process_batch` over all items).
 
-Cross-`process_batch` queueing (the full §0.3 model with per-bucket
-queues and a flush timer) requires a Curator-framework scheduler hook
-and is a follow-up PR. `flush_interval_ms` is recorded on the dataclass
-for forward-compat but is not consumed by the stage today.
+Cross-`process_batch` queueing with per-bucket queues and a flush timer
+requires a Curator-framework scheduler hook and is a follow-up PR.
+`flush_interval_ms` is recorded on the dataclass for forward-compat but
+is not consumed by the stage today.
 
 ### Stage Selectors
 

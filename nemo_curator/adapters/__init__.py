@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Model adapters for the SDP-V2 stage-adapter split.
+"""Model adapters for pluggable audio inference stages.
 
 Each adapter family (``asr``, ``diarization``, ``vad``, ...) lives in its
 own subpackage and exposes:

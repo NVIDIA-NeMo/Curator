@@ -15,11 +15,11 @@
 """Tests for the generic ``ASRStage`` driven by ``QwenOmniASRAdapter``.
 
 Covers:
-    * the SDP-V2 ?6 (a) Tier-1 / Tier-2 stage<->adapter contract;
-    * the ?6 (b) stage-side pre-slice + stitch-back;
-    * the ?6 (c) ``keep_waveform: True`` SDP-V2 default;
-    * the ?6 (d) adapter-knob elevation (vLLM prefix-cache / seed / etc.);
-    * the ?0.3 best-effort within-call duration-bucketed batching.
+    * Tier-1 / Tier-2 stage<->adapter contract;
+    * stage-side pre-slice + stitch-back;
+    * ``keep_waveform: True`` default;
+    * adapter vLLM knobs exposed via ``adapter_kwargs``;
+    * within-call duration-bucketed batching via ``BatchPolicy``.
 """
 
 from types import SimpleNamespace
@@ -102,8 +102,7 @@ def test_basic_inference_single_turn() -> None:
 
 
 def test_keep_waveform_default_is_true() -> None:
-    """SDP-V2 ?6 (c): the stage-level default is now keep_waveform=True so
-    downstream ?7 / ?8 / ?14 stages can reuse the in-memory waveform."""
+    """Default ``keep_waveform`` is True so downstream stages can reuse the waveform."""
     stage = _make_stage()  # no keep_waveform override
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello world")]
 
@@ -168,7 +167,7 @@ def test_adapter_result_length_mismatch_raises() -> None:
 
 
 # ----------------------------------------------------------------------
-# SDP-V2 ?6 (b): stage-side pre-slice + stitch-back
+# Stage-side pre-slice + stitch-back
 # ----------------------------------------------------------------------
 
 
@@ -293,7 +292,7 @@ def test_pre_slice_metrics_count_parents_not_chunks() -> None:
 
 
 # ----------------------------------------------------------------------
-# SDP-V2 ?0.3: best-effort within-call duration-bucketed batching
+# Within-call duration-bucketed batching
 # ----------------------------------------------------------------------
 
 
@@ -670,14 +669,13 @@ def test_qwen_adapter_single_turn_drops_secondary_text() -> None:
 
 
 # ----------------------------------------------------------------------
-# Adapter-level: SDP-V2 ?6 (d) - elevated vLLM knobs
+# Adapter-level vLLM knobs
 # ----------------------------------------------------------------------
 
 
 def test_qwen_adapter_has_elevated_vllm_knobs_as_dataclass_fields() -> None:
-    """SDP-V2 ?6 (d): enable_prefix_caching / prefix_caching_hash_algo /
-    limit_mm_per_prompt_audio / seed must be settable from YAML
-    adapter_kwargs (so they're dataclass fields, not hardcoded constants).
+    """enable_prefix_caching, prefix_caching_hash_algo, limit_mm_per_prompt_audio,
+    and seed are dataclass fields settable from YAML ``adapter_kwargs``.
     """
     adapter = QwenOmniASRAdapter(
         model_id="mock/qwen-omni",
@@ -693,8 +691,7 @@ def test_qwen_adapter_has_elevated_vllm_knobs_as_dataclass_fields() -> None:
 
 
 def test_qwen_adapter_vllm_knob_defaults_match_doc() -> None:
-    """Defaults must match the SDP-V2 ?6 design-doc values so an YAML
-    with no overrides reproduces the pre-elevation behaviour."""
+    """Default vLLM knob values match the tutorial when YAML omits overrides."""
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
     assert adapter.enable_prefix_caching is True
     assert adapter.prefix_caching_hash_algo == "xxhash"

@@ -17,11 +17,11 @@
 # Small PR first-stage pipeline:
 #   NemoTarredAudioReader -> ASRStage (Qwen-Omni adapter) -> ShardedManifestWriter
 #
-# The middle stage uses the SDP-V2 stage->adapter split: the generic
+# The middle stage uses a generic ASR stage with a pluggable adapter:
 # ``ASRStage`` owns Curator-side glue (task.data reads, validate_input,
 # batching, ISO-code -> language-name lookup, schema mutation, metrics);
-# the Qwen-Omni-specific knobs live under ``adapter_kwargs``. Swap models
-# by replacing the single ``adapter_target:`` line.
+# Qwen-Omni-specific knobs live under ``adapter_kwargs``. Swap models by
+# replacing the single ``adapter_target:`` line.
 #
 # Invoked directly or by an external launcher via:
 #   python tutorials/audio/qwen_omni_inprocess/main.py \
@@ -75,11 +75,11 @@ adapter_target: nemo_curator.adapters.asr.QwenOmniASRAdapter
 model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 revision: null
 
-# Stage I/O keys (Tier-1). Naming follows SDP-V2 design doc §6.
+# Stage I/O keys (Tier-1).
 pred_text_key: qwen3_prediction_s1
 disfluency_text_key: qwen3_prediction_s2
 
-# Pre-slice + bucket-shape anchors (SDP-V2 §6 (b) and §0.3).
+# Pre-slice limits and bucket-shape anchors for batch_policy.
 # Qwen-Omni's per-turn audio cap is 40 minutes (2400 s); the stage pre-slices
 # any clip exceeding ``max_inference_duration_s`` into contiguous
 # ≤ ``max_inference_duration_s`` sub-chunks and stitches outputs back per
@@ -87,9 +87,8 @@ disfluency_text_key: qwen3_prediction_s2
 ideal_inference_segment_s: 2400
 max_inference_duration_s: 2400
 
-# SDP-V2 §6 (c): keep_waveform default flipped to true so downstream
-# hallucination / recovery / forced-alignment stages can reuse the
-# in-memory buffer without re-reading from tarred shards.
+# keep_waveform: retain arrays after inference so downstream stages can
+# reuse the in-memory buffer without re-reading from tarred shards.
 keep_waveform: true
 
 # Qwen-Omni adapter-specific knobs (Tier-2: adapter_kwargs.*)
@@ -108,7 +107,7 @@ max_num_seqs: 16
 gpu_memory_utilization: 0.90
 prep_workers: 16
 
-# SDP-V2 §6 (d): vLLM knobs elevated to per-deployment YAML knobs.
+# vLLM runtime knobs (exposed as top-level YAML for this tutorial).
 enable_prefix_caching: true
 prefix_caching_hash_algo: xxhash
 limit_mm_per_prompt_audio: 2
@@ -152,7 +151,7 @@ stages:
     keep_waveform: ${keep_waveform}
     prefetch_fail_on_error: ${prefetch_fail_on_error}
     batch_size: ${batch_size}
-    # SDP-V2 §0.3 best-effort within-call duration-bucketed batching.
+    # Within-call duration-bucketed batching.
     # Cross-call queueing requires framework-scheduler support (follow-up PR);
     # this block re-buckets whatever items each process_batch invocation
     # assembles so a single vLLM call never mixes a 40-min sub-chunk with

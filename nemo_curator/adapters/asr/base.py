@@ -14,7 +14,7 @@
 
 """Stage-adapter contract for audio speech-recognition.
 
-Mirrors the diarization/LID/VAD contract pattern from the SDP-V2 design:
+Mirrors the diarization/LID/VAD stage-adapter contract:
 
 * ``ASRStage`` (in ``nemo_curator/stages/audio/inference/asr.py``) owns
   Curator-side glue - ``task.data`` reads, batching, ISO language-code

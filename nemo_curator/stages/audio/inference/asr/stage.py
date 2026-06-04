@@ -12,33 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generic audio ASR Curator stage (SDP-V2 design doc §6).
+"""Generic audio ASR Curator stage with a pluggable adapter.
 
-Implements the stage half of the SDP-V2 stage-adapter split. The stage
-owns exactly the Curator-side glue:
+The stage owns Curator-side glue:
 
 * validates ``task.data`` against ``inputs()`` / ``outputs()``;
 * unpacks per-task knobs (waveform, sample rate, ISO language code -> name);
 * **pre-slices** any task whose audio duration exceeds
-  ``max_inference_duration_s`` into contiguous ``≤ max_inference_duration_s``
-  sub-chunks BEFORE adapter dispatch (§6 (b), doc lines 765 + 827);
-* optionally **re-buckets** the resulting item list by per-item duration
-  using the declared :class:`BatchPolicy` so a single adapter call never
-  mixes one 40-min sub-chunk with thirty-one 5-sec sub-chunks (§0.3,
-  doc lines 332-372);
-* dispatches the adapter ``transcribe_batch`` call once per bucket-respecting
-  sub-batch;
-* **stitches** per-sub-chunk results back per parent task with a single-space
-  join on the predicted text (and on the secondary / disfluency text when
-  enabled), so each input task gets exactly one output row;
-* writes the predicted text(s) onto ``task.data`` under stage-configured
-  output keys; marks ``_skip_me`` for adapter-flagged skips; drops the
-  in-memory waveform after inference (unless ``keep_waveform``);
-* emits performance metrics in the shape ``perf_summary_merged.json``
-  consumers already expect.
+  ``max_inference_duration_s`` into contiguous sub-chunks before adapter dispatch;
+* optionally **re-buckets** items by duration using :class:`BatchPolicy` so a
+  single adapter call does not mix very long and very short clips;
+* dispatches ``transcribe_batch`` once per bucket-respecting sub-batch;
+* **stitches** per-sub-chunk results back per parent task;
+* writes predictions onto ``task.data``; marks skipped items; optionally keeps
+  waveforms in memory; emits performance metrics.
 
-The stage knows nothing about which model is running. The concrete adapter
-class is resolved at runtime from the YAML's ``adapter_target`` string via
+The concrete adapter is resolved at runtime from ``adapter_target`` via
 ``hydra.utils.get_class``.
 """
 
@@ -64,9 +53,8 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
-# Per the design doc, the ISO-code -> human-readable-language-name mapping
-# lives on the stage (Tier-3 per-task knob extraction). The adapter receives
-# already-resolved names like "English", "Spanish" via the item dict.
+# ISO-code -> human-readable language name mapping lives on the stage.
+# The adapter receives resolved names like "English", "Spanish" via each item dict.
 _LANG_CODE_TO_NAME: dict[str, str] = {
     "ar": "Arabic",
     "bg": "Bulgarian",
@@ -125,18 +113,11 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
 class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     """Audio speech-recognition Curator stage with pluggable adapter.
 
-    Implements all four SDP-V2 §6 deltas from granary-v2:
-        (a) Tier-1/Tier-2 YAML split via ``adapter_target`` + ``adapter_kwargs``.
-        (b) Stage-side pre-slice into ≤ ``max_inference_duration_s`` sub-chunks
-            with stitch-back on output text(s).
-        (c) ``keep_waveform: True`` SDP-V2 default (so downstream §7 / §8
-            stages can reuse the in-memory waveform).
-        (d) Adapter-knob elevation (the adapter dataclass exposes
-            ``enable_prefix_caching`` etc as ``adapter_kwargs`` fields;
-            the stage forwards them verbatim).
-
-    Plus the §0.3 best-effort within-call duration-bucketed batching when
-    ``batch_policy`` is set.
+    Tier-1 fields (``adapter_target``, ``model_id``, I/O keys, chunking limits)
+    are set in YAML. Tier-2 model knobs are forwarded opaquely via
+    ``adapter_kwargs``. The stage can pre-slice long audio, optionally
+    duration-bucket batches, stitch chunk outputs per parent task, and by
+    default keeps waveforms in ``task.data`` for downstream stages.
 
     Args:
         adapter_target: Tier-1 swap surface. Fully-qualified class path
@@ -158,14 +139,13 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         disfluency_text_key: When set, enables Turn-2 / refined output -
             the stage writes ``ASRResult.secondary_text or ""`` under
             this key, and reports the key in ``outputs()``. ``None``
-            means single-turn semantics. Named per design doc §6 line 784;
-            consumers that want generic naming can alias it.
+            means single-turn semantics.
         skip_me_key: Key set to ``"empty_audio"`` for adapter-flagged
             skipped items (matches the pre-split convention).
         ideal_inference_segment_s: Tier-1. Model-card per-turn audio cap.
             Used as the default upper bound for pre-slicing and as the
-            anchor for ``BatchPolicy`` bucket shapes. Doc default for
-            Qwen-Omni: ``2400.0`` (40 min, §6 line 827).
+            anchor for ``BatchPolicy`` bucket shapes. Qwen-Omni default:
+            ``2400.0`` (40 min).
         max_inference_duration_s: Tier-1. Stage-level chunking ceiling.
             Defaults to ``ideal_inference_segment_s``. Any task whose
             audio duration exceeds this value is pre-sliced into
@@ -173,10 +153,8 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             adapter dispatch. Set lower than ``ideal`` for VRAM-pressured
             deployments (the slice grain shrinks; bucket shape stays
             anchored to ``ideal``).
-        keep_waveform: When True (SDP-V2 default), keeps
-            ``task.data[waveform_key]`` after inference so downstream
-            stages (§7 hallucination, §8 ASR recovery, §14 forced
-            alignment) can reuse the same in-memory buffer.
+        keep_waveform: When True (default), keeps ``task.data[waveform_key]``
+            after inference so downstream stages can reuse the in-memory buffer.
         prefetch_fail_on_error: When False, ``setup_on_node`` warns and
             defers weight prefetch to ``setup()`` instead of raising.
         batch_policy: Optional duration-bucketed batching policy
@@ -185,8 +163,8 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             re-partitions its items into bucket-respecting sub-batches
             before dispatching the adapter, so a single vLLM call
             never mixes a 40-min sub-chunk with a 5-sec sub-chunk.
-            Cross-call queueing (the full §0.3 model) requires
-            framework-scheduler support which is a follow-up PR.
+            Cross-call queueing with per-bucket flush timers requires
+            framework-scheduler support (not implemented here).
         adapter_kwargs: Tier-2. Opaque dict forwarded to the adapter
             constructor as ``**adapter_kwargs``. The stage NEVER reads
             inside this dict - it is the adapter's private knob bag.
@@ -208,11 +186,11 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     disfluency_text_key: str | None = None
     skip_me_key: str = "_skip_me"
 
-    # ---- Tier 1: SDP-V2 stage-side pre-slice + bucket shape anchor ----
+    # ---- Tier 1: pre-slice + bucket shape anchor ----
     ideal_inference_segment_s: float = 2400.0
     max_inference_duration_s: float | None = None
 
-    # ---- Tier 1: SDP-V2 default (granary-v2 was False) ----
+    # ---- Tier 1: keep waveform for downstream stages ----
     keep_waveform: bool = True
 
     prefetch_fail_on_error: bool = True
@@ -320,7 +298,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         return None
 
     # ------------------------------------------------------------------
-    # Pre-slice (SDP-V2 §6 (b))
+    # Pre-slice long clips into sub-chunks
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -405,7 +383,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         return items, parent_of
 
     # ------------------------------------------------------------------
-    # Stitch-back (§6 (b)) - join per-chunk text outputs per parent task
+    # Stitch sub-chunk outputs per parent task
     # ------------------------------------------------------------------
 
     def _stitch(
@@ -476,10 +454,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "Adapter not initialized - setup() was not called"
             raise RuntimeError(msg)
 
-        # 1. Pre-slice into sub-chunk items (§6 (b))
+        # 1. Pre-slice into sub-chunk items
         items, parent_of = self._build_items(tasks)
 
-        # 2. Bucket-partition into sub-batches honouring the §0.3 policy
+        # 2. Bucket-partition into sub-batches when batch_policy is set
         if self.batch_policy is not None and items:
             sub_batches = self.batch_policy.bucketize(
                 items,
@@ -518,7 +496,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 all_results[i] = ASRResult(text="", skipped=True)
         chunk_results: list[ASRResult] = [r for r in all_results if r is not None]
 
-        # 4. Stitch sub-chunk results back per parent task (§6 (b))
+        # 4. Stitch sub-chunk results back per parent task
         per_parent_results = self._stitch(chunk_results, parent_of, num_parents=len(tasks))
 
         # 5. Write outputs onto tasks

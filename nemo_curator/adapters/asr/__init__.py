@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ASR adapter family for the SDP-V2 stage-adapter split.
+"""ASR adapter family for the stage-adapter pattern.
 
 Public surface for stages and type checkers:
 

@@ -12,28 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Duration-aware batch policy for SDP-V2 audio stages (design doc §0.3).
+"""Duration-aware batch policy for audio inference stages.
 
-The policy is a *typed Hydra-instantiable knob bag* the audio stages can
-honour when they're given a heterogeneous batch of items (variable audio
-duration per item).
+Hydra-instantiable policy used when a stage receives a heterogeneous batch
+(items with different audio durations). The ``bucketize`` helper re-partitions
+items within a single ``process_batch`` call so one adapter invocation does
+not mix very long and very short clips.
 
-The full §0.3 model is "each bucket has its own cross-process_batch queue
-with a flush timer", which is a *scheduler-level* feature that requires
-Curator-framework support. The stage-side helper below implements the
-weaker but immediately-useful within-call invariant the doc's worked
-example (§0.3, lines 353-354) describes:
-
-* every item is already ≤ ``ideal_inference_segment_s`` because the stage
-  pre-sliced any over-long clip first; and
-* whatever multi-task batch Curator hands the stage gets re-partitioned
-  into bucket-respecting sub-batches so a single 40-minute sub-chunk
-  never ends up in the same vLLM call as a 5-second sub-chunk.
-
-``flush_interval_ms`` is recorded on the dataclass for forward-compat
-(framework-level scheduler integration is a follow-up PR) but is NOT
-consumed by ``bucketize`` - this helper has no notion of cross-call
-time.
+Cross-call per-bucket queues with flush timers are a scheduler-level feature;
+``flush_interval_ms`` is stored for forward compatibility but is not used by
+``bucketize``.
 """
 
 from __future__ import annotations
@@ -45,30 +33,24 @@ from typing import Any, Callable
 
 @dataclass
 class BatchPolicy:
-    """Duration-aware bucketed batching policy (SDP-V2 §0.3).
+    """Duration-aware bucketed batching policy.
 
-    The defaults mirror the §6 (Qwen-Omni) values from the design doc, so
-    a YAML that just declares ``_target_:
-    nemo_curator.stages.audio.batch_policy.BatchPolicy`` with no overrides
-    is the same as declaring the full Qwen-Omni policy block.
+    Defaults match the Qwen-Omni tutorial layout
+    (``buckets_sec=[0, 600, 1200, 2400]`` when ``ideal_inference_segment_s=2400``).
 
     Args:
         strategy: Bucketing mode. Currently only ``"duration_bucketed"``
             is implemented (per-item audio-second bucket lookup).
             ``"segment_bucketed"`` and ``"token_bucketed"`` are reserved
-            future strategies (see doc lines 360-372).
-        buckets_sec: Left-edges of each duration bucket, in audio
-            seconds, matching the doc-literal layout
-            ``[0, ideal/4, ideal/2, ideal]``. Must be strictly
-            increasing and start at ``0``. Bucket ``i`` covers
-            ``[buckets_sec[i], buckets_sec[i+1])`` and the last bucket
+            for future use.
+        buckets_sec: Left-edges of each duration bucket in seconds.
+            Must be strictly increasing and start at ``0``. Bucket ``i``
+            covers ``[buckets_sec[i], buckets_sec[i+1])``; the last bucket
             covers ``[buckets_sec[-1], +inf)``.
         max_items_per_batch_by_bucket: Per-bucket cap on items per
             sub-batch. Length must equal ``len(buckets_sec)``.
-        max_audio_sec_per_batch: Cross-bucket cap on total audio seconds
-            per sub-batch (the global "audio-second budget" from §0.3,
-            line 349). When set to ``None``, only the per-bucket item
-            caps apply.
+        max_audio_sec_per_batch: Optional cap on total audio seconds
+            per sub-batch. When ``None``, only per-bucket item caps apply.
         flush_interval_ms: Cross-process_batch flush timer (ms). Recorded
             for forward-compat; the stage-side helper does not consume
             this value because it has no notion of cross-call time.
@@ -84,7 +66,7 @@ class BatchPolicy:
         if self.strategy != "duration_bucketed":
             msg = (
                 f"BatchPolicy: strategy={self.strategy!r} not yet implemented; "
-                "only 'duration_bucketed' is supported (see SDP-V2 design doc §0.3)."
+                "only 'duration_bucketed' is supported."
             )
             raise ValueError(msg)
         if not self.buckets_sec:
@@ -149,9 +131,7 @@ class BatchPolicy:
             A list of ``(orig_indices, sub_items)`` tuples; the union of
             the ``orig_indices`` is exactly ``range(len(items))`` and the
             tuples are ordered with all sub-batches of the smallest
-            bucket first (the smallest bucket fires fastest, matching
-            the doc's expectation that fast sub-chunks don't wait on
-            longer ones).
+            bucket first (smallest-duration buckets are scheduled first).
 
         Per-sub-batch invariants:
             * all items in a sub-batch belong to the same bucket;

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Qwen3-Omni ASR adapter for the SDP-V2 stage-adapter split.
+"""Qwen3-Omni ASR adapter (in-process vLLM).
 
 Implements the :class:`~nemo_curator.adapters.asr.ASRAdapter` protocol on
 top of the in-process vLLM thinker-only path. Two-turn output (Turn-1
@@ -100,7 +100,7 @@ _FOLLOWUP_PROMPT_DEFAULT = (
 class QwenOmniASRAdapter:
     """Qwen3-Omni in-process vLLM adapter (thinker-only path).
 
-    Constructor matches the SDP-V2 adapter convention: stages instantiate
+    Stages instantiate adapters as
     via ``cls(model_id=..., revision=..., **adapter_kwargs)``, so every
     field below is a keyword-only knob the YAML's ``adapter_kwargs`` block
     can set.
@@ -137,24 +137,22 @@ class QwenOmniASRAdapter:
         temperature: Sampling temperature (0.0 = greedy).
         top_k: Top-k sampling.
         prep_workers: Thread-pool size for parallel audio preprocessing.
-        enable_prefix_caching: vLLM prefix-cache toggle. SDP-V2 §6 elevates
-            this from a hardcoded constant to a per-deployment knob - the
-            doc keeps it ``True`` because the system / user / follow-up
-            prompts repeat across every request, but a deployment with
-            random prompts can disable it without re-rolling the image.
+        enable_prefix_caching: vLLM prefix-cache toggle. Default ``True``
+            because system / user / follow-up prompts repeat across requests;
+            disable for deployments with highly variable prompts.
         prefix_caching_hash_algo: Backing hash algorithm for the prefix
             cache. ``"xxhash"`` matches the doc default; vLLM also accepts
             ``"sha256"``.
         limit_mm_per_prompt_audio: Per-prompt audio-token cap for vLLM's
             multi-modal limiter. Default ``2`` matches the doc and the
-            pre-split granary-v2 value (enough for the two-turn flow).
+            default (enough for the two-turn flow).
             Set to ``1`` for strictly single-turn deployments.
         seed: vLLM scheduler / sampling seed. Exposed so reproducibility
             tests (and follow-up bit-exactness checks) can override it
             from YAML.
     """
 
-    # SDP-V2 adapter constructor convention - first two are universal.
+    # Universal adapter constructor fields (forwarded by ASRStage).
     model_id: str = _QWEN3_OMNI_MODEL_ID
     revision: str | None = None
 
@@ -176,7 +174,7 @@ class QwenOmniASRAdapter:
     top_k: int = 1
     prep_workers: int = 8
 
-    # SDP-V2 §6 (d): vLLM knobs elevated to adapter_kwargs.
+    # vLLM knobs (set via adapter_kwargs in YAML).
     enable_prefix_caching: bool = True
     prefix_caching_hash_algo: str = "xxhash"
     limit_mm_per_prompt_audio: int = 2
