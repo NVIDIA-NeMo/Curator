@@ -69,6 +69,27 @@ class MaybeFanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
         return task
 
 
+class ExplicitMaybeFanoutProcessingStage(MaybeFanoutProcessingStage):
+    """Maybe-fanout stage that opts into Ray fanout explicitly."""
+
+    name = "ExplicitMaybeFanoutProcessingStage"
+
+    def ray_stage_spec(self) -> dict[str, bool]:
+        return {"is_fanout_stage": True}
+
+
+class StringAnnotatedFanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
+    """ProcessingStage with a string return annotation."""
+
+    name = "StringAnnotatedFanoutProcessingStage"
+
+    def process(self, task: MockTask) -> list[MockTask]:
+        return [task]
+
+
+StringAnnotatedFanoutProcessingStage.process.__annotations__["return"] = "list[MissingTask]"
+
+
 class TestProcessingStageWith:
     """Test the with_ method for ProcessingStage."""
 
@@ -296,8 +317,18 @@ class TestProcessingStageRaySpec:
 
         assert stage.ray_stage_spec() == {"is_fanout_stage": True}
 
-    def test_ray_stage_spec_detects_optional_fanout_stage(self):
+    def test_ray_stage_spec_does_not_infer_optional_fanout_stage(self):
         stage = MaybeFanoutProcessingStage()
+
+        assert stage.ray_stage_spec() == {}
+
+    def test_ray_stage_spec_allows_optional_fanout_stage_to_opt_in(self):
+        stage = ExplicitMaybeFanoutProcessingStage()
+
+        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+
+    def test_ray_stage_spec_detects_string_annotated_fanout_stage(self):
+        stage = StringAnnotatedFanoutProcessingStage()
 
         assert stage.ray_stage_spec() == {"is_fanout_stage": True}
 

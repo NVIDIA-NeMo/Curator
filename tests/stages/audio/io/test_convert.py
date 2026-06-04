@@ -18,6 +18,12 @@ from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.tasks import AudioBatch
 
 
+def test_audio_to_document_stage_is_ray_fanout_stage() -> None:
+    stage = AudioToDocumentStage()
+
+    assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+
+
 def test_audio_to_document_stage_converts_batch() -> None:
     audio = AudioBatch(
         task_id="t1",

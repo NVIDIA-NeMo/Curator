@@ -28,6 +28,11 @@ def _make_file_group_task(paths: list[str]) -> FileGroupTask:
 class TestALMManifestReaderStage:
     """Unit tests for ALMManifestReaderStage (low-level stage)."""
 
+    def test_ray_stage_spec_is_fanout_stage(self) -> None:
+        stage = ALMManifestReaderStage()
+
+        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+
     def test_reads_single_manifest(self, tmp_path: Path) -> None:
         entries = [
             {"audio_filepath": "a.wav", "audio_sample_rate": 16000, "segments": []},

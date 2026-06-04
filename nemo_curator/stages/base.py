@@ -19,8 +19,7 @@ import copy
 import time
 from abc import ABC, ABCMeta, abstractmethod
 from inspect import isabstract
-from types import UnionType
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, Union, final, get_args, get_origin, get_type_hints
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, final, get_origin, get_type_hints
 
 from loguru import logger
 
@@ -320,12 +319,10 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     @staticmethod
     def _annotation_includes_list(annotation: object) -> bool:
         """Return whether an annotation is or includes a list type."""
-        origin = get_origin(annotation)
-        if origin is list:
-            return True
-        if origin in (UnionType, Union) or isinstance(annotation, UnionType):
-            return any(ProcessingStage._annotation_includes_list(arg) for arg in get_args(annotation))
-        return False
+        if isinstance(annotation, str):
+            return annotation.strip().startswith(("list[", "List[", "typing.List["))
+
+        return get_origin(annotation) is list
 
     # --- Custom per-stage metrics helpers ---
     def _log_metrics(self, metrics: dict[str, float]) -> None:

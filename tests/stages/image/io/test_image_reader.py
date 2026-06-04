@@ -177,6 +177,14 @@ def test_process_raises_on_empty_task() -> None:
         stage.process(empty)
 
 
+def test_ray_stage_spec_is_fanout_stage() -> None:
+    from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+
+    with patch("torch.cuda.is_available", return_value=False):
+        stage = ImageReaderStage(dali_batch_size=2, verbose=False)
+
+    assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+
 
 def test_resources_with_cuda_available() -> None:
     from nemo_curator.stages.image.io.image_reader import ImageReaderStage
