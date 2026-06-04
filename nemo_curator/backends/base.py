@@ -17,9 +17,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from loguru import logger
+
 from nemo_curator.core.utils import ignore_ray_head_node
 from nemo_curator.tasks import Task
+from nemo_curator.tasks.sentinels import FailedTask, NoneTask
 from nemo_curator.utils.performance_utils import StageTimer
+from nemo_curator.utils.resumability_client import _flush_deltas, _is_active, _skip_completed_sources
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
@@ -85,8 +89,22 @@ class BaseStageAdapter:
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
 
+        # A returned ``None`` ("filter this slot") becomes a NoneTask so every
+        # output is a real Task that gets a task_id. Sentinels (NoneTask /
+        # FailedTask) carry no identity and are stripped again before this
+        # method returns.
+        results = [NoneTask() if r is None else r for r in results]
+
         # Guarantee every emitted task has a task_id (derived id, or uuid fallback).
         results = self._post_process_task_ids(tasks, results)
+
+        # Opt-in resumability: fire per-source counter deltas. A no-op (the
+        # client helpers self-disable) when no resumability actor is registered.
+        if _is_active():
+            results = self._apply_resumability_counters(tasks, results)
+
+        # Sentinels never propagate to the next stage.
+        results = [r for r in results if not isinstance(r, (NoneTask, FailedTask))]
 
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
@@ -167,6 +185,82 @@ class BaseStageAdapter:
         for task in out:
             task.task_id = "r" + uuid.uuid4().hex
         return out
+
+    # ------------------------------------------------------------------ #
+    # Resumability (opt-in). Runs only when a resumability actor is
+    # registered. task_ids are already assigned by _post_process_task_ids;
+    # this layer only stamps _source_id, fires per-source counter deltas, and
+    # drops already-completed sources. Sentinels are stripped by the caller.
+    # ------------------------------------------------------------------ #
+    def _apply_resumability_counters(self, input_tasks: list[Task], output_tasks: list[Task]) -> list[Task]:  # noqa: C901
+        stage = self.stage
+        if getattr(stage, "is_source_stage", False):
+            return self._source_counters(output_tasks)
+
+        # Pre-source stages: inputs carry no _source_id, so there's nothing to
+        # track yet. Leave outputs untouched.
+        if all(not t._source_id for t in input_tasks):
+            return output_tasks
+
+        is_sink = stage.is_sink_stage
+        per_task: list[tuple[str, str, int]] = []
+        real = [t for t in output_tasks if not isinstance(t, (NoneTask, FailedTask))]
+
+        if len(input_tasks) == 1 and len(output_tasks) != 1:
+            # Genuine fan-out (1 -> N, N != 1): every real output descends from
+            # the single input. (The 1 -> 1 case falls through to the positional
+            # branch so a lone FailedTask is handled as "no delta".)
+            parent = input_tasks[0]
+            delta = -1 if is_sink else (len(real) - 1)
+            per_task.append((parent.task_id, parent._source_id, delta))
+            for c in real:
+                if not c._source_id:
+                    c._source_id = parent._source_id
+        elif len(output_tasks) == len(input_tasks):
+            # Positional 1:1, including filtered (NoneTask) / failed slots.
+            for parent, r in zip(input_tasks, output_tasks, strict=True):
+                sid = parent._source_id
+                if isinstance(r, FailedTask):
+                    # No delta: the input stays pending so its source reruns.
+                    continue
+                if isinstance(r, NoneTask):
+                    per_task.append((parent.task_id, sid, -1))
+                    continue
+                per_task.append((parent.task_id, sid, -1 if is_sink else 0))
+                if not r._source_id:
+                    r._source_id = sid
+        else:
+            # M inputs -> K outputs (K != M): the parent of each output can't be
+            # determined, so the counter can't be updated correctly. Skip
+            # (the source counter stays pending -> reprocessed on resume).
+            logger.warning(
+                f"resumability: {type(stage).__name__} produced {len(output_tasks)} outputs "
+                f"for {len(input_tasks)} inputs; can't attribute sources, skipping counter "
+                f"update for this batch."
+            )
+            return output_tasks
+
+        _flush_deltas(per_task)
+        return output_tasks
+
+    def _source_counters(self, output_tasks: list[Task]) -> list[Task]:
+        """Source stage: each output is a source partition. Its ``_source_id``
+        is its own (last) id segment — the content id or index assigned by
+        ``_post_process_task_ids``. Already-completed sources are dropped; each
+        surviving source fires a ``+1``."""
+        sources = [t for t in output_tasks if not isinstance(t, (NoneTask, FailedTask))]
+        for t in sources:
+            t._source_id = t.task_id.rsplit("_", 1)[-1]
+        completed = _skip_completed_sources([t._source_id for t in sources])
+        per_task: list[tuple[str, str, int]] = []
+        survivors: list[Task] = []
+        for t in sources:
+            if t._source_id in completed:
+                continue
+            per_task.append((t.task_id, t._source_id, +1))
+            survivors.append(t)
+        _flush_deltas(per_task)
+        return survivors
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup the stage on a node.
