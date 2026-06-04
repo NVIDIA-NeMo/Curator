@@ -8,7 +8,7 @@ The pipeline reads a Granary-style NeMo tarred audio data config, decodes audio 
 
 - **Input**: Granary YAML data config with `nemo_tarred` corpora
 - **Reader**: Streams local NeMo tar shards and decodes waveforms in memory
-- **Inference**: Runs Qwen3-Omni thinker-only audio-to-text generation through in-process vLLM. The Curator-side glue lives in the generic `ASRStage` (input validation, ISO-code -> language-name lookup, stage-side pre-slicing for clips longer than `max_inference_duration_s`, optional duration-bucketed batching, stitch-back, metrics); the Qwen-Omni-specific vLLM setup, prompt formatting, and two-turn generation live in `QwenOmniASRAdapter`. Swap models by changing the single `adapter_target:` line in the YAML; tweak the bucket shape via `batch_policy:`.
+- **Inference**: Runs Qwen3-Omni thinker-only audio-to-text generation through in-process vLLM. The Curator-side glue lives in the generic `ASRStage` (input validation, ISO-code -> language-name lookup, stage-side pre-slicing for clips longer than `max_inference_duration_s`, optional duration-bucketed batching, stitch-back, metrics); the Qwen-Omni-specific vLLM setup, prompt formatting, and two-turn generation live in `QwenOmniASRAdapter`. Swap models by changing the single `adapter_target:` line in the YAML; tweak the bucket shape via `batch_policy:`. `ASRStage` itself subclasses the modality-agnostic `BucketedInferenceStage` (`nemo_curator/stages/inference/`), so the bucketize -> dispatch -> reassemble loop is shared with any other GPU inference stage rather than re-coded per model.
 - **Output**: Writes per-shard manifests, `.done` markers, an optional final manifest, and `perf_summary.json`
 
 ### Pipeline Flow
@@ -180,13 +180,17 @@ The `qwen_omni` stage declares an optional `batch_policy` block:
 
 ```yaml
 batch_policy:
-  _target_: nemo_curator.stages.audio.batch_policy.BatchPolicy
+  _target_: nemo_curator.stages.inference.batch_policy.BatchPolicy
   strategy: duration_bucketed
   buckets_sec: [0, 600, 1200, 2400]
   max_items_per_batch_by_bucket: [32, 16, 8, 4]
   max_audio_sec_per_batch: 2400
   flush_interval_ms: 250
 ```
+
+`BatchPolicy` and the `run_bucketed` helper it drives live in the
+modality-agnostic `nemo_curator.stages.inference.batch_policy` module so
+any GPU inference stage can reuse them.
 
 When set, every `process_batch` invocation internally re-partitions its
 items into bucket-respecting sub-batches before dispatching the adapter,

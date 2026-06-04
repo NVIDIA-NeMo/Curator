@@ -159,7 +159,7 @@ stages:
     # 4 bins at [0, ideal/4, ideal/2, ideal] with item caps shrinking by
     # bucket and a global audio-second ceiling of K × ideal (K=1 here).
     batch_policy:
-      _target_: nemo_curator.stages.audio.batch_policy.BatchPolicy
+      _target_: nemo_curator.stages.inference.batch_policy.BatchPolicy
       strategy: duration_bucketed
       buckets_sec: [0, 600, 1200, 2400]
       max_items_per_batch_by_bucket: [32, 16, 8, 4]

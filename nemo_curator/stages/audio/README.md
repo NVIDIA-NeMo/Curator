@@ -197,6 +197,91 @@ Backend reads stage.batch_size
   Start with `16` and increase until you see OOM or throughput plateaus.
   For NeMo ASR FastConformer models, `16–64` is typical on a single GPU.
 
+## Pluggable-adapter inference + the generic cost-bucketed base
+
+GPU inference stages that follow a *bucketize -> dispatch -> reassemble*
+pattern (expand tasks into model-input items, group items so one model
+call does not mix very expensive and very cheap work, run the model,
+stitch results back) no longer need to re-code that loop. Two reusable,
+**modality-agnostic** building blocks live in
+`nemo_curator/stages/inference/`:
+
+| Component | Location | Role |
+|---|---|---|
+| `BatchPolicy` | `stages/inference/batch_policy.py` | Cost-bucketed batching config (`buckets_sec`, `max_items_per_batch_by_bucket`, `max_audio_sec_per_batch`). `bucketize()` re-partitions a heterogeneous batch into bucket-respecting sub-batches. |
+| `run_bucketed` | `stages/inference/batch_policy.py` | The single importable entry point: dispatches a `run_fn` over cost-bucketed sub-batches and realigns results to the original order. `policy=None` runs one batch. |
+| `BucketedInferenceStage` | `stages/inference/bucketed_stage.py` | Abstract `ProcessingStage` subclass owning `process_batch`. Subclasses implement four small hooks; bucketing comes for free. |
+
+Import these from `nemo_curator.stages.inference.batch_policy` — that is
+the single canonical home, shared across audio, text, and vision GPU
+inference stages.
+
+A `BucketedInferenceStage` subclass implements four hooks instead of
+`process_batch`:
+
+```
+build_items(tasks)   -> (items, parent_of)   expand tasks into flat model-input items (+ parent map);
+                                              ALSO reset any per-call accumulators here (runs first).
+item_cost(item)      -> float                per-item bucketing cost (audio seconds, tokens, pixels, ...).
+run_inference(items) -> results              run the model on ONE sub-batch; return one result per item (1:1).
+assemble(tasks, items, parent_of, results) -> out_tasks   stitch results back; write outputs; emit metrics.
+```
+
+The base `process_batch` wires them through `run_bucketed`:
+
+```python
+def process_batch(self, tasks):
+    if not tasks:
+        return []
+    items, parent_of = self.build_items(tasks)
+    results = run_bucketed(items, self.run_inference, cost_fn=self.item_cost, policy=self.batch_policy)
+    return self.assemble(tasks, items, parent_of, results)
+```
+
+### The ASR adapter split (Tier-1 / Tier-2)
+
+For audio speech recognition the concrete stage is `ASRStage`
+(`stages/audio/inference/asr/stage.py`), a `BucketedInferenceStage`
+subclass that owns only Curator-side glue — input validation, ISO-code ->
+language-name resolution, pre-slicing clips longer than
+`max_inference_duration_s`, stitch-back, and metrics. The *model-specific*
+logic (vLLM setup, prompt formatting, two-turn generation) lives behind a
+swappable **adapter**:
+
+| Layer | Location | Responsibility |
+|---|---|---|
+| `ASRStage` | `stages/audio/inference/asr/stage.py` | Generic, model-independent stage glue. |
+| `ASRAdapter` (Protocol) + `ASRResult` | `adapters/asr/base.py` | The contract a model adapter must satisfy (`setup`, `teardown`, `transcribe_batch`, `prefetch_weights`, `last_metrics`). |
+| `QwenOmniASRAdapter` | `adapters/asr/qwen_omni.py` | Qwen3-Omni implementation (built on the shared `VLLMBase` in `models/vllm_model.py`). |
+
+The split is **Tier-1 / Tier-2**:
+
+- **Tier-1** fields are universal stage knobs set in YAML (`adapter_target`,
+  `model_id`, I/O keys, `ideal_inference_segment_s`,
+  `max_inference_duration_s`, `keep_waveform`, `batch_policy`, ...).
+- **Tier-2** is the opaque `adapter_kwargs` dict forwarded verbatim to the
+  adapter constructor; the stage never reads inside it.
+
+Swapping the model is a one-line `adapter_target:` change in YAML; the
+adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
+`tutorials/audio/qwen_omni_inprocess/` for the end-to-end config.
+
+> **Per-call accumulator note (multi-worker safety):** `ASRStage` keeps a
+> couple of per-`process_batch` accumulators on `self` (model-metric sums,
+> inference wall time), reset in `build_items` and consumed in `assemble`.
+> This is safe because each worker runs one `process_batch` at a time
+> (Ray Actor Pool / Ray Data / single-slot Xenna). Do not enable an
+> executor that overlaps invocations on one stage instance without making
+> those accumulators call-local.
+
+### When to use which base
+
+| Pattern | Base | Override |
+|---|---|---|
+| CPU, one task at a time | `ProcessingStage[AudioTask, AudioTask]` | `process` |
+| GPU/IO, one batched call, no bucketing | `ProcessingStage` | `process_batch` (e.g. `InferenceAsrNemoStage`) |
+| GPU inference needing cost/duration bucketing + a swappable model | `BucketedInferenceStage` + an adapter | the four hooks (e.g. `ASRStage` + `ASRAdapter`) |
+
 ## What you must always declare
 
 Every stage (CPU or GPU) should declare:
