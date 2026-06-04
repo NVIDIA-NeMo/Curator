@@ -434,6 +434,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         help="Max in-flight requests per stage actor (async client semaphore bound).",
     )
     srv.add_argument("--inference_request_timeout", type=int, default=120, help="Per-request timeout (seconds).")
+    srv.add_argument(
+        "--inference_health_timeout",
+        type=int,
+        default=300,
+        help="Seconds to wait for the inference server to become healthy before failing (default: 300).",
+    )
 
     return ap
 
@@ -513,7 +519,12 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         )
         backend_cfg = DynamoServerConfig()
 
-        inference_server = InferenceServer(models=[model_cfg], backend=backend_cfg, port=args.inference_port)
+        inference_server = InferenceServer(
+            models=[model_cfg],
+            backend=backend_cfg,
+            port=args.inference_port,
+            health_check_timeout_s=args.inference_health_timeout,
+        )
         inference_server.start()
         # endpoint/port are finalized during start() (Dynamo binds to the infra
         # node IP and may reallocate the port), so read them after.
