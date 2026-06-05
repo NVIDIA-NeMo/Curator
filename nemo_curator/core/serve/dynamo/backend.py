@@ -445,29 +445,14 @@ class DynamoBackend(InferenceBackend):
     # ------------------------------------------------------------------
 
     def _frontend_router_kwargs(self, router_kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Resolve frontend ``router_kwargs``, defaulting the chat processor for multimodal models.
+        """Pass ``router_kwargs`` through verbatim as frontend CLI flags.
 
-        Dynamo's native-Rust chat processor (the frontend default) does not flatten an OpenAI
-        multimodal ``content`` array (text + image) into a plain string when the model's chat
-        template is a pass-through (e.g. Nemotron-Parse's ``{{ message['content'] }}``). It
-        serializes the array instead, corrupting the prompt and producing runaway/degenerate
-        output. vLLM's chat processor renders multimodal content correctly (matching ``vllm
-        serve`` / in-process vLLM), so for multimodal models we default to it unless the caller
-        has explicitly chosen a processor.
+        Callers must set ``dyn_chat_processor`` explicitly when needed — for
+        example, Nemotron-Parse requires ``dyn_chat_processor="vllm"`` because
+        the native-Rust processor serializes multimodal content arrays instead
+        of flattening them, corrupting pass-through chat templates.
         """
-        resolved = dict(router_kwargs)
-        any_multimodal = any(m.dynamo_kwargs.get("enable_multimodal") for m in self._models)
-        if any_multimodal and "dyn_chat_processor" not in resolved:
-            resolved["dyn_chat_processor"] = "vllm"
-            resolved.setdefault("chat_template_content_format", "string")
-            resolved.setdefault("trust_remote_code", True)
-            logger.info(
-                "Multimodal model detected; defaulting Dynamo frontend to "
-                "dyn_chat_processor=vllm (+ chat_template_content_format=string, "
-                "trust_remote_code=True) so multimodal content is rendered correctly. "
-                "Set dyn_chat_processor in router_kwargs to override."
-            )
-        return resolved
+        return dict(router_kwargs)
 
     def _launch_frontend(  # noqa: PLR0913
         self,

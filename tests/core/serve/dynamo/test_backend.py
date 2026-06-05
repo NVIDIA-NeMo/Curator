@@ -232,10 +232,26 @@ class TestDynamoBackendLaunchFrontend:
         backend._infra_pg = object()
         return backend
 
-    def test_multimodal_defaults_to_vllm_chat_processor(self, captured_spawn: list[dict[str, Any]]) -> None:
-        """Multimodal models must use vLLM chat preprocessing: the native-Rust processor
-        serializes OpenAI multimodal content arrays instead of flattening them to text."""
+    def test_multimodal_without_explicit_processor_uses_native(self, captured_spawn: list[dict[str, Any]]) -> None:
+        """router_kwargs are passed through verbatim — no auto-injection for multimodal models."""
         backend_cfg = DynamoServerConfig()
+        backend = self._make_multimodal_backend(backend_cfg)
+
+        backend._launch_frontend(port=9999, base_env={}, backend_cfg=backend_cfg)
+
+        assert "--dyn-chat-processor" not in captured_spawn[0]["python_args"]
+
+    def test_explicit_vllm_chat_processor_is_forwarded(self, captured_spawn: list[dict[str, Any]]) -> None:
+        """When dyn_chat_processor is set explicitly it flows through as a CLI flag."""
+        backend_cfg = DynamoServerConfig(
+            router=DynamoRouterConfig(
+                router_kwargs={
+                    "dyn_chat_processor": "vllm",
+                    "chat_template_content_format": "string",
+                    "trust_remote_code": True,
+                }
+            ),
+        )
         backend = self._make_multimodal_backend(backend_cfg)
 
         backend._launch_frontend(port=9999, base_env={}, backend_cfg=backend_cfg)
@@ -244,18 +260,6 @@ class TestDynamoBackendLaunchFrontend:
         assert python_args[python_args.index("--dyn-chat-processor") + 1] == "vllm"
         assert python_args[python_args.index("--chat-template-content-format") + 1] == "string"
         assert "--trust-remote-code" in python_args
-
-    def test_multimodal_explicit_processor_is_respected(self, captured_spawn: list[dict[str, Any]]) -> None:
-        backend_cfg = DynamoServerConfig(
-            router=DynamoRouterConfig(router_kwargs={"dyn_chat_processor": "dynamo"}),
-        )
-        backend = self._make_multimodal_backend(backend_cfg)
-
-        backend._launch_frontend(port=9999, base_env={}, backend_cfg=backend_cfg)
-
-        python_args = captured_spawn[0]["python_args"]
-        assert python_args[python_args.index("--dyn-chat-processor") + 1] == "dynamo"
-        assert "--chat-template-content-format" not in python_args
 
     def test_text_only_model_keeps_native_chat_processor(self, captured_spawn: list[dict[str, Any]]) -> None:
         backend_cfg = DynamoServerConfig()
