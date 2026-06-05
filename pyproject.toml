@@ -312,6 +312,7 @@ test = [
 ]
 
 [tool.uv]
+managed = true
 required-version = ">=0.7.0"
 package = true
 managed = true
