@@ -91,6 +91,24 @@ def p(parts, *lines):
     parts.extend(lines)
 
 
+def area_of(path):
+    """Group a changed file into a coarse audio area for the overview table."""
+    parts = path.split("/")
+    if path.startswith("nemo_curator/stages/audio/") and len(parts) >= 4:
+        return f"stages/audio/{parts[3]}"
+    if path.startswith("nemo_curator/tasks/"):
+        return "tasks"
+    if path.startswith("tutorials/audio/") and len(parts) >= 3:
+        return f"tutorials/audio/{parts[2]}"
+    if path.startswith("tests/"):
+        return "tests"
+    if path.startswith("benchmarking/"):
+        return "benchmarking"
+    if path.startswith("fern/"):
+        return "docs (fern)"
+    return parts[0] if parts else path
+
+
 def build(pr, outdir, today, baseline_ts, prev_head):
     def latest(kind):
         return outdir / f"pr{pr}_{kind}_latest.json"
@@ -129,6 +147,37 @@ def build(pr, outdir, today, baseline_ts, prev_head):
     if prev_head:
         p(d, f"Previous reviewed head: `{prev_head}`", "")
     p(d, "")
+
+    # ----- PR OVERVIEW (what the PR is about; present BEFORE any review) -----
+    author = (gh.get("author") or {}).get("login", "?")
+    p(d, "## What this PR does (overview)", "")
+    p(d, f"**{gh.get('title','')}** - by @{author}  "
+         f"({gh.get('state')}, +{gh.get('additions')}/-{gh.get('deletions')} "
+         f"across {gh.get('changedFiles')} files, {len(commits)} commits)", "")
+
+    p(d, "### Author's description", "")
+    pr_body = (gh.get("body") or "").strip()
+    p(d, pr_body if pr_body else "_(no PR description provided)_", "")
+
+    p(d, "### Areas touched", "")
+    areas = {}
+    for f in files:
+        e = areas.setdefault(area_of(f["filename"]), {"n": 0, "add": 0, "dele": 0})
+        e["n"] += 1
+        e["add"] += f.get("additions", 0)
+        e["dele"] += f.get("deletions", 0)
+    p(d, "| Area | files | +/- |", "|---|---|---|")
+    for a in sorted(areas):
+        e = areas[a]
+        p(d, f"| {a} | {e['n']} | +{e['add']} -{e['dele']} |")
+    p(d, "")
+
+    p(d, "### Plain-language summary (reviewer writes this BEFORE any findings)", "")
+    p(d, "_In your own words, explain in detail what this PR changes and why: the "
+         "problem it solves, the main audio stages/files it adds or modifies, key "
+         "design decisions, new dependencies/config/APIs, and the blast radius "
+         "(what could regress). Present this overview first; only then move to the "
+         "findings below._", "")
 
     p(d, "## PR state at review time", "")
     p(d, "| Field | Value |", "|---|---|")
