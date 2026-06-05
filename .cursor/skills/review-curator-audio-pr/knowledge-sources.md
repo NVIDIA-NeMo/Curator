@@ -22,7 +22,7 @@ the GitHub CLI (`gh`). Scope: the **audio** modality.
 | Source | What it gives you |
 |--------|-------------------|
 | `nemo_curator/stages/audio/README.md` | The audio stage **developer guide** (1000+ lines): CPU vs GPU stages, `process` / `process_batch`, `batch_size`, call chains, per-stage memory characteristics, end-to-end FLEURS & ALM traces, new-stage checklist. Read first. |
-| Audio curation developer guide (slides): <https://docs.google.com/presentation/d/15lJHyAoRTbNFDWq8UJ6czMaUFck3WYPCRaMYPfO_qew/edit> | Design intent and pipeline overviews behind the audio modality (the deck the README operationalizes). |
+| Audio curation developer guide (slides): <https://docs.google.com/presentation/d/15lJHyAoRTbNFDWq8UJ6czMaUFck3WYPCRaMYPfO_qew/edit?slide=id.g3be823d0e3d_0_0#slide=id.g3be823d0e3d_0_0> | Design intent and pipeline overviews behind the audio modality (the deck the README operationalizes). |
 | `nemo_curator/tasks/audio_task.py` | `AudioTask(Task[dict])` + `_AttrDict` task model (one manifest entry per task; dict keys exposed as attributes for `validate_input`). |
 | `nemo_curator/stages/base.py` | `ProcessingStage` contract: `inputs()`/`outputs()`, `process`/`process_batch`, `setup_on_node`/`setup`/`teardown`, `validate_input`. |
 | `CONTRIBUTING.md` | DCO sign-off, PR process, required tests, coverage threshold, copyright header. |
@@ -43,6 +43,34 @@ the GitHub CLI (`gh`). Scope: the **audio** modality.
 | `.cursor/rules/pipeline-structure.mdc` | Pipeline assembly |
 | `.cursor/rules/modality-structure.mdc` | Where modality code/tests/tutorials live |
 | `.cursor/rules/coding-standards.mdc` | Ruff, copyright header, loguru, pytest, Python versions |
+
+### Published audio documentation (fern docs site)
+
+The user-facing audio docs live under `fern/versions/<ver>/pages/` (latest
+versioned snapshot: **v26.04**; `fern/versions/main/` holds in-progress docs).
+These are the canonical "what the docs promise" reference - cite them when a PR's
+behavior, config, or API drifts from documented behavior. Paths below are
+relative to `fern/versions/v26.04/pages/`.
+
+| Audio concept / stage | Fern doc(s) | Code it documents |
+|------------------------|-------------|-------------------|
+| Overview / get started | `get-started/audio.mdx`, `curate-audio/index.mdx` | - |
+| Concepts (task model, pipelines, metrics) | `about/concepts/audio/{index,audio-task,curation-pipeline,asr-pipeline,alm-pipeline,manifests-ingest,quality-metrics,text-integration}.mdx` | `nemo_curator/tasks/audio_task.py` |
+| Load data / manifests | `curate-audio/load-data/{index,fleurs-dataset,custom-manifests,local-files}.mdx` | `nemo_curator/stages/audio/datasets/`, `.../io/` |
+| ASR inference | `curate-audio/process-data/asr-inference/{index,nemo-models}.mdx` | `nemo_curator/stages/audio/inference/asr/asr_nemo.py` |
+| Audio analysis (duration, format) | `curate-audio/process-data/audio-analysis/{index,duration-calculation,format-validation}.mdx` | `nemo_curator/stages/audio/common.py` |
+| Quality filtering (band, VAD, SigMOS, UTMOS, speaker separation, preprocessing, data-filter) | `curate-audio/process-data/quality-filtering/{index,band-filter,vad,sigmos,utmos,speaker-separation,preprocessing,audio-data-filter-stage}.mdx` | `.../filtering/`, `.../segmentation/`, `.../preprocessing/`, `.../advanced_pipelines/` |
+| Quality assessment (WER, duration) | `curate-audio/process-data/quality-assessment/{index,wer-filtering,duration-filtering}.mdx` | `nemo_curator/stages/audio/metrics/wer.py`, `.../common.py` |
+| ALM (data builder, overlap filtering) | `curate-audio/process-data/alm/{index,data-builder,overlap-filtering}.mdx` | `nemo_curator/stages/audio/alm/` |
+| Text integration / tagging | `curate-audio/process-data/text-integration/index.mdx` | `nemo_curator/stages/audio/tagging/` |
+| Save / export | `curate-audio/save-export.mdx` | `nemo_curator/stages/audio/io/convert.py` |
+| Tutorials | `curate-audio/tutorials/{index,beginner,readspeech,alm}.mdx` | `tutorials/audio/` |
+| API reference | `api-reference/tasks/audio-task.mdx`, `api-reference/processing-stage.mdx` | `nemo_curator/tasks/audio_task.py`, `nemo_curator/stages/base.py` |
+| Infrastructure (memory, per-stage runtime, backends, GPU, resumable, monitoring) | `reference/infrastructure/{memory-management,per-stage-runtime,execution-backends,gpu-processing,resumable-processing,monitoring}.mdx` | `nemo_curator/backends/` |
+| Release notes / migration (`AudioBatch -> AudioTask`, #1608) | `about/release-notes/{index,migration-guide,migration-faq}.mdx` | see PR #1608 |
+
+When a PR changes audio behavior, check whether the matching fern page above
+needs updating in the same PR - docs drift is a common review finding.
 
 ---
 
@@ -152,7 +180,7 @@ canonical sources to cite.
 - Guard audio I/O edge cases: `tarfile.extractfile()` returns `None` for
   non-regular members even after `isfile()` - check before `.read()`. Handle
   resampling / channel-count / dtype mismatches explicitly.
-- **References:** `nemo_curator/stages/audio/io/convert.py`; `nemo_curator/stages/audio/io/extract_segments.py`; `nemo_curator/stages/audio/alm/alm_data_builder.py`; `nemo_curator/stages/audio/preprocessing/{mono_conversion,concatenation}.py`; `nemo_curator/tasks/audio_task.py`; README "Memory characteristics".
+- **References:** `nemo_curator/stages/audio/io/convert.py`; `nemo_curator/stages/audio/io/extract_segments.py`; `nemo_curator/stages/audio/alm/alm_data_builder.py`; `nemo_curator/stages/audio/preprocessing/{mono_conversion,concatenation}.py`; `nemo_curator/tasks/audio_task.py`; README "Memory characteristics"; fern `reference/infrastructure/{memory-management,per-stage-runtime}.mdx`.
 
 ### 2.5 Tarred / sharded audio I/O
 
@@ -187,7 +215,7 @@ canonical sources to cite.
   totals/averages.
 - Standalone audio benchmark scripts belong in the `benchmarking/` flow with
   config entries and comparable parameters - not freestanding.
-- **References:** `nemo_curator/stages/audio/metrics/{wer,bandwidth,squim}.py`; `benchmarking/AUDIO_PROFILING.md`, `benchmarking/ALM_BENCHMARK.md`, `benchmarking/README.md`; rules `executors.mdc`.
+- **References:** `nemo_curator/stages/audio/metrics/{wer,bandwidth,squim}.py`; `benchmarking/AUDIO_PROFILING.md`, `benchmarking/ALM_BENCHMARK.md`, `benchmarking/README.md`; rules `executors.mdc`; fern `reference/infrastructure/{execution-backends,per-stage-runtime,monitoring,gpu-processing}.mdx`.
 
 ### 2.8 Tutorials and docs
 
@@ -199,7 +227,7 @@ canonical sources to cite.
 - Every config key documented for users must actually reach a stage; validate
   config-to-stage mapping and fail (or warn) on unused keys.
 - Don't commit generated analysis/scratch docs into the source tree.
-- **References:** `tutorials/audio/README.md`; `tutorials/audio/{alm,audio_pretrain,callhome_diar,fleurs,readspeech,single_speaker_filter,tagging}/README.md`; `nemo_curator/stages/audio/README.md`.
+- **References:** `tutorials/audio/README.md`; `tutorials/audio/{alm,audio_pretrain,callhome_diar,fleurs,readspeech,single_speaker_filter,tagging}/README.md`; `tutorials/audio/readspeech/readspeech_tutorial.ipynb`; `nemo_curator/stages/audio/README.md`; fern `curate-audio/tutorials/{index,beginner,readspeech,alm}.mdx`.
 
 ### 2.9 Tests and standards (CONTRIBUTING + coding-standards)
 
