@@ -20,7 +20,9 @@ import base64
 import io
 import json
 import zipfile
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -356,3 +358,86 @@ class TestNemotronParsePostprocessStage:
         assert result is not None
         out_df = result.to_pandas()
         assert out_df.iloc[0]["modality"] == "metadata"
+
+
+class TestNemotronParseInferenceStageMetrics:
+    def test_vllm_metrics_from_outputs(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        outputs = [
+            SimpleNamespace(
+                prompt_token_ids=[1, 2, 3],
+                outputs=[SimpleNamespace(text="hello", token_ids=[4, 5, 6], finish_reason="stop")],
+            ),
+            SimpleNamespace(
+                prompt_token_ids=[7, 8],
+                outputs=[SimpleNamespace(text="", token_ids=[], finish_reason="length")],
+            ),
+        ]
+
+        metrics = NemotronParseInferenceStage._vllm_metrics_from_outputs(
+            outputs,
+            inference_time_s=1.5,
+            num_input_pages=3,
+            num_valid_pages=2,
+            num_skipped_pages=1,
+            vllm_retries=1,
+        )
+
+        assert metrics["vllm_inference_time"] == 1.5
+        assert metrics["num_input_pages"] == 3.0
+        assert metrics["num_valid_pages"] == 2.0
+        assert metrics["num_skipped_pages"] == 1.0
+        assert metrics["total_prompt_tokens"] == 5.0
+        assert metrics["total_output_tokens"] == 3.0
+        assert metrics["total_output_chars"] == 5.0
+        assert metrics["num_output_length_truncated"] == 1.0
+        assert metrics["num_empty_outputs"] == 1.0
+        assert metrics["vllm_retries"] == 1.0
+        assert "avg_output_tokens_per_page" not in metrics
+        assert "avg_output_chars_per_page" not in metrics
+
+    def test_process_logs_vllm_metrics(self) -> None:
+        import pandas as pd
+        import pyarrow as pa
+
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+        from nemo_curator.tasks import InterleavedBatch
+
+        img = Image.new("RGB", (10, 10), color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+
+        task_df = pd.DataFrame(
+            [
+                {
+                    "sample_id": "s1",
+                    "position": 0,
+                    "modality": "page_image",
+                    "content_type": "image/png",
+                    "text_content": None,
+                    "binary_content": buf.getvalue(),
+                    "source_ref": None,
+                }
+            ]
+        )
+        task = InterleavedBatch(task_id="test", dataset_name="test", data=pa.Table.from_pandas(task_df))
+
+        stage = NemotronParseInferenceStage(backend="vllm")
+        stage._proc_size = (100, 100)
+
+        raw_outputs = [
+            SimpleNamespace(
+                prompt_token_ids=[1, 2],
+                outputs=[SimpleNamespace(text="parsed", token_ids=[3, 4, 5], finish_reason="stop")],
+            )
+        ]
+
+        with patch.object(stage, "_infer_vllm", return_value=(["parsed"], raw_outputs, 0)):
+            stage.process(task)
+
+        assert hasattr(stage, "_custom_metrics")
+        assert stage._custom_metrics["num_valid_pages"] == 1.0
+        assert stage._custom_metrics["total_output_tokens"] == 3.0
+        assert stage._custom_metrics["total_output_chars"] == 6.0
+        assert "vllm_inference_time" in stage._custom_metrics
