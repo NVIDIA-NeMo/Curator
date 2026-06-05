@@ -1,4 +1,4 @@
-# Scripts - review-curator-pr
+# Scripts - review-curator-audio-pr
 
 Both require the GitHub CLI (`gh`) authenticated against github.com. They write
 to a scratch directory (default `.curator-pr-review/`) that is safe to delete;
@@ -7,7 +7,7 @@ do not commit its contents.
 ## pr_review_pull.sh
 
 ```bash
-.cursor/skills/review-curator-pr/scripts/pr_review_pull.sh <PR_NUMBER> [--outdir DIR] [--repo OWNER/REPO]
+.cursor/skills/review-curator-audio-pr/scripts/pr_review_pull.sh <PR_NUMBER> [--outdir DIR] [--repo OWNER/REPO]
 ```
 
 Pulls six REST endpoints (`pr view`, `reviews`, inline `comments`, issue
@@ -17,7 +17,7 @@ Pulls six REST endpoints (`pr view`, `reviews`, inline `comments`, issue
 ## build_digest.py
 
 ```bash
-.cursor/skills/review-curator-pr/scripts/build_digest.py <PR_NUMBER> [--outdir DIR] [--today YYYY-MM-DD] [--prev-head SHA] [--baseline-ts TS]
+.cursor/skills/review-curator-audio-pr/scripts/build_digest.py <PR_NUMBER> [--outdir DIR] [--today YYYY-MM-DD] [--prev-head SHA] [--baseline-ts TS]
 ```
 
 Joins the `pr<N>_*_latest.json` files and writes
@@ -29,4 +29,5 @@ Joins the `pr<N>_*_latest.json` files and writes
 
 The thread join uses comment `databaseId` when present, else a
 (path, body-prefix) fallback, so both GraphQL thread-dump shapes classify
-correctly.
+correctly. The scripts fetch any PR; the audio focus is applied in the review
+lenses (see ../recurring-themes.md).
