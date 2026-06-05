@@ -208,7 +208,11 @@ class DynamoBackend(InferenceBackend):
             self._nats_actor = self._start_nats(nats_port)
             nats_url = f"nats://{self._infra_ip}:{nats_port}"
 
-        base_env = {"ETCD_ENDPOINTS": etcd_endpoint, "NATS_SERVER": nats_url}
+        base_env = {
+            **backend_cfg.subprocess_env,
+            "ETCD_ENDPOINTS": etcd_endpoint,
+            "NATS_SERVER": nats_url,
+        }
 
         effective_router_mode, effective_router_kv_events = self._resolve_effective_router(
             self._models, backend_cfg.router
@@ -440,6 +444,31 @@ class DynamoBackend(InferenceBackend):
     # Frontend
     # ------------------------------------------------------------------
 
+    def _frontend_router_kwargs(self, router_kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Resolve frontend ``router_kwargs``, defaulting the chat processor for multimodal models.
+
+        Dynamo's native-Rust chat processor (the frontend default) does not flatten an OpenAI
+        multimodal ``content`` array (text + image) into a plain string when the model's chat
+        template is a pass-through (e.g. Nemotron-Parse's ``{{ message['content'] }}``). It
+        serializes the array instead, corrupting the prompt and producing runaway/degenerate
+        output. vLLM's chat processor renders multimodal content correctly (matching ``vllm
+        serve`` / in-process vLLM), so for multimodal models we default to it unless the caller
+        has explicitly chosen a processor.
+        """
+        resolved = dict(router_kwargs)
+        any_multimodal = any(m.dynamo_kwargs.get("enable_multimodal") for m in self._models)
+        if any_multimodal and "dyn_chat_processor" not in resolved:
+            resolved["dyn_chat_processor"] = "vllm"
+            resolved.setdefault("chat_template_content_format", "string")
+            resolved.setdefault("trust_remote_code", True)
+            logger.info(
+                "Multimodal model detected; defaulting Dynamo frontend to "
+                "dyn_chat_processor=vllm (+ chat_template_content_format=string, "
+                "trust_remote_code=True) so multimodal content is rendered correctly. "
+                "Set dyn_chat_processor in router_kwargs to override."
+            )
+        return resolved
+
     def _launch_frontend(  # noqa: PLR0913
         self,
         port: int,
@@ -489,7 +518,7 @@ class DynamoBackend(InferenceBackend):
             python_args.extend(["--router-mode", router_mode])
         if router_mode == "kv":
             python_args.append("--router-kv-events" if router_kv_events else "--no-router-kv-events")
-        python_args.extend(engine_kwargs_to_cli_flags(router.router_kwargs))
+        python_args.extend(engine_kwargs_to_cli_flags(self._frontend_router_kwargs(router.router_kwargs)))
 
         logger.info(f"Starting Dynamo frontend on port {port}")
         return ManagedSubprocess.spawn(

@@ -109,6 +109,8 @@ def engine_kwargs_to_cli_flags(engine_kwargs: dict[str, Any]) -> list[str]:
 
     Example: ``{"tensor_parallel_size": 4, "enforce_eager": True}``
     becomes ``["--tensor-parallel-size", "4", "--enforce-eager"]``.
+    Boolean ``False`` values are emitted as ``--no-<flag>`` for vLLM
+    ``BooleanOptionalAction`` arguments.
     """
     flags: list[str] = []
     for key, value in engine_kwargs.items():
@@ -116,6 +118,8 @@ def engine_kwargs_to_cli_flags(engine_kwargs: dict[str, Any]) -> list[str]:
         if isinstance(value, bool):
             if value:
                 flags.append(flag)
+            else:
+                flags.append("--no-" + key.replace("_", "-"))
         elif isinstance(value, (dict, list)):
             flags.extend([flag, json.dumps(value)])
         else:
