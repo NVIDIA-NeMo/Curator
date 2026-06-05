@@ -1,57 +1,60 @@
 ---
 name: review-curator-audio-pr
 description: >-
-  Review NVIDIA-NeMo/Curator audio-modality pull requests - audio stages
-  (readers/writers, preprocessing, VAD, ASR, speaker diarization, filtering,
-  segmentation, tagging, ALM), audio tutorials, and audio benchmarks. Pulls
-  fresh PR data with the GitHub CLI, diffs the changed code, applies Curator's
-  audio stage contracts and contribution standards, and emits a structured
-  review digest plus a paste-ready comment queue. Use when a contributor or
-  maintainer asks to review, re-review, or triage an audio Curator PR (e.g.
-  "review audio PR 1967", "what's still open on the diarization PR"), or to
-  draft replies to reviewer comments on an audio PR.
+  Review someone else's NVIDIA-NeMo/Curator audio-modality pull request. This is
+  a reviewer's tool: given a PR number, it pulls the PR, diffs the changed audio
+  code, applies Curator's audio stage contracts and contribution standards,
+  shows what other reviewers have already raised (so you don't duplicate), and
+  helps you produce a structured set of review findings (P0-P3) to post as
+  review comments. Use when you are assigned or pick up an audio Curator PR and
+  need to review it (e.g. "review audio PR 1967", "do a review of this Curator
+  audio PR", "what should I flag on PR 1898"). It is NOT for a PR author
+  responding to a review.
 ---
 
 # Review NeMo Curator audio PRs
 
-Produce a defensible, reproducible review of an audio-modality
-`NVIDIA-NeMo/Curator` PR from a fresh GitHub pull plus the code diff. Audience:
-the PR author (who must respond to reviewers and land the change) and
-maintainers triaging the audio queue.
+**Use this when you are the reviewer and need to review someone else's audio
+Curator PR.** Given a PR number, it helps you understand the change, see what
+other reviewers already said, and write your own review. It does not help a PR
+author reply to reviewers - it helps you *produce* the review.
 
-This skill is scoped to the **audio** modality: code under
-`nemo_curator/stages/audio/`, `tutorials/audio/`, audio tests under
-`tests/stages/audio/`, and audio benchmarks. For non-audio PRs, the stage-
-contract lenses still apply but the audio-specific guidance below will not.
+Scope: the **audio** modality - code under `nemo_curator/stages/audio/`,
+`tutorials/audio/`, audio tests under `tests/stages/audio/`, and audio
+benchmarks. For non-audio PRs the stage-contract lenses still apply, but the
+audio-specific guidance below will not.
 
 Requirements: the GitHub CLI (`gh`) authenticated against `github.com`, and a
 local checkout of this repository (the one containing this skill).
 
-## Two deliverables (always)
+## What you produce
 
-Each review run writes two Markdown files into a scratch directory (default
-`.curator-pr-review/`, override with `--outdir`):
+Your review = a set of **findings** (P0-P3), each tied to a `path:line` on the
+PR's current head, that you post as PR review comments. The skill writes two
+helper files into a scratch directory (default `.curator-pr-review/`, override
+with `--outdir`) to support that:
 
-1. `curator_pr<N>_fresh_review_<YYYY_MM_DD>.md` - full digest: PR state,
-   commits, changed-file table, reviews, every inline comment grouped by file
-   with OPEN / OUTDATED / RESOLVED status, and issue comments.
-2. `curator_pr<N>_github_comment_queue_<YYYY_MM_DD>.md` - only the OPEN root
-   threads that need an author reply or code change, paste-ready, with stale
-   threads listed at the bottom for traceability.
+1. `curator_pr<N>_fresh_review_<YYYY_MM_DD>.md` - **your working digest**: PR
+   state, commits, changed-file table, and every existing review/comment grouped
+   by file with OPEN / OUTDATED / RESOLVED status. Read it to understand the PR
+   and to see what other reviewers already raised so you don't repeat them; add
+   your own findings at the bottom.
+2. `curator_pr<N>_github_comment_queue_<YYYY_MM_DD>.md` - **prior open threads**:
+   a condensed list of the threads other reviewers left that are still
+   unresolved on the current head. Scan it before writing your own comments.
 
-See [templates.md](templates.md) for the exact section layout. Keeping the
-structure stable makes diffs across review passes mechanical, so a re-review
-only surfaces what changed.
+See [templates.md](templates.md) for the exact layout, including how to write up
+your findings.
 
 ## Workflow
 
 ```
 - [ ] 1. Identify the PR and confirm it touches audio paths
 - [ ] 2. Pull fresh GitHub data (gh)
-- [ ] 3. Check out the PR head and diff against the base
-- [ ] 4. Read the changed code through the audio review lenses
-- [ ] 5. Generate the digest + comment queue
-- [ ] 6. Classify findings P0-P3 and (optionally) draft replies
+- [ ] 3. Check out the PR head and read the diff
+- [ ] 4. Review the changed code through the audio review lenses
+- [ ] 5. Generate the digest + prior-threads file for context
+- [ ] 6. Write up your findings (P0-P3) and post them as review comments
 ```
 
 ### Step 1 - Identify the PR
@@ -59,14 +62,11 @@ only surfaces what changed.
 `gh pr view <N> --repo NVIDIA-NeMo/Curator`. Confirm the diff touches audio
 paths (`nemo_curator/stages/audio/`, `tutorials/audio/`, `tests/stages/audio/`,
 `benchmarking/AUDIO_PROFILING.md` / `ALM_BENCHMARK.md`); if it does not, this
-audio skill is the wrong lens. If a prior review digest for this PR exists, read
-it first and record its head SHA as the baseline so commits and comments can be
-marked NEW vs already-seen.
+audio skill is the wrong lens.
 
 ### Step 2 - Pull fresh GitHub data
 
-Run the pull script (writes `pr<N>_*_latest.json` plus timestamped snapshots so
-prior pulls are preserved for delta analysis):
+Run the pull script (writes `pr<N>_*_latest.json` plus timestamped snapshots):
 
 ```bash
 .cursor/skills/review-curator-audio-pr/scripts/pr_review_pull.sh <N>
@@ -74,66 +74,70 @@ prior pulls are preserved for delta analysis):
 
 It pulls six REST endpoints (`pr view`, `reviews`, inline `comments`, issue
 `comments`, `files`, `commits`) and the GraphQL review threads, which carry the
-`isResolved` / `isOutdated` flags the REST inline endpoint omits.
+`isResolved` / `isOutdated` flags the REST inline endpoint omits. You pull this
+so you can see prior review activity, not because you own the PR.
 
-### Step 3 - Diff the code
+### Step 3 - Read the diff
 
 ```bash
 gh pr checkout <N>                       # or: git fetch origin pull/<N>/head:pr-<N>
-git diff origin/main...HEAD             # changed files on this PR
+git diff origin/main...HEAD             # the change you are reviewing
 ```
 
 Always review the actual diff, never the comment text alone. Use `main` as the
 baseline for "how the audio stages already do this".
 
-### Step 4 - Read through the audio review lenses
+### Step 4 - Review through the audio lenses
 
 Apply the lenses in [recurring-themes.md](recurring-themes.md): stage contracts,
-setup/teardown lifecycle, audio optional-dependency hygiene (vLLM, NeMo,
-model utils), secret-safe logging, waveform/tensor memory and manifest
-serialization, tarred/sharded audio I/O, sample-rate and metadata propagation,
+setup/teardown lifecycle, audio optional-dependency hygiene (vLLM, NeMo, model
+utils), secret-safe logging, waveform/tensor memory and manifest serialization,
+tarred/sharded audio I/O, sample-rate and metadata propagation,
 streaming/throughput, tutorials/docs, tests/coverage, and PR reviewability.
 
 These build on the project's always-on rules in `.cursor/rules/`
 (`processing-stage-patterns`, `composite-stage-patterns`, `task-patterns`,
 `executors`, `resources-configuration`, `pipeline-structure`,
 `modality-structure`, `coding-standards`) and the audio stage guide at
-`nemo_curator/stages/audio/README.md`. Treat those as canonical and cite them
-when a change deviates.
+`nemo_curator/stages/audio/README.md`. Cite these when the PR deviates.
 
-### Step 5 - Generate the two files
+### Step 5 - Generate the context files
 
 ```bash
 .cursor/skills/review-curator-audio-pr/scripts/build_digest.py <N> --today <YYYY-MM-DD>
 ```
 
-The builder joins the pulled JSON and classifies each comment by thread status:
-**OPEN** (actionable), **OUTDATED** (pre-dates the current head), **RESOLVED**.
-The comment queue lists only OPEN root threads.
+The builder joins the pulled JSON and classifies each existing comment by thread
+status: **OPEN** (still unresolved), **OUTDATED** (pre-dates the current head),
+**RESOLVED**. Use the OPEN list to avoid re-raising points another reviewer
+already made.
 
-### Step 6 - Findings and replies
+### Step 6 - Write up and post your findings
 
-In the digest's findings section, classify each issue by severity:
+Record each issue you found as a finding, classified by severity, and post them
+as a PR review (inline comments for specific lines, a top-level summary for
+overall verdict). Each finding should cite the exact `path:line-range` on the
+current head and propose a concrete fix.
 
 - **P0** - merge blocker: data loss / crash on a valid audio config (e.g. a
   manifest writer that crashes on a kept waveform), a secret (HF token) leaked
   into logs, or an import that breaks a supported install.
-- **P1** - fix before merge: undeclared audio runtime dependencies, missing
-  required tests/coverage, environment-specific I/O in a reusable reader, a PR
-  too large to review safely.
-- **P2** - should fix: duplicated pipeline construction, inefficient per-task
+- **P1** - should fix before merge: undeclared audio runtime dependencies,
+  missing required tests/coverage, environment-specific I/O in a reusable
+  reader, a PR too large to review safely.
+- **P2** - worth fixing: duplicated pipeline construction, inefficient per-task
   writer batching, incomplete throughput metrics, documented-but-unwired config.
 - **P3** - nice to have: temporary model/compat workarounds needing a test +
   comment, debug-only knobs (e.g. per-shard utterance caps) to document.
 
-When drafting replies, cite the exact `path:line-range` on the current head,
-state whether the point is already addressed (with the commit SHA) or will be,
-and keep each reply self-contained. See [templates.md](templates.md) section C.
+See [templates.md](templates.md) section C for how to phrase review comments.
 
-## Conventions to enforce (from CONTRIBUTING.md and rules)
+## What to check the PR against (CONTRIBUTING.md and rules)
 
-- **DCO sign-off** is required on every commit (`git commit -s`).
-- **Tests** must accompany source changes; GPU-only audio tests use
+A compliant audio PR must satisfy these; flag any that are missing:
+
+- **DCO sign-off** on every commit (`git commit -s`).
+- **Tests** accompany source changes; GPU-only audio tests use
   `@pytest.mark.gpu`; the project enforces 80% coverage under `nemo_curator/`,
   and `tests/stages/audio/` mirrors `nemo_curator/stages/audio/`.
 - **NVIDIA Apache-2.0 copyright header** on every non-empty Python file.
@@ -151,5 +155,5 @@ Full index in [reference.md](reference.md). Quick map:
 | Audio tutorials | `tutorials/audio/` |
 | Backends / executors | `nemo_curator/backends/`, `nemo_curator/pipeline/pipeline.py` |
 | Audio perf expectations | `benchmarking/AUDIO_PROFILING.md`, `benchmarking/ALM_BENCHMARK.md` |
-| Contribution rules | `CONTRIBUTING.md` |
+| Contribution rules to check against | `CONTRIBUTING.md` |
 | Live PR data | `gh` (see scripts) |

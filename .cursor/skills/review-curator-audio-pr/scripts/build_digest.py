@@ -160,7 +160,7 @@ def build(pr, outdir, today, baseline_ts, prev_head):
         p(d, f"| `{f['filename']}` | +{f['additions']} -{f['deletions']} | {f['status']} |")
     p(d, "")
 
-    p(d, "## Reviews", "")
+    p(d, "## Existing reviews (by other reviewers)", "")
     review_by_id = {r["id"]: r for r in reviews}
     for r in sorted(reviews, key=lambda x: x.get("submitted_at") or ""):
         marker = " (NEW)" if base_review_ids and r["id"] not in base_review_ids else ""
@@ -172,7 +172,7 @@ def build(pr, outdir, today, baseline_ts, prev_head):
             p(d, "", shorten(body, 1500))
         p(d, "")
 
-    p(d, "## Inline review comments", "")
+    p(d, "## Existing inline comments (by other reviewers)", "")
     p(d, f"Total: {len(review_comments)} comments across {idx['nthreads'] or '?'} threads.", "")
     by_status = {"OPEN": [], "OUTDATED": [], "RESOLVED": [], "ORPHAN": []}
     for c in review_comments:
@@ -205,11 +205,18 @@ def build(pr, outdir, today, baseline_ts, prev_head):
             p(d, f"  > {body}", "")
     p(d, "")
 
-    p(d, "## Top-level issue comments", "")
+    p(d, "## Existing issue comments (by other reviewers)", "")
     for c in sorted(issue_comments, key=lambda x: x["created_at"]):
         new = " NEW" if base_issue_ids and c["id"] not in base_issue_ids else ""
         p(d, f"### #{c['id']} by @{c['user']['login']}  {c['created_at']}{new}", "")
         p(d, shorten(c.get("body") or "", 1500), "")
+
+    p(d, "## My findings (your review)", "")
+    p(d, "_Add your findings here as you review. Classify each P0-P3, cite "
+         "path:line on the current head, and propose a concrete fix. See "
+         "templates.md section C._", "")
+    p(d, "## Verdict", "")
+    p(d, "_APPROVE / COMMENT / REQUEST CHANGES + blockers._", "")
 
     digest_path = outdir / f"curator_pr{pr}_fresh_review_{date_us}.md"
     digest_path.write_text("\n".join(d) + "\n", encoding="utf-8")
@@ -217,12 +224,13 @@ def build(pr, outdir, today, baseline_ts, prev_head):
 
     # ----- COMMENT QUEUE (open root threads only) -----
     q = []
-    p(q, f"# Curator PR {pr} GitHub Comment Queue - {today}", "")
+    p(q, f"# Curator PR {pr} Open Review Threads - {today}", "")
     p(q, f"Review target: https://github.com/NVIDIA-NeMo/Curator/pull/{pr}", "")
     p(q, f"Current PR head: `{head_oid}`", "")
-    p(q, "Open inline review threads from the most recent reviewer pass that need an "
-         "author response or a code change. Outdated/resolved threads are listed at "
-         "the bottom for traceability only.", "")
+    p(q, "Threads other reviewers left that are still unresolved on the current "
+         "head. Scan these before adding your own comments so you do not duplicate, "
+         "and check whether the author addressed them. Stale (outdated/resolved) "
+         "threads are listed at the bottom for context only.", "")
 
     def is_root(c):
         return (thread_meta(idx, c) or {}).get("is_first_in_thread", True)
@@ -233,10 +241,10 @@ def build(pr, outdir, today, baseline_ts, prev_head):
         meta = thread_meta(idx, c) or {}
         line = c.get("line") or c.get("original_line")
         new = " NEW" if base_comment_ids and c["id"] not in base_comment_ids else ""
-        p(q, f"## Comment {i} - {c['path']}:{line} by @{c['user']['login']}{new}", "")
+        p(q, f"## Thread {i} - {c['path']}:{line} by @{c['user']['login']}{new}", "")
         p(q, f"Thread: {c['html_url']}", "")
         if meta.get("thread_comment_count", 1) > 1:
-            p(q, f"Thread has {meta['thread_comment_count']} comments - see digest for replies.", "")
+            p(q, f"Thread has {meta['thread_comment_count']} comments - see the digest for the full thread.", "")
         p(q, f"File: `{c['path']}`", "")
         p(q, f"Line: `{line}`", "")
         p(q, "Reviewer text:", "")
