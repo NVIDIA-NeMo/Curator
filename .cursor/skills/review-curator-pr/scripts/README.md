@@ -1,0 +1,32 @@
+# Scripts - review-curator-pr
+
+Both require the GitHub CLI (`gh`) authenticated against github.com. They write
+to a scratch directory (default `.curator-pr-review/`) that is safe to delete;
+do not commit its contents.
+
+## pr_review_pull.sh
+
+```bash
+.cursor/skills/review-curator-pr/scripts/pr_review_pull.sh <PR_NUMBER> [--outdir DIR] [--repo OWNER/REPO]
+```
+
+Pulls six REST endpoints (`pr view`, `reviews`, inline `comments`, issue
+`comments`, `files`, `commits`) plus the GraphQL review threads into
+`pr<N>_*_latest.json` (and timestamped snapshots for delta analysis).
+
+## build_digest.py
+
+```bash
+.cursor/skills/review-curator-pr/scripts/build_digest.py <PR_NUMBER> [--outdir DIR] [--today YYYY-MM-DD] [--prev-head SHA] [--baseline-ts TS]
+```
+
+Joins the `pr<N>_*_latest.json` files and writes
+`curator_pr<N>_fresh_review_<date>.md` + `curator_pr<N>_github_comment_queue_<date>.md`.
+
+- `--prev-head` sets the SHA in the "commits since prior reviewed head" header.
+- `--baseline-ts <TS>` (a prior pull's timestamp suffix) marks
+  comments/reviews/commits NEW vs already-seen.
+
+The thread join uses comment `databaseId` when present, else a
+(path, body-prefix) fallback, so both GraphQL thread-dump shapes classify
+correctly.
