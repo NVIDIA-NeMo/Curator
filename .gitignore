@@ -169,3 +169,6 @@ fern/product-docs/
 
 # PDF parsing data (symlinked to external storage)
 pdf_parsing/
+
+# NeMo Curator PR review skill scratch output
+.curator-pr-review/
