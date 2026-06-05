@@ -1,13 +1,15 @@
 # Output templates
 
-`scripts/build_digest.py` emits both files automatically; these templates show
-the exact structure so hand edits and the added findings/verdict narrative stay
-consistent. Replace `<...>` placeholders. Keep the structure stable across
-review passes so re-reviews diff cleanly.
+You are the reviewer. `scripts/build_digest.py` generates files A and B as
+context; you author the findings (section C) and post them as your review.
+Replace `<...>` placeholders. Keep the structure stable across review passes so
+a re-review diffs cleanly and only surfaces what changed.
 
-## A. Fresh review digest
+## A. Working digest (generated, then you append findings)
 
-File: `curator_pr<N>_fresh_review_<YYYY_MM_DD>.md`
+File: `curator_pr<N>_fresh_review_<YYYY_MM_DD>.md`. The generated part gives you
+PR state, the diff, and all existing review activity. Add your own **Findings**
+section at the end - that is your review.
 
 ```markdown
 # Curator PR <N> Fresh Review - <YYYY-MM-DD>
@@ -18,117 +20,111 @@ Current PR head reviewed: `<headRefOid>`
 
 Base recorded by GitHub metadata: `<baseRefOid>`
 
-Previous reviewed head: `<prior_head_sha>`   # if a prior review exists
-
 ## PR state at review time
 
 | Field | Value |
 |---|---|
 | state | <OPEN/CLOSED/MERGED> |
-| isDraft | <bool> |
 | reviewDecision | <APPROVED/CHANGES_REQUESTED/none> |
-| mergeable / mergeStateStatus | <...> / <...> |
 | changedFiles | <n> |
 | additions / deletions | +<a> / -<d> |
 | commits | <n> |
 | inline review comments total | <n> |
 | reviews submitted | <n> |
-| top-level issue comments | <n> |
 | updatedAt | <iso> |
 
-## Commits since prior reviewed head `<prior8>` (<k> new)
+## Commits (<k>)
 
 ```
 <sha8>  <subject>  (<date>)
 ```
 
-Files changed in current PR head (`git diff <base>..<head>`):
+Files changed (`git diff <base>..<head>`):
 
 | File | +/- | status |
 |---|---|---|
 | `<path>` | +<a> -<d> | <added/modified> |
 
-## Reviews
+## Existing reviews (by other reviewers)
 
 ### #<id> by @<login>  state=<STATE>  commit=<sha8>  submitted=<iso>
 <body or empty>
 
-## Inline review comments
+## Existing inline comments (by other reviewers)
 
 Total: <n> comments across <m> threads.
 
-- OPEN: <n>
+- OPEN: <n>     # still unresolved - do NOT duplicate these
 - OUTDATED: <n>
 - RESOLVED: <n>
-- ORPHAN: <n>
 
 ### `<path>`
 
-- **#<id>** @<login> <iso>  line=<L> commit=<sha8> status=**<OPEN/OUTDATED/RESOLVED>**  thread_comments=<k> (<root/reply>) review_state=<STATE>
+- **#<id>** @<login> <iso>  line=<L> status=**<OPEN/OUTDATED/RESOLVED>**  ...
   url: <html_url>
-  > <body, truncated, each line prefixed with "> ">
+  > <body, truncated>
 
-## Top-level issue comments
-
-### #<id> by @<login>  <iso>
-<body, truncated>
-
-## Findings (reviewer analysis)
+## My findings (your review)
 
 ### P0: <title>
-<evidence: path:line on current head> - <why blocker> - <recommended fix + test>
+<evidence: path:line on current head> - <why it's a blocker> - <concrete fix>
 
 ### P1 / P2 / P3: <title>
 <...>
 
 ## Verdict
-<merge-ready or not, and the blockers>
+<APPROVE / COMMENT / REQUEST CHANGES, and the blockers if any>
 ```
 
-## B. GitHub comment queue
+## B. Prior open threads (generated context)
 
-File: `curator_pr<N>_github_comment_queue_<YYYY_MM_DD>.md`. Only OPEN root
-threads needing an author response or code change; stale threads at the bottom.
+File: `curator_pr<N>_github_comment_queue_<YYYY_MM_DD>.md`. The still-unresolved
+threads other reviewers already opened, so you can scan prior feedback before
+adding your own. This is **context, not your output** - you are not replying to
+these as the author; you read them to avoid duplicating and to check whether the
+author addressed them.
 
 ```markdown
-# Curator PR <N> GitHub Comment Queue - <YYYY-MM-DD>
-
-Review target: https://github.com/NVIDIA-NeMo/Curator/pull/<N>
+# Curator PR <N> Open Review Threads - <YYYY-MM-DD>
 
 Current PR head: `<headRefOid>`
 
-## Comment <i> - <path>:<line> by @<login>
+Threads other reviewers left that are still unresolved on the current head.
 
-Thread: <html_url>
+## Thread <i> - <path>:<line> by @<login>
 
-File: `<path>`
-
-Line: `<line>`
-
-Reviewer text:
+Link: <html_url>
 
 ```text
 <verbatim reviewer body>
 ```
 
-## Stale (outdated/resolved) comments
-
+## Stale (outdated/resolved) threads
 - [<OUTDATED/RESOLVED>] `<path>:<line>` @<login> (<html_url>): <one-line body>
 ```
 
-## C. Reply drafting style
+## C. Writing your review comments
 
-For each OPEN comment the user wants a paste-ready reply for:
+Turn each finding into a review comment you post on the PR. For each:
 
-- Acknowledge briefly.
-- State status: already addressed (cite the commit SHA) or will-fix.
-- Cite the exact `path:line-range` on the current head as evidence.
-- Describe the concrete mechanism, not just "fixed".
-- Keep each reply self-contained; the reviewer reads it in isolation.
+- Anchor it to the exact `path:line-range` on the current head.
+- Lead with severity (P0-P3) and a one-line statement of the problem.
+- Explain *why* it matters (cite a `.cursor/rules/*.mdc` contract or
+  `stages/audio/README.md` when the change deviates).
+- Propose a concrete fix, ideally with a `suggestion` block.
+- Before posting, check the "OPEN" list in file A - if another reviewer already
+  raised it, don't repeat it (optionally +1 their thread instead).
 
-Example:
+Example review comment:
 
-> Thanks for flagging. Addressed on the current head (`<sha8>`): the writer now
-> drops the waveform key before serialisation and guards `json.dumps`, so a
-> non-serialisable value reports the offending key instead of failing the batch.
-> Citation: `nemo_curator/stages/audio/io/sharded_manifest_writer.py:96-111`.
+> **P0 (blocker).** `sharded_manifest_writer.py:101` calls `json.dumps(record)`
+> while `record` can still hold the waveform `ndarray` when `keep_waveform=True`,
+> which raises `TypeError: Object of type ndarray is not JSON serializable` and
+> fails the whole shard. Drop the waveform key before serialising and guard
+> `json.dumps` so a stray non-serialisable value names the offending key.
+> Please also add a test under `tests/stages/audio/io/` covering
+> `keep_waveform=True`.
+
+Then post the set as one PR review: inline comments for line-specific findings,
+a top-level summary carrying the overall verdict (APPROVE / COMMENT / REQUEST
+CHANGES).

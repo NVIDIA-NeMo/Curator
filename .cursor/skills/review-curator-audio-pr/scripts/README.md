@@ -1,5 +1,9 @@
 # Scripts - review-curator-audio-pr
 
+Helpers for a **reviewer** reviewing someone else's audio Curator PR. They
+pull the PR and summarise existing review activity as context; you write the
+actual review findings.
+
 Both require the GitHub CLI (`gh`) authenticated against github.com. They write
 to a scratch directory (default `.curator-pr-review/`) that is safe to delete;
 do not commit its contents.
@@ -20,8 +24,11 @@ Pulls six REST endpoints (`pr view`, `reviews`, inline `comments`, issue
 .cursor/skills/review-curator-audio-pr/scripts/build_digest.py <PR_NUMBER> [--outdir DIR] [--today YYYY-MM-DD] [--prev-head SHA] [--baseline-ts TS]
 ```
 
-Joins the `pr<N>_*_latest.json` files and writes
-`curator_pr<N>_fresh_review_<date>.md` + `curator_pr<N>_github_comment_queue_<date>.md`.
+Joins the `pr<N>_*_latest.json` files and writes two context files:
+`curator_pr<N>_fresh_review_<date>.md` (working digest: PR state, diff, and
+existing reviews/comments with OPEN/OUTDATED/RESOLVED status, plus a placeholder
+for your findings) and `curator_pr<N>_github_comment_queue_<date>.md` (the
+still-open threads other reviewers left, so you don't duplicate them).
 
 - `--prev-head` sets the SHA in the "commits since prior reviewed head" header.
 - `--baseline-ts <TS>` (a prior pull's timestamp suffix) marks

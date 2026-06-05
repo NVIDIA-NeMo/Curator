@@ -100,6 +100,6 @@ thread dump lacks `databaseId`.
 ## Scripts
 
 - `scripts/pr_review_pull.sh <N> [--outdir DIR] [--repo OWNER/REPO]` - fetch.
-- `scripts/build_digest.py <N> [--outdir DIR] [--today YYYY-MM-DD] [--prev-head SHA] [--baseline-ts TS]` - render the digest + comment queue.
+- `scripts/build_digest.py <N> [--outdir DIR] [--today YYYY-MM-DD] [--prev-head SHA] [--baseline-ts TS]` - render the working digest + the prior-open-threads context file (you add your own findings).
 
 Default outdir: `.curator-pr-review/` (scratch; safe to delete or gitignore).
