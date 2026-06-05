@@ -127,10 +127,12 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
             for idx, segment in enumerate(data[self.segments_key]):
                 if self.text_key in segment and segment[self.text_key] != "":
                     prompt = self._vllm.get_entry_prompt(segment)
-                    items.append((prompt, [self.segments_key, idx]))
+                    if prompt:
+                        items.append((prompt, [self.segments_key, idx]))
         elif self.text_key in data and data[self.text_key] != "":
             prompt = self._vllm.get_entry_prompt(data)
-            items.append((prompt, []))
+            if prompt:
+                items.append((prompt, []))
         return items
 
     @staticmethod
@@ -167,6 +169,9 @@ class PNCwithvLLMInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Batch-process multiple AudioTasks with a single vLLM call for efficiency."""
+        if self._vllm is None:
+            msg = f"{self.name}: vLLM engine is not available. Call setup() before process_batch(), or check that teardown() was not called prematurely."
+            raise RuntimeError(msg)
         t0 = time.perf_counter()
 
         all_prompts: list = []

@@ -76,12 +76,13 @@ class VLLMBase:
         start_time = time.time()
         try:
             self.llm = LLM(**model_kwargs)
+            self.sampling_params = SamplingParams(**sampling_kwargs)
         except Exception as e:
-            logger.error(f"Failed to load vLLM model: {e}")
-            msg = f"Model loading failed: {e}"
+            self._cleanup_gpu()
+            logger.error(f"Failed to initialise vLLM: {e}")
+            msg = f"Model initialisation failed: {e}"
             raise RuntimeError(msg) from e
         logger.info(f"Time taken to load model: {round((time.time() - start_time) / 60, 2)} minutes")
-        self.sampling_params = SamplingParams(**sampling_kwargs)
 
     def _init_tokenizer(self, model_name: str) -> None:
         """Load a HuggingFace tokenizer from a model name or local path."""
