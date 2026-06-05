@@ -67,11 +67,11 @@ class Task(ABC, Generic[T]):
         """Add performance stats for a stage."""
         self._stage_perf.append(perf_stats)
 
-    def _set_task_id(self, parent_task_ids: list[str], current_task_id_suffix: str | int) -> None:
-        """Assign this task's deterministic ``task_id`` from its parents.
+    def _set_task_id(self, parent_task_id: str, current_task_id_suffix: str | int) -> None:
+        """Assign this task's deterministic ``task_id`` from its parent.
 
-        The ``task_id`` is the parent ids joined with this task's own
-        segment by ``"_"`` — e.g. parent ``"abc123"`` + suffix ``0`` →
+        The ``task_id`` is the parent id and this task's own segment joined
+        by ``"_"`` — e.g. parent ``"abc123"`` + suffix ``0`` →
         ``"abc123_0"``. Always overwrites ``task_id``; there is no
         idempotency check — each stage transition re-derives it, so the
         same physical Python object passing through N stages gets N
@@ -79,19 +79,26 @@ class Task(ABC, Generic[T]):
         used by resumability are captured BEFORE this method runs on a
         given output, so the rewrite is safe.
 
+        Only a single parent id is taken: the supported mappings (1→1,
+        1→N fan-out, N→N positional) each give an output exactly one
+        parent. N→1 aggregations don't track ancestry — those outputs get
+        a random ``"r"``-prefixed id in the adapter instead of calling this.
+
         Args:
-            parent_task_ids: ``task_id`` of each parent. Empty strings are
-                filtered out (so an EmptyTask parent doesn't contribute a
-                leading ``"_"`` to the path).
+            parent_task_id: ``task_id`` of the parent. An empty string
+                (an unassigned / EmptyTask parent) is dropped so it doesn't
+                contribute a leading ``"_"`` to the path.
             current_task_id_suffix: This task's own segment of the id
-                path — appended after the parent ids. Either a positional
+                path — appended after the parent id. Either a positional
                 index (``int`` → coerced to ``str``) for plain emissions,
                 or a string id (e.g. a content-based hash from
                 :py:meth:`get_deterministic_id`) for source-stage emissions
                 where stability across input reordering matters.
         """
-        parts = [*[p for p in parent_task_ids if p], str(current_task_id_suffix)]
-        self.task_id = "_".join(parts)
+        if parent_task_id:
+            self.task_id = f"{parent_task_id}_{current_task_id_suffix}"
+        else:
+            self.task_id = str(current_task_id_suffix)
 
     def get_deterministic_id(self) -> str | None:
         """Return a content-based identifier for this task as a source,

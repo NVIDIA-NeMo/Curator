@@ -42,7 +42,7 @@ def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
     for i, task in enumerate(initial_tasks):
         if isinstance(task, _EmptyTask):
             continue
-        task._set_task_id(["0"], i)
+        task._set_task_id("0", i)
     return initial_tasks
 
 
@@ -115,7 +115,7 @@ class Pipeline:
     def _assign_source_sink_roles(self) -> None:
         explicit_sources = [s for s in self.stages if s.is_source_stage]
         if len(explicit_sources) > 1:
-            names = [type(s).__name__ for s in explicit_sources]
+            names = [s.name for s in explicit_sources]
             msg = f"Pipeline has multiple source stages marked: {names}. At most one is supported."
             raise ValueError(msg)
         if not explicit_sources:
@@ -123,7 +123,7 @@ class Pipeline:
 
         explicit_sinks = [s for s in self.stages if s.is_sink_stage]
         if len(explicit_sinks) > 1:
-            names = [type(s).__name__ for s in explicit_sinks]
+            names = [s.name for s in explicit_sinks]
             msg = f"Pipeline has multiple sink stages marked: {names}. At most one is supported."
             raise ValueError(msg)
         if not explicit_sinks:

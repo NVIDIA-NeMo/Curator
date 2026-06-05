@@ -17,10 +17,10 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from nemo_curator.pipeline.pipeline import Pipeline
+from nemo_curator.pipeline.pipeline import Pipeline, assign_root_task_ids
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import Task
+from nemo_curator.tasks import EmptyTask, Task, _EmptyTask
 
 
 @dataclass
@@ -35,6 +35,16 @@ class _NoopStage(ProcessingStage[Task, Task]):
 
     def process(self, task: Task) -> Task:
         return task
+
+
+@dataclass
+class _SimpleTask(Task[list[int]]):
+    @property
+    def num_items(self) -> int:
+        return len(self.data) if self.data is not None else 0
+
+    def validate(self) -> bool:
+        return True
 
 
 def test_pipeline_uses_xenna_executor_by_default():
@@ -124,3 +134,26 @@ class TestPipelineBuild:
         t1.is_sink_stage = True
         with pytest.raises(ValueError, match="multiple sink stages marked"):
             Pipeline(name="t", stages=[t0, t1]).build()
+
+
+class TestRootTaskIds:
+    """``assign_root_task_ids`` roots user-provided initial tasks under the
+    implicit ``_EmptyTask`` root id ``"0"``."""
+
+    def test_empty_task_id_is_zero(self) -> None:
+        assert EmptyTask.task_id == "0"
+        assert _EmptyTask(dataset_name="d", data=None).task_id == "0"
+
+    def test_roots_user_tasks_at_zero(self) -> None:
+        tasks = [_SimpleTask(dataset_name="d", data=[1]) for _ in range(3)]
+        assign_root_task_ids(tasks)
+        # User-provided initial tasks are children of root "0", by position.
+        assert [t.task_id for t in tasks] == ["0_0", "0_1", "0_2"]
+
+    def test_skips_empty_tasks(self) -> None:
+        et = _EmptyTask(dataset_name="d", data=None)
+        real = _SimpleTask(dataset_name="d", data=[1])
+        assign_root_task_ids([et, real])
+        # EmptyTask stays "0"; the real task is rooted by its position.
+        assert et.task_id == "0"
+        assert real.task_id == "0_1"

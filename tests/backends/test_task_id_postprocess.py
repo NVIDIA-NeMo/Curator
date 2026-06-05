@@ -12,11 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Unit tests for ``BaseStageAdapter._post_process_task_ids`` — the single
-place every backend assigns a deterministic ``task_id`` to emitted tasks,
-regardless of whether a stage defines ``process`` or overrides
-``process_batch``."""
+place every backend assigns a deterministic ``task_id`` to emitted tasks.
 
-from __future__ import annotations
+The happy-path flow (fan-out, 1:1, source content ids) is exercised
+end-to-end against real backends in tests/backends/test_integration.py
+(``test_task_ids``). This file keeps only the cases that are awkward or
+impossible to trigger through a real pipeline: filter-``None`` positional
+alignment, the ambiguous-cardinality ``"r"``-uuid fallback, in-place
+re-derivation, and source content-id vs. positional-index selection."""
 
 from dataclasses import dataclass
 
@@ -62,23 +65,6 @@ def _assign(tasks: list[Task], results: list[Task | None], *, is_source: bool = 
 
 
 class TestPostProcessTaskIds:
-    def test_none_results_are_dropped(self) -> None:
-        a = _task()
-        out = _assign([_task("0")], [a, None])
-        assert out == [a]
-
-    def test_single_input_fanout_gets_id(self) -> None:
-        parent = _task("0_3")
-        c0, c1, c2 = _task(), _task(), _task()
-        out = _assign([parent], [c0, c1, c2])
-        assert [t.task_id for t in out] == ["0_3_0", "0_3_1", "0_3_2"]
-
-    def test_positional_one_to_one_gets_id(self) -> None:
-        p0, p1 = _task("0_0"), _task("0_1")
-        c0, c1 = _task(), _task()
-        out = _assign([p0, p1], [c0, c1])
-        assert [t.task_id for t in out] == ["0_0_0", "0_1_0"]
-
     def test_filter_stage_keeps_positional_alignment(self) -> None:
         # A filter stage returns None in the filtered slot. None is NOT
         # dropped before the length check, so the surviving outputs still map
@@ -122,13 +108,6 @@ class TestSourceStage:
         _assign([empty], [a, b], is_source=True)
         assert a.task_id == f"0_{a.get_deterministic_id()}"
         assert b.task_id == f"0_{b.get_deterministic_id()}"
-
-    def test_falls_back_to_index_when_no_content_id(self) -> None:
-        # _SimpleTask has no get_deterministic_id → positional index, rooted
-        # at the EmptyTask input id "0".
-        empty = _EmptyTask(dataset_name="empty", data=None)
-        out = _assign([empty], [_task(), _task(), _task()], is_source=True)
-        assert [t.task_id for t in out] == ["0_0", "0_1", "0_2"]
 
     def test_n_to_n_source_parents_each_output_by_position(self) -> None:
         # A source stage can also be N→N (each input → one partition). Each

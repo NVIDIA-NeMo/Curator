@@ -145,7 +145,7 @@ class BaseStageAdapter:
             out: list[Task] = [t for t in output_tasks if t is not None]
             for i, task in enumerate(out):
                 suffix = (task.get_deterministic_id() or i) if is_source else i
-                task._set_task_id([parent_id], suffix)
+                task._set_task_id(parent_id, suffix)
             return out
 
         if len(output_tasks) == len(input_tasks):
@@ -156,7 +156,7 @@ class BaseStageAdapter:
                 if task is None:
                     continue
                 suffix = (task.get_deterministic_id() or 0) if is_source else 0
-                task._set_task_id([parent.task_id], suffix)
+                task._set_task_id(parent.task_id, suffix)
                 out.append(task)
             return out
 

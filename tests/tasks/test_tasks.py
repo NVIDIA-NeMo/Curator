@@ -71,3 +71,41 @@ def test_default_process_batch_does_not_assign_task_id():
 
     assert len(output) == 3
     assert all(t.task_id == "" for t in output)
+
+
+class TestSetTaskId:
+    """``Task._set_task_id``: the id is the parent id and this task's own
+    segment joined by ``"_"`` (no hashing)."""
+
+    def test_no_parent_uses_suffix_only(self) -> None:
+        t = _sample_task()
+        t._set_task_id("", 3)
+        # An empty parent id is dropped, so no leading "_".
+        assert t.task_id == "3"
+
+    def test_joins_parent_and_suffix(self) -> None:
+        t = _sample_task()
+        t._set_task_id("0", 7)
+        assert t.task_id == "0_7"
+
+    def test_always_overwrites(self) -> None:
+        """No idempotency — each stage boundary re-derives the id, so one
+        object passing through N stages gets N distinct task_ids."""
+        t = _sample_task()
+        t._set_task_id("", 0)
+        t._set_task_id("0", 7)
+        assert t.task_id == "0_7"
+
+    def test_string_suffix(self) -> None:
+        """Source stages pass a content-based hash (str) as the suffix
+        instead of a positional index."""
+        t = _sample_task()
+        t._set_task_id("root", "abc123")
+        assert t.task_id == "root_abc123"
+
+
+def test_get_deterministic_id_defaults_to_none():
+    """Base ``Task`` has no content identity, so source stages fall back to
+    the positional index. ``FileGroupTask`` overrides this — see
+    tests/tasks/test_file_group_tasks.py."""
+    assert _sample_task().get_deterministic_id() is None

@@ -59,8 +59,8 @@ class TestAddIdStage:
         """
         batch1 = _sample_batch()
         batch2 = _sample_batch()
-        batch1._set_task_id([], 0)
-        batch2._set_task_id([], 1)
+        batch1._set_task_id("", 0)
+        batch2._set_task_id("", 1)
 
         stage = AddId(id_field="id")
 
