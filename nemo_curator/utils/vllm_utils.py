@@ -30,7 +30,6 @@ from __future__ import annotations
 
 from loguru import logger
 
-
 # Substrings that indicate a (usually transient) vLLM engine-startup failure
 # caused by a MASTER_PORT collision. In vLLM v1 the bind happens in the
 # EngineCore subprocess, so the parent often only sees the wrapped messages
