@@ -34,10 +34,11 @@ you already have and only shallow-clones
 A human reviewer invokes this skill with a prompt like:
 
 > **"Review audio Curator PR <N> with the review-curator-audio-pr skill. Find or
-> shallow-clone the repo, pull the PR and prior review activity, apply the audio
-> review lenses, and give me a review digest plus my own findings (P0-P3) with
-> exact `path:line` evidence and concrete fixes, ready to post as PR comments.
-> Skip anything other reviewers already raised."**
+> shallow-clone the repo, pull the PR and prior review activity, read the
+> knowledge sources, then give me a detailed overview of what the PR does
+> followed by my own findings (P0-P3) with exact `path:line` evidence and
+> concrete fixes, ready to post as PR comments. Skip anything other reviewers
+> already raised."**
 
 Variants: *"re-review PR <N> and show only what changed since the last review"*,
 *"what should I flag on the diarization PR <N>?"*, *"triage open audio PRs and
@@ -48,10 +49,12 @@ with *"build the post-#1608 audio review corpus first, then review PR <N>"*
 ## What you produce
 
 You produce two things, **in this order**: (1) a **detailed overview of what the
-PR does and why** - so the reader understands the change before any critique -
-then (2) your **findings** (P0-P3), each tied to a `path:line` on the PR's
-current head, that you post as PR review comments. Never lead with review
-comments; always explain the PR first.
+PR does and why** - written only after you have read the knowledge sources (the
+canonical docs and review lenses), so the reader understands the change before
+any critique - then (2) your **findings** (P0-P3), each tied to a `path:line` on
+the PR's current head, that you post as PR review comments. Never lead with
+review comments; ground yourself in the knowledge sources, then explain the PR,
+then give findings.
 
 The skill writes two helper files into a scratch directory (default
 `.curator-pr-review/`, override with `--outdir`) to support that:
@@ -77,10 +80,10 @@ review comments. The review lenses and every doc/code reference live in
 - [ ] 1. Identify the PR and confirm it touches audio paths
 - [ ] 2. Pull fresh GitHub data (gh)
 - [ ] 3. Read the diff
-- [ ] 4. Review the changed code through the audio review lenses
+- [ ] 4. Read the knowledge sources (canonical docs + review lenses) to ground yourself
 - [ ] 5. Generate the digest + prior-threads file for context
-- [ ] 6. Write the detailed PR overview (present this first)
-- [ ] 7. Write up your findings (P0-P3) and post them after the overview
+- [ ] 6. Write the detailed PR overview - only after steps 3-4 - present this first
+- [ ] 7. Review through the lenses, write up findings (P0-P3), and post them after the overview
 ```
 
 ### Step 0 - Locate or shallow-clone the repo
@@ -125,15 +128,22 @@ gh pr diff <N> --repo NVIDIA-NeMo/Curator        # works on a shallow clone
 shallow clone from step 0. Always review the actual diff, never the comment text
 alone. Use `main` as the baseline for "how the audio stages already do this".
 
-### Step 4 - Review through the audio lenses
+### Step 4 - Read the knowledge sources (ground yourself first)
 
-Apply the lenses in [knowledge-sources.md](knowledge-sources.md) section 2 -
-each lens links the audio code, README section, and `.cursor/rules` contract it
-governs: stage contracts, setup/teardown lifecycle, audio optional-dependency
-hygiene (vLLM, NeMo, model utils), secret-safe logging, waveform/tensor memory
-and manifest serialization, tarred/sharded audio I/O, sample-rate and metadata
-propagation, streaming/throughput, tutorials/docs, tests/coverage, and PR
-reviewability. Cite the linked source by name whenever the PR deviates.
+Before you explain or judge anything, read
+[knowledge-sources.md](knowledge-sources.md) so your overview and findings are
+grounded in the canonical material, not guesswork:
+
+- **section 0** - canonical docs: the audio stage developer guide
+  (`nemo_curator/stages/audio/README.md`), the developer-guide slides, the
+  published fern audio docs, `.cursor/rules/*.mdc`, and `CONTRIBUTING.md`.
+- **section 1** - the audio code map, so you know where each changed file sits.
+- **section 2** - the review lenses (you apply these in step 7).
+
+Open the specific sources the diff touches (e.g. the fern page and the code for
+the stage being changed). First time reviewing audio in this repo, optionally
+build the post-#1608 reviewer-comment corpus (section 4) to see what reviewers
+repeatedly raise. Only after this grounding do you write the overview (step 6).
 
 ### Step 5 - Generate the context files
 
@@ -148,19 +158,29 @@ already made.
 
 ### Step 6 - Summarize the PR in detail (present this first)
 
-Before any critique, write the **"What this PR does (overview)"** section of the
-digest so a reader understands the change end to end: the problem it solves; the
+Now that you have read the diff (step 3) and the knowledge sources (step 4),
+write the **"What this PR does (overview)"** section of the digest so a reader
+understands the change end to end: the problem it solves; the
 main audio stages/files it adds or modifies (use the "Areas touched" table the
 builder generates); key design decisions; new dependencies, config, or APIs; and
 the blast radius (what could regress). Lead your review with this overview - the
 author and other reviewers read it before any findings.
 
-### Step 7 - Write up and post your findings
+### Step 7 - Review through the lenses, then write up and post your findings
 
-Record each issue as a finding, classified by severity, and post them as a PR
-review (inline comments for specific lines, a top-level summary for the overall
-verdict). Each finding cites the exact `path:line-range` on the current head and
-proposes a concrete fix.
+Apply the lenses in [knowledge-sources.md](knowledge-sources.md) section 2 to the
+diff - each lens links the audio code, README section, and `.cursor/rules`
+contract it governs: stage contracts, setup/teardown lifecycle, audio
+optional-dependency hygiene (vLLM, NeMo, model utils), secret-safe logging,
+waveform/tensor memory and manifest serialization, tarred/sharded audio I/O,
+sample-rate and metadata propagation, streaming/throughput, tutorials/docs,
+tests/coverage, and PR reviewability. Cite the linked source by name whenever
+the PR deviates.
+
+Record each issue as a finding, classified by severity, and post them **after
+the overview** as a PR review (inline comments for specific lines, a top-level
+summary for the overall verdict). Each finding cites the exact `path:line-range`
+on the current head and proposes a concrete fix.
 
 - **P0** - merge blocker: data loss / crash on a valid audio config (e.g. a
   manifest writer that crashes on a kept waveform), a secret (HF token) leaked

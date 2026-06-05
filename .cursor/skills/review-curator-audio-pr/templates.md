@@ -36,8 +36,9 @@ Base recorded by GitHub metadata: `<baseRefOid>`
 | stages/audio/<area> | <n> | +<a> -<d> |
 
 ### Plain-language summary (write this BEFORE any findings)
-<In your own words: what the PR changes and why, the main stages/files, key
-design decisions, new deps/config/APIs, and blast radius.>
+<In your own words, after reading the knowledge sources: what the PR changes and
+why, the main stages/files, key design decisions, new deps/config/APIs, and
+blast radius.>
 
 ## PR state at review time
 

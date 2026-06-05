@@ -173,7 +173,8 @@ def build(pr, outdir, today, baseline_ts, prev_head):
     p(d, "")
 
     p(d, "### Plain-language summary (reviewer writes this BEFORE any findings)", "")
-    p(d, "_In your own words, explain in detail what this PR changes and why: the "
+    p(d, "_After reading the knowledge sources (knowledge-sources.md), explain in "
+         "detail, in your own words, what this PR changes and why: the "
          "problem it solves, the main audio stages/files it adds or modifies, key "
          "design decisions, new dependencies/config/APIs, and the blast radius "
          "(what could regress). Present this overview first; only then move to the "
