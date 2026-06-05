@@ -273,20 +273,6 @@ By default, `prefetch_fail_on_error=true` fails fast if Hugging Face model acces
 prefetch_fail_on_error=false
 ```
 
-### vLLM or Qwen utilities are missing
-
-Install the CUDA audio extra:
-
-```bash
-uv sync --extra audio_cuda12
-```
-
-or:
-
-```bash
-pip install -e ".[audio_cuda12]"
-```
-
 ### No utterances are emitted
 
 Check that the manifest `audio_filepath` values match tar members by exact name, relative path, or basename. Also check `max_segment_length`; rows with `duration` greater than that value are filtered before decoding.

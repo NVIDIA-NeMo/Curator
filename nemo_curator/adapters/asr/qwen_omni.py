@@ -25,7 +25,10 @@ The engine plumbing (vLLM ``LLM`` creation, ``SamplingParams``, batched
 Qwen-Omni-specific surface: ``qwen_omni_utils.process_mm_info`` multimodal
 preprocessing, Turn-1/Turn-2 prompt construction, a batched preprocessing
 thread pool, and the ``prefetch_weights`` / ``transcribe_batch`` adapter
-protocol methods.
+protocol methods. Both turns funnel their vLLM call through a single
+``_infer_turn`` helper (and pack requests through ``_pack_vllm_inputs``),
+so the turns differ only in the prompt they build and the output list
+they fill.
 """
 
 from __future__ import annotations
@@ -340,27 +343,16 @@ class QwenOmniASRAdapter(VLLMBase):
         })
         return messages
 
-    def _prepare_single(
-        self, waveform: np.ndarray, sample_rate: int, language: str | None = None,
-    ) -> tuple[dict[str, Any], np.ndarray] | None:
-        if waveform is None or waveform.size == 0:
-            logger.warning("Skipping empty waveform")
-            return None
+    def _pack_vllm_inputs(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        """Render chat ``messages`` into a vLLM request dict.
 
-        try:
-            waveform_16k = self._resample(waveform, sample_rate)
-            messages = self._build_messages(waveform_16k, language)
-            text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to preprocess audio, skipping (waveform shape={}, sr={}): {}",
-                getattr(waveform, "shape", None),
-                sample_rate,
-                exc,
-            )
-            return None
-
+        Turn-1 and Turn-2 build their ``messages`` differently (the only
+        prompt difference between the turns) but pack the rendered prompt
+        and multi-modal payload into a request identically; that shared
+        packing lives here.
+        """
+        text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
         inputs: dict[str, Any] = {
             "prompt": text,
             "multi_modal_data": {},
@@ -372,6 +364,28 @@ class QwenOmniASRAdapter(VLLMBase):
             inputs["multi_modal_data"]["image"] = images
         if videos is not None:
             inputs["multi_modal_data"]["video"] = videos
+        return inputs
+
+    def _prepare_single(
+        self, waveform: np.ndarray, sample_rate: int, language: str | None = None,
+    ) -> tuple[dict[str, Any], np.ndarray] | None:
+        if waveform is None or waveform.size == 0:
+            logger.warning("Skipping empty waveform")
+            return None
+
+        try:
+            waveform_16k = self._resample(waveform, sample_rate)
+            messages = self._build_messages(waveform_16k, language)
+            inputs = self._pack_vllm_inputs(messages)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to preprocess audio, skipping (waveform shape={}, sr={}): {}",
+                getattr(waveform, "shape", None),
+                sample_rate,
+                exc,
+            )
+            return None
+
         return inputs, waveform_16k
 
     def _prepare_batch(
@@ -393,8 +407,7 @@ class QwenOmniASRAdapter(VLLMBase):
     ) -> dict[str, Any] | None:
         try:
             messages = self._build_turn2_messages(waveform_16k, pred_text, language)
-            text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
+            inputs = self._pack_vllm_inputs(messages)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Failed to preprocess Turn 2 audio (shape={}): {}",
@@ -403,17 +416,6 @@ class QwenOmniASRAdapter(VLLMBase):
             )
             return None
 
-        inputs: dict[str, Any] = {
-            "prompt": text,
-            "multi_modal_data": {},
-            "mm_processor_kwargs": {"use_audio_in_video": False},
-        }
-        if audios is not None:
-            inputs["multi_modal_data"]["audio"] = audios
-        if images is not None:
-            inputs["multi_modal_data"]["image"] = images
-        if videos is not None:
-            inputs["multi_modal_data"]["video"] = videos
         return inputs
 
     def _prepare_turn2_batch(
@@ -448,6 +450,34 @@ class QwenOmniASRAdapter(VLLMBase):
         if not sequences:
             return ""
         return (getattr(sequences[0], "text", "") or "").strip()
+
+    def _infer_turn(
+        self,
+        inputs: list[dict[str, Any]],
+        indices: list[int],
+        n: int,
+    ) -> tuple[list[str], float, float]:
+        """Run one vLLM turn and scatter its texts back to input order.
+
+        Turn-1 and Turn-2 share this generate -> count-tokens -> scatter
+        sequence; they differ only in the prompts already baked into
+        ``inputs`` and the output list each fills (Turn-1 -> ``pred_texts``,
+        Turn-2 -> ``disfluency_texts``). ``indices[k]`` is the position in
+        the length-``n`` batch that ``inputs[k]`` came from.
+
+        Returns ``(texts_of_len_n, generation_time_s, output_token_count)``.
+        """
+        t0 = time.perf_counter()
+        outputs = self._generate(inputs)
+        generation_time_s = time.perf_counter() - t0
+        output_tokens = self._count_output_tokens(outputs)
+        texts: list[str] = [""] * n
+        # strict=True: vLLM must return exactly one output per input, in order.
+        # A count mismatch means a broken engine contract - fail loud here
+        # instead of silently emitting empty transcriptions with skipped=False.
+        for idx, out in zip(indices, outputs, strict=True):
+            texts[idx] = self._first_output_text(out)
+        return texts, generation_time_s, output_tokens
 
     # ------------------------------------------------------------------
     # Two-turn generation - logic preserved from pre-split QwenOmni
@@ -509,15 +539,10 @@ class QwenOmniASRAdapter(VLLMBase):
         if len(valid_inputs) < n:
             logger.warning(f"Skipped {n - len(valid_inputs)}/{n} corrupt audio samples")
 
-        t1_t0 = time.perf_counter()
-        t1_outputs = self._generate(valid_inputs)
-        metrics["turn1_generation_time_s"] = time.perf_counter() - t1_t0
-        metrics["turn1_output_tokens"] = self._count_output_tokens(t1_outputs)
-        metrics["output_tokens"] += metrics["turn1_output_tokens"]
-
-        pred_texts: list[str] = [""] * n
-        for idx, out in zip(valid_indices, t1_outputs, strict=False):
-            pred_texts[idx] = self._first_output_text(out)
+        pred_texts, t1_generation_s, t1_tokens = self._infer_turn(valid_inputs, valid_indices, n)
+        metrics["turn1_generation_time_s"] = t1_generation_s
+        metrics["turn1_output_tokens"] = t1_tokens
+        metrics["output_tokens"] += t1_tokens
 
         # -- Turn 2 (disfluency refinement) -----------------------------------
         if not self.followup_prompt:
@@ -542,14 +567,11 @@ class QwenOmniASRAdapter(VLLMBase):
             logger.warning("All Turn 2 samples failed preprocessing")
             return pred_texts, [""] * n, skipped_indices
 
-        t2_t0 = time.perf_counter()
-        t2_outputs = self._generate([p for _, p in t2_valid])
-        metrics["turn2_generation_time_s"] = time.perf_counter() - t2_t0
-        metrics["turn2_output_tokens"] = self._count_output_tokens(t2_outputs)
-        metrics["output_tokens"] += metrics["turn2_output_tokens"]
-
-        disfluency_texts: list[str] = [""] * n
-        for (idx, _), out in zip(t2_valid, t2_outputs, strict=False):
-            disfluency_texts[idx] = self._first_output_text(out)
+        t2_valid_indices = [i for i, _ in t2_valid]
+        t2_inputs = [p for _, p in t2_valid]
+        disfluency_texts, t2_generation_s, t2_tokens = self._infer_turn(t2_inputs, t2_valid_indices, n)
+        metrics["turn2_generation_time_s"] = t2_generation_s
+        metrics["turn2_output_tokens"] = t2_tokens
+        metrics["output_tokens"] += t2_tokens
 
         return pred_texts, disfluency_texts, skipped_indices

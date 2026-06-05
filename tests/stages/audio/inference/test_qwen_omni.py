@@ -762,6 +762,46 @@ def test_qwen_adapter_count_output_tokens_handles_empty_vllm_output() -> None:
     assert QwenOmniASRAdapter._count_output_tokens([SimpleNamespace(outputs=[])]) == 0.0
 
 
+def test_qwen_adapter_infer_turn_scatters_outputs_by_index() -> None:
+    """The shared Turn-1/Turn-2 helper scatters vLLM outputs back to the
+    original batch positions and reports generation time + token count."""
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
+
+    def _fake_generate(inputs: list[dict[str, object]]) -> list[SimpleNamespace]:
+        return [
+            SimpleNamespace(outputs=[SimpleNamespace(text=f"t{i}", token_ids=[0, 1])])
+            for i, _ in enumerate(inputs)
+        ]
+
+    adapter._generate = _fake_generate  # type: ignore[method-assign]
+
+    # Length-4 batch where only positions 1 and 3 produced valid inputs.
+    texts, generation_s, tokens = adapter._infer_turn(
+        inputs=[{"prompt": "a"}, {"prompt": "b"}],
+        indices=[1, 3],
+        n=4,
+    )
+
+    assert texts == ["", "t0", "", "t1"]
+    assert tokens == 4.0  # 2 outputs x 2 token_ids each
+    assert generation_s >= 0.0
+
+
+def test_qwen_adapter_infer_turn_raises_on_vllm_count_mismatch() -> None:
+    """A short vLLM result list must fail loud (strict=True) rather than
+    silently leaving utterances as empty text with skipped=False."""
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
+
+    def _short_generate(_inputs: list[dict[str, object]]) -> list[SimpleNamespace]:
+        # vLLM returns fewer outputs than inputs (e.g. a scheduler drop).
+        return [SimpleNamespace(outputs=[SimpleNamespace(text="only-one", token_ids=[0])])]
+
+    adapter._generate = _short_generate  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="zip"):
+        adapter._infer_turn(inputs=[{"prompt": "a"}, {"prompt": "b"}], indices=[0, 1], n=2)
+
+
 def test_qwen_adapter_transcribe_batch_packages_results() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt="refine")
     adapter._run_two_turn = MagicMock(  # type: ignore[method-assign]
