@@ -2,14 +2,17 @@
 
 You are the reviewer. `scripts/build_digest.py` generates files A and B as
 context; you author the findings (section C) and post them as your review.
-Replace `<...>` placeholders. Keep the structure stable across review passes so
-a re-review diffs cleanly and only surfaces what changed.
+The digest **leads with a PR overview** that you must complete and present
+before any review comments. Replace `<...>` placeholders. Keep the structure
+stable across review passes so a re-review diffs cleanly and only surfaces what
+changed.
 
 ## A. Working digest (generated, then you append findings)
 
-File: `curator_pr<N>_fresh_review_<YYYY_MM_DD>.md`. The generated part gives you
-PR state, the diff, and all existing review activity. Add your own **Findings**
-section at the end - that is your review.
+File: `curator_pr<N>_fresh_review_<YYYY_MM_DD>.md`. It **leads with a PR
+overview** (what the change does and why), then PR state, the diff, and all
+existing review activity. Complete the overview's plain-language summary first
+and present it before any findings; add your **Findings** section at the end.
 
 ```markdown
 # Curator PR <N> Fresh Review - <YYYY-MM-DD>
@@ -19,6 +22,22 @@ Review target: https://github.com/NVIDIA-NeMo/Curator/pull/<N>
 Current PR head reviewed: `<headRefOid>`
 
 Base recorded by GitHub metadata: `<baseRefOid>`
+
+## What this PR does (overview)
+
+**<title>** - by @<author>  (<state>, +<a>/-<d> across <n> files, <k> commits)
+
+### Author's description
+<verbatim PR body>
+
+### Areas touched
+| Area | files | +/- |
+|---|---|---|
+| stages/audio/<area> | <n> | +<a> -<d> |
+
+### Plain-language summary (write this BEFORE any findings)
+<In your own words: what the PR changes and why, the main stages/files, key
+design decisions, new deps/config/APIs, and blast radius.>
 
 ## PR state at review time
 

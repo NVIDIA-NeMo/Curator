@@ -47,16 +47,21 @@ with *"build the post-#1608 audio review corpus first, then review PR <N>"*
 
 ## What you produce
 
-Your review = a set of **findings** (P0-P3), each tied to a `path:line` on the
-PR's current head, that you post as PR review comments. The skill writes two
-helper files into a scratch directory (default `.curator-pr-review/`, override
-with `--outdir`) to support that:
+You produce two things, **in this order**: (1) a **detailed overview of what the
+PR does and why** - so the reader understands the change before any critique -
+then (2) your **findings** (P0-P3), each tied to a `path:line` on the PR's
+current head, that you post as PR review comments. Never lead with review
+comments; always explain the PR first.
 
-1. `curator_pr<N>_fresh_review_<YYYY_MM_DD>.md` - **your working digest**: PR
+The skill writes two helper files into a scratch directory (default
+`.curator-pr-review/`, override with `--outdir`) to support that:
+
+1. `curator_pr<N>_fresh_review_<YYYY_MM_DD>.md` - **your working digest**: leads
+   with a **"What this PR does (overview)"** section (the author's description,
+   an areas-touched table, and a plain-language summary you write), then PR
    state, commits, changed-file table, and every existing review/comment grouped
-   by file with OPEN / OUTDATED / RESOLVED status, plus a placeholder for your
-   findings. Read it to understand the PR and to see what other reviewers already
-   raised so you don't repeat them; record your findings at the bottom.
+   by file with OPEN / OUTDATED / RESOLVED status, then a placeholder for your
+   findings. Fill in the overview first, then record your findings at the bottom.
 2. `curator_pr<N>_github_comment_queue_<YYYY_MM_DD>.md` - **prior open threads**:
    a condensed list of the threads other reviewers left that are still
    unresolved on the current head. Scan it before writing your own comments.
@@ -74,7 +79,8 @@ review comments. The review lenses and every doc/code reference live in
 - [ ] 3. Read the diff
 - [ ] 4. Review the changed code through the audio review lenses
 - [ ] 5. Generate the digest + prior-threads file for context
-- [ ] 6. Write up your findings (P0-P3) and post them as review comments
+- [ ] 6. Write the detailed PR overview (present this first)
+- [ ] 7. Write up your findings (P0-P3) and post them after the overview
 ```
 
 ### Step 0 - Locate or shallow-clone the repo
@@ -140,7 +146,16 @@ status: **OPEN** (still unresolved), **OUTDATED** (pre-dates the current head),
 **RESOLVED**. Use the OPEN list to avoid re-raising points another reviewer
 already made.
 
-### Step 6 - Write up and post your findings
+### Step 6 - Summarize the PR in detail (present this first)
+
+Before any critique, write the **"What this PR does (overview)"** section of the
+digest so a reader understands the change end to end: the problem it solves; the
+main audio stages/files it adds or modifies (use the "Areas touched" table the
+builder generates); key design decisions; new dependencies, config, or APIs; and
+the blast radius (what could regress). Lead your review with this overview - the
+author and other reviewers read it before any findings.
+
+### Step 7 - Write up and post your findings
 
 Record each issue as a finding, classified by severity, and post them as a PR
 review (inline comments for specific lines, a top-level summary for the overall
