@@ -401,6 +401,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         default=None,
         help="Explicit Ray actor count for the ContextualASR stage. Overrides --num_workers for that stage only.",
     )
+    ap.add_argument(
+        "--context_asr_max_concurrent_requests",
+        type=int,
+        default=None,
+        help="Max concurrent requests for the ContextualASR stage. Overrides --inference_max_concurrent_requests for that stage only.",
+    )
     ap.add_argument("--batch_size", type=int, default=64)
 
     ap.add_argument("--execution_mode", type=str, default="streaming", choices=["streaming", "batch"])
@@ -689,7 +695,11 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 num_workers_override=args.context_asr_num_workers if args.context_asr_num_workers is not None else args.num_workers,
                 batch_size=args.batch_size,
                 resources=Resources(gpus=1.0),
-                **remote_kwargs,
+                **{
+                    **remote_kwargs,
+                    **({"max_concurrent_requests": args.context_asr_max_concurrent_requests}
+                       if args.context_asr_max_concurrent_requests is not None and remote_kwargs else {}),
+                },
             )
         )
         if args.enable_acoustic_distractor:
