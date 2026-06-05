@@ -45,6 +45,11 @@ class TestClusterWiseFilePartitioningStage:
         assert stage.path_normalizer is not None
         assert stage.path_normalizer("/test/path") == "/test/path"
 
+    def test_ray_stage_spec_is_fanout_stage(self):
+        stage = ClusterWiseFilePartitioningStage("/test/path")
+
+        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+
     def test_process_finds_all_centroid_files(self, tmp_path: Path):
         """Test that process method finds all files in centroid directories."""
 

@@ -63,10 +63,6 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioBatch]):
             for entry in entries
         ]
 
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {"is_fanout_stage": True}
-
-
 @dataclass
 class ALMManifestReader(CompositeStage[_EmptyTask, AudioBatch]):
     """Composite stage for reading ALM JSONL manifests.
