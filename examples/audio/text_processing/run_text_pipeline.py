@@ -395,6 +395,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap.add_argument("--gpu_memory_utilization", type=float, default=0.95)
     ap.add_argument("--kv_cache_dtype", type=str, default="fp8")
     ap.add_argument("--num_workers", type=int, default=None, help="Explicit GPU worker count for Xenna.")
+    ap.add_argument(
+        "--context_asr_num_workers",
+        type=int,
+        default=None,
+        help="Explicit Ray actor count for the ContextualASR stage. Overrides --num_workers for that stage only.",
+    )
     ap.add_argument("--batch_size", type=int, default=64)
 
     ap.add_argument("--execution_mode", type=str, default="streaming", choices=["streaming", "batch"])
@@ -680,7 +686,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 max_num_seqs=args.max_num_seqs,
                 gpu_memory_utilization=args.gpu_memory_utilization,
                 kv_cache_dtype=args.kv_cache_dtype,
-                num_workers_override=args.num_workers,
+                num_workers_override=args.context_asr_num_workers if args.context_asr_num_workers is not None else args.num_workers,
                 batch_size=args.batch_size,
                 resources=Resources(gpus=1.0),
                 **remote_kwargs,
