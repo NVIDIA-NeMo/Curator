@@ -265,7 +265,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
                 else:
                     raise
             else:
-                texts = [output.outputs[0].text for output in outputs]
+                texts = [output.outputs[0].text if output.outputs else "" for output in outputs]
                 return texts, outputs, vllm_retries
         return [], [], vllm_retries
 

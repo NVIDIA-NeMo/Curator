@@ -450,3 +450,19 @@ class TestNemotronParseInferenceStageMetrics:
         assert stage._custom_metrics["total_output_tokens"] == 3.0
         assert stage._custom_metrics["total_output_chars"] == 6.0
         assert "vllm_inference_time" in stage._custom_metrics
+
+    def test_infer_vllm_empty_outputs_produces_empty_string(self) -> None:
+        """RequestOutput with no completions should yield '' rather than IndexError."""
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        stage = NemotronParseInferenceStage(backend="vllm")
+        stage._sampling_params = SimpleNamespace()
+        # Simulate a RequestOutput where the model returned no completions.
+        empty_req_output = SimpleNamespace(prompt_token_ids=[1, 2], outputs=[])
+        stage._llm = SimpleNamespace(generate=lambda _p, _s: [empty_req_output])
+
+        texts, raw, retries = stage._infer_vllm([Image.new("RGB", (10, 10))])
+
+        assert texts == [""]
+        assert raw == [empty_req_output]
+        assert retries == 0
