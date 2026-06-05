@@ -48,6 +48,7 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     name: str = "alm_manifest_reader_stage"
     output_dir: str = ""
+    fanout: bool = True
 
     @staticmethod
     def _derive_shard_key(manifest_path: str, corpus: str = "") -> str:
@@ -142,7 +143,7 @@ class ALMManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return results
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        return {"is_fanout_stage": True}
+        return {"is_fanout_stage": self.fanout}
 
 
 @dataclass
@@ -173,6 +174,9 @@ class ALMManifestReader(CompositeStage[_EmptyTask, AudioTask]):
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
     storage_options: dict[str, Any] | None = None
     output_dir: str = ""
+    # fanout=False keeps shard-sized blocks (no per-row repartition), so shards stream
+    # and complete one at a time instead of all interleaving.
+    fanout: bool = True
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -193,7 +197,7 @@ class ALMManifestReader(CompositeStage[_EmptyTask, AudioTask]):
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
             ),
-            ALMManifestReaderStage(output_dir=self.output_dir),
+            ALMManifestReaderStage(output_dir=self.output_dir, fanout=self.fanout),
         ]
 
     def get_description(self) -> str:

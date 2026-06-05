@@ -582,7 +582,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     }
 
     stages = [
-        ALMManifestReader(manifest_path=args.input_manifest, output_dir=args.output_dir),
+        ALMManifestReader(manifest_path=args.input_manifest, output_dir=args.output_dir, fanout=False),
     ]
 
     if args.enable_pnc:
@@ -798,8 +798,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     try:
         pipeline.run(executor=executor)
     finally:
-        # Stop the server before the Ray client so Serve actors can shut down
-        # cleanly while the cluster is still up.
         if inference_server is not None:
             inference_server.stop()
         if ray_client is not None:
