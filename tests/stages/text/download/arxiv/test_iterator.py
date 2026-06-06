@@ -14,7 +14,9 @@
 
 import io
 import tarfile
+import tempfile
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -51,7 +53,13 @@ class TestArxivIterator:
             outer_tar.add(inner_tar_path, arcname="2103.00001.tar")
 
         iterator = ArxivIterator(log_frequency=1)
-        results = list(iterator.iterate(str(outer_tar_path)))
+        with mock.patch(
+            "nemo_curator.stages.text.download.arxiv.iterator.tempfile.TemporaryDirectory",
+            wraps=tempfile.TemporaryDirectory,
+        ) as tmpdir_mock:
+            results = list(iterator.iterate(str(outer_tar_path)))
+
+        assert tmpdir_mock.call_args.kwargs == {}
         # Expect one paper extracted.
         assert len(results) == 1
         tex_files = results[0]

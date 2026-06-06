@@ -121,10 +121,9 @@ class ArxivIterator(DocumentIterator):
 
     def iterate(self, file_path: str) -> Iterator[dict[str, Any]]:
         self._counter = 0
-        download_dir = os.path.split(file_path)[0]
         bname = os.path.split(file_path)[-1]
 
-        with tempfile.TemporaryDirectory(dir=download_dir) as tmpdir, tarfile.open(file_path) as tf:
+        with tempfile.TemporaryDirectory() as tmpdir, tarfile.open(file_path) as tf:
             # Use safe extraction instead of extractall to prevent path traversal attacks
             tar_safe_extract(tf, tmpdir)
             for _i, item in enumerate(get_all_file_paths_under(tmpdir, recurse_subdirectories=True)):
