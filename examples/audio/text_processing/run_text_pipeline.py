@@ -95,6 +95,7 @@ from nemo_curator.stages.audio.text_filtering.remote_text_llm_stage import Remot
 from nemo_curator.stages.audio.text_filtering.text_llm_stage import TextLLMStage
 from nemo_curator.stages.resources import Resources
 
+
 _PROMPT_DIR = (
     Path(__file__).resolve().parent.parent.parent.parent
     / "nemo_curator"
@@ -593,7 +594,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 prompt_file=pnc_prompt,
                 text_key=pnc_input_key,
                 output_text_key=args.pnc_output_key,
-                resources=Resources(gpus=1.0),
                 **shared_model_kwargs,
             )
         )
@@ -607,7 +607,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 text_key="pnc_text",
                 output_text_key="llm_language_prediction",
                 enable_validation=False,
-                resources=Resources(gpus=1.0),
                 **shared_model_kwargs,
             )
         )
@@ -625,7 +624,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 prompt_file=itn_prompt,
                 text_key=args.text_key,
                 output_text_key=args.itn_output_key,
-                resources=Resources(gpus=1.0),
                 **shared_model_kwargs,
             )
         )
@@ -642,7 +640,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                     prompt_file=itn_prompt,
                     text_key=args.text_key,
                     output_text_key=args.itn_output_key,
-                    resources=Resources(gpus=1.0),
                     **shared_model_kwargs,
                 )
             )
@@ -654,7 +651,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 text_key=args.itn_output_key,
                 output_text_key=args.itn_no_disfluencies_output_key,
                 max_deletion_ratio=0.5,
-                resources=Resources(gpus=1.0),
                 **shared_model_kwargs,
             )
         )
@@ -668,7 +664,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 text_key=args.text_key,
                 output_text_key=args.captioning_output_key,
                 enable_validation=False,
-                resources=Resources(gpus=1.0),
                 **shared_model_kwargs,
             )
         )
@@ -694,7 +689,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 kv_cache_dtype=args.kv_cache_dtype,
                 num_workers_override=args.context_asr_num_workers if args.context_asr_num_workers is not None else args.num_workers,
                 batch_size=args.batch_size,
-                resources=Resources(gpus=1.0),
                 **{
                     **remote_kwargs,
                     **({"max_concurrent_requests": args.context_asr_max_concurrent_requests}
@@ -750,7 +744,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 text_key=args.text_key,
                 output_text_key=args.code_switching_output_key,
                 enable_validation=False,
-                resources=Resources(gpus=1.0),
                 **shared_model_kwargs,
             )
         )
@@ -764,7 +757,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 text_key=args.text_key,
                 output_text_key=args.speech_qa_output_key,
                 enable_validation=False,
-                resources=Resources(gpus=1.0),
                 **shared_model_kwargs,
             )
         )
@@ -792,7 +784,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
 
     from nemo_curator.backends.ray_data import RayDataExecutor
 
-    executor = RayDataExecutor()
+    executor = RayDataExecutor(ignore_head_node=bool(remote_base_url))
 
     logger.info(f"Running text pipeline: {len(stages)} stages, mode={args.execution_mode}")
     try:

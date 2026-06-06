@@ -21,6 +21,7 @@ from ray.data import DataContext, Dataset
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
+from nemo_curator.utils.ray_utils import get_head_node_id
 
 from .adapter import RayDataStageAdapter
 
@@ -73,8 +74,20 @@ class RayDataExecutor(BaseExecutor):
             # Convert tasks to dataset
             current_dataset = self._tasks_to_dataset(tasks)
 
+            # ignore_head_node is only meaningful when there are actual worker nodes.
+            # On a single-node cluster the head IS the only compute node, so applying
+            # ignore_head_node=True would skip setup entirely and miscalculate concurrency.
+            if self.ignore_head_node:
+                head_id = get_head_node_id()
+                has_workers = any(
+                    n["NodeID"] != head_id for n in ray.nodes() if n.get("Alive")
+                )
+                effective_ignore_head = has_workers
+            else:
+                effective_ignore_head = False
+
             # Execute setup on node for all stages
-            execute_setup_on_node(stages, ignore_head_node=self.ignore_head_node)
+            execute_setup_on_node(stages, ignore_head_node=effective_ignore_head)
             logger.info(f"Setup on node complete for all stages. Starting Ray Data pipeline with {len(stages)} stages")
 
             # Process through each stage
@@ -87,7 +100,7 @@ class RayDataExecutor(BaseExecutor):
                 adapter = RayDataStageAdapter(stage)
 
                 # Apply stage transformation
-                current_dataset = adapter.process_dataset(current_dataset, self.ignore_head_node)
+                current_dataset = adapter.process_dataset(current_dataset, effective_ignore_head)
         except Exception as e:
             logger.error(f"Error during pipeline execution: {e}")
             raise

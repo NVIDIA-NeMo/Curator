@@ -81,8 +81,9 @@ class RemoteTextLLMStage(TextLLMStage):
         # Remote mode holds no in-process engine. Force CPU-only so the
         # executor schedules these client actors OFF the GPUs the server
         # occupies (asking for a GPU here would deadlock waiting for one
-        # the server never frees).
-        self.resources = Resources(cpus=2.0)
+        # the server never frees). 1 CPU is enough — actors only make HTTP
+        # requests, no local GPU work.
+        self.resources = Resources(cpus=1.0)
 
     # ── Lifecycle ────────────────────────────────────────────────────
 
