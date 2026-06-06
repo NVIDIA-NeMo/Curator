@@ -17,13 +17,11 @@ import pathlib
 import subprocess
 import uuid
 from dataclasses import dataclass
-from typing import Any
 
 from cosmos_xenna.ray_utils.resources import _get_local_gpu_info, _make_gpu_resources_from_gpu_name
 from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources, _get_gpu_memory_gb
 from nemo_curator.tasks.video import Clip, Video, VideoTask
@@ -96,13 +94,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def ray_stage_spec(self) -> dict[str, Any]:
-        """Ray stage specification for this stage."""
-        return {
-            RayStageSpecKeys.IS_FANOUT_STAGE: True,
-        }
-
-    def process(self, task: VideoTask) -> VideoTask:
+    def process(self, task: VideoTask) -> list[VideoTask]:
         video = task.data
 
         if not video.clips:
