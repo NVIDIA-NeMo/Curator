@@ -159,7 +159,7 @@ class FusedRemoteTextLLMStage(ProcessingStage["AudioTask", "AudioTask"]):
     # ── Processing ───────────────────────────────────────────────────────────
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        if not tasks:
+        if len(tasks) == 0:
             return []
         if self._client is None:
             msg = "FusedRemoteTextLLMStage.setup() was not called"
