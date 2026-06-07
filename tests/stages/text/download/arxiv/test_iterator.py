@@ -59,7 +59,7 @@ class TestArxivIterator:
         ) as tmpdir_mock:
             results = list(iterator.iterate(str(outer_tar_path)))
 
-        assert tmpdir_mock.call_args.kwargs == {}
+        tmpdir_mock.assert_called_once_with()
         # Expect one paper extracted.
         assert len(results) == 1
         tex_files = results[0]
