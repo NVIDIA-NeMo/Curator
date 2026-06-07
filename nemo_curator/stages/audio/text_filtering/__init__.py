@@ -13,3 +13,7 @@
 # limitations under the License.
 
 """Text filtering stages for ASR postprocessing."""
+
+from nemo_curator.stages.audio.text_filtering.fused_remote_text_llm_stage import FusedRemoteTextLLMStage
+
+__all__ = ["FusedRemoteTextLLMStage"]

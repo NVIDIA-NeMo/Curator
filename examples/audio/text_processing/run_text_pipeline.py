@@ -91,6 +91,7 @@ from nemo_curator.stages.audio.text_filtering.llm_language_verification import L
 from nemo_curator.stages.audio.text_filtering.remote_contextual_asr_extraction import (
     RemoteContextualASRExtractionStage,
 )
+from nemo_curator.stages.audio.text_filtering.fused_remote_text_llm_stage import FusedRemoteTextLLMStage
 from nemo_curator.stages.audio.text_filtering.remote_text_llm_stage import RemoteTextLLMStage
 from nemo_curator.stages.audio.text_filtering.text_llm_stage import TextLLMStage
 from nemo_curator.stages.resources import Resources
@@ -453,6 +454,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         default=300,
         help="Seconds to wait for the inference server to become healthy before failing (default: 300).",
     )
+    srv.add_argument(
+        "--fuse_stages",
+        action="store_true",
+        default=False,
+        help="Fuse independent LLM stages (LanguageID, ITN, Captioning, CodeSwitching, SpeechQA) "
+        "into a single actor that fires all their prompts in parallel via asyncio.gather. "
+        "Only active with --use_inference_server. Reduces sequential stage overhead and keeps "
+        "the Dynamo server continuously saturated.",
+    )
 
     return ap
 
@@ -583,6 +593,13 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         **remote_kwargs,
     }
 
+    # When --fuse_stages is active, independent stages (LanguageID, ITN, Captioning,
+    # CodeSwitching, SpeechQA) are collected here instead of appended directly.
+    # They are later wrapped in one FusedRemoteTextLLMStage actor. Only has effect
+    # with --use_inference_server; falls back to normal behaviour otherwise.
+    use_fusing = bool(args.fuse_stages and remote_base_url)
+    fuseable_sub_stages: list[RemoteTextLLMStage] = []
+
     stages = [
         ALMManifestReader(manifest_path=args.input_manifest, output_dir=args.output_dir, fanout=False),
     ]
@@ -600,34 +617,44 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         )
         logger.info(f"PnC stage enabled: {pnc_input_key} → {args.pnc_output_key}")
 
+    # post_fused_stages: stages that depend on fused output (itn_text, llm_language_prediction)
+    # and must be inserted after the fused stage when use_fusing is active.
+    post_fused_stages: list = []
+
     if args.enable_language_id:
-        stages.append(
-            text_stage_cls(
-                name="LanguageID",
-                prompt_file=language_id_prompt,
-                text_key="pnc_text",
-                output_text_key="llm_language_prediction",
-                enable_validation=False,
-                **shared_model_kwargs,
-            )
+        _language_id_stage = text_stage_cls(
+            name="LanguageID",
+            prompt_file=language_id_prompt,
+            text_key="pnc_text",
+            output_text_key="llm_language_prediction",
+            enable_validation=False,
+            **shared_model_kwargs,
         )
-        logger.info("LanguageID stage enabled: pnc_text → llm_language_prediction")
-        stages.append(LLMLanguageVerificationStage())
+        if use_fusing:
+            fuseable_sub_stages.append(_language_id_stage)
+            # LLMLanguageVerification reads llm_language_prediction written by the fused stage;
+            # must come after it — collected here and inserted at assembly time below.
+            post_fused_stages.append(LLMLanguageVerificationStage())
+        else:
+            stages.append(_language_id_stage)
+            stages.append(LLMLanguageVerificationStage())
         logger.info(
-            "LLMLanguageVerification stage enabled: llm_language_prediction vs source_lang "
+            "LanguageID + LLMLanguageVerification stages enabled: pnc_text → llm_language_prediction "
             "→ keep code-switch w/ source_lang, else _skipme='Wrong language:LLMLanguageVerification'"
         )
 
     if args.enable_itn:
-        stages.append(
-            text_stage_cls(
-                name="ITNRestoration",
-                prompt_file=itn_prompt,
-                text_key=args.text_key,
-                output_text_key=args.itn_output_key,
-                **shared_model_kwargs,
-            )
+        _itn_stage = text_stage_cls(
+            name="ITNRestoration",
+            prompt_file=itn_prompt,
+            text_key=args.text_key,
+            output_text_key=args.itn_output_key,
+            **shared_model_kwargs,
         )
+        if use_fusing:
+            fuseable_sub_stages.append(_itn_stage)
+        else:
+            stages.append(_itn_stage)
         logger.info(f"ITN stage enabled: {args.text_key} → {args.itn_output_key}")
 
     if args.enable_itn_no_disfluencies:
@@ -635,39 +662,46 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             logger.warning(
                 "--enable_itn_no-disfluencies requires --enable_itn (needs itn_text as input). Enabling ITN automatically."
             )
-            stages.append(
-                text_stage_cls(
-                    name="ITNRestoration",
-                    prompt_file=itn_prompt,
-                    text_key=args.text_key,
-                    output_text_key=args.itn_output_key,
-                    **shared_model_kwargs,
-                )
-            )
-
-        stages.append(
-            text_stage_cls(
-                name="DisfluencyRemoval",
-                prompt_file=itn_no_disfl_prompt,
-                text_key=args.itn_output_key,
-                output_text_key=args.itn_no_disfluencies_output_key,
-                max_deletion_ratio=0.5,
+            _itn_auto_stage = text_stage_cls(
+                name="ITNRestoration",
+                prompt_file=itn_prompt,
+                text_key=args.text_key,
+                output_text_key=args.itn_output_key,
                 **shared_model_kwargs,
             )
+            if use_fusing:
+                fuseable_sub_stages.append(_itn_auto_stage)
+            else:
+                stages.append(_itn_auto_stage)
+
+        _disfl_stage = text_stage_cls(
+            name="DisfluencyRemoval",
+            prompt_file=itn_no_disfl_prompt,
+            text_key=args.itn_output_key,
+            output_text_key=args.itn_no_disfluencies_output_key,
+            max_deletion_ratio=0.5,
+            **shared_model_kwargs,
         )
+        # DisfluencyRemoval reads itn_text from the fused stage — must follow it.
+        if use_fusing:
+            post_fused_stages.append(_disfl_stage)
+        else:
+            stages.append(_disfl_stage)
         logger.info(f"DisfluencyRemoval stage enabled: {args.itn_output_key} → {args.itn_no_disfluencies_output_key}")
 
     if args.enable_captioning:
-        stages.append(
-            text_stage_cls(
-                name="Captioning",
-                prompt_file=captioning_prompt,
-                text_key=args.text_key,
-                output_text_key=args.captioning_output_key,
-                enable_validation=False,
-                **shared_model_kwargs,
-            )
+        _captioning_stage = text_stage_cls(
+            name="Captioning",
+            prompt_file=captioning_prompt,
+            text_key=args.text_key,
+            output_text_key=args.captioning_output_key,
+            enable_validation=False,
+            **shared_model_kwargs,
         )
+        if use_fusing:
+            fuseable_sub_stages.append(_captioning_stage)
+        else:
+            stages.append(_captioning_stage)
         logger.info(f"Captioning stage enabled: {args.text_key} → {args.captioning_output_key}")
 
     if args.enable_context_asr:
@@ -738,30 +772,55 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 f"ASR extraction. Consider 8192 or higher when --enable_context_asr is used."
             )
     if args.enable_code_switching:
-        stages.append(
-            text_stage_cls(
-                name="CodeSwitching",
-                prompt_file=code_switching_prompt,
-                text_key=args.text_key,
-                output_text_key=args.code_switching_output_key,
-                enable_validation=False,
-                **shared_model_kwargs,
-            )
+        _code_switching_stage = text_stage_cls(
+            name="CodeSwitching",
+            prompt_file=code_switching_prompt,
+            text_key=args.text_key,
+            output_text_key=args.code_switching_output_key,
+            enable_validation=False,
+            **shared_model_kwargs,
         )
+        if use_fusing:
+            fuseable_sub_stages.append(_code_switching_stage)
+        else:
+            stages.append(_code_switching_stage)
         logger.info(f"CodeSwitching stage enabled: {args.text_key} → {args.code_switching_output_key}")
 
     if args.enable_speech_qa:
+        _speech_qa_stage = text_stage_cls(
+            name="SpeechQA",
+            prompt_file=speech_qa_prompt,
+            text_key=args.text_key,
+            output_text_key=args.speech_qa_output_key,
+            enable_validation=False,
+            **shared_model_kwargs,
+        )
+        if use_fusing:
+            fuseable_sub_stages.append(_speech_qa_stage)
+        else:
+            stages.append(_speech_qa_stage)
+        logger.info(f"SpeechQA stage enabled: {args.text_key} → {args.speech_qa_output_key}")
+
+    # Fused stage assembly — one actor fires all collected sub-stage prompts in parallel.
+    if use_fusing and fuseable_sub_stages:
         stages.append(
-            text_stage_cls(
-                name="SpeechQA",
-                prompt_file=speech_qa_prompt,
-                text_key=args.text_key,
-                output_text_key=args.speech_qa_output_key,
-                enable_validation=False,
-                **shared_model_kwargs,
+            FusedRemoteTextLLMStage(
+                sub_stages=fuseable_sub_stages,
+                inference_base_url=remote_base_url,
+                inference_api_key=args.inference_api_key,
+                served_model_name=remote_model_name,
+                max_concurrent_requests=args.inference_max_concurrent_requests,
+                request_timeout=args.inference_request_timeout,
+                batch_size=args.batch_size,
             )
         )
-        logger.info(f"SpeechQA stage enabled: {args.text_key} → {args.speech_qa_output_key}")
+        logger.info(
+            "FusedRemoteTextLLMStage assembled: %s sub-stages firing in parallel",
+            [s.name for s in fuseable_sub_stages],
+        )
+        # Post-fused stages depend on outputs written by the fused actor
+        # (llm_language_prediction → LLMLanguageVerification, itn_text → DisfluencyRemoval).
+        stages.extend(post_fused_stages)
 
     if args.enable_instruction_packer:
         stages.append(
