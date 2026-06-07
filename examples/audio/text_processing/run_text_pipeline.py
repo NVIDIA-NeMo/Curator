@@ -512,6 +512,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             "gpu_memory_utilization": args.gpu_memory_utilization,
             "kv_cache_dtype": args.kv_cache_dtype,
             "trust_remote_code": True,
+            "max_num_seqs": args.max_num_seqs,
         }
         if server_tp == 1:
             # TP=1: force the uniprocessor executor so each replica skips
