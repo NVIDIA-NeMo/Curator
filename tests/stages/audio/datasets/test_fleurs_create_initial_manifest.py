@@ -27,10 +27,10 @@ def _import_stage_module() -> tuple[Any, Any]:
         sys.modules["wget"] = types.SimpleNamespace(download=lambda *_args, **_kwargs: None)
     from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import (
         CreateInitialManifestFleursStage,
-        get_fleurs_url_list,
+        get_fleurs_filenames,
     )
 
-    return CreateInitialManifestFleursStage, get_fleurs_url_list
+    return CreateInitialManifestFleursStage, get_fleurs_filenames
 
 
 def test_ray_stage_spec(tmp_path: Path) -> None:
@@ -42,11 +42,11 @@ def test_ray_stage_spec(tmp_path: Path) -> None:
     assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
 
 
-def test_get_fleurs_url_list_builds_urls() -> None:
-    _, get_fleurs_url_list = _import_stage_module()
-    urls = get_fleurs_url_list("hy_am", "dev")
-    assert urls[0].endswith("/hy_am/dev.tsv")
-    assert urls[1].endswith("/hy_am/audio/dev.tar.gz")
+def test_get_fleurs_filenames_builds_paths() -> None:
+    _, get_fleurs_filenames = _import_stage_module()
+    tsv_filename, audio_filename = get_fleurs_filenames("hy_am", "dev")
+    assert tsv_filename == "data/hy_am/dev.tsv"
+    assert audio_filename == "data/hy_am/audio/dev.tar.gz"
 
 
 def test_post_init_requires_lang(tmp_path: Path) -> None:
@@ -78,15 +78,22 @@ def test_download_extract_files(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     stage_cls, _ = _import_stage_module()
-    stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(tmp_path / "fleurs"))
+    dst = tmp_path / "fleurs"
+    stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(dst))
 
     with (
-        patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.download_file") as mock_dl,
+        patch(
+            "nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.hf_hub_download",
+            side_effect=[str(dst / "dev.tsv"), str(dst / "audio" / "dev.tar.gz")],
+        ) as mock_dl,
         patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.extract_archive") as mock_ext,
     ):
-        stage.download_extract_files(str(tmp_path / "fleurs"))
+        tsv_path, audio_root = stage.download_extract_files(str(dst))
         assert mock_dl.call_count == 2
         mock_ext.assert_called_once()
+        # tsv path comes straight from the HF download; audio is extracted under <dst>/<split>.
+        assert tsv_path == str(dst / "dev.tsv")
+        assert audio_root == os.path.join(str(dst), "dev")
 
 
 def test_process_end_to_end(tmp_path: Path) -> None:
@@ -106,7 +113,10 @@ def test_process_end_to_end(tmp_path: Path) -> None:
     from nemo_curator.tasks import _EmptyTask
 
     with (
-        patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.download_file"),
+        patch(
+            "nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.hf_hub_download",
+            side_effect=[str(tsv_path), str(raw_dir / "audio" / "dev.tar.gz")],
+        ),
         patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.extract_archive"),
     ):
         results = stage.process(_EmptyTask(dataset_name="test", data=None))
@@ -140,7 +150,7 @@ def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
     stage = stage_cls(lang=lang, split=split, raw_data_dir=raw_dir.as_posix())
 
     # Act
-    batches = stage.process_transcript(tsv_path.as_posix())
+    batches = stage.process_transcript(tsv_path.as_posix(), audio_dir.as_posix())
 
     # Each valid TSV line produces one AudioTask
     assert len(batches) == 2

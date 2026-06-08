@@ -37,11 +37,11 @@ from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
-# Stable, run-independent location used to cache the FLEURS download so that
-# repeated benchmark entries (e.g. audio_fleurs_xenna then audio_fleurs_raydata)
-# and nightly reruns reuse the same files instead of re-downloading them from
-# Hugging Face. Re-downloading the same artifacts back-to-back is what triggers
-# unauthenticated rate-limiting (HTTP 429) on the dataset host.
+# Stable Hugging Face cache directory for the FLEURS download. hf_hub_download
+# caches by content hash here, so repeated benchmark entries (e.g.
+# audio_fleurs_xenna then audio_fleurs_raydata) and nightly reruns reuse the
+# same files instead of re-downloading them from Hugging Face -- which is what
+# triggered unauthenticated rate-limiting (HTTP 429) on the dataset host.
 DEFAULT_FLEURS_CACHE_DIR = "/tmp/curator/fleurs_cache"  # noqa: S108
 
 
@@ -63,11 +63,12 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     scratch_output_path = Path(scratch_output_path)
     results_dir = benchmark_results_path / "results"
 
-    # Cache the dataset download outside the per-run scratch dir so sibling
-    # benchmark entries and reruns reuse it instead of re-downloading. Keyed by
-    # lang/split so different datasets do not collide in the shared cache.
-    cache_root = Path(cache_dir or os.environ.get("CURATOR_FLEURS_CACHE_DIR") or DEFAULT_FLEURS_CACHE_DIR)
-    raw_data_dir = cache_root / lang / split
+    # hf_hub_download caches the dataset files (by content hash) under this
+    # stable dir, so sibling benchmark entries and reruns reuse the download
+    # instead of re-fetching from Hugging Face. The archive is extracted into a
+    # per-run scratch dir.
+    hf_cache_dir = str(cache_dir or os.environ.get("CURATOR_FLEURS_CACHE_DIR") or DEFAULT_FLEURS_CACHE_DIR)
+    raw_data_dir = scratch_output_path / lang / "fleurs"
 
     run_start_time = time.perf_counter()
 
@@ -83,7 +84,8 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         logger.info(f"Split: {split}")
         logger.info(f"WER threshold: {wer_threshold}")
         logger.info(f"GPUs: {gpus}")
-        logger.info(f"Dataset cache dir: {raw_data_dir}")
+        logger.info(f"HF cache dir: {hf_cache_dir}")
+        logger.info(f"Extraction dir: {raw_data_dir}")
 
         executor_obj = setup_executor(executor)
         pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
@@ -93,6 +95,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
                 lang=lang,
                 split=split,
                 raw_data_dir=raw_data_dir,
+                cache_dir=hf_cache_dir,
             ).with_(batch_size=4)
         )
         pipeline.add_stage(InferenceAsrNemoStage(model_name=model_name).with_(resources=Resources(gpus=gpus)))
@@ -156,6 +159,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
             "benchmark_results_path": str(benchmark_results_path),
             "scratch_output_path": str(scratch_output_path),
             "raw_data_dir": str(raw_data_dir),
+            "hf_cache_dir": hf_cache_dir,
         },
         "metrics": {
             "is_success": success,
@@ -181,7 +185,7 @@ def main() -> int:
         "--cache-dir",
         default=None,
         help=(
-            "Stable directory for caching the FLEURS download so repeated runs reuse it. "
+            "Hugging Face cache directory for the FLEURS download so repeated runs reuse it. "
             f"Defaults to $CURATOR_FLEURS_CACHE_DIR or {DEFAULT_FLEURS_CACHE_DIR}."
         ),
     )
