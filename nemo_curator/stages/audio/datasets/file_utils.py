@@ -13,12 +13,69 @@
 # limitations under the License.
 
 import os
+import random
 import tarfile
+import time
 import urllib
+import urllib.error
 import zipfile
 
 import wget
 from loguru import logger
+
+# Hosts such as Hugging Face rate-limit unauthenticated traffic. When several
+# FLEURS language/split downloads run concurrently (the create-manifest stage is
+# a fan-out stage) the dataset host can reply with HTTP 429, which previously
+# aborted the whole pipeline. Retry those (and other transient) responses with
+# exponential backoff + jitter instead of failing on the first attempt.
+_MAX_DOWNLOAD_RETRIES = 5
+_RETRYABLE_HTTP_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_BACKOFF_SECONDS = 60.0
+
+
+def _backoff_seconds(attempt: int, retry_after: str | None) -> float:
+    """Compute how long to wait before the next retry.
+
+    Honors a server-provided ``Retry-After`` header (seconds form) when present,
+    otherwise falls back to capped exponential backoff with jitter.
+    """
+    if retry_after:
+        try:
+            return min(float(retry_after), _MAX_BACKOFF_SECONDS)
+        except (TypeError, ValueError):
+            pass
+    return min(2.0**attempt, _MAX_BACKOFF_SECONDS) + random.uniform(0, 1)  # noqa: S311
+
+
+def _download_with_retries(source_url: str, target_directory: str) -> None:
+    """Download ``source_url`` into ``target_directory`` retrying transient errors."""
+    for attempt in range(1, _MAX_DOWNLOAD_RETRIES + 1):
+        try:
+            wget.download(source_url, target_directory)
+        except urllib.error.HTTPError as err:
+            retryable = err.code in _RETRYABLE_HTTP_STATUS
+            if not retryable or attempt == _MAX_DOWNLOAD_RETRIES:
+                logger.error(f"Failed to download {source_url}: HTTP {err.code} (attempt {attempt})")
+                raise
+            retry_after = err.headers.get("Retry-After") if err.headers else None
+            delay = _backoff_seconds(attempt, retry_after)
+            logger.warning(
+                f"HTTP {err.code} downloading {source_url} "
+                f"(attempt {attempt}/{_MAX_DOWNLOAD_RETRIES}); retrying in {delay:.1f}s"
+            )
+            time.sleep(delay)
+        except urllib.error.URLError as err:
+            if attempt == _MAX_DOWNLOAD_RETRIES:
+                logger.error(f"Failed to download {source_url}: {err} (attempt {attempt})")
+                raise
+            delay = _backoff_seconds(attempt, None)
+            logger.warning(
+                f"Network error downloading {source_url} "
+                f"(attempt {attempt}/{_MAX_DOWNLOAD_RETRIES}): {err}; retrying in {delay:.1f}s"
+            )
+            time.sleep(delay)
+        else:
+            return
 
 
 def download_file(source_url: str, target_directory: str, verbose: bool = True) -> str:
@@ -38,10 +95,11 @@ def download_file(source_url: str, target_directory: str, verbose: bool = True) 
         original_dir = os.getcwd()  # record current working directory so can cd back to it
         os.chdir(target_directory)  # cd to target dir so that temporary download file will be saved in target dir
 
-        wget.download(source_url, target_directory)
-
-        # change back to original directory as the rest of the code may assume that we are in that directory
-        os.chdir(original_dir)
+        try:
+            _download_with_retries(source_url, target_directory)
+        finally:
+            # change back to original directory as the rest of the code may assume that we are in that directory
+            os.chdir(original_dir)
         if verbose:
             logger.info("Download completed")
 
