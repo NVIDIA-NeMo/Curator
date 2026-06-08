@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 # Map ``extractor`` arg → pure function (record, *, min_text_chars) → rows.
 # Imports are lazy so magic-html is only loaded when actually used.
-EXTRACTOR_CHOICES: tuple[str, ...] = ("naive", "magic_html", "hybrid")
+EXTRACTOR_CHOICES: tuple[str, ...] = ("magic_html", "magic_traf")
 
 
 # Common Crawl WARC path convention:
@@ -44,21 +44,16 @@ def _parse_warc_path(path: str | None) -> tuple[str | None, str | None, str | No
 
 
 def _resolve_extractor(name: str) -> Callable:
-    if name == "naive":
-        from nemo_curator.stages.nemotron_cc_mm.extractor import (
-            warc_html_to_interleaved_rows,
-        )
-        return warc_html_to_interleaved_rows
     if name == "magic_html":
         from nemo_curator.stages.nemotron_cc_mm.extractor_magic_html import (
             warc_html_to_interleaved_rows_magic_html,
         )
         return warc_html_to_interleaved_rows_magic_html
-    if name == "hybrid":
+    if name == "magic_traf":
         from nemo_curator.stages.nemotron_cc_mm.extractor_magic_html import (
-            warc_html_to_interleaved_rows_hybrid,
+            warc_html_to_interleaved_rows_magic_traf,
         )
-        return warc_html_to_interleaved_rows_hybrid
+        return warc_html_to_interleaved_rows_magic_traf
     raise ValueError(
         f"Unknown extractor {name!r}.  Options: {', '.join(EXTRACTOR_CHOICES)}."
     )

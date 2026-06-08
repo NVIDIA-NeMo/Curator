@@ -91,6 +91,92 @@ class InterleavedFastTextLangIDFilterStage(BaseInterleavedSampleFilterStage):
 
 
 # ---------------------------------------------------------------------------
+# Annotator variant — detects language but DOES NOT drop.
+# ---------------------------------------------------------------------------
+import json
+
+from nemo_curator.stages.interleaved.stages import BaseInterleavedAnnotatorStage
+
+
+@dataclass
+class InterleavedFastTextLangIDAnnotatorStage(BaseInterleavedAnnotatorStage):
+    """Annotate each doc's metadata row with detected language + confidence.
+
+    Writes ``detected_lang`` (e.g. ``"en"``, ``"zh"``) and ``lang_score``
+    (float, 0-1) into the metadata row's ``source_ref`` JSON.  Does not
+    drop any rows — pure annotation.
+
+    Use when downstream consumers want to filter by language but the
+    extraction pipeline should preserve all detected languages.
+    """
+
+    model_path: str = field(default_factory=lambda: str(DEFAULT_LID_PATH))
+    name: str = "interleaved_fasttext_lang_id_annotator"
+
+    _model: object | None = field(default=None, init=False, repr=False)
+
+    def setup_on_node(
+        self, node_info: NodeInfo, worker_metadata: WorkerMetadata,
+    ) -> None:  # noqa: ARG002
+        if not os.path.exists(self.model_path):
+            msg = (
+                f"FastText lid.176 model not found at {self.model_path}. "
+                f"Download with:\n"
+                f"    curl -L {LID_176_URL} -o {self.model_path}\n"
+                f"or call nemo_curator.stages.nemotron_cc_mm.lang_id.download_lid_176()."
+            )
+            raise FileNotFoundError(msg)
+
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        import fasttext
+        self._model = fasttext.load_model(self.model_path)
+
+    def _predict_one(self, text: str) -> tuple[str | None, float]:
+        if self._model is None:
+            self.setup()
+        if not text:
+            return (None, 0.0)
+        text_clean = text.replace("\n", " ").strip()
+        if not text_clean:
+            return (None, 0.0)
+        labels, scores = self._model.predict([text_clean], k=1)  # type: ignore[union-attr]
+        label = labels[0][0]
+        return (label.split("__label__")[-1].lower(), float(scores[0][0]))
+
+    def annotate(self, task, df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty or "sample_id" not in df.columns:
+            return df
+
+        # For each sample: compute lang/score from aggregated text, then
+        # patch the metadata row's source_ref JSON.
+        sample_to_lang: dict[str, tuple[str | None, float]] = {}
+        for sample_id, group in df.groupby("sample_id"):
+            text = aggregate_doc_text(group)
+            sample_to_lang[sample_id] = self._predict_one(text)
+
+        # Patch metadata-row source_ref JSON in place.
+        meta_mask = df["position"] == -1
+        if not meta_mask.any():
+            return df
+
+        def patch_source_ref(row: pd.Series) -> str:
+            sr = row.get("source_ref")
+            lang, score = sample_to_lang.get(row["sample_id"], (None, 0.0))
+            try:
+                d = json.loads(sr) if sr else {}
+            except Exception:  # noqa: BLE001
+                d = {}
+            d["detected_lang"] = lang
+            d["lang_score"] = score
+            return json.dumps(d)
+
+        df.loc[meta_mask, "source_ref"] = df.loc[meta_mask].apply(
+            patch_source_ref, axis=1,
+        )
+        return df
+
+
+# ---------------------------------------------------------------------------
 # Helper: download lid.176 to the default location.
 # ---------------------------------------------------------------------------
 def download_lid_176(dest: str | os.PathLike[str] | None = None) -> Path:

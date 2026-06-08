@@ -27,7 +27,10 @@ from nemo_curator.stages.nemotron_cc_mm.text_filters import (
     LoggingInterleavedFilterStage,
 )
 from nemo_curator.stages.nemotron_cc_mm.url_filter import InterleavedURLSubstringNSFWFilterStage
-from nemo_curator.stages.nemotron_cc_mm.lang_id import InterleavedFastTextLangIDFilterStage
+from nemo_curator.stages.nemotron_cc_mm.lang_id import (
+    InterleavedFastTextLangIDAnnotatorStage,
+    InterleavedFastTextLangIDFilterStage,
+)
 
 __all__ = [
     "WarcDocumentToInterleavedStage",
@@ -46,6 +49,7 @@ __all__ = [
     "InterleavedNGramRepetitionFilterStage",
     "InterleavedTopWordFractionFilterStage",
     "InterleavedURLSubstringNSFWFilterStage",
+    "InterleavedFastTextLangIDAnnotatorStage",
     "InterleavedFastTextLangIDFilterStage",
     "LoggingInterleavedFilterStage",
     "ParallelImageDownloader",

@@ -11,7 +11,7 @@ import json
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-from bs4 import BeautifulSoup, Comment, NavigableString, Tag
+from selectolax.parser import HTMLParser, Node
 
 # Tags whose entire subtree is dropped at extract time.
 # Aligned with OBELICS §3.2 + magic-html's MANUALLY_CLEANED list.
@@ -155,17 +155,23 @@ def warc_html_to_interleaved_rows(
         return rows
 
     try:
-        soup = BeautifulSoup(html_bytes, "lxml")
+        # selectolax wraps modest_html (C library) — much lighter than
+        # bs4's Python wrapper layer and more lenient than lxml's HTML
+        # parser on real-world malformed CC HTML.  Tree is built in
+        # memory but allocations live C-side, so per-page peak is
+        # ~5-10× smaller than bs4+lxml.
+        html_str = (
+            html_bytes if isinstance(html_bytes, str)
+            else html_bytes.decode("utf-8", errors="replace")
+        )
+        tree = HTMLParser(html_str)
     except Exception:  # noqa: BLE001  (parser errors are common in CC)
         return rows
 
-    for tag_name in DROP_TAGS:
-        for tag in soup.find_all(tag_name):
-            tag.decompose()
-    for comment in soup.find_all(string=lambda x: isinstance(x, Comment)):
-        comment.extract()
+    root = tree.body or tree.root
+    if root is None:
+        return rows
 
-    body = soup.body or soup
     text_buffer: list[str] = []
     position = 0
 
@@ -180,37 +186,43 @@ def warc_html_to_interleaved_rows(
         rows.append(_make_text_row(sample_id, position, text))
         position += 1
 
-    # Iterative DOM walk.  Many real web pages have DOM depth > 1000
-    # (deeply nested <div>s, malformed HTML).  A recursive walk would
-    # blow Python's call stack; we use an explicit stack of
-    # ``(element, action)`` pairs where ``action`` is either ``ENTER``
-    # (process the node and push its children) or ``EXIT`` (run any
-    # post-children logic, e.g. flush block boundaries).
+    # Iterative DOM walk over selectolax nodes.  Many real CC pages have
+    # DOM depth > 1000 (deeply nested <div>s, malformed HTML), so we
+    # avoid Python recursion via an explicit ``(node, action)`` stack
+    # where ``action`` is ENTER (process the node, push its children)
+    # or EXIT (run post-children logic, e.g. flush block boundaries).
+    #
+    # selectolax represents text nodes via tag == ``"-text"``; child
+    # iteration with ``include_text=True`` yields these alongside
+    # element children so we can emit text in document order.
     ENTER, EXIT = 0, 1
-    stack: list[tuple[Any, int]] = [(body, ENTER)]
+    stack: list[tuple[Node, int]] = [(root, ENTER)]
     try:
         while stack:
-            elem, action = stack.pop()
+            node, action = stack.pop()
+            tag = (node.tag or "").lower() if node.tag else ""
 
             if action == EXIT:
-                if isinstance(elem, Tag) and elem.name in BLOCK_TAGS:
+                if tag in BLOCK_TAGS:
                     flush_text()
                 continue
 
             # action == ENTER
-            if isinstance(elem, NavigableString):
-                text = str(elem)
-                if text.strip():
-                    text_buffer.append(text.strip())
+            if tag == "-text":
+                txt = node.text(strip=False) or ""
+                txt = txt.strip()
+                if txt:
+                    text_buffer.append(txt)
                 continue
 
-            if not isinstance(elem, Tag):
+            if tag in DROP_TAGS:
+                # Skip the entire subtree.
                 continue
 
-            if elem.name == "img":
+            if tag == "img":
                 flush_text()
-                raw_src = elem.get("src") or elem.get("data-src") or ""
-                raw_src = raw_src.strip()
+                attrs = node.attributes
+                raw_src = (attrs.get("src") or attrs.get("data-src") or "").strip()
                 if not raw_src:
                     continue
                 try:
@@ -219,18 +231,20 @@ def warc_html_to_interleaved_rows(
                     continue
                 if not _should_keep_image_url(abs_url):
                     continue
-                alt = (elem.get("alt") or "").strip() or None
+                alt = (attrs.get("alt") or "").strip() or None
                 rows.append(_make_image_row(sample_id, position, abs_url, alt))
                 position += 1
                 continue
 
-            is_block = elem.name in BLOCK_TAGS
+            is_block = tag in BLOCK_TAGS
             if is_block:
                 flush_text()
             # Push EXIT before children so it runs AFTER they're done.
-            stack.append((elem, EXIT))
+            stack.append((node, EXIT))
             # Push children in REVERSE so they pop in DOM order.
-            for child in reversed(list(elem.children)):
+            # iter(include_text=True) yields text nodes (tag="-text")
+            # alongside element children, preserving document order.
+            for child in reversed(list(node.iter(include_text=True))):
                 stack.append((child, ENTER))
     except Exception:  # noqa: BLE001
         # Any unexpected parser / encoding failure: keep whatever we
