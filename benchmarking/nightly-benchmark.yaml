@@ -667,6 +667,7 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
+      --cache-dir=/tmp/curator/fleurs_cache
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train
@@ -693,6 +694,7 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
+      --cache-dir=/tmp/curator/fleurs_cache
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train
