@@ -80,6 +80,7 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
     max_new_tokens: int = 4096
     max_inference_batch_size: int = 128
     keep_waveform: bool = False
+    skip_if_output_exists: bool = False
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
@@ -164,6 +165,9 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             ]
         else:
             run_indices = list(range(len(tasks)))
+
+        if self.skip_if_output_exists:
+            run_indices = [i for i in run_indices if not tasks[i].data.get(self.pred_text_key)]
 
         if not run_indices:
             if not self.keep_waveform:

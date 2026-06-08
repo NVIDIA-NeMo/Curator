@@ -92,6 +92,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     top_k: int = 1
     prep_workers: int = 8
     keep_waveform: bool = False
+    skip_if_output_exists: bool = False
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
@@ -194,6 +195,8 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
 
         eligible_indices: list[int] = []
         for i, task in enumerate(tasks):
+            if self.skip_if_output_exists and task.data.get(self.pred_text_key):
+                continue
             lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
             if lang not in QWEN3_OMNI_SPEECH_INPUT_LANGS:
                 set_note(task.data, self.name, f"skipped (unsupported language: {lang})", self.notes_key)

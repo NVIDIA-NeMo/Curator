@@ -83,6 +83,7 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
     language_key: str = "asr_language"
     notes_key: str = "additional_notes"
     keep_waveform: bool = False
+    skip_if_output_exists: bool = False
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
@@ -165,6 +166,8 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
         eligible_indices: list[int] = []
         eligible_lang_codes: list[str] = []
         for i, task in enumerate(tasks):
+            if self.skip_if_output_exists and task.data.get(self.pred_text_key):
+                continue
             raw_lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
             lang = MODEL_LANG_CODE_TO_WHISPER.get(raw_lang, raw_lang)
             if lang not in WHISPER_LARGE_V3_LANGS:

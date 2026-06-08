@@ -97,6 +97,7 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     filepath_key: str = "audio_filepath"
     skip_me_key: str = "_skipme"
 
+    skip_if_output_exists: bool = False
     name: str = "SEDInference"
     batch_size: int = 32
     num_workers_override: int | None = None
@@ -166,6 +167,10 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         """Run batched SED inference on the GPU for all tasks at once."""
         if len(tasks) == 0:
             return []
+
+        if self.skip_if_output_exists:
+            if all(task.data.get("_sed_framewise") is not None for task in tasks):
+                return tasks
 
         import numpy as np
         import torch
