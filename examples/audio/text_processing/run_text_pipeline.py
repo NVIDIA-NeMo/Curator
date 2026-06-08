@@ -392,7 +392,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         "--tensor_parallel_size", type=int, default=None, help="GPUs for tensor parallelism (default: auto-detect)."
     )
     ap.add_argument("--max_model_len", type=int, default=2048)
-    ap.add_argument("--max_num_seqs", type=int, default=64)
+    ap.add_argument("--max_num_seqs", type=int, default=256)
     ap.add_argument("--max_output_tokens", type=int, default=512)
     ap.add_argument("--gpu_memory_utilization", type=float, default=0.95)
     ap.add_argument("--kv_cache_dtype", type=str, default="fp8")
