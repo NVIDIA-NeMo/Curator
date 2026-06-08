@@ -138,7 +138,10 @@ class TestClipTranscodingStage:
             # Should return early and log warning
             mock_logger.warning.assert_called_once()
             assert "No clips to transcode" in mock_logger.warning.call_args[0][0]
-            assert result.data.source_bytes is None
+            assert isinstance(result, list)
+            assert len(result) == 1
+            assert result[0] is self.mock_task
+            assert result[0].data.source_bytes is None
 
     @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir")
     @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size")

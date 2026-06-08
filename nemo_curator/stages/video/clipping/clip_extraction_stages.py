@@ -100,7 +100,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         if not video.clips:
             logger.warning(f"No clips to transcode for {video.input_video}. Skipping...")
             video.source_bytes = None
-            return task
+            return [task]
 
         with make_pipeline_temporary_dir(sub_dir="transcode") as tmp_dir:
             # write video to file
