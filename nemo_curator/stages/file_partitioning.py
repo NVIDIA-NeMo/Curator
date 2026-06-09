@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,6 +29,24 @@ from nemo_curator.utils.file_utils import (
     infer_dataset_name_from_path,
     parse_bytes_string_to_int,
 )
+
+
+def _get_int_or_env_var(input_value: int | str | None, default_name: str | None = None) -> int:
+    if type(input_value) is int:
+        return input_value
+    elif type(input_value) is str:
+        if os.environ.get(input_value) is None:
+            msg = f"Environment variable {input_value} is not set"
+            raise ValueError(msg)
+        return int(os.environ.get(input_value))
+    elif default_name is not None:
+        if os.environ.get(default_name) is None:
+            msg = f"Environment variable {default_name} is not set"
+            raise ValueError(msg)
+        return int(os.environ.get(default_name))
+    else:
+        msg = f"Invalid input value: {input_value}, must be an integer or a string"
+        raise ValueError(msg)
 
 
 @dataclass
@@ -55,6 +75,18 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         Storage options to pass to the file system.
     limit: int | None = None
         Maximum number of partitions to create.
+    enable_array_partitioning: bool = False
+        Whether to enable array partitioning (e.g., partition files across multiple Slurm jobs).
+        Intended for use with Slurm job arrays via the `sbatch --array` option.
+    shard_index: int | str | None = None
+        The index of the shard to process. Can be an integer representing the shard index or a string representing the environment variable name.
+        Only used if enable_array_partitioning is True. If not provided, it will be set to the value of the SLURM_ARRAY_TASK_ID environment variable.
+    total_shards: int | str | None = None
+        The total number of shards. Can be an integer representing the total number of shards or a string representing the environment variable name.
+        Only used if enable_array_partitioning is True. If not provided, it will be set to the value of the SLURM_ARRAY_TASK_COUNT environment variable.
+    minimum_shard_index: int = 0
+        The minimum shard index to process. Can be an integer representing the minimum shard index or a string representing the environment variable name.
+        Only used if enable_array_partitioning is True. If not provided, it will be set to 0.
     """
 
     file_paths: str | list[str]
@@ -63,6 +95,10 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     file_extensions: list[str] | None = None
     storage_options: dict[str, Any] | None = None
     limit: int | None = None
+    enable_array_partitioning: bool = False
+    shard_index: int | str | None = None
+    total_shards: int | str | None = None
+    minimum_shard_index: int | str = 0
     name: str = "file_partitioning"
 
     def __post_init__(self):
@@ -91,6 +127,12 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
         self.resources = Resources(cpus=0.5)
 
+        if self.enable_array_partitioning:
+            self.shard_index = _get_int_or_env_var(self.shard_index, "SLURM_ARRAY_TASK_ID")
+            self.total_shards = _get_int_or_env_var(self.total_shards, "SLURM_ARRAY_TASK_COUNT")
+            self.minimum_shard_index = _get_int_or_env_var(self.minimum_shard_index)
+            self.name = "array_file_partitioning"
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
@@ -106,7 +148,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers_per_node": 1}
 
-    def process(self, _: _EmptyTask) -> list[FileGroupTask]:
+    def _process(self, _: _EmptyTask) -> list[FileGroupTask]:
         """Process the initial task to create file group tasks.
 
         This stage expects a simple Task with file paths information
@@ -188,6 +230,31 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
         logger.info(f"Created {len(tasks)} file groups from {len(files)} files")
         return tasks
+
+    def _process_array(self, task: _EmptyTask) -> list[FileGroupTask]:
+        all_tasks = self._process(task)
+        assigned_tasks = []
+
+        for ft in all_tasks:
+            source_files = list(ft._metadata.get("source_files") or ft.data)
+            # Hash the source files to get a unique identifier for the partition
+            digest = hashlib.sha256("|".join(sorted(source_files)).encode("utf-8")).hexdigest()
+            # Assign the partition to the shard
+            assigned = int(digest[:16], 16) % self.total_shards
+            # Add the minimum shard index to the assigned shard index
+            assigned += self.minimum_shard_index
+            # Add the partition to the assigned tasks
+            if assigned == self.shard_index:
+                assigned_tasks.append(ft)
+
+        logger.info(f"Shard {self.shard_index}/{self.total_shards}: assigned {len(assigned_tasks)} of {len(all_tasks)} partitions")
+        return assigned_tasks
+
+    def process(self, task: _EmptyTask) -> list[FileGroupTask]:
+        if self.enable_array_partitioning:
+            return self._process_array(task)
+        else:
+            return self._process(task)
 
     def _get_file_list_with_sizes(self, sort_by_size: bool = True) -> list[tuple[str, int]]:
         """
