@@ -8,8 +8,9 @@ and has five parts:
 2. **Review lenses** - what to check, each linked to the audio code, README
    section, and `.cursor/rules` contract it governs.
 3. **Severity mapping** - P0-P3.
-4. **Pre-review corpus** - pull every audio PR after #1608 (open + closed) with
-   reviewer comments, so you learn the recurring feedback before you review.
+4. **Pre-review corpus (required)** - pull every audio PR after #1608 (open +
+   closed) with reviewer comments and read the consolidated file before you
+   write findings.
 5. **GitHub data + scripts reference** - the `gh` endpoints and helper scripts.
 
 All paths are repo-relative. The skill is self-contained: this repository plus
@@ -271,13 +272,14 @@ canonical sources to cite.
 
 ---
 
-## 4. Pre-review corpus: learn from post-#1608 audio PRs
+## 4. Pre-review corpus (required): learn from post-#1608 audio PRs
 
 PR [#1608](https://github.com/NVIDIA-NeMo/Curator/pull/1608) (`AudioBatch ->
 AudioTask` redesign) reset the audio stage contracts. Reviewer feedback on audio
-PRs **after** #1608 is the best predictor of what to flag next. Before reviewing
-a new PR - especially the first time you review audio in this repo - build the
-consolidated corpus of that feedback:
+PRs **after** #1608 is the best predictor of what to flag next. **Before every
+audio PR review**, build (or refresh) the consolidated corpus of that feedback.
+Do not skip this step, even when a prior `audio_pr_corpus_*.md` already exists
+on disk - rerun the pull (incremental by default) and render today's file:
 
 ```bash
 # 1) discover audio PRs after #1608 (open + closed/merged) and pull their
@@ -301,7 +303,8 @@ verbatim, anchored to `path:line`, plus a recurring-themes tally.
 Use the corpus to (a) recognize patterns reviewers repeatedly raise (the lenses
 in section 2 came from exactly this), and (b) check whether the PR in front of
 you repeats a mistake already called out elsewhere. It is read-only context; it
-never auto-posts anything. Re-run periodically to keep it current.
+never auto-posts anything. If the corpus scripts fail or the consolidated file
+is missing, stop the review and fix the failure before writing findings.
 
 ---
 
@@ -334,7 +337,7 @@ own findings).
 
 `scripts/pull_audio_pr_corpus.sh [--since N] [--outdir DIR] [--repo OWNER/REPO] [--limit N] [--refresh]`
 (incremental - skips PRs already on disk; `--refresh` re-pulls) and
-`scripts/build_corpus.py [--outdir DIR] [--today YYYY-MM-DD]` build the
-post-#1608 corpus (section 4).
+`scripts/build_corpus.py [--outdir DIR] [--today YYYY-MM-DD]` **must** run before
+every review to build the post-#1608 corpus (section 4; SKILL.md step 3).
 
 Default outdir: `.curator-pr-review/` (scratch; gitignored, safe to delete).
