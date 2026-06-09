@@ -165,8 +165,10 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
 
         eligible_indices: list[int] = []
         eligible_lang_codes: list[str] = []
+        output_exists_skipped = 0
         for i, task in enumerate(tasks):
             if self.skip_if_output_exists and task.data.get(self.pred_text_key):
+                output_exists_skipped += 1
                 continue
             raw_lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
             lang = MODEL_LANG_CODE_TO_WHISPER.get(raw_lang, raw_lang)
@@ -177,12 +179,15 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
                 eligible_indices.append(i)
                 eligible_lang_codes.append(lang)
 
-        lang_skipped = len(tasks) - len(eligible_indices)
+        lang_skipped = len(tasks) - len(eligible_indices) - output_exists_skipped
         if not eligible_indices:
             if not self.keep_waveform:
                 for task in tasks:
                     task.data.pop(self.waveform_key, None)
-            logger.info(f"FasterWhisper: skipped entire batch of {len(tasks)} (no supported languages)")
+            if output_exists_skipped:
+                logger.info(f"FasterWhisper: skipped entire batch of {len(tasks)} (output already exists)")
+            else:
+                logger.info(f"FasterWhisper: skipped entire batch of {len(tasks)} (no supported languages)")
             return tasks
 
         eligible_tasks = [tasks[i] for i in eligible_indices]

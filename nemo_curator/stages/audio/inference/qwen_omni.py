@@ -194,10 +194,12 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data.setdefault(self.disfluency_text_key, "")
 
         eligible_indices: list[int] = []
+        output_exists_skipped = 0
         for i, task in enumerate(tasks):
             if self.skip_if_output_exists and task.data.get(self.pred_text_key):
                 if not self.keep_waveform:
                     task.data.pop(self.waveform_key, None)
+                output_exists_skipped += 1
                 continue
             lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
             if lang not in QWEN3_OMNI_SPEECH_INPUT_LANGS:
@@ -208,9 +210,12 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
             else:
                 eligible_indices.append(i)
 
-        lang_skipped = len(tasks) - len(eligible_indices)
+        lang_skipped = len(tasks) - len(eligible_indices) - output_exists_skipped
         if not eligible_indices:
-            logger.info(f"QwenOmni: skipped entire batch of {len(tasks)} (no supported languages)")
+            if output_exists_skipped:
+                logger.info(f"QwenOmni: skipped entire batch of {len(tasks)} (output already exists)")
+            else:
+                logger.info(f"QwenOmni: skipped entire batch of {len(tasks)} (no supported languages)")
             return tasks
 
         eligible_tasks = [tasks[i] for i in eligible_indices]
