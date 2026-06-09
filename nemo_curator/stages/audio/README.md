@@ -285,7 +285,7 @@ adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
 ## Performance metrics (`perf_summary.json`)
 
 `ShardedManifestWriterStage` aggregates per-stage stats into `perf_summary.json`
-(all math in Curator; NvLLMOps only transports/concatenates the file on Kratos).
+(all math stays in Curator; downstream tooling should transport the file as-is).
 
 ### Design principle: collect everywhere, write once
 
@@ -293,11 +293,11 @@ adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
 |-------|-----|------|
 | **Collection** | Every stage, CPU and GPU | Backend adapter times each `process_batch` and appends `StagePerfStats` to `task._stage_perf` |
 | **Serialization** | Single CPU writer (`num_workers=1`) | Appends `{shard}_perf.jsonl` per task; maintains aggregate `perf_summary.json` |
-| **Harvest** | NvLLMOps rank-0 | Verbatim copy of one `perf_summary.json` → `perf_summary_merged.json`; uploads `*_perf.jsonl` as-is |
+| **Upload** | External orchestrator (optional) | Verbatim copy/transport of one `perf_summary.json` and `*_perf.jsonl` shards |
 
 Do **not** add per-GPU file writers or a second metrics actor. Multiple
-`perf_summary.json` writers would force NvLLMOps to emit
-`multi_writer_unaggregated` instead of merged throughput numbers.
+`perf_summary.json` writers produce incompatible summaries and require explicit
+multi-writer handling downstream.
 
 Toggle file output with `write_perf_stats: false` on `ShardedManifestWriterStage`
 (manifest / `.done` markers still written).
@@ -312,14 +312,14 @@ Toggle file output with `write_perf_stats: false` on `ShardedManifestWriterStage
    equally to CPU stages (tar reader, discovery, filters) and GPU stages
    (inference): CPU stages get full `process_time` / `custom_metrics`; they
    simply leave `gpu_id` empty.
-2. **B1 identity** — `actor_id`, `node_id`, `gpu_id` are resolved once per
+2. **Stage identity** — `actor_id`, `node_id`, `gpu_id` are resolved once per
    worker in `resolve_perf_identity()` (`backends/base.py`). GPU index
    precedence: Xenna `WorkerMetadata.allocation.gpus[0].index` (authoritative
    under Xenna) → `ray.get_gpu_ids()` (Ray Data / Actor Pool) →
    `CUDA_VISIBLE_DEVICES` first token (last resort, gated on
    `stage.resources.requires_gpu`). Identity strings are stripped from
    `StagePerfStats.items()` so framework metric collectors never `float()` them.
-3. **B3 scheduling breakdown** — the writer’s `AudioPerformanceSummary` builds
+3. **Per-GPU scheduling breakdown** — the writer’s `AudioPerformanceSummary` builds
    per-stage `gpu_ids`, `gpu_count`, `actor_count`, and `per_gpu` (items
    processed, audio hours, batch-size / queue-wait percentiles) **for GPU
    stages only** (`gpu_id` non-empty). CPU stages still appear under
@@ -381,18 +381,18 @@ of its own `setup_on_node` and runs until summary serialization. Under **Xenna
 streaming** or **Ray Data** (pipelined execution), that interval spans the
 end-to-end processing window (the writer blocks on upstream GPU stages). Under
 **Xenna batch** (sequential stage materialization), the timer covers only the
-writer phase — use `merge_info.pipeline_duration_s` for throughput there.
+writer phase — use whole-run pipeline wall clock from the entry point for throughput there.
 
-**Validation gates (every code change)**
+**Validation (recommended for pipeline changes)**
 
-- **Perf** — compare `perf_summary_merged.json` from swift; shared fields within
-  ±0.70%; work-done identical (`total_utterances`, shard counts).
+- **Perf** — compare `perf_summary.json` across runs on shared throughput fields;
+  work-done identical (`total_utterances`, shard counts).
 - **Output** — compare `manifest_*.jsonl` rows keyed on `audio_filepath`; gate
   on key alignment and prediction-field stability (vLLM nondeterminism expected
   on a small fraction of rows).
 
-Hardware telemetry (GPU util/mem) is deferred (NVML/DCGM proposal); B1/B3 cover
-scheduling identity only.
+Hardware telemetry (GPU util/mem) is deferred (NVML/DCGM proposal); identity
+and per-GPU scheduling fields cover allocation breakdown only.
 
 ## What you must always declare
 

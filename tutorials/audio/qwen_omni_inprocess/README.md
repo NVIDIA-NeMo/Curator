@@ -271,9 +271,9 @@ and the manifest writer — the execution backend wraps each batch through
 2. Merges any stage-specific counters the stage recorded via
    `_log_metrics({...})` / `_log_metric(...)` / `_time_metric(...)` into
    `StagePerfStats.custom_metrics`.
-3. Stamps **B1 identity** (`actor_id`, `node_id`, `gpu_id`) via
+3. Stamps **stage identity** (`actor_id`, `node_id`, `gpu_id`) via
    `resolve_perf_identity()`. CPU stages get full timing metrics; `gpu_id`
-   stays empty and no B3 `per_gpu` block is emitted for them.
+   stays empty and no `per_gpu` block is emitted for them.
 4. Appends one `StagePerfStats` record onto each output task’s
    **`task._stage_perf`** list (a growing per-task chain as the task moves
    through the pipeline).
@@ -298,15 +298,15 @@ With `write_perf_stats=true` (the default):
 | File | Granularity | When written |
 |------|-------------|--------------|
 | `{shard_key}_perf.jsonl` | **Per task** — one JSON line per utterance, containing the full `task._stage_perf` chain | Appended on every task that passes through the writer |
-| `perf_summary.json` | **Aggregate** — rolled-up totals, percentiles, B3 `per_gpu`, `pipeline_throughput` | Refreshed when a shard completes (`.done` marker) **and** again at writer `teardown()` |
+| `perf_summary.json` | **Aggregate** — rolled-up totals, percentiles, `per_gpu`, `pipeline_throughput` | Refreshed when a shard completes (`.done` marker) **and** again at writer `teardown()` |
 
 After the pipeline finishes, `main.py` reads `perf_summary.json` (if present),
 adds top-level `pipeline_duration_s` (whole-run wall clock), and rewrites the
 file.
 
-On Kratos, NvLLMOps copies **one** rank’s `perf_summary.json` verbatim into
-`perf_summary_merged.json` — **no metric math on the harvest side**. Per-shard
-`*_perf.jsonl` detail files are uploaded as-is (transport only).
+Downstream upload tooling may copy **one** rank’s `perf_summary.json` verbatim
+for cluster-wide reporting; per-shard `*_perf.jsonl` detail files are
+transported as-is (no re-aggregation in Curator).
 
 ### Adding custom metrics in a stage
 
@@ -330,7 +330,7 @@ Disable all perf file output (manifests only):
   ...
 ```
 
-Full contract (dedup, B1/B3, validation gates, backend call chains):
+Full contract (dedup, identity fields, per-GPU breakdown, backend call chains):
 `nemo_curator/stages/audio/README.md` § “Performance metrics”.
 
 ### Fields in `perf_summary.json`
@@ -347,12 +347,12 @@ Identity fields (`actor_id`, `node_id`, `gpu_id`) appear in per-task `_perf.json
 and drive dedup; under Xenna they come from the worker allocation, not
 `ray.get_gpu_ids()`.
 
-**Validation:** every change needs both a perf comparison (±0.70% on shared
-fields vs baseline) and an output-equivalence check (`manifest_*.jsonl` keyed
-on `audio_filepath`).
+**Validation:** compare `perf_summary.json` across runs on shared throughput
+fields and verify `manifest_*.jsonl` rows keyed on `audio_filepath` stay aligned
+(vLLM nondeterminism may differ on a small fraction of prediction text).
 
-Cluster bring-up, data staging, and remote upload timings belong to the external
-launcher (`merge_info.pipeline_duration_s` on Kratos).
+Cluster bring-up, data staging, and remote upload timings are outside Curator’s
+writer wall clock (`writer_wall_time_s`).
 
 ## Troubleshooting
 

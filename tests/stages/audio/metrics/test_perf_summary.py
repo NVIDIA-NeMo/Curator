@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the identity-driven (B1) + per-GPU scheduling (B3) perf summary.
+"""Tests for identity-driven perf summary and per-GPU scheduling breakdown.
 
 Covers, with plain ``StagePerfStats`` records (no GPU / no Ray):
     * ``serialize_stage_perf`` carries identity labels when present, omits them
@@ -60,7 +60,7 @@ def _perf(
 
 
 # ----------------------------------------------------------------------
-# B1: serialization + fingerprint
+# Serialization + fingerprint
 # ----------------------------------------------------------------------
 
 
@@ -89,7 +89,7 @@ def test_fingerprint_distinguishes_actors_with_equal_timings() -> None:
 
 
 # ----------------------------------------------------------------------
-# B3: per-GPU scheduling breakdown + topology
+# Per-GPU scheduling breakdown + topology
 # ----------------------------------------------------------------------
 
 

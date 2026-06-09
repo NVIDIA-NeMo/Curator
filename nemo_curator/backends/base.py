@@ -98,7 +98,7 @@ def resolve_perf_identity(
 
     Labels:
       * ``node_id``   -> ``"node-<MPI rank>"`` when ``OMPI_COMM_WORLD_RANK`` is
-        set (one node per rank in the Kratos MPI topology), else the short Ray
+        set (one node per rank in a multi-node MPI job), else the short Ray
         node-id hex. Empty if neither is available.
       * ``gpu_id``    -> ``"<node>:<local_gpu_idx>"`` (see ``_resolve_gpu_label``
         for the source precedence). Empty for CPU stages / no GPU.

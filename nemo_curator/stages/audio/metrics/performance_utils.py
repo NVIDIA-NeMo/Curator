@@ -23,8 +23,8 @@ composite throughput metrics (``audio_hours_per_gpu_hour`` etc.).
 
 Keeping these as pure functions in a separate module means they can be
 unit-tested in isolation and reused by anything that consumes the
-audio perf data (e.g. CI throughput checks, dashboards, Kratos perf
-harvesters) without dragging in the full
+audio perf data (e.g. CI throughput checks, dashboards, downstream upload
+tooling) without dragging in the full
 ``AudioPerformanceSummary`` accumulator.
 
 NOTE: This module shadows ``nemo_curator.utils.performance_utils`` by

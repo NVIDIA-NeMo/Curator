@@ -428,7 +428,7 @@ def _build_stage_summary(  # noqa: PLR0913
     entry.update(summarize_samples(ctx.actor_count_samples, "actor_count"))
     entry.update(summarize_samples(ctx.gpu_util_pct_samples, "gpu_util_pct"))
 
-    # ----- B3: identity-driven topology + per-GPU scheduling breakdown -----
+    # Identity-driven topology + per-GPU scheduling breakdown
     # (gpu_ids / gpu_count / actor_count and per_gpu items/audio/batch/queue).
     # Hardware fields (util/mem/gpu_hours/uuid/device_name) are deferred to the
     # NVML/DCGM proposal and are intentionally absent here.
@@ -560,7 +560,7 @@ class AudioPerformanceSummary:
         repr=False,
     )
     _seen_perf_invocations: set[str] = field(default_factory=set, repr=False)
-    # ----- B3: per-(stage, gpu) scheduling breakdown (identity-driven) -----
+    # Per-(stage, gpu) scheduling breakdown (identity-driven)
     # Populated only for records that carry a non-empty ``gpu_id`` (GPU stages).
     # Hardware telemetry (util/mem/gpu_hours/uuid/device_name) is intentionally
     # NOT here -- that is the separate NVML/DCGM proposal.
@@ -851,7 +851,7 @@ class AudioPerformanceSummary:
             "stages": stages_summary,
         }
 
-        # ----- B3: cluster-level rollup (scheduling parts only) -----
+        # Cluster-level rollup (scheduling parts only)
         # Hardware rollups (total_gpu_hours, per_gpu_hours, per_gpu_util_pct)
         # are deferred to the NVML/DCGM proposal; only identity-derivable and
         # already-available throughput fields are emitted here.
