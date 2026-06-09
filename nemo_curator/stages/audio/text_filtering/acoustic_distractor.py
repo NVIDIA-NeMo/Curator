@@ -352,7 +352,7 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
                 espeak = _normalize_lang_to_espeak(code)
                 if not espeak:
                     logger.warning(
-                        "%s: skipping vocab file with unmappable language code %r (%s)",
+                        "{}: skipping vocab file with unmappable language code {!r} ({})",
                         self.name,
                         code,
                         fpath.name,
@@ -361,7 +361,7 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
                 items = self._load_vocab_file(fpath)
                 self._vocab_by_lang[espeak] = items
                 logger.info(
-                    "%s: loaded %d entries for %s (espeak=%s) from %s",
+                    "{}: loaded {} entries for {} (espeak={}) from {}",
                     self.name,
                     len(items),
                     code,
@@ -372,7 +372,7 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
                 msg = f"AcousticDistractorStage: no usable phoneme_vocab_*.json files under {vocab_path}"
                 raise ValueError(msg)
             logger.info(
-                "%s: directory mode — %d language(s) loaded: %s",
+                "{}: directory mode — {} language(s) loaded: {}",
                 self.name,
                 len(self._vocab_by_lang),
                 ",".join(sorted(self._vocab_by_lang)),
@@ -380,7 +380,7 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
         else:
             self._vocab_items = self._load_vocab_file(vocab_path)
             logger.info(
-                "%s: loaded %d phoneme vocab entries from %s (language=%s)",
+                "{}: loaded {} phoneme vocab entries from {} (language={})",
                 self.name,
                 len(self._vocab_items),
                 vocab_path,
@@ -404,7 +404,7 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
     def teardown(self) -> None:
         if self._n_processed:
             logger.info(
-                "%s: processed %d samples, appended acoustic distractors to %d (%.1f%%)",
+                "{}: processed {} samples, appended acoustic distractors to {} ({:.1f}%)",
                 self.name,
                 self._n_processed,
                 self._n_appended,
@@ -442,7 +442,7 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
         try:
             phonemes = _phonemize_one(text, language)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("%s: phonemize failed for %r (%s): %s", self.name, text, language, exc)
+            logger.warning("{}: phonemize failed for {!r} ({}): {}", self.name, text, language, exc)
             phonemes = []
         self._g2p_cache[key] = phonemes
         return phonemes
@@ -543,5 +543,5 @@ class AcousticDistractorStage(ProcessingStage[AudioTask, AudioTask]):
             return []
         for task in tasks:
             self._process_one(task)
-        logger.debug("%s: batch of %d tasks", self.name, len(tasks))
+        logger.debug("{}: batch of {} tasks", self.name, len(tasks))
         return tasks

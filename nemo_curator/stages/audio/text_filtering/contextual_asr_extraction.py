@@ -311,7 +311,7 @@ class ContextualASRExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         )
 
         logger.info(
-            "%s: ready (system_prompt=%d chars, output_key=%s)",
+            "{}: ready (system_prompt={} chars, output_key={})",
             self.name,
             len(self._system_prompt),
             self.output_key,
@@ -331,7 +331,7 @@ class ContextualASRExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     def teardown(self) -> None:
         if self._n_processed:
             logger.info(
-                "%s: processed %d, failed %d (%.1f%%)",
+                "{}: processed {}, failed {} ({:.1f}%)",
                 self.name,
                 self._n_processed,
                 self._n_failed,
@@ -416,7 +416,7 @@ class ContextualASRExtractionStage(ProcessingStage[AudioTask, AudioTask]):
                     set_note(task.data, self.name, "extracted", self.notes_key)
 
         logger.debug(
-            "%s: batch of %d tasks (%d inferred, %d failed total)",
+            "{}: batch of {} tasks ({} inferred, {} failed total)",
             self.name,
             len(tasks),
             len(prompts),

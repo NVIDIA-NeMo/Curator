@@ -103,7 +103,7 @@ class RemoteContextualASRExtractionStage(ContextualASRExtractionStage):
             extra_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
         )
         logger.info(
-            "%s: ready (remote=%s, model=%s, output_key=%s)",
+            "{}: ready (remote={}, model={}, output_key={})",
             self.name,
             self.inference_base_url,
             self.served_model_name or self.model_id,
@@ -212,7 +212,7 @@ class RemoteContextualASRExtractionStage(ContextualASRExtractionStage):
                     set_note(task.data, self.name, "extracted", self.notes_key)
 
         logger.debug(
-            "%s: batch of %d tasks (%d inferred, %d failed total)",
+            "{}: batch of {} tasks ({} inferred, {} failed total)",
             self.name,
             len(tasks),
             len(messages_list),

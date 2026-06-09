@@ -131,7 +131,7 @@ class FusedRemoteTextLLMStage(ProcessingStage["AudioTask", "AudioTask"]):
 
         sub_names = [s.name for s in self.sub_stages]
         logger.info(
-            "%s: ready (remote=%s, model=%s, sub_stages=%s)",
+            "{}: ready (remote={}, model={}, sub_stages={})",
             self.name,
             self.inference_base_url,
             self.served_model_name or self.sub_stages[0].model_id,
@@ -244,7 +244,7 @@ class FusedRemoteTextLLMStage(ProcessingStage["AudioTask", "AudioTask"]):
                 sub._n_processed += 1
 
         logger.debug(
-            "%s: batch=%d, total_requests=%d, sub_stages=%s",
+            "{}: batch={}, total_requests={}, sub_stages={}",
             self.name,
             len(tasks),
             total_requests,
