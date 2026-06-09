@@ -21,24 +21,25 @@ Model selection:
     Pass ``--language <code>`` to auto-select both models, or set them explicitly:
 
     ``--primary_model``   (required unless --language is given)
-        qwen_omni  → InferenceQwenOmniStage       (Qwen3-Omni vLLM, ``--model_id``)
-                     recommended: en de es fr it pt ru nl
-        qwen_asr   → InferenceQwenASRStage         (Qwen3-ASR, ``--asr_model_id``)
-                     recommended: pl cs ro hu el fi da sv
-        whisper    → InferenceFasterWhisperStage   (Whisper Large V3, ``--whisper_model_size_or_path``)
-                     recommended: lt lv hr et bg sk sl mt uk
-        parakeet_riva→ InferenceParakeetStage      (local Riva Parakeet ``.nemo``, ``--parakeet_riva_model_id``)
-                     recommended: hi ta bn (fallback: indic_monolingual)
-        indic_monolingual→ InferenceIndicConformerHybridStage (AI4Bharat per-language hybrid CTC+RNNT
-                     ``.nemo``, ``--indic_monolingual_model_id``)
-                     recommended: other Indic ISO codes (no fallback)
+        qwen_omni      → InferenceQwenOmniStage       (Qwen3-Omni vLLM, ``--model_id``)
+                         recommended: en de es fr it pt ru nl
+        parakeet_v3    → InferenceParakeetStage        (Parakeet-TDT v3, ``--parakeet_v3_model_id``)
+                         recommended: pl cs ro hu el fi da sv
+        whisper        → InferenceFasterWhisperStage   (Whisper Large V3, ``--whisper_model_size_or_path``)
+                         recommended: lt lv hr et bg sk sl mt uk
+        parakeet_riva  → InferenceParakeetStage        (local Riva Parakeet ``.nemo``, ``--parakeet_riva_model_id``)
+                         recommended: hi ta bn (recovery: indic_monolingual)
+        indic_monolingual → InferenceIndicConformerHybridStage (AI4Bharat per-language hybrid CTC+RNNT
+                         ``.nemo``, ``--indic_monolingual_model_id``)
+                         recommended: other Indic ISO codes (ur recovery: qwen_omni; others: none)
 
     ``--recovery_model``  (optional; auto-derived from primary when omitted)
-        qwen_asr       → InferenceQwenASRStage        (default recovery for qwen_omni primary)
-        whisper        → InferenceFasterWhisperStage   (default recovery for qwen_asr primary)
-        parakeet_v3    → InferenceParakeetStage        (Parakeet-TDT v3; default recovery for whisper primary)
-        indic_monolingual   → InferenceIndicConformerHybridStage (default recovery for parakeet_riva primary on hi/ta/bn)
-        none           → skip recovery (default for indic_monolingual primary)
+        qwen_asr           → InferenceQwenASRStage        (default recovery for qwen_omni primary)
+        whisper            → InferenceFasterWhisperStage   (default recovery for parakeet_v3 primary)
+        parakeet_v3        → InferenceParakeetStage        (Parakeet-TDT v3; default recovery for whisper primary)
+        indic_monolingual  → InferenceIndicConformerHybridStage (default recovery for parakeet_riva primary on hi/ta/bn)
+        qwen_omni          → InferenceQwenOmniStage       (recovery for indic_monolingual primary on ur)
+        none               → skip recovery (default for indic_monolingual primary, except ur)
 
 Architecture:
     NemoTarredAudioReader (CPU)
@@ -115,17 +116,19 @@ PARAKEET_RIVA_DEFAULT_MODEL_ID = (
 )
 
 # Recommended language codes for each primary inference model (used for auto-selection via --language).
-QWEN_OMNI_RECOMMENDED_LANGS     = {"en", "de", "es", "fr", "it", "pt", "ru", "nl"}
-QWEN_ASR_RECOMMENDED_LANGS      = {"pl", "cs", "ro", "hu", "el", "fi", "da", "sv"}
-WHISPER_RECOMMENDED_LANGS       = {"lt", "lv", "hr", "et", "bg", "sk", "sl", "mt", "uk"}
-PARAKEET_RIVA_PRIMARY_LANGS     = frozenset({"hi", "ta", "bn"})  # languages covered by the local Riva Parakeet .nemo
+QWEN_OMNI_RECOMMENDED_LANGS        = {"en", "de", "es", "fr", "it", "pt", "ru", "nl"}
+PARAKEET_V3_PRIMARY_LANGS           = {"pl", "cs", "ro", "hu", "el", "fi", "da", "sv"}
+WHISPER_RECOMMENDED_LANGS           = {"lt", "lv", "hr", "et", "bg", "sk", "sl", "mt", "uk"}
+PARAKEET_RIVA_PRIMARY_LANGS         = frozenset({"hi", "ta", "bn"})  # languages covered by the local Riva Parakeet .nemo
 # Indic languages handled directly by a per-language IndicConformer hybrid monolingual
 # model (every Indic language except the hi/ta/bn covered by the Riva Parakeet primary).
-INDIC_MONOLINGUAL_PRIMARY_LANGS      = INDIC_CONFORMER_LANGUAGE_CODES - PARAKEET_RIVA_PRIMARY_LANGS
+INDIC_MONOLINGUAL_PRIMARY_LANGS     = INDIC_CONFORMER_LANGUAGE_CODES - PARAKEET_RIVA_PRIMARY_LANGS
+# Urdu uses indic_monolingual as primary but needs qwen_omni as recovery (not none).
+INDIC_MONOLINGUAL_QWEN_RECOVERY_LANGS = frozenset({"ur"})
 
 # Default recovery model paired with each primary (when --recovery_model is not set):
-#   qwen_omni → qwen_asr;  qwen_asr → whisper;  whisper → parakeet_v3
-#   parakeet_riva (hi/ta/bn) → indic_monolingual (matching monolingual);  indic_monolingual → none
+#   qwen_omni → qwen_asr;  parakeet_v3 → whisper;  whisper → parakeet_v3
+#   parakeet_riva (hi/ta/bn) → indic_monolingual;  indic_monolingual → none (except ur → qwen_omni)
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -189,21 +192,21 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "ISO 639-1 language code for this pipeline invocation. "
             "Auto-selects --primary_model and --recovery_model when they are not set explicitly: "
             f"{sorted(PARAKEET_RIVA_PRIMARY_LANGS)} → primary=parakeet_riva, recovery=indic_monolingual; "
-            f"{sorted(INDIC_MONOLINGUAL_PRIMARY_LANGS)} → primary=indic_monolingual, recovery=none; "
+            f"{sorted(INDIC_MONOLINGUAL_PRIMARY_LANGS)} → primary=indic_monolingual, recovery=none (ur → qwen_omni); "
             f"{sorted(QWEN_OMNI_RECOMMENDED_LANGS)} → primary=qwen_omni, recovery=qwen_asr; "
-            f"{sorted(QWEN_ASR_RECOMMENDED_LANGS)} → primary=qwen_asr, recovery=whisper; "
+            f"{sorted(PARAKEET_V3_PRIMARY_LANGS)} → primary=parakeet_v3, recovery=whisper; "
             f"{sorted(WHISPER_RECOMMENDED_LANGS)} → primary=whisper, recovery=parakeet_v3."
         ),
     )
     primary.add_argument(
         "--primary_model",
         type=str,
-        choices=["qwen_omni", "qwen_asr", "whisper", "parakeet_riva", "indic_monolingual"],
+        choices=["qwen_omni", "whisper", "parakeet_v3", "parakeet_riva", "indic_monolingual"],
         default=None,
         help=(
             "Primary ASR model placed after SED. "
             "qwen_omni: Qwen3-Omni vLLM (--model_id); "
-            "qwen_asr: Qwen3-ASR (--asr_model_id); "
+            "parakeet_v3: Parakeet-TDT v3 (--parakeet_v3_model_id), for European Group B; "
             "whisper: Faster-Whisper Large V3 (--whisper_model_size_or_path); "
             "parakeet_riva: local Indic Riva Parakeet .nemo (--parakeet_riva_model_id), used for hi/ta/bn; "
             "indic_monolingual: AI4Bharat IndicConformer hybrid CTC+RNNT per-language .nemo (--indic_monolingual_model_id), "
@@ -274,17 +277,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "recovery ASR (secondary inference)",
         "Use --recovery_model to pick the fallback model explicitly, or let --language set it automatically. "
         "Default auto-pairing (when neither --recovery_model nor --language is given): "
-        "primary=qwen_omni → qwen_asr; primary=qwen_asr → whisper; primary=whisper → parakeet_v3; "
-        "primary=parakeet_riva → indic_monolingual; primary=indic_monolingual → none.",
+        "primary=qwen_omni → qwen_asr; primary=parakeet_v3 → whisper; primary=whisper → parakeet_v3; "
+        "primary=parakeet_riva → indic_monolingual; primary=indic_monolingual → none (ur → qwen_omni).",
     )
     asr.add_argument(
         "--recovery_model",
         type=str,
-        choices=["qwen_asr", "whisper", "parakeet_v3", "indic_monolingual", "none"],
+        choices=["qwen_asr", "qwen_omni", "whisper", "parakeet_v3", "indic_monolingual", "none"],
         default=None,
         help=(
             "Recovery (fallback) ASR model. "
             "qwen_asr: Qwen3-ASR (--asr_model_id); "
+            "qwen_omni: Qwen3-Omni vLLM (--model_id), recovery for indic_monolingual on Urdu; "
             "whisper: Faster-Whisper Large V3 (--whisper_model_size_or_path); "
             "parakeet_v3: Parakeet-TDT v3 (--parakeet_v3_model_id); "
             "indic_monolingual: AI4Bharat IndicConformer hybrid per-language .nemo (--indic_monolingual_model_id), "
@@ -395,7 +399,7 @@ def _resolve_language_flags(args: argparse.Namespace) -> None:
     lang = args.language.lower().strip()
     all_known = (
         QWEN_OMNI_RECOMMENDED_LANGS
-        | QWEN_ASR_RECOMMENDED_LANGS
+        | PARAKEET_V3_PRIMARY_LANGS
         | WHISPER_RECOMMENDED_LANGS
         | PARAKEET_RIVA_PRIMARY_LANGS
         | INDIC_MONOLINGUAL_PRIMARY_LANGS
@@ -414,13 +418,15 @@ def _resolve_language_flags(args: argparse.Namespace) -> None:
             args.primary_model = "indic_monolingual"
         elif lang in QWEN_OMNI_RECOMMENDED_LANGS:
             args.primary_model = "qwen_omni"
-        elif lang in QWEN_ASR_RECOMMENDED_LANGS:
-            args.primary_model = "qwen_asr"
+        elif lang in PARAKEET_V3_PRIMARY_LANGS:
+            args.primary_model = "parakeet_v3"
         else:
             args.primary_model = "whisper"
     if not recovery_was_explicit:
         if lang in PARAKEET_RIVA_PRIMARY_LANGS:
             args.recovery_model = "indic_monolingual"
+        elif lang in INDIC_MONOLINGUAL_QWEN_RECOVERY_LANGS:
+            args.recovery_model = "qwen_omni"
         elif lang in INDIC_MONOLINGUAL_PRIMARY_LANGS:
             args.recovery_model = "none"
     logger.info(
@@ -463,7 +469,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     # Auto-derive recovery_model from primary when not set by --recovery_model or --language.
     _PRIMARY_TO_RECOVERY = {
         "qwen_omni": "qwen_asr",
-        "qwen_asr": "whisper",
+        "parakeet_v3": "whisper",
         "whisper": "parakeet_v3",
         "parakeet_riva": "indic_monolingual",
         "indic_monolingual": "none",
@@ -479,7 +485,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     if args.primary_model is None:
         raise SystemExit(
             "Either --language <code> or --primary_model "
-            "{qwen_omni,qwen_asr,whisper,parakeet_riva,indic_monolingual} is required."
+            "{qwen_omni,whisper,parakeet_v3,parakeet_riva,indic_monolingual} is required."
         )
     if args.recovery_model is None:
         args.recovery_model = _PRIMARY_TO_RECOVERY[args.primary_model]
@@ -553,17 +559,15 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             num_workers_override=args.primary_num_workers,
         ))
 
-    elif args.primary_model == "qwen_asr":
-        stages.append(InferenceQwenASRStage(
-            name="QwenASR_primary",
-            model_id=args.asr_model_id,
+    elif args.primary_model == "parakeet_v3":
+        stages.append(InferenceParakeetStage(
+            name="ParakeetV3_primary",
+            model_id=args.parakeet_v3_model_id,
+            inference_batch_size=args.parakeet_inference_batch_size,
+            source_lang_key=args.source_lang_key,
             pred_text_key="primary_model_prediction",
             keep_waveform=True,
-            source_lang_key=args.source_lang_key,
             batch_size=args.asr_batch_size,
-            gpu_memory_utilization=args.asr_gpu_memory_utilization,
-            max_new_tokens=args.asr_max_new_tokens,
-            max_inference_batch_size=args.asr_batch_size,
             num_workers_override=args.primary_num_workers,
         ))
 
@@ -616,6 +620,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         name="WhisperHallucination_primary",
         common_hall_file=args.hall_phrases,
         text_key=primary_text_key,
+        language_key=args.source_lang_key,
         unique_words_threshold=args.unique_words_threshold,
         long_word_threshold=args.long_word_threshold,
         long_word_rel_threshold=args.long_word_rel_threshold,
@@ -665,6 +670,24 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 batch_size=args.asr_batch_size,
                 num_workers_override=args.fallback_num_workers,
             )
+        elif args.recovery_model == "qwen_omni":
+            recovery_stage = InferenceQwenOmniStage(
+                name="QwenOmni_recovery",
+                model_id=args.model_id,
+                prompt_text=prompt,
+                en_prompt_text=en_prompt,
+                system_prompt=system_prompt,
+                max_output_tokens=args.max_output_tokens,
+                max_model_len=args.max_model_len,
+                max_num_seqs=args.max_num_seqs,
+                gpu_memory_utilization=args.gpu_memory_utilization,
+                tensor_parallel_size=args.tensor_parallel_size,
+                prep_workers=args.prep_workers,
+                pred_text_key="fallback_model_prediction",
+                source_lang_key=args.source_lang_key,
+                batch_size=args.batch_size,
+                num_workers_override=args.fallback_num_workers,
+            )
 
         stages.extend([
             recovery_stage,
@@ -672,6 +695,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 name="WhisperHallucination_asr",
                 common_hall_file=args.hall_phrases,
                 text_key="fallback_model_prediction",
+                language_key=args.source_lang_key,
                 overwrite=True,
                 recovery_value="Recovered:ASR",
                 unique_words_threshold=args.unique_words_threshold,
