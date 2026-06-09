@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+from pathlib import Path
+
 import pytest
 
 from nemo_curator.stages.audio.asr.normalization import TranscriptStatsStage
@@ -114,3 +117,29 @@ def test_transcript_stats_rejects_multiple_languages() -> None:
 
 def test_transcript_stats_runs_as_single_worker_for_exact_dataset_summary() -> None:
     assert TranscriptStatsStage().num_workers() == 1
+
+
+def test_transcript_stats_writes_summary_during_processing(tmp_path: Path) -> None:
+    summary_path = tmp_path / "stats" / "summary.json"
+    stage = TranscriptStatsStage(output_summary_path=str(summary_path))
+    stage.setup_on_node()
+
+    assert summary_path.exists()
+
+    stage.process(_task("ગુજરાતી", 1.0, "dev", False))
+    with summary_path.open(encoding="utf-8") as f:
+        first_summary = json.load(f)
+    assert first_summary["total_transcripts"] == 1
+    assert first_summary["valid_transcripts"] == 1
+
+    stage.process(_task("શબ્દ", 2.0, "test", False))
+
+    with summary_path.open(encoding="utf-8") as f:
+        final_summary = json.load(f)
+    assert final_summary["total_transcripts"] == 2
+    assert final_summary["valid_transcripts"] == 2
+    assert final_summary["split_counts"] == {
+        "dev": {"total": 1, "valid": 1, "invalid": 0},
+        "test": {"total": 1, "valid": 1, "invalid": 0},
+    }
+    stage.teardown()

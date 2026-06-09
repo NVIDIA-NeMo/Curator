@@ -142,6 +142,9 @@ def test_indicvoices_handler_writes_manifests_when_enabled(
     assert metrics["duration_train_seconds"] == pytest.approx(expected_durations["train"])
     assert metrics["duration_dev_seconds"] == pytest.approx(expected_durations["dev"])
     assert metrics["duration_test_seconds"] == pytest.approx(expected_durations["test"])
+    assert metrics["duration_train_hours"] == pytest.approx(expected_durations["train"] / 3600)
+    assert metrics["duration_dev_hours"] == pytest.approx(expected_durations["dev"] / 3600)
+    assert metrics["duration_test_hours"] == pytest.approx(expected_durations["test"] / 3600)
     assert (output_dir / "gu" / "dev" / "audio").is_dir()
     assert (output_dir / "gu" / "test" / "audio").is_dir()
 

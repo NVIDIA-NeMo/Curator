@@ -52,11 +52,14 @@ Usage:
 """
 
 import importlib
+import json
 import traceback
+from pathlib import Path
+from typing import Any
 
 import hydra
 from loguru import logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from nemo_curator.config.run import create_pipeline_from_yaml
 from nemo_curator.tasks.utils import TaskPerfUtils
@@ -77,6 +80,58 @@ def _validate_backend(backend: str) -> None:
     if backend not in _EXECUTOR_FACTORIES:
         msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
         raise ValueError(msg)
+
+
+def _resolve_stats_summary_path(cfg: DictConfig) -> str | None:
+    path = OmegaConf.select(cfg, "stats_summary_path")
+    if path:
+        return str(path)
+    for stage_cfg in cfg.get("stages", []):
+        path = stage_cfg.get("output_summary_path")
+        if path:
+            return str(path)
+    return None
+
+
+def _load_stats_summary(path: str | None) -> dict[str, Any] | None:
+    if not path:
+        return None
+    summary_path = Path(path)
+    if not summary_path.exists():
+        logger.warning(f"Stats summary path does not exist: {summary_path}")
+        return None
+    with summary_path.open(encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _log_stats_summary(summary: dict[str, Any] | None, path: str | None) -> None:
+    if not summary:
+        return
+    logger.info("  ASR transcript stats summary:")
+    if path:
+        logger.info(f"    Summary JSON: {path}")
+    logger.info(
+        "    transcripts: "
+        f"total={summary.get('total_transcripts', 0)} "
+        f"valid={summary.get('valid_transcripts', 0)} "
+        f"invalid={summary.get('invalid_transcripts', 0)} "
+        f"dropped={summary.get('dropped_invalid', 0)} "
+        f"emitted={summary.get('emitted_transcripts', 0)}"
+    )
+    logger.info(
+        "    hours: "
+        f"total={float(summary.get('total_duration_hours', 0.0)):.2f} "
+        f"valid={float(summary.get('valid_duration_hours', 0.0)):.2f} "
+        f"invalid={float(summary.get('invalid_duration_hours', 0.0)):.2f}"
+    )
+    logger.info(
+        "    chars: "
+        f"total={summary.get('total_chars', 0)} "
+        f"unique_known={summary.get('unique_known_chars', 0)} "
+        f"unique_unknown={summary.get('unique_unknown_chars', 0)}"
+    )
+    logger.info(f"    split_counts: {summary.get('split_counts', {})}")
+    logger.info(f"    split_hours: {summary.get('split_hours', {})}")
 
 
 @hydra.main(version_base=None)
@@ -111,6 +166,9 @@ def main(cfg: DictConfig) -> None:
         logger.info(f"  Output manifest: {cfg.final_manifest}")
     elif "output_dir" in cfg:
         logger.info(f"  Output directory: {cfg.output_dir}")
+
+    stats_summary_path = _resolve_stats_summary_path(cfg)
+    _log_stats_summary(_load_stats_summary(stats_summary_path), stats_summary_path)
 
     stage_metrics = TaskPerfUtils.collect_stage_metrics(results)
     for stage_name, metrics in stage_metrics.items():

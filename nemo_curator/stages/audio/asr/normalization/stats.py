@@ -16,10 +16,12 @@
 
 from __future__ import annotations
 
+import json
+import os
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -28,6 +30,9 @@ from nemo_curator.stages.audio.asr.normalization.transcript import _RESOURCE_ROO
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
 @dataclass
@@ -43,9 +48,11 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
     transcript_error_key: str = "transcript_error"
     drop_invalid: bool = False
     log_top_n_unknown_chars: int = 50
+    output_summary_path: str | None = None
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self) -> None:
+        self._summary_handle = None
         self._total_transcripts = 0
         self._valid_transcripts = 0
         self._invalid_transcripts = 0
@@ -77,6 +84,17 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
 
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers": 1}
+
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        if self.output_summary_path:
+            parent = os.path.dirname(self.output_summary_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            self._summary_handle = open(self.output_summary_path, "w", encoding="utf-8")  # noqa: SIM115
 
     def process(self, task: AudioTask) -> AudioTask | None:
         start = time.perf_counter()
@@ -120,6 +138,7 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
         dropped = int(transcript_error and self.drop_invalid)
         self._dropped_invalid += dropped
         self._log_metrics(self._metrics_snapshot(process_time=time.perf_counter() - start))
+        self._write_summary()
         if dropped:
             return None
         return task
@@ -163,6 +182,17 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
 
     def teardown(self) -> None:
         logger.info(self.format_summary())
+        if self._summary_handle is not None:
+            self._summary_handle.close()
+            self._summary_handle = None
+
+    def _write_summary(self) -> None:
+        if not self.output_summary_path:
+            return
+        if self._summary_handle is None:
+            self.setup_on_node()
+        self._summary_handle.write(json.dumps(self.summary(), ensure_ascii=False) + "\n")
+        self._summary_handle.flush()
 
     def format_summary(self) -> str:
         summary = self.summary()

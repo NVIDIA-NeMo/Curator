@@ -12,6 +12,7 @@ dev_fraction: 0.6
 write_manifest: false
 output_filename_pattern: "{split}_normalized.jsonl"
 remove_pnc_chars: true
+stats_summary_path: ${output_dir}/transcript_stats_summary.json
 
 stages:
   - _target_: nemo_curator.stages.audio.asr.datasets.indicvoices.IndicVoicesHandler
@@ -39,6 +40,7 @@ stages:
     unknown_chars_key: unknown_chars
     transcript_error_key: transcript_error
     drop_invalid: true
+    output_summary_path: ${stats_summary_path}
 
   - _target_: nemo_curator.stages.audio.asr.io.split_manifest_writer.SplitAwareManifestWriter
     output_dir: ${output_dir}

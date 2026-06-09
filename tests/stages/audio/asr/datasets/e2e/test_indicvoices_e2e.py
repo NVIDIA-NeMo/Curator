@@ -33,6 +33,16 @@ from tests.stages.audio.asr.datasets.conftest import INPUT_SAMPLE_RATE, OUTPUT_S
 CONFIGS_DIR = Path(__file__).parent / "configs"
 
 
+def _assert_stats_summary(output_dir: Path, total_rows: int) -> None:
+    summary_path = output_dir / "transcript_stats_summary.json"
+    assert summary_path.exists()
+    with summary_path.open(encoding="utf-8") as f:
+        stats_summary = json.load(f)
+    assert stats_summary["total_transcripts"] == total_rows
+    assert stats_summary["valid_transcripts"] == total_rows
+    assert stats_summary["invalid_transcripts"] == 0
+
+
 def test_indicvoices_pipeline_e2e(
     tmp_path: Path,
     indicvoices_raw_dataset: tuple[Path, int],
@@ -80,6 +90,8 @@ def test_indicvoices_pipeline_e2e(
     assert max(metric["invalid_transcripts"] for metric in stats_metrics) == 0
     assert max(metric["unique_unknown_chars"] for metric in stats_metrics) == 0
     assert max(metric["unique_unknown_char_rate"] for metric in stats_metrics) == 0
+
+    _assert_stats_summary(output_dir, total_rows)
 
     manifest_counts = {}
     for split in ["train", "dev", "test"]:

@@ -328,6 +328,7 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
         total_stats["emitted_tasks"] = len(all_tasks)
         for split_type, duration_seconds in duration_by_split.items():
             total_stats[f"duration_{split_type}_seconds"] = duration_seconds
+            total_stats[f"duration_{split_type}_hours"] = duration_seconds / 3600
         total_stats["process_time"] = time.perf_counter() - start
         self._log_metrics(total_stats)
         duration_summary = ", ".join(
