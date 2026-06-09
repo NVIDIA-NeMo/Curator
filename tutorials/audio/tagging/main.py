@@ -52,6 +52,7 @@ Usage:
 """
 
 import importlib
+import traceback
 
 import hydra
 from loguru import logger
@@ -72,25 +73,33 @@ def _create_executor(backend: str, config: dict) -> object:
     return getattr(mod, class_name)(config=config)
 
 
-@hydra.main(version_base=None)
-def main(cfg: DictConfig) -> None:
-    """Run audio tagging pipeline using Hydra configuration."""
-    pipeline = create_pipeline_from_yaml(cfg)
-
-    logger.info(pipeline.describe())
-    logger.info("\n" + "=" * 50 + "\n")
-
-    backend = cfg.get("backend", "xenna")
+def _validate_backend(backend: str) -> None:
     if backend not in _EXECUTOR_FACTORIES:
         msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
         raise ValueError(msg)
-    logger.info(f"Using backend: {backend}")
-    mode = cfg.get("execution_mode", "streaming")
-    config = {"execution_mode": mode}
-    executor = _create_executor(backend, config=config)
 
-    logger.info("Starting audio tagging pipeline...")
-    results = pipeline.run(executor)
+
+@hydra.main(version_base=None)
+def main(cfg: DictConfig) -> None:
+    """Run audio tagging pipeline using Hydra configuration."""
+    try:
+        pipeline = create_pipeline_from_yaml(cfg)
+
+        logger.info(pipeline.describe())
+        logger.info("\n" + "=" * 50 + "\n")
+
+        backend = cfg.get("backend", "xenna")
+        _validate_backend(backend)
+        logger.info(f"Using backend: {backend}")
+        mode = cfg.get("execution_mode", "streaming")
+        config = {"execution_mode": mode}
+        executor = _create_executor(backend, config=config)
+
+        logger.info("Starting audio tagging pipeline...")
+        results = pipeline.run(executor)
+    except Exception:
+        logger.error("Audio pipeline failed with full chained traceback:\n{}", traceback.format_exc())
+        raise
 
     num_tasks = len(results) if results else 0
 
@@ -98,7 +107,10 @@ def main(cfg: DictConfig) -> None:
     logger.info("PIPELINE COMPLETE")
     logger.info("=" * 50)
     logger.info(f"  Tasks processed: {num_tasks}")
-    logger.info(f"  Output manifest: {cfg.final_manifest}")
+    if "final_manifest" in cfg:
+        logger.info(f"  Output manifest: {cfg.final_manifest}")
+    elif "output_dir" in cfg:
+        logger.info(f"  Output directory: {cfg.output_dir}")
 
     stage_metrics = TaskPerfUtils.collect_stage_metrics(results)
     for stage_name, metrics in stage_metrics.items():

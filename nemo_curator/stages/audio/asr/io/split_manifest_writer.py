@@ -14,9 +14,10 @@
 
 """Split/language-aware JSONL manifest writer for ASR pipelines.
 
-Routes each ``AudioTask`` to ``{output_dir}/{lang}/{split_type}.jsonl`` so a single
-pipeline run produces the per-language train/dev/test manifests directly. Runs as a
-single worker so the per-split files are written without cross-worker contention.
+Routes each ``AudioTask`` to ``{output_dir}/{lang}/{output_filename_pattern}``
+so a single pipeline run produces the per-language train/dev/test manifests
+directly. Runs as a single worker so the per-split files are written without
+cross-worker contention.
 """
 
 from __future__ import annotations
@@ -37,12 +38,14 @@ if TYPE_CHECKING:
 
 @dataclass
 class SplitAwareManifestWriter(ProcessingStage[AudioTask, AudioTask]):
-    """Write each entry to ``{output_dir}/{lang}/{split_type}.jsonl``.
+    """Write each entry to a split-derived manifest filename.
 
     Args:
         output_dir: Destination root for the manifests.
         lang_key: Data key holding the language.
         split_key: Data key holding the split type (``train``/``dev``/``test``).
+        output_filename_pattern: Filename pattern formatted with ``lang``,
+            ``split``, and ``split_type``. Defaults to ``"{split}.jsonl"``.
         langs: Optional languages to pre-create empty manifests for.
         splits: Optional split types to pre-create empty manifests for.
             When both ``langs`` and ``splits`` are given, all combinations are
@@ -54,6 +57,7 @@ class SplitAwareManifestWriter(ProcessingStage[AudioTask, AudioTask]):
     name: str = "split_manifest_writer"
     lang_key: str = "lang"
     split_key: str = "split_type"
+    output_filename_pattern: str = "{split}.jsonl"
     langs: list[str] | None = None
     splits: list[str] | None = None
     is_sink_stage: bool = True
@@ -87,7 +91,8 @@ class SplitAwareManifestWriter(ProcessingStage[AudioTask, AudioTask]):
                     self._open(lang, split)
 
     def _path(self, lang: str, split: str) -> str:
-        return os.path.join(self.output_dir, lang, f"{split}.jsonl")
+        filename = self.output_filename_pattern.format(lang=lang, split=split, split_type=split)
+        return os.path.join(self.output_dir, lang, filename)
 
     def _open(self, lang: str, split: str) -> Any:  # noqa: ANN401
         key = (lang, split)
@@ -115,5 +120,6 @@ class SplitAwareManifestWriter(ProcessingStage[AudioTask, AudioTask]):
     def teardown(self) -> None:
         for (lang, split), handle in self._handles.items():
             handle.close()
-            logger.info(f"[{self.name}] {lang}/{split}.jsonl: {self._counts.get((lang, split), 0)} entries")
+            filename = self.output_filename_pattern.format(lang=lang, split=split, split_type=split)
+            logger.info(f"[{self.name}] {lang}/{filename}: {self._counts.get((lang, split), 0)} entries")
         self._handles = {}

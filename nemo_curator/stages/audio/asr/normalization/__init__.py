@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.audio.asr.metadata import ASRMetadata
-from nemo_curator.stages.audio.asr.normalization import TranscriptNormalizationStage, TranscriptStatsStage
+from nemo_curator.stages.audio.asr.normalization.stats import TranscriptStatsStage
+from nemo_curator.stages.audio.asr.normalization.transcript import TranscriptNormalizationStage
 
-__all__ = ["ASRMetadata", "TranscriptNormalizationStage", "TranscriptStatsStage"]
+__all__ = ["TranscriptNormalizationStage", "TranscriptStatsStage"]

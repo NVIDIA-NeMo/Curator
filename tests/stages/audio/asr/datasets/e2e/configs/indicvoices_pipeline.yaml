@@ -1,0 +1,50 @@
+# IndicVoices ASR extraction pipeline - e2e test configuration
+
+raw_data_dir: ???
+output_dir: ???
+langs:
+  - gu
+native_splits:
+  - valid
+split_dir_pattern: "{split}"
+extraction_workers: 4
+dev_fraction: 0.6
+write_manifest: false
+output_filename_pattern: "{split}_normalized.jsonl"
+remove_pnc_chars: true
+
+stages:
+  - _target_: nemo_curator.stages.audio.asr.datasets.indicvoices.IndicVoicesHandler
+    raw_data_dir: ${raw_data_dir}
+    output_dir: ${output_dir}
+    langs: ${langs}
+    native_splits: ${native_splits}
+    split_dir_pattern: ${split_dir_pattern}
+    extraction_workers: ${extraction_workers}
+    dev_fraction: ${dev_fraction}
+    write_manifest: ${write_manifest}
+
+  - _target_: nemo_curator.stages.audio.asr.normalization.TranscriptNormalizationStage
+    text_key: text
+    lang_key: lang
+    output_text_key: text
+    output_original_text_key: text_original
+    remove_pnc_chars: ${remove_pnc_chars}
+
+  - _target_: nemo_curator.stages.audio.asr.normalization.TranscriptStatsStage
+    text_key: text
+    lang_key: lang
+    duration_key: duration
+    split_key: split_type
+    unknown_chars_key: unknown_chars
+    transcript_error_key: transcript_error
+    drop_invalid: true
+
+  - _target_: nemo_curator.stages.audio.asr.io.split_manifest_writer.SplitAwareManifestWriter
+    output_dir: ${output_dir}
+    output_filename_pattern: ${output_filename_pattern}
+    langs: ${langs}
+    splits:
+      - train
+      - dev
+      - test

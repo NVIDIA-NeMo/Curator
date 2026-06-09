@@ -24,7 +24,8 @@ transcript, and assorted metadata (``snr``, ``gender``, ``collectionSource`` ...
 This handler decodes those arrow datasets, converts every clip to
 WAV/16 kHz/mono/PCM16 under ``output_dir``, partitions the native ``valid`` split
 into ``dev``/``test`` (60/40 by default), and emits one :class:`AudioTask` per
-utterance. Manifest writing is intentionally left to downstream writer stages.
+utterance. Manifest writing can either be handled by a downstream writer stage,
+or enabled directly in this handler with ``write_manifest``.
 
 Extraction is parallelized inside a single Xenna worker via ``extraction_workers``.
 """
@@ -32,6 +33,7 @@ Extraction is parallelized inside a single Xenna worker via ``extraction_workers
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import time
 from dataclasses import dataclass, field
@@ -43,6 +45,7 @@ from nemo_curator.stages.audio.asr.datasets.base import BaseASRDatasetHandlerSta
 from nemo_curator.stages.audio.asr.metadata import ASRMetadata
 
 if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
     from nemo_curator.tasks import AudioTask, _EmptyTask
 
 # Metadata columns to carry into ASRMetadata.extra when present in a row.
@@ -95,8 +98,12 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
 
         output_dir/
         └── gu/
+            ├── train.jsonl
+            ├── dev.jsonl
+            ├── test.jsonl
             ├── train/
             │   └── audio/
+            │       └── gu_train_0.wav
             ├── dev/
             │   └── audio/
             │       └── gu_valid_0.wav
@@ -117,13 +124,63 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
     native_splits: list[str] = field(default_factory=lambda: ["train", "valid"])
     split_dir_pattern: str = "{lang}_{split}"
     dev_fraction: float = 0.6
+    write_manifest: bool = False
 
-    def setup(self, _worker_metadata: Any = None) -> None:  # noqa: ANN401
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         super().setup(_worker_metadata)
         from datasets import Audio, load_from_disk
 
         self._load_from_disk = load_from_disk
         self._Audio = Audio
+
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        self._manifest_handles = {}
+        if not self.write_manifest:
+            return
+        for lang in self.langs:
+            for split_type in self._output_splits():
+                os.makedirs(self.audio_output_dir(lang, split_type), exist_ok=True)
+                self._manifest_handles[(lang, split_type)] = self._open_manifest(lang, split_type)
+
+    def teardown(self) -> None:
+        for handle in getattr(self, "_manifest_handles", {}).values():
+            handle.close()
+        self._manifest_handles = {}
+
+    def _output_splits(self) -> list[str]:
+        splits = []
+        for native_split in self.native_splits:
+            if native_split.lower() in {"valid", "val", "validation"}:
+                splits.extend(["dev", "test"])
+            else:
+                splits.append(native_split)
+        return list(dict.fromkeys(splits))
+
+    def _manifest_path(self, lang: str, split_type: str) -> str:
+        return os.path.join(self.output_dir, lang, f"{split_type}.jsonl")
+
+    def _open_manifest(self, lang: str, split_type: str) -> Any:  # noqa: ANN401
+        manifest_path = self._manifest_path(lang, split_type)
+        os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+        logger.info(f"[{self.name}] writing manifest -> {manifest_path}")
+        return open(manifest_path, "w", encoding="utf-8")
+
+    def _write_manifest_entry(self, meta: ASRMetadata) -> None:
+        if not self.write_manifest:
+            return
+        key = (meta.lang, meta.split_type)
+        if not hasattr(self, "_manifest_handles"):
+            self._manifest_handles = {}
+        if key not in self._manifest_handles:
+            os.makedirs(self.audio_output_dir(meta.lang, meta.split_type), exist_ok=True)
+            self._manifest_handles[key] = self._open_manifest(*key)
+        handle = self._manifest_handles[key]
+        handle.write(json.dumps(meta.to_dict(), ensure_ascii=False) + "\n")
+        handle.flush()
 
     def coerce_audio(self, audio_obj: Any) -> tuple[Any, int, int]:  # noqa: ANN401
         """Coerce IndicVoices decoded audio into mono ``(array, sample_rate, channels)``.
@@ -249,6 +306,7 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
     def process(self, _: _EmptyTask) -> list[AudioTask]:
         start = time.perf_counter()
         all_tasks: list[AudioTask] = []
+        duration_by_split = dict.fromkeys(["train", "dev", "test", *self._output_splits()], 0.0)
         total_stats = {
             "input_rows": 0,
             "emitted_tasks": 0,
@@ -263,14 +321,22 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
                     total_stats[key] += value
                 if not metas:
                     continue
+                for meta in metas:
+                    duration_by_split[meta.split_type] = duration_by_split.get(meta.split_type, 0.0) + meta.duration
+                    self._write_manifest_entry(meta)
                 all_tasks.extend(self.build_audio_task(meta) for meta in metas)
         total_stats["emitted_tasks"] = len(all_tasks)
+        for split_type, duration_seconds in duration_by_split.items():
+            total_stats[f"duration_{split_type}_seconds"] = duration_seconds
         total_stats["process_time"] = time.perf_counter() - start
         self._log_metrics(total_stats)
+        duration_summary = ", ".join(
+            f"{split_type}={duration_by_split.get(split_type, 0.0):.2f}s" for split_type in ["train", "dev", "test"]
+        )
         logger.info(
             f"[{self.name}] emitted {len(all_tasks)} AudioTasks "
             f"(input_rows={total_stats['input_rows']}, skipped_missing_text={total_stats['skipped_missing_text']}, "
             f"skipped_missing_audio={total_stats['skipped_missing_audio']}, "
-            f"skipped_audio_load={total_stats['skipped_audio_load']})"
+            f"skipped_audio_load={total_stats['skipped_audio_load']}, duration_by_split=({duration_summary}))"
         )
         return all_tasks

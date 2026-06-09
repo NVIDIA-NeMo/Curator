@@ -20,68 +20,28 @@ import numpy as np
 import pytest
 import soundfile as sf
 from datasets import Dataset
-from omegaconf import OmegaConf
 
-from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.config.run import create_pipeline_from_yaml
 from nemo_curator.stages.audio.asr.datasets.indicvoices import IndicVoicesHandler
 from nemo_curator.tasks import _EmptyTask
-
-_NUM_REALISTIC_ROWS = 100
-_INPUT_SAMPLE_RATE = 8000
-_OUTPUT_SAMPLE_RATE = 16000
-_CONFIGS_DIR = Path(__file__).parent / "configs"
+from tests.stages.audio.asr.datasets.conftest import INPUT_SAMPLE_RATE, OUTPUT_SAMPLE_RATE
 
 
-@pytest.fixture
-def indicvoices_raw_dataset(tmp_path: Path) -> tuple[Path, int]:
-    """Create a tiny on-disk HF dataset shaped like the raw IndicVoices split."""
-    raw_root = tmp_path / "raw"
-    audio_dir = tmp_path / "source_audio"
-    valid_dir = raw_root / "valid"
-    audio_dir.mkdir(parents=True)
-
-    filepaths = []
-    for i in range(_NUM_REALISTIC_ROWS):
-        samples = np.linspace(0.0, 1.0, _INPUT_SAMPLE_RATE // 20, endpoint=False, dtype=np.float32)
-        tone = 0.1 * np.sin(2 * np.pi * (220 + i) * samples)
-        stereo = np.stack([tone, tone * 0.5], axis=1)
-        path = audio_dir / f"sample_{i}.wav"
-        sf.write(path, stereo, _INPUT_SAMPLE_RATE, subtype="PCM_16")
-        filepaths.append(str(path))
-
-    dataset = Dataset.from_dict(
-        {
-            "audio_filepath": filepaths,
-            "text": [f"ગુજરાતી વાક્ય {i}" for i in range(_NUM_REALISTIC_ROWS)],
-            "duration": [0.05] * _NUM_REALISTIC_ROWS,
-            "lang": ["gu"] * _NUM_REALISTIC_ROWS,
-            "speaker_id": [f"speaker_{i % 3}" for i in range(_NUM_REALISTIC_ROWS)],
-            "gender": ["Female" if i % 2 else "Male" for i in range(_NUM_REALISTIC_ROWS)],
-            "age_group": ["30-45"] * _NUM_REALISTIC_ROWS,
-            "scenario": ["Extempore"] * _NUM_REALISTIC_ROWS,
-            "task_name": ["Unit Test"] * _NUM_REALISTIC_ROWS,
-            "state": ["Gujarat"] * _NUM_REALISTIC_ROWS,
-            "district": ["Ahmedabad"] * _NUM_REALISTIC_ROWS,
-            "normalized": [f"ગુજરાતી વાક્ય {i}" for i in range(_NUM_REALISTIC_ROWS)],
-        }
-    )
-    dataset.save_to_disk(str(valid_dir))
-    return raw_root, _NUM_REALISTIC_ROWS
-
-
-def test_indicvoices_handler(
+def test_indicvoices_handler_ingests_realistic_hf_dataset(
     tmp_path: Path,
     indicvoices_raw_dataset: tuple[Path, int],
 ) -> None:
     raw_root, total_rows = indicvoices_raw_dataset
     output_dir = tmp_path / "out"
-    cfg = OmegaConf.load(_CONFIGS_DIR / "indicvoices.yaml")
-    cfg.raw_data_dir = str(raw_root)
-    cfg.output_dir = str(output_dir)
-
-    pipeline = create_pipeline_from_yaml(cfg)
-    tasks = pipeline.run(XennaExecutor(config={"execution_mode": "batch"}))
+    stage = IndicVoicesHandler(
+        raw_data_dir=str(raw_root),
+        output_dir=str(output_dir),
+        langs=["gu"],
+        native_splits=["valid"],
+        split_dir_pattern="{split}",
+        extraction_workers=2,
+    )
+    stage.setup()
+    tasks = stage.process(_EmptyTask(dataset_name="test", data=None))
 
     assert len(tasks) == total_rows
     split_helper = IndicVoicesHandler(raw_data_dir=str(raw_root), output_dir=str(output_dir), langs=["gu"])
@@ -95,25 +55,14 @@ def test_indicvoices_handler(
         audio_path = Path(task.data["audio_filepath"])
         assert audio_path.parent == output_dir / "gu" / task.data["split_type"] / "audio"
         wav_info = sf.info(audio_path)
-        assert wav_info.samplerate == _OUTPUT_SAMPLE_RATE
+        assert wav_info.samplerate == OUTPUT_SAMPLE_RATE
         assert wav_info.channels == 1
         assert wav_info.subtype == "PCM_16"
-        assert task.data["orig_sample_rate"] == _INPUT_SAMPLE_RATE
+        assert task.data["orig_sample_rate"] == INPUT_SAMPLE_RATE
         assert task.data["orig_num_channels"] == 2
         assert task.data["lang"] == "gu"
         assert task.data["source"] == "IndicVoices"
         assert task.data["speaker_id"].startswith("speaker_")
-
-    manifest_counts = {}
-    for split in ["train", "dev", "test"]:
-        path = output_dir / "gu" / f"{split}.jsonl"
-        assert path.exists()
-        with path.open(encoding="utf-8") as f:
-            rows = [json.loads(line) for line in f if line.strip()]
-        manifest_counts[split] = len(rows)
-        assert all(row["split_type"] == split for row in rows)
-
-    assert manifest_counts == {"train": 0, "dev": actual_counts["dev"], "test": actual_counts["test"]}
 
 
 def test_indicvoices_handler_reports_skipped_rows_from_realistic_hf_dataset(tmp_path: Path) -> None:
@@ -124,8 +73,8 @@ def test_indicvoices_handler_reports_skipped_rows_from_realistic_hf_dataset(tmp_
 
     valid_audio = audio_dir / "valid.wav"
     missing_text_audio = audio_dir / "missing_text.wav"
-    sf.write(valid_audio, np.zeros(_INPUT_SAMPLE_RATE // 20, dtype=np.float32), _INPUT_SAMPLE_RATE)
-    sf.write(missing_text_audio, np.zeros(_INPUT_SAMPLE_RATE // 20, dtype=np.float32), _INPUT_SAMPLE_RATE)
+    sf.write(valid_audio, np.zeros(INPUT_SAMPLE_RATE // 20, dtype=np.float32), INPUT_SAMPLE_RATE)
+    sf.write(missing_text_audio, np.zeros(INPUT_SAMPLE_RATE // 20, dtype=np.float32), INPUT_SAMPLE_RATE)
 
     dataset = Dataset.from_dict(
         {
@@ -159,3 +108,48 @@ def test_indicvoices_handler_reports_skipped_rows_from_realistic_hf_dataset(tmp_
     assert metrics["skipped_missing_text"] == 1
     assert metrics["skipped_missing_audio"] == 1
     assert metrics["skipped_audio_load"] == 1
+
+
+def test_indicvoices_handler_writes_manifests_when_enabled(
+    tmp_path: Path,
+    indicvoices_raw_dataset: tuple[Path, int],
+) -> None:
+    raw_root, total_rows = indicvoices_raw_dataset
+    output_dir = tmp_path / "out"
+    stage = IndicVoicesHandler(
+        raw_data_dir=str(raw_root),
+        output_dir=str(output_dir),
+        langs=["gu"],
+        native_splits=["valid"],
+        split_dir_pattern="{split}",
+        extraction_workers=2,
+        write_manifest=True,
+    )
+    stage.setup_on_node()
+    stage.setup()
+
+    tasks = stage.process(_EmptyTask(dataset_name="test", data=None))
+    metrics = stage._consume_custom_metrics()
+    stage.teardown()
+
+    assert len(tasks) == total_rows
+    actual_counts = Counter(task.data["split_type"] for task in tasks)
+    expected_durations = {
+        "train": 0.0,
+        "dev": sum(task.data["duration"] for task in tasks if task.data["split_type"] == "dev"),
+        "test": sum(task.data["duration"] for task in tasks if task.data["split_type"] == "test"),
+    }
+    assert metrics["duration_train_seconds"] == pytest.approx(expected_durations["train"])
+    assert metrics["duration_dev_seconds"] == pytest.approx(expected_durations["dev"])
+    assert metrics["duration_test_seconds"] == pytest.approx(expected_durations["test"])
+    assert (output_dir / "gu" / "dev" / "audio").is_dir()
+    assert (output_dir / "gu" / "test" / "audio").is_dir()
+
+    for split in ["dev", "test"]:
+        manifest_path = output_dir / "gu" / f"{split}.jsonl"
+        assert manifest_path.exists()
+        with manifest_path.open(encoding="utf-8") as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        assert len(rows) == actual_counts[split]
+        assert all(row["split_type"] == split for row in rows)
+        assert all(Path(row["audio_filepath"]).parent == output_dir / "gu" / split / "audio" for row in rows)
