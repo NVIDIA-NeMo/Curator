@@ -15,12 +15,19 @@
 import io
 import json
 import tarfile
+from pathlib import Path
 
 import numpy as np
 import pytest
 import soundfile as sf
 
-from nemo_curator.stages.audio.io.nemo_tarred_reader import NemoTarShardReaderStage, NemoTarredAudioReader
+from nemo_curator.stages.audio.io.nemo_tarred_reader import (
+    NemoTarShardDiscoveryStage,
+    NemoTarShardReaderStage,
+    NemoTarredAudioReader,
+    _iter_discovery_groups,
+    _iter_input_cfg_entries,
+)
 from nemo_curator.tasks import FileGroupTask
 
 
@@ -125,3 +132,42 @@ def test_reader_skips_tar_members_when_extractfile_returns_none(tmp_path, monkey
     results = stage.process(task)
 
     assert results == []
+
+
+def test_iter_discovery_groups_rejects_empty_yaml() -> None:
+    with pytest.raises(ValueError, match="empty"):
+        _iter_discovery_groups(None, "bad.yaml")
+
+
+@pytest.mark.parametrize("config", [{"corpus": "x"}, "scalar", 42])
+def test_iter_discovery_groups_rejects_non_list_root(config: object) -> None:
+    with pytest.raises(ValueError, match="must be a list"):
+        _iter_discovery_groups(config, "bad.yaml")
+
+
+def test_iter_discovery_groups_skips_non_mapping_entries() -> None:
+    groups = _iter_discovery_groups([{"input_cfg": []}, "skip-me", {"input_cfg": []}], "ok.yaml")
+    assert len(groups) == 2
+
+
+def test_iter_input_cfg_entries_skips_non_list_and_non_mapping() -> None:
+    assert _iter_input_cfg_entries({"input_cfg": "bad"}, "ok.yaml") == []
+    assert _iter_input_cfg_entries({"input_cfg": ["bad", {"corpus": "c"}]}, "ok.yaml") == [{"corpus": "c"}]
+
+
+def test_discovery_process_raises_on_empty_yaml(tmp_path: Path) -> None:
+    yaml_path = tmp_path / "empty.yaml"
+    yaml_path.write_text("", encoding="utf-8")
+    stage = NemoTarShardDiscoveryStage(yaml_path=str(yaml_path))
+
+    with pytest.raises(ValueError, match="empty"):
+        stage.process(None)  # type: ignore[arg-type]
+
+
+def test_discovery_process_raises_on_scalar_yaml_root(tmp_path: Path) -> None:
+    yaml_path = tmp_path / "scalar.yaml"
+    yaml_path.write_text("just_a_string\n", encoding="utf-8")
+    stage = NemoTarShardDiscoveryStage(yaml_path=str(yaml_path))
+
+    with pytest.raises(ValueError, match="must be a list"):
+        stage.process(None)  # type: ignore[arg-type]

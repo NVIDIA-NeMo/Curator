@@ -12,27 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the generic ``ASRStage`` driven by ``QwenOmniASRAdapter``.
+"""Tests for the generic ``ASRStage`` (Curator-side glue).
 
-Covers:
-    * Tier-1 / Tier-2 stage<->adapter contract;
+The stage is exercised against a mock ``ASRAdapter`` (no real model load), so
+these tests pin only stage behavior:
+    * process / process_batch contract + adapter delegation;
     * stage-side pre-slice + stitch-back;
     * ``keep_waveform: True`` default;
-    * adapter vLLM knobs exposed via ``adapter_kwargs``;
-    * within-call duration-bucketed batching via ``BatchPolicy``.
+    * within-call duration-bucketed dispatch via ``BatchPolicy``;
+    * ISO language-code mapping, I/O schema, skip / metric logging;
+    * ``setup_on_node`` weight prefetch + ``setup()`` adapter construction.
+
+Adapter internals live in ``tests/adapters/asr/test_qwen_omni.py``; the
+generic stage<->adapter contract lives in ``tests/adapters/asr/test_base.py``;
+the bucketing primitives live in ``tests/stages/inference/``.
 """
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-from nemo_curator.adapters.asr.base import ASRAdapter, ASRResult
-from nemo_curator.adapters.asr.qwen_omni import QwenOmniASRAdapter
+from nemo_curator.adapters.asr.base import ASRResult
 from nemo_curator.stages.audio.inference.asr import ASRStage
-from nemo_curator.stages.inference.batch_policy import BatchPolicy, run_bucketed
-from nemo_curator.stages.inference.bucketed_stage import BucketedInferenceStage
+from nemo_curator.stages.inference.batch_policy import BatchPolicy
 from nemo_curator.tasks import AudioTask
 
 _QWEN_ADAPTER_TARGET = "nemo_curator.adapters.asr.qwen_omni.QwenOmniASRAdapter"
@@ -293,7 +296,7 @@ def test_pre_slice_metrics_count_parents_not_chunks() -> None:
 
 
 # ----------------------------------------------------------------------
-# Within-call duration-bucketed batching
+# Within-call duration-bucketed batching (policy-driven stage dispatch)
 # ----------------------------------------------------------------------
 
 
@@ -377,157 +380,6 @@ def test_batch_policy_none_runs_single_adapter_call() -> None:
     ]
     stage.process_batch([_make_task(), _make_task()])
     assert stage._adapter.transcribe_batch.call_count == 1
-
-
-def test_batch_policy_invalid_strategy_rejected() -> None:
-    with pytest.raises(ValueError, match="duration_bucketed"):
-        BatchPolicy(strategy="token_bucketed")
-
-
-def test_batch_policy_inconsistent_lengths_rejected() -> None:
-    with pytest.raises(ValueError, match="lengths must match"):
-        BatchPolicy(buckets_sec=[0, 60, 600], max_items_per_batch_by_bucket=[10, 5])
-
-
-def test_batch_policy_bucket_for_clamps_above_top_edge() -> None:
-    """Left-edge semantics: bucket i covers [buckets_sec[i], buckets_sec[i+1])."""
-    p = BatchPolicy(buckets_sec=[0, 60, 600], max_items_per_batch_by_bucket=[10, 5, 1])
-    assert p.bucket_for(0.0) == 0     # [0, 60)
-    assert p.bucket_for(30.0) == 0    # [0, 60)
-    assert p.bucket_for(60.0) == 1    # boundary lands in the bucket that starts at 60
-    assert p.bucket_for(599.0) == 1   # [60, 600)
-    assert p.bucket_for(600.0) == 2   # [600, +inf)
-    assert p.bucket_for(9999.0) == 2  # clamped into top bucket
-
-
-# ----------------------------------------------------------------------
-# run_bucketed: the shared, stage-agnostic dispatch helper
-# ----------------------------------------------------------------------
-
-
-def test_run_bucketed_preserves_input_order_across_buckets() -> None:
-    """Results realign to input order regardless of internal bucket order."""
-    policy = BatchPolicy(
-        buckets_sec=[0, 30, 1200],
-        max_items_per_batch_by_bucket=[32, 16, 8],
-        max_audio_sec_per_batch=None,
-    )
-    # durations: long, short, long, short -> two buckets, interleaved input.
-    items = [{"d": 600.0, "v": "L0"}, {"d": 5.0, "v": "S1"}, {"d": 700.0, "v": "L2"}, {"d": 10.0, "v": "S3"}]
-    calls: list[list[str]] = []
-
-    def run_fn(sub: list[dict]) -> list[str]:
-        calls.append([it["v"] for it in sub])
-        return [it["v"] for it in sub]
-
-    out = run_bucketed(items, run_fn, cost_fn=lambda it: it["d"], policy=policy)
-
-    assert out == ["L0", "S1", "L2", "S3"]
-    assert len(calls) == 2  # one per occupied bucket
-
-
-def test_run_bucketed_without_policy_runs_single_call() -> None:
-    items = [{"d": 1.0}, {"d": 2.0}, {"d": 3.0}]
-    calls = 0
-
-    def run_fn(sub: list[dict]) -> list[int]:
-        nonlocal calls
-        calls += 1
-        return list(range(len(sub)))
-
-    out = run_bucketed(items, run_fn, cost_fn=lambda it: it["d"], policy=None)
-
-    assert calls == 1
-    assert out == [0, 1, 2]
-
-
-def test_run_bucketed_empty_items_short_circuits() -> None:
-    def run_fn(_sub: list) -> list:
-        msg = "run_fn must not be called for empty items"
-        raise AssertionError(msg)
-
-    assert run_bucketed([], run_fn, cost_fn=lambda _it: 0.0) == []
-
-
-def test_run_bucketed_mismatched_result_count_raises() -> None:
-    def run_fn(_sub: list) -> list:
-        return ["only-one"]
-
-    with pytest.raises(RuntimeError, match=r"returned 1 results for 2 items"):
-        run_bucketed([{"d": 1.0}, {"d": 2.0}], run_fn, cost_fn=lambda it: it["d"])
-
-
-# ----------------------------------------------------------------------
-# BucketedInferenceStage: the generic, importable bucketed-dispatch base
-# ----------------------------------------------------------------------
-
-
-class _SumBucketStage(BucketedInferenceStage):
-    """Minimal concrete stage: fan a task's ``vals`` out into items, x10 each,
-    then sum the per-item results back onto the parent task."""
-
-    name = "test_sum_bucket"
-
-    def process(self, task: AudioTask) -> AudioTask:
-        raise NotImplementedError
-
-    def build_items(self, tasks: list[AudioTask]) -> tuple[list[float], list[int]]:
-        items: list[float] = []
-        parent_of: list[int] = []
-        for i, t in enumerate(tasks):
-            for v in t.data["vals"]:
-                items.append(v)
-                parent_of.append(i)
-        return items, parent_of
-
-    def item_cost(self, item: float) -> float:
-        return float(item)
-
-    def run_inference(self, items: list[float]) -> list[float]:
-        self.calls.append(list(items))
-        return [v * 10 for v in items]
-
-    def assemble(
-        self,
-        tasks: list[AudioTask],
-        items: list[float],
-        parent_of: list[int],
-        results: list[float],
-    ) -> list[AudioTask]:
-        sums = [0.0 for _ in tasks]
-        for r, p in zip(results, parent_of, strict=True):
-            sums[p] += r
-        for t, s in zip(tasks, sums, strict=True):
-            t.data["out"] = s
-        return tasks
-
-
-def test_bucketed_inference_stage_fans_out_buckets_and_reassembles() -> None:
-    """The base drives build_items -> bucketed dispatch -> assemble, with one
-    output per input task and per-parent fan-in preserved across buckets."""
-    stage = _SumBucketStage()
-    stage.calls = []
-    stage.batch_policy = BatchPolicy(
-        buckets_sec=[0, 30],
-        max_items_per_batch_by_bucket=[8, 8],
-        max_audio_sec_per_batch=None,
-    )
-    t0 = AudioTask(data={"vals": [5.0, 100.0]})  # short + long -> two buckets
-    t1 = AudioTask(data={"vals": [10.0]})  # short
-
-    out = stage.process_batch([t0, t1])
-
-    assert out == [t0, t1]
-    assert t0.data["out"] == (5.0 + 100.0) * 10
-    assert t1.data["out"] == 10.0 * 10
-    assert len(stage.calls) == 2  # one dispatch per occupied bucket
-
-
-def test_bucketed_inference_stage_empty_batch_short_circuits() -> None:
-    stage = _SumBucketStage()
-    stage.calls = []
-    assert stage.process_batch([]) == []
-    assert stage.calls == []
 
 
 # ----------------------------------------------------------------------
@@ -640,7 +492,7 @@ def test_metrics_model_alias_skips_already_emitted_keys() -> None:
 
 
 # ----------------------------------------------------------------------
-# Stage-level: setup_on_node weight prefetch
+# Stage-level: setup_on_node weight prefetch + setup() adapter construction
 # ----------------------------------------------------------------------
 
 
@@ -729,199 +581,3 @@ def test_setup_uses_adapter_target_and_kwargs() -> None:
     )
     fake_adapter.setup.assert_called_once_with()
     assert stage._adapter is fake_adapter
-
-
-# ----------------------------------------------------------------------
-# Adapter-level: protocol conformance (requires @runtime_checkable)
-# ----------------------------------------------------------------------
-
-
-def test_qwen_adapter_conforms_to_asr_protocol() -> None:
-    """Smoke-check that QwenOmniASRAdapter satisfies the structural ASRAdapter contract.
-
-    ``isinstance(..., ASRAdapter)`` only works because ``ASRAdapter`` is
-    decorated with ``@runtime_checkable``; without it Python raises
-    ``TypeError`` and we cannot write this (or future adapter-family)
-    conformance tests. Mirrors ``test_conforms_to_protocol`` on the
-    diarization / VAD / alignment adapter tests on main.
-    """
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-    assert isinstance(adapter, ASRAdapter)
-
-
-# ----------------------------------------------------------------------
-# Adapter-level: QwenOmniASRAdapter helpers (no GPU, no vLLM required)
-# ----------------------------------------------------------------------
-
-
-def test_qwen_adapter_first_output_text_handles_empty_vllm_output() -> None:
-    assert QwenOmniASRAdapter._first_output_text(SimpleNamespace(outputs=[])) == ""
-
-
-def test_qwen_adapter_count_output_tokens_handles_empty_vllm_output() -> None:
-    assert QwenOmniASRAdapter._count_output_tokens([SimpleNamespace(outputs=[])]) == 0.0
-
-
-def test_qwen_adapter_infer_turn_scatters_outputs_by_index() -> None:
-    """The shared Turn-1/Turn-2 helper scatters vLLM outputs back to the
-    original batch positions and reports generation time + token count."""
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-
-    def _fake_generate(inputs: list[dict[str, object]]) -> list[SimpleNamespace]:
-        return [
-            SimpleNamespace(outputs=[SimpleNamespace(text=f"t{i}", token_ids=[0, 1])])
-            for i, _ in enumerate(inputs)
-        ]
-
-    adapter._generate = _fake_generate  # type: ignore[method-assign]
-
-    # Length-4 batch where only positions 1 and 3 produced valid inputs.
-    texts, generation_s, tokens = adapter._infer_turn(
-        inputs=[{"prompt": "a"}, {"prompt": "b"}],
-        indices=[1, 3],
-        n=4,
-    )
-
-    assert texts == ["", "t0", "", "t1"]
-    assert tokens == 4.0  # 2 outputs x 2 token_ids each
-    assert generation_s >= 0.0
-
-
-def test_qwen_adapter_infer_turn_raises_on_vllm_count_mismatch() -> None:
-    """A short vLLM result list must fail loud (strict=True) rather than
-    silently leaving utterances as empty text with skipped=False."""
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-
-    def _short_generate(_inputs: list[dict[str, object]]) -> list[SimpleNamespace]:
-        # vLLM returns fewer outputs than inputs (e.g. a scheduler drop).
-        return [SimpleNamespace(outputs=[SimpleNamespace(text="only-one", token_ids=[0])])]
-
-    adapter._generate = _short_generate  # type: ignore[method-assign]
-
-    with pytest.raises(ValueError, match="zip"):
-        adapter._infer_turn(inputs=[{"prompt": "a"}, {"prompt": "b"}], indices=[0, 1], n=2)
-
-
-def test_qwen_adapter_transcribe_batch_packages_results() -> None:
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt="refine")
-    adapter._run_two_turn = MagicMock(  # type: ignore[method-assign]
-        return_value=(
-            ["text-a", "text-b", ""],
-            ["refined-a", "", ""],
-            {2},
-        ),
-    )
-    items = [
-        {"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR, "language": "English"},
-        {"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR, "language": "English"},
-        {"waveform": np.zeros(0, dtype=np.float32), "sample_rate": _SR, "language": None},
-    ]
-    results = adapter.transcribe_batch(items)
-
-    assert [r.text for r in results] == ["text-a", "text-b", ""]
-    assert [r.secondary_text for r in results] == ["refined-a", "", ""]
-    assert [r.skipped for r in results] == [False, False, True]
-    assert all(r.model_id == "mock/qwen-omni" for r in results)
-
-    adapter._run_two_turn.assert_called_once()
-    _waveforms, _srs, langs = adapter._run_two_turn.call_args[0]
-    assert langs == ["English", "English", None]
-
-
-def test_qwen_adapter_single_turn_drops_secondary_text() -> None:
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt=None)
-    adapter._run_two_turn = MagicMock(  # type: ignore[method-assign]
-        return_value=(["text-a"], [""], set()),
-    )
-    results = adapter.transcribe_batch([
-        {"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR},
-    ])
-    assert results[0].secondary_text is None
-
-
-# ----------------------------------------------------------------------
-# Adapter-level vLLM knobs
-# ----------------------------------------------------------------------
-
-
-def test_qwen_adapter_has_elevated_vllm_knobs_as_dataclass_fields() -> None:
-    """enable_prefix_caching, prefix_caching_hash_algo, limit_mm_per_prompt_audio,
-    and seed are dataclass fields settable from YAML ``adapter_kwargs``.
-    """
-    adapter = QwenOmniASRAdapter(
-        model_id="mock/qwen-omni",
-        enable_prefix_caching=False,
-        prefix_caching_hash_algo="sha256",
-        limit_mm_per_prompt_audio=1,
-        seed=99,
-    )
-    assert adapter.enable_prefix_caching is False
-    assert adapter.prefix_caching_hash_algo == "sha256"
-    assert adapter.limit_mm_per_prompt_audio == 1
-    assert adapter.seed == 99
-
-
-def test_qwen_adapter_vllm_knob_defaults_match_doc() -> None:
-    """Default vLLM knob values match the tutorial when YAML omits overrides."""
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-    assert adapter.enable_prefix_caching is True
-    assert adapter.prefix_caching_hash_algo == "xxhash"
-    assert adapter.limit_mm_per_prompt_audio == 2
-    assert adapter.seed == 1234
-
-
-def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
-    """The setup() path must forward the elevated knobs to the vLLM LLM
-    ctor (rather than re-using hardcoded constants)."""
-    adapter = QwenOmniASRAdapter(
-        model_id="mock/qwen-omni",
-        enable_prefix_caching=False,
-        prefix_caching_hash_algo="sha256",
-        limit_mm_per_prompt_audio=3,
-        seed=42,
-        tensor_parallel_size=1,
-    )
-    fake_llm = MagicMock()
-    fake_processor = MagicMock()
-    with (
-        patch("nemo_curator.adapters.asr.qwen_omni.VLLM_AVAILABLE", new=True),
-        patch("nemo_curator.models.vllm_model.LLM", return_value=fake_llm) as llm_ctor,
-        patch(
-            "nemo_curator.adapters.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
-            return_value=fake_processor,
-        ),
-        patch("nemo_curator.models.vllm_model.SamplingParams"),
-    ):
-        adapter.setup()
-
-    llm_ctor.assert_called_once()
-    kwargs = llm_ctor.call_args.kwargs
-    assert kwargs["enable_prefix_caching"] is False
-    assert kwargs["prefix_caching_hash_algo"] == "sha256"
-    assert kwargs["limit_mm_per_prompt"] == {"image": 1, "video": 1, "audio": 3}
-    assert kwargs["seed"] == 42
-    assert "revision" not in kwargs
-
-
-def test_qwen_adapter_setup_forwards_revision_to_llm_and_processor() -> None:
-    """Tier-1 revision must reach inference loaders, not only prefetch_weights."""
-    adapter = QwenOmniASRAdapter(
-        model_id="mock/qwen-omni",
-        revision="abc123",
-        tensor_parallel_size=1,
-    )
-    fake_llm = MagicMock()
-    fake_processor = MagicMock()
-    with (
-        patch("nemo_curator.adapters.asr.qwen_omni.VLLM_AVAILABLE", new=True),
-        patch("nemo_curator.models.vllm_model.LLM", return_value=fake_llm) as llm_ctor,
-        patch(
-            "nemo_curator.adapters.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
-            return_value=fake_processor,
-        ) as proc_ctor,
-        patch("nemo_curator.models.vllm_model.SamplingParams"),
-    ):
-        adapter.setup()
-
-    assert llm_ctor.call_args.kwargs["revision"] == "abc123"
-    proc_ctor.assert_called_once_with("mock/qwen-omni", revision="abc123")

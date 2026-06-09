@@ -254,14 +254,29 @@ Waveform arrays are not written to JSONL output, even when `keep_waveform=true`.
 
 ## Performance Summary
 
-`perf_summary.json` contains pipeline totals and per-stage metric aggregates, including:
+`perf_summary.json` is written by `ShardedManifestWriterStage` (all aggregation
+in Curator). On Kratos, NvLLMOps copies the file verbatim into
+`perf_summary_merged.json` — no metric math on the harvest side.
 
-- utterance and audio-hour totals
-- reader shard counts, decode time, filtered duration counts
-- Qwen inference time, output token counts, skipped utterances
-- writer process/write timing
+**Pipeline totals:** `total_utterances`, `total_audio_hours`, `writer_wall_time_s`,
+`pipeline_audio_s_per_wall_s`, `pipeline_utterances_per_wall_s`, plus top-level
+`pipeline_throughput` (`audio_hours_per_wallclock_hour`, union of GPU IDs).
 
-These metrics are intended for Curator-level throughput analysis. Cluster creation, data staging, and remote upload timings belong to the external launcher.
+**Per-stage blocks** (e.g. `QwenOmni_inference`, reader, discovery, writer):
+invocation counts, process/idle time percentiles, throughput ratios,
+`custom_metrics_sum`, and for GPU stages — `gpu_ids`, `gpu_count`, `actor_count`,
+`per_gpu` (per-actor items processed, audio hours, batch-size / queue-wait p50/p95).
+Identity fields (`actor_id`, `node_id`, `gpu_id`) appear in per-task `_perf.jsonl`
+and drive dedup; under Xenna they come from the worker allocation, not
+`ray.get_gpu_ids()`.
+
+**Validation:** every change needs both a perf comparison (±0.70% on shared
+fields vs baseline) and an output-equivalence check (`manifest_*.jsonl` keyed
+on `audio_filepath`). See `nemo_curator/stages/audio/README.md` for the full
+metrics contract.
+
+Cluster bring-up, data staging, and remote upload timings belong to the external
+launcher (`merge_info.pipeline_duration_s` on Kratos).
 
 ## Troubleshooting
 

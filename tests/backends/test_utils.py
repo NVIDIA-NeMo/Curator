@@ -15,6 +15,7 @@
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -295,3 +296,69 @@ class TestCheckTotalGpuCapacity:
                     check_total_gpu_capacity(needed)
             else:
                 check_total_gpu_capacity(needed)
+
+
+@dataclass
+class _FakeGpuAllocation:
+    """Mirror of cosmos_xenna ``GpuAllocation`` (only ``index`` is read)."""
+
+    index: int
+    used_fraction: float = 1.0
+
+
+@dataclass
+class _FakeWorkerResources:
+    """Mirror of cosmos_xenna ``WorkerResources`` (only ``gpus`` is read)."""
+
+    node: str
+    gpus: list[_FakeGpuAllocation]
+
+
+class TestResolveGpuLabel:
+    """``_resolve_gpu_label`` picks the per-actor GPU index from the most
+    authoritative backend source.
+
+    Source precedence (see the docstring in ``backends/base.py``):
+      1. backend ``allocation.gpus[0].index`` -- the ONLY signal that works
+         under Xenna, whose actors are created without a Ray ``num_gpus``
+         request so ``ray.get_gpu_ids()`` is empty;
+      2. ``ray.get_gpu_ids()`` -- correct for Ray Data / Ray Actor Pool;
+      3. ``CUDA_VISIBLE_DEVICES`` -- last resort, only for GPU stages.
+
+    These run on the driver (no actor), so ``ray.get_gpu_ids()`` returns ``[]``
+    here, which is exactly the Xenna production condition we are defending.
+    """
+
+    def test_allocation_index_wins(self) -> None:
+        from nemo_curator.backends.base import _resolve_gpu_label
+
+        alloc = _FakeWorkerResources(node="ray-node-abc", gpus=[_FakeGpuAllocation(index=3)])
+        # CVD is set to a *different* device on purpose: allocation must win.
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("CUDA_VISIBLE_DEVICES", "7")
+            label = _resolve_gpu_label("node-0", alloc, requires_gpu=True)
+        assert label == "node-0:3"
+
+    def test_cuda_visible_devices_fallback_only_for_gpu_stages(self) -> None:
+        from nemo_curator.backends.base import _resolve_gpu_label
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("CUDA_VISIBLE_DEVICES", "5,6")
+            # GPU stage with no allocation + no ray gpu ids -> CVD first token.
+            assert _resolve_gpu_label("node-1", None, requires_gpu=True) == "node-1:5"
+            # CPU stage must NOT inherit the node's visible devices.
+            assert _resolve_gpu_label("node-1", None, requires_gpu=False) == ""
+
+    def test_cpu_stage_with_empty_allocation_is_blank(self) -> None:
+        from nemo_curator.backends.base import _resolve_gpu_label
+
+        alloc = _FakeWorkerResources(node="ray-node-abc", gpus=[])
+        with pytest.MonkeyPatch.context() as mp:
+            mp.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+            assert _resolve_gpu_label("node-0", alloc, requires_gpu=False) == ""
+
+    def test_bare_index_when_node_unknown(self) -> None:
+        from nemo_curator.backends.base import _resolve_gpu_label
+
+        alloc = _FakeWorkerResources(node="", gpus=[_FakeGpuAllocation(index=2)])
+        assert _resolve_gpu_label("", alloc, requires_gpu=True) == "2"

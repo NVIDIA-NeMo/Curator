@@ -334,6 +334,11 @@ def serialize_stage_perf(stage_perf_list: list[StagePerfStats]) -> list[dict[str
             "actor_idle_time": perf.actor_idle_time,
             "num_items_processed": perf.num_items_processed,
         }
+        # Identity labels (best-effort; empty when the backend could not resolve them).
+        for identity_field in ("actor_id", "node_id", "gpu_id"):
+            identity_value = getattr(perf, identity_field, "")
+            if identity_value:
+                entry[identity_field] = identity_value
         if perf.custom_metrics:
             entry["custom_metrics"] = dict(perf.custom_metrics)
         result.append(entry)
@@ -355,11 +360,13 @@ def _task_audio_seconds(task: Task, duration_key: str) -> float:
 # Per-stage summary builder
 # ===========================================================================
 
-def _build_stage_summary(
+def _build_stage_summary(  # noqa: PLR0913
     stage_totals: dict[str, float],
     custom_totals: dict[str, float],
     samples: AudioStageSamples | None = None,
     caller_context: AudioStageCallerContext | None = None,
+    stage_identity: dict[str, Any] | None = None,
+    gpu_breakdown: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Render one stage's summary in the proposed pipeline-perf shape.
 
@@ -420,6 +427,15 @@ def _build_stage_summary(
         entry["setup_time_s_total"] = ctx.setup_time_s_total
     entry.update(summarize_samples(ctx.actor_count_samples, "actor_count"))
     entry.update(summarize_samples(ctx.gpu_util_pct_samples, "gpu_util_pct"))
+
+    # ----- B3: identity-driven topology + per-GPU scheduling breakdown -----
+    # (gpu_ids / gpu_count / actor_count and per_gpu items/audio/batch/queue).
+    # Hardware fields (util/mem/gpu_hours/uuid/device_name) are deferred to the
+    # NVML/DCGM proposal and are intentionally absent here.
+    if stage_identity:
+        entry.update(stage_identity)
+    if gpu_breakdown:
+        entry["per_gpu"] = gpu_breakdown
 
     if not custom_sums and not samples:
         return entry
@@ -544,6 +560,25 @@ class AudioPerformanceSummary:
         repr=False,
     )
     _seen_perf_invocations: set[str] = field(default_factory=set, repr=False)
+    # ----- B3: per-(stage, gpu) scheduling breakdown (identity-driven) -----
+    # Populated only for records that carry a non-empty ``gpu_id`` (GPU stages).
+    # Hardware telemetry (util/mem/gpu_hours/uuid/device_name) is intentionally
+    # NOT here -- that is the separate NVML/DCGM proposal.
+    _stage_gpu_samples: dict[str, dict[str, AudioStageSamples]] = field(
+        default_factory=lambda: defaultdict(lambda: defaultdict(AudioStageSamples)), repr=False,
+    )
+    _stage_gpu_items: dict[str, dict[str, float]] = field(
+        default_factory=lambda: defaultdict(lambda: defaultdict(float)), repr=False,
+    )
+    _stage_gpu_audio_s: dict[str, dict[str, float]] = field(
+        default_factory=lambda: defaultdict(lambda: defaultdict(float)), repr=False,
+    )
+    _stage_gpu_actor: dict[str, dict[str, str]] = field(
+        default_factory=lambda: defaultdict(dict), repr=False,
+    )
+    _stage_gpus: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
+    _stage_actors: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
+    _gpu_node: dict[str, str] = field(default_factory=dict, repr=False)
     _shard_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int), repr=False)
     _shard_audio_seconds: dict[str, float] = field(default_factory=lambda: defaultdict(float), repr=False)
     _total_utterances: int = field(default=0, repr=False)
@@ -597,6 +632,9 @@ class AudioPerformanceSummary:
         custom = sorted((perf.custom_metrics or {}).items())
         return repr((
             perf.stage_name,
+            getattr(perf, "actor_id", ""),
+            getattr(perf, "node_id", ""),
+            getattr(perf, "gpu_id", ""),
             round(perf.process_time, 9),
             round(perf.actor_idle_time, 9),
             perf.num_items_processed,
@@ -636,10 +674,88 @@ class AudioPerformanceSummary:
                     self._stage_custom_totals[perf.stage_name][key] += float(value)
 
             self._stage_samples[perf.stage_name].add(perf)
+            self._record_gpu_breakdown(perf)
+
+    def _record_gpu_breakdown(self, perf: StagePerfStats) -> None:
+        """Accumulate the per-(stage, gpu) scheduling breakdown for one dedup'd record.
+
+        No-op for records without a resolved ``gpu_id`` (CPU stages, or any
+        backend / unit-test context where identity could not be resolved), so
+        the ``per_gpu`` block only appears for GPU stages with real identity.
+        """
+        stage_name = perf.stage_name
+        actor_id = getattr(perf, "actor_id", "") or ""
+        node_id = getattr(perf, "node_id", "") or ""
+        gpu_id = getattr(perf, "gpu_id", "") or ""
+        if actor_id:
+            self._stage_actors[stage_name].add(actor_id)
+        if not gpu_id:
+            return
+        self._stage_gpus[stage_name].add(gpu_id)
+        if node_id:
+            self._gpu_node.setdefault(gpu_id, node_id)
+        self._stage_gpu_samples[stage_name][gpu_id].add(perf)
+        self._stage_gpu_items[stage_name][gpu_id] += float(perf.num_items_processed)
+        custom = perf.custom_metrics or {}
+        audio_s = custom.get("audio_duration_s") or custom.get("audio_duration") or 0.0
+        try:
+            self._stage_gpu_audio_s[stage_name][gpu_id] += float(audio_s)
+        except (TypeError, ValueError):
+            pass
+        if actor_id:
+            self._stage_gpu_actor[stage_name][gpu_id] = actor_id
 
     # -----------------------------------------------------------------------
     # Building the published summary
     # -----------------------------------------------------------------------
+
+    def _stage_identity_meta(self, stage_name: str) -> dict[str, Any]:
+        """Topology labels for a stage: gpu_ids, gpu_count, actor_count.
+
+        Empty for stages without resolved identity (CPU stages / non-Ray
+        contexts), so the keys only appear when there is real data.
+        ``actor_count`` is the distinct-actor count (a static count, not a
+        time-series percentile -- true p50/p95 needs the GPU sampler).
+        """
+        meta: dict[str, Any] = {}
+        gpus = sorted(self._stage_gpus.get(stage_name, set()))
+        if gpus:
+            meta["gpu_ids"] = gpus
+            meta["gpu_count"] = float(len(gpus))
+        actors = self._stage_actors.get(stage_name, set())
+        if actors:
+            meta["actor_count"] = float(len(actors))
+        return meta
+
+    def _build_per_gpu(self, stage_name: str) -> dict[str, dict[str, Any]]:
+        """Per-GPU scheduling breakdown for a stage (empty when no GPU identity).
+
+        Each entry carries only the *scheduling* half of the proposed
+        ``per_gpu`` shape: ``actor_id``, ``items_processed``,
+        ``audio_hours_in``, and ``batch_size_p*`` / ``queue_wait_s_p*``
+        percentiles. Hardware fields are the NVML/DCGM proposal's job.
+        """
+        gpu_samples = self._stage_gpu_samples.get(stage_name, {})
+        if not gpu_samples:
+            return {}
+        per_gpu: dict[str, dict[str, Any]] = {}
+        for gpu_id in sorted(gpu_samples):
+            block: dict[str, Any] = {}
+            actor_id = self._stage_gpu_actor.get(stage_name, {}).get(gpu_id)
+            if actor_id:
+                block["actor_id"] = actor_id
+            items = self._stage_gpu_items.get(stage_name, {}).get(gpu_id, 0.0)
+            if items:
+                block["items_processed"] = items
+            audio_s = self._stage_gpu_audio_s.get(stage_name, {}).get(gpu_id, 0.0)
+            if audio_s > 0:
+                block["audio_hours_in"] = seconds_to_hours(audio_s)
+            summary = gpu_samples[gpu_id].summarize()
+            for key in ("batch_size_p50", "batch_size_p95", "queue_wait_s_p50", "queue_wait_s_p95"):
+                if key in summary:
+                    block[key] = summary[key]
+            per_gpu[gpu_id] = block
+        return per_gpu
 
     def build_stage_summaries(
         self,
@@ -653,6 +769,8 @@ class AudioPerformanceSummary:
                 dict(self._stage_custom_totals.get(stage_name, {})),
                 samples=self._stage_samples.get(stage_name),
                 caller_context=ctx_by_stage.get(stage_name),
+                stage_identity=self._stage_identity_meta(stage_name),
+                gpu_breakdown=self._build_per_gpu(stage_name),
             )
             for stage_name, totals in self._stage_totals.items()
         }
@@ -732,4 +850,21 @@ class AudioPerformanceSummary:
             },
             "stages": stages_summary,
         }
+
+        # ----- B3: cluster-level rollup (scheduling parts only) -----
+        # Hardware rollups (total_gpu_hours, per_gpu_hours, per_gpu_util_pct)
+        # are deferred to the NVML/DCGM proposal; only identity-derivable and
+        # already-available throughput fields are emitted here.
+        pipeline_throughput: dict[str, Any] = {}
+        if resolved_wall_time_s > 0 and self._total_audio_seconds > 0:
+            pipeline_throughput["audio_hours_per_wallclock_hour"] = (
+                seconds_to_hours(self._total_audio_seconds) / seconds_to_hours(resolved_wall_time_s)
+            )
+        all_gpu_ids = sorted({gpu for gpus in self._stage_gpus.values() for gpu in gpus})
+        if all_gpu_ids:
+            pipeline_throughput["gpu_ids"] = all_gpu_ids
+            pipeline_throughput["gpu_count"] = float(len(all_gpu_ids))
+        if pipeline_throughput:
+            summary["pipeline_throughput"] = pipeline_throughput
+
         return summary

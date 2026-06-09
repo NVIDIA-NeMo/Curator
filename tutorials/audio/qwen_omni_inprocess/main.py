@@ -103,15 +103,40 @@ def _normalise_name_set(value: Any) -> set[str] | None:
     return None if any(item.lower() == "all" for item in names) else names
 
 
+_ALLOWED_RESOURCES_TARGETS = frozenset(
+    {
+        "nemo_curator.stages.resources.Resources",
+        "Resources",
+    }
+)
+_HYDRA_RESOURCE_META_KEYS = frozenset({"_target_", "_recursive_", "_convert_"})
+
+
 def _instantiate_resources(value: Any) -> Resources:
+    """Build a ``Resources`` from a Hydra ``stage_with`` override.
+
+    Never call open-ended ``hydra.utils.instantiate`` here: a malicious or
+    mistyped ``_target_`` in YAML could execute arbitrary code. Only the
+    canonical ``Resources`` dataclass is accepted.
+    """
     if isinstance(value, Resources):
         return value
     if OmegaConf.is_config(value) or isinstance(value, dict):
         cfg = value if OmegaConf.is_config(value) else OmegaConf.create(value)
-        if "_target_" in cfg:
-            return hydra.utils.instantiate(cfg)
         raw = OmegaConf.to_container(cfg, resolve=True)
-        return Resources(**raw)
+        if not isinstance(raw, dict):
+            msg = f"Invalid resources override: {value!r}"
+            raise TypeError(msg)
+        target = raw.get("_target_")
+        if target is not None and str(target) not in _ALLOWED_RESOURCES_TARGETS:
+            msg = (
+                "resources overrides may only target "
+                "nemo_curator.stages.resources.Resources; "
+                f"got {target!r}"
+            )
+            raise ValueError(msg)
+        fields = {key: item for key, item in raw.items() if key not in _HYDRA_RESOURCE_META_KEYS}
+        return Resources(**fields)
     msg = f"Invalid resources override: {value!r}"
     raise TypeError(msg)
 

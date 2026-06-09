@@ -28,6 +28,15 @@ if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
 
 
+#: Identity fields on ``StagePerfStats``. These are best-effort string labels
+#: identifying the actor/node/GPU that produced the record (populated by the
+#: backend adapter from the Ray runtime context). They are metadata, NOT
+#: numeric metrics, so they MUST be excluded from ``items()`` -- downstream
+#: framework metric collection (``TaskPerfUtils.collect_stage_metrics``) calls
+#: ``float()`` on every value ``items()`` yields and would crash on a string.
+_IDENTITY_FIELDS = ("actor_id", "node_id", "gpu_id")
+
+
 @attrs.define
 class StagePerfStats:
     """Statistics for tracking stage performance metrics.
@@ -38,6 +47,11 @@ class StagePerfStats:
         input_data_size_mb: Size of input data in megabytes.
         num_items_processed: Number of items processed in this stage.
         custom_metrics: Custom metrics to track.
+        actor_id: Best-effort label of the actor that produced this record
+            (e.g. ``"QwenOmni_inference:actor-3f9c"``). Empty when unknown.
+        node_id: Best-effort node label (e.g. ``"node-2"``). Empty when unknown.
+        gpu_id: Best-effort GPU label ``"<node>:<local_gpu_idx>"``
+            (e.g. ``"node-2:1"``). Empty for CPU stages / when unknown.
     """
 
     stage_name: str
@@ -46,9 +60,13 @@ class StagePerfStats:
     input_data_size_mb: float = 0.0
     num_items_processed: int = 0
     custom_metrics: dict[str, float] = attrs.field(factory=dict)
+    # ----- identity (metadata, never a numeric metric -- see _IDENTITY_FIELDS) -----
+    actor_id: str = ""
+    node_id: str = ""
+    gpu_id: str = ""
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
-        """Add two StagePerfStats."""
+        """Add two StagePerfStats (identity is metadata; keep self's labels)."""
         return StagePerfStats(
             stage_name=self.stage_name,
             process_time=self.process_time + other.process_time,
@@ -59,6 +77,9 @@ class StagePerfStats:
                 key: self.custom_metrics.get(key, 0.0) + other.custom_metrics.get(key, 0.0)
                 for key in set(self.custom_metrics.keys()) | set(other.custom_metrics.keys())
             },
+            actor_id=self.actor_id,
+            node_id=self.node_id,
+            gpu_id=self.gpu_id,
         )
 
     def __radd__(self, other: int | StagePerfStats) -> StagePerfStats:
@@ -77,6 +98,9 @@ class StagePerfStats:
         self.input_data_size_mb = 0.0
         self.num_items_processed = 0
         self.custom_metrics = {}
+        self.actor_id = ""
+        self.node_id = ""
+        self.gpu_id = ""
 
     def to_dict(self) -> dict[str, float | int]:
         """Convert the stats to a dictionary."""
@@ -88,6 +112,11 @@ class StagePerfStats:
         """
         res = self.to_dict()
         res.pop("stage_name", None)
+        # Identity fields are string metadata, not numeric metrics. Downstream
+        # collectors (TaskPerfUtils.collect_stage_metrics) call float() on every
+        # value yielded here, so they MUST be dropped from the flattened output.
+        for identity_field in _IDENTITY_FIELDS:
+            res.pop(identity_field, None)
         # Extract and drop the raw custom_metrics dict from the flattened output
         custom_metrics = res.pop("custom_metrics", {})
         # Flatten custom_metrics with a stable prefix

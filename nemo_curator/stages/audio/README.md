@@ -282,6 +282,50 @@ adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
 | GPU/IO, one batched call, no bucketing | `ProcessingStage` | `process_batch` (e.g. `InferenceAsrNemoStage`) |
 | GPU inference needing cost/duration bucketing + a swappable model | `BucketedInferenceStage` + an adapter | the four hooks (e.g. `ASRStage` + `ASRAdapter`) |
 
+## Performance metrics (`perf_summary.json`)
+
+`ShardedManifestWriterStage` aggregates per-stage stats into `perf_summary.json`
+(all math in Curator; NvLLMOps only transports/concatenates the file on Kratos).
+
+**Collection flow**
+
+1. Each backend adapter times `process_batch` and stamps `StagePerfStats` onto
+   every output task (`BaseStageAdapter.process_batch`).
+2. **B1 identity** — `actor_id`, `node_id`, `gpu_id` are resolved once per
+   worker in `resolve_perf_identity()` (`backends/base.py`). GPU index
+   precedence: Xenna `WorkerMetadata.allocation.gpus[0].index` (authoritative
+   under Xenna) → `ray.get_gpu_ids()` (Ray Data / Actor Pool) →
+   `CUDA_VISIBLE_DEVICES` first token (last resort, gated on
+   `stage.resources.requires_gpu`). Identity strings are stripped from
+   `StagePerfStats.items()` so framework metric collectors never `float()` them.
+3. **B3 scheduling breakdown** — the writer builds per-stage `gpu_ids`,
+   `gpu_count`, `actor_count`, and `per_gpu` (items processed, audio hours,
+   batch-size / queue-wait percentiles) for GPU stages; CPU stages get
+   `actor_count` only. Top-level `pipeline_throughput` rolls up GPU-stage IDs.
+4. **Dedup** — `AudioPerformanceSummary.record_stage_perf` fingerprints each
+   `StagePerfStats` (including identity) so fan-out stages do not multiply-count
+   upstream invocations.
+
+**Throughput denominator (`writer_wall_time_s`)**
+
+The writer is a single CPU actor (`num_workers=1`). Its timer starts at the end
+of its own `setup_on_node` and runs until summary serialization. Under **Xenna
+streaming** or **Ray Data** (pipelined execution), that interval spans the
+end-to-end processing window (the writer blocks on upstream GPU stages). Under
+**Xenna batch** (sequential stage materialization), the timer covers only the
+writer phase — use `merge_info.pipeline_duration_s` for throughput there.
+
+**Validation gates (every code change)**
+
+- **Perf** — compare `perf_summary_merged.json` from swift; shared fields within
+  ±0.70%; work-done identical (`total_utterances`, shard counts).
+- **Output** — compare `manifest_*.jsonl` rows keyed on `audio_filepath`; gate
+  on key alignment and prediction-field stability (vLLM nondeterminism expected
+  on a small fraction of rows).
+
+Hardware telemetry (GPU util/mem) is deferred (NVML/DCGM proposal); B1/B3 cover
+scheduling identity only.
+
 ## What you must always declare
 
 Every stage (CPU or GPU) should declare:

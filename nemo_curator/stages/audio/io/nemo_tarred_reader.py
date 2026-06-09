@@ -79,6 +79,65 @@ def _open_text_stream(path: str) -> Any:
     return open_best(path, mode="rb")
 
 
+def _iter_discovery_groups(config: object, yaml_path: str) -> list[dict[str, Any]]:
+    """Validate the Granary discovery YAML root and return corpus-group dicts.
+
+    ``yaml.safe_load`` can return ``None`` (empty file), a scalar, or a
+    mapping; iterating any of those with ``for group in config`` either crashes
+    (``TypeError`` on ``None``) or silently mis-parses (a string iterates
+    characters). Require a list of mappings at the top level and skip
+    non-mapping entries with a warning.
+    """
+    if config is None:
+        msg = f"Granary YAML at {yaml_path} is empty (safe_load returned None)"
+        raise ValueError(msg)
+    if not isinstance(config, list):
+        msg = (
+            f"Granary YAML at {yaml_path} must be a list of corpus-group mappings, "
+            f"got {type(config).__name__}"
+        )
+        raise ValueError(msg)
+
+    groups: list[dict[str, Any]] = []
+    for idx, group in enumerate(config):
+        if not isinstance(group, dict):
+            logger.warning(
+                "Skipping non-mapping entry at index {} in {} (got {})",
+                idx,
+                yaml_path,
+                type(group).__name__,
+            )
+            continue
+        groups.append(group)
+    return groups
+
+
+def _iter_input_cfg_entries(group: dict[str, Any], yaml_path: str) -> list[dict[str, Any]]:
+    """Return validated ``input_cfg`` corpus entries from one top-level group."""
+    raw = group.get("input_cfg", [])
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        logger.warning(
+            "Skipping corpus group in {} with non-list input_cfg (got {})",
+            yaml_path,
+            type(raw).__name__,
+        )
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for idx, cfg in enumerate(raw):
+        if not isinstance(cfg, dict):
+            logger.warning(
+                "Skipping non-mapping input_cfg entry at index {} in {}",
+                idx,
+                yaml_path,
+            )
+            continue
+        entries.append(cfg)
+    return entries
+
+
 # ---------------------------------------------------------------------------
 # Stage 1: Shard discovery
 # ---------------------------------------------------------------------------
@@ -180,8 +239,8 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         corpora_seen = 0
         shards_seen = 0
         skipped = 0
-        for group in config:
-            for cfg in group.get("input_cfg", []):
+        for group in _iter_discovery_groups(config, self.yaml_path):
+            for cfg in _iter_input_cfg_entries(group, self.yaml_path):
                 corpus = cfg.get("corpus", "unknown")
                 corpora_seen += 1
                 if self.corpus_filter and corpus not in self.corpus_filter:
