@@ -61,8 +61,6 @@ Architecture:
         → checks recovery output; recovers or confirms hallucination
     SelectBestPredictionStage (CPU)
         → picks recovery prediction if primary was hallucinated, else primary
-    FastTextLIDStage (CPU)
-        → flags wrong language / low confidence
     RegexSubstitutionStage (CPU)
         → applies regex rules, writes cleaned_text
     AbbreviationConcatStage (CPU)
@@ -95,7 +93,6 @@ from nemo_curator.stages.audio.pipeline_utils import INDIC_CONFORMER_LANGUAGE_CO
 from nemo_curator.stages.audio.text_filtering import (
     AbbreviationConcatStage,
     DisfluencyWerGuardStage,
-    FastTextLIDStage,
     InitializeFieldsStage,
     RegexSubstitutionStage,
     WhisperHallucinationStage,
@@ -163,7 +160,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--prep_workers", type=int, default=16, help="Thread pool size for audio preprocessing.")
     ap.add_argument("--source_lang_key", type=str, default="source_lang",
                     help="Manifest key holding per-sample language code. "
-                         "Used for prompt interpolation ({language} placeholder) and per-sample LID filtering.")
+                         "Used for prompt interpolation ({language} placeholder).")
     ap.add_argument(
         "--execution_mode", type=str, default="streaming", choices=["streaming", "batch"], help="Xenna execution mode."
     )
@@ -214,17 +211,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
     tf = ap.add_argument_group("text filtering")
     tf.add_argument("--hall_phrases", type=str, required=True, help="Path to hallucination phrases text file.")
-    tf.add_argument(
-        "--fasttext_model",
-        type=str,
-        default="facebook/fasttext-language-identification",
-        help="FastText LID model: HuggingFace repo ID, local path, or known name (lid.176.bin / lid.176.ftz).",
-    )
     tf.add_argument("--regex_yaml", type=str, required=True, help="Path to regex substitution rules YAML.")
-
-    tf.add_argument(
-        "--min_lang_prob", type=float, default=0.8, help="Minimum FastText language probability to keep an entry."
-    )
     tf.add_argument(
         "--unique_words_threshold",
         type=float,
@@ -688,12 +675,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     ))
 
     stages.extend([
-        FastTextLIDStage(
-            model_path=args.fasttext_model,
-            text_key="best_prediction",
-            source_lang_key=args.source_lang_key,
-            min_lang_prob=args.min_lang_prob,
-        ),
         RegexSubstitutionStage(
             regex_params_yaml=args.regex_yaml,
             text_key="best_prediction",
