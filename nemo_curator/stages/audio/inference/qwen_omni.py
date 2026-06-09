@@ -196,6 +196,8 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
         eligible_indices: list[int] = []
         for i, task in enumerate(tasks):
             if self.skip_if_output_exists and task.data.get(self.pred_text_key):
+                if not self.keep_waveform:
+                    task.data.pop(self.waveform_key, None)
                 continue
             lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
             if lang not in QWEN3_OMNI_SPEECH_INPUT_LANGS:

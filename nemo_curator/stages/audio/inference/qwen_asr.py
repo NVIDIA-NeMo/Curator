@@ -173,7 +173,8 @@ class InferenceQwenASRStage(ProcessingStage[AudioTask, AudioTask]):
             if not self.keep_waveform:
                 for task in tasks:
                     task.data.pop(self.waveform_key, None)
-            logger.info(f"QwenASR: skipped entire batch of {len(tasks)} (none matched run_only_if_key)")
+            reason = "output already exists" if self.skip_if_output_exists else "none matched run_only_if_key"
+            logger.info(f"QwenASR: skipped entire batch of {len(tasks)} ({reason})")
             return tasks
 
         # Filter out samples with unsupported languages using the model's ISO-code list.
