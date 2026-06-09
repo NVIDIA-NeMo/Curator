@@ -291,7 +291,9 @@ consolidated corpus of that feedback:
 `pull_audio_pr_corpus.sh` lists every PR with number > `--since` (PR numbers are
 monotonic in time, so number > 1608 == opened after #1608), keeps the ones whose
 changed files touch audio paths, and pulls each one's reviews, inline comments,
-and issue comments. `build_corpus.py` writes
+and issue comments. It is incremental - reruns skip PRs already on disk and only
+fetch new ones (use `--refresh` to re-pull, e.g. to refresh open PRs).
+`build_corpus.py` writes
 `.curator-pr-review/audio-corpus/audio_pr_corpus_<date>.md`: one section per
 audio PR (number, title, state, author, link) with every reviewer comment
 verbatim, anchored to `path:line`, plus a recurring-themes tally.
@@ -330,8 +332,9 @@ thread dump lacks `databaseId`.
 renders the working digest + the prior-open-threads context file (you add your
 own findings).
 
-`scripts/pull_audio_pr_corpus.sh [--since N] [--outdir DIR] [--repo OWNER/REPO] [--limit N]`
-and `scripts/build_corpus.py [--outdir DIR] [--today YYYY-MM-DD]` build the
+`scripts/pull_audio_pr_corpus.sh [--since N] [--outdir DIR] [--repo OWNER/REPO] [--limit N] [--refresh]`
+(incremental - skips PRs already on disk; `--refresh` re-pulls) and
+`scripts/build_corpus.py [--outdir DIR] [--today YYYY-MM-DD]` build the
 post-#1608 corpus (section 4).
 
 Default outdir: `.curator-pr-review/` (scratch; gitignored, safe to delete).

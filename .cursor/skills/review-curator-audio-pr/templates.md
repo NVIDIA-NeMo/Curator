@@ -14,7 +14,7 @@ overview** (what the change does and why), then PR state, the diff, and all
 existing review activity. Complete the overview's plain-language summary first
 and present it before any findings; add your **Findings** section at the end.
 
-```markdown
+````markdown
 # Curator PR <N> Fresh Review - <YYYY-MM-DD>
 
 Review target: https://github.com/NVIDIA-NeMo/Curator/pull/<N>
@@ -94,7 +94,7 @@ Total: <n> comments across <m> threads.
 
 ## Verdict
 <APPROVE / COMMENT / REQUEST CHANGES, and the blockers if any>
-```
+````
 
 ## B. Prior open threads (generated context)
 
@@ -104,7 +104,7 @@ adding your own. This is **context, not your output** - you are not replying to
 these as the author; you read them to avoid duplicating and to check whether the
 author addressed them.
 
-```markdown
+````markdown
 # Curator PR <N> Open Review Threads - <YYYY-MM-DD>
 
 Current PR head: `<headRefOid>`
@@ -121,7 +121,7 @@ Link: <html_url>
 
 ## Stale (outdated/resolved) threads
 - [<OUTDATED/RESOLVED>] `<path>:<line>` @<login> (<html_url>): <one-line body>
-```
+````
 
 ## C. Writing your review comments
 
@@ -144,6 +144,14 @@ Example review comment:
 > `json.dumps` so a stray non-serialisable value names the offending key.
 > Please also add a test under `tests/stages/audio/io/` covering
 > `keep_waveform=True`.
+
+When you have an exact fix, attach a GitHub `suggestion` block so the author can
+apply it in one click (anchor the comment to the line(s) it replaces):
+
+```suggestion
+        record = {k: v for k, v in record.items() if k != "waveform"}
+        line = json.dumps(record)
+```
 
 Then post the set as one PR review: inline comments for line-specific findings,
 a top-level summary carrying the overall verdict (APPROVE / COMMENT / REQUEST
