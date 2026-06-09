@@ -313,11 +313,10 @@ Toggle file output with `write_perf_stats: false` on `ShardedManifestWriterStage
    (inference): CPU stages get full `process_time` / `custom_metrics`; they
    simply leave `gpu_id` empty.
 2. **Stage identity** — `actor_id`, `node_id`, `gpu_id` are resolved once per
-   worker in `resolve_perf_identity()` (`backends/base.py`). GPU index
-   precedence: Xenna `WorkerMetadata.allocation.gpus[0].index` (authoritative
-   under Xenna) → `ray.get_gpu_ids()` (Ray Data / Actor Pool) →
-   `CUDA_VISIBLE_DEVICES` first token (last resort, gated on
-   `stage.resources.requires_gpu`). Identity strings are stripped from
+   worker in `build_xenna_perf_identity()` / `build_ray_perf_identity()`
+   (`backends/perf_identity.py`, stamped on `WorkerMetadata` at setup). GPU index
+   under Xenna: `WorkerMetadata.allocation.gpus[0].index` only. Under Ray Data /
+   Ray Actor Pool: `ray.get_gpu_ids()` only. Identity strings are stripped from
    `StagePerfStats.items()` so framework metric collectors never `float()` them.
 3. **Per-GPU scheduling breakdown** — the writer’s `AudioPerformanceSummary` builds
    per-stage `gpu_ids`, `gpu_count`, `actor_count`, and `per_gpu` (items

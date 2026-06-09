@@ -272,7 +272,8 @@ and the manifest writer — the execution backend wraps each batch through
    `_log_metrics({...})` / `_log_metric(...)` / `_time_metric(...)` into
    `StagePerfStats.custom_metrics`.
 3. Stamps **stage identity** (`actor_id`, `node_id`, `gpu_id`) via
-   `resolve_perf_identity()`. CPU stages get full timing metrics; `gpu_id`
+   `build_xenna_perf_identity()` / `build_ray_perf_identity()` (stamped on
+   `WorkerMetadata` at backend setup). CPU stages get full timing metrics; `gpu_id`
    stays empty and no `per_gpu` block is emitted for them.
 4. Appends one `StagePerfStats` record onto each output task’s
    **`task._stage_perf`** list (a growing per-task chain as the task moves

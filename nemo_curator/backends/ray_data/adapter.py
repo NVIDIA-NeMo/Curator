@@ -132,7 +132,11 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
             """Initialize the stage processor."""
             super().__init__(stage)
             self.setup_done = False
-            node_info, worker_metadata = get_worker_metadata_and_node_id()
+            requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
+            node_info, worker_metadata = get_worker_metadata_and_node_id(
+                str(stage.name),
+                requires_gpu=requires_gpu,
+            )
             self.setup_on_node(node_info, worker_metadata)
             self.setup(worker_metadata)
 

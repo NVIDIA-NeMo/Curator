@@ -314,51 +314,59 @@ class _FakeWorkerResources:
     gpus: list[_FakeGpuAllocation]
 
 
-class TestResolveGpuLabel:
-    """``_resolve_gpu_label`` picks the per-actor GPU index from the most
-    authoritative backend source.
+class TestBackendPerfIdentity:
+    """Backend-specific GPU label resolvers (no cross-backend fallbacks)."""
 
-    Source precedence (see the docstring in ``backends/base.py``):
-      1. backend ``allocation.gpus[0].index`` -- the ONLY signal that works
-         under Xenna, whose actors are created without a Ray ``num_gpus``
-         request so ``ray.get_gpu_ids()`` is empty;
-      2. ``ray.get_gpu_ids()`` -- correct for Ray Data / Ray Actor Pool;
-      3. ``CUDA_VISIBLE_DEVICES`` -- last resort, only for GPU stages.
-
-    These run on the driver (no actor), so ``ray.get_gpu_ids()`` returns ``[]``
-    here, which is exactly the Xenna production condition we are defending.
-    """
-
-    def test_allocation_index_wins(self) -> None:
-        from nemo_curator.backends.base import _resolve_gpu_label
+    def test_xenna_allocation_index(self) -> None:
+        from nemo_curator.backends.perf_identity import build_xenna_perf_identity
 
         alloc = _FakeWorkerResources(node="ray-node-abc", gpus=[_FakeGpuAllocation(index=3)])
-        # CVD is set to a *different* device on purpose: allocation must win.
         with pytest.MonkeyPatch.context() as mp:
             mp.setenv("CUDA_VISIBLE_DEVICES", "7")
-            label = _resolve_gpu_label("node-0", alloc, requires_gpu=True)
-        assert label == "node-0:3"
+            actor_id, node_id, gpu_id = build_xenna_perf_identity(
+                "QwenOmni_inference",
+                worker_id="worker-abc",
+                node_id="node-0",
+                allocation=alloc,
+                requires_gpu=True,
+            )
+        assert gpu_id == "node-0:3"
+        assert node_id == "node-0"
+        assert actor_id == "QwenOmni_inference:actor-worker-a"
 
-    def test_cuda_visible_devices_fallback_only_for_gpu_stages(self) -> None:
-        from nemo_curator.backends.base import _resolve_gpu_label
-
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setenv("CUDA_VISIBLE_DEVICES", "5,6")
-            # GPU stage with no allocation + no ray gpu ids -> CVD first token.
-            assert _resolve_gpu_label("node-1", None, requires_gpu=True) == "node-1:5"
-            # CPU stage must NOT inherit the node's visible devices.
-            assert _resolve_gpu_label("node-1", None, requires_gpu=False) == ""
-
-    def test_cpu_stage_with_empty_allocation_is_blank(self) -> None:
-        from nemo_curator.backends.base import _resolve_gpu_label
+    def test_xenna_cpu_stage_with_empty_allocation_is_blank_gpu(self) -> None:
+        from nemo_curator.backends.perf_identity import build_xenna_perf_identity
 
         alloc = _FakeWorkerResources(node="ray-node-abc", gpus=[])
         with pytest.MonkeyPatch.context() as mp:
             mp.delenv("CUDA_VISIBLE_DEVICES", raising=False)
-            assert _resolve_gpu_label("node-0", alloc, requires_gpu=False) == ""
+            _, _, gpu_id = build_xenna_perf_identity(
+                "reader",
+                worker_id="w1",
+                node_id="node-0",
+                allocation=alloc,
+                requires_gpu=False,
+            )
+        assert gpu_id == ""
 
-    def test_bare_index_when_node_unknown(self) -> None:
-        from nemo_curator.backends.base import _resolve_gpu_label
+    def test_xenna_bare_gpu_index_when_node_unknown(self) -> None:
+        from nemo_curator.backends.perf_identity import build_xenna_perf_identity
 
         alloc = _FakeWorkerResources(node="", gpus=[_FakeGpuAllocation(index=2)])
-        assert _resolve_gpu_label("", alloc, requires_gpu=True) == "2"
+        _, _, gpu_id = build_xenna_perf_identity(
+            "infer",
+            worker_id="w1",
+            node_id="",
+            allocation=alloc,
+            requires_gpu=True,
+        )
+        assert gpu_id == "2"
+
+    def test_ray_does_not_parse_cuda_visible_devices(self) -> None:
+        from nemo_curator.backends.perf_identity import build_ray_perf_identity
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("CUDA_VISIBLE_DEVICES", "5,6")
+            _, _, gpu_id = build_ray_perf_identity("infer", requires_gpu=True)
+        # Driver-side test has no Ray actor GPU assignment — must stay blank, not CVD.
+        assert gpu_id == ""

@@ -55,7 +55,11 @@ class ShuffleStageAdapter(BaseStageAdapter):
         """
         super().__init__(stage)
         # Get runtime context for worker metadata (copied from RayActorPoolStageAdapter)
-        node_info, worker_metadata = get_worker_metadata_and_node_id()
+        requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
+        node_info, worker_metadata = get_worker_metadata_and_node_id(
+            str(stage.name),
+            requires_gpu=requires_gpu,
+        )
 
         # Create WorkerMetadata with actor information
         self.worker_metadata = worker_metadata

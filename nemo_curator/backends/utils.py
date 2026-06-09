@@ -22,6 +22,7 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.perf_identity import build_ray_perf_identity
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.utils.ray_utils import get_head_node_id, submit_on_each_node
 
@@ -133,10 +134,23 @@ class RayStageSpecKeys(str, Enum):
     RAY_REMOTE_ARGS = "ray_remote_args"
 
 
-def get_worker_metadata_and_node_id() -> tuple[NodeInfo, WorkerMetadata]:
-    """Get the worker metadata and node id from the runtime context."""
+def get_worker_metadata_and_node_id(
+    stage_name: str = "",
+    *,
+    requires_gpu: bool = False,
+) -> tuple[NodeInfo, WorkerMetadata]:
+    """Get node + worker metadata with Ray-resolved perf identity labels."""
     ray_context = ray.get_runtime_context()
-    return NodeInfo(node_id=ray_context.get_node_id()), WorkerMetadata(worker_id=ray_context.get_worker_id())
+    actor_id, perf_node_id, gpu_id = build_ray_perf_identity(stage_name, requires_gpu=requires_gpu)
+    return (
+        NodeInfo(node_id=ray_context.get_node_id()),
+        WorkerMetadata(
+            worker_id=ray_context.get_worker_id(),
+            actor_id=actor_id,
+            node_id=perf_node_id,
+            gpu_id=gpu_id,
+        ),
+    )
 
 
 def get_available_cpu_gpu_resources(
