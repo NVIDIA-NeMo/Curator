@@ -77,6 +77,42 @@ def build_xenna_perf_identity(
     return actor_label, node_label, gpu_label
 
 
+def _ray_node_label(ctx: object) -> str:
+    try:
+        node_hex = getattr(ctx, "get_node_id", lambda: "")()
+        if node_hex:
+            return f"node-{str(node_hex)[:8]}"
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _ray_worker_short_id(ctx: object) -> str:
+    short_id = ""
+    try:
+        short_id = (getattr(ctx, "get_actor_id", lambda: "")() or "") if hasattr(ctx, "get_actor_id") else ""
+    except Exception:  # noqa: BLE001
+        short_id = ""
+    if short_id:
+        return short_id
+    try:
+        return getattr(ctx, "get_worker_id", lambda: "")() or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _ray_gpu_label(node_label: str, requires_gpu: bool) -> str:
+    if not requires_gpu:
+        return ""
+    try:
+        import ray
+
+        gpu_ids = ray.get_gpu_ids()
+        if gpu_ids:
+            return _format_gpu_label(node_label, gpu_ids[0])
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def build_ray_perf_identity(
     stage_name: str,
     *,
@@ -99,36 +135,9 @@ def build_ray_perf_identity(
     except Exception:  # noqa: BLE001
         return "", "", ""
 
-    node_label = ""
-    try:
-        node_hex = ctx.get_node_id()
-        if node_hex:
-            node_label = f"node-{str(node_hex)[:8]}"
-    except Exception:  # noqa: BLE001
-        node_label = ""
-
-    short_id = ""
-    try:
-        short_id = (ctx.get_actor_id() or "") if hasattr(ctx, "get_actor_id") else ""
-    except Exception:  # noqa: BLE001
-        short_id = ""
-    if not short_id:
-        try:
-            short_id = ctx.get_worker_id() or ""
-        except Exception:  # noqa: BLE001
-            short_id = ""
-
-    actor_label = _format_actor_label(stage_name, short_id)
-
-    gpu_label = ""
-    if requires_gpu:
-        try:
-            gpu_ids = ray.get_gpu_ids()
-            if gpu_ids:
-                gpu_label = _format_gpu_label(node_label, gpu_ids[0])
-        except Exception:  # noqa: BLE001
-            gpu_label = ""
-
+    node_label = _ray_node_label(ctx)
+    actor_label = _format_actor_label(stage_name, _ray_worker_short_id(ctx))
+    gpu_label = _ray_gpu_label(node_label, requires_gpu)
     return actor_label, node_label, gpu_label
 
 
