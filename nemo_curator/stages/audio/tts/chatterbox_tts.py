@@ -24,24 +24,46 @@ import os
 import random
 import shutil
 import tempfile
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import soundfile as sf
 import torch
 import torchaudio as ta
+from chatterbox.models.t3 import llama_configs as _llama_cfgs
 from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 from chatterbox.tts import ChatterboxTTS
+from huggingface_hub import hf_hub_download, snapshot_download
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+
 SUPPORTED_LANGUAGES = frozenset({
     "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it",
     "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh",
 })
+
+_CHATTERBOX_REPO_ID = "ResembleAI/chatterbox"
+_ENGLISH_MODEL_FILES = (
+    "ve.safetensors",
+    "t3_cfg.safetensors",
+    "s3gen.safetensors",
+    "tokenizer.json",
+    "conds.pt",
+)
+_MULTILINGUAL_MODEL_FILES = (
+    "ve.pt",
+    "t3_23lang.safetensors",
+    "s3gen.pt",
+    "mtl_tokenizer.json",
+    "conds.pt",
+    "Cangjie5_TC.json",
+)
 
 
 class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
@@ -68,6 +90,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             ``rttms/`` siblings) and MLS layout ``<spk>/<book>/<seg>.flac``.
         language: ISO 639-1 language code, or ``None`` for English-only model.
         device: Torch device string.
+        cache_dir: HuggingFace cache directory for Chatterbox model weights.
         max_reference_duration: Maximum seconds of reference speech to use.
         sample_rate: Output WAV sample rate (Chatterbox default 24000).
         cfg_weight: Classifier-free guidance weight.
@@ -90,6 +113,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         reference_voices_dataset: str,
         language: str | None = None,
         device: str = "cuda",
+        cache_dir: str | None = None,
         max_reference_duration: float = 60.0,
         sample_rate: int = 24000,
         cfg_weight: float = 0.5,
@@ -107,6 +131,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         self.reference_voices_dataset = reference_voices_dataset
         self.language = language
         self.device = device
+        self.cache_dir = cache_dir
         self.max_reference_duration = max_reference_duration
         self.sample_rate = sample_rate
         self.cfg_weight = cfg_weight
@@ -152,6 +177,43 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         self.temp_dir: str | None = None
         self._rng = random.Random()  # noqa: S311
 
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        """Pre-download Chatterbox weights on the node so workers load from cache."""
+        try:
+            self._pre_download_model_weights()
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Chatterbox model pre-download in setup_on_node failed; will retry in setup()."
+            )
+
+    def _pre_download_model_weights(self) -> None:
+        """Download Chatterbox checkpoint files from HuggingFace."""
+        if self.language:
+            snapshot_download(
+                repo_id=_CHATTERBOX_REPO_ID,
+                repo_type="model",
+                revision="main",
+                allow_patterns=list(_MULTILINGUAL_MODEL_FILES),
+                cache_dir=self.cache_dir,
+                token=os.getenv("HF_TOKEN"),
+            )
+            logger.info(
+                f"Pre-downloaded ChatterboxMultilingualTTS weights from {_CHATTERBOX_REPO_ID}"
+            )
+            return
+
+        for fpath in _ENGLISH_MODEL_FILES:
+            hf_hub_download(
+                repo_id=_CHATTERBOX_REPO_ID,
+                filename=fpath,
+                cache_dir=self.cache_dir,
+            )
+        logger.info(f"Pre-downloaded ChatterboxTTS weights from {_CHATTERBOX_REPO_ID}")
+
     def setup(self, worker_metadata: object = None) -> None:  # noqa: ARG002
         """Load the TTS model and discover reference audio files."""
         os.makedirs(self.output_audio_dir, exist_ok=True)
@@ -183,12 +245,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         """Load ChatterboxTTS or ChatterboxMultilingualTTS."""
         if self.language:
             os.environ["TRANSFORMERS_ATTN_IMPLEMENTATION"] = "eager"
-            try:
-                import chatterbox.models.t3.llama_configs as _llama_cfgs
-                for _cfg_dict in _llama_cfgs.LLAMA_CONFIGS.values():
-                    _cfg_dict["attn_implementation"] = "eager"
-            except (ImportError, AttributeError):
-                pass
+            for _cfg_dict in _llama_cfgs.LLAMA_CONFIGS.values():
+                _cfg_dict["attn_implementation"] = "eager"
 
             self.model = ChatterboxMultilingualTTS.from_pretrained(device=self.device)
             logger.info(f"Loaded ChatterboxMultilingualTTS (language={self.language})")
@@ -417,7 +475,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 wav = self._normalize_audio(wav)
 
             return wav.squeeze(0).cpu().numpy()
-        except (OSError, RuntimeError) as e:
+        except Exception as e:
             logger.error(f"TTS generation failed: {e}")
             return np.zeros(self.sample_rate * 2)
 
@@ -436,11 +494,14 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         return normalised
 
     @staticmethod
-    def _output_filename(conversation_id: str, speaker: str, text: str) -> str:
-        """Deterministic filename: ``{conv_id_hash}_{speaker}_{text_hash}.wav``."""
+    def _output_filename(
+        conversation_id: str, speaker: str, text: str, ref_id: str
+    ) -> str:
+        """Deterministic filename including reference voice for cache correctness."""
         conv_hash = hashlib.md5(conversation_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
         text_hash = hashlib.md5(text.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
-        return f"{conv_hash}_{speaker}_{text_hash}.wav"
+        ref_hash = hashlib.md5(ref_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
+        return f"{conv_hash}_{speaker}_{text_hash}_{ref_hash}.wav"
 
     def process(self, task: AudioTask) -> AudioTask:
         """Not supported; use ``process_batch()`` for TTS inference."""
@@ -473,7 +534,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
             reference_wav, ref_id = self._assign_reference(speaker, conversation_id)
 
-            filename = self._output_filename(conversation_id, speaker, text)
+            filename = self._output_filename(conversation_id, speaker, text, ref_id)
             audio_path = os.path.join(self.output_audio_dir, filename)
 
             try:

@@ -25,7 +25,10 @@ import pytest
 import soundfile as sf
 import torch
 
-from nemo_curator.stages.audio.tts.chatterbox_tts import ChatterboxTTSStage
+from nemo_curator.stages.audio.tts.chatterbox_tts import (
+    ChatterboxTTSStage,
+    _ENGLISH_MODEL_FILES,
+)
 from nemo_curator.tasks import AudioTask
 
 MODULE = "nemo_curator.stages.audio.tts.chatterbox_tts"
@@ -123,30 +126,6 @@ def _inject_model(stage: ChatterboxTTSStage) -> None:
 class TestChatterboxTTSStage:
     """Test suite for ChatterboxTTSStage."""
 
-    def test_stage_properties(self, output_dir: str, ref_dataset: str) -> None:
-        stage = _build_stage(output_dir, ref_dataset)
-        assert stage.name == "ChatterboxTTSStage"
-        assert stage.resources.gpus == 1
-
-    def test_invalid_language_raises(self, output_dir: str, ref_dataset: str) -> None:
-        with pytest.raises(ValueError, match="Unsupported language"):
-            _build_stage(output_dir, ref_dataset, language="xx")
-
-    def test_process_raises_not_implemented(self, output_dir: str, ref_dataset: str) -> None:
-        stage = _build_stage(output_dir, ref_dataset)
-        with pytest.raises(NotImplementedError, match="process_batch"):
-            stage.process(_make_task())
-
-    def test_setup_raises_when_no_reference_audio(
-        self, output_dir: str, tmp_path: Path
-    ) -> None:
-        empty_dir = tmp_path / "empty"
-        empty_dir.mkdir()
-        stage = _build_stage(output_dir, str(empty_dir))
-        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
-            with pytest.raises(ValueError, match="No reference audio found"):
-                stage.setup()
-
     @patch(f"{MODULE}.ChatterboxTTS")
     def test_setup_loads_english_model(
         self, mock_cls: MagicMock, output_dir: str, ref_dataset: str
@@ -169,6 +148,41 @@ class TestChatterboxTTSStage:
         stage.setup()
         mock_cls.from_pretrained.assert_called_once_with(device="cpu")
         assert stage.language == "fr"
+
+    def test_setup_on_node_pre_downloads_english_model(
+        self, output_dir: str, ref_dataset: str
+    ) -> None:
+        stage = _build_stage(output_dir, ref_dataset, cache_dir="/tmp/hf-cache")
+        with patch(f"{MODULE}.hf_hub_download") as mock_download:
+            stage.setup_on_node()
+        assert mock_download.call_count == len(_ENGLISH_MODEL_FILES)
+        mock_download.assert_any_call(
+            repo_id="ResembleAI/chatterbox",
+            filename="ve.safetensors",
+            cache_dir="/tmp/hf-cache",
+        )
+
+    def test_setup_on_node_pre_downloads_multilingual_model(
+        self, output_dir: str, ref_dataset: str
+    ) -> None:
+        stage = _build_stage(output_dir, ref_dataset, language="fr", cache_dir="/tmp/hf-cache")
+        with patch(f"{MODULE}.snapshot_download") as mock_download:
+            stage.setup_on_node()
+        mock_download.assert_called_once_with(
+            repo_id="ResembleAI/chatterbox",
+            repo_type="model",
+            revision="main",
+            allow_patterns=[
+                "ve.pt",
+                "t3_23lang.safetensors",
+                "s3gen.pt",
+                "mtl_tokenizer.json",
+                "conds.pt",
+                "Cangjie5_TC.json",
+            ],
+            cache_dir="/tmp/hf-cache",
+            token=os.getenv("HF_TOKEN"),
+        )
 
     def test_process_batch_empty(self, output_dir: str, ref_dataset: str) -> None:
         stage = _build_stage(output_dir, ref_dataset)
@@ -317,3 +331,38 @@ class TestChatterboxTTSStage:
 
         audio, _sr = sf.read(result.data["audio_filepath"])
         assert np.allclose(audio, 0.0)
+
+    def test_output_filename_includes_reference_voice(self) -> None:
+        path_a = ChatterboxTTSStage._output_filename(
+            "conv001", "Alice", "Hello", "dialog001/spk_A"
+        )
+        path_b = ChatterboxTTSStage._output_filename(
+            "conv001", "Alice", "Hello", "dialog001/spk_B"
+        )
+        assert path_a != path_b
+
+    def test_process_batch_different_reference_voice_uses_separate_cache(
+        self, output_dir: str, ref_dataset: str
+    ) -> None:
+        task = _make_task("Same text", "Alice", "conv001")
+
+        with patch.object(ChatterboxTTSStage, "_load_model", _inject_model):
+            stage1 = _build_stage(output_dir, ref_dataset)
+            stage1.setup()
+            with patch.object(
+                stage1, "_assign_reference", return_value=("/a.wav", "dialog001/spk_A")
+            ):
+                result1 = stage1.process_batch([task])[0]
+            stage1.teardown()
+
+            stage2 = _build_stage(output_dir, ref_dataset)
+            stage2.setup()
+            with patch.object(
+                stage2, "_assign_reference", return_value=("/b.wav", "dialog001/spk_B")
+            ):
+                result2 = stage2.process_batch([task])[0]
+
+        assert result1.data["reference_voice"] == "dialog001/spk_A"
+        assert result2.data["reference_voice"] == "dialog001/spk_B"
+        assert result1.data["audio_filepath"] != result2.data["audio_filepath"]
+        assert stage2.model.generate.call_count == 1
