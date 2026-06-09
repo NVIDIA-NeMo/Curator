@@ -158,20 +158,15 @@ class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
         pnc_key / tn_key / itn_key / itn_no_disfluencies_key / captioning_key /
         code_switched_key / speech_qa_key: Source field names.  Use the
         same defaults as ``run_text_pipeline.py``.
-        tn_key: TN-normalized (written→spoken) text.  Used as the target
-            for the transcription pair (tagged ``tn``/``tn-pnc``) and for
-            context-ASR prompt variants, in preference to ``pnc_text``;
-            falls back to ``pnc_text`` when absent (e.g. TN stage disabled).
+        tn_key: TN-normalized text; preferred over ``pnc_text`` as the
+            transcription / context-ASR target, falling back when absent.
         context_asr_key: Source field name for the contextual ASR
             nested dict (produced by PR #14's ContextualASRPromptVariantStage).
             When present and the dict contains any of the six
             ``*_prompt`` fields, one entry per variant is emitted with
             the transcription target taken from ``transcription_target_key``.
-        transcription_target_key: Field name whose value is used as the
-            ``target`` for context-ASR prompt variants.  Defaults to
-            ``pnc_text`` and is consulted after ``tn_key``; the resolution
-            order is ``tn_key`` → ``transcription_target_key`` →
-            ``cleaned_text``.
+        transcription_target_key: ``target`` for context-ASR prompt variants.
+            Resolution order: ``tn_key`` → this key (``pnc_text``) → ``cleaned_text``.
         source_lang_key: Field name holding the per-sample source
             language; copied into each entry's ``tags.target_lang``.
         notes_key: Field holding the ``additional_notes`` dict of
@@ -260,8 +255,7 @@ class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
                 )
 
         pnc_applied = self._pnc_applied(data)
-        # Transcription target: prefer the TN-normalized (written→spoken) text
-        # from the TN stage; fall back to pnc_text when TN didn't run / was skipped.
+        # Transcription target: prefer TN's normalized text, else pnc_text.
         transcription_key = self.tn_key if self._nonempty(data.get(self.tn_key)) else self.pnc_key
         add(_PNC_PROMPTS if pnc_applied else _TN_PROMPTS, transcription_key, "tn-pnc" if pnc_applied else "tn")
         add(_ITN_PROMPTS, self.itn_key, "itn")

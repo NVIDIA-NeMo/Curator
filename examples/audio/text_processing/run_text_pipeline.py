@@ -36,7 +36,8 @@ Architecture:
         → text normalization (written→spoken), preserves disfluencies
         → writes tn_raw
     [if --enable_itn] TextLLMStage: ITN (GPU)
-        → inverse text normalization, preserves disfluencies
+        → inverse text normalization of tn_raw (or pnc_text when TN disabled),
+          preserves disfluencies
         → writes itn_raw
     [if --enable_itn_no-disfluencies] TextLLMStage: DisfluencyRemoval (GPU)
         → ITN + disfluency removal (fillers, repetitions)
@@ -486,10 +487,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         "--fuse_stages",
         action="store_true",
         default=False,
-        help="Fuse independent LLM stages (LanguageID, ITN, Captioning, CodeSwitching, SpeechQA) "
+        help="Fuse independent LLM stages (LanguageID, TN, ITN, Captioning, CodeSwitching, SpeechQA) "
         "into a single actor that fires all their prompts in parallel via asyncio.gather. "
         "Only active with --use_inference_server. Reduces sequential stage overhead and keeps "
-        "the Dynamo server continuously saturated.",
+        "the Dynamo server continuously saturated. Note: when --enable_tn is set, ITN reads "
+        "tn_raw and runs after the fused actor instead of inside it.",
     )
 
     return ap
@@ -624,12 +626,15 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         **remote_kwargs,
     }
 
-    # When --fuse_stages is active, independent stages (LanguageID, ITN, Captioning,
+    # When --fuse_stages is active, independent stages (LanguageID, TN, Captioning,
     # CodeSwitching, SpeechQA) are collected here instead of appended directly.
     # They are later wrapped in one FusedRemoteTextLLMStage actor. Only has effect
     # with --use_inference_server; falls back to normal behaviour otherwise.
     use_fusing = bool(args.fuse_stages and remote_base_url)
     fuseable_sub_stages: list[RemoteTextLLMStage] = []
+
+    # ITN reads tn_raw (TN's spoken form) when TN is enabled, else pnc_text.
+    itn_input_key = args.tn_output_key if args.enable_tn else args.text_key
 
     stages = [
         ALMManifestReader(manifest_path=args.input_manifest, output_dir=args.output_dir, fanout=False),
@@ -699,15 +704,18 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         _itn_stage = text_stage_cls(
             name="ITNRestoration",
             prompt_file=itn_prompt,
-            text_key=args.text_key,
+            text_key=itn_input_key,
             output_text_key=args.itn_output_key,
             **shared_model_kwargs,
         )
-        if use_fusing:
+        # Fuse only when reading pnc_text; tn_raw input runs post-fused.
+        if use_fusing and not args.enable_tn:
             fuseable_sub_stages.append(_itn_stage)
+        elif use_fusing:
+            post_fused_stages.append(_itn_stage)
         else:
             stages.append(_itn_stage)
-        logger.info(f"ITN stage enabled: {args.text_key} → {args.itn_output_key}")
+        logger.info(f"ITN stage enabled: {itn_input_key} → {args.itn_output_key}")
 
     if args.enable_itn_no_disfluencies:
         if not args.enable_itn:
@@ -717,12 +725,15 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             _itn_auto_stage = text_stage_cls(
                 name="ITNRestoration",
                 prompt_file=itn_prompt,
-                text_key=args.text_key,
+                text_key=itn_input_key,
                 output_text_key=args.itn_output_key,
                 **shared_model_kwargs,
             )
-            if use_fusing:
+            # Same placement rule as the ITN block above.
+            if use_fusing and not args.enable_tn:
                 fuseable_sub_stages.append(_itn_auto_stage)
+            elif use_fusing:
+                post_fused_stages.append(_itn_auto_stage)
             else:
                 stages.append(_itn_auto_stage)
 
