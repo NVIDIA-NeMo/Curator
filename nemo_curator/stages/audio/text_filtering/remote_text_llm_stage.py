@@ -123,7 +123,7 @@ class RemoteTextLLMStage(TextLLMStage):
             extra_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
         )
         logger.info(
-            "%s: ready (remote=%s, model=%s, output_key=%s)",
+            "{}: ready (remote={}, model={}, output_key={})",
             self.name,
             self.inference_base_url,
             self.served_model_name or self.model_id,
@@ -243,5 +243,5 @@ class RemoteTextLLMStage(TextLLMStage):
                 set_note(task.data, self.name, note, self.notes_key)
                 self._n_processed += 1
 
-        logger.debug("%s: batch of %d tasks (%d inferred)", self.name, len(tasks), len(messages_list))
+        logger.debug("{}: batch of {} tasks ({} inferred)", self.name, len(tasks), len(messages_list))
         return tasks

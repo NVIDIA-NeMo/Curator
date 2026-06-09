@@ -76,6 +76,8 @@ use --max_model_len (2048) while contextual ASR uses --context_asr_max_model_len
 from __future__ import annotations
 
 import argparse
+import json
+import os
 from pathlib import Path
 
 from loguru import logger
@@ -387,6 +389,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         default=0.5,
         help="Upper NPD bound — entries farther than this are dropped (acoustically unrelated).",
     )
+    ad.add_argument(
+        "--acoustic_num_workers",
+        type=int,
+        default=None,
+        help=(
+            "Explicit Ray actor count for the CPU-only AcousticDistractor stage. It is cpus=1.0 "
+            "and CPU-bound (G2P + phoneme NN search), so set this high to saturate idle CPUs "
+            "rather than letting it autoscale low behind the cpus=8.0 LLM clients."
+        ),
+    )
 
     ap.add_argument(
         "--tensor_parallel_size", type=int, default=None, help="GPUs for tensor parallelism (default: auto-detect)."
@@ -412,6 +424,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap.add_argument("--batch_size", type=int, default=64)
 
     ap.add_argument("--execution_mode", type=str, default="streaming", choices=["streaming", "batch"])
+    ap.add_argument(
+        "--shards_per_batch",
+        type=int,
+        default=1,
+        help=(
+            "Process the input in batches of this many shard manifests, one pipeline.run() per "
+            "batch (the inference server is started once and reused across batches). Default 1 = "
+            "true shard-by-shard: each shard fully drains and is finalized with a .done marker "
+            "before the next starts, so a mid-run kill loses at most one shard. Raise (e.g. 4-8) "
+            "for very large shard counts to amortize per-run overhead. <=0 processes the whole "
+            "input in a single run (legacy behaviour, weakest resumability)."
+        ),
+    )
 
     # ── Remote inference server (optional) ───────────────────────────
     # When enabled, the LLM stages send OpenAI-compatible requests to one
@@ -465,6 +490,72 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     )
 
     return ap
+
+
+def _resolve_shard_batches(input_manifest: str | list[str], shards_per_batch: int) -> list:
+    """Split the input into batches of ``shards_per_batch`` manifest files, each a
+    ``manifest_path`` for one ``pipeline.run()``. ``shards_per_batch <= 0`` returns the
+    whole input unsplit (single run)."""
+    import glob as _glob
+
+    if not shards_per_batch or shards_per_batch <= 0:
+        return [input_manifest]
+    if isinstance(input_manifest, list):
+        files = list(input_manifest)
+    elif os.path.isdir(input_manifest):
+        files = sorted(
+            _glob.glob(os.path.join(input_manifest, "**", "*.jsonl"), recursive=True)
+            + _glob.glob(os.path.join(input_manifest, "**", "*.json"), recursive=True)
+        )
+    elif any(c in input_manifest for c in "*?["):
+        files = sorted(_glob.glob(input_manifest, recursive=True))
+    else:
+        files = [input_manifest]
+    files = [f for f in files if not f.endswith(".done")]
+    if not files:
+        return [input_manifest]
+    return [files[i : i + shards_per_batch] for i in range(0, len(files), shards_per_batch)]
+
+
+def _finalize_done_markers(manifest_files: list, output_dir: str) -> None:
+    """Deterministically write ``.done`` for every shard in a just-completed batch.
+
+    A successful ``pipeline.run()`` over the batch guarantees all rows for these
+    shards drained through the writer, so ``.done`` can be written by output line
+    count instead of relying on the writer's in-stream ``count >= total`` check
+    (which silently never fires if any row is dropped). Shards already finalized
+    (skipped on resume) or producing no output rows are handled too.
+    """
+    from fsspec.core import url_to_fs
+
+    from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReaderStage
+
+    for manifest in manifest_files:
+        try:
+            corpus = ""
+            fs, resolved = url_to_fs(manifest)
+            with fs.open(resolved, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        corpus = json.loads(line.strip()).get("corpus", "")
+                        break
+            shard_key = ALMManifestReaderStage._derive_shard_key(manifest, corpus)
+            out_jsonl = os.path.join(output_dir, f"{shard_key}.jsonl")
+            done_path = out_jsonl + ".done"
+            if os.path.exists(done_path):
+                continue
+            if not os.path.exists(out_jsonl):
+                # Shard processed but yielded no output rows — still mark it done so it
+                # is not reprocessed on every resume.
+                os.makedirs(os.path.dirname(out_jsonl), exist_ok=True)
+                open(out_jsonl, "a").close()
+            with open(out_jsonl, "rb") as f:
+                n = sum(1 for _ in f)
+            with open(done_path, "w") as f:
+                f.write(f"{n}\n")
+            logger.info(f"Finalized .done for shard {shard_key} ({n} utterances)")
+        except Exception:
+            logger.exception(f"Failed to finalize .done for manifest {manifest}")
 
 
 def main() -> None:  # noqa: C901, PLR0912, PLR0915
@@ -746,6 +837,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                     per_entity_top_k=args.acoustic_per_entity_top_k,
                     min_npd=args.min_npd,
                     max_npd=args.max_npd,
+                    num_workers_override=args.acoustic_num_workers,
                 )
             )
             logger.info(
@@ -840,20 +932,47 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
 
     stages.append(ShardedManifestWriterStage(output_dir=args.output_dir))
 
-    pipeline = Pipeline(name="text_post_processing", stages=stages)
-
     from nemo_curator.backends.ray_data import RayDataExecutor
 
     executor = RayDataExecutor(ignore_head_node=bool(remote_base_url))
 
-    logger.info(f"Running text pipeline: {len(stages)} stages, mode={args.execution_mode}")
+    # Process the input in shard batches: one pipeline.run() per batch, server reused.
+    # stages[0] is the reader (rebuilt per batch); everything after it is the shared tail.
+    shard_batches = _resolve_shard_batches(args.input_manifest, args.shards_per_batch)
+    tail_stages = stages[1:]
+
+    logger.info(
+        f"Running text pipeline: {len(stages)} stages, mode={args.execution_mode}, "
+        f"{len(shard_batches)} batch(es) of up to {args.shards_per_batch} shard(s)"
+    )
+    failed_batches = 0
     try:
-        pipeline.run(executor=executor)
+        for _bi, _batch in enumerate(shard_batches):
+            _reader = ALMManifestReader(manifest_path=_batch, output_dir=args.output_dir, fanout=False)
+            _n = len(_batch) if isinstance(_batch, list) else "all"
+            logger.info(f"--- Batch {_bi + 1}/{len(shard_batches)}: {_n} shard(s) ---")
+            try:
+                Pipeline(name="text_post_processing", stages=[_reader, *tail_stages]).run(executor=executor)
+            except Exception:
+                failed_batches += 1
+                logger.exception(
+                    f"Batch {_bi + 1}/{len(shard_batches)} failed; continuing "
+                    "(incomplete shards resume on re-run)."
+                )
+                continue
+            # Batch drained cleanly → finalize .done deterministically for its shards.
+            if isinstance(_batch, list):
+                _finalize_done_markers(_batch, args.output_dir)
     finally:
         if inference_server is not None:
             inference_server.stop()
         if ray_client is not None:
             ray_client.stop()
+    if failed_batches:
+        logger.warning(
+            f"Text pipeline finished with {failed_batches}/{len(shard_batches)} batch(es) failed "
+            "(their incomplete shards will resume on re-run)."
+        )
     logger.info("Text pipeline complete.")
 
 

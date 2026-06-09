@@ -124,7 +124,7 @@ def _get_or_load_model(  # noqa: PLR0913
             async_kwargs["async_scheduling"] = True
 
         logger.info(
-            "TextLLMStage: loading %s (tp=%d, max_model_len=%d, kv_cache=%s, enforce_eager=%s)",
+            "TextLLMStage: loading {} (tp={}, max_model_len={}, kv_cache={}, enforce_eager={})",
             model_id,
             tensor_parallel_size,
             max_model_len,
@@ -148,7 +148,7 @@ def _get_or_load_model(  # noqa: PLR0913
         )
         tokenizer = llm.get_tokenizer()
         _model_cache[model_id] = {"llm": llm, "tokenizer": tokenizer}
-        logger.info("TextLLMStage: model %s ready", model_id)
+        logger.info("TextLLMStage: model {} ready", model_id)
         return llm, tokenizer
 
 
@@ -258,7 +258,7 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
         )
         self._sampling_params = SamplingParams(temperature=0, max_tokens=self.max_output_tokens)
         logger.info(
-            "%s: ready (prompt=%d chars, output_key=%s)", self.name, len(self._system_prompt), self.output_text_key
+            "{}: ready (prompt={} chars, output_key={})", self.name, len(self._system_prompt), self.output_text_key
         )
 
     def setup_on_node(
@@ -275,7 +275,7 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     def teardown(self) -> None:
         if self._n_processed:
             logger.info(
-                "%s: processed %d, filtered %d (%.1f%%)",
+                "{}: processed {}, filtered {} ({:.1f}%)",
                 self.name,
                 self._n_processed,
                 self._n_filtered,
@@ -459,5 +459,5 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
                 set_note(task.data, self.name, note, self.notes_key)
                 self._n_processed += 1
 
-        logger.debug("%s: batch of %d tasks (%d inferred)", self.name, len(tasks), len(prompts))
+        logger.debug("{}: batch of {} tasks ({} inferred)", self.name, len(tasks), len(prompts))
         return tasks

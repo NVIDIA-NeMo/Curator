@@ -421,5 +421,5 @@ class ContextualASRPromptVariantStage(ProcessingStage[AudioTask, AudioTask]):
             )
             extraction.update(variants)
 
-        logger.debug("%s: batch of %d tasks", self.name, len(tasks))
+        logger.debug("{}: batch of {} tasks", self.name, len(tasks))
         return tasks
