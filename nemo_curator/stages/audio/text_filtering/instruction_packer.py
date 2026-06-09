@@ -15,7 +15,7 @@
 """Instruction packing stage (CPU-only).
 
 Walks the per-task output keys produced by the text post-processing
-pipeline (``pnc_text``, ``itn_text``, ``itn_no-disfluencies_text``,
+pipeline (``pnc_text``, ``tn_raw``, ``itn_raw``, ``itn_clean``,
 ``captioning_text``, ``code_switched_text``, ``speech_qa_text``, and
 optionally the ``context_asr`` nested dict) and assembles a single
 ``preference_instructions`` field — a list of
@@ -155,9 +155,13 @@ class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         output_key: Destination field name for the packed list.
-        pnc_key / itn_key / itn_no_disfluencies_key / captioning_key /
+        pnc_key / tn_key / itn_key / itn_no_disfluencies_key / captioning_key /
         code_switched_key / speech_qa_key: Source field names.  Use the
         same defaults as ``run_text_pipeline.py``.
+        tn_key: TN-normalized (written→spoken) text.  Used as the target
+            for the transcription pair (tagged ``tn``/``tn-pnc``) and for
+            context-ASR prompt variants, in preference to ``pnc_text``;
+            falls back to ``pnc_text`` when absent (e.g. TN stage disabled).
         context_asr_key: Source field name for the contextual ASR
             nested dict (produced by PR #14's ContextualASRPromptVariantStage).
             When present and the dict contains any of the six
@@ -165,8 +169,9 @@ class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
             the transcription target taken from ``transcription_target_key``.
         transcription_target_key: Field name whose value is used as the
             ``target`` for context-ASR prompt variants.  Defaults to
-            ``pnc_text``; falls back to ``cleaned_text`` if pnc_text
-            is empty.
+            ``pnc_text`` and is consulted after ``tn_key``; the resolution
+            order is ``tn_key`` → ``transcription_target_key`` →
+            ``cleaned_text``.
         source_lang_key: Field name holding the per-sample source
             language; copied into each entry's ``tags.target_lang``.
         notes_key: Field holding the ``additional_notes`` dict of
@@ -186,8 +191,9 @@ class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
     output_key: str = "preference_instructions"
 
     pnc_key: str = "pnc_text"
-    itn_key: str = "itn_text"
-    itn_no_disfluencies_key: str = "itn_no-disfluencies_text"
+    tn_key: str = "tn_raw"
+    itn_key: str = "itn_raw"
+    itn_no_disfluencies_key: str = "itn_clean"
     captioning_key: str = "captioning_text"
     code_switched_key: str = "code_switched_text"
     speech_qa_key: str = "speech_qa_text"
@@ -254,7 +260,10 @@ class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
                 )
 
         pnc_applied = self._pnc_applied(data)
-        add(_PNC_PROMPTS if pnc_applied else _TN_PROMPTS, self.pnc_key, "tn-pnc" if pnc_applied else "tn")
+        # Transcription target: prefer the TN-normalized (written→spoken) text
+        # from the TN stage; fall back to pnc_text when TN didn't run / was skipped.
+        transcription_key = self.tn_key if self._nonempty(data.get(self.tn_key)) else self.pnc_key
+        add(_PNC_PROMPTS if pnc_applied else _TN_PROMPTS, transcription_key, "tn-pnc" if pnc_applied else "tn")
         add(_ITN_PROMPTS, self.itn_key, "itn")
         add(_ITN_NO_DISFL_PROMPTS, self.itn_no_disfluencies_key, "itn_no-disfluencies")
         add(_CAPTION_PROMPTS, self.captioning_key, "captioning")
@@ -267,7 +276,9 @@ class InstructionPackerStage(ProcessingStage[AudioTask, AudioTask]):
 
         ctx = data.get(self.context_asr_key)
         if isinstance(ctx, dict):
-            target = data.get(self.transcription_target_key) or data.get("cleaned_text")
+            target = (
+                data.get(self.tn_key) or data.get(self.transcription_target_key) or data.get("cleaned_text")
+            )
             if self._nonempty(target):
                 target = target.strip()
                 for vkey in _CONTEXT_ASR_VARIANT_KEYS:

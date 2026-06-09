@@ -27,6 +27,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -195,6 +196,17 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
     enable_validation: bool = True
     max_deletion_ratio: float = 0.3
     min_words_for_deletion_check: int = 8
+    # Validation direction. "itn" (spoken->written, words may collapse to digits)
+    # keeps the original word-count-increase + Latin novel-word guards. "tn"
+    # (written->spoken, digits expand to words) instead guards against the
+    # LLM abandoning the task — translating to English or transliterating to a
+    # foreign script — which are the only TN failure modes observed in practice.
+    validation_mode: str = "itn"
+    # TN: reject if this many distinct English marker words appear in the output
+    # that were not in the input (catches translation to English in any script).
+    english_leak_threshold: int = 2
+    # TN: min chars of a newly-introduced script to count as transliteration drift.
+    script_drift_min_chars: int = 3
     tensor_parallel_size: int | None = None
     max_output_tokens: int = 512
     max_model_len: int = 2048
@@ -389,16 +401,87 @@ class TextLLMStage(ProcessingStage[AudioTask, AudioTask]):
                 novel.append(p)
         return novel
 
+    # Multi-letter English markers that do not collide with function words in
+    # the (non-English) target languages. Their appearance in the output is a
+    # reliable, language-agnostic signal that the LLM translated to English
+    # instead of normalizing. Works for any target script (incl. Latin-script
+    # languages where a script-drift check cannot help).
+    _WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
+    _EN_MARKERS = frozenset(
+        """the and for you are was were will would should could have has had from which what when
+        where who why how out about over under between because their there they them your not but than
+        then into within during through after before above below against without
+        hundred thousand million billion point percent half quarter dozen clock means people""".split()
+    )
+    # Subset that essentially never appears in non-English text even once
+    # (number magnitudes / decimal point / percent). A single novel occurrence
+    # is enough to flag a leak — this catches short English-number leaks like
+    # "200 -> two hundred" or "50% -> twenty percent" that the >=2 rule misses.
+    _EN_STRONG_MARKERS = frozenset("hundred thousand million billion point percent".split())
+
+    def _english_leak(self, in_words: list[str], out_words: list[str]) -> list[str]:
+        in_en = {w for w in in_words if w in self._EN_MARKERS}
+        return sorted({w for w in out_words if w in self._EN_MARKERS} - in_en)
+
+    @staticmethod
+    def _script_counts(text: str) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for ch in text:
+            if ch.isalpha():
+                try:
+                    family = unicodedata.name(ch).split()[0]  # LATIN / CYRILLIC / GREEK / ...
+                except ValueError:
+                    continue
+                counts[family] = counts.get(family, 0) + 1
+        return counts
+
+    def _script_drift(self, input_text: str, output_text: str) -> bool:
+        """True if a non-Latin-script input produced a substantial Latin run
+        (transliteration / romanization the model wasn't asked for)."""
+        in_sc = self._script_counts(input_text)
+        if not in_sc or in_sc.get("LATIN", 0) > 0:
+            return False  # input is empty-of-letters or already contains Latin
+        non_latin = sum(v for k, v in in_sc.items() if k != "LATIN")
+        if non_latin < self.script_drift_min_chars:
+            return False
+        return self._script_counts(output_text).get("LATIN", 0) >= self.script_drift_min_chars
+
     def _validate(self, input_text: str, output_text: str) -> tuple[bool, str]:
         in_words = input_text.lower().split()
         out_words = output_text.lower().split()
+        # Empty output for non-empty input is always a failure (both directions).
+        if input_text.strip() and not output_text.strip():
+            return False, "empty_output"
         if not in_words or not out_words:
             return True, "ok"
-        if len(out_words) > len(in_words):
-            return False, f"word_count_increase ({len(in_words)}->{len(out_words)})"
-        novel = self._check_novel_words(in_words, out_words)
-        if novel:
-            return False, f"novel_words: {novel}"
+
+        if self.validation_mode == "tn":
+            # TN expands digits into words, so word-count *increase* is expected
+            # and must NOT be penalized. Guard only against the model abandoning
+            # the task (translation / transliteration) and against gross deletion.
+            in_tokens = self._WORD_RE.findall(input_text.lower())
+            out_tokens = self._WORD_RE.findall(output_text.lower())
+            # If the INPUT is already English-ish (code-switch / wrong-language
+            # ASR), English in the output was not introduced by this stage, so
+            # don't attribute it to a TN leak — only NEW English counts, and a
+            # mostly-English input is a language-ID problem handled elsewhere.
+            in_en = {w for w in in_tokens if w in self._EN_MARKERS}
+            if len(in_en) < self.english_leak_threshold:
+                leak = self._english_leak(in_tokens, out_tokens)
+                strong = [w for w in leak if w in self._EN_STRONG_MARKERS]
+                if strong or len(leak) >= self.english_leak_threshold:
+                    return False, f"english_leak: {leak}"
+            if self._script_drift(input_text, output_text):
+                return False, "script_drift_to_latin"
+        else:
+            # ITN collapses words into digits, so any word-count *increase* or
+            # novel Latin token is suspicious.
+            if len(out_words) > len(in_words):
+                return False, f"word_count_increase ({len(in_words)}->{len(out_words)})"
+            novel = self._check_novel_words(in_words, out_words)
+            if novel:
+                return False, f"novel_words: {novel}"
+
         if (
             len(in_words) >= self.min_words_for_deletion_check
             and len(out_words) < len(in_words) * self.max_deletion_ratio
