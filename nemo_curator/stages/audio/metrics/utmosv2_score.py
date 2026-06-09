@@ -74,27 +74,33 @@ def _download_remote(remote_path: str, dest_dir: str) -> str | None:
     if remote_path.startswith(("s3://", "ais://")):
         ais_bin = shutil.which("ais") or shutil.which("ais-iad")
         if ais_bin:
-            ret = subprocess.run(
+            ret = subprocess.run(  # noqa: S603
                 [ais_bin, "object", "get", remote_path, local_path],
-                capture_output=True, timeout=300,
+                check=False,
+                capture_output=True,
+                timeout=300,
             )
             if ret.returncode == 0 and os.path.exists(local_path):
                 return local_path
             logger.warning(f"ais get failed for {remote_path}: {ret.stderr.decode()[:200]}")
 
         if remote_path.startswith("s3://"):
-            ret = subprocess.run(
-                ["aws", "s3", "cp", remote_path, local_path, "--quiet"],
-                capture_output=True, timeout=300,
+            ret = subprocess.run(  # noqa: S603
+                ["aws", "s3", "cp", remote_path, local_path, "--quiet"],  # noqa: S607
+                check=False,
+                capture_output=True,
+                timeout=300,
             )
             if ret.returncode == 0 and os.path.exists(local_path):
                 return local_path
             logger.warning(f"aws s3 cp failed for {remote_path}: {ret.stderr.decode()[:200]}")
 
     elif remote_path.startswith(("http://", "https://")):
-        ret = subprocess.run(
-            ["curl", "-sfL", "-o", local_path, remote_path],
-            capture_output=True, timeout=300,
+        ret = subprocess.run(  # noqa: S603
+            ["curl", "-sfL", "-o", local_path, remote_path],  # noqa: S607
+            check=False,
+            capture_output=True,
+            timeout=300,
         )
         if ret.returncode == 0 and os.path.exists(local_path):
             return local_path
@@ -105,22 +111,42 @@ def _download_remote(remote_path: str, dest_dir: str) -> str | None:
 
 def _convert_to_wav(src: str, dest_wav: str, sample_rate: int = 16000) -> bool:
     """Convert any ffmpeg-supported audio format to 16-bit PCM WAV."""
-    ret = subprocess.run(
-        ["ffmpeg", "-y", "-i", src, "-ar", str(sample_rate), "-ac", "1",
-         "-sample_fmt", "s16", dest_wav],
-        capture_output=True, timeout=120,
+    ret = subprocess.run(  # noqa: S603
+        [  # noqa: S607
+            "ffmpeg",
+            "-y",
+            "-i",
+            src,
+            "-ar",
+            str(sample_rate),
+            "-ac",
+            "1",
+            "-sample_fmt",
+            "s16",
+            dest_wav,
+        ],
+        check=False,
+        capture_output=True,
+        timeout=120,
     )
     return ret.returncode == 0 and os.path.exists(dest_wav)
 
 
 def _resample(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
-    """Resample audio array. Uses librosa if available, else linear interp."""
+    """Resample audio array.
+
+    Uses librosa (high-quality polyphase resampling) if available, else
+    falls back to a low-quality nearest-neighbour resample. Install
+    librosa for accurate MOS scoring.
+    """
     if orig_sr == target_sr:
         return audio
     try:
         import librosa
+
         return librosa.resample(audio, orig_sr=orig_sr, target_sr=target_sr)
     except ImportError:
+        # Nearest-neighbour fallback (low quality - prefer installing librosa).
         ratio = target_sr / orig_sr
         indices = np.round(np.arange(0, len(audio), 1 / ratio)).astype(int)
         indices = indices[indices < len(audio)]
@@ -175,6 +201,7 @@ class GetUtmosv2ScoreStage(ProcessingStage[DocumentBatch | AudioTask, DocumentBa
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         import utmosv2
+
         self._model = utmosv2.create_model(pretrained=True)
 
     # ------------------------------------------------------------------
@@ -182,21 +209,30 @@ class GetUtmosv2ScoreStage(ProcessingStage[DocumentBatch | AudioTask, DocumentBa
     # ------------------------------------------------------------------
 
     def _waveform_to_wav(
-        self, waveform: np.ndarray, orig_sr: int, wav_path: str,
+        self,
+        waveform: np.ndarray,
+        orig_sr: int,
+        wav_path: str,
     ) -> bool:
-        """Write an in-memory waveform to a WAV file at ``self.sample_rate``."""
+        """Write an in-memory waveform to a WAV file at ``self.sample_rate``.
+
+        Waveforms are expected in channels-first ``(channels, samples)``
+        layout (NeMo/Lhotse convention), so mix down over ``axis=0``.
+        """
         if waveform.ndim > 1:
-            waveform = waveform.mean(axis=1)
+            waveform = waveform.mean(axis=0)
         waveform = _resample(waveform.astype(np.float32), orig_sr, self.sample_rate)
         try:
             sf.write(wav_path, waveform, self.sample_rate, subtype="PCM_16")
-            return True
-        except Exception as e:
+            return True  # noqa: TRY300
+        except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to write WAV: {e}")
             return False
 
     def _filepath_to_wav(
-        self, audio_path: str, wav_path: str,
+        self,
+        audio_path: str,
+        wav_path: str,
     ) -> bool:
         """Resolve a file path (local/remote, any format) to a WAV file."""
         # Remote: download first
@@ -223,8 +259,13 @@ class GetUtmosv2ScoreStage(ProcessingStage[DocumentBatch | AudioTask, DocumentBa
     # Scoring
     # ------------------------------------------------------------------
 
-    def _score_dir(self, wav_dir: str) -> list[float]:
-        """Score all WAV files in a directory."""
+    def _score_dir(self, wav_dir: str) -> dict[str, float]:
+        """Score all WAV files in a directory.
+
+        Returns a mapping of WAV file stem (e.g. ``"00000003"``) to its
+        predicted MOS. Keying on the file name avoids relying on the
+        undocumented ordering of ``model.predict`` results.
+        """
         results = self._model.predict(
             input_dir=wav_dir,
             batch_size=self.inference_batch_size,
@@ -233,19 +274,20 @@ class GetUtmosv2ScoreStage(ProcessingStage[DocumentBatch | AudioTask, DocumentBa
             num_workers=0,
             verbose=False,
         )
-        return [r["predicted_mos"] for r in results]
+        return {Path(r["file_path"]).stem: r["predicted_mos"] for r in results}
 
     # ------------------------------------------------------------------
     # Main process
     # ------------------------------------------------------------------
 
-    def process(self, task: DocumentBatch | AudioTask) -> DocumentBatch | AudioTask:
+    def process(self, task: DocumentBatch | AudioTask) -> DocumentBatch | AudioTask:  # noqa: C901, PLR0912
         if isinstance(task, DocumentBatch):
             entries = task.data.to_dict("records")
         elif isinstance(task, AudioTask):
             entries = [task.data]
         else:
-            raise TypeError(f"Unsupported task type: {type(task)}")
+            msg = f"Unsupported task type: {type(task)}"
+            raise TypeError(msg)
 
         root = Path(self.audio_root) if self.audio_root else None
 
@@ -253,11 +295,14 @@ class GetUtmosv2ScoreStage(ProcessingStage[DocumentBatch | AudioTask, DocumentBa
             wav_dir = os.path.join(tmpdir, "wavs")
             os.makedirs(wav_dir)
 
-            valid_indices: list[int] = []
+            # Map WAV file stem -> entry index, so scores can be matched
+            # back by file name rather than by result ordering.
+            stem_to_index: dict[str, int] = {}
             wav_count = 0
 
             for i, entry in enumerate(entries):
-                wav_path = os.path.join(wav_dir, f"{wav_count:08d}.wav")
+                stem = f"{wav_count:08d}"
+                wav_path = os.path.join(wav_dir, f"{stem}.wav")
                 ok = False
 
                 # Mode 1: in-memory waveform (from NemoTarShardReaderStage)
@@ -278,20 +323,21 @@ class GetUtmosv2ScoreStage(ProcessingStage[DocumentBatch | AudioTask, DocumentBa
                         ok = self._filepath_to_wav(audio_path, wav_path)
 
                 if ok:
-                    valid_indices.append(i)
+                    stem_to_index[stem] = i
                     wav_count += 1
                 else:
                     if waveform is None and not entry.get(self.audio_filepath_key):
-                        logger.warning(
-                            f"Entry {i}: no '{self.waveform_key}' or "
-                            f"'{self.audio_filepath_key}'"
-                        )
+                        logger.warning(f"Entry {i}: no '{self.waveform_key}' or '{self.audio_filepath_key}'")
                     entry[self.score_key] = float("nan")
 
-            if valid_indices:
-                scores = self._score_dir(wav_dir)
-                for idx, score in zip(valid_indices, scores):
-                    entries[idx][self.score_key] = round(float(score), 4)
+            if stem_to_index:
+                scores_by_stem = self._score_dir(wav_dir)
+                for stem, idx in stem_to_index.items():
+                    if stem in scores_by_stem:
+                        entries[idx][self.score_key] = round(float(scores_by_stem[stem]), 4)
+                    else:
+                        logger.warning(f"No UTMOSv2 score returned for entry {idx} (wav '{stem}')")
+                        entries[idx][self.score_key] = float("nan")
 
         # Strip waveform from output (large, not serializable to JSONL)
         for entry in entries:

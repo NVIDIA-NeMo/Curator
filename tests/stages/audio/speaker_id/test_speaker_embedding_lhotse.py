@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -29,6 +29,9 @@ from nemo_curator.stages.audio.speaker_id.speaker_embedding_lhotse import (
     _worker_tag,
     merge_shard_embeddings,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestExpandNemoPath:
@@ -65,25 +68,25 @@ class TestExtractShardId:
 
 
 class TestTqdmEnabled:
-    def test_env_override_on(self, monkeypatch) -> None:
+    def test_env_override_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CURATOR_TQDM", "1")
         assert _tqdm_enabled(default=False) is True
 
-    def test_env_override_off(self, monkeypatch) -> None:
+    def test_env_override_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CURATOR_TQDM", "0")
         assert _tqdm_enabled(default=True) is False
 
-    def test_default_false(self, monkeypatch) -> None:
+    def test_default_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("CURATOR_TQDM", raising=False)
         assert _tqdm_enabled(default=False) is False
 
 
 class TestWorkerTag:
-    def test_with_cuda_env(self, monkeypatch) -> None:
+    def test_with_cuda_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3")
         assert _worker_tag() == "gpu3"
 
-    def test_without_cuda_env(self, monkeypatch) -> None:
+    def test_without_cuda_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
         assert _worker_tag().startswith("pid")
 
@@ -92,7 +95,7 @@ class TestMergeShardEmbeddings:
     def test_merge_npz(self, tmp_path: Path) -> None:
         for i in range(3):
             ids = np.array([f"cut_{i}_0", f"cut_{i}_1"], dtype=object)
-            embs = np.random.randn(2, 64).astype(np.float32)
+            embs = np.random.default_rng(42).standard_normal((2, 64)).astype(np.float32)
             np.savez(tmp_path / f"embeddings_{i}.npz", cut_ids=ids, embeddings=embs)
 
         merged = merge_shard_embeddings(str(tmp_path), output_format="npz")
@@ -121,7 +124,7 @@ class TestMergeShardEmbeddings:
         np.savez(
             tmp_path / "embeddings_0.npz",
             cut_ids=np.array(["a"], dtype=object),
-            embeddings=np.random.randn(1, 8).astype(np.float32),
+            embeddings=np.random.default_rng(42).standard_normal((1, 8)).astype(np.float32),
         )
         custom = str(tmp_path / "custom" / "merged.npz")
         result = merge_shard_embeddings(str(tmp_path), merged_path=custom)

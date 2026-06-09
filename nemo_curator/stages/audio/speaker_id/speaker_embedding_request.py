@@ -27,17 +27,19 @@ import os
 import tarfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import soundfile as sf
 import torch
 from loguru import logger
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
 def _is_remote_storage_path(value: str) -> bool:
@@ -113,7 +115,7 @@ class SpeakerEmbeddingRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]
             if self.cache_dir is not None:
                 kwargs["cache_dir"] = self.cache_dir
             nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained(**kwargs)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.info(f"Could not pre-cache {self.model_name}; will download on first use")
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
@@ -257,7 +259,7 @@ class SpeakerEmbeddingRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]
                     audio = self._load_audio_bytes(str(filepath))
                 emb = self._extract_embedding(audio)
                 embeddings_list.append(emb)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.warning(f"Row {idx}: failed to extract embedding for {filepath!r}: {exc}")
                 embeddings_list.append(None)
 

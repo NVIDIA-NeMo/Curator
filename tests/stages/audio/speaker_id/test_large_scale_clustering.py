@@ -86,15 +86,17 @@ class TestFilterSmallClusters:
 
 class TestClusterEmbeddingsLargeScale:
     def _make_two_clusters(self, n_per: int = 50, dim: int = 64) -> np.ndarray:
-        rng = np.random.RandomState(42)
-        a = rng.randn(n_per, dim).astype(np.float32) + 5.0
-        b = rng.randn(n_per, dim).astype(np.float32) - 5.0
+        rng = np.random.default_rng(42)
+        a = rng.standard_normal((n_per, dim)).astype(np.float32) + 5.0
+        b = rng.standard_normal((n_per, dim)).astype(np.float32) - 5.0
         return np.vstack([a, b])
 
     def test_two_clusters_found(self) -> None:
         embs = self._make_two_clusters()
-        labels, confidence, stats = cluster_embeddings_large_scale(
-            embs, threshold=0.3, min_cluster_size=1,
+        labels, _confidence, _stats = cluster_embeddings_large_scale(
+            embs,
+            threshold=0.3,
+            min_cluster_size=1,
         )
 
         assert labels.shape == (100,)
@@ -103,8 +105,10 @@ class TestClusterEmbeddingsLargeScale:
 
     def test_confidence_shape(self) -> None:
         embs = self._make_two_clusters()
-        labels, confidence, _ = cluster_embeddings_large_scale(
-            embs, threshold=0.3, min_cluster_size=1,
+        _labels, confidence, _ = cluster_embeddings_large_scale(
+            embs,
+            threshold=0.3,
+            min_cluster_size=1,
         )
 
         assert confidence is not None
@@ -115,35 +119,43 @@ class TestClusterEmbeddingsLargeScale:
     def test_no_confidence_when_disabled(self) -> None:
         embs = self._make_two_clusters()
         _, confidence, _ = cluster_embeddings_large_scale(
-            embs, threshold=0.3, min_cluster_size=1, compute_confidence=False,
+            embs,
+            threshold=0.3,
+            min_cluster_size=1,
+            compute_confidence=False,
         )
         assert confidence is None
 
     def test_empty_input(self) -> None:
-        labels, confidence, stats = cluster_embeddings_large_scale(
+        labels, _confidence, stats = cluster_embeddings_large_scale(
             np.empty((0, 64), dtype=np.float32),
         )
         assert len(labels) == 0
         assert stats["n_input"] == 0
 
     def test_single_input(self) -> None:
-        labels, confidence, stats = cluster_embeddings_large_scale(
-            np.random.randn(1, 64).astype(np.float32), min_cluster_size=1,
+        labels, _confidence, stats = cluster_embeddings_large_scale(
+            np.random.default_rng(42).standard_normal((1, 64)).astype(np.float32),
+            min_cluster_size=1,
         )
         assert len(labels) == 1
         assert stats["n_input"] == 1
 
     def test_min_cluster_size_filters(self) -> None:
         embs = self._make_two_clusters(n_per=50)
-        labels, _, stats = cluster_embeddings_large_scale(
-            embs, threshold=0.3, min_cluster_size=100,
+        labels, _, _stats = cluster_embeddings_large_scale(
+            embs,
+            threshold=0.3,
+            min_cluster_size=100,
         )
         assert (labels == DROPPED_LABEL).sum() > 0
 
     def test_stats_keys(self) -> None:
         embs = self._make_two_clusters(n_per=20)
         _, _, stats = cluster_embeddings_large_scale(
-            embs, threshold=0.3, min_cluster_size=1,
+            embs,
+            threshold=0.3,
+            min_cluster_size=1,
         )
         assert "n_input" in stats
         assert "n_leaf_subclusters" in stats

@@ -40,6 +40,7 @@ Versioning
 Use :func:`build_cluster_config` to assemble the dict and
 :func:`write_cluster_config` to persist it.
 """
+
 from __future__ import annotations
 
 import json
@@ -50,7 +51,7 @@ import platform
 import socket
 import sys
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +70,12 @@ SIDECAR_FILENAME = "cluster_config.json"
 # the "expected" values for the preset.  A run is still tagged with the
 # preset name even when the user overrides individual values, but the
 # sidecar carries an ``overrides`` block so the difference is visible.
-PRESETS: Dict[str, Dict[str, Any]] = {
+PRESETS: dict[str, dict[str, Any]] = {
     "librispeech-2026-04": {
-        "cluster_threshold": 0.50,            # AHC cosine cutoff
+        "cluster_threshold": 0.50,  # AHC cosine cutoff
         "cluster_linkage": "average",
-        "min_cluster_size": 30,               # production default
-        "birch_cosine_floor": 0.95,           # -> radius = sqrt(2*(1-0.95)) = 0.3162
+        "min_cluster_size": 30,  # production default
+        "birch_cosine_floor": 0.95,  # -> radius = sqrt(2*(1-0.95)) = 0.3162
         "birch_branching_factor": 50,
         "birch_partial_fit_batch": 50_000,
         "assign_tile": 16_384,
@@ -100,14 +101,15 @@ def cosine_floor_to_birch_radius(cos_floor: float) -> float:
 def make_config_id(backend: str, preset: str = DEFAULT_PRESET) -> str:
     """Return e.g. ``"SCOTCH-v1.large_scale.librispeech-2026-04"``."""
     if backend not in ("standard", "large_scale"):
-        raise ValueError(f"Unknown backend: {backend!r}")
+        msg = f"Unknown backend: {backend!r}"
+        raise ValueError(msg)
     return f"{CONFIG_FAMILY}-{CONFIG_VERSION}.{backend}.{preset}"
 
 
 # --------------------------------------------------------------------------
 # Config builder
 # --------------------------------------------------------------------------
-def build_cluster_config(
+def build_cluster_config(  # noqa: PLR0913
     backend: str,
     preset: str = DEFAULT_PRESET,
     *,
@@ -120,27 +122,27 @@ def build_cluster_config(
     confidence_enabled: bool = True,
     # --- BIRCH-only knobs (ignored by the standard backend, but always
     # recorded so the sidecar shape is identical across backends).
-    birch_cosine_floor: Optional[float] = None,
-    birch_radius: Optional[float] = None,
-    birch_branching_factor: Optional[int] = None,
-    birch_partial_fit_batch: Optional[int] = None,
-    assign_tile: Optional[int] = None,
-    n_leaf_subclusters: Optional[int] = None,
+    birch_cosine_floor: float | None = None,
+    birch_radius: float | None = None,
+    birch_branching_factor: int | None = None,
+    birch_partial_fit_batch: int | None = None,
+    assign_tile: int | None = None,
+    n_leaf_subclusters: int | None = None,
     # --- Outcome metrics from the run itself (filled in after clustering).
-    n_clusters_raw: Optional[int] = None,
-    n_clusters_kept: Optional[int] = None,
-    n_utts_kept: Optional[int] = None,
-    n_utts_dropped: Optional[int] = None,
-    runtime_seconds: Optional[float] = None,
-    extra: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    n_clusters_raw: int | None = None,
+    n_clusters_kept: int | None = None,
+    n_utts_kept: int | None = None,
+    n_utts_dropped: int | None = None,
+    runtime_seconds: float | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Assemble the JSON-able config dict written next to ``clusters.jsonl``."""
     config_id = make_config_id(backend, preset)
     expected = PRESETS.get(preset, {})
 
     # Compute a small overrides block so the sidecar makes "what's
     # different from the named preset" trivially auditable.
-    overrides: Dict[str, Any] = {}
+    overrides: dict[str, Any] = {}
     actual = {
         "cluster_threshold": cluster_threshold,
         "cluster_linkage": cluster_linkage,
@@ -155,7 +157,7 @@ def build_cluster_config(
         if k in actual and actual[k] is not None and actual[k] != expected_v:
             overrides[k] = {"preset": expected_v, "actual": actual[k]}
 
-    cfg: Dict[str, Any] = {
+    cfg: dict[str, Any] = {
         # ---- identity
         "config_id": config_id,
         "config_family": CONFIG_FAMILY,
@@ -165,18 +167,18 @@ def build_cluster_config(
         # ---- algorithm
         "algorithm": {
             "stage1": (
-                "BIRCH (streaming partial_fit on L2-normalised embeddings)"
-                if backend == "large_scale" else "(none)"
+                "BIRCH (streaming partial_fit on L2-normalised embeddings)" if backend == "large_scale" else "(none)"
             ),
             "stage2": "AHC on centroids (cosine, average linkage)",
             "post1": (
                 f"min_cluster_size={min_cluster_size} purity filter"
-                if min_cluster_size and min_cluster_size > 1 else "no purity filter"
+                if min_cluster_size and min_cluster_size > 1
+                else "no purity filter"
             ),
             "post2": (
-                "silhouette per-utterance confidence in [0, 1] "
-                "((a-b)/max(a,b), a=self-centroid cos, b=best-other cos)"
-                if confidence_enabled else "(no confidence)"
+                "silhouette per-utterance confidence in [0, 1] ((a-b)/max(a,b), a=self-centroid cos, b=best-other cos)"
+                if confidence_enabled
+                else "(no confidence)"
             ),
         },
         # ---- the actual numerical knobs in effect for this run
@@ -192,7 +194,9 @@ def build_cluster_config(
                 "branching_factor": birch_branching_factor,
                 "partial_fit_batch": birch_partial_fit_batch,
                 "assign_tile": assign_tile,
-            } if backend == "large_scale" else None,
+            }
+            if backend == "large_scale"
+            else None,
         },
         "preset_expected": expected,
         "overrides": overrides,
@@ -221,12 +225,11 @@ def build_cluster_config(
     return cfg
 
 
-def write_cluster_config(output_dir: str, config: Dict[str, Any]) -> str:
+def write_cluster_config(output_dir: str, config: dict[str, Any]) -> str:
     """Write the config dict to ``output_dir/cluster_config.json``."""
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, SIDECAR_FILENAME)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
-    logger.info("Wrote cluster config sidecar: %s  [%s]",
-                path, config.get("config_id", "<no id>"))
+    logger.info("Wrote cluster config sidecar: %s  [%s]", path, config.get("config_id", "<no id>"))
     return path

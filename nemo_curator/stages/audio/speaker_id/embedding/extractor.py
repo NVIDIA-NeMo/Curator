@@ -9,7 +9,6 @@ then collects per-utterance embeddings.
 
 import logging
 import sys
-from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -20,15 +19,15 @@ from nemo_curator.stages.audio.speaker_id.embedding.feature import compute_featu
 logger = logging.getLogger(__name__)
 
 
-def extract_embeddings(
-    entries: List[dict],
+def extract_embeddings(  # noqa: PLR0913
+    entries: list[dict],
     model: torch.nn.Module,
     frontend_type: str,
     device: torch.device,
     batch_dur: float = 600.0,
     sample_rate: int = 16000,
     num_mel_bins: int = 80,
-) -> Tuple[np.ndarray, List[str]]:
+) -> tuple[np.ndarray, list[str]]:
     """Extract embeddings for a list of utterance entries.
 
     Each entry must have ``_abs_wav_path``, ``_utt_id``, and optionally
@@ -49,12 +48,12 @@ def extract_embeddings(
     """
     shard = sorted(entries, key=lambda e: e.get("duration", 0), reverse=True)
 
-    utt_ids: List[str] = []
-    embeddings: List[np.ndarray] = []
+    utt_ids: list[str] = []
+    embeddings: list[np.ndarray] = []
     failed = 0
 
-    batch_feats: List[torch.Tensor] = []
-    batch_utt_ids: List[str] = []
+    batch_feats: list[torch.Tensor] = []
+    batch_utt_ids: list[str] = []
     batch_dur_acc = 0.0
 
     pbar = tqdm(shard, desc="Extracting", unit="utt", file=sys.stderr)
@@ -66,14 +65,17 @@ def extract_embeddings(
         try:
             pcm = load_audio(wav_path, target_sr=sample_rate)
             feat = compute_features(
-                pcm, model, frontend_type, device,
+                pcm,
+                model,
+                frontend_type,
+                device,
                 sample_rate=sample_rate,
                 num_mel_bins=num_mel_bins,
             )
             batch_feats.append(feat)
             batch_utt_ids.append(utt_id)
             batch_dur_acc += dur
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             failed += 1
             logger.warning("Failed loading %s: %s", utt_id, e)
 
@@ -93,12 +95,12 @@ def extract_embeddings(
     return embeddings_np, utt_ids
 
 
-def _flush_batch(
+def _flush_batch(  # noqa: PLR0913
     model: torch.nn.Module,
-    batch_feats: List[torch.Tensor],
-    batch_utt_ids: List[str],
-    embeddings_acc: List[np.ndarray],
-    utt_ids_acc: List[str],
+    batch_feats: list[torch.Tensor],
+    batch_utt_ids: list[str],
+    embeddings_acc: list[np.ndarray],
+    utt_ids_acc: list[str],
     device: torch.device,
 ) -> None:
     """Pad variable-length features, run batched forward, collect results."""

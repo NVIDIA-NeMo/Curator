@@ -33,21 +33,24 @@ Outputs:
   :func:`tutorials.audio.hifi_pipeline.run_pipeline_beta._gather_corpus_for_beta`
   already supports.
 """
+
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
 from loguru import logger
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio.utils.audio_io import ensure_waveform
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
 @dataclass
@@ -185,14 +188,8 @@ class SpeakerEmbeddingAudioTaskStage(ProcessingStage[AudioTask, AudioTask]):
         # counter so concurrent writes never collide.  CUDA_VISIBLE_DEVICES
         # + pid is unique within a job.
         self._flush_count += 1
-        tag = (
-            os.environ.get("CUDA_VISIBLE_DEVICES", "x").split(",")[0]
-            + "_"
-            + str(os.getpid())
-        )
-        path = os.path.join(
-            self.output_dir, f"embeddings_{tag}_part{self._flush_count}.npz"
-        )
+        tag = os.environ.get("CUDA_VISIBLE_DEVICES", "x").split(",")[0] + "_" + str(os.getpid())
+        path = os.path.join(self.output_dir, f"embeddings_{tag}_part{self._flush_count}.npz")
         np.savez(
             path,
             cut_ids=np.array(self._accumulated_ids, dtype=object),

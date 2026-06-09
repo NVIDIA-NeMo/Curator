@@ -13,7 +13,6 @@ default threshold is set stricter than EER.
 
 import logging
 from collections import Counter, defaultdict
-from typing import Dict, List, Tuple
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
@@ -74,13 +73,12 @@ def cluster_embeddings(
     dist_mat = _cosine_distance_matrix(embeddings)
     condensed = squareform(dist_mat, checks=False)
 
-    Z = linkage(condensed, method=linkage_method)
+    Z = linkage(condensed, method=linkage_method)  # noqa: N806
     distance_cutoff = 1.0 - threshold
-    labels = fcluster(Z, t=distance_cutoff, criterion="distance")
-    return labels
+    return fcluster(Z, t=distance_cutoff, criterion="distance")
 
 
-def cluster_stats(labels: np.ndarray) -> Dict:
+def cluster_stats(labels: np.ndarray) -> dict:
     """Return a summary dict for a set of cluster labels."""
     counts = Counter(labels.tolist())
     sizes = sorted(counts.values(), reverse=True)
@@ -101,9 +99,9 @@ def print_cluster_summary(
     """Log a human-readable clustering summary."""
     stats = cluster_stats(labels)
     n = len(labels)
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"  AHC Clustering Results  (threshold={threshold:.4f})")
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
     print(f"  Utterances        : {n:,}")
     print(f"  Speakers found    : {stats['num_clusters']:,}")
     print(f"  Largest cluster   : {stats['largest_cluster']:,} utts")
@@ -114,17 +112,18 @@ def print_cluster_summary(
     dist = stats["size_distribution"]
     top = min(20, len(dist))
     print(f"\n  Top-{top} cluster sizes: {dist[:top]}")
-    print(f"{'='*50}\n")
+    print(f"{'=' * 50}\n")
 
 
 # ---------------------------------------------------------------------------
 # Cluster quality & per-utterance speaker-ID confidence
 # ---------------------------------------------------------------------------
 
+
 def cluster_quality(
     embeddings: np.ndarray,
     labels: np.ndarray,
-) -> Dict:
+) -> dict:
     """Compute within-cluster and inter-cluster cosine-similarity statistics.
 
     Singletons (clusters with 1 sample) are excluded from both metrics.
@@ -143,7 +142,7 @@ def cluster_quality(
     for i, lab in enumerate(labels):
         cluster_indices[lab].append(i)
 
-    multi = {k: v for k, v in cluster_indices.items() if len(v) >= 2}
+    multi = {k: v for k, v in cluster_indices.items() if len(v) >= 2}  # noqa: PLR2004
     n_singletons = len(cluster_indices) - len(multi)
 
     # Within-cluster avg cosine sim per cluster
@@ -168,7 +167,7 @@ def cluster_quality(
     triu = np.triu_indices(len(cids), k=1)
     inter_pairwise = inter_sim[triu]
 
-    def _stats(arr):
+    def _stats(arr):  # noqa: ANN001, ANN202
         if len(arr) == 0:
             return {}
         return {
@@ -219,7 +218,7 @@ def speaker_confidence(
     # cluster_id_list[k] -> original cluster label;  member_mask[k] -> indices.
     unique_labels = sorted(cluster_indices.keys())
     label_to_k = {lab: k for k, lab in enumerate(unique_labels)}
-    K = len(unique_labels)
+    K = len(unique_labels)  # noqa: N806
 
     # Mean sim to each cluster via matrix multiply with membership indicator
     membership = np.zeros((n, K), dtype=np.float32)
@@ -238,7 +237,7 @@ def speaker_confidence(
         my_k = label_to_k[labels[i]]
         my_size = cluster_sizes[my_k]
 
-        if my_size < 2:
+        if my_size < 2:  # noqa: PLR2004
             continue
 
         # Cohesion: correct for self-similarity (remove sim[i,i]=1 from the sum)
@@ -249,7 +248,7 @@ def speaker_confidence(
         rival_sims[my_k] = -2.0
         best_rival = rival_sims.max()
 
-        if best_rival <= -2.0:
+        if best_rival <= -2.0:  # noqa: PLR2004
             scores[i] = 1.0
             continue
 
@@ -273,44 +272,49 @@ def print_quality_summary(
     ws = qual["within_stats"]
     ics = qual["inter_stats"]
 
-    print(f"\n{'='*60}")
-    print(f"  Cluster Quality Report")
-    print(f"{'='*60}")
+    print(f"\n{'=' * 60}")
+    print("  Cluster Quality Report")
+    print(f"{'=' * 60}")
     print(f"  Multi-sample clusters : {qual['n_multi_clusters']:,}")
     print(f"  Singletons (excluded) : {qual['n_singletons']:,}")
 
     if ws:
-        print(f"\n  Within-Cluster Avg Cosine Similarity (per cluster):")
-        print(f"    mean={ws['mean']:.4f}  std={ws['std']:.4f}  "
-              f"min={ws['min']:.4f}  median={ws['median']:.4f}  max={ws['max']:.4f}")
+        print("\n  Within-Cluster Avg Cosine Similarity (per cluster):")
+        print(
+            f"    mean={ws['mean']:.4f}  std={ws['std']:.4f}  "
+            f"min={ws['min']:.4f}  median={ws['median']:.4f}  max={ws['max']:.4f}"
+        )
         print(f"    [p25={ws['p25']:.4f}  p75={ws['p75']:.4f}]")
 
     if ics:
-        print(f"\n  Inter-Cluster Centroid Cosine Similarity:")
-        print(f"    mean={ics['mean']:.4f}  std={ics['std']:.4f}  "
-              f"min={ics['min']:.4f}  median={ics['median']:.4f}  max={ics['max']:.4f}")
+        print("\n  Inter-Cluster Centroid Cosine Similarity:")
+        print(
+            f"    mean={ics['mean']:.4f}  std={ics['std']:.4f}  "
+            f"min={ics['min']:.4f}  median={ics['median']:.4f}  max={ics['max']:.4f}"
+        )
         print(f"    [p25={ics['p25']:.4f}  p75={ics['p75']:.4f}]")
 
     # Confidence score stats (only non-singleton utterances)
     non_singleton = confidence_scores[confidence_scores > 0]
-    print(f"\n  Speaker-ID Confidence (per utterance, singletons excluded):")
+    print("\n  Speaker-ID Confidence (per utterance, singletons excluded):")
     print(f"    count={len(non_singleton):,}")
     if len(non_singleton) > 0:
-        print(f"    mean={non_singleton.mean():.4f}  std={non_singleton.std():.4f}  "
-              f"min={non_singleton.min():.4f}  median={np.median(non_singleton):.4f}  "
-              f"max={non_singleton.max():.4f}")
-        print(f"    [p25={np.percentile(non_singleton, 25):.4f}  "
-              f"p75={np.percentile(non_singleton, 75):.4f}]")
+        print(
+            f"    mean={non_singleton.mean():.4f}  std={non_singleton.std():.4f}  "
+            f"min={non_singleton.min():.4f}  median={np.median(non_singleton):.4f}  "
+            f"max={non_singleton.max():.4f}"
+        )
+        print(f"    [p25={np.percentile(non_singleton, 25):.4f}  p75={np.percentile(non_singleton, 75):.4f}]")
 
         # Distribution buckets
         buckets = [(0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.01)]
-        print(f"\n    Confidence distribution:")
+        print("\n    Confidence distribution:")
         for lo, hi in buckets:
             ct = ((non_singleton >= lo) & (non_singleton < hi)).sum()
             pct = ct / len(non_singleton) * 100
-            label = f"[{lo:.1f}, {hi:.1f})" if hi < 1.01 else f"[{lo:.1f}, 1.0]"
+            label = f"[{lo:.1f}, {hi:.1f})" if hi < 1.01 else f"[{lo:.1f}, 1.0]"  # noqa: PLR2004
             print(f"      {label:12s}: {ct:6,} ({pct:5.1f}%)")
 
     total_singletons = (confidence_scores == 0).sum()
     print(f"\n    Singletons (confidence=0): {total_singletons:,}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")

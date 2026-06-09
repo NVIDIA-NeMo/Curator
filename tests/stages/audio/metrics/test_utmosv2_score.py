@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest import mock
 
 import numpy as np
@@ -23,6 +23,9 @@ import soundfile
 
 from nemo_curator.stages.audio.metrics.utmosv2_score import GetUtmosv2ScoreStage
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _write_sine_wav(
@@ -50,7 +53,7 @@ class TestGetUtmosv2ScoreStage:
             data={"audio_filepath": str(wav)},
         )
 
-        with mock.patch.object(stage, "_score_dir", return_value=[4.2]):
+        with mock.patch.object(stage, "_score_dir", return_value={"00000000": 4.2}):
             result = stage.process(task)
 
         assert isinstance(result, AudioTask)
@@ -73,14 +76,14 @@ class TestGetUtmosv2ScoreStage:
 
     def test_in_memory_waveform(self, tmp_path: Path) -> None:
         stage = GetUtmosv2ScoreStage()
-        waveform = np.random.randn(16000).astype(np.float32)
+        waveform = np.random.default_rng(42).standard_normal(16000).astype(np.float32)
         task = AudioTask(
             task_id="t1",
             dataset_name="test",
             data={"waveform": waveform, "sample_rate": 16000},
         )
 
-        with mock.patch.object(stage, "_score_dir", return_value=[3.8]):
+        with mock.patch.object(stage, "_score_dir", return_value={"00000000": 3.8}):
             result = stage.process(task)
 
         assert isinstance(result, AudioTask)
@@ -98,7 +101,7 @@ class TestGetUtmosv2ScoreStage:
             data={"path": str(wav)},
         )
 
-        with mock.patch.object(stage, "_score_dir", return_value=[4.0]):
+        with mock.patch.object(stage, "_score_dir", return_value={"00000000": 4.0}):
             result = stage.process(task)
 
         assert result.data["quality"] == 4.0
@@ -114,7 +117,7 @@ class TestGetUtmosv2ScoreStage:
             data={"audio_filepath": str(wav), "text": "hello", "speaker_id": 42},
         )
 
-        with mock.patch.object(stage, "_score_dir", return_value=[3.0]):
+        with mock.patch.object(stage, "_score_dir", return_value={"00000000": 3.0}):
             result = stage.process(task)
 
         assert result.data["text"] == "hello"

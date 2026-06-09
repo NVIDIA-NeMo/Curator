@@ -11,7 +11,6 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
-from typing import Optional
 
 import torch
 import yaml
@@ -46,7 +45,8 @@ def _find_wespeaker_models_dir() -> str:
         if os.path.isdir(candidate):
             candidates.append(candidate)
     if not candidates:
-        raise ImportError("Cannot find wespeaker package in sys.path")
+        msg = "Cannot find wespeaker package in sys.path"
+        raise ImportError(msg)
     for c in candidates:
         resnet_py = os.path.join(c, "resnet.py")
         if os.path.isfile(resnet_py):
@@ -57,7 +57,7 @@ def _find_wespeaker_models_dir() -> str:
     return candidates[-1]
 
 
-def _load_py_file(filepath: str, fake_name: str):
+def _load_py_file(filepath: str, fake_name: str):  # noqa: ANN202
     """Load a .py file as a module using a fake name to avoid triggering parent __init__."""
     spec = importlib.util.spec_from_file_location(fake_name, filepath)
     mod = importlib.util.module_from_spec(spec)
@@ -76,7 +76,7 @@ class LoadedModel:
     embedding_dim: int
 
 
-def _ensure_wespeaker_stubs():
+def _ensure_wespeaker_stubs() -> None:
     """Insert stub packages for wespeaker and wespeaker.models into sys.modules.
 
     This prevents Python from executing wespeaker/__init__.py (which drags in
@@ -93,7 +93,7 @@ def _ensure_wespeaker_stubs():
             sys.modules[pkg_name] = stub
 
 
-def _get_model_class(model_name: str):
+def _get_model_class(model_name: str):  # noqa: ANN202
     """Resolve a WeSpeaker model class by name, loading .py files by path."""
     models_dir = _find_wespeaker_models_dir()
     _ensure_wespeaker_stubs()
@@ -110,14 +110,13 @@ def _get_model_class(model_name: str):
             if mod_key not in sys.modules:
                 filepath = os.path.join(models_dir, f"{module_file}.py")
                 if not os.path.isfile(filepath):
-                    raise FileNotFoundError(f"Model file not found: {filepath}")
+                    msg = f"Model file not found: {filepath}"
+                    raise FileNotFoundError(msg)
                 _load_py_file(filepath, mod_key)
             return getattr(sys.modules[mod_key], model_name)
 
-    raise ValueError(
-        f"Unknown model '{model_name}'. "
-        f"Supported prefixes: {list(_MODEL_PREFIX_TO_MODULE.keys())}"
-    )
+    msg = f"Unknown model '{model_name}'. Supported prefixes: {list(_MODEL_PREFIX_TO_MODULE.keys())}"
+    raise ValueError(msg)
 
 
 def _load_model_from_dir(model_dir: str, device: str) -> torch.nn.Module:
@@ -130,11 +129,13 @@ def _load_model_from_dir(model_dir: str, device: str) -> torch.nn.Module:
     weight_path = os.path.join(model_dir, "avg_model.pt")
 
     if not os.path.isfile(config_path):
-        raise FileNotFoundError(f"Missing {config_path}")
+        msg = f"Missing {config_path}"
+        raise FileNotFoundError(msg)
     if not os.path.isfile(weight_path):
-        raise FileNotFoundError(f"Missing {weight_path}")
+        msg = f"Missing {weight_path}"
+        raise FileNotFoundError(msg)
 
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     logger.debug("Model config: %s", config)
@@ -154,7 +155,7 @@ def _load_model_from_dir(model_dir: str, device: str) -> torch.nn.Module:
 def load_wespeaker_model(
     model_name_or_path: str,
     device: str = "cuda:0",
-    model_cache_dir: Optional[str] = None,
+    model_cache_dir: str | None = None,  # noqa: ARG001
 ) -> LoadedModel:
     """Load a WeSpeaker model and move it to *device*.
 
@@ -168,10 +169,8 @@ def load_wespeaker_model(
         LoadedModel with the model in eval mode on the requested device.
     """
     if not os.path.isdir(model_name_or_path):
-        raise FileNotFoundError(
-            f"Model directory not found: {model_name_or_path}. "
-            f"Hub download is not supported; provide a local path."
-        )
+        msg = f"Model directory not found: {model_name_or_path}. Hub download is not supported; provide a local path."
+        raise FileNotFoundError(msg)
 
     logger.info("Loading WeSpeaker model: %s", model_name_or_path)
     nn_model = _load_model_from_dir(model_name_or_path, device)
@@ -183,7 +182,9 @@ def load_wespeaker_model(
     emb_dim = _infer_embedding_dim(nn_model, device, frontend_type)
     logger.info(
         "Model loaded — frontend=%s  emb_dim=%d  device=%s",
-        frontend_type, emb_dim, device,
+        frontend_type,
+        emb_dim,
+        device,
     )
     return LoadedModel(
         model=nn_model,
@@ -205,6 +206,6 @@ def _infer_embedding_dim(model: torch.nn.Module, device: str, frontend_type: str
             out = model(dummy)
             emb = out[-1] if isinstance(out, tuple) else out
         return emb.shape[-1]
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.warning("Could not infer embedding dim, defaulting to 256")
         return 256

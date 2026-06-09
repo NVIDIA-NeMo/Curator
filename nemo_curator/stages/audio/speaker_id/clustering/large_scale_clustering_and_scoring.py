@@ -60,7 +60,6 @@ Recommended for:
 import gc
 import logging
 from collections import Counter, defaultdict
-from typing import Dict, Optional, Tuple
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
@@ -86,7 +85,7 @@ DEFAULT_THRESHOLD = 0.40
 
 # Default BIRCH leaf radius (Euclidean on L2-normalised vectors).
 # Corresponds to a per-leaf cosine similarity floor of ~0.8.
-#   euclidean_thr = sqrt(2 * (1 - cos_thr))
+# Formula: euclidean_thr = sqrt(2 * (1 - cos_thr))  # noqa: ERA001
 DEFAULT_BIRCH_THRESHOLD = float(np.sqrt(2.0 * (1.0 - 0.8)))  # ~0.6325
 
 # BIRCH partial_fit batch size.  Trade-off: larger -> fewer Python overhead
@@ -115,6 +114,7 @@ DROPPED_LABEL = -1
 # Linear-algebra helpers (kept local so this module has no cross-import
 # dependency on ``ahc``)
 # ---------------------------------------------------------------------------
+
 
 def _l2_normalize(embeddings: np.ndarray) -> np.ndarray:
     """L2-normalise rows; rows with zero norm are left as zero vectors."""
@@ -145,7 +145,8 @@ def cosine_threshold_to_birch_radius(cos_threshold: float) -> float:
         Euclidean radius for ``sklearn.cluster.Birch.threshold``.
     """
     if cos_threshold > 1.0 or cos_threshold < -1.0:
-        raise ValueError(f"cos_threshold must be in [-1, 1], got {cos_threshold}")
+        msg = f"cos_threshold must be in [-1, 1], got {cos_threshold}"
+        raise ValueError(msg)
     return float(np.sqrt(2.0 * (1.0 - cos_threshold)))
 
 
@@ -153,9 +154,10 @@ def cosine_threshold_to_birch_radius(cos_threshold: float) -> float:
 # Recommendation helper
 # ---------------------------------------------------------------------------
 
+
 def recommend_clustering_method(
-    num_hours: Optional[float] = None,
-    num_utterances: Optional[int] = None,
+    num_hours: float | None = None,
+    num_utterances: int | None = None,
     hours_threshold: float = LARGE_SCALE_HOURS_THRESHOLD,
     utterance_threshold: int = 150_000,
 ) -> str:
@@ -183,7 +185,8 @@ def recommend_clustering_method(
         (use this module).
     """
     if num_hours is None and num_utterances is None:
-        raise ValueError("Provide num_hours, num_utterances, or both")
+        msg = "Provide num_hours, num_utterances, or both"
+        raise ValueError(msg)
 
     if num_hours is not None and num_hours > hours_threshold:
         return "large_scale"
@@ -196,7 +199,8 @@ def recommend_clustering_method(
 # Stage 1: BIRCH (streaming)
 # ---------------------------------------------------------------------------
 
-def _build_birch_tree(
+
+def _build_birch_tree(  # noqa: ANN202
     embeddings: np.ndarray,
     birch_threshold: float,
     branching_factor: int,
@@ -210,10 +214,10 @@ def _build_birch_tree(
     try:
         from sklearn.cluster import Birch
     except ImportError as exc:
-        raise ImportError(
-            "large_scale_clustering_and_scoring requires scikit-learn.  "
-            "Install with `pip install scikit-learn>=1.3`."
-        ) from exc
+        msg = (
+            "large_scale_clustering_and_scoring requires scikit-learn.  Install with `pip install scikit-learn>=1.3`."
+        )
+        raise ImportError(msg) from exc
 
     birch = Birch(
         threshold=birch_threshold,
@@ -232,7 +236,9 @@ def _build_birch_tree(
             n_sub = len(birch.subcluster_centers_)
             logger.info(
                 "  BIRCH: %d / %d batches, %d leaf subclusters so far",
-                b + 1, n_batches, n_sub,
+                b + 1,
+                n_batches,
+                n_sub,
             )
 
     return birch
@@ -241,6 +247,7 @@ def _build_birch_tree(
 # ---------------------------------------------------------------------------
 # Stage 2: utterance -> leaf assignment (tiled, no Birch.predict)
 # ---------------------------------------------------------------------------
+
 
 def _assign_to_nearest_leaf(
     normed_embeddings: np.ndarray,
@@ -268,6 +275,7 @@ def _assign_to_nearest_leaf(
 # Stage 3: AHC on leaf centroids
 # ---------------------------------------------------------------------------
 
+
 def _ahc_on_centroids(
     centroids: np.ndarray,
     threshold: float,
@@ -280,7 +288,7 @@ def _ahc_on_centroids(
 
     dist_mat = 1.0 - _cosine_similarity_matrix(centroids)
     condensed = squareform(dist_mat, checks=False)
-    Z = linkage(condensed, method=linkage_method)
+    Z = linkage(condensed, method=linkage_method)  # noqa: N806
     distance_cutoff = 1.0 - threshold
     return fcluster(Z, t=distance_cutoff, criterion="distance")
 
@@ -289,11 +297,12 @@ def _ahc_on_centroids(
 # Stage 5: ``min_cluster_size`` filter
 # ---------------------------------------------------------------------------
 
+
 def filter_small_clusters(
     labels: np.ndarray,
     min_cluster_size: int,
     dropped_label: int = DROPPED_LABEL,
-) -> Tuple[np.ndarray, Dict]:
+) -> tuple[np.ndarray, dict]:
     """Drop clusters with fewer than ``min_cluster_size`` utterances.
 
     Utterances in dropped clusters get label ``dropped_label`` (default -1).
@@ -312,11 +321,11 @@ def filter_small_clusters(
     if min_cluster_size <= 1:
         return labels.copy(), {
             "min_cluster_size": min_cluster_size,
-            "n_clusters_before": int(len(set(labels.tolist()))),
-            "n_clusters_after": int(len(set(labels.tolist()))),
+            "n_clusters_before": len(set(labels.tolist())),
+            "n_clusters_after": len(set(labels.tolist())),
             "n_clusters_dropped": 0,
-            "n_utts_before": int(len(labels)),
-            "n_utts_kept": int(len(labels)),
+            "n_utts_before": len(labels),
+            "n_utts_kept": len(labels),
             "n_utts_dropped": 0,
             "fraction_dropped": 0.0,
         }
@@ -345,6 +354,7 @@ def filter_small_clusters(
 # ---------------------------------------------------------------------------
 # Stage 6: centroid-based per-utterance confidence
 # ---------------------------------------------------------------------------
+
 
 def _speaker_confidence_from_centroids(
     normed_embeddings: np.ndarray,
@@ -383,8 +393,8 @@ def _speaker_confidence_from_centroids(
     # Build (K, D) matrix of L2-normalised speaker centroids in a stable order.
     speaker_ids = sorted(cluster_indices.keys())
     label_to_k = {lab: k for k, lab in enumerate(speaker_ids)}
-    K = len(speaker_ids)
-    D = normed_embeddings.shape[1]
+    K = len(speaker_ids)  # noqa: N806
+    D = normed_embeddings.shape[1]  # noqa: N806
 
     centroids = np.empty((K, D), dtype=np.float32)
     cluster_sizes = np.empty(K, dtype=np.int64)
@@ -406,7 +416,7 @@ def _speaker_confidence_from_centroids(
             if lab == dropped_label:
                 continue
             k = label_to_k.get(lab)
-            if k is None or cluster_sizes[k] < 2:
+            if k is None or cluster_sizes[k] < 2:  # noqa: PLR2004
                 continue
 
             a = float(sim_tile[local_i, k])
@@ -427,7 +437,8 @@ def _speaker_confidence_from_centroids(
 # Top-level entry point
 # ---------------------------------------------------------------------------
 
-def cluster_embeddings_large_scale(
+
+def cluster_embeddings_large_scale(  # noqa: PLR0913, PLR0915
     embeddings: np.ndarray,
     threshold: float = DEFAULT_THRESHOLD,
     linkage_method: str = "average",
@@ -439,7 +450,7 @@ def cluster_embeddings_large_scale(
     compute_confidence: bool = True,
     dropped_label: int = DROPPED_LABEL,
     max_leaf_subclusters: int = DEFAULT_MAX_LEAF_SUBCLUSTERS,
-) -> Tuple[np.ndarray, Optional[np.ndarray], Dict]:
+) -> tuple[np.ndarray, np.ndarray | None, dict]:
     """Cluster a large embedding set with BIRCH (stage 1) + AHC (stage 2).
 
     Memory peak:
@@ -482,9 +493,12 @@ def cluster_embeddings_large_scale(
     """
     n, d = embeddings.shape
     logger.info(
-        "Large-scale clustering: N=%d, D=%d, threshold=%.4f, "
-        "min_cluster_size=%d, birch_threshold=%.4f",
-        n, d, threshold, min_cluster_size, birch_threshold,
+        "Large-scale clustering: N=%d, D=%d, threshold=%.4f, min_cluster_size=%d, birch_threshold=%.4f",
+        n,
+        d,
+        threshold,
+        min_cluster_size,
+        birch_threshold,
     )
 
     if n == 0:
@@ -509,9 +523,10 @@ def cluster_embeddings_large_scale(
     # leaves than the pdist step can handle, relax the floor (increase the
     # Euclidean radius) and refit.  AHC cost scales O(n_leaves^2) in memory.
     logger.info(
-        "Stage 1: BIRCH partial_fit (batch=%d, branching=%d, threshold=%.4f, "
-        "max_leaf_subclusters=%d)",
-        partial_fit_batch, branching_factor, birch_threshold,
+        "Stage 1: BIRCH partial_fit (batch=%d, branching=%d, threshold=%.4f, max_leaf_subclusters=%d)",
+        partial_fit_batch,
+        branching_factor,
+        birch_threshold,
         max_leaf_subclusters,
     )
     # Gentle proportional backoff: 1.25x geometric on the Euclidean
@@ -519,11 +534,10 @@ def cluster_embeddings_large_scale(
     # produces a single monolithic cluster, which is worse than an OOM
     # because it silently succeeds.  If leaves drop below 10% of the
     # cap, we've overshot and stop (result still usable even if >cap).
-    MIN_LEAVES_FLOOR = max(max_leaf_subclusters // 10, 100)
-    MAX_RADIUS = 1.0
-    BACKOFF = 1.25
+    MIN_LEAVES_FLOOR = max(max_leaf_subclusters // 10, 100)  # noqa: N806
+    MAX_RADIUS = 1.0  # noqa: N806
+    BACKOFF = 1.25  # noqa: N806
     current_radius = birch_threshold
-    prev_n_sub = None
     birch_retries = 0
     for attempt in range(8):
         birch = _build_birch_tree(
@@ -537,26 +551,30 @@ def cluster_embeddings_large_scale(
         if n_sub <= max_leaf_subclusters:
             if n_sub < MIN_LEAVES_FLOOR and attempt > 0:
                 logger.warning(
-                    "Stage 1 attempt %d: %d leaves < floor %d (overshot); "
-                    "accepting anyway (radius=%.4f)",
-                    attempt + 1, n_sub, MIN_LEAVES_FLOOR, current_radius,
+                    "Stage 1 attempt %d: %d leaves < floor %d (overshot); accepting anyway (radius=%.4f)",
+                    attempt + 1,
+                    n_sub,
+                    MIN_LEAVES_FLOOR,
+                    current_radius,
                 )
             break
         new_radius = min(current_radius * BACKOFF, MAX_RADIUS)
-        if abs(new_radius - current_radius) < 1e-6:
+        if abs(new_radius - current_radius) < 1e-6:  # noqa: PLR2004
             logger.warning(
-                "Stage 1: radius saturated at %.4f with %d leaves (cap=%d); "
-                "proceeding — AHC step may OOM",
-                current_radius, n_sub, max_leaf_subclusters,
+                "Stage 1: radius saturated at %.4f with %d leaves (cap=%d); proceeding — AHC step may OOM",
+                current_radius,
+                n_sub,
+                max_leaf_subclusters,
             )
             break
         logger.warning(
-            "Stage 1 attempt %d: %d leaves > cap %d, "
-            "relaxing radius %.4f -> %.4f",
-            attempt + 1, n_sub, max_leaf_subclusters,
-            current_radius, new_radius,
+            "Stage 1 attempt %d: %d leaves > cap %d, relaxing radius %.4f -> %.4f",
+            attempt + 1,
+            n_sub,
+            max_leaf_subclusters,
+            current_radius,
+            new_radius,
         )
-        prev_n_sub = n_sub
         current_radius = new_radius
         birch_retries += 1
         # Explicitly drop the previous BIRCH tree + its leaf array before
@@ -568,55 +586,61 @@ def cluster_embeddings_large_scale(
     effective_birch_threshold = current_radius
     logger.info(
         "Stage 1 done: %d leaf subclusters (final radius=%.4f, retries=%d)",
-        n_sub, effective_birch_threshold, birch_retries,
+        n_sub,
+        effective_birch_threshold,
+        birch_retries,
     )
 
     # Re-L2-normalise centroids (BIRCH means are *inside* the unit sphere).
-    normed_centroids = _l2_normalize(leaf_centroids)
+    normed_centroids = _l2_normalize(leaf_centroids)  # noqa: F821
 
     # ---- Stage 2: utterance -> leaf assignment.
-    logger.info("Stage 2: assigning %d utterances to %d leaves (tile=%d)",
-                n, n_sub, assign_tile)
+    logger.info("Stage 2: assigning %d utterances to %d leaves (tile=%d)", n, n_sub, assign_tile)
     leaf_idx = _assign_to_nearest_leaf(
-        normed, normed_centroids, tile=assign_tile,
+        normed,
+        normed_centroids,
+        tile=assign_tile,
     )
 
     # ---- Stage 3: AHC on centroids.
-    logger.info("Stage 3: AHC on %d leaf centroids (linkage=%s, threshold=%.4f)",
-                n_sub, linkage_method, threshold)
+    logger.info("Stage 3: AHC on %d leaf centroids (linkage=%s, threshold=%.4f)", n_sub, linkage_method, threshold)
     centroid_labels = _ahc_on_centroids(
         normed_centroids,
         threshold=threshold,
         linkage_method=linkage_method,
     )
-    n_speakers_raw = int(len(set(centroid_labels.tolist())))
-    logger.info("Stage 3 done: %d centroid clusters (= raw speakers)",
-                n_speakers_raw)
+    n_speakers_raw = len(set(centroid_labels.tolist()))
+    logger.info("Stage 3 done: %d centroid clusters (= raw speakers)", n_speakers_raw)
 
     # ---- Stage 4: back-propagate to utterances.
     logger.info("Stage 4: back-propagating speaker labels to utterances")
     labels = centroid_labels[leaf_idx].astype(np.int64, copy=False)
 
     # ---- Stage 5: filter small clusters.
-    logger.info("Stage 5: filtering clusters smaller than %d utterances",
-                min_cluster_size)
+    logger.info("Stage 5: filtering clusters smaller than %d utterances", min_cluster_size)
     labels, filter_stats = filter_small_clusters(
-        labels, min_cluster_size=min_cluster_size, dropped_label=dropped_label,
+        labels,
+        min_cluster_size=min_cluster_size,
+        dropped_label=dropped_label,
     )
     logger.info(
-        "Stage 5 done: kept %d / %d clusters, %d / %d utterances "
-        "(dropped %.1f%%)",
-        filter_stats["n_clusters_after"], filter_stats["n_clusters_before"],
-        filter_stats["n_utts_kept"], filter_stats["n_utts_before"],
+        "Stage 5 done: kept %d / %d clusters, %d / %d utterances (dropped %.1f%%)",
+        filter_stats["n_clusters_after"],
+        filter_stats["n_clusters_before"],
+        filter_stats["n_utts_kept"],
+        filter_stats["n_utts_before"],
         100.0 * filter_stats["fraction_dropped"],
     )
 
     # ---- Stage 6: centroid-based confidence.
-    confidence: Optional[np.ndarray] = None
+    confidence: np.ndarray | None = None
     if compute_confidence:
         logger.info("Stage 6: per-utterance confidence vs speaker centroids")
         confidence = _speaker_confidence_from_centroids(
-            normed, labels, dropped_label=dropped_label, tile=assign_tile,
+            normed,
+            labels,
+            dropped_label=dropped_label,
+            tile=assign_tile,
         )
 
     stats = {
@@ -640,10 +664,11 @@ def cluster_embeddings_large_scale(
 # Logging / pretty-print helpers
 # ---------------------------------------------------------------------------
 
+
 def print_large_scale_summary(
     labels: np.ndarray,
-    stats: Dict,
-    confidence: Optional[np.ndarray] = None,
+    stats: dict,
+    confidence: np.ndarray | None = None,
     dropped_label: int = DROPPED_LABEL,
 ) -> None:
     """Print a human-readable summary of a large-scale clustering run."""
@@ -652,12 +677,14 @@ def print_large_scale_summary(
     kept_counts = Counter(kept_labels.tolist())
     kept_sizes = sorted(kept_counts.values(), reverse=True)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  Large-Scale Clustering Results")
-    print(f"  (BIRCH leaves={stats.get('n_leaf_subclusters', 'N/A')}, "
-          f"threshold={stats.get('threshold', float('nan')):.4f}, "
-          f"linkage={stats.get('linkage_method', 'N/A')})")
-    print(f"{'='*60}")
+    print(
+        f"  (BIRCH leaves={stats.get('n_leaf_subclusters', 'N/A')}, "
+        f"threshold={stats.get('threshold', float('nan')):.4f}, "
+        f"linkage={stats.get('linkage_method', 'N/A')})"
+    )
+    print(f"{'=' * 60}")
     print(f"  Utterances input    : {stats.get('n_input', len(labels)):,}")
     print(f"  BIRCH leaves        : {stats.get('n_leaf_subclusters', 'N/A')}")
     print(f"  Speakers (raw)      : {stats.get('n_clusters_raw', 'N/A'):,}")
@@ -666,8 +693,10 @@ def print_large_scale_summary(
     print(f"\n  min_cluster_size    : {fstats.get('min_cluster_size', 'N/A')}")
     print(f"  Speakers after filter: {fstats.get('n_clusters_after', 'N/A'):,}")
     print(f"  Utterances kept     : {fstats.get('n_utts_kept', 'N/A'):,}")
-    print(f"  Utterances dropped  : {fstats.get('n_utts_dropped', 'N/A'):,} "
-          f"({100.0 * fstats.get('fraction_dropped', 0.0):.1f}%)")
+    print(
+        f"  Utterances dropped  : {fstats.get('n_utts_dropped', 'N/A'):,} "
+        f"({100.0 * fstats.get('fraction_dropped', 0.0):.1f}%)"
+    )
 
     if kept_sizes:
         print("\n  Kept cluster sizes:")
@@ -681,8 +710,10 @@ def print_large_scale_summary(
         kept_conf = confidence[kept_mask]
         if len(kept_conf) > 0:
             print("\n  Confidence (kept utterances):")
-            print(f"    mean={kept_conf.mean():.4f}  "
-                  f"median={float(np.median(kept_conf)):.4f}  "
-                  f"min={kept_conf.min():.4f}  max={kept_conf.max():.4f}")
+            print(
+                f"    mean={kept_conf.mean():.4f}  "
+                f"median={float(np.median(kept_conf)):.4f}  "
+                f"min={kept_conf.min():.4f}  max={kept_conf.max():.4f}"
+            )
 
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")

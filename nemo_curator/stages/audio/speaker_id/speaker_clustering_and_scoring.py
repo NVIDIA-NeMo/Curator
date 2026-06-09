@@ -49,7 +49,7 @@ import os
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from loguru import logger
@@ -62,23 +62,26 @@ from nemo_curator.stages.audio.speaker_id.speaker_embedding_lhotse import (
 
 EmbeddingNormalization = Literal["none", "center_global", "external"]
 
-from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import EmptyTask, _EmptyTask
+from nemo_curator.stages.base import ProcessingStage  # noqa: E402
+from nemo_curator.stages.resources import Resources  # noqa: E402
+from nemo_curator.tasks import EmptyTask, _EmptyTask  # noqa: E402
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import WorkerMetadata
 
 # SimAM_ResNet100 / legacy VoxCeleb1-O reference (different model family).
 EER_THRESHOLD = 0.3483
 # Default AHC cosine threshold for TitaNet + batch mean removal (``center_global``):
 # local eval: TitaNet with cohort mean subtraction, cosine @ EER ≈ 0.291670
 # (see tutorials/audio/speaker_id/TITANET_VS_WESPKResNet_benchmark.md).  Raise toward
-# 0.35–0.40 if false merges (different speakers merged) hurt more than splits.
+# 0.35–0.40 if false merges (different speakers merged) hurt more than splits.  # noqa: RUF003
 DEFAULT_THRESHOLD = 0.292
 
 
 # ---------------------------------------------------------------------------
 # Path helpers (shared with speaker_embedding_lhotse.py)
 # ---------------------------------------------------------------------------
+
 
 def _expand_nemo_path(path: str) -> list[str]:
     """Expand NeMo-style brace patterns (``_OP_0..49_CL_``) to file list."""
@@ -102,6 +105,7 @@ def _extract_shard_id(path: str) -> str:
 # ---------------------------------------------------------------------------
 # Linear-algebra helpers
 # ---------------------------------------------------------------------------
+
 
 def _l2_normalize(embeddings: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
@@ -139,8 +143,9 @@ def normalize_embeddings_for_clustering(
     Returns:
         ``(N, D)`` float32 array.
     """
-    if embeddings.ndim != 2:
-        raise ValueError(f"Expected (N, D) embeddings, got shape {embeddings.shape}")
+    if embeddings.ndim != 2:  # noqa: PLR2004
+        msg = f"Expected (N, D) embeddings, got shape {embeddings.shape}"
+        raise ValueError(msg)
 
     x = np.asarray(embeddings, dtype=np.float64)
 
@@ -150,27 +155,28 @@ def normalize_embeddings_for_clustering(
         x = x - x.mean(axis=0, keepdims=True)
     elif mode == "external":
         if not external_mean_npy or not os.path.isfile(external_mean_npy):
-            raise ValueError(
+            msg = (
                 "embedding_normalization='external' requires a valid "
                 f"external_mean_npy file; got {external_mean_npy!r}"
             )
+            raise ValueError(msg)
         mean = np.load(external_mean_npy).astype(np.float64).reshape(-1)
         if mean.shape[0] != x.shape[1]:
-            raise ValueError(
-                f"Mean dim {mean.shape[0]} != embedding dim {x.shape[1]}"
-            )
+            msg = f"Mean dim {mean.shape[0]} != embedding dim {x.shape[1]}"
+            raise ValueError(msg)
         x = x - mean
         if external_std_npy:
             if not os.path.isfile(external_std_npy):
-                raise ValueError(f"external_std_npy not found: {external_std_npy}")
+                msg = f"external_std_npy not found: {external_std_npy}"
+                raise ValueError(msg)
             std = np.load(external_std_npy).astype(np.float64).reshape(-1)
             if std.shape[0] != x.shape[1]:
-                raise ValueError(
-                    f"Std dim {std.shape[0]} != embedding dim {x.shape[1]}"
-                )
+                msg = f"Std dim {std.shape[0]} != embedding dim {x.shape[1]}"
+                raise ValueError(msg)
             x = x / np.maximum(std, eps)
     else:
-        raise ValueError(f"Unknown embedding_normalization: {mode!r}")
+        msg = f"Unknown embedding_normalization: {mode!r}"
+        raise ValueError(msg)
 
     return x.astype(np.float32)
 
@@ -185,6 +191,7 @@ def _cosine_similarity_matrix(embeddings: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Core clustering
 # ---------------------------------------------------------------------------
+
 
 def cluster_embeddings(
     embeddings: np.ndarray,
@@ -206,10 +213,9 @@ def cluster_embeddings(
     dist_mat = 1.0 - _cosine_similarity_matrix(embeddings)
     condensed = squareform(dist_mat, checks=False)
 
-    Z = linkage(condensed, method=linkage_method)
+    Z = linkage(condensed, method=linkage_method)  # noqa: N806
     distance_cutoff = 1.0 - threshold
-    labels = fcluster(Z, t=distance_cutoff, criterion="distance")
-    return labels
+    return fcluster(Z, t=distance_cutoff, criterion="distance")
 
 
 def cluster_stats(labels: np.ndarray) -> dict:
@@ -229,6 +235,7 @@ def cluster_stats(labels: np.ndarray) -> dict:
 # Per-utterance confidence
 # ---------------------------------------------------------------------------
 
+
 def speaker_confidence(
     embeddings: np.ndarray,
     labels: np.ndarray,
@@ -247,7 +254,7 @@ def speaker_confidence(
 
     unique_labels = sorted(cluster_indices.keys())
     label_to_k = {lab: k for k, lab in enumerate(unique_labels)}
-    K = len(unique_labels)
+    K = len(unique_labels)  # noqa: N806
 
     membership = np.zeros((n, K), dtype=np.float32)
     cluster_sizes = np.zeros(K, dtype=np.float32)
@@ -263,7 +270,7 @@ def speaker_confidence(
         my_k = label_to_k[labels[i]]
         my_size = cluster_sizes[my_k]
 
-        if my_size < 2:
+        if my_size < 2:  # noqa: PLR2004
             continue
 
         cohesion = (mean_sim[i, my_k] * my_size - 1.0) / (my_size - 1.0)
@@ -272,7 +279,7 @@ def speaker_confidence(
         rival_sims[my_k] = -2.0
         best_rival = rival_sims.max()
 
-        if best_rival <= -2.0:
+        if best_rival <= -2.0:  # noqa: PLR2004
             scores[i] = 1.0
             continue
 
@@ -290,6 +297,7 @@ def speaker_confidence(
 # Logging helpers
 # ---------------------------------------------------------------------------
 
+
 def _log_cluster_summary(labels: np.ndarray, threshold: float) -> None:
     stats = cluster_stats(labels)
     logger.info(
@@ -303,6 +311,7 @@ def _log_cluster_summary(labels: np.ndarray, threshold: float) -> None:
 # I/O: load embeddings, read/write manifests
 # ---------------------------------------------------------------------------
 
+
 def _load_embedding_shard(path: str) -> tuple[np.ndarray, np.ndarray]:
     """Load ``(cut_ids, embeddings)`` from one ``.npz`` file."""
     data = np.load(path, allow_pickle=True)
@@ -314,7 +323,7 @@ def _read_manifest(path: str) -> list[dict]:
     lines = []
     with open(path) as f:
         for line in f:
-            line = line.strip()
+            line = line.strip()  # noqa: PLW2901
             if line:
                 lines.append(json.loads(line))
     return lines
@@ -324,8 +333,7 @@ def _write_manifest(path: str, entries: list[dict]) -> None:
     """Write a NeMo JSONL manifest."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w") as f:
-        for entry in entries:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        f.writelines(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries)
 
 
 def _verify_manifest_vs_embeddings(
@@ -363,6 +371,7 @@ def _verify_manifest_vs_embeddings(
 # ---------------------------------------------------------------------------
 # NeMo Curator ProcessingStage
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
@@ -422,23 +431,21 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
         pass
 
     def _load_shard_pair(
-        self, manifest_path: str,
+        self,
+        manifest_path: str,
     ) -> tuple[list[dict], np.ndarray, np.ndarray, dict[str, int]]:
         """Load one manifest + its matching embedding file, verify alignment."""
         shard_id = _extract_shard_id(manifest_path)
         emb_path = os.path.join(self.embedding_dir, f"embeddings_{shard_id}.npz")
 
         if not os.path.isfile(emb_path):
-            raise FileNotFoundError(
-                f"Embedding file {emb_path} not found for manifest {manifest_path}"
-            )
+            msg = f"Embedding file {emb_path} not found for manifest {manifest_path}"
+            raise FileNotFoundError(msg)
 
         manifest_entries = _read_manifest(manifest_path)
         cut_ids, embeddings = _load_embedding_shard(emb_path)
 
-        mapping = _verify_manifest_vs_embeddings(
-            manifest_entries, cut_ids, manifest_path, self.audio_filepath_key
-        )
+        mapping = _verify_manifest_vs_embeddings(manifest_entries, cut_ids, manifest_path, self.audio_filepath_key)
 
         return manifest_entries, cut_ids, embeddings, mapping
 
@@ -468,7 +475,7 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
             disable=bar_disable,
         ) as bar:
             for idx, mp in enumerate(manifest_paths, start=1):
-                manifest_entries, cut_ids, embeddings, mapping = self._load_shard_pair(mp)
+                manifest_entries, _cut_ids, embeddings, mapping = self._load_shard_pair(mp)
                 n = embeddings.shape[0]
                 if n == 0:
                     logger.warning(f"Shard {mp} has 0 embeddings, skipping")
@@ -490,15 +497,10 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
                         entry["speaker_label"] = -1
                         entry["confidence_score"] = 0.0
 
-                out_path = os.path.join(
-                    self.output_manifest_dir, os.path.basename(mp)
-                )
+                out_path = os.path.join(self.output_manifest_dir, os.path.basename(mp))
                 _write_manifest(out_path, manifest_entries)
                 total += n
-                logger.info(
-                    f"  Shard {idx}/{len(manifest_paths)}: "
-                    f"{os.path.basename(mp)} -> {out_path}"
-                )
+                logger.info(f"  Shard {idx}/{len(manifest_paths)}: {os.path.basename(mp)} -> {out_path}")
                 bar.set_postfix(utts=total, last_n_clusters=int(labels.max() + 1))
                 bar.update(1)
 
@@ -522,7 +524,7 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
             dynamic_ncols=True,
             disable=bar_disable,
         ):
-            manifest_entries, cut_ids, embeddings, mapping = self._load_shard_pair(mp)
+            manifest_entries, _cut_ids, embeddings, mapping = self._load_shard_pair(mp)
             if embeddings.shape[0] == 0:
                 logger.warning(f"Shard {mp} has 0 embeddings, skipping")
                 continue
@@ -534,10 +536,7 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
             return 0
 
         merged_embs = np.concatenate(all_embs)
-        logger.info(
-            f"Global clustering: {merged_embs.shape[0]:,} utterances "
-            f"from {len(shard_data)} shards"
-        )
+        logger.info(f"Global clustering: {merged_embs.shape[0]:,} utterances from {len(shard_data)} shards")
 
         # AHC + confidence are single SciPy/NumPy calls on the merged matrix;
         # they cannot be tqdm-tracked without rewriting the algorithm. They are
@@ -559,8 +558,8 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
             disable=bar_disable,
         ):
             n = embeddings.shape[0]
-            shard_labels = labels[offset:offset + n]
-            shard_scores = scores[offset:offset + n]
+            shard_labels = labels[offset : offset + n]
+            shard_scores = scores[offset : offset + n]
             offset += n
 
             for entry in manifest_entries:
@@ -573,9 +572,7 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
                     entry["speaker_label"] = -1
                     entry["confidence_score"] = 0.0
 
-            out_path = os.path.join(
-                self.output_manifest_dir, os.path.basename(mp)
-            )
+            out_path = os.path.join(self.output_manifest_dir, os.path.basename(mp))
             _write_manifest(out_path, manifest_entries)
             total += n
 
@@ -585,8 +582,10 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
     # Grouped (batched) clustering
     # ------------------------------------------------------------------
 
-    def _process_grouped(
-        self, manifest_paths: list[str], batch_size: int,
+    def _process_grouped(  # noqa: PLR0915
+        self,
+        manifest_paths: list[str],
+        batch_size: int,
     ) -> int:
         """Cluster shards in groups of ``batch_size``.
 
@@ -613,8 +612,7 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
                 group_paths = manifest_paths[start:end]
 
                 logger.info(
-                    f"Group {group_idx + 1}/{num_groups}: "
-                    f"shards {start}-{end - 1} ({len(group_paths)} shards)"
+                    f"Group {group_idx + 1}/{num_groups}: shards {start}-{end - 1} ({len(group_paths)} shards)"
                 )
 
                 shard_data: list[tuple[str, list[dict], np.ndarray, dict[str, int]]] = []
@@ -629,9 +627,7 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
                     disable=bar_disable,
                 ):
                     try:
-                        manifest_entries, cut_ids, embeddings, mapping = (
-                            self._load_shard_pair(mp)
-                        )
+                        manifest_entries, _cut_ids, embeddings, mapping = self._load_shard_pair(mp)
                     except FileNotFoundError:
                         logger.warning(f"Missing embeddings for {mp}, skipping")
                         continue
@@ -647,14 +643,13 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
                     continue
 
                 merged_embs = np.concatenate(all_embs)
-                logger.info(
-                    f"  Clustering {merged_embs.shape[0]:,} utterances "
-                    f"from {len(shard_data)} shards"
-                )
+                logger.info(f"  Clustering {merged_embs.shape[0]:,} utterances from {len(shard_data)} shards")
 
                 merged_embs = self._normalize(merged_embs)
                 labels = cluster_embeddings(
-                    merged_embs, self.threshold, self.linkage_method,
+                    merged_embs,
+                    self.threshold,
+                    self.linkage_method,
                 )
                 scores = speaker_confidence(merged_embs, labels)
                 _log_cluster_summary(labels, self.threshold)
@@ -673,8 +668,8 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
                     disable=bar_disable,
                 ):
                     n = embeddings.shape[0]
-                    shard_labels = labels[offset:offset + n]
-                    shard_scores = scores[offset:offset + n]
+                    shard_labels = labels[offset : offset + n]
+                    shard_scores = scores[offset : offset + n]
                     offset += n
 
                     for entry in manifest_entries:
@@ -683,14 +678,16 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
                         if emb_idx is not None:
                             entry["speaker_label"] = int(shard_labels[emb_idx])
                             entry["confidence_score"] = round(
-                                float(shard_scores[emb_idx]), 6,
+                                float(shard_scores[emb_idx]),
+                                6,
                             )
                         else:
                             entry["speaker_label"] = -1
                             entry["confidence_score"] = 0.0
 
                     out_path = os.path.join(
-                        self.output_manifest_dir, os.path.basename(mp),
+                        self.output_manifest_dir,
+                        os.path.basename(mp),
                     )
                     _write_manifest(out_path, manifest_entries)
                     total += n
@@ -708,7 +705,8 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
         """Return ``"shard"`` | ``"grouped"`` | ``"global"``."""
         if self.batch_size is not None:
             if self.batch_size < 1:
-                raise ValueError(f"batch_size must be >= 1, got {self.batch_size}")
+                msg = f"batch_size must be >= 1, got {self.batch_size}"
+                raise ValueError(msg)
             if self.batch_size == 1:
                 return "shard"
             return "grouped"
@@ -740,8 +738,5 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
         else:
             total = self._process_global(manifest_paths)
 
-        logger.info(
-            f"Done. {total:,} utterances clustered -> "
-            f"{self.output_manifest_dir}"
-        )
+        logger.info(f"Done. {total:,} utterances clustered -> {self.output_manifest_dir}")
         return EmptyTask

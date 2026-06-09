@@ -1,9 +1,10 @@
 """Audio feature computation: fbank, resampling, CMN, and learned frontends."""
 
 import logging
+
 import torch
 import torchaudio
-import torchaudio.compliance.kaldi as kaldi
+from torchaudio.compliance import kaldi
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ def compute_frontend_features(
     return features  # (1, T', D)
 
 
-def compute_features(
+def compute_features(  # noqa: PLR0913
     pcm: torch.Tensor,
     model: torch.nn.Module,
     frontend_type: str,

@@ -33,7 +33,6 @@ import torch
 from loguru import logger
 from tqdm.auto import tqdm
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, _EmptyTask
@@ -63,20 +62,11 @@ def _worker_tag() -> str:
         return f"gpu{cv.split(',')[0]}"
     return f"pid{os.getpid()}"
 
-if TYPE_CHECKING:
-    from lhotse import Cut, CutSet
 
-try:
-    from nemo.collections.common.data.lhotse.nemo_adapters import (
-        LazyNeMoIterator,
-        LazyNeMoTarredIterator,
-    )
-except ModuleNotFoundError as exc:
-    msg = (
-        "NeMo is required for lhotse_mode='nemo_tarred' or 'nemo_row'. "
-        "Install nemo_toolkit (e.g. pip install nemo_toolkit[asr])."
-    )
-    raise RuntimeError(msg) from exc
+if TYPE_CHECKING:
+    from lhotse import Cut
+
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
 def _expand_nemo_path(path: str) -> list[str]:
@@ -129,7 +119,9 @@ def merge_shard_embeddings(
         if ext == "pt":
             data = torch.load(f, weights_only=False)
             all_ids.extend(data["cut_ids"])
-            all_embs.append(data["embeddings"].numpy() if isinstance(data["embeddings"], torch.Tensor) else data["embeddings"])
+            all_embs.append(
+                data["embeddings"].numpy() if isinstance(data["embeddings"], torch.Tensor) else data["embeddings"]
+            )
         else:
             data = np.load(f, allow_pickle=True)
             all_ids.extend(data["cut_ids"])
@@ -206,7 +198,7 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
             if self.cache_dir is not None:
                 kwargs["cache_dir"] = self.cache_dir
             nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained(**kwargs)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.info(f"Could not pre-cache {self.model_name}; will download on first use")
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
@@ -286,7 +278,7 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
             for p in _expand_nemo_path(self.input_manifest.strip()):
                 with open(p) as f:
                     total += sum(1 for _ in f)
-            return total
+            return total  # noqa: TRY300
         except (FileNotFoundError, OSError):
             return None
 
@@ -315,13 +307,22 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
         """
         from lhotse import CutSet
 
+        try:
+            from nemo.collections.common.data.lhotse.nemo_adapters import (
+                LazyNeMoTarredIterator,
+            )
+        except ModuleNotFoundError as exc:
+            msg = (
+                "NeMo is required for lhotse_mode='nemo_tarred' or 'nemo_row'. "
+                "Install nemo_toolkit (e.g. pip install nemo_toolkit[asr])."
+            )
+            raise RuntimeError(msg) from exc
+
         shard_id = _extract_shard_id(manifest_path)
         ext = "pt" if self.output_format == "pt" else "npz"
         shard_output = os.path.join(self.output_path, f"embeddings_{shard_id}.{ext}")
 
-        cuts = CutSet(
-            LazyNeMoTarredIterator(manifest_path=manifest_path, tar_paths=tar_path)
-        )
+        cuts = CutSet(LazyNeMoTarredIterator(manifest_path=manifest_path, tar_paths=tar_path))
 
         cut_ids: list[str] = []
         embeddings: list[np.ndarray] = []
@@ -352,7 +353,7 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
                 try:
                     batch_audio.append(self._load_audio(cut))
                     batch_ids.append(cut.id)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     logger.warning(f"Failed to load cut {cut.id!r}, skipping")
                     continue
 
@@ -384,8 +385,7 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
         num_shards = len(manifest_paths)
 
         logger.info(
-            f"Starting extraction: {num_shards} shards, "
-            f"~{effective_total or '?'} cuts  (batch_size={self.batch_size})"
+            f"Starting extraction: {num_shards} shards, ~{effective_total or '?'} cuts  (batch_size={self.batch_size})"
         )
         os.makedirs(self.output_path, exist_ok=True)
 
@@ -401,7 +401,7 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
             disable=bar_disable,
             mininterval=0.1 if is_tty else 2.0,
         ) as shard_bar:
-            for shard_idx, (mp, tp) in enumerate(zip(manifest_paths, tar_paths), start=1):
+            for shard_idx, (mp, tp) in enumerate(zip(manifest_paths, tar_paths, strict=False), start=1):
                 remaining = None
                 if self.max_cuts is not None:
                     remaining = self.max_cuts - global_count
@@ -409,7 +409,10 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
                         break
 
                 n, out_file = self._process_shard(
-                    mp, tp, remaining, progress_position=1,
+                    mp,
+                    tp,
+                    remaining,
+                    progress_position=1,
                 )
                 global_count += n
                 pct = f" ({100 * global_count / effective_total:.1f}%)" if effective_total else ""

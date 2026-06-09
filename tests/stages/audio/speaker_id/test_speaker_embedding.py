@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest import mock
 
 import numpy as np
@@ -26,6 +26,9 @@ from nemo_curator.stages.audio.speaker_id.speaker_embedding_audiotask import (
     SpeakerEmbeddingAudioTaskStage,
 )
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _make_audio_task(
@@ -39,7 +42,7 @@ def _make_audio_task(
         task_id=task_id,
         dataset_name="test",
         data={
-            "waveform": np.random.randn(n_samples).astype(np.float32),
+            "waveform": np.random.default_rng(42).standard_normal(n_samples).astype(np.float32),
             "sample_rate": sr,
             "audio_filepath": audio_filepath,
         },
@@ -50,7 +53,9 @@ def _mock_speaker_model(emb_dim: int = 192) -> mock.MagicMock:
     model = mock.MagicMock()
     model.device = torch.device("cpu")
 
-    def fake_forward(input_signal, input_signal_length):
+    def fake_forward(
+        input_signal: torch.Tensor, _input_signal_length: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         batch = input_signal.shape[0]
         logits = torch.zeros(batch, 1)
         embs = torch.randn(batch, emb_dim)

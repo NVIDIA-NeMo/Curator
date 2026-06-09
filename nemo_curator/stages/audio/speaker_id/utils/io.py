@@ -1,18 +1,16 @@
 """I/O utilities: save/load embeddings, wav.scp, utt lists."""
 
 import os
-from pathlib import Path
-from typing import List, Tuple
 
 import numpy as np
 
 
 def save_embeddings(
     embeddings: np.ndarray,
-    utt_ids: List[str],
+    utt_ids: list[str],
     output_dir: str,
     suffix: str = "",
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """Save embeddings and utterance IDs to disk.
 
     Returns (emb_path, utt_path).
@@ -28,7 +26,7 @@ def save_embeddings(
     return emb_path, utt_path
 
 
-def load_embeddings(output_dir: str, suffix: str = "") -> Tuple[np.ndarray, List[str]]:
+def load_embeddings(output_dir: str, suffix: str = "") -> tuple[np.ndarray, list[str]]:
     """Load embeddings and utterance IDs from disk."""
     emb_path = os.path.join(output_dir, f"embeddings{suffix}.npy")
     utt_path = os.path.join(output_dir, f"utt_names{suffix}.txt")
@@ -40,7 +38,7 @@ def load_embeddings(output_dir: str, suffix: str = "") -> Tuple[np.ndarray, List
     return embeddings, utt_ids
 
 
-def merge_embedding_shards(output_dir: str, num_shards: int) -> Tuple[str, str]:
+def merge_embedding_shards(output_dir: str, num_shards: int) -> tuple[str, str]:
     """Merge per-GPU embedding shards into a single file.
 
     Expects files named ``embeddings_gpu{i}.npy`` and ``utt_names_gpu{i}.txt``.

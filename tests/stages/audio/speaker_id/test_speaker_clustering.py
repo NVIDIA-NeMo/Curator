@@ -35,7 +35,7 @@ from nemo_curator.stages.audio.speaker_id.speaker_clustering_and_scoring import 
 
 class TestL2Normalize:
     def test_unit_length_output(self) -> None:
-        x = np.random.randn(10, 192).astype(np.float32)
+        x = np.random.default_rng(42).standard_normal((10, 192)).astype(np.float32)
         normed = _l2_normalize(x)
         norms = np.linalg.norm(normed, axis=1)
         np.testing.assert_allclose(norms, 1.0, atol=1e-6)
@@ -48,24 +48,24 @@ class TestL2Normalize:
 
 class TestCosineSimilarityMatrix:
     def test_self_similarity_is_one(self) -> None:
-        x = np.random.randn(5, 64).astype(np.float32)
+        x = np.random.default_rng(42).standard_normal((5, 64)).astype(np.float32)
         sim = _cosine_similarity_matrix(x)
         np.testing.assert_allclose(np.diag(sim), 1.0, atol=1e-5)
 
     def test_symmetric(self) -> None:
-        x = np.random.randn(5, 64).astype(np.float32)
+        x = np.random.default_rng(42).standard_normal((5, 64)).astype(np.float32)
         sim = _cosine_similarity_matrix(x)
         np.testing.assert_allclose(sim, sim.T, atol=1e-6)
 
 
 class TestNormalizeEmbeddings:
     def test_center_global_zero_mean(self) -> None:
-        x = np.random.randn(20, 8).astype(np.float32)
+        x = np.random.default_rng(42).standard_normal((20, 8)).astype(np.float32)
         result = normalize_embeddings_for_clustering(x, mode="center_global")
         np.testing.assert_allclose(result.mean(axis=0), 0.0, atol=1e-5)
 
     def test_none_passthrough(self) -> None:
-        x = np.random.randn(5, 8).astype(np.float32)
+        x = np.random.default_rng(42).standard_normal((5, 8)).astype(np.float32)
         result = normalize_embeddings_for_clustering(x, mode="none")
         np.testing.assert_allclose(result, x, atol=1e-5)
 
@@ -75,7 +75,9 @@ class TestNormalizeEmbeddings:
         np.save(mean_path, np.ones(4, dtype=np.float32) * 2.0)
 
         result = normalize_embeddings_for_clustering(
-            x, mode="external", external_mean_npy=mean_path,
+            x,
+            mode="external",
+            external_mean_npy=mean_path,
         )
         np.testing.assert_allclose(result, 3.0, atol=1e-5)
 
@@ -92,9 +94,9 @@ class TestNormalizeEmbeddings:
 
 class TestClusterEmbeddings:
     def test_two_distinct_clusters(self) -> None:
-        rng = np.random.RandomState(42)
-        cluster_a = rng.randn(10, 64).astype(np.float32) + 5.0
-        cluster_b = rng.randn(10, 64).astype(np.float32) - 5.0
+        rng = np.random.default_rng(42)
+        cluster_a = rng.standard_normal((10, 64)).astype(np.float32) + 5.0
+        cluster_b = rng.standard_normal((10, 64)).astype(np.float32) - 5.0
         embeddings = np.vstack([cluster_a, cluster_b])
 
         labels = cluster_embeddings(embeddings, threshold=0.3)
@@ -104,7 +106,7 @@ class TestClusterEmbeddings:
         assert labels[0] != labels[10]
 
     def test_single_embedding(self) -> None:
-        labels = cluster_embeddings(np.random.randn(1, 64).astype(np.float32))
+        labels = cluster_embeddings(np.random.default_rng(42).standard_normal((1, 64)).astype(np.float32))
         assert len(labels) == 1
         assert labels[0] == 1
 
@@ -125,9 +127,9 @@ class TestClusterStats:
 
 class TestSpeakerConfidence:
     def test_well_separated_clusters_high_confidence(self) -> None:
-        rng = np.random.RandomState(42)
-        a = rng.randn(5, 64).astype(np.float32) + 10.0
-        b = rng.randn(5, 64).astype(np.float32) - 10.0
+        rng = np.random.default_rng(42)
+        a = rng.standard_normal((5, 64)).astype(np.float32) + 10.0
+        b = rng.standard_normal((5, 64)).astype(np.float32) - 10.0
         embeddings = np.vstack([a, b])
         labels = np.array([1, 1, 1, 1, 1, 2, 2, 2, 2, 2])
 
@@ -137,7 +139,7 @@ class TestSpeakerConfidence:
         assert all(s > 0.5 for s in scores)
 
     def test_singleton_gets_zero(self) -> None:
-        embeddings = np.random.randn(3, 64).astype(np.float32)
+        embeddings = np.random.default_rng(42).standard_normal((3, 64)).astype(np.float32)
         labels = np.array([1, 1, 2])  # cluster 2 is singleton
         scores = speaker_confidence(embeddings, labels)
         assert scores[2] == 0.0
@@ -145,10 +147,13 @@ class TestSpeakerConfidence:
 
 class TestSpeakerClusteringStage:
     def _setup_shard(
-        self, tmp_path: Path, n: int = 20, dim: int = 64,
+        self,
+        tmp_path: Path,
+        n: int = 20,
+        dim: int = 64,
     ) -> tuple[str, str]:
         """Create a manifest + matching embedding NPZ for testing."""
-        rng = np.random.RandomState(123)
+        rng = np.random.default_rng(123)
         manifest_dir = tmp_path / "manifests"
         manifest_dir.mkdir()
         emb_dir = tmp_path / "embeddings"
@@ -163,10 +168,9 @@ class TestSpeakerClusteringStage:
 
         manifest_path = str(manifest_dir / "manifest_0.json")
         with open(manifest_path, "w") as f:
-            for e in entries:
-                f.write(json.dumps(e) + "\n")
+            f.writelines(json.dumps(e) + "\n" for e in entries)
 
-        embeddings = rng.randn(n, dim).astype(np.float32)
+        embeddings = rng.standard_normal((n, dim)).astype(np.float32)
         np.savez(
             str(emb_dir / "embeddings_0.npz"),
             cut_ids=np.array(cut_ids, dtype=object),
@@ -193,12 +197,12 @@ class TestSpeakerClusteringStage:
         assert out_file.exists()
 
         with open(out_file) as f:
-            lines = [json.loads(l) for l in f if l.strip()]
+            lines = [json.loads(line) for line in f if line.strip()]
 
         assert len(lines) == 20
-        assert all("speaker_label" in l for l in lines)
-        assert all("confidence_score" in l for l in lines)
-        assert all(l["speaker_label"] >= 1 for l in lines)
+        assert all("speaker_label" in entry for entry in lines)
+        assert all("confidence_score" in entry for entry in lines)
+        assert all(entry["speaker_label"] >= 1 for entry in lines)
 
     def test_global_clustering(self, tmp_path: Path) -> None:
         manifest_path, emb_dir = self._setup_shard(tmp_path)

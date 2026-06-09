@@ -40,7 +40,9 @@ def _mock_speaker_model(emb_dim: int = 192) -> mock.MagicMock:
     model = mock.MagicMock()
     model.device = torch.device("cpu")
 
-    def fake_forward(input_signal, input_signal_length):
+    def fake_forward(
+        input_signal: torch.Tensor, _input_signal_length: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         batch = input_signal.shape[0]
         return torch.zeros(batch, 1), torch.randn(batch, emb_dim)
 
