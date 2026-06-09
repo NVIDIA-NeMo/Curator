@@ -48,14 +48,31 @@ GH_FIELDS="number,title,state,isDraft,mergeable,mergeStateStatus,headRefName,hea
 
 pull_endpoint "pr ${PR} metadata" "${OUTDIR}/pr${PR}_gh_${TS}.json" \
     gh pr view "${PR}" --repo "${REPO}" --json "${GH_FIELDS}"
+pull_endpoint "pulls/${PR}/files" "${OUTDIR}/pr${PR}_files_${TS}.json" \
+    gh api --paginate "repos/${REPO}/pulls/${PR}/files"
+
+# This skill is audio-only: abort before pulling anything else if the PR's
+# changed files touch no audio path.
+AUDIO_RE='^(nemo_curator/stages/audio/|nemo_curator/tasks/audio_task\.py|tutorials/audio/|tests/stages/audio/|tests/tasks/test_audio|benchmarking/.*([Aa]udio|ALM|alm))'
+if ! AUDIO_RE="${AUDIO_RE}" python3 - "${OUTDIR}/pr${PR}_files_${TS}.json" <<'PY'
+import json, os, re, sys
+files = [f.get("filename", "") for f in json.load(open(sys.argv[1]))]
+rx = re.compile(os.environ["AUDIO_RE"])
+sys.exit(0 if any(rx.search(f) for f in files) else 1)
+PY
+then
+    echo "error: PR ${PR} touches no audio path; review-curator-audio-pr is audio-only." >&2
+    echo "       audio paths: nemo_curator/stages/audio/, nemo_curator/tasks/audio_task.py," >&2
+    echo "       tutorials/audio/, tests/stages/audio/, audio benchmarks. Aborting." >&2
+    exit 3
+fi
+
 pull_endpoint "pulls/${PR}/reviews" "${OUTDIR}/pr${PR}_reviews_${TS}.json" \
     gh api --paginate "repos/${REPO}/pulls/${PR}/reviews"
 pull_endpoint "pulls/${PR}/comments (inline)" "${OUTDIR}/pr${PR}_review_comments_${TS}.json" \
     gh api --paginate "repos/${REPO}/pulls/${PR}/comments"
 pull_endpoint "issues/${PR}/comments (top-level)" "${OUTDIR}/pr${PR}_issue_comments_${TS}.json" \
     gh api --paginate "repos/${REPO}/issues/${PR}/comments"
-pull_endpoint "pulls/${PR}/files" "${OUTDIR}/pr${PR}_files_${TS}.json" \
-    gh api --paginate "repos/${REPO}/pulls/${PR}/files"
 pull_endpoint "pulls/${PR}/commits" "${OUTDIR}/pr${PR}_commits_${TS}.json" \
     gh api --paginate "repos/${REPO}/pulls/${PR}/commits"
 

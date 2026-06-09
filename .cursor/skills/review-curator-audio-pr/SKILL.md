@@ -19,10 +19,11 @@ Curator PR.** Given a PR number, it helps you understand the change, see what
 other reviewers already said, and write your own review. It does not help a PR
 author reply to reviewers - it helps you *produce* the review.
 
-Scope: the **audio** modality - code under `nemo_curator/stages/audio/`,
-`tutorials/audio/`, audio tests under `tests/stages/audio/`, and audio
-benchmarks. For non-audio PRs the stage-contract lenses still apply, but the
-audio-specific guidance below will not.
+Scope: the **audio** modality only - code under `nemo_curator/stages/audio/`,
+`nemo_curator/tasks/audio_task.py`, `tutorials/audio/`, audio tests under
+`tests/stages/audio/`, and audio benchmarks. This skill is **audio-only**: if a
+PR touches no audio path, the pull step refuses to run (step 2) - review it
+with a modality-appropriate tool instead.
 
 Requirements: the GitHub CLI (`gh`) authenticated against `github.com`, and
 `git`. You do **not** need to pre-clone the repo - step 0 reuses any checkout
@@ -101,10 +102,11 @@ If you are already in the checkout that contains this skill, you can skip this.
 
 ### Step 1 - Identify the PR
 
-`gh pr view <N> --repo NVIDIA-NeMo/Curator`. Confirm the diff touches audio
-paths (`nemo_curator/stages/audio/`, `nemo_curator/tasks/audio_task.py`,
-`tutorials/audio/`, `tests/stages/audio/`, audio benchmarks); if it does not,
-this audio skill is the wrong lens.
+`gh pr view <N> --repo NVIDIA-NeMo/Curator`. This skill is **audio-only**: the
+pull step (step 2) aborts if the PR touches no audio path
+(`nemo_curator/stages/audio/`, `nemo_curator/tasks/audio_task.py`,
+`tutorials/audio/`, `tests/stages/audio/`, audio benchmarks). If it aborts, the
+PR is out of scope for this skill, so stop and do not review it here.
 
 ### Step 2 - Pull fresh GitHub data
 

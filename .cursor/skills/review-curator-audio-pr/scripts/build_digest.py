@@ -19,9 +19,17 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 from pathlib import Path
 
 BODY_KEY_LEN = 120
+
+# This skill is audio-only; a PR must touch at least one of these paths.
+AUDIO_RE = re.compile(
+    r"^(nemo_curator/stages/audio/|nemo_curator/tasks/audio_task\.py|"
+    r"tutorials/audio/|tests/stages/audio/|tests/tasks/test_audio|"
+    r"benchmarking/.*([Aa]udio|ALM|alm))"
+)
 
 
 def load(path: Path) -> object:
@@ -119,6 +127,14 @@ def build(pr, outdir, today, baseline_ts, prev_head):
     issue_comments = load(latest("issue_comments"))
     files = load(latest("files"))
     commits = load(latest("commits"))
+
+    if files and not any(AUDIO_RE.search(f.get("filename", "")) for f in files):
+        raise SystemExit(
+            f"PR {pr} touches no audio path; review-curator-audio-pr is audio-only. "
+            "Aborting (audio paths: nemo_curator/stages/audio/, "
+            "nemo_curator/tasks/audio_task.py, tutorials/audio/, "
+            "tests/stages/audio/, audio benchmarks)."
+        )
     threads_path = latest("review_threads")
     idx = build_thread_index(load(threads_path)) if threads_path.exists() else build_thread_index({})
 

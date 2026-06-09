@@ -27,6 +27,8 @@ history) from <https://github.com/NVIDIA-NeMo/Curator>. Prints
 Pulls six REST endpoints (`pr view`, `reviews`, inline `comments`, issue
 `comments`, `files`, `commits`) plus the GraphQL review threads into
 `pr<N>_*_latest.json` (and timestamped snapshots for delta analysis).
+**Audio-only:** it pulls metadata + files first and aborts (exit 3) if the PR
+touches no audio path, so the skill never reviews a non-audio PR.
 
 ## build_digest.py
 
@@ -46,7 +48,7 @@ still-open threads other reviewers left, so you don't duplicate them).
 
 The thread join uses comment `databaseId` when present, else a
 (path, body-prefix) fallback, so both GraphQL thread-dump shapes classify
-correctly.
+correctly. It also re-checks the audio-only guard and aborts on a non-audio PR.
 
 ## pull_audio_pr_corpus.sh + build_corpus.py (pre-review learning)
 
@@ -58,10 +60,15 @@ correctly.
 `pull_audio_pr_corpus.sh` lists every PR with number > `--since` (PR numbers are
 monotonic in time, so this is "opened after that PR"), keeps the ones touching
 audio paths, and pulls each one's reviews + inline + issue comments into
-`.curator-pr-review/audio-corpus/`. `build_corpus.py` consolidates them into
+`.curator-pr-review/audio-corpus/`. It is **incremental**: PRs already pulled are
+skipped (and non-audio candidates are remembered in `_non_audio_prs.txt`), so a
+rerun only fetches PRs new since last time. Pass `--refresh` to re-pull
+everything (e.g. to pick up new comments on still-open PRs).
+`build_corpus.py` consolidates them into
 `audio_pr_corpus_<date>.md`: one section per audio PR with every reviewer comment
 verbatim (anchored to path:line) plus a recurring-themes tally. Read-only
 context; it posts nothing. See `../knowledge-sources.md` section 4.
 
-The single-PR scripts fetch any PR; the audio focus is applied by the review
-lenses in `../knowledge-sources.md`.
+The single-PR scripts are **audio-only**: both `pr_review_pull.sh` and
+`build_digest.py` abort on a PR that touches no audio path. The audio review
+lenses live in `../knowledge-sources.md`.
