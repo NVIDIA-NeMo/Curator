@@ -9,7 +9,7 @@ The pipeline reads a Granary-style NeMo tarred audio data config, decodes audio 
 - **Input**: Granary YAML data config with `nemo_tarred` corpora
 - **Reader**: Streams local NeMo tar shards and decodes waveforms in memory
 - **Inference**: Runs Qwen3-Omni thinker-only audio-to-text generation through in-process vLLM. The Curator-side glue lives in the generic `ASRStage` (input validation, ISO-code -> language-name lookup, stage-side pre-slicing for clips longer than `max_inference_duration_s`, optional duration-bucketed batching, stitch-back, metrics); the Qwen-Omni-specific vLLM setup, prompt formatting, and two-turn generation live in `QwenOmniASRAdapter`. Swap models by changing the single `adapter_target:` line in the YAML; tweak the bucket shape via `batch_policy:`. `ASRStage` itself subclasses the modality-agnostic `BucketedInferenceStage` (`nemo_curator/stages/inference/`), so the bucketize -> dispatch -> reassemble loop is shared with any other GPU inference stage rather than re-coded per model.
-- **Output**: Writes per-shard manifests, `.done` markers, an optional final manifest, and `perf_summary.json`
+- **Output**: Writes per-shard manifests, `.done` markers, an optional final manifest, per-task `{shard}_perf.jsonl`, and aggregate `perf_summary.json` (see [Performance Summary](#performance-summary))
 
 ### Pipeline Flow
 
@@ -173,6 +173,7 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `seed` | vLLM scheduler / sampling seed. | `1234` |
 | `keep_waveform` | Keep waveform arrays after inference so downstream stages can reuse the in-memory buffer; the writer still drops arrays from JSONL. | `true` |
 | `cpu_batch_size` | Writer batch size | `64` |
+| `write_perf_stats` | When `true`, the writer appends per-task `{shard}_perf.jsonl` lines and maintains `perf_summary.json`. Set `false` to disable all perf file output (manifests only). | `true` (writer stage default; add under `sharded_manifest_writer` in YAML if overriding) |
 
 #### Duration-aware bucketed batching (`batch_policy`)
 
@@ -254,15 +255,91 @@ Waveform arrays are not written to JSONL output, even when `keep_waveform=true`.
 
 ## Performance Summary
 
-`perf_summary.json` is written by `ShardedManifestWriterStage` (all aggregation
-in Curator). On Kratos, NvLLMOps copies the file verbatim into
-`perf_summary_merged.json` — no metric math on the harvest side.
+Metrics are **already implemented** in this pipeline — you do not need a
+separate “metrics worker” or per-GPU file writers. Every stage (CPU and GPU)
+is timed by the backend; a **single CPU writer actor** (`num_workers=1`)
+serializes the results to disk.
+
+### How metrics are collected (in memory)
+
+For **every** stage in the graph — tar discovery, tar reader, Qwen inference,
+and the manifest writer — the execution backend wraps each batch through
+`BaseStageAdapter.process_batch` (`nemo_curator/backends/base.py`):
+
+1. Times the batch (`StageTimer`: `process_time`, `actor_idle_time`,
+   `num_items_processed`).
+2. Merges any stage-specific counters the stage recorded via
+   `_log_metrics({...})` / `_log_metric(...)` / `_time_metric(...)` into
+   `StagePerfStats.custom_metrics`.
+3. Stamps **B1 identity** (`actor_id`, `node_id`, `gpu_id`) via
+   `resolve_perf_identity()`. CPU stages get full timing metrics; `gpu_id`
+   stays empty and no B3 `per_gpu` block is emitted for them.
+4. Appends one `StagePerfStats` record onto each output task’s
+   **`task._stage_perf`** list (a growing per-task chain as the task moves
+   through the pipeline).
+
+**CPU stages are not excluded.** Reader and discovery stages contribute
+`stages[<name>]` blocks in `perf_summary.json` with invocation counts,
+process/idle times, and any custom metrics they emit (e.g. `bytes_loaded`,
+`total_items_emitted`). Only GPU-specific breakdown fields (`gpu_ids`,
+`per_gpu`) are omitted for CPU stages.
+
+**GPU stages never write metric files directly.** They only extend
+`task._stage_perf`. File I/O is centralized in the writer (below).
+
+### How metrics are written (to disk)
+
+`ShardedManifestWriterStage` is the **only** stage that writes perf files.
+It runs as a **single worker** (`num_workers=1` / `xenna_stage_spec`) so all
+append and aggregate I/O is serialized — no cross-worker file races.
+
+With `write_perf_stats=true` (the default):
+
+| File | Granularity | When written |
+|------|-------------|--------------|
+| `{shard_key}_perf.jsonl` | **Per task** — one JSON line per utterance, containing the full `task._stage_perf` chain | Appended on every task that passes through the writer |
+| `perf_summary.json` | **Aggregate** — rolled-up totals, percentiles, B3 `per_gpu`, `pipeline_throughput` | Refreshed when a shard completes (`.done` marker) **and** again at writer `teardown()` |
+
+After the pipeline finishes, `main.py` reads `perf_summary.json` (if present),
+adds top-level `pipeline_duration_s` (whole-run wall clock), and rewrites the
+file.
+
+On Kratos, NvLLMOps copies **one** rank’s `perf_summary.json` verbatim into
+`perf_summary_merged.json` — **no metric math on the harvest side**. Per-shard
+`*_perf.jsonl` detail files are uploaded as-is (transport only).
+
+### Adding custom metrics in a stage
+
+In any stage’s `process` / `process_batch` implementation:
+
+```python
+self._log_metrics({"inference_time_s": elapsed, "output_tokens": float(n_tokens)})
+```
+
+Counters flow: `StagePerfStats.custom_metrics` → per-task `_perf.jsonl` →
+summed under `stages[<name>].custom_metrics_sum` in `perf_summary.json`.
+To add a **new top-level summary field** consumed by multiple stages, extend
+`AudioStageMetrics` in `nemo_curator/stages/audio/metrics/performance.py`.
+
+Disable all perf file output (manifests only):
+
+```yaml
+- stage_id: sharded_manifest_writer
+  _target_: nemo_curator.stages.audio.io.sharded_manifest_writer.ShardedManifestWriterStage
+  write_perf_stats: false
+  ...
+```
+
+Full contract (dedup, B1/B3, validation gates, backend call chains):
+`nemo_curator/stages/audio/README.md` § “Performance metrics”.
+
+### Fields in `perf_summary.json`
 
 **Pipeline totals:** `total_utterances`, `total_audio_hours`, `writer_wall_time_s`,
 `pipeline_audio_s_per_wall_s`, `pipeline_utterances_per_wall_s`, plus top-level
 `pipeline_throughput` (`audio_hours_per_wallclock_hour`, union of GPU IDs).
 
-**Per-stage blocks** (e.g. `QwenOmni_inference`, reader, discovery, writer):
+**Per-stage blocks** (e.g. `QwenOmni_inference`, tar reader, discovery, writer):
 invocation counts, process/idle time percentiles, throughput ratios,
 `custom_metrics_sum`, and for GPU stages — `gpu_ids`, `gpu_count`, `actor_count`,
 `per_gpu` (per-actor items processed, audio hours, batch-size / queue-wait p50/p95).
@@ -272,8 +349,7 @@ and drive dedup; under Xenna they come from the worker allocation, not
 
 **Validation:** every change needs both a perf comparison (±0.70% on shared
 fields vs baseline) and an output-equivalence check (`manifest_*.jsonl` keyed
-on `audio_filepath`). See `nemo_curator/stages/audio/README.md` for the full
-metrics contract.
+on `audio_filepath`).
 
 Cluster bring-up, data staging, and remote upload timings belong to the external
 launcher (`merge_info.pipeline_duration_s` on Kratos).

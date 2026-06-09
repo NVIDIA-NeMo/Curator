@@ -287,10 +287,31 @@ adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
 `ShardedManifestWriterStage` aggregates per-stage stats into `perf_summary.json`
 (all math in Curator; NvLLMOps only transports/concatenates the file on Kratos).
 
-**Collection flow**
+### Design principle: collect everywhere, write once
 
-1. Each backend adapter times `process_batch` and stamps `StagePerfStats` onto
-   every output task (`BaseStageAdapter.process_batch`).
+| Layer | Who | What |
+|-------|-----|------|
+| **Collection** | Every stage, CPU and GPU | Backend adapter times each `process_batch` and appends `StagePerfStats` to `task._stage_perf` |
+| **Serialization** | Single CPU writer (`num_workers=1`) | Appends `{shard}_perf.jsonl` per task; maintains aggregate `perf_summary.json` |
+| **Harvest** | NvLLMOps rank-0 | Verbatim copy of one `perf_summary.json` → `perf_summary_merged.json`; uploads `*_perf.jsonl` as-is |
+
+Do **not** add per-GPU file writers or a second metrics actor. Multiple
+`perf_summary.json` writers would force NvLLMOps to emit
+`multi_writer_unaggregated` instead of merged throughput numbers.
+
+Toggle file output with `write_perf_stats: false` on `ShardedManifestWriterStage`
+(manifest / `.done` markers still written).
+
+### Collection flow
+
+1. **Every backend adapter** (Xenna, Ray Data, Ray Actor Pool) subclasses
+   `BaseStageAdapter`. Its `process_batch` times the call, pulls
+   `stage._consume_custom_metrics()` (from `_log_metrics` / `_log_metric` /
+   `_time_metric` during the stage body), stamps identity, and calls
+   `task.add_stage_perf(stage_perf_stats)` on **each output task**. This applies
+   equally to CPU stages (tar reader, discovery, filters) and GPU stages
+   (inference): CPU stages get full `process_time` / `custom_metrics`; they
+   simply leave `gpu_id` empty.
 2. **B1 identity** — `actor_id`, `node_id`, `gpu_id` are resolved once per
    worker in `resolve_perf_identity()` (`backends/base.py`). GPU index
    precedence: Xenna `WorkerMetadata.allocation.gpus[0].index` (authoritative
@@ -298,13 +319,60 @@ adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
    `CUDA_VISIBLE_DEVICES` first token (last resort, gated on
    `stage.resources.requires_gpu`). Identity strings are stripped from
    `StagePerfStats.items()` so framework metric collectors never `float()` them.
-3. **B3 scheduling breakdown** — the writer builds per-stage `gpu_ids`,
-   `gpu_count`, `actor_count`, and `per_gpu` (items processed, audio hours,
-   batch-size / queue-wait percentiles) for GPU stages; CPU stages get
-   `actor_count` only. Top-level `pipeline_throughput` rolls up GPU-stage IDs.
+3. **B3 scheduling breakdown** — the writer’s `AudioPerformanceSummary` builds
+   per-stage `gpu_ids`, `gpu_count`, `actor_count`, and `per_gpu` (items
+   processed, audio hours, batch-size / queue-wait percentiles) **for GPU
+   stages only** (`gpu_id` non-empty). CPU stages still appear under
+   `stages[<cpu_stage_name>]` with timings and `custom_metrics_sum`; they get
+   `actor_count` but no `per_gpu` block. Top-level `pipeline_throughput` rolls
+   up GPU-stage IDs.
 4. **Dedup** — `AudioPerformanceSummary.record_stage_perf` fingerprints each
    `StagePerfStats` (including identity) so fan-out stages do not multiply-count
    upstream invocations.
+
+### File writes (`ShardedManifestWriterStage`)
+
+When `write_perf_stats=true` (default):
+
+- **`{shard_key}_perf.jsonl`** — append one JSON line per task:
+  `{"task_id": "...", "stages": [<serialized StagePerfStats chain>]}`.
+  Written in `process()` as each task arrives at the writer.
+- **`perf_summary.json`** — aggregate summary from `AudioPerformanceSummary.build_summary()`.
+  Refreshed when a shard hits its `_shard_total` (`.done` written) and again in
+  `teardown()`. Includes writer’s own I/O timings under `stages[sharded_manifest_writer]`.
+
+`main.py` (tutorial entry points) may add `pipeline_duration_s` after
+`pipeline.run()` returns.
+
+### Adding custom metrics (stage authors)
+
+Inside `process` or `process_batch`:
+
+```python
+self._log_metrics({"bytes_loaded": float(n_bytes), "audio_duration_s": dur})
+```
+
+Optional timing helper:
+
+```python
+with self._time_metric("decode_wall_s"):
+    ...
+```
+
+Metrics appear in per-task `_perf.jsonl` and roll up to
+`stages[<stage_name>].custom_metrics_sum`. For a new cross-stage scalar in the
+published summary schema, add a field to `AudioStageMetrics` in
+`metrics/performance.py` and emit it from the producing stage.
+
+### CPU vs GPU in published JSON
+
+| Field | CPU stage | GPU stage |
+|-------|-----------|-----------|
+| `process_time`, idle, invocations | yes | yes |
+| `custom_metrics_sum` | yes, if stage calls `_log_metrics` | yes |
+| `actor_id`, `node_id` | best-effort | best-effort |
+| `gpu_id` | empty | populated when allocation resolves |
+| `gpu_ids`, `gpu_count`, `per_gpu` | absent | present |
 
 **Throughput denominator (`writer_wall_time_s`)**
 
