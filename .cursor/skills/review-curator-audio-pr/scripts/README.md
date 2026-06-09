@@ -50,11 +50,15 @@ The thread join uses comment `databaseId` when present, else a
 (path, body-prefix) fallback, so both GraphQL thread-dump shapes classify
 correctly. It also re-checks the audio-only guard and aborts on a non-audio PR.
 
-## pull_audio_pr_corpus.sh + build_corpus.py (pre-review learning)
+## pull_audio_pr_corpus.sh + build_corpus.py (required pre-review corpus)
+
+Run these **before every audio PR review** (SKILL.md step 3). Do not skip even
+when `.curator-pr-review/audio-corpus/` already has data - the pull is
+incremental and `build_corpus.py` must render today's consolidated file.
 
 ```bash
 .cursor/skills/review-curator-audio-pr/scripts/pull_audio_pr_corpus.sh --since 1608
-.cursor/skills/review-curator-audio-pr/scripts/build_corpus.py
+.cursor/skills/review-curator-audio-pr/scripts/build_corpus.py --today <YYYY-MM-DD>
 ```
 
 `pull_audio_pr_corpus.sh` lists every PR with number > `--since` (PR numbers are

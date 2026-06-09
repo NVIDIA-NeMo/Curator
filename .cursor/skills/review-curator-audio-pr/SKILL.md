@@ -3,10 +3,11 @@ name: review-curator-audio-pr
 description: >-
   Review someone else's NVIDIA-NeMo/Curator audio-modality pull request. This is
   a reviewer's tool: given a PR number, it locates (or shallow-clones) the repo,
-  pulls the PR, diffs the changed audio code, applies Curator's audio stage
-  contracts and contribution standards, shows what other reviewers have already
-  raised (so you don't duplicate), and helps you produce a structured set of
-  review findings (P0-P3) to post as review comments. Use when you are assigned
+  pulls the PR, builds the post-#1608 audio review corpus, diffs the changed
+  audio code, applies Curator's audio stage contracts and contribution standards,
+  shows what other reviewers have already raised (so you don't duplicate), and
+  helps you produce a structured set of review findings (P0-P3) to post as
+  review comments. Use when you are assigned
   or pick up an audio Curator PR and need to review it (e.g. "review audio PR
   1967", "do a review of this Curator audio PR", "what should I flag on PR
   1898"). It is NOT for a PR author responding to a review.
@@ -35,17 +36,18 @@ you already have and only shallow-clones
 A human reviewer invokes this skill with a prompt like:
 
 > **"Review audio Curator PR <N> with the review-curator-audio-pr skill. Find or
-> shallow-clone the repo, pull the PR and prior review activity, read the
-> knowledge sources, then give me a detailed overview of what the PR does
+> shallow-clone the repo, pull the PR and prior review activity, build the
+> post-#1608 audio review corpus, read the knowledge sources, then give me a
+> detailed overview of what the PR does
 > followed by my own findings (P0-P3) with exact `path:line` evidence and
 > concrete fixes, ready to post as PR comments. Skip anything other reviewers
 > already raised."**
 
 Variants: *"re-review PR <N> and show only what changed since the last review"*,
 *"what should I flag on the diarization PR <N>?"*, *"triage open audio PRs and
-review the smallest one first"*. First-time in a repo, you can prime context
-with *"build the post-#1608 audio review corpus first, then review PR <N>"*
-(see [knowledge-sources.md](knowledge-sources.md) section 4).
+review the smallest one first"*. Every review run must build (or refresh) the
+post-#1608 audio review corpus before findings (see
+[knowledge-sources.md](knowledge-sources.md) section 4).
 
 ## What you produce
 
@@ -80,11 +82,12 @@ review comments. The review lenses and every doc/code reference live in
 - [ ] 0. Locate or shallow-clone the Curator repo
 - [ ] 1. Identify the PR and confirm it touches audio paths
 - [ ] 2. Pull fresh GitHub data (gh)
-- [ ] 3. Read the diff
-- [ ] 4. Read the knowledge sources (canonical docs + review lenses) to ground yourself
-- [ ] 5. Generate the digest + prior-threads file for context
-- [ ] 6. Write the detailed PR overview - only after steps 3-4 - present this first
-- [ ] 7. Review through the lenses, write up findings (P0-P3), and post them after the overview
+- [ ] 3. Build the post-#1608 audio review corpus (required)
+- [ ] 4. Read the diff
+- [ ] 5. Read the knowledge sources (canonical docs + review lenses + corpus) to ground yourself
+- [ ] 6. Generate the digest + prior-threads file for context
+- [ ] 7. Write the detailed PR overview - only after steps 4-5 - present this first
+- [ ] 8. Review through the lenses, write up findings (P0-P3), and post them after the overview
 ```
 
 ### Step 0 - Locate or shallow-clone the repo
@@ -119,7 +122,24 @@ Pulls six REST endpoints (`pr view`, `reviews`, inline `comments`, issue
 `isResolved` / `isOutdated` flags the REST inline endpoint omits. You pull this
 to see prior review activity, not because you own the PR.
 
-### Step 3 - Read the diff
+### Step 3 - Build the post-#1608 audio review corpus (required)
+
+Before you explain or judge anything, build the consolidated reviewer-comment
+corpus so you can spot cross-PR repeated mistakes. Do **not** skip this step,
+even if a prior corpus file exists on disk - rerun the pull (incremental by
+default) and render a fresh consolidated file for today's review:
+
+```bash
+.cursor/skills/review-curator-audio-pr/scripts/pull_audio_pr_corpus.sh --since 1608
+.cursor/skills/review-curator-audio-pr/scripts/build_corpus.py --today <YYYY-MM-DD>
+```
+
+Confirm `.curator-pr-review/audio-corpus/audio_pr_corpus_<date>.md` exists and
+read it before writing findings. If the pull scripts fail, stop and fix the
+failure - do not proceed with a review that skipped the corpus. See
+[knowledge-sources.md](knowledge-sources.md) section 4 for details.
+
+### Step 4 - Read the diff
 
 ```bash
 gh pr diff <N> --repo NVIDIA-NeMo/Curator        # works on a shallow clone
@@ -130,7 +150,7 @@ gh pr diff <N> --repo NVIDIA-NeMo/Curator        # works on a shallow clone
 shallow clone from step 0. Always review the actual diff, never the comment text
 alone. Use `main` as the baseline for "how the audio stages already do this".
 
-### Step 4 - Read the knowledge sources (ground yourself first)
+### Step 5 - Read the knowledge sources (ground yourself first)
 
 Before you explain or judge anything, read
 [knowledge-sources.md](knowledge-sources.md) so your overview and findings are
@@ -140,14 +160,15 @@ grounded in the canonical material, not guesswork:
   (`nemo_curator/stages/audio/README.md`), the developer-guide slides, the
   published fern audio docs, `.cursor/rules/*.mdc`, and `CONTRIBUTING.md`.
 - **section 1** - the audio code map, so you know where each changed file sits.
-- **section 2** - the review lenses (you apply these in step 7).
+- **section 2** - the review lenses (you apply these in step 8).
+- **section 4 + corpus file** - the post-#1608 reviewer-comment corpus from step 3.
 
 Open the specific sources the diff touches (e.g. the fern page and the code for
-the stage being changed). First time reviewing audio in this repo, optionally
-build the post-#1608 reviewer-comment corpus (section 4) to see what reviewers
-repeatedly raise. Only after this grounding do you write the overview (step 6).
+the stage being changed). Check the corpus for recurring themes and whether this
+PR repeats feedback already raised on other audio PRs. Only after this grounding
+do you write the overview (step 7).
 
-### Step 5 - Generate the context files
+### Step 6 - Generate the context files
 
 ```bash
 .cursor/skills/review-curator-audio-pr/scripts/build_digest.py <N> --today <YYYY-MM-DD>
@@ -158,9 +179,9 @@ status: **OPEN** (still unresolved), **OUTDATED** (pre-dates the current head),
 **RESOLVED**. Use the OPEN list to avoid re-raising points another reviewer
 already made.
 
-### Step 6 - Summarize the PR in detail (present this first)
+### Step 7 - Summarize the PR in detail (present this first)
 
-Now that you have read the diff (step 3) and the knowledge sources (step 4),
+Now that you have read the diff (step 4) and the knowledge sources (step 5),
 write the **"What this PR does (overview)"** section of the digest so a reader
 understands the change end to end: the problem it solves; the
 main audio stages/files it adds or modifies (use the "Areas touched" table the
@@ -168,7 +189,7 @@ builder generates); key design decisions; new dependencies, config, or APIs; and
 the blast radius (what could regress). Lead your review with this overview - the
 author and other reviewers read it before any findings.
 
-### Step 7 - Review through the lenses, then write up and post your findings
+### Step 8 - Review through the lenses, then write up and post your findings
 
 Apply the lenses in [knowledge-sources.md](knowledge-sources.md) section 2 to the
 diff - each lens links the audio code, README section, and `.cursor/rules`
