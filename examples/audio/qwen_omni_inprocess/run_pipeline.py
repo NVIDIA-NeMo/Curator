@@ -28,17 +28,17 @@ Model selection:
         whisper    → InferenceFasterWhisperStage   (Whisper Large V3, ``--whisper_model_size_or_path``)
                      recommended: lt lv hr et bg sk sl mt uk
         parakeet_riva→ InferenceParakeetStage      (local Riva Parakeet ``.nemo``, ``--parakeet_riva_model_id``)
-                     recommended: hi ta bn (fallback: indic_hybrid)
-        indic_hybrid→ InferenceIndicConformerHybridStage (AI4Bharat per-language hybrid CTC+RNNT
-                     ``.nemo``, ``--indic_hybrid_model_id``)
+                     recommended: hi ta bn (fallback: indic_monolingual)
+        indic_monolingual→ InferenceIndicConformerHybridStage (AI4Bharat per-language hybrid CTC+RNNT
+                     ``.nemo``, ``--indic_monolingual_model_id``)
                      recommended: other Indic ISO codes (no fallback)
 
     ``--recovery_model``  (optional; auto-derived from primary when omitted)
         qwen_asr       → InferenceQwenASRStage        (default recovery for qwen_omni primary)
         whisper        → InferenceFasterWhisperStage   (default recovery for qwen_asr primary)
         parakeet_v3    → InferenceParakeetStage        (Parakeet-TDT v3; default recovery for whisper primary)
-        indic_hybrid   → InferenceIndicConformerHybridStage (default recovery for parakeet_riva primary on hi/ta/bn)
-        none           → skip recovery (default for indic_hybrid primary)
+        indic_monolingual   → InferenceIndicConformerHybridStage (default recovery for parakeet_riva primary on hi/ta/bn)
+        none           → skip recovery (default for indic_monolingual primary)
 
 Architecture:
     NemoTarredAudioReader (CPU)
@@ -121,11 +121,11 @@ WHISPER_RECOMMENDED_LANGS       = {"lt", "lv", "hr", "et", "bg", "sk", "sl", "mt
 PARAKEET_RIVA_PRIMARY_LANGS     = frozenset({"hi", "ta", "bn"})  # languages covered by the local Riva Parakeet .nemo
 # Indic languages handled directly by a per-language IndicConformer hybrid monolingual
 # model (every Indic language except the hi/ta/bn covered by the Riva Parakeet primary).
-INDIC_HYBRID_PRIMARY_LANGS      = INDIC_CONFORMER_LANGUAGE_CODES - PARAKEET_RIVA_PRIMARY_LANGS
+INDIC_MONOLINGUAL_PRIMARY_LANGS      = INDIC_CONFORMER_LANGUAGE_CODES - PARAKEET_RIVA_PRIMARY_LANGS
 
 # Default recovery model paired with each primary (when --recovery_model is not set):
 #   qwen_omni → qwen_asr;  qwen_asr → whisper;  whisper → parakeet_v3
-#   parakeet_riva (hi/ta/bn) → indic_hybrid (matching monolingual);  indic_hybrid → none
+#   parakeet_riva (hi/ta/bn) → indic_monolingual (matching monolingual);  indic_monolingual → none
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -188,8 +188,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "ISO 639-1 language code for this pipeline invocation. "
             "Auto-selects --primary_model and --recovery_model when they are not set explicitly: "
-            f"{sorted(PARAKEET_RIVA_PRIMARY_LANGS)} → primary=parakeet_riva, recovery=indic_hybrid; "
-            f"{sorted(INDIC_HYBRID_PRIMARY_LANGS)} → primary=indic_hybrid, recovery=none; "
+            f"{sorted(PARAKEET_RIVA_PRIMARY_LANGS)} → primary=parakeet_riva, recovery=indic_monolingual; "
+            f"{sorted(INDIC_MONOLINGUAL_PRIMARY_LANGS)} → primary=indic_monolingual, recovery=none; "
             f"{sorted(QWEN_OMNI_RECOMMENDED_LANGS)} → primary=qwen_omni, recovery=qwen_asr; "
             f"{sorted(QWEN_ASR_RECOMMENDED_LANGS)} → primary=qwen_asr, recovery=whisper; "
             f"{sorted(WHISPER_RECOMMENDED_LANGS)} → primary=whisper, recovery=parakeet_v3."
@@ -198,7 +198,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     primary.add_argument(
         "--primary_model",
         type=str,
-        choices=["qwen_omni", "qwen_asr", "whisper", "parakeet_riva", "indic_hybrid"],
+        choices=["qwen_omni", "qwen_asr", "whisper", "parakeet_riva", "indic_monolingual"],
         default=None,
         help=(
             "Primary ASR model placed after SED. "
@@ -206,7 +206,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "qwen_asr: Qwen3-ASR (--asr_model_id); "
             "whisper: Faster-Whisper Large V3 (--whisper_model_size_or_path); "
             "parakeet_riva: local Indic Riva Parakeet .nemo (--parakeet_riva_model_id), used for hi/ta/bn; "
-            "indic_hybrid: AI4Bharat IndicConformer hybrid CTC+RNNT per-language .nemo (--indic_hybrid_model_id), "
+            "indic_monolingual: AI4Bharat IndicConformer hybrid CTC+RNNT per-language .nemo (--indic_monolingual_model_id), "
             "used for the other Indic languages. "
             "Set automatically by --language when omitted."
         ),
@@ -275,19 +275,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "Use --recovery_model to pick the fallback model explicitly, or let --language set it automatically. "
         "Default auto-pairing (when neither --recovery_model nor --language is given): "
         "primary=qwen_omni → qwen_asr; primary=qwen_asr → whisper; primary=whisper → parakeet_v3; "
-        "primary=parakeet_riva → indic_hybrid; primary=indic_hybrid → none.",
+        "primary=parakeet_riva → indic_monolingual; primary=indic_monolingual → none.",
     )
     asr.add_argument(
         "--recovery_model",
         type=str,
-        choices=["qwen_asr", "whisper", "parakeet_v3", "indic_hybrid", "none"],
+        choices=["qwen_asr", "whisper", "parakeet_v3", "indic_monolingual", "none"],
         default=None,
         help=(
             "Recovery (fallback) ASR model. "
             "qwen_asr: Qwen3-ASR (--asr_model_id); "
             "whisper: Faster-Whisper Large V3 (--whisper_model_size_or_path); "
             "parakeet_v3: Parakeet-TDT v3 (--parakeet_v3_model_id); "
-            "indic_hybrid: AI4Bharat IndicConformer hybrid per-language .nemo (--indic_hybrid_model_id), "
+            "indic_monolingual: AI4Bharat IndicConformer hybrid per-language .nemo (--indic_monolingual_model_id), "
             "fallback for the hi/ta/bn Parakeet primary; "
             "none: skip recovery entirely. "
             "Auto-derived from --primary_model or --language when omitted."
@@ -303,18 +303,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     asr.add_argument(
-        "--indic_hybrid_model_id",
+        "--indic_monolingual_model_id",
         type=str,
         default=INDIC_CONFORMER_HYBRID_DEFAULT_MODEL_ID,
         metavar="HF_REPO_OR_PATH",
         help=(
             f"AI4Bharat IndicConformer hybrid per-language .nemo (default: {INDIC_CONFORMER_HYBRID_DEFAULT_MODEL_ID}). "
             "A literal '{lang}' is replaced by --language. Local .nemo path or gated HF repo (set HF_TOKEN). "
-            "Used when --primary_model/--recovery_model is indic_hybrid."
+            "Used when --primary_model/--recovery_model is indic_monolingual."
         ),
     )
     asr.add_argument(
-        "--indic_hybrid_decode",
+        "--indic_monolingual_decode",
         type=str,
         default="rnnt",
         choices=["ctc", "rnnt"],
@@ -398,7 +398,7 @@ def _resolve_language_flags(args: argparse.Namespace) -> None:
         | QWEN_ASR_RECOMMENDED_LANGS
         | WHISPER_RECOMMENDED_LANGS
         | PARAKEET_RIVA_PRIMARY_LANGS
-        | INDIC_HYBRID_PRIMARY_LANGS
+        | INDIC_MONOLINGUAL_PRIMARY_LANGS
     )
     if lang not in all_known:
         raise SystemExit(
@@ -410,8 +410,8 @@ def _resolve_language_flags(args: argparse.Namespace) -> None:
     if not primary_was_explicit:
         if lang in PARAKEET_RIVA_PRIMARY_LANGS:
             args.primary_model = "parakeet_riva"
-        elif lang in INDIC_HYBRID_PRIMARY_LANGS:
-            args.primary_model = "indic_hybrid"
+        elif lang in INDIC_MONOLINGUAL_PRIMARY_LANGS:
+            args.primary_model = "indic_monolingual"
         elif lang in QWEN_OMNI_RECOMMENDED_LANGS:
             args.primary_model = "qwen_omni"
         elif lang in QWEN_ASR_RECOMMENDED_LANGS:
@@ -420,8 +420,8 @@ def _resolve_language_flags(args: argparse.Namespace) -> None:
             args.primary_model = "whisper"
     if not recovery_was_explicit:
         if lang in PARAKEET_RIVA_PRIMARY_LANGS:
-            args.recovery_model = "indic_hybrid"
-        elif lang in INDIC_HYBRID_PRIMARY_LANGS:
+            args.recovery_model = "indic_monolingual"
+        elif lang in INDIC_MONOLINGUAL_PRIMARY_LANGS:
             args.recovery_model = "none"
     logger.info(
         "Language '{}' → primary_model={} ({}), recovery_model={} ({})",
@@ -465,21 +465,21 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         "qwen_omni": "qwen_asr",
         "qwen_asr": "whisper",
         "whisper": "parakeet_v3",
-        "parakeet_riva": "indic_hybrid",
-        "indic_hybrid": "none",
+        "parakeet_riva": "indic_monolingual",
+        "indic_monolingual": "none",
     }
 
-    def _resolve_indic_hybrid_model_id() -> str:
-        mid = args.indic_hybrid_model_id
+    def _resolve_indic_monolingual_model_id() -> str:
+        mid = args.indic_monolingual_model_id
         if "{lang}" in mid:
             if not args.language:
-                raise SystemExit("--indic_hybrid_model_id uses '{lang}' but --language is not set.")
+                raise SystemExit("--indic_monolingual_model_id uses '{lang}' but --language is not set.")
             mid = mid.format(lang=args.language.lower().strip())
         return mid
     if args.primary_model is None:
         raise SystemExit(
             "Either --language <code> or --primary_model "
-            "{qwen_omni,qwen_asr,whisper,parakeet_riva,indic_hybrid} is required."
+            "{qwen_omni,qwen_asr,whisper,parakeet_riva,indic_monolingual} is required."
         )
     if args.recovery_model is None:
         args.recovery_model = _PRIMARY_TO_RECOVERY[args.primary_model]
@@ -593,11 +593,11 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             num_workers_override=args.primary_num_workers,
         ))
 
-    elif args.primary_model == "indic_hybrid":
+    elif args.primary_model == "indic_monolingual":
         stages.append(InferenceIndicConformerHybridStage(
             name="IndicConformerHybrid_primary",
-            model_id=_resolve_indic_hybrid_model_id(),
-            decode_mode=args.indic_hybrid_decode,
+            model_id=_resolve_indic_monolingual_model_id(),
+            decode_mode=args.indic_monolingual_decode,
             source_lang_key=args.source_lang_key,
             pred_text_key="primary_model_prediction",
             keep_waveform=True,
@@ -622,11 +622,11 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         max_char_rate=args.max_char_rate,
     ))
     if has_recovery:
-        if args.recovery_model == "indic_hybrid":
+        if args.recovery_model == "indic_monolingual":
             recovery_stage = InferenceIndicConformerHybridStage(
                 name="IndicConformerHybrid_recovery",
-                model_id=_resolve_indic_hybrid_model_id(),
-                decode_mode=args.indic_hybrid_decode,
+                model_id=_resolve_indic_monolingual_model_id(),
+                decode_mode=args.indic_monolingual_decode,
                 source_lang_key=args.source_lang_key,
                 pred_text_key="fallback_model_prediction",
                 batch_size=args.asr_batch_size,
