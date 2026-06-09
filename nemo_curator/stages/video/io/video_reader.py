@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -244,11 +244,22 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         input_video_path: Path to the directory containing video files
         video_limit: Maximum number of videos to process (None for unlimited)
         verbose: Whether to enable verbose logging during download/processing
+        enable_array_partitioning: Whether to enable array partitioning (e.g., partition files across multiple Slurm jobs).
+        shard_index: The index of the shard to process. Can be an integer representing the shard index or a string representing the environment variable name.
+            Only used if enable_array_partitioning is True. If not provided, it will be set to the value of the SLURM_ARRAY_TASK_ID environment variable.
+        total_shards: The total number of shards. Can be an integer representing the total number of shards or a string representing the environment variable name.
+            Only used if enable_array_partitioning is True. If not provided, it will be set to the value of the SLURM_ARRAY_TASK_COUNT environment variable.
+        minimum_shard_index: The minimum shard index to process. Can be an integer representing the minimum shard index or a string representing the environment variable name.
+            Only used if enable_array_partitioning is True. If not provided, it will be set to 0.
     """
 
     input_video_path: str
     video_limit: int | None = None
     verbose: bool = False
+    enable_array_partitioning: bool = False
+    shard_index: int | str | None = None
+    total_shards: int | str | None = None
+    minimum_shard_index: int | str = 0
 
     def __post_init__(self):
         """Initialize the parent CompositeStage after dataclass initialization."""
@@ -276,6 +287,9 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
             List of processing stages: [FilePartitioningStage, VideoReaderStage]
         """
         if is_remote_url(self.input_video_path):
+            if self.enable_array_partitioning:
+                msg = "enable_array_partitioning is not supported for ClientPartitioningStage"
+                raise NotImplementedError(msg)
             reader_stage = ClientPartitioningStage(
                 file_paths=self.input_video_path,
                 files_per_partition=1,
@@ -288,6 +302,10 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
                 files_per_partition=1,
                 file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
                 limit=self.video_limit,
+                enable_array_partitioning=self.enable_array_partitioning,
+                shard_index=self.shard_index,
+                total_shards=self.total_shards,
+                minimum_shard_index=self.minimum_shard_index,
             )
 
         download_stage = VideoReaderStage(input_path=self.input_video_path, verbose=self.verbose)

@@ -94,6 +94,10 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
     blocksize: int | str | None = None
     fields: list[str] | None = None  # If specified, only read these columns
     read_kwargs: dict[str, Any] | None = None
+    enable_array_partitioning: bool = False
+    shard_index: int | str | None = None
+    total_shards: int | str | None = None
+    minimum_shard_index: int | str = 0
     task_type: Literal["document", "image", "video", "audio"] = "document"
     file_extensions: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["jsonl"])
     _generate_ids: bool = False
@@ -121,6 +125,10 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
                 storage_options=self.read_kwargs.get("storage_options", None)
                 if self.read_kwargs is not None
                 else None,
+                enable_array_partitioning=self.enable_array_partitioning,
+                shard_index=self.shard_index,
+                total_shards=self.total_shards,
+                minimum_shard_index=self.minimum_shard_index,
             ),
             JsonlReaderStage(
                 fields=self.fields,

@@ -43,6 +43,10 @@ class InterleavedWebdatasetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
     blocksize: int | str | None = None
     max_batch_bytes: int | None = None
     read_kwargs: dict[str, Any] = field(default_factory=dict)
+    enable_array_partitioning: bool = False
+    shard_index: int | str | None = None
+    total_shards: int | str | None = None
+    minimum_shard_index: int | str = 0
     materialize_on_read: bool = False
     file_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_WEBDATASET_EXTENSIONS))
     json_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_JSON_EXTENSIONS))
@@ -68,6 +72,10 @@ class InterleavedWebdatasetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
                 blocksize=self.blocksize,
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
+                enable_array_partitioning=self.enable_array_partitioning,
+                shard_index=self.shard_index,
+                total_shards=self.total_shards,
+                minimum_shard_index=self.minimum_shard_index,
             ),
             InterleavedWebdatasetReaderStage(
                 read_kwargs=self.read_kwargs,
@@ -96,6 +104,10 @@ class InterleavedParquetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
     fields: tuple[str, ...] | None = None
     max_batch_bytes: int | None = None
     read_kwargs: dict[str, Any] = field(default_factory=dict)
+    enable_array_partitioning: bool = False
+    shard_index: int | str | None = None
+    total_shards: int | str | None = None
+    minimum_shard_index: int | str = 0
     schema: pa.Schema | None = None
     schema_overrides: dict[str, pa.DataType] | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".parquet"])
@@ -113,6 +125,10 @@ class InterleavedParquetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
                 blocksize=self.blocksize,
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
+                enable_array_partitioning=self.enable_array_partitioning,
+                shard_index=self.shard_index,
+                total_shards=self.total_shards,
+                minimum_shard_index=self.minimum_shard_index,
             ),
             InterleavedParquetReaderStage(
                 read_kwargs=self.read_kwargs,

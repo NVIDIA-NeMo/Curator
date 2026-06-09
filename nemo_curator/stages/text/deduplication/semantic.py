@@ -76,6 +76,10 @@ class TextSemanticDeduplicationWorkflow:
     embedding_vllm_init_kwargs: dict[str, Any] | None = None
     hf_token: str | None = None
     model_cache_dir: str | None = None
+    enable_array_partitioning: bool = False
+    shard_index: int | str | None = None
+    total_shards: int | str | None = None
+    minimum_shard_index: int | str = 0
     # Semantic deduplication parameters
     n_clusters: int = 100
     id_field: str = CURATOR_DEDUP_ID_STR
@@ -132,6 +136,13 @@ class TextSemanticDeduplicationWorkflow:
         embedding_vllm_init_kwargs: Additional kwargs passed to vLLM's LLM initializer
         hf_token: HuggingFace token for private models
         model_cache_dir: Directory to cache model weights
+        enable_array_partitioning: Whether to enable array partitioning (e.g., partition files across multiple Slurm jobs).
+        shard_index: The index of the shard to process. Can be an integer representing the shard index or a string representing the environment variable name.
+            Only used if enable_array_partitioning is True. If not provided, it will be set to the value of the SLURM_ARRAY_TASK_ID environment variable.
+        total_shards: The total number of shards. Can be an integer representing the total number of shards or a string representing the environment variable name.
+            Only used if enable_array_partitioning is True. If not provided, it will be set to the value of the SLURM_ARRAY_TASK_COUNT environment variable.
+        minimum_shard_index: The minimum shard index to process. Can be an integer representing the minimum shard index or a string representing the environment variable name.
+            Only used if enable_array_partitioning is True. If not provided, it will be set to 0.
 
         # Semantic deduplication parameters
         n_clusters: Number of clusters for K-means
@@ -252,6 +263,10 @@ class TextSemanticDeduplicationWorkflow:
                 file_extensions=self.input_file_extensions,
                 _generate_ids=self.use_id_generator,
                 read_kwargs=self.read_kwargs,
+                enable_array_partitioning=self.enable_array_partitioning,
+                shard_index=self.shard_index,
+                total_shards=self.total_shards,
+                minimum_shard_index=self.minimum_shard_index,
             )
         elif self.input_filetype == "parquet":
             reader = ParquetReader(
@@ -266,6 +281,10 @@ class TextSemanticDeduplicationWorkflow:
                 file_extensions=self.input_file_extensions,
                 read_kwargs=self.read_kwargs,
                 _generate_ids=self.use_id_generator,
+                enable_array_partitioning=self.enable_array_partitioning,
+                shard_index=self.shard_index,
+                total_shards=self.total_shards,
+                minimum_shard_index=self.minimum_shard_index,
             )
         else:
             msg = f"Input filetype {self.input_filetype} not supported yet"
