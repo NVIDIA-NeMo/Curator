@@ -97,7 +97,6 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
                 entries.append(
                     AudioTask(
                         data={self.filepath_key: abs_wav, self.text_key: transcript_text},
-                        task_id=f"task_id_{abs_wav}",
                         dataset_name=f"Fleurs_{self.lang}_{self.split}_{self.raw_data_dir}",
                         filepath_key=self.filepath_key,
                     )

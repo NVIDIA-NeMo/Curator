@@ -259,7 +259,6 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         metadata["model_path"] = self.model_path
 
         return InterleavedBatch(
-            task_id=f"{task.task_id}_inferred",
             dataset_name=task.dataset_name,
             data=pa.Table.from_pandas(task_df, preserve_index=False),
             _metadata=metadata,

@@ -69,7 +69,6 @@ class URLGenerationStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
         return [
             FileGroupTask(
-                task_id=f"{task.task_id}_{i}",
                 dataset_name=task.dataset_name,
                 data=[url],
                 _metadata={"source_url": url},

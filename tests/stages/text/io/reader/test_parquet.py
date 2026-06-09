@@ -41,7 +41,7 @@ def sample_parquet_files(tmp_path: Path) -> list[str]:
 def parquet_file_group_tasks(sample_parquet_files: list[str]) -> list[FileGroupTask]:
     """Create multiple FileGroupTasks for parquet files."""
     return [
-        FileGroupTask(task_id=f"task_{i}", dataset_name="test_dataset", data=[file_path], _metadata={})
+        FileGroupTask(dataset_name="test_dataset", data=[file_path], _metadata={})
         for i, file_path in enumerate(sample_parquet_files)
     ]
 
@@ -65,7 +65,6 @@ def _sample_records(start: int = 0, n: int = 2) -> list[dict]:
 
 def _make_file_group_task(files: list[str]) -> FileGroupTask:
     return FileGroupTask(
-        task_id="fg1",
         dataset_name="ds",
         data=files,
         reader_config={},

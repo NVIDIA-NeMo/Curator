@@ -112,7 +112,6 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
                 fs=self.fs,
             )
             pairwise_task = FileGroupTask(
-                task_id=f"pairwise_centroid_{centroid_id}",
                 dataset_name=dataset_name,
                 data=partition_files,
                 _metadata={

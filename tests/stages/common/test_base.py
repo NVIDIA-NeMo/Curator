@@ -24,7 +24,7 @@ class MockTask(Task[dict]):
 
     def __init__(self, data: dict | None = None):
         self.data = data or {}
-        super().__init__(task_id="", dataset_name="", data=self.data)
+        super().__init__(dataset_name="", data=self.data)
 
     @property
     def num_items(self) -> int:

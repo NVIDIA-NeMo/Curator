@@ -40,7 +40,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, sr * 10)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": sr},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -69,7 +68,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, sr * 10)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": sr},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -91,7 +89,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, 48000 * 5)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": 48000},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -117,7 +114,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, sr * 10)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": sr},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -136,7 +132,6 @@ class TestVADSegmentationStage:
 
         task = AudioTask(
             data={"some_key": "value"},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -161,7 +156,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, sr * 10)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": sr},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -191,7 +185,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, 48000 * 5)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": 48000},
-            task_id="test",
             dataset_name="test",
         )
 

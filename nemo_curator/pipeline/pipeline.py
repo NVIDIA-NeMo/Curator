@@ -19,6 +19,31 @@ from loguru import logger
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import Task
+from nemo_curator.tasks.tasks import _EmptyTask
+
+
+def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
+    """Assign root ``task_id``s to user-provided initial tasks.
+
+    Every task in a run descends from the implicit root ``"0"`` (the id of
+    :class:`_EmptyTask`). User-provided initial tasks are its direct
+    children, so they get ``"0_0"``, ``"0_1"``, … ``_EmptyTask`` instances
+    are skipped (already ``"0"``). All downstream ``task_id`` assignment
+    happens in ``BaseStageAdapter``.
+
+    NOTE: we deliberately use the positional index here, NOT
+    ``get_deterministic_id()``, even for content-bearing tasks like
+    ``FileGroupTask``. The source stage is the single place content-based
+    ids are assigned (to its outputs); hashing here too would put the
+    content hash at two levels of the id path (``"0_<hashA>_<hashB>"``).
+    Passing initial tasks directly is rare; if you need reorder-stable
+    source ids, let a source stage emit them.
+    """
+    for i, task in enumerate(initial_tasks):
+        if isinstance(task, _EmptyTask):
+            continue
+        task._set_task_id("0", i)
+    return initial_tasks
 
 
 class Pipeline:
@@ -79,6 +104,30 @@ class Pipeline:
 
         self.stages = execution_stages
         self.decomposition_info = decomposition_info
+
+        # 3. Source / sink defaults: at most one stage may be explicitly
+        # marked; if none, the first stage is the source and the last is
+        # the sink. The source flag activates content-based ids in the
+        # default ``process_batch``; the sink flag is used by the
+        # resumability layer in a follow-up PR.
+        self._assign_source_sink_roles()
+
+    def _assign_source_sink_roles(self) -> None:
+        explicit_sources = [s for s in self.stages if s.is_source_stage]
+        if len(explicit_sources) > 1:
+            names = [s.name for s in explicit_sources]
+            msg = f"Pipeline has multiple source stages marked: {names}. At most one is supported."
+            raise ValueError(msg)
+        if not explicit_sources:
+            self.stages[0].is_source_stage = True
+
+        explicit_sinks = [s for s in self.stages if s.is_sink_stage]
+        if len(explicit_sinks) > 1:
+            names = [s.name for s in explicit_sinks]
+            msg = f"Pipeline has multiple sink stages marked: {names}. At most one is supported."
+            raise ValueError(msg)
+        if not explicit_sinks:
+            self.stages[-1].is_sink_stage = True
 
     def _decompose_stages(
         self, stages: list[ProcessingStage | CompositeStage]
@@ -211,5 +260,8 @@ class Pipeline:
                     f"Ray Serve is active and pipeline has GPU stages: [{names}]. "
                     "The executor will schedule GPU stages on GPUs not held by Serve."
                 )
+
+        if initial_tasks:
+            assign_root_task_ids(initial_tasks)
 
         return executor.execute(self.stages, initial_tasks)

@@ -153,7 +153,7 @@ class TestVideoReaderStage:
     def test_process_success(self) -> None:
         """Test process method with successful execution."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
+        file_group_task = FileGroupTask(dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
@@ -163,7 +163,6 @@ class TestVideoReaderStage:
             result = stage.process(file_group_task)
 
             assert isinstance(result, VideoTask)
-            assert result.task_id == f"{file_path}_processed"
             assert result.dataset_name == "test_dataset"
             assert isinstance(result.data, Video)
             assert result.data.input_video == file_path
@@ -171,19 +170,18 @@ class TestVideoReaderStage:
     def test_process_download_failure(self) -> None:
         """Test process method when download fails."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
+        file_group_task = FileGroupTask(dataset_name="test_dataset", data=[file_path])
 
         with patch.object(VideoReaderStage, "_download_video_bytes", return_value=False):
             stage = VideoReaderStage()
             result = stage.process(file_group_task)
 
             assert isinstance(result, VideoTask)
-            assert result.task_id == f"{file_path}_processed"
 
     def test_process_metadata_failure(self) -> None:
         """Test process method when metadata extraction fails."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
+        file_group_task = FileGroupTask(dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
@@ -193,7 +191,6 @@ class TestVideoReaderStage:
             result = stage.process(file_group_task)
 
             assert isinstance(result, VideoTask)
-            assert result.task_id == f"{file_path}_processed"
 
     def test_process_preserves_metadata(self) -> None:
         """Test process method preserves task metadata and stage performance."""
@@ -202,7 +199,6 @@ class TestVideoReaderStage:
         original_stage_perf = [{"stage": "prev_stage", "time": 1.0}]
 
         file_group_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[file_path],
             _metadata=original_metadata,
@@ -222,7 +218,7 @@ class TestVideoReaderStage:
     def test_process_with_verbose_logging(self) -> None:
         """Test process method enables verbose logging when configured."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
+        file_group_task = FileGroupTask(dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
@@ -407,21 +403,19 @@ class TestVideoReaderStage:
         ]
 
         for file_path in test_cases:
-            file_group_task = FileGroupTask(task_id="original_task", dataset_name="test_dataset", data=[file_path])
+            file_group_task = FileGroupTask(dataset_name="test_dataset", data=[file_path])
 
             with (
                 patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
                 patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True),
             ):
                 stage = VideoReaderStage()
-                result = stage.process(file_group_task)
-
-                assert result.task_id == f"{file_path}_processed"
+                stage.process(file_group_task)
 
     def test_process_without_verbose_no_logging(self) -> None:
         """Test process method doesn't call _log_video_info when verbose is False."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
+        file_group_task = FileGroupTask(dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
@@ -447,7 +441,7 @@ class TestVideoReaderStage:
     def test_video_task_data_structure(self) -> None:
         """Test that created VideoTask has correct data structure."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
+        file_group_task = FileGroupTask(dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
@@ -488,7 +482,7 @@ class TestVideoReaderStage:
     def test_process_with_various_file_extensions(self, file_extension: str) -> None:
         """Test process method works with various video file extensions."""
         file_path = f"/test/video{file_extension}"
-        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
+        file_group_task = FileGroupTask(dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
@@ -507,7 +501,6 @@ class TestVideoReaderStage:
         nested_stage_perf = [{"stage": "prev", "nested": {"time": 1.0}}]
 
         file_group_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[file_path],
             _metadata=nested_metadata,
@@ -544,8 +537,9 @@ class TestVideoReader:
         """Test that VideoReader raises FileNotFoundError for non-existent local path."""
         mock_instance = mock.Mock()
         mock_instance.exists.return_value = False
-        with patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance), pytest.raises(
-            FileNotFoundError, match="Video directory does not exist"
+        with (
+            patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance),
+            pytest.raises(FileNotFoundError, match="Video directory does not exist"),
         ):
             VideoReader(input_video_path="/nonexistent/path")
 
@@ -555,8 +549,9 @@ class TestVideoReader:
         mock_instance.exists.return_value = True
         mock_instance.is_file.return_value = False
         mock_instance.rglob.side_effect = lambda *_: iter([])
-        with patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance), pytest.raises(
-            FileNotFoundError, match="No video files found"
+        with (
+            patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance),
+            pytest.raises(FileNotFoundError, match="No video files found"),
         ):
             VideoReader(input_video_path="/empty/dir")
 
@@ -576,8 +571,9 @@ class TestVideoReader:
         mock_instance.exists.return_value = True
         mock_instance.is_file.return_value = True
         mock_instance.suffix = ".txt"
-        with patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance), pytest.raises(
-            FileNotFoundError, match=r"Not a supported video file.*Supported formats"
+        with (
+            patch("nemo_curator.stages.video.io.video_reader.Path", return_value=mock_instance),
+            pytest.raises(FileNotFoundError, match=r"Not a supported video file.*Supported formats"),
         ):
             VideoReader(input_video_path="/data/document.txt")
 
@@ -613,7 +609,7 @@ class TestVideoReader:
         # Test that it's a composite stage (should raise error when trying to process)
         from nemo_curator.tasks import _EmptyTask
 
-        empty_task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+        empty_task = _EmptyTask(dataset_name="test", data=None)
         with pytest.raises(RuntimeError, match="Composite stage 'video_reader' should not be executed directly"):
             stage.process(empty_task)
 

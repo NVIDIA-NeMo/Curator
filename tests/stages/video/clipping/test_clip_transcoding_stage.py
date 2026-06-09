@@ -80,7 +80,7 @@ class TestClipTranscodingStage:
             clips=copy.deepcopy(self.mock_clips),
         )
 
-        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
+        self.mock_task = VideoTask(dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self) -> None:
         """Test that the name property returns the correct value."""
@@ -180,7 +180,6 @@ class TestClipTranscodingStage:
             # Verify task properties
             for i, task in enumerate(result):
                 assert isinstance(task, VideoTask)
-                assert task.task_id == f"test_task_chunk_{i}"
                 assert task.data.num_total_clips == len(self.mock_clips)
                 assert task.data.num_clip_chunks == 2
                 assert task.data.clip_chunk_index == i
@@ -563,7 +562,7 @@ class TestClipTranscodingStage:
             clips=[],
         )
 
-        empty_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=empty_video)
+        empty_task = VideoTask(dataset_name="test_dataset", data=empty_video)
 
         with patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
             result = stage.process(empty_task)

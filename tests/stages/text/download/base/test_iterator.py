@@ -164,7 +164,6 @@ class TestDocumentIterateExtractStage:
 
         # Create input task
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(file1), str(file2)],
             _metadata={"source": "test"},
@@ -174,7 +173,6 @@ class TestDocumentIterateExtractStage:
 
         # Verify result structure
         assert isinstance(result, DocumentBatch)
-        assert result.task_id == "test_task"
         assert result.dataset_name == "test_dataset"
         assert result._metadata == {"source": "test"}
 
@@ -210,7 +208,6 @@ class TestDocumentIterateExtractStage:
 
         # Create input task
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(file1), str(file2), str(file3)],
             _metadata={"source": "test"},
@@ -220,7 +217,6 @@ class TestDocumentIterateExtractStage:
 
         # Verify result structure
         assert isinstance(result, DocumentBatch)
-        assert result.task_id == "test_task"
         assert result.dataset_name == "test_dataset"
         assert result._metadata == {"source": "test"}
 
@@ -254,7 +250,6 @@ class TestDocumentIterateExtractStage:
         test_file.write_text("content")
 
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(test_file)],
             _metadata={},
@@ -283,7 +278,6 @@ class TestDocumentIterateExtractStage:
 
         # Create input task
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(file1), str(file2), str(file3)],
             _metadata={"source": "test"},
@@ -308,7 +302,6 @@ class TestDocumentIterateExtractStage:
         test_file.write_text("content")
 
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(test_file)],
             _metadata={},
@@ -332,7 +325,6 @@ class TestDocumentIterateExtractStage:
         test_file.write_text("content")
 
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(test_file)],
             _metadata={},
@@ -356,7 +348,6 @@ class TestDocumentIterateExtractStage:
         test_file.write_text("content")
 
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(test_file)],
             _metadata={},
@@ -380,7 +371,6 @@ class TestDocumentIterateExtractStage:
         test_file.write_text("content")
 
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(test_file)],
             _metadata={},
@@ -399,7 +389,6 @@ class TestDocumentIterateExtractStage:
         stage = DocumentIterateExtractStage(iterator=iterator)
 
         input_task = FileGroupTask(
-            task_id="empty_task",
             dataset_name="test_dataset",
             data=[],
             _metadata={"source": "test"},
@@ -408,7 +397,6 @@ class TestDocumentIterateExtractStage:
         result = stage.process(input_task)
 
         assert isinstance(result, DocumentBatch)
-        assert result.task_id == "empty_task"
         assert result.dataset_name == "test_dataset"
         assert len(result.data) == 0
         assert result._metadata == {"source": "test"}
@@ -424,7 +412,6 @@ class TestDocumentIterateExtractStage:
         test_file.write_text("content")
 
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(test_file)],
             _metadata={},
@@ -450,7 +437,6 @@ class TestDocumentIterateExtractStage:
         file2.write_text("world_skip")
 
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(file1), str(file2)],
             _metadata={},
@@ -460,7 +446,6 @@ class TestDocumentIterateExtractStage:
 
         # Should return empty DataFrame when all records are filtered
         assert len(result.data) == 0
-        assert result.task_id == "test_task"
         assert result.dataset_name == "test_dataset"
 
     def test_process_with_file_errors(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -477,7 +462,6 @@ class TestDocumentIterateExtractStage:
         error_file.write_text("content")
 
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(good_file), str(error_file)],
             _metadata={},
@@ -506,7 +490,6 @@ class TestDocumentIterateExtractStage:
         error_file.write_text("content")
 
         input_task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=[str(error_file)],
             _metadata={},
@@ -516,7 +499,6 @@ class TestDocumentIterateExtractStage:
 
         # Should return empty DataFrame when all files fail
         assert len(result.data) == 0
-        assert result.task_id == "test_task"
         assert result.dataset_name == "test_dataset"
 
         # Check that error was logged

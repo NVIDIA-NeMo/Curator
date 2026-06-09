@@ -74,7 +74,6 @@ class ClientPartitioningStage(FilePartitioningStage):
         for i, group in enumerate(partitions):
             tasks.append(
                 FileGroupTask(
-                    task_id=f"file_group_{i}",
                     dataset_name=dataset_name,
                     data=group,
                     _metadata={

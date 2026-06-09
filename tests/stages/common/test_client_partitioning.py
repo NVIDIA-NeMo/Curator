@@ -28,7 +28,6 @@ class TestClientPartitioningStage:
     def empty_task(self) -> _EmptyTask:
         """Create an empty task for testing."""
         return _EmptyTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=None,
             _metadata={"source": "test"},
@@ -109,7 +108,6 @@ class TestClientPartitioningStage:
         assert len(result) == 3
         assert isinstance(result[0], FileGroupTask)
         assert str(result[0].data[0]).endswith("file1.jsonl")
-        assert result[0].task_id == "file_group_0"
         assert result[0]._metadata["partition_index"] == 0
         assert result[0]._metadata["total_partitions"] == 3
 

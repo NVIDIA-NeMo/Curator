@@ -340,11 +340,10 @@ class CreateInitialManifestReadSpeechStage(ProcessingStage[_EmptyTask, AudioTask
         logger.info(f"Creating manifest with {len(selected_entries)} total samples")
 
         audio_tasks = []
-        for i, entry in enumerate(selected_entries):
+        for _i, entry in enumerate(selected_entries):
             audio_tasks.append(
                 AudioTask(
                     data=entry,
-                    task_id=f"readspeech_{i}",
                     dataset_name="DNS-ReadSpeech",
                     filepath_key=self.filepath_key,
                 )

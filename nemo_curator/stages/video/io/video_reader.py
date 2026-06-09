@@ -89,7 +89,6 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
             raise ValueError(msg)
         video = Video(input_video=task.data[0])
         video_task = VideoTask(
-            task_id=f"{task.data[0]}_processed",
             dataset_name=task.dataset_name,
             data=video,
             _metadata=deepcopy(task._metadata),

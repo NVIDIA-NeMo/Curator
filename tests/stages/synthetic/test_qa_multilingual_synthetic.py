@@ -126,12 +126,11 @@ class TestQAMultilingualSyntheticStage:
             num_samples=1,
         )
 
-        task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+        task = _EmptyTask(dataset_name="test", data=None)
         result = stage.process(task)
 
         assert isinstance(result, DocumentBatch)
         assert result.dataset_name == "simple_synthetic_data"
-        assert result.task_id == 1
         assert isinstance(result.data, pd.DataFrame)
         assert len(result.data) == 1
         assert "text" in result.data.columns
@@ -150,7 +149,7 @@ class TestQAMultilingualSyntheticStage:
             num_samples=3,
         )
 
-        task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+        task = _EmptyTask(dataset_name="test", data=None)
         with patch("nemo_curator.models.client.llm_client.logger"):  # Suppress log statements
             result = stage.process(task)
 
@@ -170,7 +169,7 @@ class TestQAMultilingualSyntheticStage:
             num_samples=1,
         )
 
-        task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+        task = _EmptyTask(dataset_name="test", data=None)
         result = stage.process(task)
 
         assert isinstance(result, DocumentBatch)
@@ -190,7 +189,7 @@ class TestQAMultilingualSyntheticStage:
             num_samples=5,
         )
 
-        task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+        task = _EmptyTask(dataset_name="test", data=None)
         result = stage.process(task)
 
         assert isinstance(result, DocumentBatch)
@@ -212,7 +211,7 @@ class TestQAMultilingualSyntheticStage:
             generation_config=config,
         )
 
-        task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+        task = _EmptyTask(dataset_name="test", data=None)
         with patch("nemo_curator.models.client.llm_client.logger"):
             result = stage.process(task)
 
@@ -241,7 +240,7 @@ class TestQAMultilingualSyntheticStage:
         )
 
         with patch("nemo_curator.models.client.llm_client.logger"), patch("secrets.choice", return_value="Japanese"):
-            task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+            task = _EmptyTask(dataset_name="test", data=None)
             stage.process(task)
 
         assert len(captured_prompts) == 2
@@ -254,7 +253,7 @@ class TestQAMultilingualSyntheticStage:
             prompt="Test {language}", languages=["English"], client=client, model_name="test-model", num_samples=1
         )
 
-        task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+        task = _EmptyTask(dataset_name="test", data=None)
         with patch("nemo_curator.models.client.llm_client.logger"):
             result = stage.process(task)
 
@@ -267,7 +266,7 @@ class TestQAMultilingualSyntheticStage:
             prompt="Test {language}", languages=["English"], client=client, model_name="test-model", num_samples=1
         )
 
-        task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+        task = _EmptyTask(dataset_name="test", data=None)
         result = stage.process(task)
 
         assert result.data["text"].iloc[0] == "Another styled response"
@@ -298,7 +297,7 @@ class TestQAMultilingualSyntheticStage:
         )
 
         with patch("nemo_curator.models.client.llm_client.logger"):
-            task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+            task = _EmptyTask(dataset_name="test", data=None)
             stage.process(task)
 
         # Should have captured 10 languages

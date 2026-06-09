@@ -232,7 +232,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             # Assign distances using the fitted cluster centers
             df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)  # noqa: PLW2901
 
-            output_filename = f"{tasks[0]._uuid}_{i}"
+            output_filename = f"{tasks[0].task_id}_{i}"
             # Write results for this subgroup
             self.write_parquet(
                 df,
@@ -247,7 +247,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             # Create result task for this subgroup
             results.append(
                 _EmptyTask(
-                    task_id=output_filename,
                     dataset_name=f"kmeans_group_{i}",
                     _metadata=None,
                     _stage_perf=[],
@@ -278,10 +277,12 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         """
         pass1_read_time = self._fit_pass(groups)
         results, pass2_read_time, total_rows = self._predict_write_pass(tasks, groups)
-        self._log_metrics({
-            "kmeans_read_time": pass1_read_time + pass2_read_time,
-            "num_rows": total_rows,
-        })
+        self._log_metrics(
+            {
+                "kmeans_read_time": pass1_read_time + pass2_read_time,
+                "num_rows": total_rows,
+            }
+        )
         return results
 
     def _fit_pass(self, groups: list[list[str]]) -> float:
@@ -392,7 +393,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             df["centroid"] = labels
             df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)
 
-            output_filename = f"{tasks[0]._uuid}_{i}"
+            output_filename = f"{tasks[0].task_id}_{i}"
             self.write_parquet(
                 df,
                 self.output_path,
@@ -404,7 +405,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             )
             results.append(
                 _EmptyTask(
-                    task_id=output_filename,
                     dataset_name=f"kmeans_group_{i}",
                     _metadata=None,
                     _stage_perf=[],

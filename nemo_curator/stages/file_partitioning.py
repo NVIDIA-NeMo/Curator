@@ -175,7 +175,6 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 logger.info(f"Reached limit of {self.limit} file groups")
                 break
             file_task = FileGroupTask(
-                task_id=f"file_group_{i}",
                 dataset_name=dataset_name,
                 data=file_group,
                 _metadata={

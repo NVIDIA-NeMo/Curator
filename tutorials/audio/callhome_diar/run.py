@@ -89,7 +89,6 @@ def _load_task(path: Path) -> AudioTask:
     """Reconstruct a single AudioTask from a checkpoint file."""
     payload = json.loads(path.read_text())
     return AudioTask(
-        task_id=payload["task_id"],
         dataset_name=payload["dataset_name"],
         data=payload["data"],
         _metadata=payload.get("_metadata", {}),
@@ -159,7 +158,6 @@ class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioTask]):
             tasks.append(
                 AudioTask(
                     data={self.filepath_key: str(wav), "session_name": fid},
-                    task_id=f"callhome_{fid}",
                     dataset_name="callhome_eng0",
                 )
             )
@@ -196,7 +194,6 @@ class EnsureMonoStage(ProcessingStage[AudioTask, AudioTask]):
         output_data = dict(task.data)
         output_data[self.filepath_key] = self._ensure_mono(task.data[self.filepath_key])
         return AudioTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=output_data,
             _metadata=task._metadata,
@@ -237,7 +234,6 @@ class DERComputationStage(ProcessingStage[AudioTask, AudioTask]):
                 metrics = self._compute_der(gt, output_data[self.diar_segments_key], uem_start, uem_end)
         output_data[self.der_metrics_key] = metrics
         return AudioTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=output_data,
             _metadata=task._metadata,

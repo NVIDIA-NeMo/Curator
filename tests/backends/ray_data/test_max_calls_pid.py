@@ -96,7 +96,6 @@ class PidRecorderStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
         return DocumentBatch(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=pd.DataFrame({"worker_pid": [os.getpid()]}),
         )

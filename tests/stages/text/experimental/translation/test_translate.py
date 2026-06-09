@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import importlib.util
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -26,6 +27,9 @@ from nemo_curator.stages.text.experimental.translation.stages.translate import (
     SegmentTranslationStage,
 )
 from nemo_curator.tasks import DocumentBatch
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from .conftest import MockAsyncLLMClient
 
@@ -142,7 +146,7 @@ class TestProcessLLMBackend:
                 "id": [1, 2],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
         result_df = result.to_pandas()
@@ -194,7 +198,7 @@ class TestProcessNonLLMBackend:
                 "id": [1, 2],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
         result_df = result.to_pandas()
@@ -237,7 +241,7 @@ class TestProcessNonLLMBackend:
                 "id": [1, 2, 3],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
         result_df = result.to_pandas()
@@ -301,8 +305,30 @@ class TestSetup:
         stage.setup(worker_metadata=None)
 
         client.setup.assert_called_once()
-        mock_load.assert_called_once()
+        mock_load.assert_called_once_with("translate.yaml")
         assert stage._system_prompt == "system prompt"
+
+    def test_setup_loads_custom_prompt_path(self, tmp_path: Path) -> None:
+        """Verify setup() can load a caller-provided absolute prompt path."""
+        prompt_path = tmp_path / "custom_translate.yaml"
+        prompt_path.write_text(
+            "system: custom system\nuser: custom {source_lang} {target_lang} {src}\n",
+            encoding="utf-8",
+        )
+        client = MockAsyncLLMClient()
+        stage = SegmentTranslationStage(
+            client=client,
+            model_name="test-model",
+            source_lang="en",
+            target_lang="hi",
+            prompt_path=str(prompt_path),
+            health_check=False,
+        )
+
+        stage.setup(worker_metadata=None)
+
+        assert stage._system_prompt == "custom system"
+        assert stage._user_template == "custom {source_lang} {target_lang} {src}"
 
 
 # ---------------------------------------------------------------------------

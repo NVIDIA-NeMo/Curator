@@ -163,12 +163,12 @@ class NDDBaseSyntheticStage(DataDesignerStage):
             )
             raise ValueError(msg)
         df[_FORMATTED_PROMPT_COL] = df.apply(
-            lambda row: self._process_llm_prompt(row.to_dict()), axis=1,
+            lambda row: self._process_llm_prompt(row.to_dict()),
+            axis=1,
         )
         pre_batch = DocumentBatch(
             data=df,
             dataset_name=batch.dataset_name,
-            task_id=batch.task_id,
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
@@ -193,7 +193,6 @@ class NDDBaseSyntheticStage(DataDesignerStage):
         return DocumentBatch(
             data=result_df,
             dataset_name=batch.dataset_name,
-            task_id=f"{batch.task_id}_{self.name}",
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
