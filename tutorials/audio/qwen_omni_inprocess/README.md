@@ -345,8 +345,9 @@ invocation counts, process/idle time percentiles, throughput ratios,
 `custom_metrics_sum`, and for GPU stages — `gpu_ids`, `gpu_count`, `actor_count`,
 `per_gpu` (per-actor items processed, audio hours, batch-size / queue-wait p50/p95).
 Identity fields (`actor_id`, `node_id`, `gpu_id`) appear in per-task `_perf.jsonl`
-and drive dedup; under Xenna they come from the worker allocation, not
-`ray.get_gpu_ids()`.
+and drive dedup; each backend resolves them once at worker setup via
+`backends/perf_identity.py` (Xenna: `WorkerMetadata.allocation.gpus[0].index`;
+Ray Data / Actor Pool: `ray.get_gpu_ids()` — no cross-backend fallback chain).
 
 **Validation:** compare `perf_summary.json` across runs on shared throughput
 fields and verify `manifest_*.jsonl` rows keyed on `audio_filepath` stay aligned
