@@ -32,12 +32,15 @@ Architecture:
         → LLMLanguageVerificationStage (CPU): compares to source_lang; keeps
           code-switched samples containing source_lang, else sets _skipme to
           "Wrong language:LLMLanguageVerification"
+    [if --enable_tn] TextLLMStage: TN (GPU)
+        → text normalization (written→spoken), preserves disfluencies
+        → writes tn_raw
     [if --enable_itn] TextLLMStage: ITN (GPU)
         → inverse text normalization, preserves disfluencies
-        → writes itn_text
+        → writes itn_raw
     [if --enable_itn_no-disfluencies] TextLLMStage: DisfluencyRemoval (GPU)
         → ITN + disfluency removal (fillers, repetitions)
-        → writes itn_no-disfluencies_text
+        → writes itn_clean
     [if --enable_captioning] TextLLMStage: Captioning (GPU)
         → summarises transcript into a short caption
         → writes captioning_text
@@ -106,6 +109,7 @@ _PROMPT_DIR = (
     / "prompts"
 )
 _ITN_PROMPT = _PROMPT_DIR / "itn_prompt.md"
+_TN_PROMPT = _PROMPT_DIR / "tn_prompt.md"
 _CORRECTION_PROMPT = _PROMPT_DIR / "correction_prompt.md"
 _CAPTIONING_PROMPT = _PROMPT_DIR / "captioning_prompt.md"
 _PNC_PROMPT = _PROMPT_DIR / "pnc_prompt.md"
@@ -131,16 +135,36 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     ap.add_argument("--output_dir", type=str, required=True, help="Output directory for processed manifests.")
 
     ap.add_argument(
+        "--enable_tn",
+        action="store_true",
+        default=False,
+        help=(
+            "Enable TN stage: written→spoken form (digits/symbols to number words), "
+            "preserves disfluencies and all non-normalization wording. Output key: tn_raw"
+        ),
+    )
+    ap.add_argument(
+        "--disable_tn_validation",
+        action="store_true",
+        default=False,
+        help=(
+            "Disable TN output validation. By default the TN stage validates each "
+            "output (validation_mode='tn'): it reverts to the input when the LLM "
+            "translates to English or transliterates to another script instead of "
+            "normalizing. Number expansion (word-count increase) is NOT penalized."
+        ),
+    )
+    ap.add_argument(
         "--enable_itn",
         action="store_true",
         default=False,
-        help="Enable ITN stage: spoken→written form, preserves disfluencies. Output key: itn_text",
+        help="Enable ITN stage: spoken→written form, preserves disfluencies. Output key: itn_raw",
     )
     ap.add_argument(
         "--enable_itn_no-disfluencies",
         action="store_true",
         default=False,
-        help="Enable ITN + disfluency removal stage: removes fillers/repetitions + ITN. Output key: itn_no-disfluencies_text",
+        help="Enable ITN + disfluency removal stage: removes fillers/repetitions + ITN. Output key: itn_clean",
     )
     ap.add_argument(
         "--enable_captioning",
@@ -220,11 +244,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     )
 
     ap.add_argument("--text_key", type=str, default="pnc_text", help="Input text field from ASR pipeline output.")
-    ap.add_argument("--itn_output_key", type=str, default="itn_text", help="Output field for ITN result.")
+    ap.add_argument("--tn_output_key", type=str, default="tn_raw", help="Output field for TN result.")
+    ap.add_argument("--itn_output_key", type=str, default="itn_raw", help="Output field for ITN result.")
     ap.add_argument(
         "--itn_no_disfluencies_output_key",
         type=str,
-        default="itn_no-disfluencies_text",
+        default="itn_clean",
         help="Output field for ITN + disfluency removal result.",
     )
     ap.add_argument(
@@ -246,6 +271,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
 
     ap.add_argument(
         "--model_id", type=str, default="Qwen/Qwen3.5-35B-A3B-FP8", help="HuggingFace model ID for the text LLM."
+    )
+    ap.add_argument(
+        "--tn_prompt_file", type=str, default=None, help="Path to TN prompt file. Defaults to bundled tn_prompt.md."
     )
     ap.add_argument(
         "--itn_prompt_file", type=str, default=None, help="Path to ITN prompt file. Defaults to bundled itn_prompt.md."
@@ -471,7 +499,8 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     args = _build_arg_parser().parse_args()
 
     if (
-        not args.enable_itn
+        not args.enable_tn
+        and not args.enable_itn
         and not args.enable_itn_no_disfluencies
         and not args.enable_captioning
         and not args.enable_pnc
@@ -481,8 +510,9 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         and not args.enable_speech_qa
     ):
         logger.warning(
-            "No stages enabled. Use --enable_pnc, --enable_language_id, --enable_itn, --enable_itn_no-disfluencies, "
-            "--enable_captioning, --enable_context_asr, --enable_code_switching, or --enable_speech_qa."
+            "No stages enabled. Use --enable_pnc, --enable_tn, --enable_language_id, --enable_itn, "
+            "--enable_itn_no-disfluencies, --enable_captioning, --enable_context_asr, --enable_code_switching, "
+            "or --enable_speech_qa."
         )
         return
 
@@ -571,6 +601,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     text_stage_cls = RemoteTextLLMStage if remote_base_url else TextLLMStage
     ctx_stage_cls = RemoteContextualASRExtractionStage if remote_base_url else ContextualASRExtractionStage
 
+    tn_prompt = args.tn_prompt_file or str(_TN_PROMPT)
     itn_prompt = args.itn_prompt_file or str(_ITN_PROMPT)
     itn_no_disfl_prompt = args.itn_no_disfluencies_prompt_file or str(_CORRECTION_PROMPT)
     captioning_prompt = args.captioning_prompt_file or str(_CAPTIONING_PROMPT)
@@ -617,7 +648,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         )
         logger.info(f"PnC stage enabled: {pnc_input_key} → {args.pnc_output_key}")
 
-    # post_fused_stages: stages that depend on fused output (itn_text, llm_language_prediction)
+    # post_fused_stages: stages that depend on fused output (itn_raw, llm_language_prediction)
     # and must be inserted after the fused stage when use_fusing is active.
     post_fused_stages: list = []
 
@@ -643,6 +674,27 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             "→ keep code-switch w/ source_lang, else _skipme='Wrong language:LLMLanguageVerification'"
         )
 
+    if args.enable_tn:
+        _tn_stage = text_stage_cls(
+            name="TextNormalization",
+            prompt_file=tn_prompt,
+            text_key=args.text_key,
+            output_text_key=args.tn_output_key,
+            enable_validation=not args.disable_tn_validation,
+            validation_mode="tn",
+            **shared_model_kwargs,
+        )
+        if use_fusing:
+            fuseable_sub_stages.append(_tn_stage)
+        else:
+            stages.append(_tn_stage)
+        logger.info(
+            "TN stage enabled: %s → %s (validation=%s, mode=tn)",
+            args.text_key,
+            args.tn_output_key,
+            not args.disable_tn_validation,
+        )
+
     if args.enable_itn:
         _itn_stage = text_stage_cls(
             name="ITNRestoration",
@@ -660,7 +712,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     if args.enable_itn_no_disfluencies:
         if not args.enable_itn:
             logger.warning(
-                "--enable_itn_no-disfluencies requires --enable_itn (needs itn_text as input). Enabling ITN automatically."
+                "--enable_itn_no-disfluencies requires --enable_itn (needs itn_raw as input). Enabling ITN automatically."
             )
             _itn_auto_stage = text_stage_cls(
                 name="ITNRestoration",
@@ -682,7 +734,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             max_deletion_ratio=0.5,
             **shared_model_kwargs,
         )
-        # DisfluencyRemoval reads itn_text from the fused stage — must follow it.
+        # DisfluencyRemoval reads itn_raw from the fused stage — must follow it.
         if use_fusing:
             post_fused_stages.append(_disfl_stage)
         else:
@@ -819,7 +871,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             [s.name for s in fuseable_sub_stages],
         )
         # Post-fused stages depend on outputs written by the fused actor
-        # (llm_language_prediction → LLMLanguageVerification, itn_text → DisfluencyRemoval).
+        # (llm_language_prediction → LLMLanguageVerification, itn_raw → DisfluencyRemoval).
         stages.extend(post_fused_stages)
 
     if args.enable_instruction_packer:
@@ -827,6 +879,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             InstructionPackerStage(
                 output_key=args.instructions_output_key,
                 pnc_key=args.pnc_output_key,
+                tn_key=args.tn_output_key,
                 itn_key=args.itn_output_key,
                 itn_no_disfluencies_key=args.itn_no_disfluencies_output_key,
                 captioning_key=args.captioning_output_key,
