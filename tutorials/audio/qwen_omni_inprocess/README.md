@@ -271,10 +271,18 @@ and the manifest writer — the execution backend wraps each batch through
 2. Merges any stage-specific counters the stage recorded via
    `_log_metrics({...})` / `_log_metric(...)` / `_time_metric(...)` into
    `StagePerfStats.custom_metrics`.
-3. Stamps **stage identity** (`actor_id`, `node_id`, `gpu_id`) via
-   `build_xenna_perf_identity()` / `build_ray_perf_identity()` (stamped on
-   `WorkerMetadata` at backend setup). CPU stages get full timing metrics; `gpu_id`
-   stays empty and no `per_gpu` block is emitted for them.
+3. Stamps **stage identity** via `build_xenna_perf_identity()` /
+   `build_ray_perf_identity()` (returns `WorkerPerfIdentity`, stamped on
+   `WorkerMetadata` at backend setup):
+   - **Scheduling join key:** `actor_id`, `node_id`, `gpu_id` (e.g. `node-0:0`).
+     `gpu_id` is the within-run bucket for `per_gpu` aggregation — keep it stable
+     even when pod IPs change between jobs.
+   - **Cluster location (additive):** `physical_address` (`<pod_or_node_ip>:<gpu_indices>`),
+     `pod_ip`, `hostname`, `gpu_indices` (all GPUs in the actor’s allocation, so
+     `tp=2` shows `[0, 1]` not just the first slot), and optional `gpu_uuids`
+     when CUDA is up at setup.
+   CPU stages get full timing metrics; `gpu_id` stays empty and no `per_gpu`
+   block is emitted for them.
 4. Appends one `StagePerfStats` record onto each output task’s
    **`task._stage_perf`** list (a growing per-task chain as the task moves
    through the pipeline).
@@ -343,11 +351,15 @@ Full contract (dedup, identity fields, per-GPU breakdown, backend call chains):
 **Per-stage blocks** (e.g. `QwenOmni_inference`, tar reader, discovery, writer):
 invocation counts, process/idle time percentiles, throughput ratios,
 `custom_metrics_sum`, and for GPU stages — `gpu_ids`, `gpu_count`, `actor_count`,
-`per_gpu` (per-actor items processed, audio hours, batch-size / queue-wait p50/p95).
-Identity fields (`actor_id`, `node_id`, `gpu_id`) appear in per-task `_perf.jsonl`
-and drive dedup; each backend resolves them once at worker setup via
-`backends/perf_identity.py` (Xenna: `WorkerMetadata.allocation.gpus[0].index`;
-Ray Data / Actor Pool: `ray.get_gpu_ids()` — no cross-backend fallback chain).
+`per_gpu` (per-actor items processed, audio hours, batch-size / queue-wait p50/p95,
+plus cluster location: `physical_address`, `pod_ip`, `hostname`, `gpu_indices`,
+optional `gpu_uuids`).
+Scheduling identity (`actor_id`, `node_id`, `gpu_id`) appears in per-task
+`_perf.jsonl` and drives dedup; each backend resolves `WorkerPerfIdentity` once
+at worker setup via `backends/perf_identity.py` (Xenna:
+`WorkerMetadata.allocation.gpus[0].index` for `gpu_id`, all allocation indices
+for `gpu_indices`, `POD_IP` for `physical_address`; Ray Data / Actor Pool:
+`ray.get_gpu_ids()` — no cross-backend fallback chain).
 
 **Validation:** compare `perf_summary.json` across runs on shared throughput
 fields and verify `manifest_*.jsonl` rows keyed on `audio_filepath` stay aligned

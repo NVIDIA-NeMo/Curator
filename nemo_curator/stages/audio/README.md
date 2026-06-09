@@ -312,19 +312,24 @@ Toggle file output with `write_perf_stats: false` on `ShardedManifestWriterStage
    equally to CPU stages (tar reader, discovery, filters) and GPU stages
    (inference): CPU stages get full `process_time` / `custom_metrics`; they
    simply leave `gpu_id` empty.
-2. **Stage identity** — `actor_id`, `node_id`, `gpu_id` are resolved once per
-   worker in `build_xenna_perf_identity()` / `build_ray_perf_identity()`
-   (`backends/perf_identity.py`, stamped on `WorkerMetadata` at setup). GPU index
-   under Xenna: `WorkerMetadata.allocation.gpus[0].index` only. Under Ray Data /
-   Ray Actor Pool: `ray.get_gpu_ids()` only. Identity strings are stripped from
-   `StagePerfStats.items()` so framework metric collectors never `float()` them.
+2. **Stage identity** — `WorkerPerfIdentity` is resolved once per worker in
+   `build_xenna_perf_identity()` / `build_ray_perf_identity()`
+   (`backends/perf_identity.py`, stamped on `WorkerMetadata` at setup):
+   - **Scheduling:** `actor_id`, `node_id`, `gpu_id`. Under Xenna, `gpu_id` uses
+     `WorkerMetadata.allocation.gpus[0].index` only. Under Ray Data / Actor Pool:
+     `ray.get_gpu_ids()[0]` only. These strings are stripped from
+     `StagePerfStats.items()` so framework metric collectors never `float()` them.
+   - **Cluster location (additive, does not replace `gpu_id`):**
+     `physical_address` (`<pod_or_node_ip>:<comma-separated gpu_indices>`),
+     `pod_ip` (K8s `POD_IP` when set), `hostname`, `gpu_indices` (full allocation,
+     e.g. `[0, 1]` for `tp=2`), optional `gpu_uuids` from CUDA device properties.
 3. **Per-GPU scheduling breakdown** — the writer’s `AudioPerformanceSummary` builds
    per-stage `gpu_ids`, `gpu_count`, `actor_count`, and `per_gpu` (items
-   processed, audio hours, batch-size / queue-wait percentiles) **for GPU
-   stages only** (`gpu_id` non-empty). CPU stages still appear under
-   `stages[<cpu_stage_name>]` with timings and `custom_metrics_sum`; they get
-   `actor_count` but no `per_gpu` block. Top-level `pipeline_throughput` rolls
-   up GPU-stage IDs.
+   processed, audio hours, batch-size / queue-wait percentiles, plus the cluster
+   location fields above) **for GPU stages only** (`gpu_id` non-empty). CPU stages
+   still appear under `stages[<cpu_stage_name>]` with timings and
+   `custom_metrics_sum`; they get `actor_count` but no `per_gpu` block. Top-level
+   `pipeline_throughput` rolls up GPU-stage scheduling IDs (`gpu_ids`).
 4. **Dedup** — `AudioPerformanceSummary.record_stage_perf` fingerprints each
    `StagePerfStats` (including identity) so fan-out stages do not multiply-count
    upstream invocations.
@@ -370,8 +375,10 @@ published summary schema, add a field to `AudioStageMetrics` in
 | `process_time`, idle, invocations | yes | yes |
 | `custom_metrics_sum` | yes, if stage calls `_log_metrics` | yes |
 | `actor_id`, `node_id` | best-effort | best-effort |
-| `gpu_id` | empty | populated when allocation resolves |
+| `gpu_id` | empty | scheduling join key (e.g. `node-0:0`) |
 | `gpu_ids`, `gpu_count`, `per_gpu` | absent | present |
+| `physical_address`, `pod_ip`, `hostname`, `gpu_indices` | absent | in `per_gpu` when resolved |
+| `gpu_uuids` | absent | in `per_gpu` when CUDA up at setup |
 
 **Throughput denominator (`writer_wall_time_s`)**
 
