@@ -26,9 +26,23 @@ Scope: the **audio** modality only - code under `nemo_curator/stages/audio/`,
 PR touches no audio path, the pull step refuses to run (step 2) - review it
 with a modality-appropriate tool instead.
 
-Requirements: the GitHub CLI (`gh`) authenticated against `github.com`, and
-`git`. You do **not** need to pre-clone the repo - step 0 reuses any checkout
-you already have and only shallow-clones
+Requirements: an environment with `git` and the GitHub CLI (`gh`) **already
+authenticated** against `github.com`. Everything the skill does goes through
+`gh`/`git`, so a working `gh` is the only credential you need. Verify with `gh
+auth status`; if it is not green, give it an authenticated environment one of
+these ways before invoking the skill:
+
+- **Interactive:** run `gh auth login` (choose GitHub.com, HTTPS) once; the token
+  is cached for future runs.
+- **Token (CI / headless / sandbox):** export `GH_TOKEN` (or `GITHUB_TOKEN`) with
+  a PAT that has `repo` scope - e.g. `export GH_TOKEN=ghp_...` - then `gh auth
+  status` should pass. This is the way to hand a remote/agent runner a
+  `gh`-configured environment.
+- **Existing config:** if you already have a `~/.config/gh/hosts.yml` (or a host
+  with `gh` set up), run the skill from that shell/user so it inherits the auth.
+
+You do **not** need to pre-clone the repo - step 0 reuses any checkout you
+already have and only shallow-clones
 [NVIDIA-NeMo/Curator](https://github.com/NVIDIA-NeMo/Curator) if none is found.
 
 ## The reviewer prompt
@@ -48,6 +62,11 @@ Variants: *"re-review PR <N> and show only what changed since the last review"*,
 review the smallest one first"*. Every review run must build (or refresh) the
 post-#1608 audio review corpus before findings (see
 [knowledge-sources.md](knowledge-sources.md) section 4).
+
+Run the prompt in an environment where `gh auth status` passes. For a
+remote/headless agent, say so explicitly, e.g. *"`gh` is authenticated via
+`GH_TOKEN` in this environment - review audio Curator PR <N> ..."* (see
+Requirements above for how to provide a `gh`-configured environment).
 
 ## What you produce
 
