@@ -36,11 +36,7 @@ uv sync --extra audio_cpu
 source .venv/bin/activate
 ```
 
-If you don't have `uv`, fall back to pip:
-
-```bash
-pip install -e ".[audio_cpu]"
-```
+Alternatively, use the [NeMo Curator Docker image](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html).
 
 ## Sample Data
 
@@ -414,7 +410,7 @@ PIPELINE COMPLETE
 
 ## Benchmarking
 
-See [benchmarking/ALM_BENCHMARK.md](../../../benchmarking/ALM_BENCHMARK.md) for the full ALM benchmark documentation, including how to run benchmarks, configuration, CLI arguments, and reference results.
+The ALM pipeline can be benchmarked with `benchmarking/scripts/alm_pipeline_benchmark.py`. See [benchmarking/README.md](../../../benchmarking/README.md) for the nightly benchmarking framework, configuration, and CLI conventions.
 
 ## Testing
 
@@ -596,14 +592,14 @@ The ALM stages can be composed with upstream and downstream NeMo Curator audio s
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.alm.alm_manifest_reader import ALMManifestReader
+from nemo_curator.stages.audio import ManifestReader
 from nemo_curator.stages.audio.alm.alm_data_builder import ALMDataBuilderStage
 from nemo_curator.stages.audio.alm.alm_data_overlap import ALMDataOverlapStage
 
 pipeline = Pipeline(
     name="custom-alm",
     stages=[
-        ALMManifestReader(manifest_path=["data.jsonl"]),
+        ManifestReader(manifest_path=["data.jsonl"]),
         ALMDataBuilderStage(target_window_duration=120.0),
         ALMDataOverlapStage(overlap_percentage=50),
     ],
