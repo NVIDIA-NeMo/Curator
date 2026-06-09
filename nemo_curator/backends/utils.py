@@ -22,7 +22,7 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.backends.perf_identity import build_ray_perf_identity
+from nemo_curator.backends.perf_identity import build_ray_perf_identity, stamp_worker_metadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.utils.ray_utils import get_head_node_id, submit_on_each_node
 
@@ -141,15 +141,12 @@ def get_worker_metadata_and_node_id(
 ) -> tuple[NodeInfo, WorkerMetadata]:
     """Get node + worker metadata with Ray-resolved perf identity labels."""
     ray_context = ray.get_runtime_context()
-    actor_id, perf_node_id, gpu_id = build_ray_perf_identity(stage_name, requires_gpu=requires_gpu)
+    identity = build_ray_perf_identity(stage_name, requires_gpu=requires_gpu)
+    worker_metadata = WorkerMetadata(worker_id=ray_context.get_worker_id())
+    stamp_worker_metadata(worker_metadata, identity)
     return (
         NodeInfo(node_id=ray_context.get_node_id()),
-        WorkerMetadata(
-            worker_id=ray_context.get_worker_id(),
-            actor_id=actor_id,
-            node_id=perf_node_id,
-            gpu_id=gpu_id,
-        ),
+        worker_metadata,
     )
 
 

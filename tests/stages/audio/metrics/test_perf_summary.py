@@ -93,6 +93,32 @@ def test_fingerprint_distinguishes_actors_with_equal_timings() -> None:
 # ----------------------------------------------------------------------
 
 
+def test_per_gpu_includes_physical_location_metadata() -> None:
+    summary = AudioPerformanceSummary()
+    summary.record_stage_perf([
+        StagePerfStats(
+            stage_name="QwenOmni_inference",
+            process_time=1.0,
+            actor_idle_time=0.1,
+            num_items_processed=32,
+            custom_metrics={"audio_duration_s": 100.0, "utterances_input": 32.0},
+            actor_id="S:actor-a",
+            node_id="node-0",
+            gpu_id="node-0:0",
+            physical_address="10.244.181.136:0,1",
+            pod_ip="10.244.181.136",
+            hostname="worker-0",
+            gpu_indices=[0, 1],
+        ),
+    ])
+    stage = summary.build_stage_summaries()["QwenOmni_inference"]
+    per_gpu = stage["per_gpu"]["node-0:0"]
+    assert per_gpu["physical_address"] == "10.244.181.136:0,1"
+    assert per_gpu["pod_ip"] == "10.244.181.136"
+    assert per_gpu["hostname"] == "worker-0"
+    assert per_gpu["gpu_indices"] == [0, 1]
+
+
 def test_per_gpu_scheduling_breakdown_and_topology() -> None:
     summary = AudioPerformanceSummary(duration_key="duration")
     # GPU 0: two invocations (actor-a); GPU 1: two invocations (actor-b).

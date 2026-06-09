@@ -335,10 +335,16 @@ def serialize_stage_perf(stage_perf_list: list[StagePerfStats]) -> list[dict[str
             "num_items_processed": perf.num_items_processed,
         }
         # Identity labels (best-effort; empty when the backend could not resolve them).
-        for identity_field in ("actor_id", "node_id", "gpu_id"):
+        for identity_field in ("actor_id", "node_id", "gpu_id", "physical_address", "pod_ip", "hostname"):
             identity_value = getattr(perf, identity_field, "")
             if identity_value:
                 entry[identity_field] = identity_value
+        gpu_indices = getattr(perf, "gpu_indices", None) or []
+        gpu_uuids = getattr(perf, "gpu_uuids", None) or []
+        if gpu_indices:
+            entry["gpu_indices"] = [int(idx) for idx in gpu_indices]
+        if gpu_uuids:
+            entry["gpu_uuids"] = list(gpu_uuids)
         if perf.custom_metrics:
             entry["custom_metrics"] = dict(perf.custom_metrics)
         result.append(entry)
@@ -576,6 +582,9 @@ class AudioPerformanceSummary:
     _stage_gpu_actor: dict[str, dict[str, str]] = field(
         default_factory=lambda: defaultdict(dict), repr=False,
     )
+    _stage_gpu_location: dict[str, dict[str, dict[str, Any]]] = field(
+        default_factory=lambda: defaultdict(dict), repr=False,
+    )
     _stage_gpus: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
     _stage_actors: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
     _gpu_node: dict[str, str] = field(default_factory=dict, repr=False)
@@ -704,6 +713,29 @@ class AudioPerformanceSummary:
             pass
         if actor_id:
             self._stage_gpu_actor[stage_name][gpu_id] = actor_id
+        location = self._gpu_location_fields(perf)
+        if location:
+            self._stage_gpu_location[stage_name][gpu_id] = location
+
+    @staticmethod
+    def _gpu_location_fields(perf: StagePerfStats) -> dict[str, Any]:
+        block: dict[str, Any] = {}
+        physical_address = getattr(perf, "physical_address", "") or ""
+        pod_ip = getattr(perf, "pod_ip", "") or ""
+        hostname = getattr(perf, "hostname", "") or ""
+        gpu_indices = getattr(perf, "gpu_indices", None) or []
+        gpu_uuids = getattr(perf, "gpu_uuids", None) or []
+        if physical_address:
+            block["physical_address"] = physical_address
+        if pod_ip:
+            block["pod_ip"] = pod_ip
+        if hostname:
+            block["hostname"] = hostname
+        if gpu_indices:
+            block["gpu_indices"] = [int(idx) for idx in gpu_indices]
+        if gpu_uuids:
+            block["gpu_uuids"] = list(gpu_uuids)
+        return block
 
     # -----------------------------------------------------------------------
     # Building the published summary
@@ -754,6 +786,9 @@ class AudioPerformanceSummary:
             for key in ("batch_size_p50", "batch_size_p95", "queue_wait_s_p50", "queue_wait_s_p95"):
                 if key in summary:
                     block[key] = summary[key]
+            location = self._stage_gpu_location.get(stage_name, {}).get(gpu_id)
+            if location:
+                block.update(location)
             per_gpu[gpu_id] = block
         return per_gpu
 

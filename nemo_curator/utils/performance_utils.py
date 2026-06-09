@@ -34,7 +34,16 @@ if TYPE_CHECKING:
 #: numeric metrics, so they MUST be excluded from ``items()`` -- downstream
 #: framework metric collection (``TaskPerfUtils.collect_stage_metrics``) calls
 #: ``float()`` on every value ``items()`` yields and would crash on a string.
-_IDENTITY_FIELDS = ("actor_id", "node_id", "gpu_id")
+_IDENTITY_FIELDS = (
+    "actor_id",
+    "node_id",
+    "gpu_id",
+    "physical_address",
+    "pod_ip",
+    "hostname",
+    "gpu_indices",
+    "gpu_uuids",
+)
 
 
 @attrs.define
@@ -64,6 +73,11 @@ class StagePerfStats:
     actor_id: str = ""
     node_id: str = ""
     gpu_id: str = ""
+    physical_address: str = ""
+    pod_ip: str = ""
+    hostname: str = ""
+    gpu_indices: list[int] = attrs.field(factory=list)
+    gpu_uuids: list[str] = attrs.field(factory=list)
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
         """Add two StagePerfStats (identity is metadata; keep self's labels)."""
@@ -80,6 +94,11 @@ class StagePerfStats:
             actor_id=self.actor_id,
             node_id=self.node_id,
             gpu_id=self.gpu_id,
+            physical_address=self.physical_address,
+            pod_ip=self.pod_ip,
+            hostname=self.hostname,
+            gpu_indices=list(self.gpu_indices),
+            gpu_uuids=list(self.gpu_uuids),
         )
 
     def __radd__(self, other: int | StagePerfStats) -> StagePerfStats:
@@ -101,6 +120,11 @@ class StagePerfStats:
         self.actor_id = ""
         self.node_id = ""
         self.gpu_id = ""
+        self.physical_address = ""
+        self.pod_ip = ""
+        self.hostname = ""
+        self.gpu_indices = []
+        self.gpu_uuids = []
 
     def to_dict(self) -> dict[str, float | int]:
         """Convert the stats to a dictionary."""

@@ -13,10 +13,10 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from nemo_curator.backends.perf_identity import read_worker_metadata_identity
+from nemo_curator.backends.perf_identity import apply_worker_perf_identity, read_worker_metadata_identity
 from nemo_curator.core.utils import ignore_ray_head_node
 from nemo_curator.tasks import Task
 from nemo_curator.utils.performance_utils import StageTimer
@@ -48,6 +48,11 @@ class WorkerMetadata:
     actor_id: str = ""
     node_id: str = ""
     gpu_id: str = ""
+    physical_address: str = ""
+    pod_ip: str = ""
+    hostname: str = ""
+    gpu_indices: list[int] = field(default_factory=list)
+    gpu_uuids: list[str] = field(default_factory=list)
 
 
 class BaseExecutor(ABC):
@@ -104,7 +109,7 @@ class BaseStageAdapter:
         # Identity is resolved once per worker in setup() and stamped on WorkerMetadata.
         if not hasattr(self, "_perf_identity") or self._perf_identity is None:
             self._cache_perf_identity()
-        stage_perf_stats.actor_id, stage_perf_stats.node_id, stage_perf_stats.gpu_id = self._perf_identity
+        apply_worker_perf_identity(stage_perf_stats, self._perf_identity)
         for task in results:
             task.add_stage_perf(stage_perf_stats)
 
