@@ -32,6 +32,7 @@ Two classes live here side by side because they share the same
 from __future__ import annotations
 
 import gc
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -47,6 +48,11 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 _DEFAULT_TARGET_SR = 16000
+
+
+def _is_local_nemo_checkpoint(model_name: str) -> bool:
+    """True when ``model_name`` points at an on-disk ``.nemo`` archive."""
+    return model_name.endswith(".nemo") and os.path.isfile(model_name)
 
 
 class NemoASRModel(ModelInterface):
@@ -73,9 +79,12 @@ class NemoASRModel(ModelInterface):
         return [self.model_name]
 
     def setup_on_node(self) -> None:
-        """Pre-download checkpoint into the NeMo cache (no-op when ``preloaded_model`` was given)."""
-        if self.preloaded_model is not None:
+        """Pre-download HF checkpoints; no-op for local ``.nemo`` files."""
+        if self.preloaded_model is not None or _is_local_nemo_checkpoint(self.model_name):
             return
+        if self.model_name.endswith(".nemo"):
+            msg = f"Local NeMo checkpoint not found: {self.model_name}"
+            raise RuntimeError(msg)
         kwargs: dict[str, Any] = {"model_name": self.model_name, "return_model_file": True}
         if self.cache_dir is not None:
             kwargs["cache_dir"] = self.cache_dir
@@ -89,14 +98,24 @@ class NemoASRModel(ModelInterface):
         """Load the checkpoint onto ``device`` (no-op if already loaded or ``preloaded_model`` is set)."""
         if self.asr_model is not None:
             return
-        kwargs: dict[str, Any] = {"model_name": self.model_name}
-        if device is not None:
-            kwargs["map_location"] = device
-        if self.cache_dir is not None:
-            kwargs["cache_dir"] = self.cache_dir
-        logger.info(f"Loading NeMo ASR model={self.model_name} device={device}")
+        map_location = device if device is not None else "cpu"
+        logger.info(f"Loading NeMo ASR model={self.model_name} device={map_location}")
         try:
-            self.asr_model = nemo_asr.models.ASRModel.from_pretrained(**kwargs)
+            if _is_local_nemo_checkpoint(self.model_name):
+                self.asr_model = nemo_asr.models.ASRModel.restore_from(
+                    restore_path=self.model_name,
+                    map_location=map_location,
+                )
+            else:
+                if self.model_name.endswith(".nemo"):
+                    msg = f"Local NeMo checkpoint not found: {self.model_name}"
+                    raise FileNotFoundError(msg)
+                kwargs: dict[str, Any] = {"model_name": self.model_name, "map_location": map_location}
+                if self.cache_dir is not None:
+                    kwargs["cache_dir"] = self.cache_dir
+                self.asr_model = nemo_asr.models.ASRModel.from_pretrained(**kwargs)
+        except FileNotFoundError:
+            raise
         except Exception as e:
             msg = f"Failed to load {self.model_name}"
             raise RuntimeError(msg) from e

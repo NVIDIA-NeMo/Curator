@@ -176,6 +176,14 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers_per_node": 1}
 
+    def ray_stage_spec(self) -> dict[str, Any]:
+        # Fan out per-shard tasks into one block each so the reader runs in parallel.
+        if RayStageSpecKeys is not None:
+            return {
+                RayStageSpecKeys.IS_FANOUT_STAGE: True,
+            }
+        return {"is_fanout_stage": True}
+
     def _scan_completed_shards(self) -> set[str]:
         if not self.output_dir or not os.path.isdir(self.output_dir):
             return set()
@@ -272,6 +280,9 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     """
 
     name: str = "nemo_speech_reader"
+    # Max shards read in parallel. Caps in-flight waveforms so the object store
+    # doesn't overflow (without it, Ray launches up to one reader task per CPU).
+    read_concurrency: int = 2
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -280,11 +291,17 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return ["data"], ["waveform", "sampling_rate", "corpus", "num_channels"]
 
     def ray_stage_spec(self) -> dict[str, Any]:
+        # Fan out AudioTask outputs into 1-row blocks for parallel downstream GPU
+        # stages; concurrency caps how many reader tasks run at once (see read_concurrency).
         if RayStageSpecKeys is not None:
             return {
                 RayStageSpecKeys.IS_FANOUT_STAGE: True,
+                RayStageSpecKeys.RAY_REMOTE_ARGS: {"concurrency": self.read_concurrency},
             }
-        return {"is_fanout_stage": True}
+        return {
+            "is_fanout_stage": True,
+            "ray_remote_args": {"concurrency": self.read_concurrency},
+        }
 
     @staticmethod
     def _make_cutset(manifest_path: str, tar_path: str | None) -> Any:  # noqa: ANN401
@@ -439,6 +456,7 @@ class NeMoSpeechAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     corpus_filter: list[str] | None = None
     language_filter: list[str] | None = None
     output_dir: str | None = None
+    read_concurrency: int = 2
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -452,7 +470,7 @@ class NeMoSpeechAudioReader(CompositeStage[_EmptyTask, AudioTask]):
                 language_filter=self.language_filter,
                 output_dir=self.output_dir,
             ),
-            NeMoSpeechReaderStage(),
+            NeMoSpeechReaderStage(read_concurrency=self.read_concurrency),
         ]
 
     def inputs(self) -> tuple[list[str], list[str]]:
