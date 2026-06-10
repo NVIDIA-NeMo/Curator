@@ -21,6 +21,11 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
+AGGLUTINATIVE_COMPOUNDING_LANGS: frozenset[str] = frozenset({
+    "fi", "hu", "et",  # Uralic agglutinative
+    "de", "nl", "da", "sv", "no",  # Germanic compounding
+})
+
 
 @dataclass
 class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
@@ -42,8 +47,10 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     common_hall_file: str = ""
     unique_words_threshold: float = 0.4
     long_word_threshold: int = 25
+    agglutinative_long_word_threshold: int = 35
     long_word_rel_threshold: float = 3.0
     max_char_rate: float = 40.0
+    language_key: str = "language"
     duration_key: str = "duration"
     text_key: str = "pred_text"
     skip_me_key: str = "_skipme"
@@ -81,12 +88,15 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             return False
         return len(set(words)) / len(words) <= self.unique_words_threshold
 
-    def _long_word(self, words: list[str]) -> bool:
+    def _long_word(self, words: list[str], threshold: int | None = None, skip_relative: bool = False) -> bool:
         if not words:
             return False
+        effective_threshold = threshold if threshold is not None else self.long_word_threshold
         lengths = sorted(len(w) for w in words)
-        if lengths[-1] >= self.long_word_threshold:
+        if lengths[-1] >= effective_threshold:
             return True
+        if skip_relative:
+            return False
         if len(lengths) > 1 and lengths[-2] > 0:
             return (lengths[-1] - lengths[-2]) / lengths[-2] >= self.long_word_rel_threshold
         return False
@@ -109,6 +119,10 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         chars = sum(len(w) for w in words)
         return chars / duration > self.max_char_rate
 
+    def _is_agglutinative(self, task: AudioTask) -> bool:
+        lang = str(task.data.get(self.language_key, "")).lower().strip()
+        return lang in AGGLUTINATIVE_COMPOUNDING_LANGS
+
     def _process_single(self, task: AudioTask) -> AudioTask:
         current_flag = str(task.data.get(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
@@ -121,8 +135,10 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         words = text.split()
         duration = task.data.get(self.duration_key, 0.0) or 0.0
 
+        is_agglutinative = self._is_agglutinative(task)
+        long_word_thresh = self.agglutinative_long_word_threshold if is_agglutinative else self.long_word_threshold
         repeated = self._repeated_ngrams(words)
-        long_w = self._long_word(words)
+        long_w = self._long_word(words, threshold=long_word_thresh, skip_relative=is_agglutinative)
         phrase = self._frequent_single_word(text)
         high_rate = self._high_char_rate(words, duration)
 
