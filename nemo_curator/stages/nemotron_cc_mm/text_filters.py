@@ -36,8 +36,25 @@ if TYPE_CHECKING:
 _WORD_RE = re.compile(r"\S+")
 
 
-def aggregate_doc_text(group: pd.DataFrame) -> str:
-    """Concatenate ``text_content`` over all text rows of a sample."""
+def aggregate_doc_text(group: pd.DataFrame, text_source: str = "text_rows") -> str:
+    """Return the aggregated document text per the chosen ``text_source``.
+
+    ``text_source``:
+      * ``"text_rows"`` (default) — concat ``text_content`` over all
+        ``modality == "text"`` rows (magic-html paragraph extraction).
+      * ``"metadata"`` — return the single ``text_content`` from the
+        ``modality == "metadata"`` row (Resiliparse full-doc text, if
+        the extractor populated it).  Empty string if no metadata row
+        or metadata text_content is null.
+    """
+    if text_source == "metadata":
+        md_rows = group[group["modality"] == "metadata"]
+        if md_rows.empty:
+            return ""
+        series = md_rows["text_content"].dropna()
+        if series.empty:
+            return ""
+        return str(series.iloc[0])
     text_rows = group[group["modality"] == "text"]
     if text_rows.empty:
         return ""
@@ -145,12 +162,15 @@ class BaseInterleavedSampleFilterStage(LoggingInterleavedFilterStage):
     """Drop whole samples based on a predicate.
 
     Subclasses implement ``is_sample_ok(sample_id, group) -> bool``.  The
-    predicate may use ``aggregate_doc_text(group)`` to get the document's
-    text content.  Inherits per-batch drop logging from
-    :class:`LoggingInterleavedFilterStage`.
+    predicate may use ``aggregate_doc_text(group, self.text_source)`` to
+    get the document's text content.  ``text_source`` selects between
+    magic-html paragraphs (``"text_rows"``, default) and Resiliparse
+    full-doc text from the metadata row (``"metadata"``).  Inherits
+    per-batch drop logging from :class:`LoggingInterleavedFilterStage`.
     """
 
     name: str = "base_interleaved_sample_filter"
+    text_source: str = "text_rows"
 
     @abstractmethod
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
@@ -177,7 +197,7 @@ class InterleavedLoremIpsumFilterStage(BaseInterleavedSampleFilterStage):
     name: str = "interleaved_lorem_ipsum_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        return self.needle not in aggregate_doc_text(group).lower()
+        return self.needle not in aggregate_doc_text(group, self.text_source).lower()
 
 
 @dataclass
@@ -189,7 +209,7 @@ class InterleavedWordCountFilterStage(BaseInterleavedSampleFilterStage):
     name: str = "interleaved_word_count_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        n = len(split_words(aggregate_doc_text(group)))
+        n = len(split_words(aggregate_doc_text(group, self.text_source)))
         return self.min_words <= n <= self.max_words
 
 
@@ -202,7 +222,7 @@ class InterleavedMeanWordLengthFilterStage(BaseInterleavedSampleFilterStage):
     name: str = "interleaved_mean_word_length_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        words = split_words(aggregate_doc_text(group))
+        words = split_words(aggregate_doc_text(group, self.text_source))
         if not words:
             return False
         mean = sum(len(w) for w in words) / len(words)
@@ -220,7 +240,7 @@ class InterleavedSymbolToWordRatioFilterStage(BaseInterleavedSampleFilterStage):
     name: str = "interleaved_symbol_to_word_ratio_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        text = aggregate_doc_text(group)
+        text = aggregate_doc_text(group, self.text_source)
         words = split_words(text)
         if not words:
             return False
@@ -252,7 +272,7 @@ class InterleavedStopwordCountFilterStage(BaseInterleavedSampleFilterStage):
     name: str = "interleaved_stopword_count_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        words_lower = {w.lower() for w in split_words(aggregate_doc_text(group))}
+        words_lower = {w.lower() for w in split_words(aggregate_doc_text(group, self.text_source))}
         return len(words_lower & self.stopwords) >= self.min_distinct
 
 
@@ -277,7 +297,7 @@ class InterleavedNGramRepetitionFilterStage(BaseInterleavedSampleFilterStage):
     name: str = "interleaved_ngram_repetition_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        words = split_words(aggregate_doc_text(group))
+        words = split_words(aggregate_doc_text(group, self.text_source))
         if not words:
             return False
         for n, bound in self.bounds:
@@ -325,7 +345,7 @@ class InterleavedAlphabeticWordRatioFilterStage(BaseInterleavedSampleFilterStage
     name: str = "interleaved_alphabetic_word_ratio_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        words = split_words(aggregate_doc_text(group))
+        words = split_words(aggregate_doc_text(group, self.text_source))
         if not words:
             return False
         n_alpha = sum(1 for w in words if _is_alphabetic_word(w))
@@ -344,7 +364,7 @@ class InterleavedEllipsisLineRatioFilterStage(BaseInterleavedSampleFilterStage):
     name: str = "interleaved_ellipsis_line_ratio_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        lines = _split_lines(aggregate_doc_text(group))
+        lines = _split_lines(aggregate_doc_text(group, self.text_source))
         if not lines:
             return False
         n_ellipsis = sum(
@@ -365,7 +385,7 @@ class InterleavedBulletLineRatioFilterStage(BaseInterleavedSampleFilterStage):
     name: str = "interleaved_bullet_line_ratio_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        lines = _split_lines(aggregate_doc_text(group))
+        lines = _split_lines(aggregate_doc_text(group, self.text_source))
         if not lines:
             return False
         n_bullet = sum(1 for ln in lines if ln.startswith(_BULLET_PREFIXES))
@@ -384,7 +404,7 @@ class InterleavedDuplicateLineRatioFilterStage(BaseInterleavedSampleFilterStage)
     name: str = "interleaved_duplicate_line_ratio_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        lines = _split_lines(aggregate_doc_text(group))
+        lines = _split_lines(aggregate_doc_text(group, self.text_source))
         n = len(lines)
         if n < 2:
             return True  # too short to assess
@@ -411,7 +431,7 @@ class InterleavedTopWordFractionFilterStage(BaseInterleavedSampleFilterStage):
     name: str = "interleaved_top_word_fraction_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        words = [w.lower() for w in split_words(aggregate_doc_text(group))]
+        words = [w.lower() for w in split_words(aggregate_doc_text(group, self.text_source))]
         if not words:
             return False
         top_count = Counter(words).most_common(1)[0][1]
@@ -435,7 +455,7 @@ class InterleavedContinuousLineBreaksFilterStage(BaseInterleavedSampleFilterStag
     name: str = "interleaved_continuous_line_breaks_filter"
 
     def is_sample_ok(self, sample_id: str, group: pd.DataFrame) -> bool:
-        text = aggregate_doc_text(group)
+        text = aggregate_doc_text(group, self.text_source)
         lines = _split_lines(text)
         if not lines:
             return False
@@ -488,5 +508,5 @@ class InterleavedBadWordsFilterStage(BaseInterleavedSampleFilterStage):
         self._ensure_loaded()
         if not self._words:
             return True
-        tokens = set(_BAD_WORD_TOKEN_RE.findall(aggregate_doc_text(group).lower()))
+        tokens = set(_BAD_WORD_TOKEN_RE.findall(aggregate_doc_text(group, self.text_source).lower()))
         return not (tokens & self._words)

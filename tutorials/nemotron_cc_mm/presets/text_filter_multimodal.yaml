@@ -1,0 +1,79 @@
+# OmniCorpus — Stage 2 (text filter, multimodal-tuned)
+# ----------------------------------------------------------------------
+# Reads parquets from Stage 1 (magic-html-extract), runs heuristic doc-level
+# filters tuned for a multimodal corpus, writes filtered parquets.
+#
+# Differences vs the default `text_filter.yaml`:
+#   - word_count_min lowered from 50 → 20 (keeps caption-rich pages)
+#   - lang_id DISABLED (no drop; defer lang annotation to a separate stage)
+#   - all other Gopher/C4 heuristic filters at default
+#   - no quality classifier, no bad_words, no PII redact, no image stages
+#
+# Reads:    Parquet from Stage 1 (full extracted rows)
+# Writes:   Parquet with text-filter survivors (image rows pass through)
+# Resources: CPU only.  Deterministic — same input → same output.
+
+name: text_filter_multimodal
+description: Stage 2 — Parquet → 12 heuristic text filters (multimodal-tuned) → Parquet
+
+input_type: parquet
+
+# ======================================================================
+# ① Extraction settings (ignored on Parquet input)
+# ======================================================================
+extractor: magic_traf
+min_text_chars: 1
+max_text_chars: 50000
+resiliparse_text: false
+max_batch_bytes: 268435456
+
+# ======================================================================
+# ② Heuristic doc-level filters — 12 enabled, lang_id + bad_words OFF
+# ======================================================================
+url_substr_nsfw: true
+lorem_ipsum: true
+word_count: true
+mean_word_length: true
+symbol_ratio: true
+stopword_count: true
+ngram_repetition: true
+alpha_ratio: true
+ellipsis_line: true
+bullet_line: true
+dup_line: true
+top_word: true
+continuous_line_breaks: true
+bad_words: false           # no LDNOOBW wordlist supplied
+lang_id: false             # multimodal: don't drop on language
+lang_id_annotate: true     # but DO tag each doc with detected_lang + lang_score
+
+# Thresholds — Gopher/C4 defaults except word_count_min (multimodal tweak)
+word_count_min: 20         # ↓ from 50 — keep caption-rich photo/product pages
+word_count_max: 100000
+mean_word_length_min: 3.0
+mean_word_length_max: 10.0
+symbol_ratio_max: 0.1
+stopword_count_min: 2
+alpha_ratio_min: 0.8
+ellipsis_line_max: 0.3
+bullet_line_max: 0.9
+dup_line_max: 0.3
+top_word_max: 0.30
+continuous_line_breaks_max: 0.05
+bad_words_path: ""
+
+# ======================================================================
+# ③ Detailed Filter + Safety — DISABLED
+# ======================================================================
+pii_redact: false
+
+# ======================================================================
+# ④ Image stages — ALL DISABLED (handled by Stage 3 / Stage 4)
+# ======================================================================
+image_download: false
+image_url_dedup: false
+image_geometry: false
+image_aspect_ratio: false
+image_nsfw: false
+image_aesthetic: false
+image_count: false

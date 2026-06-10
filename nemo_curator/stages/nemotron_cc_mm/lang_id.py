@@ -75,7 +75,7 @@ class InterleavedFastTextLangIDFilterStage(BaseInterleavedSampleFilterStage):
         if self._model is None:
             # Defensive: setup() should have been called.
             self.setup()
-        text = aggregate_doc_text(group)
+        text = aggregate_doc_text(group, self.text_source)
         if not text:
             return False
         # FastText doesn't accept newlines in input.
@@ -112,6 +112,7 @@ class InterleavedFastTextLangIDAnnotatorStage(BaseInterleavedAnnotatorStage):
 
     model_path: str = field(default_factory=lambda: str(DEFAULT_LID_PATH))
     name: str = "interleaved_fasttext_lang_id_annotator"
+    text_source: str = "text_rows"
 
     _model: object | None = field(default=None, init=False, repr=False)
 
@@ -151,7 +152,7 @@ class InterleavedFastTextLangIDAnnotatorStage(BaseInterleavedAnnotatorStage):
         # patch the metadata row's source_ref JSON.
         sample_to_lang: dict[str, tuple[str | None, float]] = {}
         for sample_id, group in df.groupby("sample_id"):
-            text = aggregate_doc_text(group)
+            text = aggregate_doc_text(group, self.text_source)
             sample_to_lang[sample_id] = self._predict_one(text)
 
         # Patch metadata-row source_ref JSON in place.

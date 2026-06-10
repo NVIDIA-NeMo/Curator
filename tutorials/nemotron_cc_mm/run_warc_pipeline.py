@@ -135,57 +135,69 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
         pipe.add_stage(InterleavedURLSubstringNSFWFilterStage())
 
     # Cheap text heuristics.
+    ts = args.text_source
     if args.lorem_ipsum:
-        pipe.add_stage(InterleavedLoremIpsumFilterStage())
+        pipe.add_stage(InterleavedLoremIpsumFilterStage(text_source=ts))
     if args.word_count:
         pipe.add_stage(InterleavedWordCountFilterStage(
             min_words=args.word_count_min,
             max_words=args.word_count_max,
+            text_source=ts,
         ))
     if args.mean_word_length:
         pipe.add_stage(InterleavedMeanWordLengthFilterStage(
             min_len=args.mean_word_length_min,
             max_len=args.mean_word_length_max,
+            text_source=ts,
         ))
     if args.symbol_ratio:
         pipe.add_stage(InterleavedSymbolToWordRatioFilterStage(
             max_ratio=args.symbol_ratio_max,
+            text_source=ts,
         ))
     if args.stopword_count:
         pipe.add_stage(InterleavedStopwordCountFilterStage(
             min_distinct=args.stopword_count_min,
+            text_source=ts,
         ))
     if args.ngram_repetition:
-        pipe.add_stage(InterleavedNGramRepetitionFilterStage())
+        pipe.add_stage(InterleavedNGramRepetitionFilterStage(text_source=ts))
 
     # Gopher / OmniCorpus finishing filters (cheap, all on aggregated text).
     if args.alpha_ratio:
         pipe.add_stage(InterleavedAlphabeticWordRatioFilterStage(
             min_ratio=args.alpha_ratio_min,
+            text_source=ts,
         ))
     if args.ellipsis_line:
         pipe.add_stage(InterleavedEllipsisLineRatioFilterStage(
             max_ratio=args.ellipsis_line_max,
+            text_source=ts,
         ))
     if args.bullet_line:
         pipe.add_stage(InterleavedBulletLineRatioFilterStage(
             max_ratio=args.bullet_line_max,
+            text_source=ts,
         ))
     if args.dup_line:
         pipe.add_stage(InterleavedDuplicateLineRatioFilterStage(
             max_ratio=args.dup_line_max,
+            text_source=ts,
         ))
     if args.top_word:
         pipe.add_stage(InterleavedTopWordFractionFilterStage(
             max_ratio=args.top_word_max,
+            text_source=ts,
         ))
     if args.continuous_line_breaks:
         pipe.add_stage(InterleavedContinuousLineBreaksFilterStage(
             max_ratio=args.continuous_line_breaks_max,
+            text_source=ts,
         ))
     if args.bad_words and args.bad_words_path:
         pipe.add_stage(InterleavedBadWordsFilterStage(
             wordlist_path=args.bad_words_path,
+            text_source=ts,
         ))
 
     # FastText lang-ID last among text filters — it's the most expensive.
@@ -194,6 +206,7 @@ def build_pipeline(args: argparse.Namespace) -> Pipeline:
             model_path=args.lang_id_model,
             target_lang=args.lang_id_target,
             min_score=args.lang_id_min_score,
+            text_source=ts,
         ))
 
     # ---------------- Stage 5 (image acquire + filter) ----------------
@@ -481,6 +494,12 @@ if __name__ == "__main__":
                      "its joined output into the doc's metadata-row text_content")
 
     # ---- Stage 3 (text filters) ----
+    parser.add_argument("--text-source", default="text_rows",
+                        choices=["text_rows", "metadata"],
+                        help="Where the doc-level filters get their aggregated text. "
+                             "'text_rows' (default) = concat magic-html paragraphs from "
+                             "modality=='text' rows. 'metadata' = use the Resiliparse "
+                             "full-doc text stored in the metadata row's text_content.")
     _add_filter_flag(parser, "url-substr-nsfw", True, "URL-substring NSFW filter")
     _add_filter_flag(parser, "lorem-ipsum", True, "Drop docs containing 'lorem ipsum'")
     _add_filter_flag(parser, "word-count", True, "Gopher word-count bounds")
