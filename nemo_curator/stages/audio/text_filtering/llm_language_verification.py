@@ -160,7 +160,7 @@ class LLMLanguageVerificationStage(ProcessingStage[AudioTask, AudioTask]):
             return task
 
         if primary_code is None:
-            if not task.data[self.skip_me_key]:
+            if not task.data.get(self.skip_me_key):
                 task.data[self.skip_me_key] = f"Unparseable language:{self.name}"
             set_note(
                 task.data,
@@ -184,7 +184,7 @@ class LLMLanguageVerificationStage(ProcessingStage[AudioTask, AudioTask]):
                     self.notes_key,
                 )
             else:
-                if not task.data[self.skip_me_key]:
+                if not task.data.get(self.skip_me_key):
                     task.data[self.skip_me_key] = f"Wrong language:{self.name}"
                 set_note(
                     task.data,
@@ -195,7 +195,7 @@ class LLMLanguageVerificationStage(ProcessingStage[AudioTask, AudioTask]):
             return task
 
         if primary_code != expected_code:
-            if not task.data[self.skip_me_key]:
+            if not task.data.get(self.skip_me_key):
                 task.data[self.skip_me_key] = f"Wrong language:{self.name}"
             set_note(
                 task.data,
