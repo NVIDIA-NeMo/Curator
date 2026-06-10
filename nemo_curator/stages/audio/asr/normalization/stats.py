@@ -73,7 +73,8 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
 
     The stage writes global aggregate statistics, full summaries for each
     language/source pair under ``by_language``, and full language-level totals
-    under ``by_language_overall``.
+    under ``by_language_overall``. Each summary includes unknown-character
+    counts and rates so vocabulary gaps can be inspected after a run.
     """
 
     name: str = "transcript_stats"
@@ -226,6 +227,7 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
             "unique_known_char_rate": unique_known_char_rate,
             "unique_unknown_chars": unique_unknown_chars,
             "unique_unknown_char_rate": unique_unknown_char_rate,
+            "unknown_char_details": _unknown_char_details(self._unknown_chars, self._total_chars),
             "alpha_minus_known_chars": alpha_minus_known_chars,
             "split_counts": dict(self._split_counts),
             "split_hours": split_hours,
@@ -266,12 +268,33 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
         ]
         for lang, source_summaries in summary["by_language"].items():
             for source, source_summary in source_summaries.items():
-                lines.extend(_format_summary_block(f"lang={lang} source={source}", source_summary, indent="    "))
+                lines.extend(
+                    _format_summary_block(
+                        f"lang={lang} source={source}",
+                        source_summary,
+                        indent="    ",
+                        top_n_unknown_chars=self.log_top_n_unknown_chars,
+                    )
+                )
         lines.append("  per_language_overall:")
         for lang, language_summary in summary["by_language_overall"].items():
-            lines.extend(_format_summary_block(f"lang={lang} overall", language_summary, indent="    "))
+            lines.extend(
+                _format_summary_block(
+                    f"lang={lang} overall",
+                    language_summary,
+                    indent="    ",
+                    top_n_unknown_chars=self.log_top_n_unknown_chars,
+                )
+            )
         lines.append("  global:")
-        lines.extend(_format_summary_block("all languages/sources", summary, indent="    "))
+        lines.extend(
+            _format_summary_block(
+                "all languages/sources",
+                summary,
+                indent="    ",
+                top_n_unknown_chars=self.log_top_n_unknown_chars,
+            )
+        )
         return "\n".join(lines)
 
     def _metrics_snapshot(self, process_time: float) -> dict[str, float | int]:
@@ -300,7 +323,13 @@ def _coerce_unknown_chars(value: Any) -> dict[str, int]:  # noqa: ANN401
     return {}
 
 
-def _format_summary_block(label: str, summary: dict[str, Any], *, indent: str) -> list[str]:
+def _format_summary_block(
+    label: str,
+    summary: dict[str, Any],
+    *,
+    indent: str,
+    top_n_unknown_chars: int,
+) -> list[str]:
     split_hours = _round_nested_floats(summary["split_hours"])
     return [
         f"{indent}{label}",
@@ -322,9 +351,31 @@ def _format_summary_block(label: str, summary: dict[str, Any], *, indent: str) -
             f"unique_unknown={summary['unique_unknown_chars']} "
             f"unique_unknown_rate={summary['unique_unknown_char_rate']:.2%}"
         ),
+        f"{indent}  unknown_chars: {_format_unknown_char_details(summary['unknown_char_details'], top_n_unknown_chars)}",
         f"{indent}  alpha_minus_known_chars: {summary['alpha_minus_known_chars']}",
         f"{indent}  split_counts: {summary['split_counts']}",
     ]
+
+
+def _unknown_char_details(unknown_chars: Counter[str], total_chars: int) -> dict[str, dict[str, float | int]]:
+    return {
+        char: {"count": count, "rate": count / total_chars if total_chars else 0.0}
+        for char, count in sorted(unknown_chars.items(), key=lambda item: (-item[1], item[0]))
+    }
+
+
+def _format_unknown_char_details(details: dict[str, dict[str, float | int]], top_n: int) -> str:
+    if not details:
+        return "{}"
+    items = list(details.items())
+    if top_n > 0:
+        items = items[:top_n]
+    formatted = ", ".join(
+        f"{char}=count={int(stats['count'])} rate={float(stats['rate']):.2%}" for char, stats in items
+    )
+    if 0 < top_n < len(details):
+        formatted = f"{formatted} (showing top {top_n} of {len(details)})"
+    return formatted
 
 
 def _update_bucket(bucket: _StatsBucket, update: _BucketUpdate) -> None:
@@ -379,6 +430,7 @@ def _bucket_summary(bucket: _StatsBucket, lang: str) -> dict[str, Any]:
         "unique_known_char_rate": unique_known_char_rate,
         "unique_unknown_chars": unique_unknown_chars,
         "unique_unknown_char_rate": unique_unknown_char_rate,
+        "unknown_char_details": _unknown_char_details(bucket.unknown_chars, bucket.total_chars),
         "alpha_minus_known_chars": sorted(
             _load_alphabet(_RESOURCE_ROOT / lang / "alphabet.txt") - set(bucket.known_chars)
         ),

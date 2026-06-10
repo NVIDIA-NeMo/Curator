@@ -69,6 +69,10 @@ def test_transcript_stats_aggregates_valid_invalid_unknowns_and_splits() -> None
     assert summary["unique_known_char_rate"] == pytest.approx(len(set("abcગુજરાતીશબ્દ")) / len("abcગુજરાતીશબ્દ"))
     assert summary["unique_unknown_chars"] == 2
     assert summary["unique_unknown_char_rate"] == pytest.approx(2 / len("abcગુજરાતીશબ્દ"))
+    assert summary["unknown_char_details"] == {
+        "x": {"count": 2, "rate": pytest.approx(2 / len("abcગુજરાતીશબ્દ"))},
+        "y": {"count": 1, "rate": pytest.approx(1 / len("abcગુજરાતીશબ્દ"))},
+    }
     assert "અ" in summary["alpha_minus_known_chars"]
     assert "ગ" not in summary["alpha_minus_known_chars"]
     assert summary["split_counts"] == {
@@ -91,6 +95,23 @@ def test_transcript_stats_aggregates_valid_invalid_unknowns_and_splits() -> None
     assert metrics["unique_known_char_rate"] == pytest.approx(len(set("abcગુજરાતીશબ્દ")) / len("abcગુજરાતીશબ્દ"))
     assert metrics["unique_unknown_chars"] == 2
     assert metrics["unique_unknown_char_rate"] == pytest.approx(2 / len("abcગુજરાતીશબ્દ"))
+
+
+def test_transcript_stats_formats_unknown_char_details() -> None:
+    stage = TranscriptStatsStage(log_top_n_unknown_chars=1)
+    text = "ગુજરાતીxxy"
+    stage.process(_task(text, 1.0, "train", True, extra={"unknown_chars": {"x": 2, "y": 1}}))
+
+    summary = stage.summary()
+    assert summary["unknown_char_details"] == {
+        "x": {"count": 2, "rate": pytest.approx(2 / len(text))},
+        "y": {"count": 1, "rate": pytest.approx(1 / len(text))},
+    }
+    assert summary["by_language"]["gu"]["IndicVoices"]["unknown_char_details"] == summary["unknown_char_details"]
+
+    formatted = stage.format_summary()
+    assert f"unknown_chars: x=count=2 rate={2 / len(text):.2%} (showing top 1 of 2)" in formatted
+    assert "y=count=1" not in formatted
 
 
 def test_transcript_stats_groups_each_language_by_source() -> None:
