@@ -566,6 +566,24 @@ under the hood).
   with its own model copy.
 - **Autoscaling**: Xenna can adjust worker counts based on measured
   throughput (`autoscale_interval_s` in executor config).
+- **Pin expensive GPU stages; autoscale only cheap stages**: autoscale
+  optimizes *steady-state throughput, not cold-start latency*. An
+  unpinned stage starts at **1 worker** and only scales out after it has
+  produced enough speed measurements to be judged the bottleneck. That
+  ramp is instant for cheap CPU stages but expensive for GPU stages — they
+  idle most GPUs during warm-up and then pay a model-load tax on every
+  late-spawned worker. **Pin the worker count of any expensive GPU stage**
+  (set `num_workers` / `num_workers_per_node` via `xenna_stage_spec`, or a
+  stage field like `ASRStage.xenna_num_workers_per_node`) so all workers
+  come up on the first scheduling pass; leave the cheap, fast-to-measure
+  stages to autoscale. A manual pin is a *hard* constraint — Xenna panics
+  if the cluster cannot satisfy it, so keep it within capacity. The pin is
+  model-dependent: `workers_per_node = floor(gpus_per_node /
+  resources.gpus)`, and `resources.gpus` is the per-actor GPU footprint set
+  by the model/adapter you run. Swapping to a **smaller model needs fewer
+  GPUs per actor**, which lets *more* actors fit per node (raise the pin); a
+  larger / higher-tensor-parallel model needs more GPUs per actor (lower the
+  pin). Re-tune the pin whenever you change the model.
 - **Call chain**:
   `Xenna scheduler → XennaStageAdapter.process_data(tasks)`
   `→ BaseStageAdapter.process_batch(tasks)` (timing + metrics)

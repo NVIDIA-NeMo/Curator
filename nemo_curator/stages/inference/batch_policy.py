@@ -66,7 +66,7 @@ class BatchPolicy:
     strategy: str = "duration_bucketed"
     buckets_sec: list[float] = field(default_factory=lambda: [0.0, 600.0, 1200.0, 2400.0])
     max_items_per_batch_by_bucket: list[int] = field(default_factory=lambda: [32, 16, 8, 4])
-    max_audio_sec_per_batch: float | None = 480.0
+    max_audio_sec_per_batch: float | None = 2400.0
     flush_interval_ms: int = 250
 
     def __post_init__(self) -> None:

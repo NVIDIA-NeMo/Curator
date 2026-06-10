@@ -48,10 +48,10 @@ workspace_dir: /local/qwen_omni_workspace
 final_manifest: ${workspace_dir}/output.jsonl
 language_short: en
 max_segment_length: 40
-hf_token: ""
 backend: xenna
 execution_mode: streaming
 autoscale_interval_s: 30
+# When true, ASRStage.setup_on_node raises if the adapter's prefetch_weights fails.
 prefetch_fail_on_error: true
 stages_to_run: all
 stages_to_skip: []
@@ -91,6 +91,26 @@ max_inference_duration_s: 2400
 # reuse the in-memory buffer without re-reading from tarred shards.
 keep_waveform: true
 
+# Worker allocation for the ASR GPU stage (Tier-1, adapter-agnostic).
+# Applies to ANY ASR model you swap in via adapter_target - it controls how
+# many model replicas the backend runs, independent of which adapter is used.
+# Autoscale optimizes steady-state throughput, not cold-start latency: an
+# unpinned GPU stage starts at 1 worker and only ramps after collecting speed
+# measurements, paying a model-load tax on every late-spawned worker. Pin it so
+# every GPU worker comes up on the first scheduling pass.
+#   Per-node value = floor(gpus_per_node / <per-worker GPU footprint>), where the
+#   footprint is this stage's resources.gpus - itself set by the adapter you pick
+#   (e.g. the Qwen-Omni block below uses omni_resource_gpus=2.0, so on a 4-GPU
+#   node the pin is 4 / 2.0 = 2). Swap to a 1-GPU adapter and the pin becomes 4.
+# asr_num_workers_per_node : per-node pin. Xenna only; scales with node count.
+# asr_num_workers          : cluster-wide pin. Honored by both Xenna and Ray Data
+#                            (use this one if you run the Ray Data backend).
+# Set both to null to fall back to autoscaling. Mutually exclusive.
+# WARNING: a pin the cluster cannot satisfy makes Xenna's scheduler panic, so
+# keep asr_num_workers_per_node <= floor(gpus_per_node / resources.gpus).
+asr_num_workers_per_node: 2
+asr_num_workers: null
+
 # Qwen-Omni adapter-specific knobs (Tier-2: adapter_kwargs.*)
 ml_prompt: "Transcribe the audio."
 ml_prompt_file: null
@@ -99,6 +119,12 @@ followup_prompt: null
 followup_prompt_file: null
 system_prompt: null
 tensor_parallel_size: 2
+# Per-actor GPU footprint for the ASR stage (wired into the stage's resources.gpus).
+# This is model-dependent: it must match the adapter's tensor-parallel degree.
+# Swapping adapters changes it - a SMALLER model needs FEWER GPUs per actor
+# (e.g. tp=1 -> 1.0), a larger model needs more (tp=4 -> ~4.0). It also drives the
+# worker pin above: asr_num_workers_per_node = floor(gpus_per_node / this value),
+# so lowering it for a smaller model lets MORE actors fit per node.
 omni_resource_gpus: 2.0
 batch_size: 32
 max_output_tokens: 256
@@ -150,6 +176,9 @@ stages:
     max_inference_duration_s: ${max_inference_duration_s}
     keep_waveform: ${keep_waveform}
     prefetch_fail_on_error: ${prefetch_fail_on_error}
+    # Tier-1 worker pin (adapter-agnostic): skip the autoscale cold-start ramp.
+    xenna_num_workers_per_node: ${asr_num_workers_per_node}
+    xenna_num_workers: ${asr_num_workers}
     batch_size: ${batch_size}
     # Within-call duration-bucketed batching.
     # Cross-call queueing requires framework-scheduler support (follow-up PR);

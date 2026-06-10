@@ -27,22 +27,26 @@ This entry point can be invoked directly or by an external launcher via::
         workspace_dir=/work input_manifest=/data/config.yaml
 
 Launchers may pass Hydra overrides such as ``workspace_dir``,
-``input_manifest``, ``language_short``, ``max_segment_length``, ``hf_token``,
+``input_manifest``, ``language_short``, ``max_segment_length``,
 and ``final_manifest``. Secret values are redacted from logs before the config
 is printed.
+
+Hugging Face credentials are NOT handled here: the model download happens on
+remote Ray workers via ``ASRStage.setup_on_node`` -> adapter ``prefetch_weights``,
+so a token set in this driver process would not propagate. For gated models,
+provide ``HF_TOKEN``/``HF_HOME`` in the worker environment (cluster env or the
+executor ``runtime_env``).
 """
 
 import importlib
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Iterable
+from typing import Any
 
 os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 os.environ.setdefault("VLLM_LOGGING_LEVEL", "ERROR")
 
 import hydra
-from huggingface_hub import hf_hub_download, snapshot_download
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
@@ -63,7 +67,6 @@ _SECRET_KEY_NAMES = {
     "bearer_token",
     "credential",
     "credentials",
-    "hf_token",
     "password",
     "passwd",
     "secret",
@@ -271,74 +274,6 @@ def build_granary_v2_pipeline(cfg: DictConfig) -> Pipeline:
     return Pipeline(name="qwen_omni_inference", stages=_instantiate_configured_stages(cfg))
 
 
-def _iter_leaf_stages(stages: Iterable[ProcessingStage]) -> Iterable[ProcessingStage]:
-    for stage in stages:
-        if isinstance(stage, CompositeStage):
-            yield from stage.decompose_and_apply_with()
-        else:
-            yield stage
-
-
-def _prefetch_models(stages: list[ProcessingStage], *, fail_on_error: bool = True) -> None:
-    """Download all models in parallel before pipeline execution.
-
-    This is intentionally generic: it looks at the stages listed in the config
-    and prefetches common HuggingFace model attributes without hardcoding a
-    full Granary v2 post-processing graph in this entry point.
-    """
-    tasks: list[tuple[str, Callable[[], str]]] = []
-    seen_snapshots: set[str] = set()
-    seen_hf_files: set[str] = set()
-
-    def add_snapshot(model_id: str) -> None:
-        if model_id in seen_snapshots:
-            return
-        seen_snapshots.add(model_id)
-        tasks.append((f"snapshot:{model_id}", lambda m=model_id: snapshot_download(m)))
-
-    def add_hf_file(repo_id: str, filename: str = "model.bin") -> None:
-        key = f"{repo_id}:{filename}"
-        if key in seen_hf_files:
-            return
-        seen_hf_files.add(key)
-        tasks.append((f"hf_hub:{repo_id}", lambda r=repo_id, f=filename: hf_hub_download(repo_id=r, filename=f)))
-
-    for stage in _iter_leaf_stages(stages):
-        model_id = getattr(stage, "model_id", None)
-        if isinstance(model_id, str) and model_id:
-            add_snapshot(model_id)
-
-        model_path = getattr(stage, "model_path", None)
-        if isinstance(model_path, str) and "/" in model_path and not os.path.isfile(model_path):
-            add_hf_file(model_path)
-
-    if not tasks:
-        return
-
-    logger.info(f"Pre-fetching {len(tasks)} models in parallel...")
-    t0 = time.time()
-
-    failures: list[str] = []
-    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
-        futures = {pool.submit(fn): name for name, fn in tasks}
-        for future in as_completed(futures):
-            name = futures[future]
-            try:
-                future.result()
-                logger.info(f"  OK {name} cached ({time.time() - t0:.1f}s elapsed)")
-            except Exception as exc:
-                failures.append(f"{name}: {exc}")
-                logger.warning(f"  FAIL {name} failed: {exc}")
-
-    if failures and fail_on_error:
-        msg = "Model pre-fetch failed: " + "; ".join(failures)
-        raise RuntimeError(msg)
-    if failures:
-        logger.warning("Continuing after model pre-fetch failure; setup_on_node/setup will retry")
-
-    logger.info(f"All model pre-fetch complete in {time.time() - t0:.1f}s")
-
-
 def _create_executor(cfg: DictConfig):  # noqa: ANN201
     backend = cfg.get("backend", "xenna")
     if backend not in _EXECUTOR_FACTORIES:
@@ -364,15 +299,10 @@ def _create_executor(cfg: DictConfig):  # noqa: ANN201
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
     """Hydra entry point for the Granary v2 Qwen-Omni pipeline."""
-    hf_token = cfg.get("hf_token", "")
-    if hf_token:
-        os.environ["HF_TOKEN"] = hf_token
-        os.environ.setdefault("HF_HOME", "/tmp/hf_home")
     logger.info(f"Hydra config:\n{_safe_config_yaml(cfg)}")
 
     pipeline = build_granary_v2_pipeline(cfg)
     logger.info(f"Pipeline: {pipeline.describe()}")
-    _prefetch_models(pipeline.stages, fail_on_error=bool(cfg.get("prefetch_fail_on_error", True)))
 
     executor = _create_executor(cfg)
 

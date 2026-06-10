@@ -168,7 +168,15 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
         adapter_kwargs: Tier-2. Opaque dict forwarded to the adapter
             constructor as ``**adapter_kwargs``. The stage NEVER reads
             inside this dict - it is the adapter's private knob bag.
-        resources / batch_size: Standard Curator stage knobs.
+        xenna_num_workers / xenna_num_workers_per_node: Tier-1,
+            adapter-agnostic worker pin to skip the autoscale cold-start
+            ramp. Mutually exclusive; both unset = autoscale. Value is
+            model-dependent:
+            ``per_node = floor(gpus_per_node / resources.gpus)`` (a smaller
+            model needs fewer GPUs/actor -> more actors fit).
+        resources / batch_size: Standard Curator stage knobs. ``resources.gpus``
+            is the per-actor GPU footprint; match it to the adapter's
+            tensor-parallel degree.
     """
 
     # ---- Tier 1: swap surface ----
@@ -194,6 +202,13 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
     keep_waveform: bool = True
 
     prefetch_fail_on_error: bool = True
+
+    # ---- Tier 1: optional worker pin (skip the autoscale cold-start ramp) ----
+    # Mutually exclusive; both unset = autoscale. xenna_num_workers is
+    # cluster-wide (Xenna + Ray Data); xenna_num_workers_per_node is Xenna-only.
+    # See the stage docstring / tutorial README for the model-dependent value.
+    xenna_num_workers: int | None = None
+    xenna_num_workers_per_node: int | None = None
 
     # ---- Tier 1: best-effort within-call duration bucketing ----
     batch_policy: BatchPolicy | None = None
@@ -224,6 +239,13 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
                 f"ASRStage.max_inference_duration_s ({self.max_inference_duration_s}) "
                 f"must be ≤ ideal_inference_segment_s ({self.ideal_inference_segment_s}); "
                 "the bucket shape is anchored to ideal."
+            )
+            raise ValueError(msg)
+        if self.xenna_num_workers is not None and self.xenna_num_workers_per_node is not None:
+            msg = (
+                "ASRStage: set at most one of xenna_num_workers "
+                "(cluster-wide) or xenna_num_workers_per_node (per-node); "
+                "they are mutually exclusive."
             )
             raise ValueError(msg)
         self._adapter: ASRAdapter | None = None
@@ -279,6 +301,19 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
     # ------------------------------------------------------------------
     # I/O contract
     # ------------------------------------------------------------------
+
+    def num_workers(self) -> int | None:
+        # Ray Data hook (cluster-wide only; no per-node primitive).
+        return self.xenna_num_workers
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        # Xenna reads the pin from here, not from num_workers().
+        spec: dict[str, Any] = {}
+        if self.xenna_num_workers is not None:
+            spec["num_workers"] = self.xenna_num_workers
+        if self.xenna_num_workers_per_node is not None:
+            spec["num_workers_per_node"] = self.xenna_num_workers_per_node
+        return spec
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], [self.waveform_key, self.sample_rate_key]

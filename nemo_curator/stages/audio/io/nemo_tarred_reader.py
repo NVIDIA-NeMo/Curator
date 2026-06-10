@@ -343,8 +343,18 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["waveform", "sample_rate", "sampling_rate", "corpus", "num_channels"]
 
+    def num_workers(self) -> int | None:
+        # Ray Data hook; pins to 1 to bound memory (keep_waveform holds whole shards).
+        return 1
+
     def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+        # IS_ACTOR_STAGE makes Ray Data honor num_workers()=1 (cluster-wide
+        # analog of the per-node Xenna pin); IS_FANOUT_STAGE keeps 1-row/block.
+        return {RayStageSpecKeys.IS_FANOUT_STAGE: True, RayStageSpecKeys.IS_ACTOR_STAGE: True}
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        # One reader actor per node: node-local decode, ~1 shard of memory per node.
+        return {"num_workers_per_node": 1}
 
     @staticmethod
     def _manifest_lookup_keys(path: str) -> set[str]:

@@ -69,8 +69,7 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
   --config-path tutorials/audio/qwen_omni_inprocess \
   --config-name qwen_omni_inprocess \
   input_manifest=/path/to/data_config.yaml \
-  workspace_dir=./qwen_omni_output \
-  hf_token=$HF_TOKEN
+  workspace_dir=./qwen_omni_output
 ```
 
 For a small smoke run, cap the number of utterances per shard:
@@ -81,11 +80,14 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
   --config-name qwen_omni_inprocess \
   input_manifest=/path/to/data_config.yaml \
   workspace_dir=./qwen_omni_output \
-  max_utterances_per_shard=8 \
-  hf_token=$HF_TOKEN
+  max_utterances_per_shard=8
 ```
 
-The full Hydra config is logged with secret-like values redacted. The `hf_token` override is copied to `HF_TOKEN` before model prefetch.
+The full Hydra config is logged with secret-like values redacted. Model weights
+are downloaded on the Ray workers (once per node via `ASRStage.setup_on_node` ->
+adapter `prefetch_weights`). For gated checkpoints, set `HF_TOKEN`/`HF_HOME` in
+the worker environment (cluster env or the executor `runtime_env`); the driver
+process does not handle Hugging Face credentials.
 
 ## Choosing a Backend
 
@@ -135,7 +137,6 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `final_manifest` | Optional combined JSONL written by the writer | `${workspace_dir}/output.jsonl` |
 | `language_short` | Default language code/name when an input row lacks `source_lang` | `en` |
 | `max_segment_length` | Maximum manifest duration to emit from the reader, in seconds | `40` |
-| `hf_token` | Hugging Face token copied to `HF_TOKEN`; redacted in logs | `""` |
 | `backend` | Execution backend | `xenna` |
 | `execution_mode` | Xenna execution mode | `streaming` |
 | `autoscale_interval_s` | Xenna autoscale interval | `30` |
@@ -161,6 +162,8 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `system_prompt` | Optional system prompt | `null` |
 | `tensor_parallel_size` | vLLM tensor parallel size | `2` |
 | `omni_resource_gpus` | GPU resources reserved for the Qwen stage | `2.0` |
+| `asr_num_workers_per_node` | Tier-1, adapter-agnostic. Hard-pin the ASR GPU stage to N workers per node (skips the autoscale cold-start ramp). `= floor(gpus_per_node / resources.gpus)`; with `omni_resource_gpus=2.0` on a 4-GPU node that is `2`. Xenna only. `null` = autoscale. | `2` |
+| `asr_num_workers` | Tier-1, adapter-agnostic. Hard-pin the ASR GPU stage to N workers cluster-wide (honored by both Xenna and Ray Data). Mutually exclusive with `asr_num_workers_per_node`. `null` = autoscale. | `null` |
 | `batch_size` | Qwen stage batch size | `32` |
 | `max_output_tokens` | Maximum generated tokens per request | `256` |
 | `max_model_len` | vLLM maximum model length | `4096` |
@@ -225,6 +228,91 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 ```
 
 Unknown stage names fail fast with the available selectors.
+
+## Worker allocation: pin the GPU stage, autoscale the cheap stages
+
+**Autoscale optimizes steady-state throughput, not cold-start latency.** Xenna's
+streaming autoscaler (and Ray Data's actor autoscaler) start every unpinned stage
+at **1 worker** and only grow it once the stage has produced enough speed
+measurements to be judged the bottleneck. For a cheap CPU stage that finishes
+thousands of items per second, that ramp is instant and harmless. For an
+**expensive GPU stage**, it is the opposite:
+
+- The stage sits at 1 GPU worker until it completes enough batches to register a
+  speed estimate (Xenna needs `autoscale_speed_estimation_min_data_points` items
+  within the estimation window), so most of your GPUs idle during warm-up.
+- When the autoscaler finally scales out, every newly spawned worker pays the
+  full **model-load tax** (weights → VRAM, vLLM engine init) before it does any
+  useful work — exactly when you wanted them already hot.
+
+### Rule for this pipeline (and any GPU stage)
+
+> **Hard-pin the expensive GPU stage's worker count; let autoscale handle only
+> the cheap, fast-to-measure stages.**
+
+These pin knobs are **Tier-1 and adapter-agnostic**: they live on the generic
+`ASRStage` (as `xenna_num_workers_per_node` / `xenna_num_workers`), not in the
+Qwen-Omni `adapter_kwargs`, so they keep working unchanged when you swap
+`adapter_target` to any other ASR model. Only the *value* moves with the model,
+because it derives from the adapter's per-worker GPU footprint
+(`resources.gpus`): the pin is `floor(gpus_per_node / resources.gpus)`. The
+Qwen-Omni adapter uses `omni_resource_gpus=2.0` (tensor-parallel 2), so on a
+4-GPU node the pin is `4 / 2.0 = 2`; swap in a 1-GPU ASR adapter and the same
+formula gives `4`.
+
+The `qwen_omni` stage is pinned out of the box via `asr_num_workers_per_node`
+(default `2`). With the stage pinned, Xenna's scheduler brings up all GPU workers
+on the first scheduling pass — no measurement gate, models load in parallel up
+front. Set it to `null` only if you deliberately want autoscaling back.
+
+How the pin reaches each backend (verified in the stage code):
+
+| Knob | Xenna | Ray Data |
+|------|-------|----------|
+| `asr_num_workers_per_node` → `ASRStage.xenna_stage_spec()["num_workers_per_node"]` | N workers **per node** | not applicable (no per-node primitive) → autoscales |
+| `asr_num_workers` → `ASRStage.xenna_stage_spec()["num_workers"]` **and** `ASRStage.num_workers()` | N workers **cluster-wide** | N workers **cluster-wide** (actor path) |
+
+So for the default Xenna-streaming backend, use `asr_num_workers_per_node` (it
+scales with node count automatically). If you run the Ray Data backend, use
+`asr_num_workers` instead, since Ray Data only honors a cluster-wide count.
+
+The cheap stages follow the same principle from the opposite side: the tar
+reader and discovery are pinned to 1 worker per node (bounded memory with
+`keep_waveform=true`), and the writer is a single actor for serialized I/O — none
+of them rely on the autoscale ramp.
+
+> **WARNING:** a pin the cluster cannot satisfy makes Xenna's scheduler panic
+> (it treats manual worker requests as hard constraints). Keep
+> `asr_num_workers_per_node ≤ floor(gpus_per_node / resources.gpus)`.
+
+### Swapping the ASR model (adapter) changes the GPU/worker math
+
+The `ASRStage` mechanism is adapter-agnostic, but **the right values are
+model-dependent — you must re-tune them when you change `adapter_target`.** A
+different checkpoint has a different size and tensor-parallel degree, which
+changes how many GPUs each actor needs and therefore how many actors fit:
+
+| When you swap to… | Per-actor GPU footprint (`resources.gpus`) | Worker pin `floor(gpus_per_node / resources.gpus)` |
+|---|---|---|
+| **A larger model** (more tensor parallelism) | **more** GPUs per actor (e.g. `tp=4` → `gpus≈4`) | **fewer** actors per node (4-GPU node → `1`) |
+| **A smaller model** (less tensor parallelism) | **fewer** GPUs per actor (e.g. `tp=1` → `gpus≈1`) | **more** actors per node (4-GPU node → `4`) |
+
+So the params that move together on an adapter swap are:
+
+1. **Tier-2 `adapter_kwargs`** — rewrite the whole block for the new model
+   (prompts, `tensor_parallel_size`, vLLM knobs, etc.).
+2. **Per-actor GPU footprint** — set the stage's `resources.gpus` (this tutorial
+   exposes it as `omni_resource_gpus`) to match the new model's parallelism. A
+   **smaller model needs fewer GPUs per actor**; a larger one needs more.
+3. **Worker pin** — recompute `asr_num_workers_per_node =
+   floor(gpus_per_node / resources.gpus)`. Because step 2 changed the
+   denominator, the pin changes even though the knob itself did not.
+
+Worked example on a 4-GPU node: Qwen3-Omni runs `tensor_parallel_size=2` →
+`omni_resource_gpus=2.0` → pin `4 / 2.0 = 2`. Swap in a single-GPU ASR model →
+set `resources.gpus=1.0` → pin `4 / 1.0 = 4` (four actors, each its own model
+copy). The Tier-1 stage knobs (`pred_text_key`, chunking, `batch_policy`, the pin
+knobs) keep working unchanged; only the values above are re-derived.
 
 ## Output Format
 
