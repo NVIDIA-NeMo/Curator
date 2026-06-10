@@ -12,21 +12,56 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
 import pytest
 
 from nemo_curator.stages.audio.asr.normalization import TranscriptNormalizationStage
-from nemo_curator.stages.audio.asr.normalization.transcript import _RESOURCE_ROOT
+from nemo_curator.stages.audio.asr.normalization.transcript import _RESOURCE_ROOT, _load_alphabet
 from nemo_curator.tasks import AudioTask
 
 
 def test_language_resources_are_flattened_without_data_subdirectory() -> None:
-    for lang in ["gu", "hi"]:
+    assert (_RESOURCE_ROOT / "remove_chars.txt").exists()
+    for lang in ["gu", "hi", "kn", "te", "ml", "mr", "pa", "ta", "bn", "ur"]:
         lang_dir = _RESOURCE_ROOT / lang
         assert (lang_dir / "alphabet.txt").exists()
         assert (lang_dir / "pretok.jsonl").exists()
-        assert (lang_dir / "remove_chars.txt").exists()
+        assert not (lang_dir / "remove_chars.txt").exists()
         assert (lang_dir / "pnc_chars.txt").exists()
         assert not (lang_dir / "data").exists()
+
+
+@pytest.mark.parametrize(
+    ("lang", "text"),
+    [
+        ("kn", "ಕನ್ನಡ ವಾಕ್ಯ"),
+        ("te", "తెలుగు వాక్యం"),
+        ("ml", "മലയാളം വാക്യം"),
+        ("mr", "मराठी वाक्य"),
+        ("pa", "ਪੰਜਾਬੀ ਵਾਕ"),
+        ("ta", "தமிழ் வாக்கியம்"),
+        ("bn", "বাংলা বাক্য"),
+        ("ur", "اردو جملہ"),
+    ],
+)
+def test_additional_indic_language_resources_are_loadable(lang: str, text: str) -> None:
+    stage = TranscriptNormalizationStage()
+    task = AudioTask(data={"text": text, "lang": lang})
+
+    result = stage.process(task)
+
+    assert result is task
+    assert task.data["text"] == text
+    assert task.data["transcript_error"] is False
+    assert task.data["unknown_chars"] == {}
+
+
+def test_alphabet_loader_includes_uppercase_variants_for_each_letter(tmp_path: Path) -> None:
+    alphabet_path = tmp_path / "alphabet.txt"
+    alphabet_path.write_text("a\nb\n", encoding="utf-8")
+
+    assert _load_alphabet(alphabet_path) == {"a", "A", "b", "B"}
 
 
 def test_gujarati_text_is_cleaned_in_place_and_marked_valid() -> None:
@@ -43,6 +78,53 @@ def test_gujarati_text_is_cleaned_in_place_and_marked_valid() -> None:
     assert task.data["unknown_chars"] == {}
     assert metrics["input_tasks"] == 1
     assert metrics["emitted_tasks"] == 1
+
+
+def test_lowercase_text_can_be_enabled() -> None:
+    stage = TranscriptNormalizationStage(lowercase_text=True)
+    task = AudioTask(data={"text": "Hello WORLD", "lang": "en"})
+
+    result = stage.process(task)
+
+    assert result is task
+    assert task.data["text"] == "hello world"
+    assert task.data["transcript_error"] is False
+    assert task.data["unknown_chars"] == {}
+
+
+def test_code_switch_languages_extend_known_alphabet() -> None:
+    stage = TranscriptNormalizationStage(code_switch_langs=["en"])
+    task = AudioTask(data={"text": "ગુજરાતી Hello", "lang": "gu"})
+
+    result = stage.process(task)
+
+    assert result is task
+    assert task.data["text"] == "ગુજરાતી Hello"
+    assert task.data["transcript_error"] is False
+    assert task.data["unknown_chars"] == {}
+
+
+def test_code_switch_language_accepts_single_string() -> None:
+    stage = TranscriptNormalizationStage(code_switch_langs="en")
+    task = AudioTask(data={"text": "ગુજરાતી Hello", "lang": "gu"})
+
+    result = stage.process(task)
+
+    assert result is task
+    assert task.data["transcript_error"] is False
+    assert task.data["unknown_chars"] == {}
+
+
+def test_code_switch_languages_extend_punctuation_removal() -> None:
+    stage = TranscriptNormalizationStage(code_switch_langs=["en"])
+    task = AudioTask(data={"text": "ગુજરાતી - Hello", "lang": "gu"})
+
+    result = stage.process(task)
+
+    assert result is task
+    assert task.data["text"] == "ગુજરાતી Hello"
+    assert task.data["transcript_error"] is False
+    assert task.data["unknown_chars"] == {}
 
 
 def test_hindi_pretok_replacements_are_applied() -> None:

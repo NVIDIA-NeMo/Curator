@@ -139,6 +139,8 @@ stages:
     output_text_key: text
     output_original_text_key: text_original
     remove_pnc_chars: false
+    lowercase_text: false
+    code_switch_langs: []
 
   - _target_: nemo_curator.stages.audio.asr.normalization.TranscriptStatsStage
     text_key: text
@@ -147,6 +149,7 @@ stages:
     unknown_chars_key: unknown_chars
     transcript_error_key: transcript_error
     drop_invalid: true
+    code_switch_langs: []
     output_summary_path: ${output_dir}/transcript_stats_summary.json
 
   - _target_: nemo_curator.stages.audio.asr.io.split_manifest_writer.SplitAwareManifestWriter
@@ -192,10 +195,10 @@ Normalization resources live under:
 
 ```text
 nemo_curator/stages/audio/asr/normalization/langs/
+├── remove_chars.txt
 └── gu/
     ├── alphabet.txt
     ├── pretok.jsonl
-    ├── remove_chars.txt
     └── pnc_chars.txt
 ```
 
@@ -203,10 +206,13 @@ Each supported language has its own folder:
 
 - `alphabet.txt`: characters considered valid after normalization
 - `pretok.jsonl`: regex replacement rules applied before character removal
-- `remove_chars.txt`: characters removed during cleanup
 - `pnc_chars.txt`: punctuation characters that can be removed or retained with `remove_pnc_chars`
 
+The root-level `langs/remove_chars.txt` contains characters removed for all languages during cleanup.
+
 If `remove_pnc_chars: true`, punctuation listed in `pnc_chars.txt` is removed. If `remove_pnc_chars: false`, those punctuation characters are retained during the removal step.
+
+Set `lowercase_text: true` when you want the final normalized transcript lowercased. For code-switched data, set `code_switch_langs` to combine additional language alphabets, pretok rules, and punctuation with the task's primary `lang`; for example, `code_switch_langs: ["en"]` allows English text inside a Gujarati transcript. Use the same `code_switch_langs` on `TranscriptStatsStage` so `alpha_minus_known_chars` is computed against the combined vocabulary.
 
 Rows with characters outside `alphabet.txt` are marked with:
 
@@ -420,10 +426,10 @@ To normalize a new language, add a folder under `nemo_curator/stages/audio/asr/n
 
 ```text
 langs/
+├── remove_chars.txt
 └── xx/
     ├── alphabet.txt
     ├── pretok.jsonl
-    ├── remove_chars.txt
     └── pnc_chars.txt
 ```
 

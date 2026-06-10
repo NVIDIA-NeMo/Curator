@@ -27,7 +27,12 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
-from nemo_curator.stages.audio.asr.normalization.transcript import _RESOURCE_ROOT, _load_alphabet, resolve_lang
+from nemo_curator.stages.audio.asr.normalization.transcript import (
+    _RESOURCE_ROOT,
+    _coerce_lang_list,
+    _load_alphabet,
+    resolve_lang,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -76,6 +81,10 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
     language/source pair under ``by_language``, and full language-level totals
     under ``by_language_overall``. Each summary includes unknown-character
     counts and rates so vocabulary gaps can be inspected after a run.
+
+    Args:
+        code_switch_langs: Extra language resource folders whose alphabets
+            should be included when computing ``alpha_minus_known_chars``.
     """
 
     name: str = "transcript_stats"
@@ -88,6 +97,7 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
     transcript_error_key: str = "transcript_error"
     drop_invalid: bool = False
     log_top_n_unknown_chars: int = 50
+    code_switch_langs: str | list[str] | None = field(default_factory=list)
     output_summary_path: str | None = None
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -206,7 +216,7 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
         if len(self._languages) == 1:
             language = next(iter(self._languages))
             alpha_minus_known_chars = sorted(
-                _load_alphabet(_RESOURCE_ROOT / language / "alphabet.txt") - set(self._known_chars)
+                _load_combined_alphabet(language, self.code_switch_langs) - set(self._known_chars)
             )
         split_hours = {
             split: {key: seconds / 3600 for key, seconds in durations.items()}
@@ -234,13 +244,13 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
             "split_hours": split_hours,
             "by_language": {
                 lang: {
-                    source: _bucket_summary(bucket, lang)
+                    source: _bucket_summary(bucket, lang, self.code_switch_langs)
                     for source, bucket in sorted(source_buckets.items(), key=lambda item: item[0])
                 }
                 for lang, source_buckets in sorted(self._language_source_stats.items(), key=lambda item: item[0])
             },
             "by_language_overall": {
-                lang: _bucket_summary(bucket, lang)
+                lang: _bucket_summary(bucket, lang, self.code_switch_langs)
                 for lang, bucket in sorted(self._language_stats.items(), key=lambda item: item[0])
             },
         }
@@ -457,7 +467,7 @@ def _update_bucket(bucket: _StatsBucket, update: _BucketUpdate) -> None:
         split_durations["valid"] += update.duration
 
 
-def _bucket_summary(bucket: _StatsBucket, lang: str) -> dict[str, Any]:
+def _bucket_summary(bucket: _StatsBucket, lang: str, code_switch_langs: str | list[str] | None) -> dict[str, Any]:
     valid_rate = bucket.valid_transcripts / bucket.total_transcripts if bucket.total_transcripts else 0.0
     invalid_rate = bucket.invalid_transcripts / bucket.total_transcripts if bucket.total_transcripts else 0.0
     unique_known_chars = len(bucket.known_chars)
@@ -485,12 +495,19 @@ def _bucket_summary(bucket: _StatsBucket, lang: str) -> dict[str, Any]:
         "unique_unknown_chars": unique_unknown_chars,
         "unique_unknown_char_rate": unique_unknown_char_rate,
         "unknown_char_details": _unknown_char_details(bucket.unknown_chars, bucket.total_chars),
-        "alpha_minus_known_chars": sorted(
-            _load_alphabet(_RESOURCE_ROOT / lang / "alphabet.txt") - set(bucket.known_chars)
-        ),
+        "alpha_minus_known_chars": sorted(_load_combined_alphabet(lang, code_switch_langs) - set(bucket.known_chars)),
         "split_counts": {split: dict(counts) for split, counts in bucket.split_counts.items()},
         "split_hours": split_hours,
     }
+
+
+def _load_combined_alphabet(lang: str, code_switch_langs: str | list[str] | None) -> set[str]:
+    alphabet = set()
+    for resource_lang in dict.fromkeys(
+        [resolve_lang(lang), *(resolve_lang(item) for item in _coerce_lang_list(code_switch_langs))]
+    ):
+        alphabet.update(_load_alphabet(_RESOURCE_ROOT / resource_lang / "alphabet.txt"))
+    return alphabet
 
 
 def _round_nested_floats(value: Any, ndigits: int = 2) -> Any:  # noqa: ANN401

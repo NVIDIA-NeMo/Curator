@@ -23,13 +23,16 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 _RESOURCE_ROOT = Path(__file__).parent / "langs"
 
@@ -41,15 +44,36 @@ class NormalizationResult:
 
 
 class ResourceTranscriptNormalizer:
-    """Resource-driven normalizer for one ASR transcript language."""
+    """Resource-driven normalizer for one ASR transcript language.
 
-    def __init__(self, lang: str, *, remove_pnc_chars: bool = True) -> None:
+    Code-switch languages extend the base language's alphabet, pretok rules,
+    and punctuation set so mixed-language transcripts can be validated and
+    cleaned by a single normalizer.
+    """
+
+    def __init__(
+        self,
+        lang: str,
+        *,
+        remove_pnc_chars: bool = True,
+        lowercase_text: bool = False,
+        code_switch_langs: str | Iterable[str] | None = None,
+    ) -> None:
         self.lang = resolve_lang(lang)
-        lang_dir = _RESOURCE_ROOT / self.lang
-        self.alphabet = _load_alphabet(lang_dir / "alphabet.txt")
-        self.pretok_rules = _load_jsonl(lang_dir / "pretok.jsonl")
-        remove_chars = _load_chars(lang_dir / "remove_chars.txt")
-        pnc_chars = _load_chars(lang_dir / "pnc_chars.txt")
+        self.lowercase_text = lowercase_text
+        resource_langs = _ordered_unique(
+            [self.lang, *(resolve_lang(lang) for lang in _coerce_lang_list(code_switch_langs))]
+        )
+        self.alphabet = set()
+        self.pretok_rules = []
+        pnc_chars = ""
+        for resource_lang in resource_langs:
+            lang_dir = _RESOURCE_ROOT / resource_lang
+            self.alphabet.update(_load_alphabet(lang_dir / "alphabet.txt"))
+            self.pretok_rules.extend(_load_jsonl(lang_dir / "pretok.jsonl"))
+            pnc_chars += _load_chars(lang_dir / "pnc_chars.txt")
+        remove_chars = _load_chars(_RESOURCE_ROOT / "remove_chars.txt")
+        pnc_chars = _ordered_unique_chars(pnc_chars)
         if remove_pnc_chars:
             self.remove_chars = remove_chars + pnc_chars
         else:
@@ -70,13 +94,23 @@ class ResourceTranscriptNormalizer:
         if self.remove_chars:
             normalized = re.sub("[" + re.escape(self.remove_chars) + "]", " ", normalized)
         normalized = " ".join(normalized.split())
+        if self.lowercase_text:
+            normalized = normalized.lower()
         unknown_chars = Counter(char for char in normalized if char not in self.alphabet and not char.isspace())
         return NormalizationResult(text=normalized, unknown_chars=dict(unknown_chars))
 
 
 @dataclass
 class TranscriptNormalizationStage(ProcessingStage[AudioTask, AudioTask]):
-    """Normalize ASR transcript text and optionally drop rows with unknown chars."""
+    """Normalize ASR transcript text and record unknown characters.
+
+    Args:
+        lowercase_text: If True, lowercase the normalized transcript before
+            unknown-character detection and output assignment.
+        code_switch_langs: Extra language resource folders whose alphabet,
+            pretok rules, and punctuation characters should be combined with
+            each task's primary ``lang``.
+    """
 
     name: str = "transcript_normalization"
     text_key: str = "text"
@@ -87,6 +121,8 @@ class TranscriptNormalizationStage(ProcessingStage[AudioTask, AudioTask]):
     transcript_error_key: str = "transcript_error"
     duration_key: str = "duration"
     remove_pnc_chars: bool = True
+    lowercase_text: bool = False
+    code_switch_langs: str | list[str] | None = field(default_factory=list)
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def __post_init__(self) -> None:
@@ -136,7 +172,12 @@ class TranscriptNormalizationStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _normalizer(self, lang: str) -> ResourceTranscriptNormalizer:
         if lang not in self._normalizers:
-            self._normalizers[lang] = ResourceTranscriptNormalizer(lang, remove_pnc_chars=self.remove_pnc_chars)
+            self._normalizers[lang] = ResourceTranscriptNormalizer(
+                lang,
+                remove_pnc_chars=self.remove_pnc_chars,
+                lowercase_text=self.lowercase_text,
+                code_switch_langs=self.code_switch_langs,
+            )
         return self._normalizers[lang]
 
 
@@ -151,7 +192,25 @@ def resolve_lang(lang: str) -> str:
 
 def _load_alphabet(path: Path) -> set[str]:
     chars = _load_chars(path)
-    return set(chars)
+    alphabet = set(chars)
+    alphabet.update(char.upper() for char in list(alphabet))
+    return alphabet
+
+
+def _ordered_unique(values: Iterable[str]) -> list[str]:
+    return list(dict.fromkeys(values))
+
+
+def _coerce_lang_list(value: str | Iterable[str] | None) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+
+
+def _ordered_unique_chars(value: str) -> str:
+    return "".join(dict.fromkeys(value))
 
 
 def _load_chars(path: Path) -> str:

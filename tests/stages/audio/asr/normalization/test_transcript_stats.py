@@ -158,6 +158,29 @@ def test_transcript_stats_groups_each_language_by_source() -> None:
     assert "lang=hi overall" in formatted
 
 
+def test_transcript_stats_alpha_minus_known_chars_includes_code_switch_alphabet() -> None:
+    stage = TranscriptStatsStage(code_switch_langs=["en"])
+    stage.process(_task("ગુજરાતી Hello", 1.0, "train", False, lang="gu"))
+
+    summary = stage.summary()
+
+    assert "z" in summary["alpha_minus_known_chars"]
+    assert "Z" in summary["alpha_minus_known_chars"]
+    assert "H" not in summary["alpha_minus_known_chars"]
+    assert "z" in summary["by_language"]["gu"]["IndicVoices"]["alpha_minus_known_chars"]
+    assert "z" in summary["by_language_overall"]["gu"]["alpha_minus_known_chars"]
+
+
+def test_transcript_stats_code_switch_language_accepts_single_string() -> None:
+    stage = TranscriptStatsStage(code_switch_langs="en")
+    stage.process(_task("ગુજરાતી Hello", 1.0, "train", False, lang="gu"))
+
+    summary = stage.summary()
+
+    assert "z" in summary["alpha_minus_known_chars"]
+    assert "H" not in summary["alpha_minus_known_chars"]
+
+
 def test_transcript_stats_can_drop_invalid_after_counting() -> None:
     stage = TranscriptStatsStage(drop_invalid=True)
     valid = _task("abc", 1.0, "train", False)
