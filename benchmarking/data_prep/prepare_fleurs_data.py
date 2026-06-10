@@ -55,7 +55,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -105,8 +104,9 @@ def stage_dataset(output_path: Path, lang: str, split: str, cache_dir: str | Non
     """Download + extract FLEURS into ``<output_path>/<lang>`` for offline benchmark use.
 
     Reuses ``CreateInitialManifestFleursStage.download_extract_files`` so the
-    download/extract logic stays in one place, then copies the transcript next to
-    the extracted audio so the stage can later find it with ``auto_download=False``.
+    download/extract logic stays in one place. That call also stages the
+    transcript next to the extracted audio, so the dataset can later be found
+    with ``auto_download=False``.
     """
     lang_dir = output_path / lang
     lang_dir.mkdir(parents=True, exist_ok=True)
@@ -123,13 +123,10 @@ def stage_dataset(output_path: Path, lang: str, split: str, cache_dir: str | Non
         cache_dir=cache_dir,
         auto_download=True,
     )
-    # Extracts audio into <lang_dir>/<split>/ and returns the transcript path
-    # (which lives in the Hugging Face cache).
-    tsv_src, audio_root = stage.download_extract_files(str(lang_dir))
-
-    tsv_dst = lang_dir / f"{split}.tsv"
-    shutil.copyfile(tsv_src, tsv_dst)
-    logger.info(f"Copied transcript to {tsv_dst}")
+    # download_extract_files stages the transcript at <lang_dir>/<split>.tsv and
+    # extracts the audio into <lang_dir>/<split>/, returning both final paths.
+    tsv_path, audio_root = stage.download_extract_files(str(lang_dir))
+    logger.info(f"Transcript staged at {tsv_path}")
 
     wav_count = _count_wavs(Path(audio_root))
     logger.success(f"Dataset ready: {wav_count} WAV files at {audio_root}")

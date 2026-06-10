@@ -202,6 +202,48 @@ def test_process_no_download_reads_prestaged(tmp_path: Path) -> None:
     assert results[1].data["text"] == "world"
 
 
+def _import_prep_module() -> types.ModuleType:
+    """Import benchmarking/data_prep/prepare_fleurs_data.py (not on the default path)."""
+    prep_dir = Path(__file__).resolve().parents[4] / "benchmarking" / "data_prep"
+    if str(prep_dir) not in sys.path:
+        sys.path.insert(0, str(prep_dir))
+    import prepare_fleurs_data  # type: ignore[import-not-found]
+
+    return prepare_fleurs_data
+
+
+def test_prepare_fleurs_stage_dataset_does_not_recopy(tmp_path: Path) -> None:
+    """Regression: stage_dataset must not re-copy the transcript onto itself.
+
+    ``download_extract_files`` already stages the transcript at
+    ``<lang_dir>/<split>.tsv`` and returns that path, so an extra copy in the prep
+    script would raise ``shutil.SameFileError`` on every first-time staging run.
+    """
+    from unittest.mock import patch
+
+    _import_stage_module()  # ensures the 'wget' stub is registered
+    prep = _import_prep_module()
+
+    output_path = tmp_path / "fleurs"  # prep creates <output_path>/<lang>/
+    hf_cache = tmp_path / "hf_cache" / "audio"
+    hf_cache.mkdir(parents=True)
+    hf_tsv = hf_cache.parent / "train.tsv"
+    hf_tsv.write_text("0\tfile1.wav\thello\n", encoding="utf-8")
+
+    with (
+        patch(
+            "nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.hf_hub_download",
+            side_effect=[str(hf_tsv), str(hf_cache / "train.tar.gz")],
+        ),
+        patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.extract_archive"),
+    ):
+        ok = prep.stage_dataset(output_path, lang="hy_am", split="train", cache_dir=None)
+
+    assert ok is True
+    # Transcript staged at <output_path>/<lang>/<split>.tsv, no SameFileError.
+    assert (output_path / "hy_am" / "train.tsv").is_file()
+
+
 def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
     stage_cls, _ = _import_stage_module()
     # Arrange: create fake dev.tsv and expected wav layout

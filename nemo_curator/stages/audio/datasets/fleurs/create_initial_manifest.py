@@ -202,7 +202,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
         # downloaded: if it is already staged on disk, always reuse it.
         if self.is_prestaged(self.raw_data_dir):
             logger.info(f"Reusing pre-staged FLEURS dataset at {self.raw_data_dir} (no download)")
-            tsv_path, audio_root = self.locate_prestaged_files(self.raw_data_dir)
+            tsv_path, audio_root = self._prestaged_paths(self.raw_data_dir)
         elif self.auto_download:
             logger.info(f"FLEURS dataset not found at {self.raw_data_dir}; downloading once")
             tsv_path, audio_root = self.download_extract_files(self.raw_data_dir)
