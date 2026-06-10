@@ -130,4 +130,5 @@ class LLMAnalysisFilterStage(LLMJudgeStage):
                 raise ValueError(msg)
             total += score
 
-        return total / len(self.dimension_keys) / MAX_DIMENSION_SCORE
+        average = total / len(self.dimension_keys)
+        return (average - MIN_DIMENSION_SCORE) / (MAX_DIMENSION_SCORE - MIN_DIMENSION_SCORE)

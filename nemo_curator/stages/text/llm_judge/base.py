@@ -202,11 +202,9 @@ class LLMJudgeStage(ProcessingStage[DocumentBatch, DocumentBatch], ABC):
         return await asyncio.gather(*(self._judge_row_async(row) for row in rows))
 
     def _judge_row(self, row: dict[str, Any]) -> LLMJudgeResult:
-        messages = self.build_messages(row)
-        if messages is None:
-            result = self.no_call_result(row)
-            result.provenance_json = self._provenance_json([], result.parse_error)
-            return result
+        messages, no_call_result = self._prepare_row(row)
+        if no_call_result is not None:
+            return no_call_result
 
         raw_response = ""
         try:
@@ -215,24 +213,17 @@ class LLMJudgeStage(ProcessingStage[DocumentBatch, DocumentBatch], ABC):
                 model=self.model_name,
                 generation_config=self.generation_config,
             )
-            raw_response = response[0] if response else ""
+            raw_response = self._first_response(response)
             result = self.parse_response(raw_response, row, messages)
         except Exception as exc:  # noqa: BLE001
-            logger.warning(f"{self.name} failed for one row: {exc}")
-            result = self.failure_result(str(exc))
-            result.raw_response = raw_response
+            result = self._result_from_exception(exc, raw_response)
 
-        result.provenance_json = self._provenance_json(messages, result.parse_error)
-        if raw_response and not result.raw_response:
-            result.raw_response = raw_response
-        return result
+        return self._finalize_result(result, raw_response, messages)
 
     async def _judge_row_async(self, row: dict[str, Any]) -> LLMJudgeResult:
-        messages = self.build_messages(row)
-        if messages is None:
-            result = self.no_call_result(row)
-            result.provenance_json = self._provenance_json([], result.parse_error)
-            return result
+        messages, no_call_result = self._prepare_row(row)
+        if no_call_result is not None:
+            return no_call_result
 
         raw_response = ""
         try:
@@ -241,13 +232,41 @@ class LLMJudgeStage(ProcessingStage[DocumentBatch, DocumentBatch], ABC):
                 model=self.model_name,
                 generation_config=self.generation_config,
             )
-            raw_response = response[0] if response else ""
+            raw_response = self._first_response(response)
             result = self.parse_response(raw_response, row, messages)
         except Exception as exc:  # noqa: BLE001
-            logger.warning(f"{self.name} failed for one row: {exc}")
-            result = self.failure_result(str(exc))
-            result.raw_response = raw_response
+            result = self._result_from_exception(exc, raw_response)
 
+        return self._finalize_result(result, raw_response, messages)
+
+    def _prepare_row(self, row: dict[str, Any]) -> tuple[list[dict[str, str]], LLMJudgeResult | None]:
+        """Build messages or return a no-call result with provenance attached."""
+        messages = self.build_messages(row)
+        if messages is None:
+            result = self.no_call_result(row)
+            result.provenance_json = self._provenance_json([], result.parse_error)
+            return [], result
+        return messages, None
+
+    @staticmethod
+    def _first_response(response: list[str]) -> str:
+        """Return the first text response from an LLM client response list."""
+        return response[0] if response else ""
+
+    def _result_from_exception(self, exc: Exception, raw_response: str) -> LLMJudgeResult:
+        """Convert a row-level client or parse exception into a judge result."""
+        logger.warning(f"{self.name} failed for one row: {exc}")
+        result = self.failure_result(str(exc))
+        result.raw_response = raw_response
+        return result
+
+    def _finalize_result(
+        self,
+        result: LLMJudgeResult,
+        raw_response: str,
+        messages: list[dict[str, str]],
+    ) -> LLMJudgeResult:
+        """Attach shared provenance and raw-response fallback."""
         result.provenance_json = self._provenance_json(messages, result.parse_error)
         if raw_response and not result.raw_response:
             result.raw_response = raw_response

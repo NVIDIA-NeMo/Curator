@@ -151,6 +151,21 @@ def test_analysis_stage_parse_failure_keeps_raw_response_when_policy_keeps() -> 
     assert "JSON" in df["llm_analysis_parse_error"].iloc[0] or "json" in df["llm_analysis_parse_error"].iloc[0]
 
 
+def test_analysis_stage_min_max_normalizes_scores() -> None:
+    client = MockSyncLLMClient(
+        responses=[
+            [_analysis_response({"clarity": 1, "relevance": 1, "usefulness": 1, "fluency": 1})],
+            [_analysis_response({"clarity": 5, "relevance": 5, "usefulness": 5, "fluency": 5})],
+        ]
+    )
+    batch = DocumentBatch(data=pd.DataFrame({"text": ["low", "high"]}), dataset_name="ds")
+    stage = LLMAnalysisFilterStage(client=client, model_name="judge", min_score=0.0, filter=False)
+
+    out = stage.process(batch)
+
+    assert out.to_pandas()["llm_analysis_score"].tolist() == [0.0, 1.0]
+
+
 def test_analysis_stage_treats_nan_as_empty_input() -> None:
     client = MockSyncLLMClient()
     batch = DocumentBatch(data=pd.DataFrame({"text": [pd.NA]}), dataset_name="ds")
@@ -225,6 +240,43 @@ def test_task_relevance_stage_includes_validation_context() -> None:
     assert "Solve arithmetic word problems." in user_message
     assert "Q: 2+2? A: 4" in user_message
     assert "Q: 3+3? A: 6" not in user_message
+    assert out.to_pandas()["llm_task_relevance_score"].iloc[0] == 1.0
+
+
+def test_task_relevance_stage_caches_validation_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = MockSyncLLMClient(
+        responses=[
+            [
+                _analysis_response(
+                    {
+                        "topical_relevance": 5,
+                        "linguistic_style_match": 5,
+                        "task_match": 5,
+                        "knowledge_alignment": 5,
+                        "potential_utility": 5,
+                    }
+                )
+            ]
+        ]
+    )
+    batch = DocumentBatch(data=pd.DataFrame({"text": ["Q: 1+1? A: 2"]}), dataset_name="ds")
+    stage = LLMTaskRelevanceFilterStage(
+        client=client,
+        model_name="judge",
+        task_desc="Solve arithmetic word problems.",
+        validation_examples=[{"text": "Q: 2+2? A: 4"}],
+        filter=False,
+    )
+
+    def fail_format(_: dict[str, object]) -> str:
+        msg = "validation context should have been cached during initialization"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(stage, "_format_validation_example", fail_format)
+
+    out = stage.process(batch)
+
+    assert "Q: 2+2? A: 4" in client.received_messages[0][1]["content"]
     assert out.to_pandas()["llm_task_relevance_score"].iloc[0] == 1.0
 
 
@@ -323,4 +375,4 @@ def test_async_analysis_stage_uses_async_client() -> None:
 
     assert client.setup_called is True
     assert client.call_count == 2
-    assert out.to_pandas()["llm_analysis_score"].tolist() == [1.0, 0.8]
+    assert out.to_pandas()["llm_analysis_score"].tolist() == [1.0, 0.75]

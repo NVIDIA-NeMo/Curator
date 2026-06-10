@@ -62,6 +62,7 @@ class LLMTaskRelevanceFilterStage(LLMAnalysisFilterStage):
     parse_error_field: str | None = "llm_task_relevance_parse_error"
     provenance_field: str | None = "llm_task_relevance_provenance"
     name: str = "llm_task_relevance_filter"
+    _validation_context: str = field(init=False, repr=False, default="")
 
     def __post_init__(self) -> None:
         """Load validation examples and validate configuration."""
@@ -84,6 +85,7 @@ class LLMTaskRelevanceFilterStage(LLMAnalysisFilterStage):
             raise ValueError(msg)
 
         super().__post_init__()
+        self._validation_context = self._build_validation_context()
 
     def build_messages(self, row: dict[str, Any]) -> list[dict[str, str]] | None:
         """Build the task relevance prompt for one row."""
@@ -99,7 +101,11 @@ class LLMTaskRelevanceFilterStage(LLMAnalysisFilterStage):
 
     @property
     def validation_context(self) -> str:
-        """Return task description and validation examples as prompt context."""
+        """Return cached task description and validation examples as prompt context."""
+        return self._validation_context
+
+    def _build_validation_context(self) -> str:
+        """Build task description and validation examples as prompt context."""
         blocks = []
         if self.task_desc:
             blocks.append(f"# Task Description\n{self.task_desc}")
