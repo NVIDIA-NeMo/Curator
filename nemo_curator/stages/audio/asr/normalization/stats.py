@@ -21,6 +21,7 @@ import os
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -261,41 +262,57 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
         self._summary_handle.flush()
 
     def format_summary(self) -> str:
-        summary = self.summary()
-        lines = [
-            f"[{self.name}] Transcript normalization summary",
-            "  per_language_source:",
-        ]
-        for lang, source_summaries in summary["by_language"].items():
-            for source, source_summary in source_summaries.items():
-                lines.extend(
-                    _format_summary_block(
-                        f"lang={lang} source={source}",
-                        source_summary,
-                        indent="    ",
-                        top_n_unknown_chars=self.log_top_n_unknown_chars,
-                    )
-                )
-        lines.append("  per_language_overall:")
-        for lang, language_summary in summary["by_language_overall"].items():
-            lines.extend(
-                _format_summary_block(
-                    f"lang={lang} overall",
-                    language_summary,
-                    indent="    ",
-                    top_n_unknown_chars=self.log_top_n_unknown_chars,
-                )
-            )
-        lines.append("  global:")
-        lines.extend(
-            _format_summary_block(
-                "all languages/sources",
-                summary,
-                indent="    ",
-                top_n_unknown_chars=self.log_top_n_unknown_chars,
-            )
-        )
-        return "\n".join(lines)
+        return _format_summary(self.summary(), name=self.name, top_n_unknown_chars=self.log_top_n_unknown_chars)
+
+    @staticmethod
+    def load_summary(path: str | os.PathLike[str] | None) -> dict[str, Any] | None:
+        """Load a transcript stats summary JSON file, including legacy JSONL output."""
+        if not path:
+            return None
+        summary_path = Path(path)
+        if not summary_path.exists():
+            logger.warning(f"Stats summary path does not exist: {summary_path}")
+            return None
+        raw_summary = summary_path.read_text(encoding="utf-8")
+        try:
+            return json.loads(raw_summary)
+        except json.JSONDecodeError:
+            lines = [line for line in raw_summary.splitlines() if line.strip()]
+            for line in reversed(lines):
+                try:
+                    return json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+            logger.warning(f"Could not parse stats summary JSON: {summary_path}")
+            return None
+
+    @classmethod
+    def format_summary_from_path(
+        cls,
+        path: str | os.PathLike[str] | None,
+        *,
+        name: str = "transcript_stats",
+        top_n_unknown_chars: int = 50,
+    ) -> str | None:
+        """Load and format a persisted transcript stats summary."""
+        summary = cls.load_summary(path)
+        if not summary:
+            return None
+        return _format_summary(summary, name=name, top_n_unknown_chars=top_n_unknown_chars)
+
+    @classmethod
+    def log_summary_from_path(
+        cls,
+        path: str | os.PathLike[str] | None,
+        *,
+        name: str = "transcript_stats",
+        top_n_unknown_chars: int = 50,
+    ) -> str | None:
+        """Load, format, and log a persisted transcript stats summary."""
+        formatted = cls.format_summary_from_path(path, name=name, top_n_unknown_chars=top_n_unknown_chars)
+        if formatted:
+            logger.info("\n" + formatted)
+        return formatted
 
     def _metrics_snapshot(self, process_time: float) -> dict[str, float | int]:
         summary = self.summary()
@@ -321,6 +338,43 @@ def _coerce_unknown_chars(value: Any) -> dict[str, int]:  # noqa: ANN401
     if isinstance(value, dict):
         return {str(char): int(count) for char, count in value.items()}
     return {}
+
+
+def _format_summary(summary: dict[str, Any], *, name: str, top_n_unknown_chars: int) -> str:
+    lines = [
+        f"[{name}] Transcript normalization summary",
+        "  per_language_source:",
+    ]
+    for lang, source_summaries in summary.get("by_language", {}).items():
+        for source, source_summary in source_summaries.items():
+            lines.extend(
+                _format_summary_block(
+                    f"lang={lang} source={source}",
+                    source_summary,
+                    indent="    ",
+                    top_n_unknown_chars=top_n_unknown_chars,
+                )
+            )
+    lines.append("  per_language_overall:")
+    for lang, language_summary in summary.get("by_language_overall", {}).items():
+        lines.extend(
+            _format_summary_block(
+                f"lang={lang} overall",
+                language_summary,
+                indent="    ",
+                top_n_unknown_chars=top_n_unknown_chars,
+            )
+        )
+    lines.append("  global:")
+    lines.extend(
+        _format_summary_block(
+            "all languages/sources",
+            summary,
+            indent="    ",
+            top_n_unknown_chars=top_n_unknown_chars,
+        )
+    )
+    return "\n".join(lines)
 
 
 def _format_summary_block(
@@ -351,7 +405,7 @@ def _format_summary_block(
             f"unique_unknown={summary['unique_unknown_chars']} "
             f"unique_unknown_rate={summary['unique_unknown_char_rate']:.2%}"
         ),
-        f"{indent}  unknown_chars: {_format_unknown_char_details(summary['unknown_char_details'], top_n_unknown_chars)}",
+        f"{indent}  unknown_chars: {_format_unknown_char_details(summary.get('unknown_char_details', {}), top_n_unknown_chars)}",
         f"{indent}  alpha_minus_known_chars: {summary['alpha_minus_known_chars']}",
         f"{indent}  split_counts: {summary['split_counts']}",
     ]

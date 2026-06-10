@@ -219,3 +219,48 @@ def test_transcript_stats_writes_summary_during_processing(tmp_path: Path) -> No
         "test": {"total": 1, "valid": 1, "invalid": 0},
     }
     stage.teardown()
+
+
+def test_transcript_stats_formats_summary_from_path(tmp_path: Path) -> None:
+    summary_path = tmp_path / "summary.json"
+    stage = TranscriptStatsStage(log_top_n_unknown_chars=1)
+    stage.process(_task("ગુજરાતીxxy", 1.0, "train", True, extra={"unknown_chars": {"x": 2, "y": 1}}))
+    summary_path.write_text(json.dumps(stage.summary(), ensure_ascii=False), encoding="utf-8")
+
+    formatted = TranscriptStatsStage.format_summary_from_path(str(summary_path), top_n_unknown_chars=1)
+
+    assert "per_language_source:" in formatted
+    assert "lang=gu source=IndicVoices" in formatted
+    assert "unknown_chars: x=count=2" in formatted
+    assert "per_language_overall:" in formatted
+    assert "global:" in formatted
+
+
+def test_transcript_stats_logs_summary_from_path(tmp_path: Path) -> None:
+    summary_path = tmp_path / "summary.json"
+    stage = TranscriptStatsStage(log_top_n_unknown_chars=1)
+    stage.process(_task("ગુજરાતીxxy", 1.0, "train", True, extra={"unknown_chars": {"x": 2, "y": 1}}))
+    summary_path.write_text(json.dumps(stage.summary(), ensure_ascii=False), encoding="utf-8")
+
+    formatted = TranscriptStatsStage.log_summary_from_path(str(summary_path), top_n_unknown_chars=1)
+
+    assert formatted is not None
+    assert "lang=gu source=IndicVoices" in formatted
+    assert "unknown_chars: x=count=2" in formatted
+
+
+def test_transcript_stats_loads_summary_json(tmp_path: Path) -> None:
+    summary_path = tmp_path / "summary.json"
+    expected = {"total_transcripts": 2, "valid_transcripts": 1, "invalid_transcripts": 1}
+    summary_path.write_text(json.dumps(expected), encoding="utf-8")
+
+    assert TranscriptStatsStage.load_summary(str(summary_path)) == expected
+
+
+def test_transcript_stats_loads_last_jsonl_record(tmp_path: Path) -> None:
+    summary_path = tmp_path / "summary.json"
+    first = {"total_transcripts": 1}
+    second = {"total_transcripts": 2}
+    summary_path.write_text(f"{json.dumps(first)}\n{json.dumps(second)}\n", encoding="utf-8")
+
+    assert TranscriptStatsStage.load_summary(str(summary_path)) == second

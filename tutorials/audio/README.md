@@ -20,7 +20,7 @@ sudo apt-get install -y ffmpeg
 
 | Tutorial | Description | Files |
 |----------|-------------|-------|
-| **[ASR Data Processing](asr_data_pipeline/)** | Standardize downloaded ASR datasets into normalized train/dev/test manifests | `README.md`, `configs/indicvoices.yaml` |
+| **[ASR Data Processing](asr_data_pipeline/)** | Standardize downloaded ASR datasets into normalized train/dev/test manifests | `main.py`, `README.md`, `configs/indicvoices.yaml` |
 | **[FLEURS Dataset](fleurs/)** | Complete pipeline for multilingual speech data | `pipeline.py`, `run.py`, `pipeline.yaml` |
 | **[Audio Tagging](tagging/)** | Label raw audio for TTS/ASR via diarization, alignment, and quality metrics | `main.py`, `tts_pipeline.yaml`, `asr_pipeline.yaml` |
 | **[ALM Data Pipeline](alm/)** | Create training windows for Audio Language Models | `main.py`, `pipeline.yaml` |
