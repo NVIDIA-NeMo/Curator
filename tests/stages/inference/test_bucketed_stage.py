@@ -22,6 +22,8 @@ ASR/Qwen consumer.
 
 from __future__ import annotations
 
+import numpy as np
+
 from nemo_curator.stages.inference.batch_policy import BatchPolicy
 from nemo_curator.stages.inference.bucketed_stage import BucketedInferenceStage
 from nemo_curator.tasks import AudioTask
@@ -93,3 +95,15 @@ def test_bucketed_inference_stage_empty_batch_short_circuits() -> None:
     stage.calls = []
     assert stage.process_batch([]) == []
     assert stage.calls == []
+
+
+def test_bucketed_inference_stage_accepts_numpy_task_batch() -> None:
+    """Ray Data passes ``map_batches`` columns as ndarrays — not Python lists."""
+    stage = _SumBucketStage()
+    stage.calls = []
+    t0 = AudioTask(data={"vals": [2.0]})
+    batch = np.array([t0], dtype=object)
+    out = stage.process_batch(batch)
+    assert out == [t0]
+    assert t0.data["out"] == 20.0
+    assert len(stage.calls) == 1

@@ -95,7 +95,9 @@ class BucketedInferenceStage(ProcessingStage[X, Y], Generic[X, Y, ItemT, ResultT
         """
 
     def process_batch(self, tasks: list[X]) -> list[Y]:
-        if not tasks:
+        # Ray Data ``map_batches`` passes column values as numpy ndarrays; never
+        # use truthiness on ``tasks`` (``if not tasks`` raises ValueError).
+        if len(tasks) == 0:
             return []
         items, parent_of = self.build_items(tasks)
         results = run_bucketed(

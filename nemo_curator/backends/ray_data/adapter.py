@@ -23,7 +23,7 @@ from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
 
-from .utils import calculate_concurrency_for_actors_for_stage, is_actor_stage
+from .utils import calculate_concurrency_for_actors_for_stage, coerce_batch_tasks, is_actor_stage
 
 
 class RayDataStageAdapter(BaseStageAdapter):
@@ -65,7 +65,7 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dictionary with arrays/lists representing processed Task objects
         """
-        tasks = batch["item"]
+        tasks = coerce_batch_tasks(batch["item"])
         results = self.process_batch(tasks)
         # Return the results as Ray Data expects them
         # For Task objects, we return them in the 'item' column
