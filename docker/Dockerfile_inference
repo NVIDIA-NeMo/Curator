@@ -1,0 +1,126 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+ARG CUDA_VER=12.9.1
+ARG LINUX_VER=ubuntu24.04
+
+FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
+
+
+########################################################################
+# Base image
+########################################################################
+
+FROM cuda AS build
+
+ARG CURATOR_ENV=ci
+ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
+
+ENV NVIDIA_PRODUCT_NAME="NeMo Curator Inference Nightly"
+
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    software-properties-common \
+    curl \
+    git \
+    vim && \
+    add-apt-repository -y ppa:deadsnakes/ppa && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    python3.13 \
+    python3.13-dev \
+    python3.13-venv \
+    python-is-python3 && \
+    apt-get install -y --only-upgrade gnupg && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+ENV UV_CACHE_DIR=/opt/uv_cache
+ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
+ENV UV_LINK_MODE=copy
+RUN uv venv ${UV_PROJECT_ENVIRONMENT} --python /usr/bin/python3.13 --system-site-packages --seed
+
+
+########################################################################
+# Focused inference image
+########################################################################
+
+FROM build AS nemo_curator_inference
+
+WORKDIR /opt
+
+# Required by the Dynamo inference backend.
+COPY docker/common/install_etcd_nats.sh .
+RUN bash install_etcd_nats.sh && \
+    rm install_etcd_nats.sh
+
+# Required by Ray Serve HAProxy ingress mode.
+COPY docker/common/install_haproxy.sh .
+RUN bash install_haproxy.sh && \
+    rm install_haproxy.sh
+ENV RAY_SERVE_HAPROXY_BINARY_PATH=/usr/local/bin/haproxy
+
+ARG CURATOR_EXTRAS="inference_server interleaved_cpu text_cpu"
+ARG CURATOR_GROUPS="--no-default-groups"
+WORKDIR /opt/Curator
+
+COPY pyproject.toml uv.lock /opt/Curator/
+COPY nemo_curator/__init__.py nemo_curator/package_info.py /opt/Curator/nemo_curator/
+
+# Install only the Curator dependency surface needed for inference plus CPU text/interleaved workflows.
+RUN set -eux; \
+    extras_args=""; \
+    for extra in ${CURATOR_EXTRAS}; do \
+        extras_args="${extras_args} --extra ${extra}"; \
+    done; \
+    uv sync --link-mode copy --locked ${extras_args} ${CURATOR_GROUPS} --no-cache
+
+# Keep the image dependency graph owned by pyproject.toml/uv.lock. This cleanup is
+# intentionally post-sync hygiene only; it must not install or upgrade packages.
+RUN set -eux; \
+    find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} +; \
+    find /opt/venv -name "ray_dist.jar" -delete; \
+    if find /opt/venv -name "ray_dist.jar" | grep -q .; then \
+        echo "ERROR: GHSA-72hv-8253-57qq not fixed - ray_dist.jar still present after deletion" && exit 1; \
+    fi
+
+COPY . /opt/Curator
+
+COPY <<EOF_ENV /opt/venv/env.sh
+export UV_PROJECT_ENVIRONMENT=/opt/venv
+export PATH="/opt/venv/bin:$PATH"
+export UV_LINK_MODE=copy
+export PATH="/root/.local/bin:$PATH"
+export RAY_SERVE_HAPROXY_BINARY_PATH=/usr/local/bin/haproxy
+EOF_ENV
+
+RUN chmod +x /opt/venv/env.sh && \
+    python - <<'PY'
+import importlib.metadata as metadata
+
+for package in ("nemo-curator", "ray", "ai-dynamo"):
+    print(f"{package}={metadata.version(package)}")
+PY
+
+ARG NVIDIA_BUILD_ID
+ENV NVIDIA_BUILD_ID=${NVIDIA_BUILD_ID:-<unknown>}
+LABEL com.nvidia.build.id="${NVIDIA_BUILD_ID}"
+ARG NVIDIA_BUILD_REF
+LABEL com.nvidia.build.ref="${NVIDIA_BUILD_REF}"

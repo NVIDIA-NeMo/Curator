@@ -135,7 +135,12 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
             edge_type_array=None,
             num_arrays=1,
             store_transposed=False,
-            symmetrize=False,
+            # The dedup edge list (from buckets_to_edges) is one-directional while
+            # graph_properties declares is_symmetric=True. cugraph 26.08 honors symmetrize
+            # literally, so symmetrize=False left reverse edges absent and dropped borderline
+            # undirected connections (missed duplicate groups). Symmetrize to match the
+            # declared undirected graph; drop_multi_edges=True dedupes any now-duplicate edges.
+            symmetrize=True,
             do_expensive_check=False,
             drop_multi_edges=True,
         )

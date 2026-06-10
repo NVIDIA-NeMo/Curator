@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import tempfile
 from functools import reduce
@@ -24,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 import ray
 from loguru import logger
+from packaging.requirements import Requirement
 
 from nemo_curator.core.serve.base import BaseModelConfig
 from nemo_curator.core.serve.dynamo.infra import (
@@ -50,19 +52,82 @@ if TYPE_CHECKING:
     from nemo_curator.core.serve.placement import ReplicaBundleSpec
 
 
-# ai-dynamo[vllm]'s [vllm] extra carries a hard ray pin, but Ray refuses
-# actor venvs whose ray version differs from the cluster head's. uv has no
-# inline override syntax — only ``--override <file>`` — so we materialize a
-# tiny constraints file at a fixed path on every node via
-# ``ensure_actor_overrides_on_all_nodes``; the content is derived from the
-# driver's ``ray.__version__`` at fan-out time so a future Curator ray bump
-# doesn't need a code change here.
+# The actor venv ``uv pip install`` needs overrides that pyproject's ``[tool.uv]``
+# can't reach (Ray runs it in an empty cwd). uv has no inline override syntax —
+# only ``--override <file>`` — so we materialize a constraints file at a fixed path
+# on every node via ``ensure_actor_overrides_on_all_nodes``. It carries:
+#   * ``ray==<driver version>`` — ai-dynamo[vllm]'s [vllm] extra has a hard ray pin,
+#     but Ray refuses actor venvs whose ray differs from the cluster head's. Derived
+#     from the driver's ``ray.__version__`` so a future Curator ray bump needs no edit.
+#   * ``nixl-cu13`` dropped — ai-dynamo[vllm] pulls the CUDA-13 NIXL backend, whose
+#     eagerly-imported ``nixl_ep_cpp.so`` dlopens libcudart.so.13 (absent on this
+#     CUDA-12.9 image). The base image excludes it via pyproject, but that override
+#     doesn't reach this standalone install; re-apply it here so the cu12 backend wins.
 _ACTOR_VENV_OVERRIDES_PATH = Path(tempfile.gettempdir()) / "nemo_curator_dynamo_actor_overrides.txt"
+_ACTOR_VENV_NIXL_CU13_EXCLUSION = "nixl-cu13 ; sys_platform == 'never'"
+
+
+def _vllm_cu129_index_url() -> str | None:
+    """The vLLM cu129 wheel index for the exact version ai-dynamo[vllm] pins.
+
+    ai-dynamo's [vllm] extra pins an exact vllm (e.g. ``==0.22.1``) that may
+    differ from Curator's base vllm — the base installs ai-dynamo WITHOUT its
+    [vllm] extra, so its vllm comes from Curator's own pin, while the actor
+    venv installs ``ai-dynamo[vllm]`` and must honor ai-dynamo's pin. vLLM
+    publishes a per-version cu129 wheel index at ``wheels.vllm.ai/<v>/cu129``;
+    pointing at the pinned version means its ``+cu129`` local build sorts above
+    the default cu130 wheel under unsafe-best-match. Derived from ai-dynamo's
+    own metadata so a nightly bump (which changes the vllm pin) needs no edit.
+
+    Returns None if ai-dynamo (or its vllm pin) can't be found — only happens
+    when the dynamo backend isn't actually installed, where this is unused.
+    """
+    try:
+        requirements = importlib.metadata.requires("ai-dynamo") or []
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    for raw in requirements:
+        req = Requirement(raw)
+        if req.name == "vllm":
+            pinned = next((spec.version for spec in req.specifier if spec.operator in ("==", "===")), None)
+            if pinned:
+                return f"https://wheels.vllm.ai/{pinned}/cu129"
+    return None
+
+
+# Ray builds the actor venv with a bare ``uv pip install`` in an empty cwd, so it
+# inherits none of the project's ``[tool.uv]`` index/source/prerelease config — only
+# what we pass here. The venv is cloned from the base image, so flags matter only when
+# uv fetches or upgrades a dep (e.g. ai-dynamo[vllm] pins a newer vllm than the base).
+# Force CUDA 12.9 the way vLLM documents for uv:
+#   * ``--torch-backend cu129`` routes the torch ecosystem to the cu129 PyTorch index.
+#   * ``unsafe-best-match`` is REQUIRED so nixl resolves — its needed version is split
+#     across pypi.nvidia.com and PyPI, which the default first-match strategy can't
+#     combine. The catch: best-match maximizes version globally and ``+cu130`` sorts
+#     above ``+cu129`` (PEP 440 local order), so it would grab the cu130 vllm whose
+#     ``vllm._C`` dlopens libcudart.so.13. We counter that by adding the cu129 wheel
+#     index for the EXACT vllm version ai-dynamo pins, so ``<v>+cu129`` is the highest
+#     local build of that version and wins. (No fixed version baked in — see above.)
+_ACTOR_VENV_EXTRA_INDEX_URLS = tuple(
+    url for url in ("https://pypi.nvidia.com", _vllm_cu129_index_url()) if url is not None
+)
+_ACTOR_VENV_UV_OPTIONS = [
+    "--override",
+    str(_ACTOR_VENV_OVERRIDES_PATH),
+    "--torch-backend",
+    "cu129",
+    "--index-strategy",
+    "unsafe-best-match",
+    "--prerelease",
+    "if-necessary-or-explicit",
+]
+for _extra_index_url in _ACTOR_VENV_EXTRA_INDEX_URLS:
+    _ACTOR_VENV_UV_OPTIONS += ["--extra-index-url", _extra_index_url]
 
 DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
     "uv": {
         "packages": ["ai-dynamo[vllm]"],
-        "uv_pip_install_options": ["--override", str(_ACTOR_VENV_OVERRIDES_PATH)],
+        "uv_pip_install_options": _ACTOR_VENV_UV_OPTIONS,
     },
     "config": {"setup_timeout_seconds": 600},
 }
@@ -78,7 +143,8 @@ def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> No
 
     The file pins ``ray=={ray.__version__}`` (read from the driver) so the
     actor venv keeps the same ray patch as the cluster head — Ray rejects
-    any mismatch.
+    any mismatch — and drops ``nixl-cu13`` so the cu12 NIXL backend is used
+    (see module comment on :data:`_ACTOR_VENV_OVERRIDES_PATH`).
 
     Must run inside an active Ray context, before any worker spawned with
     :data:`DYNAMO_VLLM_RUNTIME_ENV` lands. The runtime_env_agent on each
@@ -91,7 +157,7 @@ def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> No
     run_on_each_node(
         _write_actor_overrides_file,
         str(_ACTOR_VENV_OVERRIDES_PATH),
-        f"ray=={ray.__version__}\n",
+        f"ray=={ray.__version__}\n{_ACTOR_VENV_NIXL_CU13_EXCLUSION}\n",
         ignore_head_node=ignore_head_node,
     )
 
