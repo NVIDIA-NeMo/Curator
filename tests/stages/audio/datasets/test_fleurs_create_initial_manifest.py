@@ -103,13 +103,13 @@ def test_process_end_to_end(tmp_path: Path) -> None:
     (audio_dir / "file2.wav").write_bytes(b"")
 
     stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(raw_dir))
-    from nemo_curator.tasks import _EmptyTask
+    from nemo_curator.tasks import EmptyTask
 
     with (
         patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.download_file"),
         patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.extract_archive"),
     ):
-        results = stage.process(_EmptyTask(dataset_name="test", data=None))
+        results = stage.process(EmptyTask(dataset_name="test", data=None))
     assert len(results) == 2
     assert results[0].data["text"] == "hello"
     assert results[1].data["text"] == "world"

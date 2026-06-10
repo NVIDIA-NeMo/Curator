@@ -19,7 +19,7 @@ from typing import Any
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.datasets.file_utils import download_file, extract_archive
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioTask, _EmptyTask
+from nemo_curator.tasks import AudioTask, EmptyTask
 
 
 def get_fleurs_url_list(lang: str, split: str) -> list[str]:
@@ -44,7 +44,7 @@ def get_fleurs_url_list(lang: str, split: str) -> list[str]:
 
 
 @dataclass
-class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
+class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
     """Create initial manifest for the FLEURS dataset.
 
     Dataset link: https://huggingface.co/datasets/google/fleurs
@@ -114,6 +114,6 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
-    def process(self, _: _EmptyTask) -> list[AudioTask]:
+    def process(self, _: EmptyTask) -> list[AudioTask]:
         self.download_extract_files(self.raw_data_dir)
         return self.process_transcript(os.path.join(self.raw_data_dir, self.split + ".tsv"))

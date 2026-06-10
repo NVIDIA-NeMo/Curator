@@ -73,7 +73,7 @@ class XennaExecutor(BaseExecutor):
         stage_specs = []
 
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
-        initial_tasks = initial_tasks if initial_tasks else [EmptyTask]
+        initial_tasks = initial_tasks if initial_tasks else [EmptyTask()]
 
         for stage in stages:
             # Get stage configuration
