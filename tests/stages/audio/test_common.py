@@ -22,6 +22,7 @@ from unittest import mock
 import numpy as np
 import pytest
 import torch
+from omegaconf import OmegaConf
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
@@ -296,6 +297,16 @@ class TestManifestReaderDirectory:
         partitioner = stages[0]
         assert partitioner.file_paths == str(nested)
         assert partitioner.file_extensions == [".jsonl", ".json"]
+
+    def test_composite_accepts_hydra_list_config(self, tmp_path: Path) -> None:
+        manifests = [str(tmp_path / "dev.jsonl"), str(tmp_path / "test.jsonl")]
+        manifest_path = OmegaConf.create(manifests)
+        composite = ManifestReader(manifest_path=manifest_path)
+        stages = composite.decompose()
+
+        partitioner = stages[0]
+        assert partitioner.file_paths == manifests
+        assert all(isinstance(path, str) for path in partitioner.file_paths)
 
     def test_ignores_non_jsonl_files(self) -> None:
         nested = self._nested_dir()

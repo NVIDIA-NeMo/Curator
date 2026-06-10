@@ -15,6 +15,7 @@
 import json
 import os
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
 from typing import Any
@@ -208,9 +209,10 @@ class ManifestReader(CompositeStage[_EmptyTask, AudioTask]):
             raise ValueError(msg)
 
     def decompose(self) -> list[ProcessingStage]:
+        manifest_path = _coerce_manifest_path(self.manifest_path)
         return [
             FilePartitioningStage(
-                file_paths=self.manifest_path,
+                file_paths=manifest_path,
                 files_per_partition=self.files_per_partition,
                 blocksize=self.blocksize,
                 file_extensions=self.file_extensions,
@@ -226,6 +228,15 @@ class ManifestReader(CompositeStage[_EmptyTask, AudioTask]):
         elif self.blocksize:
             parts.append(f"with target blocksize {self.blocksize}")
         return ", ".join(parts)
+
+
+def _coerce_manifest_path(manifest_path: Any) -> str | list[str]:  # noqa: ANN401
+    """Convert Hydra/OmegaConf sequences to plain Python paths for partitioning."""
+    if isinstance(manifest_path, str):
+        return manifest_path
+    if isinstance(manifest_path, Sequence):
+        return [str(path) for path in manifest_path]
+    return manifest_path
 
 
 @dataclass
