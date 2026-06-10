@@ -114,6 +114,14 @@ def _load_stats_summary(path: str | None) -> dict[str, Any] | None:
         return None
 
 
+def _round_nested_floats(value: Any, ndigits: int = 2) -> Any:  # noqa: ANN401
+    if isinstance(value, dict):
+        return {key: _round_nested_floats(nested_value, ndigits) for key, nested_value in value.items()}
+    if isinstance(value, float):
+        return round(value, ndigits)
+    return value
+
+
 def _log_stats_summary(summary: dict[str, Any] | None, path: str | None) -> None:
     if not summary:
         return
@@ -141,7 +149,7 @@ def _log_stats_summary(summary: dict[str, Any] | None, path: str | None) -> None
         f"unique_unknown={summary.get('unique_unknown_chars', 0)}"
     )
     logger.info(f"    split_counts: {summary.get('split_counts', {})}")
-    logger.info(f"    split_hours: {summary.get('split_hours', {})}")
+    logger.info(f"    split_hours: {_round_nested_floats(summary.get('split_hours', {}))}")
 
 
 @hydra.main(version_base=None)

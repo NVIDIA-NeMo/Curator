@@ -21,16 +21,19 @@ from nemo_curator.stages.audio.asr.normalization import TranscriptStatsStage
 from nemo_curator.tasks import AudioTask
 
 
-def _task(
+def _task(  # noqa: PLR0913
     text: str,
     duration: float,
     split_type: str,
     transcript_error: bool,
+    lang: str = "gu",
+    source: str = "IndicVoices",
     extra: dict | None = None,
 ) -> AudioTask:
     data = {
         "text": text,
-        "lang": "gu",
+        "lang": lang,
+        "source": source,
         "duration": duration,
         "split_type": split_type,
         "transcript_error": transcript_error,
@@ -44,7 +47,7 @@ def test_transcript_stats_aggregates_valid_invalid_unknowns_and_splits() -> None
     stage = TranscriptStatsStage()
     tasks = [
         _task("abc", 1.0, "train", False),
-        _task("ગુજરાતી", 2.0, "dev", True, {"unknown_chars": {"x": 2, "y": 1}}),
+        _task("ગુજરાતી", 2.0, "dev", True, extra={"unknown_chars": {"x": 2, "y": 1}}),
         _task("શબ્દ", 3.0, "test", False),
     ]
 
@@ -90,10 +93,54 @@ def test_transcript_stats_aggregates_valid_invalid_unknowns_and_splits() -> None
     assert metrics["unique_unknown_char_rate"] == pytest.approx(2 / len("abcગુજરાતીશબ્દ"))
 
 
+def test_transcript_stats_groups_each_language_by_source() -> None:
+    stage = TranscriptStatsStage()
+    tasks = [
+        _task("ગુજરાતી", 1.0, "train", False, lang="gu", source="IndicVoices"),
+        _task("શબ્દx", 2.0, "dev", True, lang="gu", source="IndicVoices", extra={"unknown_chars": {"x": 1}}),
+        _task("शब्द", 3.0, "test", False, lang="hi", source="OtherDataset"),
+    ]
+
+    assert [stage.process(task) for task in tasks] == tasks
+
+    summary = stage.summary()
+    grouped = summary["by_language"]
+    language_totals = summary["by_language_overall"]
+    assert set(grouped) == {"gu", "hi"}
+    assert set(grouped["gu"]) == {"IndicVoices"}
+    assert set(grouped["hi"]) == {"OtherDataset"}
+    assert grouped["gu"]["IndicVoices"]["total_transcripts"] == 2
+    assert grouped["gu"]["IndicVoices"]["valid_transcripts"] == 1
+    assert grouped["gu"]["IndicVoices"]["invalid_transcripts"] == 1
+    assert grouped["gu"]["IndicVoices"]["split_counts"] == {
+        "train": {"total": 1, "valid": 1, "invalid": 0},
+        "dev": {"total": 1, "valid": 0, "invalid": 1},
+    }
+    assert grouped["hi"]["OtherDataset"]["total_transcripts"] == 1
+    assert grouped["hi"]["OtherDataset"]["valid_duration_hours"] == pytest.approx(3.0 / 3600)
+    assert language_totals["gu"]["total_transcripts"] == 2
+    assert language_totals["gu"]["valid_transcripts"] == 1
+    assert language_totals["gu"]["invalid_transcripts"] == 1
+    assert language_totals["hi"]["total_transcripts"] == 1
+
+    formatted = stage.format_summary()
+    assert "per_language_source:" in formatted
+    assert "lang=gu source=IndicVoices" in formatted
+    assert "transcripts: total=2 valid=1 (50.00%) invalid=1 (50.00%)" in formatted
+    assert (
+        "split_counts: {'train': {'total': 1, 'valid': 1, 'invalid': 0}, 'dev': {'total': 1, 'valid': 0, 'invalid': 1}}"
+        in formatted
+    )
+    assert "lang=hi source=OtherDataset" in formatted
+    assert "per_language_overall:" in formatted
+    assert "lang=gu overall" in formatted
+    assert "lang=hi overall" in formatted
+
+
 def test_transcript_stats_can_drop_invalid_after_counting() -> None:
     stage = TranscriptStatsStage(drop_invalid=True)
     valid = _task("abc", 1.0, "train", False)
-    invalid = _task("abcx", 2.0, "train", True, {"unknown_chars": {"x": 1}})
+    invalid = _task("abcx", 2.0, "train", True, extra={"unknown_chars": {"x": 1}})
 
     assert stage.process(valid) is valid
     assert stage.process(invalid) is None
@@ -108,15 +155,23 @@ def test_transcript_stats_can_drop_invalid_after_counting() -> None:
     assert metrics["dropped_invalid"] == 1
 
 
-def test_transcript_stats_rejects_multiple_languages() -> None:
+def test_transcript_stats_accepts_multiple_languages() -> None:
     stage = TranscriptStatsStage()
-    stage.process(_task("abc", 1.0, "train", False))
-    with pytest.raises(ValueError, match="expects one language per dataset"):
-        stage.process(_task("शब्द", 1.0, "train", False, {"lang": "hi"}))
+    assert stage.process(_task("abc", 1.0, "train", False, lang="gu")) is not None
+    assert stage.process(_task("शब्द", 1.0, "train", False, lang="hi")) is not None
 
 
 def test_transcript_stats_runs_as_single_worker_for_exact_dataset_summary() -> None:
     assert TranscriptStatsStage().num_workers() == 1
+
+
+def test_transcript_stats_format_summary_rounds_split_hours() -> None:
+    stage = TranscriptStatsStage()
+    stage.process(_task("ગુજરાતી", 3661.0, "dev", False))
+
+    formatted = stage.format_summary()
+
+    assert "split_hours: {'dev': {'total': 1.02, 'valid': 1.02, 'invalid': 0.0}}" in formatted
 
 
 def test_transcript_stats_writes_summary_during_processing(tmp_path: Path) -> None:
@@ -134,8 +189,6 @@ def test_transcript_stats_writes_summary_during_processing(tmp_path: Path) -> No
 
     stage.process(_task("શબ્દ", 2.0, "test", False))
 
-    raw_summary = summary_path.read_text(encoding="utf-8")
-    assert raw_summary.count('"total_transcripts"') == 1
     with summary_path.open(encoding="utf-8") as f:
         final_summary = json.load(f)
     assert final_summary["total_transcripts"] == 2

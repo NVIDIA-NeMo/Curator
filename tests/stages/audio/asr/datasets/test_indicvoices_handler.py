@@ -21,6 +21,7 @@ import pytest
 import soundfile as sf
 from datasets import Dataset
 
+from nemo_curator.stages.audio.asr.datasets import indicvoices as indicvoices_module
 from nemo_curator.stages.audio.asr.datasets.indicvoices import IndicVoicesHandler
 from nemo_curator.tasks import _EmptyTask
 from tests.stages.audio.asr.datasets.conftest import INPUT_SAMPLE_RATE, OUTPUT_SAMPLE_RATE
@@ -113,7 +114,10 @@ def test_indicvoices_handler_reports_skipped_rows_from_realistic_hf_dataset(tmp_
 def test_indicvoices_handler_writes_manifests_when_enabled(
     tmp_path: Path,
     indicvoices_raw_dataset: tuple[Path, int],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    log_messages = []
+    monkeypatch.setattr(indicvoices_module.logger, "info", log_messages.append)
     raw_root, total_rows = indicvoices_raw_dataset
     output_dir = tmp_path / "out"
     stage = IndicVoicesHandler(
@@ -145,6 +149,7 @@ def test_indicvoices_handler_writes_manifests_when_enabled(
     assert metrics["duration_train_hours"] == pytest.approx(expected_durations["train"] / 3600)
     assert metrics["duration_dev_hours"] == pytest.approx(expected_durations["dev"] / 3600)
     assert metrics["duration_test_hours"] == pytest.approx(expected_durations["test"] / 3600)
+    assert any("duration_by_split_hours=(train=0.00h, dev=0.00h, test=0.00h)" in msg for msg in log_messages)
     assert (output_dir / "gu" / "dev" / "audio").is_dir()
     assert (output_dir / "gu" / "test" / "audio").is_dir()
 

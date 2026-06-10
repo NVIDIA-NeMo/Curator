@@ -291,12 +291,13 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
         total_stats["process_time"] = time.perf_counter() - start
         self._log_metrics(total_stats)
         duration_summary = ", ".join(
-            f"{split_type}={duration_by_split.get(split_type, 0.0):.2f}s" for split_type in ["train", "dev", "test"]
+            f"{split_type}={duration_by_split.get(split_type, 0.0) / 3600:.2f}h"
+            for split_type in ["train", "dev", "test"]
         )
         logger.info(
             f"[{self.name}] emitted {len(all_tasks)} AudioTasks "
             f"(input_rows={total_stats['input_rows']}, skipped_missing_text={total_stats['skipped_missing_text']}, "
             f"skipped_missing_audio={total_stats['skipped_missing_audio']}, "
-            f"skipped_audio_load={total_stats['skipped_audio_load']}, duration_by_split=({duration_summary}))"
+            f"skipped_audio_load={total_stats['skipped_audio_load']}, duration_by_split_hours=({duration_summary}))"
         )
         return all_tasks
