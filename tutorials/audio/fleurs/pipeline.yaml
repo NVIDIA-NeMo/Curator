@@ -42,7 +42,6 @@ raw_data_dir: ???
 data_split: dev
 output_dir: ${raw_data_dir}/result
 backend: xenna
-execution_mode: null
 
 processors:
   # Getting data for Armenian dev set
@@ -52,7 +51,7 @@ processors:
     raw_data_dir: ${raw_data_dir}
     batch_size: 4
 
-  - _target_: nemo_curator.stages.audio.inference.asr_nemo.InferenceAsrNemoStage
+  - _target_: nemo_curator.stages.audio.inference.asr.asr_nemo.InferenceAsrNemoStage
     model_name: nvidia/stt_hy_fastconformer_hybrid_large_pc
     resources:
       _target_: nemo_curator.stages.resources.Resources

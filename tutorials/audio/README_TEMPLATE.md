@@ -18,7 +18,7 @@
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - NeMo Curator installed (see [installation guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
 - **GPU**: <required / recommended / not needed> — <minimum VRAM if applicable>
 - **System packages**: <list any, e.g. `sox`, or "None">

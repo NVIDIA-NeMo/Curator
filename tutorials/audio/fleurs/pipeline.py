@@ -18,7 +18,6 @@ import shutil
 import sys
 
 from loguru import logger
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
@@ -26,6 +25,7 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
+from nemo_curator.stages.audio.inference.asr.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.resources import Resources
@@ -84,11 +84,7 @@ def main(args: argparse.Namespace) -> None:
         logger.info("\n" + "=" * 50 + "\n")
 
         # Create executor
-        exec_config = {"execution_mode": args.execution_mode} if args.execution_mode else None
-        if args.backend == "ray_data":
-            executor = RayDataExecutor()
-        else:
-            executor = XennaExecutor(config=exec_config) if exec_config else XennaExecutor()
+        executor = RayDataExecutor() if args.backend == "ray_data" else XennaExecutor()
 
         # Execute pipeline
         logger.info("Starting pipeline execution...")
@@ -137,13 +133,6 @@ if __name__ == "__main__":
         "--verbose",
         action="store_true",
         help="Enable verbose (DEBUG) logging",
-    )
-    parser.add_argument(
-        "--execution_mode",
-        type=str,
-        default=None,
-        choices=["streaming", "batch"],
-        help="Xenna execution mode (streaming or batch). Only applies to xenna backend.",
     )
     args = parser.parse_args()
     main(args)

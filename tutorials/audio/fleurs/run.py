@@ -27,12 +27,11 @@ _EXECUTOR_FACTORIES = {
 }
 
 
-def _create_executor(backend: str, execution_mode: str | None = None) -> object:
+def _create_executor(backend: str) -> object:
     module_path, class_name = _EXECUTOR_FACTORIES[backend].rsplit(":", 1)
     mod = importlib.import_module(module_path)
     cls = getattr(mod, class_name)
-    config = {"execution_mode": execution_mode} if execution_mode else None
-    return cls(config=config) if config else cls()
+    return cls()
 
 
 def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
@@ -62,11 +61,8 @@ def main(cfg: DictConfig) -> None:
         if backend not in _EXECUTOR_FACTORIES:
             msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
             raise ValueError(msg)
-        execution_mode = cfg.get("execution_mode", None)
         logger.info(f"Using backend: {backend}")
-        if execution_mode:
-            logger.info(f"Execution mode: {execution_mode}")
-        executor = _create_executor(backend, execution_mode=execution_mode)
+        executor = _create_executor(backend)
 
         logger.info("Starting pipeline execution...")
         pipeline.run(executor)

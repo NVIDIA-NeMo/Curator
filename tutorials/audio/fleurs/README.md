@@ -18,7 +18,7 @@ FLEURS contains spoken utterances across 100+ languages. This pipeline downloads
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - NeMo Curator installed (see [installation guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html))
 - **GPU**: Recommended for ASR inference. Minimum ~4 GB VRAM for FastConformer/Parakeet models. Pass `--gpus 0` for CPU fallback (10–50x slower).
 - **System packages**: None
