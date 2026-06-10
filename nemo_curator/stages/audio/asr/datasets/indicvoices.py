@@ -25,7 +25,7 @@ This handler decodes those arrow datasets, converts every clip to
 WAV/16 kHz/mono/PCM16 under ``output_dir``, partitions the native ``valid`` split
 into ``dev``/``test`` (60/40 by default), and emits one :class:`AudioTask` per
 utterance. Manifest writing can either be handled by a downstream writer stage,
-or enabled directly in this handler with ``write_manifest``.
+or enabled through the base handler's ``write_manifest`` support.
 
 Extraction is parallelized inside a single Xenna worker via ``extraction_workers``.
 """
@@ -33,7 +33,6 @@ Extraction is parallelized inside a single Xenna worker via ``extraction_workers
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import time
 from dataclasses import dataclass, field
@@ -45,7 +44,7 @@ from nemo_curator.stages.audio.asr.datasets.base import BaseASRDatasetHandlerSta
 from nemo_curator.stages.audio.asr.metadata import ASRMetadata
 
 if TYPE_CHECKING:
-    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+    from nemo_curator.backends.base import WorkerMetadata
     from nemo_curator.tasks import AudioTask, _EmptyTask
 
 # Metadata columns to carry into ASRMetadata.extra when present in a row.
@@ -124,7 +123,6 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
     native_splits: list[str] = field(default_factory=lambda: ["train", "valid"])
     split_dir_pattern: str = "{lang}_{split}"
     dev_fraction: float = 0.6
-    write_manifest: bool = False
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         super().setup(_worker_metadata)
@@ -133,25 +131,8 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
         self._load_from_disk = load_from_disk
         self._Audio = Audio
 
-    def setup_on_node(
-        self,
-        _node_info: NodeInfo | None = None,
-        _worker_metadata: WorkerMetadata | None = None,
-    ) -> None:
-        self._manifest_handles = {}
-        if not self.write_manifest:
-            return
-        for lang in self.langs:
-            for split_type in self._output_splits():
-                os.makedirs(self.audio_output_dir(lang, split_type), exist_ok=True)
-                self._manifest_handles[(lang, split_type)] = self._open_manifest(lang, split_type)
-
-    def teardown(self) -> None:
-        for handle in getattr(self, "_manifest_handles", {}).values():
-            handle.close()
-        self._manifest_handles = {}
-
     def _output_splits(self) -> list[str]:
+        """Return native output splits after expanding IndicVoices validation data."""
         splits = []
         for native_split in self.native_splits:
             if native_split.lower() in {"valid", "val", "validation"}:
@@ -159,28 +140,6 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
             else:
                 splits.append(native_split)
         return list(dict.fromkeys(splits))
-
-    def _manifest_path(self, lang: str, split_type: str) -> str:
-        return os.path.join(self.output_dir, lang, f"{split_type}.jsonl")
-
-    def _open_manifest(self, lang: str, split_type: str) -> Any:  # noqa: ANN401
-        manifest_path = self._manifest_path(lang, split_type)
-        os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
-        logger.info(f"[{self.name}] writing manifest -> {manifest_path}")
-        return open(manifest_path, "w", encoding="utf-8")
-
-    def _write_manifest_entry(self, meta: ASRMetadata) -> None:
-        if not self.write_manifest:
-            return
-        key = (meta.lang, meta.split_type)
-        if not hasattr(self, "_manifest_handles"):
-            self._manifest_handles = {}
-        if key not in self._manifest_handles:
-            os.makedirs(self.audio_output_dir(meta.lang, meta.split_type), exist_ok=True)
-            self._manifest_handles[key] = self._open_manifest(*key)
-        handle = self._manifest_handles[key]
-        handle.write(json.dumps(meta.to_dict(), ensure_ascii=False) + "\n")
-        handle.flush()
 
     def coerce_audio(self, audio_obj: Any) -> tuple[Any, int, int]:  # noqa: ANN401
         """Coerce IndicVoices decoded audio into mono ``(array, sample_rate, channels)``.
@@ -323,7 +282,7 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
                     continue
                 for meta in metas:
                     duration_by_split[meta.split_type] = duration_by_split.get(meta.split_type, 0.0) + meta.duration
-                    self._write_manifest_entry(meta)
+                    self.write_manifest_entry(meta)
                 all_tasks.extend(self.build_audio_task(meta) for meta in metas)
         total_stats["emitted_tasks"] = len(all_tasks)
         for split_type, duration_seconds in duration_by_split.items():

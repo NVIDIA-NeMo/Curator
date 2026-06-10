@@ -134,6 +134,8 @@ def test_transcript_stats_writes_summary_during_processing(tmp_path: Path) -> No
 
     stage.process(_task("શબ્દ", 2.0, "test", False))
 
+    raw_summary = summary_path.read_text(encoding="utf-8")
+    assert raw_summary.count('"total_transcripts"') == 1
     with summary_path.open(encoding="utf-8") as f:
         final_summary = json.load(f)
     assert final_summary["total_transcripts"] == 2

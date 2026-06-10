@@ -100,8 +100,18 @@ def _load_stats_summary(path: str | None) -> dict[str, Any] | None:
     if not summary_path.exists():
         logger.warning(f"Stats summary path does not exist: {summary_path}")
         return None
-    with summary_path.open(encoding="utf-8") as f:
-        return json.load(f)
+    raw_summary = summary_path.read_text(encoding="utf-8")
+    try:
+        return json.loads(raw_summary)
+    except json.JSONDecodeError:
+        lines = [line for line in raw_summary.splitlines() if line.strip()]
+        for line in reversed(lines):
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
+        logger.warning(f"Could not parse stats summary JSON: {summary_path}")
+        return None
 
 
 def _log_stats_summary(summary: dict[str, Any] | None, path: str | None) -> None:

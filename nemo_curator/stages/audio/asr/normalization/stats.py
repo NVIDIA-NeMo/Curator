@@ -191,7 +191,9 @@ class TranscriptStatsStage(ProcessingStage[AudioTask, AudioTask]):
             return
         if self._summary_handle is None:
             self.setup_on_node()
-        self._summary_handle.write(json.dumps(self.summary(), ensure_ascii=False) + "\n")
+        self._summary_handle.seek(0)
+        self._summary_handle.write(json.dumps(self.summary(), ensure_ascii=False, indent=2) + "\n")
+        self._summary_handle.truncate()
         self._summary_handle.flush()
 
     def format_summary(self) -> str:

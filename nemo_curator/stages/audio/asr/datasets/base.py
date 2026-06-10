@@ -19,18 +19,21 @@ dataset directory, extracts/decodes the audio into the ASR-training format
 (WAV, 16 kHz, mono, PCM16), and emits one :class:`AudioTask` per utterance.
 
 Concrete handlers (e.g. ``IndicVoicesHandler``) implement :meth:`process`,
-reusing the shared helpers provided here (audio conversion and task construction).
-Heavy extraction is parallelized *inside* a single Xenna worker via
-``extraction_workers`` (joblib), so handlers run with ``xenna_workers=1`` by
-default.
+reusing the shared helpers provided here (audio conversion, task construction,
+and optional per-language/per-split manifest writing). Heavy extraction is
+parallelized *inside* a single Xenna worker via ``extraction_workers`` (joblib),
+so handlers run with ``xenna_workers=1`` by default.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from abc import ABC
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
@@ -38,7 +41,7 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask, _EmptyTask
 
 if TYPE_CHECKING:
-    from nemo_curator.backends.base import WorkerMetadata
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
     from nemo_curator.stages.audio.asr.metadata import ASRMetadata
 
 
@@ -52,7 +55,9 @@ class BaseASRDatasetHandlerStage(ProcessingStage[_EmptyTask, AudioTask], ABC):
       2. extract/decode audio in parallel (use ``extraction_workers``) and
          convert each clip to WAV/16 kHz/mono/PCM16 via :meth:`convert_audio`;
       3. assign dataset-specific ``split_type`` values in the concrete handler;
-      4. return one ``AudioTask`` per utterance via :meth:`build_audio_task`.
+      4. optionally write per-split JSONL manifests via
+         :meth:`write_manifest_entry` when ``write_manifest`` is enabled;
+      5. return one ``AudioTask`` per utterance via :meth:`build_audio_task`.
 
     Args:
         raw_data_dir: Directory containing the already-downloaded raw dataset.
@@ -66,6 +71,12 @@ class BaseASRDatasetHandlerStage(ProcessingStage[_EmptyTask, AudioTask], ABC):
         target_channels: Output channel count (1 = mono).
         skip_untar: If True, reuse already-extracted WAV files when present
             instead of re-decoding/writing them.
+        write_manifest: If True, write each emitted metadata record to
+            ``{output_dir}/{lang}/{split_type}.jsonl`` from this source stage.
+            Downstream writer stages can be used instead by leaving this False.
+        manifest_splits: Optional split names to pre-create empty manifest files
+            for in :meth:`setup_on_node`. Dataset handlers with custom split
+            logic can override :meth:`_output_splits`.
     """
 
     raw_data_dir: str = ""
@@ -78,6 +89,8 @@ class BaseASRDatasetHandlerStage(ProcessingStage[_EmptyTask, AudioTask], ABC):
     target_sample_rate: int = 16000
     target_channels: int = 1
     skip_untar: bool = False
+    write_manifest: bool = False
+    manifest_splits: list[str] | None = None
     audio_filepath_key: str = "audio_filepath"
     text_key: str = "text"
     batch_size: int = 1
@@ -122,6 +135,24 @@ class BaseASRDatasetHandlerStage(ProcessingStage[_EmptyTask, AudioTask], ABC):
         self._np = np
         self._sf = soundfile
         self._librosa = librosa
+
+    def setup_on_node(
+        self,
+        _node_info: NodeInfo | None = None,
+        _worker_metadata: WorkerMetadata | None = None,
+    ) -> None:
+        self._manifest_handles = {}
+        if not self.write_manifest:
+            return
+        for lang in self.langs:
+            for split_type in self._output_splits():
+                os.makedirs(self.audio_output_dir(lang, split_type), exist_ok=True)
+                self._manifest_handles[(lang, split_type)] = self._open_manifest(lang, split_type)
+
+    def teardown(self) -> None:
+        for handle in getattr(self, "_manifest_handles", {}).values():
+            handle.close()
+        self._manifest_handles = {}
 
     # ------------------------------------------------------------------
     # Shared helpers for subclasses
@@ -168,3 +199,32 @@ class BaseASRDatasetHandlerStage(ProcessingStage[_EmptyTask, AudioTask], ABC):
     def audio_output_dir(self, lang: str, split_type: str) -> str:
         """Standard per-language/per-split audio output directory."""
         return os.path.join(self.output_dir, lang, split_type, "audio")
+
+    def _output_splits(self) -> list[str]:
+        """Return split names whose manifest files should be pre-created."""
+        return list(dict.fromkeys(self.manifest_splits or []))
+
+    def manifest_path(self, lang: str, split_type: str) -> str:
+        """Return the JSONL manifest path for one language/split pair."""
+        return os.path.join(self.output_dir, lang, f"{split_type}.jsonl")
+
+    def _open_manifest(self, lang: str, split_type: str) -> Any:  # noqa: ANN401
+        """Open a manifest handle for one language/split pair."""
+        manifest_path = self.manifest_path(lang, split_type)
+        os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+        logger.info(f"[{self.name}] writing manifest -> {manifest_path}")
+        return open(manifest_path, "w", encoding="utf-8")
+
+    def write_manifest_entry(self, meta: ASRMetadata) -> None:
+        """Write one ``ASRMetadata`` row to its split manifest when enabled."""
+        if not self.write_manifest:
+            return
+        key = (meta.lang, meta.split_type)
+        if not hasattr(self, "_manifest_handles"):
+            self._manifest_handles = {}
+        if key not in self._manifest_handles:
+            os.makedirs(self.audio_output_dir(meta.lang, meta.split_type), exist_ok=True)
+            self._manifest_handles[key] = self._open_manifest(*key)
+        handle = self._manifest_handles[key]
+        handle.write(json.dumps(meta.to_dict(), ensure_ascii=False) + "\n")
+        handle.flush()
