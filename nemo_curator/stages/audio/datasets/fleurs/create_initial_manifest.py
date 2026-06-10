@@ -13,10 +13,12 @@
 # limitations under the License.
 
 import os
+import shutil
 from dataclasses import dataclass
 from typing import Any
 
 from huggingface_hub import hf_hub_download
+from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.datasets.file_utils import extract_archive
@@ -51,11 +53,21 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
     Args:
         lang: Language code (e.g. ``"hy_am"`` for Armenian).
         split: Dataset split (``"test"``, ``"train"``, or ``"dev"``).
-        raw_data_dir: Folder for extracting the audio archive.
+        raw_data_dir: Folder for extracting the audio archive. When
+            ``auto_download=False`` this is instead the pre-staged dataset dir
+            containing ``<split>.tsv`` and ``<split>/`` (extracted ``.wav`` files).
         filepath_key: Key name used for the audio file path in each emitted entry.
         text_key: Key name used for the transcript text in each emitted entry.
         cache_dir: Optional Hugging Face cache directory for the downloaded files.
             When ``None`` the default Hugging Face cache (``HF_HOME``) is used.
+            Only used on the one-time download path.
+        auto_download: Controls behavior only when ``raw_data_dir`` is not already
+            populated. When ``True`` (default) the dataset is fetched from Hugging
+            Face exactly once and staged into ``raw_data_dir`` (transcript +
+            extracted audio); every subsequent run finds it on disk and performs no
+            network I/O. When ``False`` the stage never downloads and requires the
+            dataset to be pre-staged (e.g. by
+            ``benchmarking/data_prep/prepare_fleurs_data.py``).
     """
 
     name: str = "CreateInitialManifestFleurs"
@@ -66,6 +78,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
     text_key: str = "text"
     batch_size: int = 1
     cache_dir: str | None = None
+    auto_download: bool = True
 
     def __post_init__(self) -> None:
         for attr in ("lang", "split", "raw_data_dir"):
@@ -106,21 +119,32 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
                 )
         return entries
 
-    def download_extract_files(self, dst_folder: str) -> tuple[str, str]:
-        """Download the FLEURS transcript + audio archive and extract the audio.
+    def _prestaged_paths(self, dst_folder: str) -> tuple[str, str]:
+        """Return the expected ``(transcript_tsv, audio_root)`` paths under ``dst_folder``."""
+        return os.path.join(dst_folder, f"{self.split}.tsv"), os.path.join(dst_folder, self.split)
 
-        Uses ``huggingface_hub.hf_hub_download``, which retries transient HTTP
-        errors (including 429) with backoff and caches files by content hash, so
-        repeated runs reuse the download instead of re-fetching from the host.
+    def is_prestaged(self, dst_folder: str) -> bool:
+        """True when the dataset is already staged on disk (transcript + audio present)."""
+        tsv_path, audio_root = self._prestaged_paths(dst_folder)
+        return os.path.isfile(tsv_path) and os.path.isdir(audio_root)
+
+    def download_extract_files(self, dst_folder: str) -> tuple[str, str]:
+        """Download the FLEURS transcript + audio archive once and stage them in ``dst_folder``.
+
+        Uses ``huggingface_hub.hf_hub_download`` (which retries transient HTTP
+        errors including 429 with backoff). The audio archive is extracted into
+        ``<dst_folder>/<split>/`` and the transcript is copied to
+        ``<dst_folder>/<split>.tsv`` so subsequent runs find the dataset on disk
+        and skip the download entirely.
 
         Returns:
-            Tuple of ``(transcript_tsv_path, audio_root)`` where ``audio_root`` is
-            the directory containing the extracted ``.wav`` files.
+            Tuple of ``(transcript_tsv_path, audio_root)`` where both live under
+            ``dst_folder``.
         """
         os.makedirs(dst_folder, exist_ok=True)
 
         tsv_filename, audio_filename = get_fleurs_filenames(self.lang, self.split)
-        tsv_path = hf_hub_download(
+        hf_tsv_path = hf_hub_download(
             repo_id=FLEURS_HF_REPO_ID,
             repo_type="dataset",
             filename=tsv_filename,
@@ -134,12 +158,54 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioTask]):
         )
 
         extract_archive(archive_path, str(dst_folder), force_extract=True)
-        audio_root = os.path.join(dst_folder, self.split)
+
+        # Stage the transcript next to the extracted audio so the dataset is
+        # self-contained on disk and reused (no re-download) on the next run.
+        staged_tsv_path, audio_root = self._prestaged_paths(dst_folder)
+        if os.path.abspath(hf_tsv_path) != os.path.abspath(staged_tsv_path):
+            shutil.copyfile(hf_tsv_path, staged_tsv_path)
+        return staged_tsv_path, audio_root
+
+    def locate_prestaged_files(self, dst_folder: str) -> tuple[str, str]:
+        """Locate a pre-staged FLEURS transcript + extracted audio (no download).
+
+        Expects the on-disk layout produced either by a prior auto-download run or
+        by ``benchmarking/data_prep/prepare_fleurs_data.py``:
+        ``<dst_folder>/<split>.tsv`` (transcript) and ``<dst_folder>/<split>/``
+        (extracted ``.wav`` files).
+
+        Returns:
+            Tuple of ``(transcript_tsv_path, audio_root)``.
+        """
+        tsv_path, audio_root = self._prestaged_paths(dst_folder)
+        if not os.path.isfile(tsv_path):
+            msg = (
+                f"Pre-staged FLEURS transcript not found at {tsv_path}. Run "
+                "benchmarking/data_prep/prepare_fleurs_data.py to stage the dataset, "
+                "or set auto_download=True."
+            )
+            raise FileNotFoundError(msg)
+        if not os.path.isdir(audio_root):
+            msg = (
+                f"Pre-staged FLEURS audio directory not found at {audio_root}. Run "
+                "benchmarking/data_prep/prepare_fleurs_data.py to stage the dataset, "
+                "or set auto_download=True."
+            )
+            raise FileNotFoundError(msg)
         return tsv_path, audio_root
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def process(self, _: _EmptyTask) -> list[AudioTask]:
-        tsv_path, audio_root = self.download_extract_files(self.raw_data_dir)
+        # Auto-download only ever happens when the dataset has never been
+        # downloaded: if it is already staged on disk, always reuse it.
+        if self.is_prestaged(self.raw_data_dir):
+            logger.info(f"Reusing pre-staged FLEURS dataset at {self.raw_data_dir} (no download)")
+            tsv_path, audio_root = self.locate_prestaged_files(self.raw_data_dir)
+        elif self.auto_download:
+            logger.info(f"FLEURS dataset not found at {self.raw_data_dir}; downloading once")
+            tsv_path, audio_root = self.download_extract_files(self.raw_data_dir)
+        else:
+            tsv_path, audio_root = self.locate_prestaged_files(self.raw_data_dir)
         return self.process_transcript(tsv_path, audio_root)

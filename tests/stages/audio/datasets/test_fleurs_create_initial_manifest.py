@@ -74,40 +74,45 @@ def test_inputs_outputs(tmp_path: Path) -> None:
     assert stage.outputs() == ([], ["audio_filepath", "text"])
 
 
-def test_download_extract_files(tmp_path: Path) -> None:
+def test_download_extract_files_stages_transcript(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     stage_cls, _ = _import_stage_module()
     dst = tmp_path / "fleurs"
+    # The transcript comes from the HF cache (a dir distinct from dst) and must be
+    # copied next to the extracted audio so later runs find it on disk.
+    hf_cache = tmp_path / "hf_cache"
+    hf_cache.mkdir()
+    hf_tsv = hf_cache / "dev.tsv"
+    hf_tsv.write_text("0\tfile1.wav\thello\n", encoding="utf-8")
+
     stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(dst))
 
     with (
         patch(
             "nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.hf_hub_download",
-            side_effect=[str(dst / "dev.tsv"), str(dst / "audio" / "dev.tar.gz")],
+            side_effect=[str(hf_tsv), str(hf_cache / "audio" / "dev.tar.gz")],
         ) as mock_dl,
         patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.extract_archive") as mock_ext,
     ):
         tsv_path, audio_root = stage.download_extract_files(str(dst))
         assert mock_dl.call_count == 2
         mock_ext.assert_called_once()
-        # tsv path comes straight from the HF download; audio is extracted under <dst>/<split>.
-        assert tsv_path == str(dst / "dev.tsv")
+        # transcript is staged under <dst>/<split>.tsv; audio under <dst>/<split>.
+        assert tsv_path == os.path.join(str(dst), "dev.tsv")
         assert audio_root == os.path.join(str(dst), "dev")
+        assert os.path.isfile(tsv_path)  # copied out of the HF cache
 
 
-def test_process_end_to_end(tmp_path: Path) -> None:
+def test_process_downloads_once_when_missing(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     stage_cls, _ = _import_stage_module()
-    raw_dir = tmp_path / "fleurs"
-    raw_dir.mkdir()
-    tsv_path = raw_dir / "dev.tsv"
-    tsv_path.write_text("0\tfile1.wav\thello\n1\tfile2.wav\tworld\n", encoding="utf-8")
-    audio_dir = raw_dir / "dev"
-    audio_dir.mkdir()
-    (audio_dir / "file1.wav").write_bytes(b"")
-    (audio_dir / "file2.wav").write_bytes(b"")
+    raw_dir = tmp_path / "fleurs"  # intentionally NOT pre-staged
+    hf_cache = tmp_path / "hf_cache"
+    hf_cache.mkdir()
+    hf_tsv = hf_cache / "dev.tsv"
+    hf_tsv.write_text("0\tfile1.wav\thello\n1\tfile2.wav\tworld\n", encoding="utf-8")
 
     stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(raw_dir))
     from nemo_curator.tasks import _EmptyTask
@@ -115,11 +120,83 @@ def test_process_end_to_end(tmp_path: Path) -> None:
     with (
         patch(
             "nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.hf_hub_download",
-            side_effect=[str(tsv_path), str(raw_dir / "audio" / "dev.tar.gz")],
-        ),
+            side_effect=[str(hf_tsv), str(hf_cache / "audio" / "dev.tar.gz")],
+        ) as mock_dl,
         patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.extract_archive"),
     ):
         results = stage.process(_EmptyTask(dataset_name="test", data=None))
+    assert mock_dl.call_count == 2  # downloaded because nothing was staged yet
+    assert len(results) == 2
+    assert results[0].data["text"] == "hello"
+    assert results[1].data["text"] == "world"
+
+
+def test_process_auto_download_reuses_when_present(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    stage_cls, _ = _import_stage_module()
+    lang_dir = _stage_prestaged_layout(tmp_path, lang="en_us", split="dev")
+    # auto_download defaults to True, but the dataset is already staged, so no
+    # download should occur ("auto-download only when never downloaded").
+    stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(lang_dir))
+    from nemo_curator.tasks import _EmptyTask
+
+    with patch(
+        "nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.hf_hub_download",
+    ) as mock_dl:
+        results = stage.process(_EmptyTask(dataset_name="test", data=None))
+
+    mock_dl.assert_not_called()
+    assert len(results) == 2
+
+
+def _stage_prestaged_layout(tmp_path: Path, lang: str = "hy_am", split: str = "train") -> Path:
+    """Create the on-disk layout that prepare_fleurs_data.py produces: <lang>/<split>.tsv + <lang>/<split>/."""
+    lang_dir = tmp_path / "fleurs" / lang
+    audio_dir = lang_dir / split
+    audio_dir.mkdir(parents=True)
+    (lang_dir / f"{split}.tsv").write_text("0\tfile1.wav\thello\n1\tfile2.wav\tworld\n", encoding="utf-8")
+    (audio_dir / "file1.wav").write_bytes(b"")
+    (audio_dir / "file2.wav").write_bytes(b"")
+    return lang_dir
+
+
+def test_locate_prestaged_files_success(tmp_path: Path) -> None:
+    stage_cls, _ = _import_stage_module()
+    lang_dir = _stage_prestaged_layout(tmp_path)
+    stage = stage_cls(lang="hy_am", split="train", raw_data_dir=str(lang_dir), auto_download=False)
+
+    tsv_path, audio_root = stage.locate_prestaged_files(str(lang_dir))
+    assert tsv_path == os.path.join(str(lang_dir), "train.tsv")
+    assert audio_root == os.path.join(str(lang_dir), "train")
+
+
+def test_locate_prestaged_files_missing_transcript_raises(tmp_path: Path) -> None:
+    stage_cls, _ = _import_stage_module()
+    empty = tmp_path / "fleurs" / "hy_am"
+    empty.mkdir(parents=True)
+    stage = stage_cls(lang="hy_am", split="train", raw_data_dir=str(empty), auto_download=False)
+
+    with pytest.raises(FileNotFoundError, match="transcript not found"):
+        stage.locate_prestaged_files(str(empty))
+
+
+def test_process_no_download_reads_prestaged(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    stage_cls, _ = _import_stage_module()
+    lang_dir = _stage_prestaged_layout(tmp_path)
+    stage = stage_cls(lang="hy_am", split="train", raw_data_dir=str(lang_dir), auto_download=False)
+
+    from nemo_curator.tasks import _EmptyTask
+
+    # auto_download=False must NOT touch Hugging Face.
+    with patch(
+        "nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.hf_hub_download",
+    ) as mock_dl:
+        results = stage.process(_EmptyTask(dataset_name="test", data=None))
+
+    mock_dl.assert_not_called()
     assert len(results) == 2
     assert results[0].data["text"] == "hello"
     assert results[1].data["text"] == "world"

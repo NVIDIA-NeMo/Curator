@@ -113,6 +113,15 @@ datasets:
     formats:
     - type: "wav"
       path: "{datasets_path}/read_speech"
+  # Persistent on-disk location for the FLEURS dataset (transcript <split>.tsv +
+  # extracted <split>/ audio). The benchmark downloads it here exactly once (on
+  # the first run, or ahead of time via
+  # benchmarking/data_prep/prepare_fleurs_data.py) and reuses it on every
+  # subsequent run, so it never re-fetches from Hugging Face (avoids HTTP 429).
+  - name: "fleurs_hy_am"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/fleurs/hy_am"
 default_timeout_s: 7200
 
 # Optional sinks
@@ -667,7 +676,7 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --cache-dir=/tmp/curator/fleurs_cache
+      --raw-data-dir={dataset:fleurs_hy_am,files}
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train
@@ -694,7 +703,7 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
-      --cache-dir=/tmp/curator/fleurs_cache
+      --raw-data-dir={dataset:fleurs_hy_am,files}
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train
