@@ -19,6 +19,7 @@ and logs results to configured sinks.
 """
 
 import argparse
+import os
 import time
 import traceback
 from pathlib import Path
@@ -36,6 +37,13 @@ from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
+# Fallback Hugging Face cache directory used only when the benchmark is run
+# standalone with auto-download enabled (no pre-staged dataset). The nightly
+# benchmark instead pre-stages FLEURS once via
+# benchmarking/data_prep/prepare_fleurs_data.py and runs with --no-auto-download,
+# so it never re-fetches from Hugging Face (which is what triggered HTTP 429).
+DEFAULT_FLEURS_CACHE_DIR = "/tmp/curator/fleurs_cache"  # noqa: S108
+
 
 def run_audio_fleurs_benchmark(  # noqa: PLR0913
     benchmark_results_path: str,
@@ -46,6 +54,9 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     wer_threshold: float,
     gpus: int,
     executor: str = "xenna",
+    raw_data_dir: str | None = None,
+    auto_download: bool = True,
+    cache_dir: str | None = None,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the audio fleurs benchmark and collect comprehensive metrics."""
@@ -53,6 +64,16 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     benchmark_results_path = Path(benchmark_results_path)
     scratch_output_path = Path(scratch_output_path)
     results_dir = benchmark_results_path / "results"
+
+    # Prefer a dataset pre-staged on disk (no network I/O). Fall back to
+    # auto-downloading into a per-run scratch dir, caching by content hash under a
+    # stable HF cache so a standalone rerun reuses the download.
+    if raw_data_dir:
+        data_dir = Path(raw_data_dir)
+        hf_cache_dir = None
+    else:
+        data_dir = scratch_output_path / lang / "fleurs"
+        hf_cache_dir = str(cache_dir or os.environ.get("CURATOR_FLEURS_CACHE_DIR") or DEFAULT_FLEURS_CACHE_DIR)
 
     run_start_time = time.perf_counter()
 
@@ -68,6 +89,9 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         logger.info(f"Split: {split}")
         logger.info(f"WER threshold: {wer_threshold}")
         logger.info(f"GPUs: {gpus}")
+        logger.info(f"Auto download: {auto_download}")
+        logger.info(f"HF cache dir: {hf_cache_dir}")
+        logger.info(f"Data dir: {data_dir}")
 
         executor_obj = setup_executor(executor)
         pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
@@ -76,7 +100,9 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
             CreateInitialManifestFleursStage(
                 lang=lang,
                 split=split,
-                raw_data_dir=scratch_output_path / "armenian/fleurs",
+                raw_data_dir=str(data_dir),
+                cache_dir=hf_cache_dir,
+                auto_download=auto_download,
             ).with_(batch_size=4)
         )
         pipeline.add_stage(InferenceAsrNemoStage(model_name=model_name).with_(resources=Resources(gpus=gpus)))
@@ -139,6 +165,9 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
             "gpus": gpus,
             "benchmark_results_path": str(benchmark_results_path),
             "scratch_output_path": str(scratch_output_path),
+            "raw_data_dir": str(data_dir),
+            "auto_download": auto_download,
+            "hf_cache_dir": hf_cache_dir,
         },
         "metrics": {
             "is_success": success,
@@ -160,6 +189,30 @@ def main() -> int:
     parser.add_argument("--wer-threshold", type=float, default=5.5, help="WER threshold for filtering")
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs to use")
+    parser.add_argument(
+        "--raw-data-dir",
+        default=None,
+        help=(
+            "Path to a pre-staged FLEURS dataset dir (containing <split>.tsv and <split>/) "
+            "produced by benchmarking/data_prep/prepare_fleurs_data.py. Use with "
+            "--no-auto-download to avoid re-fetching from Hugging Face."
+        ),
+    )
+    parser.add_argument(
+        "--no-auto-download",
+        dest="auto_download",
+        action="store_false",
+        help="Disable runtime Hugging Face download; read the pre-staged --raw-data-dir instead.",
+    )
+    parser.set_defaults(auto_download=True)
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help=(
+            "Hugging Face cache directory used only for standalone auto-download runs so "
+            f"repeated runs reuse it. Defaults to $CURATOR_FLEURS_CACHE_DIR or {DEFAULT_FLEURS_CACHE_DIR}."
+        ),
+    )
 
     args = parser.parse_args()
 
