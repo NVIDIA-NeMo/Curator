@@ -61,6 +61,8 @@ OUTPUT_DIR="${OUTPUT_DIR:-/path/to/your/output/directory}"
 
 # Retry manifests are written under:
 #   ${CHECKPOINT_PATH}/.nemo_curator_metadata/.slurm_array_retry/
+# FailedTask marker files are written under:
+#   ${CHECKPOINT_PATH}/.nemo_curator_metadata/.failed_tasks/<slurm-job>/<array-task>/<shard>/
 # Defaults to OUTPUT_DIR. If you override CONTAINER_MOUNTS, make sure it still
 # includes CHECKPOINT_PATH.
 CHECKPOINT_PATH="${CHECKPOINT_PATH:-${OUTPUT_DIR}}"
@@ -98,6 +100,13 @@ TOTAL_SHARDS="${TOTAL_SHARDS:-${SLURM_ARRAY_TASK_COUNT}}"
 # Leave at 0 for --array=0-N. Set to the array start value for --array=K-N.
 MINIMUM_SHARD_INDEX="${MINIMUM_SHARD_INDEX:-0}"
 
+# BaseStageAdapter writes one marker JSON per FailedTask when this env var is
+# set. Keep one directory per Slurm array job/task so retries can inspect just
+# the FailedTasks from that job, while multi-node workers for that same job
+# write into the same directory.
+FAILED_TASKS_DIR="${FAILED_TASKS_DIR:-${CHECKPOINT_PATH}/.nemo_curator_metadata/.failed_tasks/slurm_job_${SLURM_JOB_ID:-local}/array_task_${SLURM_ARRAY_TASK_ID:-local}/shard_${SHARD_INDEX}}"
+NEMO_CURATOR_FAILED_TASKS_DIR="${NEMO_CURATOR_FAILED_TASKS_DIR:-${FAILED_TASKS_DIR}}"
+
 # Use SlurmRayClient only when this array task spans multiple nodes. Single-node
 # array tasks can use the regular RayClient.
 NUM_NODES="${SLURM_JOB_NUM_NODES:-${SLURM_NNODES:-1}}"
@@ -106,12 +115,14 @@ if (( NUM_NODES > 1 )); then
     USE_SLURM_RAY=1
 fi
 
-mkdir -p "${CURATOR_DIR}/logs" "${OUTPUT_DIR}" "${CHECKPOINT_PATH}"
+mkdir -p "${CURATOR_DIR}/logs" "${OUTPUT_DIR}" "${CHECKPOINT_PATH}" "${NEMO_CURATOR_FAILED_TASKS_DIR}"
 
 export CURATOR_DIR
 export INPUT_DIR
 export OUTPUT_DIR
 export CHECKPOINT_PATH
+export FAILED_TASKS_DIR
+export NEMO_CURATOR_FAILED_TASKS_DIR
 export INPUT_FILE_TYPE
 export OUTPUT_FILE_TYPE
 export FILES_PER_PARTITION
@@ -137,6 +148,7 @@ echo "  Container : ${CONTAINER_IMAGE}"
 echo "  Mounts    : ${CONTAINER_MOUNTS}"
 echo "  Dir       : ${CURATOR_DIR}"
 echo "  Checkpoint path: ${CHECKPOINT_PATH}"
+echo "  FailedTask dir : ${NEMO_CURATOR_FAILED_TASKS_DIR}"
 echo "=================================================="
 
 # Each array task processes only the file partitions hashed to its

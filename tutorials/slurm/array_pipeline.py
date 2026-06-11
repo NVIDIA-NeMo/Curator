@@ -75,6 +75,9 @@ from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
 METADATA_DIRNAME = ".nemo_curator_metadata"
 SLURM_ARRAY_RETRY_DIRNAME = ".slurm_array_retry"
+FAILED_TASKS_DIR_ENV_VAR = "NEMO_CURATOR_FAILED_TASKS_DIR"
+FAILED_TASK_MARKER_PATTERN = "failed_task_*.json"
+MAX_FAILED_TASK_MARKERS_IN_MANIFEST = 10
 
 
 def _safe_token(value: object) -> str:
@@ -130,6 +133,7 @@ def _retry_manifest_payload(  # noqa: PLR0913
     status: str,
     created_at: datetime.datetime,
     error: BaseException | None = None,
+    extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     payload = {
         "shard_index": shard_index,
@@ -149,6 +153,9 @@ def _retry_manifest_payload(  # noqa: PLR0913
         payload["error_type"] = type(error).__name__
         payload["error"] = str(error)
 
+    if extra is not None:
+        payload.update(extra)
+
     return payload
 
 
@@ -160,6 +167,7 @@ def write_retry_manifest(  # noqa: PLR0913
     status: str,
     error: BaseException | None = None,
     manifest_file: Path | None = None,
+    extra: dict[str, object] | None = None,
 ) -> Path:
     """Write a retry manifest using a unique name and atomic rename."""
     retry_dir = Path(checkpoint_path, METADATA_DIRNAME, SLURM_ARRAY_RETRY_DIRNAME).absolute()
@@ -173,6 +181,7 @@ def write_retry_manifest(  # noqa: PLR0913
         status=status,
         created_at=created_at,
         error=error,
+        extra=extra,
     )
 
     if manifest_file is None:
@@ -210,6 +219,30 @@ def write_retry_manifest(  # noqa: PLR0913
         raise
 
     return manifest_file
+
+
+def failed_task_marker_files() -> list[Path]:
+    """Return FailedTask marker files written by BaseStageAdapter for this job."""
+    failed_tasks_dir = os.environ.get(FAILED_TASKS_DIR_ENV_VAR)
+    if not failed_tasks_dir:
+        return []
+
+    marker_dir = Path(failed_tasks_dir).absolute()
+    if not marker_dir.exists():
+        return []
+
+    return sorted(path for path in marker_dir.glob(FAILED_TASK_MARKER_PATTERN) if path.is_file())
+
+
+def failed_task_manifest_metadata(marker_files: list[Path]) -> dict[str, object]:
+    marker_dir = marker_files[0].parent if marker_files else os.environ.get(FAILED_TASKS_DIR_ENV_VAR)
+    sample_marker_files = marker_files[:MAX_FAILED_TASK_MARKERS_IN_MANIFEST]
+    return {
+        "failed_task_marker_dir": str(marker_dir),
+        "failed_task_marker_count": len(marker_files),
+        "failed_task_marker_files": [str(path) for path in sample_marker_files],
+        "failed_task_marker_files_truncated": len(marker_files) > len(sample_marker_files),
+    }
 
 
 def remove_retry_manifests(
@@ -382,6 +415,30 @@ def main() -> None:
         logger.info(f"\n{pipeline.describe()}")
 
         pipeline.run()
+
+        failed_task_markers = failed_task_marker_files()
+        if failed_task_markers:
+            if should_manage_retry_manifest:
+                manifest_file = write_retry_manifest(
+                    checkpoint_path=args.checkpoint_path,
+                    shard_index=shard_index,
+                    total_shards=total_shards,
+                    minimum_shard_index=minimum_shard_index,
+                    status="failed_tasks",
+                    manifest_file=retry_manifest_file,
+                    extra=failed_task_manifest_metadata(failed_task_markers),
+                )
+                logger.warning(
+                    "Pipeline completed without raising, but found "
+                    f"{len(failed_task_markers)} FailedTask marker(s). "
+                    f"Keeping retry manifest at {manifest_file}."
+                )
+            else:
+                logger.warning(
+                    "Pipeline completed without raising, but found "
+                    f"{len(failed_task_markers)} FailedTask marker(s)."
+                )
+            return
 
         if should_manage_retry_manifest:
             try:

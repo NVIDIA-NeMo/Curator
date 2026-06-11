@@ -203,7 +203,7 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-Make sure `CURATOR_DIR`, `INPUT_DIR`, and `OUTPUT_DIR` are visible from every compute node, either because they are on a shared filesystem or because you set `CONTAINER_MOUNTS` to expose the right host paths inside the container.
+Make sure `CURATOR_DIR`, `INPUT_DIR`, `OUTPUT_DIR`, and `CHECKPOINT_PATH` are visible from every compute node, either because they are on a shared filesystem or because you set `CONTAINER_MOUNTS` to expose the right host paths inside the container.
 
 ### 2. Submit a JSONL array job
 
@@ -287,9 +287,19 @@ ${CHECKPOINT_PATH:-$OUTPUT_DIR}/.nemo_curator_metadata/.slurm_array_retry/
 
 In other words, retries are tracked at `checkpoint_path/.nemo_curator_metadata/.slurm_array_retry/`.
 
-If the shard completes successfully, that shard's matching retry manifests are removed. If the process fails, is preempted, or reaches the Slurm time limit before cleanup runs, the manifest remains in the retry directory. Caught Python exceptions update the manifest with `status="failed"` and the error message; hard termination may leave `status="pending"`, which should still be treated as retryable after the original Slurm array has finished.
+`submit_array.sh` also sets `NEMO_CURATOR_FAILED_TASKS_DIR` so the backend can record `FailedTask` sentinels produced by stages. By default, each Slurm job gets its own marker directory:
 
-Retry manifests are uniquely named JSON files written with an atomic rename, so multiple array tasks can write to the same retry directory without coordinating through a shared database.
+```bash
+${CHECKPOINT_PATH:-$OUTPUT_DIR}/.nemo_curator_metadata/.failed_tasks/slurm_job_${SLURM_JOB_ID}/array_task_${SLURM_ARRAY_TASK_ID}/shard_${SHARD_INDEX}/
+```
+
+The marker directory is per Slurm job/task. For `--nodes>1`, all workers in that one array task share the same directory, so any worker can record a `FailedTask` and the driver can inspect the directory after `pipeline.run()` returns.
+
+If the shard completes successfully and no `FailedTask` markers were written, that shard's matching retry manifests are removed. If the process fails, is preempted, or reaches the Slurm time limit before cleanup runs, the manifest remains in the retry directory. Caught Python exceptions update the manifest with `status="failed"` and the error message; hard termination may leave `status="pending"`, which should still be treated as retryable after the original Slurm array has finished.
+
+If the pipeline completes without raising but one or more `FailedTask` marker files exist, `array_pipeline.py` keeps the retry manifest and updates it with `status="failed_tasks"` plus marker metadata. The retry collection below only needs to read retry manifests; it does not need to inspect the `FailedTask` marker directories directly.
+
+Retry manifests and `FailedTask` markers are uniquely named JSON files written with an atomic rename, so multiple array tasks or workers can write without coordinating through a shared database.
 
 Each manifest records the failed `shard_index`, plus the `total_shards` and `minimum_shard_index` values used for the original run. To retry only the failed shards, rebuild a Slurm array list from those manifests and preserve the original shard settings. For example, using `jq`:
 
@@ -323,7 +333,7 @@ sbatch --array="${FAILED_SHARDS}" tutorials/slurm/submit_array.sh
 
 The `TOTAL_SHARDS` override is important. On a retry array like `--array=3,17,42`, Slurm sets `SLURM_ARRAY_TASK_COUNT=3`, but the data was originally assigned using the full logical shard count. Reusing the original `TOTAL_SHARDS` keeps `hash(partition) % total_shards` identical to the first run.
 
-Run this retry collection after the original Slurm array has finished, otherwise still-running tasks will still have pending manifests. Use one `CHECKPOINT_PATH` per logical array run, or move old retry manifests aside after building `FAILED_SHARDS`, so later retries do not include failures that already succeeded.
+Run this retry collection after the original Slurm array has finished, otherwise still-running tasks will still have pending manifests. Use one `CHECKPOINT_PATH` per logical array run, or move old retry manifests aside after building `FAILED_SHARDS`, so later retries do not include failures that already succeeded. If you override `NEMO_CURATOR_FAILED_TASKS_DIR`, keep it unique per Slurm job or clean it before reuse; stale `FailedTask` markers make an otherwise successful shard look retryable.
 
 ---
 

@@ -12,10 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
+import json
+import os
+import socket
+import tempfile
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from loguru import logger
 
 from nemo_curator.core.utils import ignore_ray_head_node
 from nemo_curator.tasks import Task
@@ -24,6 +32,57 @@ from nemo_curator.utils.performance_utils import StageTimer
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
+
+
+FAILED_TASKS_DIR_ENV_VAR = "NEMO_CURATOR_FAILED_TASKS_DIR"
+
+
+def _safe_filename_token(value: object) -> str:
+    return "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in str(value))
+
+
+def _write_failed_task_marker(marker_dir: Path, stage_name: str, task: FailedTask) -> None:
+    created_at = datetime.datetime.now(datetime.UTC)
+    timestamp = created_at.strftime("%Y%m%dT%H%M%S%fZ")
+    payload: dict[str, str | int] = {
+        "created_at": created_at.isoformat(),
+        "stage_name": stage_name,
+        "task_id": task.task_id,
+        "dataset_name": task.dataset_name,
+        "task_type": type(task).__name__,
+        "hostname": socket.gethostname(),
+        "pid": os.getpid(),
+    }
+
+    marker_dir.mkdir(parents=True, exist_ok=True)
+    filename = (
+        "failed_task_"
+        f"stage-{_safe_filename_token(stage_name)}_"
+        f"task-{_safe_filename_token(task.task_id)}_"
+        f"pid-{os.getpid()}_"
+        f"{timestamp}_{uuid.uuid4().hex}.json"
+    )
+    final_path = marker_dir / filename
+
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=marker_dir,
+            prefix=f".{filename}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            json.dump(payload, tmp, indent=2, sort_keys=True)
+            tmp.write("\n")
+
+        os.replace(tmp_path, final_path)
+    except Exception:  # noqa: BLE001
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
 
 
 @dataclass
@@ -95,6 +154,8 @@ class BaseStageAdapter:
         # Guarantee every emitted task has a task_id (derived id, or uuid fallback).
         results = self._post_process_task_ids(tasks, results)
 
+        self._record_failed_tasks([r for r in results if isinstance(r, FailedTask)])
+
         # Sentinels never propagate to the next stage.
         results = [r for r in results if not isinstance(r, (NoneTask, FailedTask))]
 
@@ -108,6 +169,18 @@ class BaseStageAdapter:
             task.add_stage_perf(stage_perf_stats)
 
         return results
+
+    def _record_failed_tasks(self, failed_tasks: list[FailedTask]) -> None:
+        marker_dir = os.environ.get(FAILED_TASKS_DIR_ENV_VAR)
+        if not marker_dir or not failed_tasks:
+            return
+
+        marker_path = Path(marker_dir)
+        for task in failed_tasks:
+            try:
+                _write_failed_task_marker(marker_path, self.stage.name, task)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Failed to write FailedTask marker to {marker_path}: {e}")
 
     def _post_process_task_ids(self, input_tasks: list[Task], output_tasks: list[Task | None]) -> list[Task]:
         """Assign a deterministic ``task_id`` to every emitted task.
@@ -144,7 +217,7 @@ class BaseStageAdapter:
         (returning a flat list rather than a per-input slot) cannot be mapped
         positionally; if its length happens to equal the input length the 1:1
         assumption may misattribute parents. That combination is unsupported
-        until per-slot sentinels (NoneTask/FailedTask) land in a later PR.
+        unless the stage preserves an unambiguous input→output mapping.
         """
         is_source = getattr(self.stage, "is_source_stage", False)
 
