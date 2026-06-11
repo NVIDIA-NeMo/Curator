@@ -73,7 +73,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         data_dir = Path(raw_data_dir)
         hf_cache_dir = None
     else:
-        data_dir = scratch_output_path / lang / "fleurs"
+        data_dir = scratch_output_path / "fleurs"
         hf_cache_dir = str(cache_dir or os.environ.get("CURATOR_FLEURS_CACHE_DIR") or DEFAULT_FLEURS_CACHE_DIR)
 
     run_start_time = time.perf_counter()
