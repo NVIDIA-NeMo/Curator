@@ -116,6 +116,14 @@ audio_common = [
     "opencc-python-reimplemented",
     "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "whisperx>=3.8.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    # qwen-asr 0.0.6's qwen3_forced_aligner.py lazily imports the following text-norm
+    # and audio-feature helpers. Keep them in audio_common (not audio_cuda12) so the
+    # CPU audio extra picks them up too if a future qwen-asr CPU path appears.
+    "nagisa>=0.2.11,<0.3",
+    "soynlp==0.0.493",
+    "pyarabic",
+    "opencc-python-reimplemented",
+    "nnAudio",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",
@@ -126,8 +134,16 @@ audio_cuda12 = [
     "cuda-python>=12.3",
     "nemo_curator[audio_common]",
     "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
     "nvidia-cudnn-cu12",
     "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
+    "qwen-omni-utils",
+    # Granary v2 Qwen-ASR recovery stage; lazy-import helpers in audio_common.
+    "qwen-asr>=0.0.6,<0.1",
+    # Granary v2 LID stage uses fasttext directly; it also lives in text_cpu but
+    # audio_cuda12 does not pull text_cpu, so declare it explicitly here.
+    # Upstream facebookresearch/fastText is archived (2024); no version pin needed.
+    "fasttext",
     "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 

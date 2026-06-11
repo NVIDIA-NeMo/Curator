@@ -1,0 +1,226 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Granary v2 - Qwen-Omni In-Process Pipeline (Hydra Config)
+#
+# Small PR first-stage pipeline:
+#   NemoTarredAudioReader -> ASRStage (Qwen-Omni adapter) -> ShardedManifestWriter
+#
+# The middle stage uses a generic ASR stage with a pluggable adapter:
+# ``ASRStage`` owns Curator-side glue (task.data reads, validate_input,
+# batching, ISO-code -> language-name lookup, schema mutation, metrics);
+# Qwen-Omni-specific knobs live under ``adapter_kwargs``. Swap models by
+# replacing the single ``adapter_target:`` line.
+#
+# Invoked directly or by an external launcher via:
+#   python tutorials/audio/qwen_omni_inprocess/main.py \
+#       --config-path=<path> --config-name=qwen_omni_inprocess \
+#       workspace_dir=/work input_manifest=/data/config.yaml
+#
+# For tarred data, `input_manifest` should point to the Granary YAML data config.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+# ===========================================================================
+# CORE - these may be overridden at runtime by the launcher
+# ===========================================================================
+input_manifest: ???
+workspace_dir: /local/qwen_omni_workspace
+final_manifest: ${workspace_dir}/output.jsonl
+language_short: en
+max_segment_length: 40
+backend: xenna
+execution_mode: streaming
+autoscale_interval_s: 30
+# When true, ASRStage.setup_on_node raises if the adapter's prefetch_weights fails.
+prefetch_fail_on_error: true
+stages_to_run: all
+stages_to_skip: []
+
+# data_config defaults to input_manifest.
+data_config: ${input_manifest}
+output_dir: ${workspace_dir}
+corpus: null
+max_utterances_per_shard: null
+source_lang_key: source_lang
+cpu_batch_size: 64
+duration_key: duration
+
+# ===========================================================================
+# ASR (Qwen-Omni adapter) - stage knobs (Tier-1) + adapter knobs (Tier-2)
+# ===========================================================================
+# Tier-1 swap surface: replace adapter_target to change the underlying ASR
+# model without touching stage code. Tier-2 knobs (adapter_kwargs.*) are
+# adapter-specific and must be rewritten as a block when swapping adapters.
+adapter_target: nemo_curator.adapters.asr.QwenOmniASRAdapter
+model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+revision: null
+
+# Stage I/O keys (Tier-1).
+pred_text_key: qwen3_prediction_s1
+disfluency_text_key: qwen3_prediction_s2
+
+# Pre-slice limits and bucket-shape anchors for batch_policy.
+# Qwen-Omni's per-turn audio cap is 40 minutes (2400 s); the stage pre-slices
+# any clip exceeding ``max_inference_duration_s`` into contiguous
+# ≤ ``max_inference_duration_s`` sub-chunks and stitches outputs back per
+# parent task with a single-space join.
+ideal_inference_segment_s: 2400
+max_inference_duration_s: 2400
+
+# keep_waveform: retain arrays after inference so downstream stages can
+# reuse the in-memory buffer without re-reading from tarred shards.
+keep_waveform: true
+
+# Worker allocation for the ASR GPU stage (Tier-1, adapter-agnostic).
+# Applies to ANY ASR model you swap in via adapter_target - it controls how
+# many model replicas the backend runs, independent of which adapter is used.
+# Autoscale optimizes steady-state throughput, not cold-start latency: an
+# unpinned GPU stage starts at 1 worker and only ramps after collecting speed
+# measurements, paying a model-load tax on every late-spawned worker. Pin it so
+# every GPU worker comes up on the first scheduling pass.
+#   Per-node value = floor(gpus_per_node / <per-worker GPU footprint>), where the
+#   footprint is this stage's resources.gpus - itself set by the adapter you pick
+#   (e.g. the Qwen-Omni block below uses omni_resource_gpus=2.0, so on a 4-GPU
+#   node the pin is 4 / 2.0 = 2). Swap to a 1-GPU adapter and the pin becomes 4.
+# asr_num_workers_per_node : per-node pin. Xenna only; scales with node count.
+# asr_num_workers          : cluster-wide pin. Honored by both Xenna and Ray Data
+#                            (use this one if you run the Ray Data backend).
+# Set both to null to fall back to autoscaling. Mutually exclusive.
+# WARNING: a pin the cluster cannot satisfy makes Xenna's scheduler panic, so
+# keep asr_num_workers_per_node <= floor(gpus_per_node / resources.gpus).
+asr_num_workers_per_node: 2
+asr_num_workers: null
+
+# Qwen-Omni adapter-specific knobs (Tier-2: adapter_kwargs.*)
+ml_prompt: "Transcribe the audio."
+ml_prompt_file: null
+en_prompt_file: null
+followup_prompt: null
+followup_prompt_file: null
+system_prompt: null
+tensor_parallel_size: 2
+# Per-actor GPU footprint for the ASR stage (wired into the stage's resources.gpus).
+# This is model-dependent: it must match the adapter's tensor-parallel degree.
+# Swapping adapters changes it - a SMALLER model needs FEWER GPUs per actor
+# (e.g. tp=1 -> 1.0), a larger model needs more (tp=4 -> ~4.0). It also drives the
+# worker pin above: asr_num_workers_per_node = floor(gpus_per_node / this value),
+# so lowering it for a smaller model lets MORE actors fit per node.
+omni_resource_gpus: 2.0
+batch_size: 32
+max_output_tokens: 256
+max_model_len: 4096
+max_num_seqs: 16
+gpu_memory_utilization: 0.90
+prep_workers: 16
+
+# vLLM runtime knobs (exposed as top-level YAML for this tutorial).
+enable_prefix_caching: true
+prefix_caching_hash_algo: xxhash
+limit_mm_per_prompt_audio: 2
+seed: 1234
+
+# ===========================================================================
+# STAGE GRAPH
+# ===========================================================================
+# This explicit list is the only source of truth for the tutorial stage graph.
+# Use `enabled`, `stages_to_run`, or `stages_to_skip` to choose stages.
+stages:
+  - stage_id: reader
+    _target_: nemo_curator.stages.audio.io.nemo_tarred_reader.NemoTarredAudioReader
+    yaml_path: ${data_config}
+    corpus_filter: ${corpus}
+    output_dir: ${output_dir}
+    duration_key: ${duration_key}
+    max_duration_s: ${max_segment_length}
+    max_utterances_per_shard: ${max_utterances_per_shard}
+    stage_with:
+      nemo_tar_shard_reader:
+        resources:
+          _target_: nemo_curator.stages.resources.Resources
+          cpus: 4.0
+
+  - stage_id: qwen_omni
+    # Tier 1 - generic stage. Swap adapter_target to change the ASR model.
+    _target_: nemo_curator.stages.audio.inference.asr.ASRStage
+    # Override the default 'ASR_inference' so perf_summary.stages keys
+    # remain stable across pre-/post-refactor runs.
+    name: QwenOmni_inference
+    adapter_target: ${adapter_target}
+    model_id: ${model_id}
+    revision: ${revision}
+    source_lang_key: ${source_lang_key}
+    default_language: ${language_short}
+    pred_text_key: ${pred_text_key}
+    disfluency_text_key: ${disfluency_text_key}
+    ideal_inference_segment_s: ${ideal_inference_segment_s}
+    max_inference_duration_s: ${max_inference_duration_s}
+    keep_waveform: ${keep_waveform}
+    prefetch_fail_on_error: ${prefetch_fail_on_error}
+    # Tier-1 worker pin (adapter-agnostic): skip the autoscale cold-start ramp.
+    xenna_num_workers_per_node: ${asr_num_workers_per_node}
+    xenna_num_workers: ${asr_num_workers}
+    batch_size: ${batch_size}
+    # Within-call duration-bucketed batching.
+    # Cross-call queueing requires framework-scheduler support (follow-up PR);
+    # this block re-buckets whatever items each process_batch invocation
+    # assembles so a single vLLM call never mixes a 40-min sub-chunk with
+    # 5-sec sub-chunks. Bucket shape anchored on ideal_inference_segment_s:
+    # 4 bins at [0, ideal/4, ideal/2, ideal] with item caps shrinking by
+    # bucket and a global audio-second ceiling of K × ideal (K=1 here).
+    batch_policy:
+      _target_: nemo_curator.stages.inference.batch_policy.BatchPolicy
+      strategy: duration_bucketed
+      buckets_sec: [0, 600, 1200, 2400]
+      max_items_per_batch_by_bucket: [32, 16, 8, 4]
+      max_audio_sec_per_batch: 2400
+      flush_interval_ms: 250
+    # Tier 2 - QwenOmniASRAdapter-only (rewrite entire block when swapping).
+    adapter_kwargs:
+      prompt_text: ${ml_prompt}
+      prompt_file: ${ml_prompt_file}
+      en_prompt_file: ${en_prompt_file}
+      followup_prompt: ${followup_prompt}
+      followup_prompt_file: ${followup_prompt_file}
+      system_prompt: ${system_prompt}
+      tensor_parallel_size: ${tensor_parallel_size}
+      max_output_tokens: ${max_output_tokens}
+      max_model_len: ${max_model_len}
+      max_num_seqs: ${max_num_seqs}
+      gpu_memory_utilization: ${gpu_memory_utilization}
+      prep_workers: ${prep_workers}
+      enable_prefix_caching: ${enable_prefix_caching}
+      prefix_caching_hash_algo: ${prefix_caching_hash_algo}
+      limit_mm_per_prompt_audio: ${limit_mm_per_prompt_audio}
+      seed: ${seed}
+    stage_with:
+      resources:
+        _target_: nemo_curator.stages.resources.Resources
+        gpus: ${omni_resource_gpus}
+
+  - stage_id: sharded_manifest_writer
+    _target_: nemo_curator.stages.audio.io.sharded_manifest_writer.ShardedManifestWriterStage
+    output_dir: ${output_dir}
+    final_manifest_path: ${final_manifest}
+    duration_key: ${duration_key}
+    stage_with:
+      batch_size: ${cpu_batch_size}

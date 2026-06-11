@@ -16,8 +16,11 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+import numpy as np
+
 from nemo_curator.backends.ray_data.utils import (
     calculate_concurrency_for_actors_for_stage,
+    coerce_batch_tasks,
     get_available_cpu_gpu_resources,
 )
 from nemo_curator.stages.resources import Resources
@@ -135,3 +138,15 @@ class TestCalculateConcurrencyForActorsForStage:
         mock_stage = Mock(num_workers=lambda: None, resources=Resources(cpus=0.5, gpus=0.25))
         assert calculate_concurrency_for_actors_for_stage(mock_stage) == (1, 8)
         mock_get_resources.assert_called_once()
+
+
+class TestCoerceBatchTasks:
+  def test_coerce_batch_tasks_from_numpy_object_array(self) -> None:
+      sentinel = object()
+      batch = np.array([sentinel], dtype=object)
+      assert coerce_batch_tasks(batch) == [sentinel]
+
+  def test_coerce_batch_tasks_empty(self) -> None:
+      assert coerce_batch_tasks([]) == []
+      assert coerce_batch_tasks(np.array([], dtype=object)) == []
+      assert coerce_batch_tasks(None) == []

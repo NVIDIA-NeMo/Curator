@@ -28,6 +28,29 @@ def make_dummy_task(stage_name: str, process_time: float, custom: float = 0.0) -
 class TestTaskPerfUtils:
     """Test cases for TaskPerfUtils class."""
 
+    def test_collect_stage_metrics_ignores_identity_strings(self) -> None:
+        """StagePerfStats identity labels (actor_id/node_id/gpu_id) are string
+        metadata and MUST be excluded from items(); otherwise collect_stage_metrics'
+        float() coercion would raise on every pipeline (text/vision/audio)."""
+        perf = StagePerfStats(
+            stage_name="StageGpu",
+            process_time=1.5,
+            num_items_processed=4,
+            custom_metrics={"io": 2.0},
+            actor_id="StageGpu:actor-deadbeef",
+            node_id="node-2",
+            gpu_id="node-2:1",
+        )
+        task = _EmptyTask(task_id="t", dataset_name="test", data=None, _stage_perf=[perf])
+
+        metrics = TaskPerfUtils.collect_stage_metrics([task])  # must not raise on float("node-2:1")
+
+        assert "actor_id" not in metrics["StageGpu"]
+        assert "node_id" not in metrics["StageGpu"]
+        assert "gpu_id" not in metrics["StageGpu"]
+        assert np.allclose(metrics["StageGpu"]["process_time"], np.array([1.5]))
+        assert np.allclose(metrics["StageGpu"]["custom.io"], np.array([2.0]))
+
     def test_collect_stage_metrics_from_workflow_result(self) -> None:
         """Test collecting stage metrics from WorkflowRunResult."""
         workflow_result = WorkflowRunResult(workflow_name="unit")

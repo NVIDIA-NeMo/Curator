@@ -1,0 +1,233 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Tests for the concrete ``QwenOmniASRAdapter``.
+
+Covers the adapter's own internals (no GPU / no real vLLM required):
+    * protocol conformance for this concrete adapter;
+    * empty vLLM-output helpers;
+    * the shared two-turn ``_infer_turn`` scatter + strict count check;
+    * ``transcribe_batch`` result packaging;
+    * elevated vLLM knobs (dataclass fields + defaults + threading into the
+      ``LLM(...)`` ctor, including ``revision`` forwarding).
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
+
+from nemo_curator.adapters.asr.base import ASRAdapter
+from nemo_curator.adapters.asr.qwen_omni import QwenOmniASRAdapter
+
+_SR = 16000
+
+
+# ----------------------------------------------------------------------
+# Protocol conformance (requires @runtime_checkable)
+# ----------------------------------------------------------------------
+
+
+def test_qwen_adapter_conforms_to_asr_protocol() -> None:
+    """Smoke-check that QwenOmniASRAdapter satisfies the structural ASRAdapter contract.
+
+    ``isinstance(..., ASRAdapter)`` only works because ``ASRAdapter`` is
+    decorated with ``@runtime_checkable``; without it Python raises
+    ``TypeError`` and we cannot write this (or future adapter-family)
+    conformance tests. Mirrors ``test_conforms_to_protocol`` on the
+    diarization / VAD / alignment adapter tests on main.
+    """
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
+    assert isinstance(adapter, ASRAdapter)
+
+
+# ----------------------------------------------------------------------
+# QwenOmniASRAdapter helpers (no GPU, no vLLM required)
+# ----------------------------------------------------------------------
+
+
+def test_qwen_adapter_first_output_text_handles_empty_vllm_output() -> None:
+    assert QwenOmniASRAdapter._first_output_text(SimpleNamespace(outputs=[])) == ""
+
+
+def test_qwen_adapter_count_output_tokens_handles_empty_vllm_output() -> None:
+    assert QwenOmniASRAdapter._count_output_tokens([SimpleNamespace(outputs=[])]) == 0.0
+
+
+def test_qwen_adapter_infer_turn_scatters_outputs_by_index() -> None:
+    """The shared Turn-1/Turn-2 helper scatters vLLM outputs back to the
+    original batch positions and reports generation time + token count."""
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
+
+    def _fake_generate(inputs: list[dict[str, object]]) -> list[SimpleNamespace]:
+        return [
+            SimpleNamespace(outputs=[SimpleNamespace(text=f"t{i}", token_ids=[0, 1])])
+            for i, _ in enumerate(inputs)
+        ]
+
+    adapter._generate = _fake_generate  # type: ignore[method-assign]
+
+    # Length-4 batch where only positions 1 and 3 produced valid inputs.
+    texts, generation_s, tokens = adapter._infer_turn(
+        inputs=[{"prompt": "a"}, {"prompt": "b"}],
+        indices=[1, 3],
+        n=4,
+    )
+
+    assert texts == ["", "t0", "", "t1"]
+    assert tokens == 4.0  # 2 outputs x 2 token_ids each
+    assert generation_s >= 0.0
+
+
+def test_qwen_adapter_infer_turn_raises_on_vllm_count_mismatch() -> None:
+    """A short vLLM result list must fail loud (strict=True) rather than
+    silently leaving utterances as empty text with skipped=False."""
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
+
+    def _short_generate(_inputs: list[dict[str, object]]) -> list[SimpleNamespace]:
+        # vLLM returns fewer outputs than inputs (e.g. a scheduler drop).
+        return [SimpleNamespace(outputs=[SimpleNamespace(text="only-one", token_ids=[0])])]
+
+    adapter._generate = _short_generate  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="zip"):
+        adapter._infer_turn(inputs=[{"prompt": "a"}, {"prompt": "b"}], indices=[0, 1], n=2)
+
+
+def test_qwen_adapter_transcribe_batch_packages_results() -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt="refine")
+    adapter._run_two_turn = MagicMock(  # type: ignore[method-assign]
+        return_value=(
+            ["text-a", "text-b", ""],
+            ["refined-a", "", ""],
+            {2},
+        ),
+    )
+    items = [
+        {"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR, "language": "English"},
+        {"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR, "language": "English"},
+        {"waveform": np.zeros(0, dtype=np.float32), "sample_rate": _SR, "language": None},
+    ]
+    results = adapter.transcribe_batch(items)
+
+    assert [r.text for r in results] == ["text-a", "text-b", ""]
+    assert [r.secondary_text for r in results] == ["refined-a", "", ""]
+    assert [r.skipped for r in results] == [False, False, True]
+    assert all(r.model_id == "mock/qwen-omni" for r in results)
+
+    adapter._run_two_turn.assert_called_once()
+    _waveforms, _srs, langs = adapter._run_two_turn.call_args[0]
+    assert langs == ["English", "English", None]
+
+
+def test_qwen_adapter_single_turn_drops_secondary_text() -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt=None)
+    adapter._run_two_turn = MagicMock(  # type: ignore[method-assign]
+        return_value=(["text-a"], [""], set()),
+    )
+    results = adapter.transcribe_batch([
+        {"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR},
+    ])
+    assert results[0].secondary_text is None
+
+
+# ----------------------------------------------------------------------
+# Elevated vLLM knobs
+# ----------------------------------------------------------------------
+
+
+def test_qwen_adapter_has_elevated_vllm_knobs_as_dataclass_fields() -> None:
+    """enable_prefix_caching, prefix_caching_hash_algo, limit_mm_per_prompt_audio,
+    and seed are dataclass fields settable from YAML ``adapter_kwargs``.
+    """
+    adapter = QwenOmniASRAdapter(
+        model_id="mock/qwen-omni",
+        enable_prefix_caching=False,
+        prefix_caching_hash_algo="sha256",
+        limit_mm_per_prompt_audio=1,
+        seed=99,
+    )
+    assert adapter.enable_prefix_caching is False
+    assert adapter.prefix_caching_hash_algo == "sha256"
+    assert adapter.limit_mm_per_prompt_audio == 1
+    assert adapter.seed == 99
+
+
+def test_qwen_adapter_vllm_knob_defaults_match_doc() -> None:
+    """Default vLLM knob values match the tutorial when YAML omits overrides."""
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
+    assert adapter.enable_prefix_caching is True
+    assert adapter.prefix_caching_hash_algo == "xxhash"
+    assert adapter.limit_mm_per_prompt_audio == 2
+    assert adapter.seed == 1234
+
+
+def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
+    """The setup() path must forward the elevated knobs to the vLLM LLM
+    ctor (rather than re-using hardcoded constants)."""
+    adapter = QwenOmniASRAdapter(
+        model_id="mock/qwen-omni",
+        enable_prefix_caching=False,
+        prefix_caching_hash_algo="sha256",
+        limit_mm_per_prompt_audio=3,
+        seed=42,
+        tensor_parallel_size=1,
+    )
+    fake_llm = MagicMock()
+    fake_processor = MagicMock()
+    with (
+        patch("nemo_curator.adapters.asr.qwen_omni.VLLM_AVAILABLE", new=True),
+        patch("nemo_curator.models.vllm_model.LLM", return_value=fake_llm) as llm_ctor,
+        patch(
+            "nemo_curator.adapters.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
+            return_value=fake_processor,
+        ),
+        patch("nemo_curator.models.vllm_model.SamplingParams"),
+    ):
+        adapter.setup()
+
+    llm_ctor.assert_called_once()
+    kwargs = llm_ctor.call_args.kwargs
+    assert kwargs["enable_prefix_caching"] is False
+    assert kwargs["prefix_caching_hash_algo"] == "sha256"
+    assert kwargs["limit_mm_per_prompt"] == {"image": 1, "video": 1, "audio": 3}
+    assert kwargs["seed"] == 42
+    assert "revision" not in kwargs
+
+
+def test_qwen_adapter_setup_forwards_revision_to_llm_and_processor() -> None:
+    """Tier-1 revision must reach inference loaders, not only prefetch_weights."""
+    adapter = QwenOmniASRAdapter(
+        model_id="mock/qwen-omni",
+        revision="abc123",
+        tensor_parallel_size=1,
+    )
+    fake_llm = MagicMock()
+    fake_processor = MagicMock()
+    with (
+        patch("nemo_curator.adapters.asr.qwen_omni.VLLM_AVAILABLE", new=True),
+        patch("nemo_curator.models.vllm_model.LLM", return_value=fake_llm) as llm_ctor,
+        patch(
+            "nemo_curator.adapters.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
+            return_value=fake_processor,
+        ) as proc_ctor,
+        patch("nemo_curator.models.vllm_model.SamplingParams"),
+    ):
+        adapter.setup()
+
+    assert llm_ctor.call_args.kwargs["revision"] == "abc123"
+    proc_ctor.assert_called_once_with("mock/qwen-omni", revision="abc123")

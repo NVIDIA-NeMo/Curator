@@ -23,6 +23,7 @@ sudo apt-get install -y ffmpeg
 | **[FLEURS Dataset](fleurs/)** | Complete pipeline for multilingual speech data | `pipeline.py`, `run.py`, `pipeline.yaml` |
 | **[Audio Tagging](tagging/)** | Label raw audio for TTS/ASR via diarization, alignment, and quality metrics | `main.py`, `tts_pipeline.yaml`, `asr_pipeline.yaml` |
 | **[ALM Data Pipeline](alm/)** | Create training windows for Audio Language Models | `main.py`, `pipeline.yaml` |
+| **[Qwen-Omni In-Process ASR](qwen_omni_inprocess/)** | Run in-process ASR with Qwen3-Omni and sharded manifest outputs. Uses `ASRStage` + swappable `ASRAdapter`, generic `BucketedInferenceStage` / `BatchPolicy` bucketing, and `perf_summary.json` with stage identity and per-GPU scheduling breakdown (all stages metered via `BaseStageAdapter`; single writer serializes to `{shard}_perf.jsonl` + `perf_summary.json`). | `main.py`, `qwen_omni_inprocess.yaml` |
 
 ## Documentation Links
 

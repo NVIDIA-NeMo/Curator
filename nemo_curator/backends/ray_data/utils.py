@@ -12,8 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any
+
 from nemo_curator.backends.utils import get_available_cpu_gpu_resources
 from nemo_curator.stages.base import ProcessingStage
+
+
+def coerce_batch_tasks(batch_items: Any) -> list[Any]:
+    """Normalize a Ray Data ``map_batches`` column to a Python ``list``.
+
+    Ray Data delivers batches as dicts of column arrays (typically numpy
+    ndarrays). Curator stages are written against ``list[Task]`` as Xenna
+    provides; coercing here keeps stage code backend-agnostic.
+    """
+    if batch_items is None:
+        return []
+    if isinstance(batch_items, list):
+        return batch_items
+    try:
+        return list(batch_items)
+    except TypeError:
+        return [batch_items]
 
 
 def calculate_concurrency_for_actors_for_stage(

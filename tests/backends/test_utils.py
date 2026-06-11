@@ -15,6 +15,7 @@
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -295,3 +296,99 @@ class TestCheckTotalGpuCapacity:
                     check_total_gpu_capacity(needed)
             else:
                 check_total_gpu_capacity(needed)
+
+
+@dataclass
+class _FakeGpuAllocation:
+    """Mirror of cosmos_xenna ``GpuAllocation`` (only ``index`` is read)."""
+
+    index: int
+    used_fraction: float = 1.0
+
+
+@dataclass
+class _FakeWorkerResources:
+    """Mirror of cosmos_xenna ``WorkerResources`` (only ``gpus`` is read)."""
+
+    node: str
+    gpus: list[_FakeGpuAllocation]
+
+
+class TestBackendPerfIdentity:
+    """Backend-specific GPU label resolvers (no cross-backend fallbacks)."""
+
+    def test_xenna_allocation_index(self) -> None:
+        from nemo_curator.backends.perf_identity import build_xenna_perf_identity
+
+        alloc = _FakeWorkerResources(node="ray-node-abc", gpus=[_FakeGpuAllocation(index=3)])
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("CUDA_VISIBLE_DEVICES", "7")
+            identity = build_xenna_perf_identity(
+                "QwenOmni_inference",
+                worker_id="worker-abc",
+                node_id="node-0",
+                allocation=alloc,
+                requires_gpu=True,
+            )
+        assert identity.gpu_id == "node-0:3"
+        assert identity.node_id == "node-0"
+        assert identity.actor_id == "QwenOmni_inference:actor-worker-a"
+        assert identity.gpu_indices == (3,)
+
+    def test_xenna_physical_address_uses_pod_ip_and_all_allocation_gpus(self) -> None:
+        from nemo_curator.backends.perf_identity import build_xenna_perf_identity
+
+        alloc = _FakeWorkerResources(
+            node="ray-node-abc",
+            gpus=[_FakeGpuAllocation(index=0), _FakeGpuAllocation(index=1)],
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("POD_IP", "10.244.181.136")
+            identity = build_xenna_perf_identity(
+                "QwenOmni_inference",
+                worker_id="worker-abc",
+                node_id="node-0",
+                allocation=alloc,
+                requires_gpu=True,
+            )
+        assert identity.gpu_id == "node-0:0"
+        assert identity.pod_ip == "10.244.181.136"
+        assert identity.physical_address == "10.244.181.136:0,1"
+        assert identity.gpu_indices == (0, 1)
+
+    def test_xenna_cpu_stage_with_empty_allocation_is_blank_gpu(self) -> None:
+        from nemo_curator.backends.perf_identity import build_xenna_perf_identity
+
+        alloc = _FakeWorkerResources(node="ray-node-abc", gpus=[])
+        with pytest.MonkeyPatch.context() as mp:
+            mp.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+            identity = build_xenna_perf_identity(
+                "reader",
+                worker_id="w1",
+                node_id="node-0",
+                allocation=alloc,
+                requires_gpu=False,
+            )
+        assert identity.gpu_id == ""
+
+    def test_xenna_bare_gpu_index_when_node_unknown(self) -> None:
+        from nemo_curator.backends.perf_identity import build_xenna_perf_identity
+
+        alloc = _FakeWorkerResources(node="", gpus=[_FakeGpuAllocation(index=2)])
+        identity = build_xenna_perf_identity(
+            "infer",
+            worker_id="w1",
+            node_id="",
+            allocation=alloc,
+            requires_gpu=True,
+        )
+        assert identity.gpu_id == "2"
+
+    def test_ray_does_not_parse_cuda_visible_devices(self) -> None:
+        from nemo_curator.backends.perf_identity import build_ray_perf_identity
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("CUDA_VISIBLE_DEVICES", "5,6")
+            identity = build_ray_perf_identity("infer", requires_gpu=True)
+        # Driver-side test has no Ray actor GPU assignment — must stay blank, not CVD.
+        assert identity.gpu_id == ""

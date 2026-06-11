@@ -29,15 +29,17 @@ class RayActorPoolStageAdapter(BaseStageAdapter):
     def __init__(self, stage: ProcessingStage):
         super().__init__(stage)
 
-        # Get runtime context for worker metadata
-        node_info, worker_metadata = get_worker_metadata_and_node_id()
+        requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
+        node_info, worker_metadata = get_worker_metadata_and_node_id(
+            str(stage.name),
+            requires_gpu=requires_gpu,
+        )
 
-        # Create WorkerMetadata with actor information
         self.worker_metadata = worker_metadata
         self.node_info = node_info
 
-        # Setup the stage when the actor is created
-        self.stage.setup(worker_metadata)
+        super().setup_on_node(node_info, worker_metadata)
+        super().setup(worker_metadata)
 
         self._batch_size = self.stage.batch_size
         if self._batch_size is None:

@@ -14,9 +14,10 @@
 
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from nemo_curator.backends.perf_identity import apply_worker_perf_identity, read_worker_metadata_identity
 from nemo_curator.core.utils import ignore_ray_head_node
 from nemo_curator.tasks import Task
 from nemo_curator.utils.performance_utils import StageTimer
@@ -37,12 +38,22 @@ class NodeInfo:
 @dataclass
 class WorkerMetadata:
     """Generic worker metadata for setup_on_node calls across backends.
-    Simplified to match Xenna's structure. The allocation field can contain
-    backend-specific allocation information.
+
+    Backend adapters populate ``actor_id`` / ``node_id`` / ``gpu_id`` at worker
+    setup using backend-specific resolvers (see ``backends/perf_identity.py``).
+    ``BaseStageAdapter`` copies those fields verbatim onto perf records.
     """
 
     worker_id: str = ""
-    allocation: Any = None  # Backend-specific allocation info
+    allocation: Any = None  # Backend-specific allocation info (Xenna)
+    actor_id: str = ""
+    node_id: str = ""
+    gpu_id: str = ""
+    physical_address: str = ""
+    pod_ip: str = ""
+    hostname: str = ""
+    gpu_indices: list[int] = field(default_factory=list)
+    gpu_uuids: list[str] = field(default_factory=list)
 
 
 class BaseExecutor(ABC):
@@ -62,6 +73,11 @@ class BaseStageAdapter:
 
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
+
+    def _cache_perf_identity(self) -> None:
+        """Copy backend-stamped identity from ``WorkerMetadata`` (fixed per worker)."""
+        worker_metadata = getattr(self, "_worker_metadata", None)
+        self._perf_identity = read_worker_metadata_identity(str(self.stage.name), worker_metadata)
 
     def process_batch(self, tasks: list[Task]) -> list[Task]:
         """Process a batch of tasks.
@@ -94,6 +110,10 @@ class BaseStageAdapter:
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
+        # Identity is resolved once per worker in setup() and stamped on WorkerMetadata.
+        if not hasattr(self, "_perf_identity") or self._perf_identity is None:
+            self._cache_perf_identity()
+        apply_worker_perf_identity(stage_perf_stats, self._perf_identity)
         for task in results:
             task.add_stage_perf(stage_perf_stats)
 
@@ -185,6 +205,8 @@ class BaseStageAdapter:
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker
         """
+        self._worker_metadata = worker_metadata
+        self._cache_perf_identity()
         self.stage.setup(worker_metadata)
 
     def teardown(self) -> None:
