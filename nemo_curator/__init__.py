@@ -37,6 +37,35 @@ from cosmos_xenna.ray_utils.cluster import API_LIMIT
 os.environ["RAY_MAX_LIMIT_FROM_API_SERVER"] = str(API_LIMIT)
 os.environ["RAY_MAX_LIMIT_FROM_DATA_SOURCE"] = str(API_LIMIT)
 
+
+def _ensure_ray_dashboard_frontend() -> None:
+    """Stub Ray's dashboard frontend dir once (nightly ray only), before any cluster starts.
+
+    Ray *nightly* wheels omit the prebuilt dashboard frontend (``dashboard/client/build``
+    is an npm artifact built only for releases), so the dashboard process dies with
+    ``FrontendNotFoundError`` and its state API server never registers — which breaks
+    every ``ray.util.state`` call (Xenna drives pipelines through it) with "Could not
+    read 'dashboard' from GCS". Creating the dir (relative to the installed ``ray``, so
+    it works in any venv) lets the dashboard start; the web UI itself is unused.
+
+    Gated to dev/nightly builds so published releases (which ship the frontend) are
+    untouched. Best-effort: a read-only install must not break ``import``.
+    """
+    import contextlib
+    from pathlib import Path
+
+    import ray
+    from packaging.version import Version
+
+    if not Version(ray.__version__).is_devrelease:
+        return
+    # Best-effort: a read-only install must not break ``import nemo_curator``.
+    with contextlib.suppress(OSError):
+        (Path(ray.__file__).parent / "dashboard" / "client" / "build" / "static").mkdir(parents=True, exist_ok=True)
+
+
+_ensure_ray_dashboard_frontend()
+
 # Raise an informative error early to users on unsupported systems
 if sys.platform != "linux":
     _msg = (
