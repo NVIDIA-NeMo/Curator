@@ -34,19 +34,17 @@ from nemo_curator.utils.file_utils import (
 def _get_int_or_env_var(input_value: int | str | None, default_name: str | None = None) -> int:
     if type(input_value) is int:
         return input_value
-    elif type(input_value) is str:
-        if os.environ.get(input_value) is None:
-            msg = f"Environment variable {input_value} is not set"
-            raise ValueError(msg)
-        return int(os.environ.get(input_value))
-    elif default_name is not None:
-        if os.environ.get(default_name) is None:
-            msg = f"Environment variable {default_name} is not set"
-            raise ValueError(msg)
-        return int(os.environ.get(default_name))
-    else:
+
+    env_var = input_value if type(input_value) is str else default_name
+    if env_var is None:
         msg = f"Invalid input value: {input_value}, must be an integer or a string"
         raise ValueError(msg)
+
+    env_value = os.environ.get(env_var)
+    if env_value is None:
+        msg = f"Environment variable {env_var} is not set"
+        raise ValueError(msg)
+    return int(env_value)
 
 
 @dataclass
@@ -131,6 +129,19 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
             self.shard_index = _get_int_or_env_var(self.shard_index, "SLURM_ARRAY_TASK_ID")
             self.total_shards = _get_int_or_env_var(self.total_shards, "SLURM_ARRAY_TASK_COUNT")
             self.minimum_shard_index = _get_int_or_env_var(self.minimum_shard_index)
+            if self.total_shards <= 0:
+                msg = f"total_shards must be greater than 0, got {self.total_shards}"
+                raise ValueError(msg)
+            min_assignable_shard_index = self.minimum_shard_index
+            max_assignable_shard_index = self.minimum_shard_index + self.total_shards - 1
+            if not min_assignable_shard_index <= self.shard_index <= max_assignable_shard_index:
+                logger.warning(
+                    "shard_index={} is outside the assignable shard range [{}, {}]. "
+                    "This task will not receive any partitions.",
+                    self.shard_index,
+                    min_assignable_shard_index,
+                    max_assignable_shard_index,
+                )
             self.name = "array_file_partitioning"
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -247,7 +258,11 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
             if assigned == self.shard_index:
                 assigned_tasks.append(ft)
 
-        logger.info(f"Shard {self.shard_index}/{self.total_shards}: assigned {len(assigned_tasks)} of {len(all_tasks)} partitions")
+        msg = f"Shard {self.shard_index}/{self.total_shards}: assigned {len(assigned_tasks)} of {len(all_tasks)} partitions"
+        if len(assigned_tasks) == 0 and len(all_tasks) > 0:
+            logger.warning(msg)
+        else:
+            logger.info(msg)
         return assigned_tasks
 
     def process(self, task: EmptyTask) -> list[FileGroupTask]:

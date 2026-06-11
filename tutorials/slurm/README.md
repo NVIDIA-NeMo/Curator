@@ -261,7 +261,21 @@ sbatch --array=9000-9999 tutorials/slurm/submit_array.sh
 
 In this mode, keep `MINIMUM_SHARD_INDEX=0` because the Slurm array task IDs are already the global shard IDs. Each partition is assigned by `hash(partition) % TOTAL_SHARDS`, so the full set of windowed submissions covers shards `0` through `9999` exactly once. Some individual tasks may receive no files if `TOTAL_SHARDS` is larger than the number of file partitions.
 
-Some clusters enforce the maximum array index rather than just the number of tasks per submitted array. If `--array=1000-1999` is rejected, this windowing pattern needs an explicit shard-index offset in the submission script rather than higher Slurm task IDs.
+Some clusters enforce the maximum array index rather than just the number of tasks per submitted array. If `--array=1000-1999` is rejected, use `SHARD_INDEX_OFFSET` instead of higher Slurm task IDs.
+
+For those clusters, submit each window with Slurm task IDs `0-999` and set `SHARD_INDEX_OFFSET` so the script computes the global shard ID as `SLURM_ARRAY_TASK_ID + SHARD_INDEX_OFFSET`:
+
+```bash
+export TOTAL_SHARDS=10000
+
+SHARD_INDEX_OFFSET=0    sbatch --array=0-999 tutorials/slurm/submit_array.sh
+SHARD_INDEX_OFFSET=1000 sbatch --array=0-999 tutorials/slurm/submit_array.sh
+SHARD_INDEX_OFFSET=2000 sbatch --array=0-999 tutorials/slurm/submit_array.sh
+# ...
+SHARD_INDEX_OFFSET=9000 sbatch --array=0-999 tutorials/slurm/submit_array.sh
+```
+
+Keep `MINIMUM_SHARD_INDEX=0` for this offset mode too. `SHARD_INDEX_OFFSET` changes the logical shard ID passed to the pipeline; `MINIMUM_SHARD_INDEX` changes the assignable shard range used by the partitioning stage.
 
 ### 5. Retry failed array tasks only
 
@@ -283,14 +297,18 @@ Each manifest records the failed `shard_index`, plus the `total_shards` and `min
 export CHECKPOINT_PATH="${CHECKPOINT_PATH:-$OUTPUT_DIR}"
 RETRY_DIR="${CHECKPOINT_PATH}/.nemo_curator_metadata/.slurm_array_retry"
 
-FAILED_SHARDS=$(jq -r '.shard_index' "${RETRY_DIR}"/manifest_*.json | sort -n -u | paste -sd, -)
-TOTAL_SHARDS_VALUES=$(jq -r '.total_shards' "${RETRY_DIR}"/manifest_*.json | sort -n -u)
-MINIMUM_SHARD_INDEX_VALUES=$(jq -r '.minimum_shard_index' "${RETRY_DIR}"/manifest_*.json | sort -n -u)
+shopt -s nullglob
+MANIFEST_FILES=("${RETRY_DIR}"/manifest_*.json)
+shopt -u nullglob
 
-if [[ -z "${FAILED_SHARDS}" ]]; then
+if (( ${#MANIFEST_FILES[@]} == 0 )); then
     echo "No failed shards found in ${RETRY_DIR}" >&2
     exit 1
 fi
+
+FAILED_SHARDS=$(jq -r '.shard_index' "${MANIFEST_FILES[@]}" | sort -n -u | paste -sd, -)
+TOTAL_SHARDS_VALUES=$(jq -r '.total_shards' "${MANIFEST_FILES[@]}" | sort -n -u)
+MINIMUM_SHARD_INDEX_VALUES=$(jq -r '.minimum_shard_index' "${MANIFEST_FILES[@]}" | sort -n -u)
 
 if [[ "${TOTAL_SHARDS_VALUES}" == *$'\n'* || "${MINIMUM_SHARD_INDEX_VALUES}" == *$'\n'* ]]; then
     echo "Retry manifests contain multiple shard configurations; split them by run." >&2

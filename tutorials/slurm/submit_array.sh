@@ -32,6 +32,8 @@
 #   shard_index  = SLURM_ARRAY_TASK_ID   (set automatically by Slurm)
 #   total_shards = SLURM_ARRAY_TASK_COUNT (set automatically by Slurm)
 #   minimum_shard_index defaults to 0 — no env var fallback.
+#   shard_index_offset defaults to 0 and is added to SLURM_ARRAY_TASK_ID
+#     only when SHARD_INDEX is not explicitly set.
 #
 # If your array does not start at 0 (e.g. --array=1-20), set:
 #   MINIMUM_SHARD_INDEX=1 sbatch --array=1-20 tutorials/slurm/submit_array.sh
@@ -83,8 +85,13 @@ OUTPUT_FILE_TYPE="${OUTPUT_FILE_TYPE:-jsonl}"
 # Number of files to read into a single DocumentBatch
 FILES_PER_PARTITION="${FILES_PER_PARTITION:-1}"
 
-# Shard index and total shards
-SHARD_INDEX="${SHARD_INDEX:-${SLURM_ARRAY_TASK_ID}}"
+# Shard index and total shards.
+#
+# SHARD_INDEX_OFFSET is useful on clusters that limit the maximum Slurm array
+# index. For example, submit --array=0-999 with SHARD_INDEX_OFFSET=1000 to
+# process logical shards 1000-1999.
+SHARD_INDEX_OFFSET="${SHARD_INDEX_OFFSET:-0}"
+SHARD_INDEX="${SHARD_INDEX:-$((SLURM_ARRAY_TASK_ID + SHARD_INDEX_OFFSET))}"
 TOTAL_SHARDS="${TOTAL_SHARDS:-${SLURM_ARRAY_TASK_COUNT}}"
 
 # Offset between 0-indexed hash assignments and SLURM_ARRAY_TASK_ID.
@@ -108,6 +115,7 @@ export CHECKPOINT_PATH
 export INPUT_FILE_TYPE
 export OUTPUT_FILE_TYPE
 export FILES_PER_PARTITION
+export SHARD_INDEX_OFFSET
 export SHARD_INDEX
 export TOTAL_SHARDS
 export MINIMUM_SHARD_INDEX
@@ -119,6 +127,9 @@ echo "=================================================="
 echo "  Job array ID   : ${SLURM_ARRAY_JOB_ID}"
 echo "  Array task ID  : ${SLURM_ARRAY_TASK_ID}"
 echo "  Array task cnt : ${SLURM_ARRAY_TASK_COUNT}"
+echo "  Shard index    : ${SHARD_INDEX}"
+echo "  Shard offset   : ${SHARD_INDEX_OFFSET}"
+echo "  Total shards   : ${TOTAL_SHARDS}"
 echo "  Nodes          : ${NUM_NODES}"
 echo "  Ray client     : $([[ "${USE_SLURM_RAY}" == "1" ]] && echo SlurmRayClient || echo RayClient)"
 echo "  Node           : $(hostname)"

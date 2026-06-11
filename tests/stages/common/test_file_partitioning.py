@@ -342,6 +342,56 @@ class TestFilePartitioningStage:
                 enable_array_partitioning=True,
             )
 
+    def test_enable_array_partitioning_requires_positive_total_shards(self):
+        """Test that array partitioning rejects non-positive shard counts."""
+        with pytest.raises(ValueError, match="total_shards must be greater than 0"):
+            FilePartitioningStage(
+                file_paths="/test/path",
+                enable_array_partitioning=True,
+                shard_index=0,
+                total_shards=0,
+            )
+
+    def test_enable_array_partitioning_warns_for_out_of_range_shard(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        """Test that shard IDs outside the assignable range produce a clear warning."""
+        with caplog.at_level("WARNING"):
+            stage = FilePartitioningStage(
+                file_paths="/test/path",
+                enable_array_partitioning=True,
+                shard_index=0,
+                total_shards=10,
+                minimum_shard_index=1,
+            )
+
+        assert stage.shard_index == 0
+        assert stage.total_shards == 10
+        assert stage.minimum_shard_index == 1
+        assert "outside the assignable shard range [1, 10]" in caplog.text
+
+    def test_enable_array_partitioning_warns_when_no_partitions_assigned(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        empty_task: EmptyTask,
+        tmp_path: Path,
+    ):
+        """Test that non-empty input with zero assigned partitions is visible in logs."""
+        test_files = _create_test_jsonl_files(tmp_path, num_files=2, subdir="path")
+        stage = FilePartitioningStage(
+            file_paths=test_files,
+            enable_array_partitioning=True,
+            shard_index=2,
+            total_shards=2,
+        )
+
+        with caplog.at_level("WARNING"):
+            result = stage.process(empty_task)
+
+        assert result == []
+        assert "assigned 0 of 2 partitions" in caplog.text
+
     def test_enable_array_partitioning_assigns_each_partition_to_one_shard(
         self,
         empty_task: EmptyTask,

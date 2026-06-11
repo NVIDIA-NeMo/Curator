@@ -21,22 +21,20 @@ With 2000 JSONL or Parquet files and --array=0-19, each of the 20 jobs gets
 Array partitioning parameters
 ------------------------------
 shard_index          Which shard this job processes.
-                     Default: SLURM_ARRAY_TASK_ID env var.
 total_shards         Total number of shards (i.e. array width).
-                     Default: SLURM_ARRAY_TASK_COUNT env var.
 minimum_shard_index  Offset added to the hash-assigned shard before
                      comparing with shard_index. Use when the array does
                      not start at 0. E.g. --array=1-20 requires
                      minimum_shard_index=1 so shard IDs 1-20 match task IDs 1-20.
-                     Default: 0. No env var fallback — must be set explicitly.
+                     Default: 0.
 
 Usage (local smoke test against a small sample directory)::
 
     # Simulate task 0 of 4 locally (zero-indexed array)
-    SLURM_ARRAY_TASK_ID=0 SLURM_ARRAY_TASK_COUNT=4 \\
-        python tutorials/slurm/array_pipeline.py \\
-            --input-dir /path/to/input/directory \\
-            --output-dir /path/to/output/directory
+    python tutorials/slurm/array_pipeline.py \\
+        --input-dir /path/to/input/directory \\
+        --output-dir /path/to/output/directory \\
+        --shard-index 0 --total-shards 4
 
     # Non-zero-indexed array: tasks 1-4, minimum_shard_index=1
     python tutorials/slurm/array_pipeline.py \\
@@ -52,7 +50,7 @@ Usage (local smoke test against a small sample directory)::
         --output-file-type parquet \\
         --shard-index 0 --total-shards 4
 
-    # Or let the sbatch script set the env vars:
+    # Or let the sbatch script read Slurm env vars and pass explicit args:
     sbatch --array=0-19 tutorials/slurm/submit_array.sh
 """
 
@@ -84,12 +82,24 @@ def _safe_token(value: object) -> str:
     return "".join(char if char.isalnum() or char in "._-" else "_" for char in str(value))
 
 
-def _resolve_int_arg(value: int | None, env_var: str) -> int | None:
-    """Resolve an optional CLI integer from an environment variable."""
-    if value is not None:
+def _parse_int_or_env_name(value: str) -> int | str:
+    """Parse an integer value or keep an environment variable name."""
+    try:
+        return int(value)
+    except ValueError:
         return value
-    env_value = os.environ.get(env_var)
-    return int(env_value) if env_value is not None else None
+
+
+def _resolve_int_or_env_name(value: int | str, label: str) -> int:
+    """Resolve an integer or an environment variable name containing an integer."""
+    if isinstance(value, int):
+        return value
+
+    env_value = os.environ.get(value)
+    if env_value is None:
+        msg = f"{label} references environment variable {value}, but it is not set"
+        raise ValueError(msg)
+    return int(env_value)
 
 
 def _is_driver_process(use_slurm: bool) -> bool:
@@ -98,8 +108,8 @@ def _is_driver_process(use_slurm: bool) -> bool:
 
 
 def _retry_manifest_prefix(
-    shard_index: int | None,
-    total_shards: int | None,
+    shard_index: int,
+    total_shards: int,
     minimum_shard_index: int,
 ) -> str:
     return (
@@ -110,10 +120,11 @@ def _retry_manifest_prefix(
 
 
 def _retry_manifest_payload(
-    shard_index: int | None,
-    total_shards: int | None,
+    shard_index: int,
+    total_shards: int,
     minimum_shard_index: int,
     status: str,
+    created_at: datetime.datetime,
     error: BaseException | None = None,
 ) -> dict[str, object]:
     payload = {
@@ -121,7 +132,7 @@ def _retry_manifest_payload(
         "total_shards": total_shards,
         "minimum_shard_index": minimum_shard_index,
         "status": status,
-        "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
+        "created_at": created_at.isoformat(),
         "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
         "slurm_array_job_id": os.environ.get("SLURM_ARRAY_JOB_ID"),
         "slurm_array_task_id": os.environ.get("SLURM_ARRAY_TASK_ID"),
@@ -156,6 +167,7 @@ def write_retry_manifest(  # noqa: PLR0913
         total_shards=total_shards,
         minimum_shard_index=minimum_shard_index,
         status=status,
+        created_at=created_at,
         error=error,
     )
 
@@ -230,9 +242,9 @@ def build_pipeline(  # noqa: PLR0913
         ),
     )
 
-    # enable_array_partitioning=True reads SLURM_ARRAY_TASK_ID / SLURM_ARRAY_TASK_COUNT
-    # from the environment by default. Explicit shard_index / total_shards / minimum_shard_index
-    # override those env vars — useful for non-Slurm schedulers or local testing.
+    # submit_array.sh maps Slurm array env vars into explicit shard arguments.
+    # Direct users may also pass env var names; those are resolved before the
+    # pipeline is built so retry manifests record concrete shard values.
     if input_file_type == "jsonl":
         pipeline.add_stage(
             JsonlReader(
@@ -294,19 +306,19 @@ def main() -> None:
     )
     parser.add_argument(
         "--shard-index",
-        type=int,
-        default=None,
-        help="Shard to process. Defaults to SLURM_ARRAY_TASK_ID.",
+        type=_parse_int_or_env_name,
+        required=True,
+        help="Shard to process, as an integer or environment variable name.",
     )
     parser.add_argument(
         "--total-shards",
-        type=int,
-        default=None,
-        help="Total number of shards. Defaults to SLURM_ARRAY_TASK_COUNT.",
+        type=_parse_int_or_env_name,
+        required=True,
+        help="Total number of shards, as an integer or environment variable name.",
     )
     parser.add_argument(
         "--minimum-shard-index",
-        type=int,
+        type=_parse_int_or_env_name,
         default=0,
         help=(
             "Offset added to the hash-assigned shard before comparison. "
@@ -331,18 +343,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    shard_index = _resolve_int_or_env_name(args.shard_index, "shard_index")
+    total_shards = _resolve_int_or_env_name(args.total_shards, "total_shards")
+    minimum_shard_index = _resolve_int_or_env_name(args.minimum_shard_index, "minimum_shard_index")
+
     ray_client = SlurmRayClient() if args.slurm else RayClient()
-    shard_index = args.shard_index
-    total_shards = args.total_shards
-    minimum_shard_index = args.minimum_shard_index
     retry_manifest_file = None
     is_driver_process = _is_driver_process(args.slurm)
     should_manage_retry_manifest = args.checkpoint_path is not None and is_driver_process
 
     try:
-        shard_index = _resolve_int_arg(args.shard_index, "SLURM_ARRAY_TASK_ID")
-        total_shards = _resolve_int_arg(args.total_shards, "SLURM_ARRAY_TASK_COUNT")
-
         if should_manage_retry_manifest:
             retry_manifest_file = write_retry_manifest(
                 checkpoint_path=args.checkpoint_path,
