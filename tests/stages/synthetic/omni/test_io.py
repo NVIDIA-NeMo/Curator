@@ -37,12 +37,10 @@ def _make_rgb_jpeg(tmp_path: Path, name: str = "img.jpg") -> Path:
 def _make_image_task(
     image_path: Path,
     *,
-    task_id: str = "t0",
     image_id: str = "img_0",
     is_valid: bool = True,
 ) -> ImageSampleTask[ImageTaskData]:
     return ImageSampleTask(
-        task_id=task_id,
         dataset_name="test",
         data=ImageTaskData(image_path=image_path, image_id=image_id, is_valid=is_valid),
     )
@@ -50,7 +48,6 @@ def _make_image_task(
 
 def _make_ocr_task(image_path: Path) -> ImageSampleTask[OCRData]:
     return ImageSampleTask(
-        task_id="t0",
         dataset_name="test",
         data=OCRData(image_path=image_path, image_id="img_0", ocr_dense=None),
     )
@@ -102,8 +99,8 @@ class TestJsonlSampleWriterStage:
         stage, shard = self._run(
             tmp_path / "out.jsonl",
             [
-                _make_image_task(p, task_id="ok", is_valid=True),
-                _make_image_task(p, task_id="bad", is_valid=False),
+                _make_image_task(p, is_valid=True),
+                _make_image_task(p, is_valid=False),
             ],
             valid_only=True,
         )

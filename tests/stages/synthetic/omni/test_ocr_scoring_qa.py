@@ -38,7 +38,6 @@ def _make_word(bbox: list[int], text: str, *, valid: bool = True) -> OCRDenseIte
 
 def _make_task(words: list[OCRDenseItem] | None = None) -> ImageSampleTask[OCRData]:
     return ImageSampleTask(
-        task_id="t0",
         dataset_name="test",
         data=OCRData(image_path=Path("test.jpg"), image_id="img_0", ocr_dense=words),
     )

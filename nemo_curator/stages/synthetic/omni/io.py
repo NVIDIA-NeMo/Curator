@@ -32,13 +32,13 @@ from PIL import Image
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import _EmptyTask
+from nemo_curator.tasks import EmptyTask
 from nemo_curator.tasks.image import ImageSampleTask, ImageTaskData
 
 T_TaskData = TypeVar("T_TaskData", bound=ImageTaskData)
 
 
-class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, ImageSampleTask[T_TaskData]]):
+class HFDatasetImageReaderStage(ProcessingStage[EmptyTask, ImageSampleTask[T_TaskData]]):
     """Reads images from a HuggingFace dataset and creates image tasks.
 
     Accepts either a HF Hub dataset name or a local path.  Images are saved
@@ -160,7 +160,7 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, ImageSampleTask[T_Ta
         msg = f"Cannot convert value of type {type(value).__name__} to PIL Image. Expected a PIL Image, bytes, or a HF Image feature dict."
         raise ValueError(msg)
 
-    def process(self, _: _EmptyTask) -> list[ImageSampleTask[T_TaskData]]:
+    def process(self, _: EmptyTask) -> list[ImageSampleTask[T_TaskData]]:
         self.image_dir.mkdir(parents=True, exist_ok=True)
         dataset = self._load_dataset()
         dataset_tag = Path(self.dataset_name).name.replace("/", "_")
@@ -185,7 +185,6 @@ class HFDatasetImageReaderStage(ProcessingStage[_EmptyTask, ImageSampleTask[T_Ta
 
             tasks.append(
                 ImageSampleTask(
-                    task_id=image_id,
                     dataset_name=dataset_tag,
                     data=self.task_type(
                         image_path=image_path,

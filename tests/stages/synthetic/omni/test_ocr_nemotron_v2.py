@@ -33,9 +33,8 @@ from nemo_curator.tasks.image import ImageSampleTask
 from nemo_curator.tasks.ocr import OCRData
 
 
-def _make_task(image_path: Path, *, is_valid: bool = True, task_id: str = "t0") -> ImageSampleTask[OCRData]:
+def _make_task(image_path: Path, *, is_valid: bool = True) -> ImageSampleTask[OCRData]:
     return ImageSampleTask(
-        task_id=task_id,
         dataset_name="test",
         data=OCRData(image_path=image_path, image_id="img_0", is_valid=is_valid),
     )
@@ -114,8 +113,8 @@ class TestOCRNemotronV2Stage:
         )
         results = stage.process_batch(
             [
-                _make_task(_make_rgb_jpeg(tmp_path, "a.jpg"), task_id="bad"),
-                _make_task(_make_rgb_jpeg(tmp_path, "b.jpg"), task_id="ok"),
+                _make_task(_make_rgb_jpeg(tmp_path, "a.jpg")),
+                _make_task(_make_rgb_jpeg(tmp_path, "b.jpg")),
             ]
         )
         assert results[0].data.is_valid is False
