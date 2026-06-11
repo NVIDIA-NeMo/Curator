@@ -45,7 +45,6 @@ class PairManifestReaderStage(ProcessingStage[Any, Any]):
             raise ValueError("PairManifestReaderStage requires config")
         records = load_all_pools(self.config.data_pools)
         return make_document_batch(
-            task_id=f"{self.config.experiment_id}_pairs",
             dataset_name=self.config.experiment_id,
             records=records,
             metadata={"experiment_id": self.config.experiment_id},

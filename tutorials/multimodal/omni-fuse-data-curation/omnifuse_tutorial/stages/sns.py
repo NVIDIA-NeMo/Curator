@@ -60,7 +60,6 @@ class SNSStage(ProcessingStage[Any, Any]):
         metadata = dict(getattr(task, "_metadata", {}) or {})
         metadata["sns_manifest_path"] = str(manifest_path)
         return make_document_batch(
-            task_id=f"{task.task_id}_sns",
             dataset_name=task.dataset_name,
             records=output_records,
             metadata=metadata,

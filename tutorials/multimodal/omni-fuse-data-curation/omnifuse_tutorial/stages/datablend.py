@@ -67,7 +67,6 @@ class DatablendRankingStage(ProcessingStage[Any, Any]):
             }
         )
         return make_document_batch(
-            task_id=f"{task.task_id}_datablend",
             dataset_name=task.dataset_name,
             records=ranked,
             metadata=metadata,

@@ -84,7 +84,6 @@ class EEEEmbeddingStage(ProcessingStage[Any, Any]):
         metadata["embedding_bundle"] = bundle
         metadata["embedding_metadata_path"] = str(metadata_path)
         return make_document_batch(
-            task_id=f"{task.task_id}_eee",
             dataset_name=task.dataset_name,
             records=records,
             metadata=metadata,

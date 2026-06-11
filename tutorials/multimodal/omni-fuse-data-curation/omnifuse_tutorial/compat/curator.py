@@ -39,7 +39,6 @@ def records_from_task(task: Any) -> list[dict[str, Any]]:
 
 
 def make_document_batch(
-    task_id: str,
     dataset_name: str,
     records: list[dict[str, Any]],
     metadata: dict[str, Any] | None = None,
@@ -48,7 +47,6 @@ def make_document_batch(
     """Construct a NeMo Curator DocumentBatch."""
 
     return DocumentBatch(
-        task_id=task_id,
         dataset_name=dataset_name,
         data=pd.DataFrame.from_records(records),
         _metadata=metadata or {},

@@ -69,7 +69,6 @@ class ProjectionTrainingStage(ProcessingStage[Any, Any]):
             }
         )
         return make_document_batch(
-            task_id=f"{task.task_id}_projection",
             dataset_name=task.dataset_name,
             records=records_from_task(task),
             metadata=metadata,
