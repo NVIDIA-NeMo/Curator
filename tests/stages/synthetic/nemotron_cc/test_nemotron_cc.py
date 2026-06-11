@@ -110,10 +110,11 @@ def test_diverseqa_post_processing_basic() -> None:
     pp = DiverseQAPostProcessingStage()
     generated_text = _build_diverseqa_response(pp.prefix)
     df = pd.DataFrame([{"text": "DOC", "diverse_qa": generated_text}])
-    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t0")
+    batch = DocumentBatch(data=df, dataset_name="ds")
     # Deterministic behavior: no shuffle and pick 2 pairs
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None), patch(
-        "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=2
+    with (
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None),
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=2),
     ):
         out_batch = pp.process(batch)
     out = out_batch.data["diverse_qa"].iloc[0]
@@ -131,9 +132,10 @@ def test_diverseqa_sync_end_to_end() -> None:
     )
     pp = DiverseQAPostProcessingStage()
     df = pd.DataFrame([{"text": "DOC"}])
-    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t1")
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None), patch(
-        "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1
+    batch = DocumentBatch(data=df, dataset_name="ds")
+    with (
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None),
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1),
     ):
         raw_batch = stage.process(batch)
         out_batch = pp.process(raw_batch)
@@ -153,9 +155,10 @@ def test_diverseqa_async_multiple_rows() -> None:
     )
     pp = DiverseQAPostProcessingStage()
     df = pd.DataFrame([{"text": "D1"}, {"text": "D2"}, {"text": "D3"}])
-    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t2")
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None), patch(
-        "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1
+    batch = DocumentBatch(data=df, dataset_name="ds")
+    with (
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None),
+        patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1),
     ):
         raw_batch = stage.process(batch)
         out_batch = pp.process(raw_batch)
@@ -168,14 +171,9 @@ def test_diverseqa_async_multiple_rows() -> None:
 def test_knowledge_list_process_llm_response() -> None:
     pp = KnowledgeListPostProcessingStage()
     # First line not starting with "-" should be skipped
-    generated = (
-        "Header line\n"
-        "- item one\n"
-        "  continuation\n"
-        "- item two"
-    )
+    generated = "Header line\n- item one\n  continuation\n- item two"
     df = pd.DataFrame([{"knowledge_list": generated}])
-    batch = DocumentBatch(data=df, dataset_name="ds", task_id="tkl")
+    batch = DocumentBatch(data=df, dataset_name="ds")
     out_batch = pp.process(batch)
     assert out_batch.data["knowledge_list"].iloc[0] == "item one\ncontinuation\nitem two"
 
@@ -184,7 +182,7 @@ def test_wikipedia_paraphrasing_smoke() -> None:
     client = MockSyncLLMClient(responses=[["rephrased"]])
     stage = WikipediaParaphrasingStage(client=client, model_name="m")
     df = pd.DataFrame([{"text": "original"}])
-    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t3")
+    batch = DocumentBatch(data=df, dataset_name="ds")
     out_batch = stage.process(batch)
     assert out_batch.data["rephrased"].iloc[0] == "rephrased"
 
@@ -193,7 +191,7 @@ def test_distill_stage_smoke() -> None:
     client = MockSyncLLMClient(responses=[["distilled"]])
     stage = DistillStage(client=client, model_name="m")
     df = pd.DataFrame([{"text": "doc"}])
-    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t4")
+    batch = DocumentBatch(data=df, dataset_name="ds")
     out_batch = stage.process(batch)
     assert out_batch.data["distill"].iloc[0] == "distilled"
     # Ensure system prompt is present in messages
@@ -205,7 +203,7 @@ def test_extract_knowledge_stage_smoke() -> None:
     client = MockSyncLLMClient(responses=[["facts"]])
     stage = ExtractKnowledgeStage(client=client, model_name="m")
     df = pd.DataFrame([{"text": "doc"}])
-    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t5")
+    batch = DocumentBatch(data=df, dataset_name="ds")
     out_batch = stage.process(batch)
     assert out_batch.data["extract_knowledge"].iloc[0] == "facts"
 
@@ -216,6 +214,6 @@ def test_knowledge_list_stage_smoke() -> None:
     client = MockSyncLLMClient(responses=[[generated]])
     stage = KnowledgeListStage(client=client, model_name="m")
     df = pd.DataFrame([{"text": "doc"}])
-    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t6")
+    batch = DocumentBatch(data=df, dataset_name="ds")
     out_batch = stage.process(batch)
     assert out_batch.data["knowledge_list"].iloc[0] == generated

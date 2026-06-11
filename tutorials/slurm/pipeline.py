@@ -114,12 +114,11 @@ class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
 
     def process(self, _: _EmptyTask) -> list[SampleTask]:
         tasks = []
-        for i in range(self.num_tasks):
+        for _ in range(self.num_tasks):
             sentences = random.choices(SAMPLE_SENTENCES, k=self.sentences_per_task)  # noqa: S311
             tasks.append(
                 SampleTask(
                     data=pd.DataFrame({"sentence": sentences}),
-                    task_id=f"task_{i:04d}",
                     dataset_name="slurm_demo",
                 )
             )

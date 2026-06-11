@@ -76,12 +76,10 @@ def input_tasks(sample_files: list[str]) -> list[FileGroupTask]:
     return [
         FileGroupTask(
             dataset_name="test_edges",
-            task_id="edge_group_0",
             data=[sample_files[0]],
         ),
         FileGroupTask(
             dataset_name="test_edges",
-            task_id="edge_group_1",
             data=[sample_files[1]],
         ),
     ]

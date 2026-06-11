@@ -93,14 +93,12 @@ def _load_task(path: Path) -> AudioTask | FileGroupTask:
     payload = json.loads(path.read_text())
     if payload.get("_task_type") == "FileGroupTask":
         return FileGroupTask(
-            task_id=payload["task_id"],
             dataset_name=payload["dataset_name"],
             data=payload["data"],
             _metadata=payload.get("_metadata", {}),
             reader_config=payload.get("reader_config", {}),
         )
     return AudioTask(
-        task_id=payload["task_id"],
         dataset_name=payload["dataset_name"],
         data=payload["data"],
         _metadata=payload.get("_metadata", {}),
@@ -153,7 +151,6 @@ class SingleSpeakerFilterStage(ProcessingStage[AudioTask, AudioTask]):
                 output_data["num_speakers"] = 1
                 results.append(
                     AudioTask(
-                        task_id=task.task_id,
                         dataset_name=task.dataset_name,
                         data=output_data,
                         _metadata=task._metadata,

@@ -191,16 +191,19 @@ class SlackParentMessage(SlackMessageBase):
     benchmark run such as session name and environment information.
     """
 
-    def __init__(self, session_name: str, env_dict: dict[str, Any]):
+    def __init__(self, session_name: str, env_dict: dict[str, Any], viewer_url: str | None = None):
         """Initialize a SlackParentMessage.
 
         Args:
             session_name: Name of the benchmark session.
             env_dict: Environment dictionary for the session.
+            viewer_url: Optional run-viewer URL. When set, rendered as a "Results viewer"
+                section in the parent Slack message.
         """
         super().__init__()
         self.session_name = session_name
         self.env_dict = env_dict
+        self.viewer_url = viewer_url
         self.entries: dict[str, str] = {}  # Dictionary mapping entry_name to status_string
         self._has_updates: bool = False  # Track if entries have changed since last post
 
@@ -250,6 +253,18 @@ class SlackParentMessage(SlackMessageBase):
                 },
             }
         )
+
+        # Run-viewer link (optional — only rendered when a viewer URL was supplied).
+        if self.viewer_url:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Results viewer:* <{self.viewer_url}|open run>",
+                    },
+                }
+            )
 
         # Table of benchmark entries, their status, and the environment
         blocks.append({"type": "divider"})
@@ -471,6 +486,10 @@ class SlackSink(Sink):
         # to remove the per-entry lists. Default True preserves existing behavior.
         self.ping_users_on_failure: bool = sink_config.get("ping_users_on_failure", True)
 
+        # Optional run-viewer URL surfaced as a "Results viewer" link in the parent
+        # Slack message. Typically populated in-process by run.py from --viewer-url.
+        self.viewer_url: str | None = sink_config.get("viewer_url")
+
         self.default_metrics: list[str] = sink_config.get("default_metrics", [])
         if not self.default_metrics:
             msg = "SlackSink: No default metrics configured"
@@ -618,7 +637,11 @@ class SlackSink(Sink):
         Returns:
             SlackParentMessage instance for the session summary.
         """
-        msg = SlackParentMessage(session_name=self.session_name, env_dict=env_dict)
+        msg = SlackParentMessage(
+            session_name=self.session_name,
+            env_dict=env_dict,
+            viewer_url=self.viewer_url,
+        )
         for entry in self.session.entries:
             msg.update_entry(entry.name, "⏳ waiting to start")
         return msg

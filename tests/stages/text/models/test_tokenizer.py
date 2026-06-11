@@ -82,7 +82,7 @@ def sample_document_batch() -> DocumentBatch:
         }
     )
 
-    return DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=data)
+    return DocumentBatch(dataset_name="test_dataset", data=data)
 
 
 @pytest.fixture(autouse=True)
@@ -173,7 +173,7 @@ def test_tokenizer_stage_max_chars_truncation():
     data = pd.DataFrame(
         {"text": ["This is a very long text that should be truncated when max_chars is set to a small value"]}
     )
-    batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=data)
+    batch = DocumentBatch(dataset_name="test_dataset", data=data)
 
     stage = TokenizerStage(model_identifier="test/model", max_chars=20, sort_by_length=False, text_field="text")
 

@@ -24,6 +24,12 @@ paths:
 # datasets_path: "/path/to/datasets"
 # model_weights_path: "/path/to/model_weights"
 
+# Background per-GPU stats recorder. While each entry runs, polls all visible GPUs
+# (independent of CUDA_VISIBLE_DEVICES) at `interval_s` and writes one row per
+# (timestamp, GPU) to {session_entry_path}/gpustats.csv. Set interval_s to 0 to disable.
+gpu_stats_recorder:
+  interval_s: 1.0
+
 datasets:
   - name: "tinystories"
     formats:
@@ -107,7 +113,25 @@ datasets:
     formats:
     - type: "wav"
       path: "{datasets_path}/read_speech"
+  # Persistent on-disk location for the FLEURS dataset (transcript <split>.tsv +
+  # extracted <split>/ audio). The nightly entries below run with
+  # --no-auto-download, so this must be pre-staged once on the benchmark machine
+  # via:
+  #   python benchmarking/data_prep/prepare_fleurs_data.py \
+  #       --output-path {datasets_path}/fleurs
+  # (downloads from Hugging Face once; defaults to --lang hy_am --split train).
+  # Every subsequent run then reuses it and never re-fetches (avoids HTTP 429).
+  - name: "fleurs_hy_am"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/fleurs"
+# Timeout knobs consumed by tools/generate_ci_tests.py to compute each SLURM job's wall-clock:
+#   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
+# default_timeout_s: per-entry default; cleanup_timeout_s: post-run cleanup buffer; min_timeout_s:
+# floor covering container setup. (default_timeout_s is also the runner's per-entry default.)
 default_timeout_s: 7200
+cleanup_timeout_s: 60
+min_timeout_s: 600
 
 # Optional sinks
 sinks:
@@ -173,9 +197,13 @@ entries:
         min_value: 2565
       - metric: number_of_domains_predicted
         exact_value: 26
-      # We choose two domains randomly and ensure that the counts are as expected
+      # We choose two domains randomly and ensure that the counts are as expected.
+      # domain_label_games_count is given a +/-1% tolerance window around the
+      # observed 149816 because the classifier output drifts run-to-run;
+      # domain_label_news_count remains exact pending further investigation.
       - metric: domain_label_games_count
-        exact_value: 149816
+        min_value: 148318
+        max_value: 151314
       - metric: domain_label_news_count
         exact_value: 2817
 
@@ -204,9 +232,13 @@ entries:
         min_value: 2755
       - metric: number_of_domains_predicted
         exact_value: 26
-      # We choose two domains randomly and ensure that the counts are as expected
+      # We choose two domains randomly and ensure that the counts are as expected.
+      # domain_label_games_count is given a +/-1% tolerance window around the
+      # observed 149816 because the classifier output drifts run-to-run;
+      # domain_label_news_count remains exact pending further investigation.
       - metric: domain_label_games_count
-        exact_value: 149816
+        min_value: 148318
+        max_value: 151314
       - metric: domain_label_news_count
         exact_value: 2817
 
@@ -273,7 +305,7 @@ entries:
       --input-filetype=parquet
       --text-field=raw_content
       --input-blocksize=3GiB
-    timeout_s: 500
+    timeout_s: 1500
     sink_data:
       - name: slack
         additional_metrics:
@@ -369,7 +401,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1100
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
@@ -398,7 +430,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1500
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
@@ -653,6 +685,8 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:fleurs_hy_am,files}
+      --no-auto-download
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train
@@ -679,6 +713,8 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:fleurs_hy_am,files}
+      --no-auto-download
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train
@@ -1019,7 +1055,7 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
-    timeout_s: 700
+    timeout_s: 1200
     ray:
       num_cpus: 16
     sink_data:

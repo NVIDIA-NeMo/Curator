@@ -20,7 +20,7 @@ import pyarrow as pa
 import pytest
 
 from nemo_curator.stages.text.io.reader.parquet import ParquetReader, ParquetReaderStage
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.tasks.document import DocumentBatch
 
 
@@ -41,7 +41,7 @@ def sample_parquet_files(tmp_path: Path) -> list[str]:
 def parquet_file_group_tasks(sample_parquet_files: list[str]) -> list[FileGroupTask]:
     """Create multiple FileGroupTasks for parquet files."""
     return [
-        FileGroupTask(task_id=f"task_{i}", dataset_name="test_dataset", data=[file_path], _metadata={})
+        FileGroupTask(dataset_name="test_dataset", data=[file_path], _metadata={})
         for i, file_path in enumerate(sample_parquet_files)
     ]
 
@@ -65,7 +65,6 @@ def _sample_records(start: int = 0, n: int = 2) -> list[dict]:
 
 def _make_file_group_task(files: list[str]) -> FileGroupTask:
     return FileGroupTask(
-        task_id="fg1",
         dataset_name="ds",
         data=files,
         reader_config={},
@@ -291,5 +290,5 @@ def test_parquet_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogC
     # Since the storage size is larger than 10_000 bytes, the FilePartitioningStage should warn
     file_partitioning_stage = stage.decompose()[0]
     with caplog.at_level("WARNING"):
-        file_partitioning_stage.process(_EmptyTask)
+        file_partitioning_stage.process(EmptyTask)
     assert "File group task has exceeded the storage limit per partition" in caplog.text

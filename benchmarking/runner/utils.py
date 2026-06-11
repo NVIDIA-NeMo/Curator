@@ -17,6 +17,7 @@
 import os
 import re
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -53,14 +54,19 @@ def get_obj_for_json(obj: object) -> object:
     return retval
 
 
-def _replace_env_var(match: re.Match[str]) -> str:
-    env_var_name = match.group(1)
-    env_value = os.getenv(env_var_name)
-    if env_value is not None and env_value != "":
-        return env_value
-    else:
+def _make_env_var_replacer(strict: bool) -> Callable[[re.Match[str]], str]:
+    def _replace(match: re.Match[str]) -> str:
+        env_var_name = match.group(1)
+        env_value = os.getenv(env_var_name)
+        if env_value is not None and env_value != "":
+            return env_value
         msg = f"Environment variable {env_var_name} not found in the environment or is empty"
-        raise ValueError(msg)
+        if strict:
+            raise ValueError(msg)
+        logger.warning(f"{msg}; substituting empty string")
+        return ""
+
+    return _replace
 
 
 def remove_disabled_blocks(obj: object) -> object:
@@ -91,20 +97,27 @@ def remove_disabled_blocks(obj: object) -> object:
         return obj
 
 
-def resolve_env_vars(data: dict | list | str | object) -> dict | list | str | object:
+def resolve_env_vars(data: dict | list | str | object, strict: bool = False) -> dict | list | str | object:
     """Recursively resolve environment variables in strings in/from various objects.
 
     Environment variables are identified in strings when specified using the ${VAR_NAME}
-    syntax. If the environment variable is not found, ValueError is raised.
+    syntax. If the environment variable is not found or empty, behavior depends on `strict`:
+    when True, ValueError is raised; when False (default), the reference is replaced with
+    an empty string and a warning is logged.
     """
-    if isinstance(data, dict):
-        return {key: resolve_env_vars(value) for key, value in data.items()}
-    elif isinstance(data, list):
-        return [resolve_env_vars(item) for item in data]
-    elif isinstance(data, str):
-        return _env_var_pattern.sub(_replace_env_var, data)
-    else:
-        return data
+    replacer = _make_env_var_replacer(strict)
+
+    def _walk(node: object) -> object:
+        if isinstance(node, dict):
+            return {key: _walk(value) for key, value in node.items()}
+        elif isinstance(node, list):
+            return [_walk(item) for item in node]
+        elif isinstance(node, str):
+            return _env_var_pattern.sub(replacer, node)
+        else:
+            return node
+
+    return _walk(data)
 
 
 def find_result(results: dict[str, Any], key: str, default_value: Any = None) -> Any:  # noqa: ANN401

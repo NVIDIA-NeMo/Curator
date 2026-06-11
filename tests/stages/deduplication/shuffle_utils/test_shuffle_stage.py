@@ -74,7 +74,6 @@ class TestShuffleStage:
 
             tasks.append(
                 FileGroupTask(
-                    task_id=f"test_data_{i}",
                     dataset_name="test_dataset",
                     data=[test_file],
                     _metadata={

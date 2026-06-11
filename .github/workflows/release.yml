@@ -74,10 +74,7 @@ jobs:
       dry-run: ${{ inputs.dry-run || false }}
       version-bump-branch: ${{ inputs.version-bump-branch || github.ref_name }}
       gh-release-use-changelog-builder: ${{ inputs.generate-changelog || true }}
-      publish-docs: ${{ inputs.publish-docs || true }}
-      docs-target-path: nemo/curator
-      docs-requirements-file: requirements-docs.txt
-      docs-fail-on-warning: false
+      publish-docs: false
       restrict-to-admins: true
     secrets: inherit  # pragma: allowlist secret
 

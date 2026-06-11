@@ -179,9 +179,7 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         )
         return outputs
 
-    def _extract_emit(
-        self, task: AudioTask, plan: list[dict], original_id: str
-    ) -> list[AudioTask]:
+    def _extract_emit(self, task: AudioTask, plan: list[dict], original_id: str) -> list[AudioTask]:
         source_path = task.data.get(self.audio_filepath_key)
         if not source_path or not os.path.exists(source_path):
             logger.error(
@@ -204,9 +202,7 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
             outputs.append(self._make_stub_task(task))
         return outputs
 
-    def _dry_run_emit(
-        self, task: AudioTask, plan: list[dict], original_id: str
-    ) -> list[AudioTask]:
+    def _dry_run_emit(self, task: AudioTask, plan: list[dict], original_id: str) -> list[AudioTask]:
         """Emit snippet metadata only, without reading or writing audio.
 
         ``audio_filepath`` is the tar-internal basename
@@ -337,13 +333,10 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
         # Reset to "" — a downstream pipeline is expected to set this correctly.
         if "swift_audio_filepath" in new_data:
             new_data["swift_audio_filepath"] = ""
-        new_data["segments"] = relativize_segments(
-            snippet["segments"], snippet["start"], snippet["end"]
-        )
+        new_data["segments"] = relativize_segments(snippet["segments"], snippet["start"], snippet["end"])
         if "text" in new_data:
             new_data["text"] = " ".join(_segment_text(s) for s in snippet["segments"]).strip()
         return AudioTask(
-            task_id=f"{task.task_id}::{snippet_id}",
             dataset_name=task.dataset_name,
             data=new_data,
             filepath_key=self.audio_filepath_key,
@@ -361,7 +354,6 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
             "segments": [],
         }
         return AudioTask(
-            task_id=f"{task.task_id}::stub",
             dataset_name=task.dataset_name,
             data=stub_data,
             _metadata=copy.deepcopy(task._metadata),

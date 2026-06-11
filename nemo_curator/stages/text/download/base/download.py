@@ -150,7 +150,6 @@ class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
                 local_files.append(downloaded_file)
 
         return FileGroupTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=local_files,
             _metadata={

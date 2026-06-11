@@ -120,7 +120,9 @@ class TestGetSpeakerLabel:
 
 class TestIntervalsFromTimestamps:
     def test_basic(self) -> None:
-        assert _intervals_from_timestamps({"original_start_ms": 1000, "original_end_ms": 3000, "duration": 2.0}) == [(1000, 3000, 2.0)]
+        assert _intervals_from_timestamps({"original_start_ms": 1000, "original_end_ms": 3000, "duration": 2.0}) == [
+            (1000, 3000, 2.0)
+        ]
 
     def test_computed_duration(self) -> None:
         assert _intervals_from_timestamps({"original_start_ms": 500, "original_end_ms": 2500}) == [(500, 2500, 2.0)]
@@ -146,7 +148,7 @@ class TestReadSegment:
     def test_reads_correct_slice(self, wav_dir: Path) -> None:
         filepath = _wav_path(wav_dir)
         original, sr = sf.read(filepath)
-        expected = original[int(1.0 * sr):int(2.0 * sr)]
+        expected = original[int(1.0 * sr) : int(2.0 * sr)]
 
         result = _read_segment(filepath, 1000, 2000, sr)
         np.testing.assert_array_almost_equal(result, expected, decimal=4)
@@ -263,7 +265,7 @@ class TestSegmentExtractionStageInit:
 
     def test_process_raises_not_implemented(self, tmp_path: Path) -> None:
         stage = SegmentExtractionStage(output_dir=str(tmp_path))
-        task = AudioTask(data={"original_file": "/a.wav"}, task_id="t", dataset_name="d")
+        task = AudioTask(data={"original_file": "/a.wav"}, dataset_name="d")
         with pytest.raises(NotImplementedError):
             stage.process(task)
 
@@ -287,8 +289,24 @@ class TestSegmentExtractionStageProcessBatch:
         out_dir = str(tmp_path / "extracted")
         stage = SegmentExtractionStage(output_dir=out_dir)
         tasks = [
-            AudioTask(data={"original_file": _wav_path(wav_dir), "original_start_ms": 0, "original_end_ms": 2000, "duration": 2.0}, task_id="t1", dataset_name="test"),
-            AudioTask(data={"original_file": _wav_path(wav_dir), "original_start_ms": 2500, "original_end_ms": 4500, "duration": 2.0}, task_id="t2", dataset_name="test"),
+            AudioTask(
+                data={
+                    "original_file": _wav_path(wav_dir),
+                    "original_start_ms": 0,
+                    "original_end_ms": 2000,
+                    "duration": 2.0,
+                },
+                dataset_name="test",
+            ),
+            AudioTask(
+                data={
+                    "original_file": _wav_path(wav_dir),
+                    "original_start_ms": 2500,
+                    "original_end_ms": 4500,
+                    "duration": 2.0,
+                },
+                dataset_name="test",
+            ),
         ]
         result = stage.process_batch(tasks)
         assert len(result) == 2
@@ -300,8 +318,13 @@ class TestSegmentExtractionStageProcessBatch:
         stage = SegmentExtractionStage(output_dir=out_dir)
         tasks = [
             AudioTask(
-                data={"original_file": _wav_path(wav_dir), "speaker_id": "speaker_0", "num_speakers": 2, "diar_segments": [[0.5, 1.5], [2.0, 3.0]]},
-                task_id="t1", dataset_name="test",
+                data={
+                    "original_file": _wav_path(wav_dir),
+                    "speaker_id": "speaker_0",
+                    "num_speakers": 2,
+                    "diar_segments": [[0.5, 1.5], [2.0, 3.0]],
+                },
+                dataset_name="test",
             ),
         ]
         result = stage.process_batch(tasks)
@@ -313,8 +336,26 @@ class TestSegmentExtractionStageProcessBatch:
         out_dir = str(tmp_path / "extracted")
         stage = SegmentExtractionStage(output_dir=out_dir)
         tasks = [
-            AudioTask(data={"original_file": _wav_path(wav_dir), "speaker_id": "speaker_0", "original_start_ms": 0, "original_end_ms": 1000, "duration": 1.0}, task_id="t1", dataset_name="test"),
-            AudioTask(data={"original_file": _wav_path(wav_dir), "speaker_id": "speaker_1", "original_start_ms": 1500, "original_end_ms": 2500, "duration": 1.0}, task_id="t2", dataset_name="test"),
+            AudioTask(
+                data={
+                    "original_file": _wav_path(wav_dir),
+                    "speaker_id": "speaker_0",
+                    "original_start_ms": 0,
+                    "original_end_ms": 1000,
+                    "duration": 1.0,
+                },
+                dataset_name="test",
+            ),
+            AudioTask(
+                data={
+                    "original_file": _wav_path(wav_dir),
+                    "speaker_id": "speaker_1",
+                    "original_start_ms": 1500,
+                    "original_end_ms": 2500,
+                    "duration": 1.0,
+                },
+                dataset_name="test",
+            ),
         ]
         result = stage.process_batch(tasks)
         assert len(result) == 2
@@ -325,7 +366,15 @@ class TestSegmentExtractionStageProcessBatch:
         out_dir = str(tmp_path / "extracted")
         stage = SegmentExtractionStage(output_dir=out_dir, output_format="flac")
         tasks = [
-            AudioTask(data={"original_file": _wav_path(wav_dir), "original_start_ms": 0, "original_end_ms": 1000, "duration": 1.0}, task_id="t1", dataset_name="test"),
+            AudioTask(
+                data={
+                    "original_file": _wav_path(wav_dir),
+                    "original_start_ms": 0,
+                    "original_end_ms": 1000,
+                    "duration": 1.0,
+                },
+                dataset_name="test",
+            ),
         ]
         stage.process_batch(tasks)
         assert os.path.exists(os.path.join(out_dir, "file_a_segment_000.flac"))
@@ -334,7 +383,15 @@ class TestSegmentExtractionStageProcessBatch:
         out_dir = str(tmp_path / "extracted")
         stage = SegmentExtractionStage(output_dir=out_dir)
         tasks = [
-            AudioTask(data={"original_file": "/nonexistent/audio.wav", "original_start_ms": 0, "original_end_ms": 1000, "duration": 1.0}, task_id="t1", dataset_name="test"),
+            AudioTask(
+                data={
+                    "original_file": "/nonexistent/audio.wav",
+                    "original_start_ms": 0,
+                    "original_end_ms": 1000,
+                    "duration": 1.0,
+                },
+                dataset_name="test",
+            ),
         ]
         result = stage.process_batch(tasks)
         assert len(result) == 1
@@ -344,7 +401,16 @@ class TestSegmentExtractionStageProcessBatch:
         out_dir = str(tmp_path / "extracted")
         stage = SegmentExtractionStage(output_dir=out_dir)
         tasks = [
-            AudioTask(data={"original_file": _wav_path(wav_dir), "original_start_ms": 0, "original_end_ms": 1000, "duration": 1.0, "utmos_mos": 4.2}, task_id="t1", dataset_name="test"),
+            AudioTask(
+                data={
+                    "original_file": _wav_path(wav_dir),
+                    "original_start_ms": 0,
+                    "original_end_ms": 1000,
+                    "duration": 1.0,
+                    "utmos_mos": 4.2,
+                },
+                dataset_name="test",
+            ),
         ]
         stage.process_batch(tasks)
         with open(os.path.join(out_dir, "metadata.csv")) as f:
@@ -354,12 +420,20 @@ class TestSegmentExtractionStageProcessBatch:
 
     def test_audio_content_matches_source(self, wav_dir: Path, tmp_path: Path) -> None:
         original, sr = sf.read(_wav_path(wav_dir))
-        expected_slice = original[int(1.0 * sr):int(2.0 * sr)]
+        expected_slice = original[int(1.0 * sr) : int(2.0 * sr)]
 
         out_dir = str(tmp_path / "extracted")
         stage = SegmentExtractionStage(output_dir=out_dir)
         tasks = [
-            AudioTask(data={"original_file": _wav_path(wav_dir), "original_start_ms": 1000, "original_end_ms": 2000, "duration": 1.0}, task_id="t1", dataset_name="test"),
+            AudioTask(
+                data={
+                    "original_file": _wav_path(wav_dir),
+                    "original_start_ms": 1000,
+                    "original_end_ms": 2000,
+                    "duration": 1.0,
+                },
+                dataset_name="test",
+            ),
         ]
         stage.process_batch(tasks)
 
@@ -375,7 +449,13 @@ class TestSegmentExtractionStageProcessBatch:
 class TestExtractFromManifest:
     def test_end_to_end(self, wav_dir: Path, tmp_path: Path) -> None:
         entries = [
-            {"original_file": _wav_path(wav_dir), "original_start_ms": 0, "original_end_ms": 2000, "duration": 2.0, "utmos_mos": 4.0},
+            {
+                "original_file": _wav_path(wav_dir),
+                "original_start_ms": 0,
+                "original_end_ms": 2000,
+                "duration": 2.0,
+                "utmos_mos": 4.0,
+            },
             {"original_file": _wav_path(wav_dir), "original_start_ms": 2500, "original_end_ms": 4500, "duration": 2.0},
         ]
         manifest_path = _write_manifest(tmp_path, entries)
@@ -406,7 +486,17 @@ class TestExtractFromManifest:
         manifest_dir.mkdir()
         for i, start in enumerate([0, 2000]):
             with open(str(manifest_dir / f"part_{i}.jsonl"), "w") as f:
-                f.write(json.dumps({"original_file": _wav_path(wav_dir), "original_start_ms": start, "original_end_ms": start + 1000, "duration": 1.0}) + "\n")
+                f.write(
+                    json.dumps(
+                        {
+                            "original_file": _wav_path(wav_dir),
+                            "original_start_ms": start,
+                            "original_end_ms": start + 1000,
+                            "duration": 1.0,
+                        }
+                    )
+                    + "\n"
+                )
 
         out_dir = str(tmp_path / "output")
         stage = SegmentExtractionStage(output_dir=out_dir)

@@ -84,7 +84,6 @@ class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
             tasks.append(
                 SampleTask(
                     data=pd.DataFrame({"sentence": sampled_sentences}),
-                    task_id=random.randint(0, 1000000),  # noqa: S311
                     dataset_name="SampleDataset",
                 )
             )
@@ -203,7 +202,7 @@ class SentimentStage(ProcessingStage[SampleTask, SampleTask]):
             new_data = task.data.copy()
             new_data["sentiment"] = task_sentiments
 
-            result_task = SampleTask(data=new_data, task_id=task.task_id, dataset_name=task.dataset_name)
+            result_task = SampleTask(data=new_data, dataset_name=task.dataset_name)
             result_tasks.append(result_task)
 
             sentence_idx += num_sentences

@@ -126,7 +126,6 @@ class JsonlClusterWriter(JsonlWriter):
 
         # Create FileGroupTask with written files using the full protocol-prefixed path
         return FileGroupTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=[file_path_with_protocol],
             _metadata={

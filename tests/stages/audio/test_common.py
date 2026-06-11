@@ -45,7 +45,7 @@ ALM_FIXTURES_DIR = FIXTURES_DIR / "audio" / "alm"
 
 
 def _make_file_group_task(paths: list[str]) -> FileGroupTask:
-    return FileGroupTask(task_id="test", dataset_name="test", data=paths)
+    return FileGroupTask(dataset_name="test", data=paths)
 
 
 # ---------------------------------------------------------------------------
@@ -371,7 +371,6 @@ class TestManifestWriterStage:
 
         task = AudioTask(
             data={"audio_filepath": "a.wav", "duration": 1.0},
-            task_id="t1",
             dataset_name="ds",
         )
         writer.process(task)
@@ -386,12 +385,11 @@ class TestManifestWriterStage:
         writer.setup_on_node()
         writer.setup()
 
-        task = AudioTask(data={"x": 1}, task_id="t1", dataset_name="ds")
+        task = AudioTask(data={"x": 1}, dataset_name="ds")
         result = writer.process(task)
 
         assert isinstance(result, AudioTask)
         assert result.data == {"x": 1}
-        assert result.task_id == "t1"
         assert result.dataset_name == "ds"
 
     def test_propagates_metadata_and_stage_perf(self, tmp_path: Path) -> None:
@@ -404,7 +402,6 @@ class TestManifestWriterStage:
         stage_perf = [{"stage": "some_stage", "process_time": 0.5}]
         task = AudioTask(
             data={"x": 1},
-            task_id="t1",
             dataset_name="ds",
             _metadata=metadata,
             _stage_perf=stage_perf,
@@ -420,9 +417,9 @@ class TestManifestWriterStage:
         writer.setup_on_node()
         writer.setup()
 
-        writer.process(AudioTask(data={"entry": 1}, task_id="t1"))
-        writer.process(AudioTask(data={"entry": 2}, task_id="t2"))
-        writer.process(AudioTask(data={"entry": 3}, task_id="t3"))
+        writer.process(AudioTask(data={"entry": 1}))
+        writer.process(AudioTask(data={"entry": 2}))
+        writer.process(AudioTask(data={"entry": 3}))
 
         lines = out.read_text().strip().split("\n")
         assert len(lines) == 3
@@ -450,7 +447,7 @@ class TestManifestWriterStage:
         writer.setup_on_node()
         writer.setup()
 
-        task = AudioTask(data={"text": "日本語テスト", "speaker": "Ñoño"}, task_id="t1")
+        task = AudioTask(data={"text": "日本語テスト", "speaker": "Ñoño"})
         writer.process(task)
 
         loaded = json.loads(out.read_text().strip())
@@ -470,7 +467,7 @@ class TestManifestWriterStage:
             ],
             "stats": {"lost_bw": 3, "lost_sr": 0},
         }
-        task = AudioTask(data=entry, task_id="t1")
+        task = AudioTask(data=entry)
         writer.process(task)
 
         loaded = json.loads(out.read_text().strip())
@@ -495,12 +492,12 @@ class TestManifestWriterRoundTrip:
         writer = ManifestWriterStage(output_path=str(out))
         writer.setup_on_node()
         writer.setup()
-        for i, entry in enumerate(sample_entries):
-            task = AudioTask(data=entry, task_id=f"t{i}")
+        for _i, entry in enumerate(sample_entries):
+            task = AudioTask(data=entry)
             writer.process(task)
 
         reader = ManifestReaderStage()
-        result = reader.process(FileGroupTask(task_id="rt", dataset_name="rt", data=[str(out)]))
+        result = reader.process(FileGroupTask(dataset_name="rt", data=[str(out)]))
 
         assert len(result) == len(sample_entries)
         for orig, audio_entry in zip(sample_entries, result, strict=True):

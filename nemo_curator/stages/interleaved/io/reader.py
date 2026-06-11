@@ -31,11 +31,11 @@ from nemo_curator.stages.interleaved.utils import (
     DEFAULT_WEBDATASET_EXTENSIONS,
     resolve_storage_options,
 )
-from nemo_curator.tasks import InterleavedBatch, _EmptyTask
+from nemo_curator.tasks import EmptyTask, InterleavedBatch
 
 
 @dataclass
-class InterleavedWebdatasetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
+class InterleavedWebdatasetReader(CompositeStage[EmptyTask, InterleavedBatch]):
     """Composite stage for reading WebDataset shards."""
 
     file_paths: str | list[str]
@@ -87,7 +87,7 @@ class InterleavedWebdatasetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
 
 
 @dataclass
-class InterleavedParquetReader(CompositeStage[_EmptyTask, InterleavedBatch]):
+class InterleavedParquetReader(CompositeStage[EmptyTask, InterleavedBatch]):
     """Composite stage for reading interleaved Parquet files."""
 
     file_paths: str | list[str]
