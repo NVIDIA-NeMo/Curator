@@ -1,0 +1,76 @@
+experiment_id: "e2e-multimodal-hybrid-real"
+description: "Small multimodal E2E run with real API and local model backends"
+output_dir: "../outputs"
+
+data_pools:
+  - name: "textcaps_val_image"
+    modality: "image"
+    root_dir: "../datasets/Datasets/TextCaps/val"
+    mapping_file: "pair_mapping.jsonl"
+    n_samples: 1
+  - name: "audiocaps_val_audio"
+    modality: "audio"
+    root_dir: "../datasets/Datasets/AudioCaps/val"
+    mapping_file: "pair_mapping.jsonl"
+    n_samples: 1
+  - name: "alfred_valid_video"
+    modality: "video"
+    root_dir: "../datasets/Datasets/ALFRED/valid"
+    mapping_file: "pair_mapping.jsonl"
+    n_samples: 1
+  - name: "conala_val_text"
+    modality: "text"
+    root_dir: "../datasets/Datasets/CoNaLa/val"
+    mapping_file: "pair_mapping.jsonl"
+    n_samples: 1
+
+sns:
+  enabled: true
+  backend: "hybrid"
+  direction: "bidirectional"
+  mi_ratio: 0.75
+  mi_eps: 0.05
+  tau_forward_text: 0.05
+  tau_forward_image: 0.10
+  tau_forward_audio: 0.10
+  tau_forward_video: 0.10
+  tau_backward: 0.10
+  nvidia_model: "nvidia/omni-embed-nemotron-3b"
+  grounding_dino_model_id: "IDEA-Research/grounding-dino-tiny"
+  amdetr_repo_id: "lighthouse-emnlp2024/AM-DETR"
+  cg_detr_checkpoint: "../model_files/best.ckpt"
+  require_forward_models: true
+  use_ann_components: true
+
+eee:
+  backend: "hybrid"
+  experts: ["text-based", "fusion", "e2e"]
+  embedding_dim: 2048
+  batch_size: 1
+  nvidia_api_base_url: "https://integrate.api.nvidia.com/v1"
+  nvidia_text_describer_model: "nvidia/nemotron-nano-12b-v2-vl"
+  nvidia_image_describer_model: "nvidia/nemotron-nano-12b-v2-vl"
+  nvidia_video_describer_model: "nvidia/nemotron-nano-12b-v2-vl"
+  nvidia_audio_describer_model: "google/gemma-3n-e4b-it"
+  nvidia_embedding_model: "nvidia/llama-nemotron-embed-1b-v2"
+  nvidia_multimodal_model: "nvidia/omni-embed-nemotron-3b"
+
+projection:
+  enabled: true
+  backend: "torch"
+  num_epochs: 1
+  batch_size: 4
+  hidden_layer_size: 256
+  contrastive_loss_weight: 0.99
+  bias_loss_weight: 0.01
+  scale_loss_weight: 0.0001
+
+datablend:
+  query: "household tasks, image captions, sounds, and code instructions"
+  top_k: 4
+  include_metadata: true
+
+runtime:
+  device: "auto"
+  dtype: "float32"
+  offline_mode: false
