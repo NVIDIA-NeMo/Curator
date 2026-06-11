@@ -99,7 +99,11 @@ def _resolve_int_or_env_name(value: int | str, label: str) -> int:
     if env_value is None:
         msg = f"{label} references environment variable {value}, but it is not set"
         raise ValueError(msg)
-    return int(env_value)
+    try:
+        return int(env_value)
+    except ValueError as e:
+        msg = f"{label} references environment variable {value}, which must contain an integer, got {env_value!r}"
+        raise ValueError(msg) from e
 
 
 def _is_driver_process(use_slurm: bool) -> bool:

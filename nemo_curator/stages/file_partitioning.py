@@ -44,7 +44,11 @@ def _get_int_or_env_var(input_value: int | str | None, default_name: str | None 
     if env_value is None:
         msg = f"Environment variable {env_var} is not set"
         raise ValueError(msg)
-    return int(env_value)
+    try:
+        return int(env_value)
+    except ValueError as e:
+        msg = f"Environment variable {env_var} must contain an integer, got {env_value!r}"
+        raise ValueError(msg) from e
 
 
 @dataclass

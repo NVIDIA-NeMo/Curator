@@ -342,6 +342,21 @@ class TestFilePartitioningStage:
                 enable_array_partitioning=True,
             )
 
+    def test_enable_array_partitioning_rejects_non_integer_env_var(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Test that non-integer shard env vars raise a contextual error."""
+        monkeypatch.setenv("CUSTOM_SHARD_INDEX", "not-an-int")
+
+        with pytest.raises(ValueError, match="CUSTOM_SHARD_INDEX.*not-an-int"):
+            FilePartitioningStage(
+                file_paths="/test/path",
+                enable_array_partitioning=True,
+                shard_index="CUSTOM_SHARD_INDEX",
+                total_shards=4,
+            )
+
     def test_enable_array_partitioning_requires_positive_total_shards(self):
         """Test that array partitioning rejects non-positive shard counts."""
         with pytest.raises(ValueError, match="total_shards must be greater than 0"):
