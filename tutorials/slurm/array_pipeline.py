@@ -119,7 +119,7 @@ def _retry_manifest_prefix(
     )
 
 
-def _retry_manifest_payload(
+def _retry_manifest_payload(  # noqa: PLR0913
     shard_index: int,
     total_shards: int,
     minimum_shard_index: int,
