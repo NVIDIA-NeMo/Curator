@@ -23,6 +23,56 @@ from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_s
 from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayDataStageAdapter
+from .utils import compute_joint_initial_allocation, is_actor_stage
+
+# ---------------------------------------------------------------------------
+# Xenna-profiled stage speeds (items/s per actor), recorded from the
+# 2026-05-28 benchmark run.  Stage speeds are pipeline-specific because clip
+# duration (and therefore work-per-item) varies between pipelines.
+# ---------------------------------------------------------------------------
+_SPEEDS_TRANSCODING: dict[str, float] = {
+    "ClipTranscodingStage": 0.658,
+    "ClipWriterStage": 39.7,
+}
+_SPEEDS_EMBEDDING: dict[str, float] = {
+    "ClipTranscodingStage": 0.645,
+    "ClipFrameExtractionStage": 3.618,
+    "CosmosEmbed1FrameCreationStage": 5.461,
+    "CosmosEmbed1EmbeddingStage": 9.856,
+    "ClipWriterStage": 36.7,
+}
+_SPEEDS_CAPTIONING: dict[str, float] = {
+    "CaptionEnhancementStage": 0.0996,
+    "CaptionGenerationStage": 0.1562,
+    "CaptionPreparationStage": 0.8121,
+    "ClipTranscodingStage": 0.637,
+    "ClipWriterStage": 39.9,
+}
+_SPEEDS_TRANSNETV2: dict[str, float] = {
+    "VideoFrameExtractionStage": 2.993,
+    "TransNetV2ClipExtractionStage": 16.84,
+    "ClipTranscodingStage": 0.764,
+    "ClipAestheticFilterStage": 67.84,
+    "CosmosEmbed1FrameCreationStage": 650.5,
+    "CosmosEmbed1EmbeddingStage": 836.6,
+    "ClipFrameExtractionStage": 711.7,
+    "ClipWriterStage": 40.8,
+}
+
+
+def _get_pipeline_speeds(actor_stages: list) -> "dict[str, float] | None":
+    """Return the Xenna speed table that matches the given actor-stage set, or None."""
+    names = {s.__class__.__name__ for s in actor_stages}
+    if "CaptionEnhancementStage" in names:
+        return _SPEEDS_CAPTIONING
+    if "TransNetV2ClipExtractionStage" in names:
+        return _SPEEDS_TRANSNETV2
+    if "CosmosEmbed1EmbeddingStage" in names:
+        return _SPEEDS_EMBEDDING
+    if "ClipTranscodingStage" in names:
+        return _SPEEDS_TRANSCODING
+    return None
+
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
@@ -77,6 +127,18 @@ class RayDataExecutor(BaseExecutor):
             execute_setup_on_node(stages, ignore_head_node=self.ignore_head_node)
             logger.info(f"Setup on node complete for all stages. Starting Ray Data pipeline with {len(stages)} stages")
 
+            # Compute joint initial allocation across all actor stages so that
+            # total resource demand stays within cluster capacity (mirrors Xenna startup).
+            _cluster = ray.cluster_resources()
+            _avail_cpus = _cluster.get("CPU", 0)
+            _avail_gpus = _cluster.get("GPU", 0)
+            _actor_stages = [s for s in stages if is_actor_stage(s) and s.num_workers() is None]
+            _stage_speeds = _get_pipeline_speeds(_actor_stages)
+            joint_allocation = compute_joint_initial_allocation(
+                _actor_stages, _avail_cpus, _avail_gpus, stage_speeds=_stage_speeds
+            )
+            logger.info(f"Joint initial allocation: {joint_allocation}")
+
             # Process through each stage
             for i, stage in enumerate(stages):
                 # TODO: add pipeline level config for verbosity
@@ -87,7 +149,10 @@ class RayDataExecutor(BaseExecutor):
                 adapter = RayDataStageAdapter(stage)
 
                 # Apply stage transformation
-                current_dataset = adapter.process_dataset(current_dataset, self.ignore_head_node)
+                initial_replicas = joint_allocation.get(stage.__class__.__name__)
+                current_dataset = adapter.process_dataset(
+                    current_dataset, self.ignore_head_node, initial_replicas=initial_replicas
+                )
         except Exception as e:
             logger.error(f"Error during pipeline execution: {e}")
             raise
