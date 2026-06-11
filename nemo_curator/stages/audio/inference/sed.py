@@ -170,7 +170,16 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
         _skip_indices: set[int] | None = None
         if self.skip_if_output_exists:
-            _skip_indices = {i for i, t in enumerate(tasks) if t.data.get("_sed_framewise") is not None}
+            _skip_indices = {
+                i
+                for i, t in enumerate(tasks)
+                if (
+                    t.data.get("_sed_framewise") is not None
+                    and t.data.get("sed_valid_frames") is not None
+                    and t.data.get("sed_fps") is not None
+                    and (not self.save_npz or t.data.get("npz_filepath") is not None)
+                )
+            }
             if len(_skip_indices) == len(tasks):
                 return tasks
             if _skip_indices:
@@ -186,7 +195,8 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         )
 
         if not valid_indices:
-            logger.info(f"SED batch: all {len(tasks)} tasks skipped (no valid waveforms)")
+            reason = "output already exists" if _skip_indices else "no valid waveforms"
+            logger.info(f"SED batch: all {len(tasks)} tasks skipped ({reason})")
             return tasks
 
         min_input = max(self.window_size, self.hop_size * 32)

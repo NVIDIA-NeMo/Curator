@@ -184,10 +184,15 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
             if not self.keep_waveform:
                 for task in tasks:
                     task.data.pop(self.waveform_key, None)
-            if output_exists_skipped:
+            if output_exists_skipped and not lang_skipped:
                 logger.info(f"FasterWhisper: skipped entire batch of {len(tasks)} (output already exists)")
-            else:
+            elif lang_skipped and not output_exists_skipped:
                 logger.info(f"FasterWhisper: skipped entire batch of {len(tasks)} (no supported languages)")
+            else:
+                logger.info(
+                    f"FasterWhisper: skipped entire batch of {len(tasks)} "
+                    f"({output_exists_skipped} output exists, {lang_skipped} unsupported language)"
+                )
             return tasks
 
         eligible_tasks = [tasks[i] for i in eligible_indices]
