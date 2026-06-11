@@ -66,7 +66,7 @@ dependencies = [
     "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data] @ https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-3.0.0.dev0-cp313-cp313-manylinux2014_x86_64.whl ; python_version == '3.13' and platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    "ray[default,data]>=2.55.1",  # nightly wheel routed per (python, arch) via [tool.uv.sources]
     "torch",
     "transformers",
 ]
@@ -431,6 +431,14 @@ torchvision = [
 torchcodec = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+# Route the Ray nightly wheel per (python, arch); the dependency stays a clean
+# ray[default,data]>=2.55.1. Re-pinned by re-locking, not frozen. aarch64/other
+# resolve ray from PyPI via the >= floor (avoids ray[llm]'s default cu130 vllm on aarch64).
+ray = [
+    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-3.0.0.dev0-cp311-cp311-manylinux2014_x86_64.whl", marker = "python_version == '3.11' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-3.0.0.dev0-cp312-cp312-manylinux2014_x86_64.whl", marker = "python_version == '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-3.0.0.dev0-cp313-cp313-manylinux2014_x86_64.whl", marker = "python_version == '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 ai-dynamo = { index = "nvidia" }
 ai-dynamo-runtime = { index = "nvidia" }

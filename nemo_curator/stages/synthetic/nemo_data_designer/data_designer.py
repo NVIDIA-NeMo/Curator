@@ -85,6 +85,20 @@ class DataDesignerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         init_kwargs = {f.name: copy.deepcopy(getattr(self, f.name), memo) for f in fields(self) if f.init}
         return self.__class__(**init_kwargs)
 
+    def __getstate__(self) -> dict:
+        """Pickle only the dataclass init fields; drop the runtime ``data_designer`` /
+        ``config_builder`` built in ``__post_init__``.
+
+        Ray serializes each stage to its actors via pickle (a different path from the
+        ``__deepcopy__`` above). The live ``DataDesigner`` holds an unpickleable
+        ``duckdb.DuckDBPyConnection`` (thread lock) cached under hf-hub>=1.0, so pickling
+        the live object fails with ``cannot pickle '_thread.lock'``. Rebuild on unpickle.
+        """
+        return {f.name: getattr(self, f.name) for f in fields(self) if f.init}
+
+    def __setstate__(self, state: dict) -> None:
+        self.__init__(**state)
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
