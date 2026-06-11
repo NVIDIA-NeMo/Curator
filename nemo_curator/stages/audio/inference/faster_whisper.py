@@ -83,6 +83,7 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
     language_key: str = "asr_language"
     notes_key: str = "additional_notes"
     keep_waveform: bool = False
+    skip_if_output_exists: bool = False
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
@@ -164,7 +165,11 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
 
         eligible_indices: list[int] = []
         eligible_lang_codes: list[str] = []
+        output_exists_skipped = 0
         for i, task in enumerate(tasks):
+            if self.skip_if_output_exists and task.data.get(self.pred_text_key):
+                output_exists_skipped += 1
+                continue
             raw_lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
             lang = MODEL_LANG_CODE_TO_WHISPER.get(raw_lang, raw_lang)
             if lang not in WHISPER_LARGE_V3_LANGS:
@@ -174,12 +179,20 @@ class InferenceFasterWhisperStage(ProcessingStage[AudioTask, AudioTask]):
                 eligible_indices.append(i)
                 eligible_lang_codes.append(lang)
 
-        lang_skipped = len(tasks) - len(eligible_indices)
+        lang_skipped = len(tasks) - len(eligible_indices) - output_exists_skipped
         if not eligible_indices:
             if not self.keep_waveform:
                 for task in tasks:
                     task.data.pop(self.waveform_key, None)
-            logger.info(f"FasterWhisper: skipped entire batch of {len(tasks)} (no supported languages)")
+            if output_exists_skipped and not lang_skipped:
+                logger.info(f"FasterWhisper: skipped entire batch of {len(tasks)} (output already exists)")
+            elif lang_skipped and not output_exists_skipped:
+                logger.info(f"FasterWhisper: skipped entire batch of {len(tasks)} (no supported languages)")
+            else:
+                logger.info(
+                    f"FasterWhisper: skipped entire batch of {len(tasks)} "
+                    f"({output_exists_skipped} output exists, {lang_skipped} unsupported language)"
+                )
             return tasks
 
         eligible_tasks = [tasks[i] for i in eligible_indices]

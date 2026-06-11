@@ -92,6 +92,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     top_k: int = 1
     prep_workers: int = 8
     keep_waveform: bool = False
+    skip_if_output_exists: bool = False
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 32
@@ -193,7 +194,13 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
                 task.data.setdefault(self.disfluency_text_key, "")
 
         eligible_indices: list[int] = []
+        output_exists_skipped = 0
         for i, task in enumerate(tasks):
+            if self.skip_if_output_exists and task.data.get(self.pred_text_key):
+                if not self.keep_waveform:
+                    task.data.pop(self.waveform_key, None)
+                output_exists_skipped += 1
+                continue
             lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
             if lang not in QWEN3_OMNI_SPEECH_INPUT_LANGS:
                 set_note(task.data, self.name, f"skipped (unsupported language: {lang})", self.notes_key)
@@ -203,9 +210,17 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
             else:
                 eligible_indices.append(i)
 
-        lang_skipped = len(tasks) - len(eligible_indices)
+        lang_skipped = len(tasks) - len(eligible_indices) - output_exists_skipped
         if not eligible_indices:
-            logger.info(f"QwenOmni: skipped entire batch of {len(tasks)} (no supported languages)")
+            if output_exists_skipped and not lang_skipped:
+                logger.info(f"QwenOmni: skipped entire batch of {len(tasks)} (output already exists)")
+            elif lang_skipped and not output_exists_skipped:
+                logger.info(f"QwenOmni: skipped entire batch of {len(tasks)} (no supported languages)")
+            else:
+                logger.info(
+                    f"QwenOmni: skipped entire batch of {len(tasks)} "
+                    f"({output_exists_skipped} output exists, {lang_skipped} unsupported language)"
+                )
             return tasks
 
         eligible_tasks = [tasks[i] for i in eligible_indices]

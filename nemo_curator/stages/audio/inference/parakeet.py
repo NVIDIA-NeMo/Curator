@@ -76,6 +76,7 @@ class InferenceParakeetStage(ProcessingStage[AudioTask, AudioTask]):
     notes_key: str = "additional_notes"
     source_lang_key: str = "source_lang"
     keep_waveform: bool = False
+    skip_if_output_exists: bool = False
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
     batch_size: int = 128
@@ -159,7 +160,11 @@ class InferenceParakeetStage(ProcessingStage[AudioTask, AudioTask]):
 
         accepted_langs = self.supported_langs or PARAKEET_TDT_0_6B_V3_LANGS
         eligible_indices: list[int] = []
+        output_exists_skipped = 0
         for i, task in enumerate(tasks):
+            if self.skip_if_output_exists and task.data.get(self.pred_text_key):
+                output_exists_skipped += 1
+                continue
             lang = str(task.data.get(self.source_lang_key, "") or "").strip().lower()
             if lang not in accepted_langs:
                 set_note(task.data, self.name, f"skipped (unsupported language: {lang})", self.notes_key)
@@ -167,12 +172,20 @@ class InferenceParakeetStage(ProcessingStage[AudioTask, AudioTask]):
             else:
                 eligible_indices.append(i)
 
-        lang_skipped = len(tasks) - len(eligible_indices)
+        lang_skipped = len(tasks) - len(eligible_indices) - output_exists_skipped
         if not eligible_indices:
             if not self.keep_waveform:
                 for task in tasks:
                     task.data.pop(self.waveform_key, None)
-            logger.info(f"Parakeet: skipped entire batch of {len(tasks)} (no supported languages)")
+            if output_exists_skipped and not lang_skipped:
+                logger.info(f"Parakeet: skipped entire batch of {len(tasks)} (output already exists)")
+            elif lang_skipped and not output_exists_skipped:
+                logger.info(f"Parakeet: skipped entire batch of {len(tasks)} (no supported languages)")
+            else:
+                logger.info(
+                    f"Parakeet: skipped entire batch of {len(tasks)} "
+                    f"({output_exists_skipped} output exists, {lang_skipped} unsupported language)"
+                )
             return tasks
 
         eligible_tasks = [tasks[i] for i in eligible_indices]
