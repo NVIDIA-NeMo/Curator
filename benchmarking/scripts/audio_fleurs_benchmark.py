@@ -45,7 +45,7 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 DEFAULT_FLEURS_CACHE_DIR = "/tmp/curator/fleurs_cache"  # noqa: S108
 
 
-def run_audio_fleurs_benchmark(  # noqa: PLR0913
+def run_audio_fleurs_benchmark(  # noqa: PLR0913, PLR0915
     benchmark_results_path: str,
     scratch_output_path: str,
     model_name: str,
