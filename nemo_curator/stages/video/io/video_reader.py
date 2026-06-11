@@ -21,7 +21,7 @@ from loguru import logger
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.client_partitioning import ClientPartitioningStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import _EmptyTask
+from nemo_curator.tasks import EmptyTask
 from nemo_curator.tasks.file_group import FileGroupTask
 from nemo_curator.tasks.video import Video, VideoTask
 from nemo_curator.utils.client_utils import FSPath, is_remote_url
@@ -233,7 +233,7 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
 
 
 @dataclass
-class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
+class VideoReader(CompositeStage[EmptyTask, VideoTask]):
     """Composite stage that reads video files from storage and downloads/processes them.
 
     This stage combines FilePartitioningStage and VideoReaderStage into a single

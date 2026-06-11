@@ -26,11 +26,11 @@ from loguru import logger
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig, LLMClient
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import DocumentBatch, _EmptyTask
+from nemo_curator.tasks import DocumentBatch, EmptyTask
 
 
 @dataclass
-class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
+class QAMultilingualSyntheticStage(ProcessingStage[EmptyTask, DocumentBatch]):
     """
     A simple stage for generating synthetic data. It takes in Empty task and a prompt and produces the output in form of a DocumentBatch.
     """
@@ -55,7 +55,7 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self.client.setup()
 
-    def process(self, _: _EmptyTask) -> DocumentBatch:
+    def process(self, _: EmptyTask) -> DocumentBatch:
         responses = self._process_async() if self.is_async_client else self._process_sync()
 
         return DocumentBatch(data=pd.DataFrame({"text": responses}), dataset_name="simple_synthetic_data")

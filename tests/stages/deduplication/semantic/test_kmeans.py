@@ -250,7 +250,7 @@ class TestKMeansStageIntegration:
         We assert the names match that deterministic pattern (never a random
         ``r<uuid>`` fallback) and that the centroid partitioning is correct.
 
-        Note: the pipeline's result tasks are terminal ``_EmptyTask`` signals
+        Note: the pipeline's result tasks are terminal ``EmptyTask`` signals
         whose ids are framework-assigned (and, for this aggregating stage, the
         non-deterministic ``r<uuid>`` fallback) — they are intentionally NOT
         tied to the output filenames, which are derived from the input ids.

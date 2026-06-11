@@ -24,11 +24,11 @@ from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
 @dataclass
-class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
+class PDFPartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     """Read a JSONL manifest and produce FileGroupTasks for downstream processing.
 
     Each line in the JSONL file must contain at least a ``file_name`` field.
@@ -122,7 +122,7 @@ class PDFPartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
         return entries
 
-    def process(self, _: _EmptyTask) -> list[FileGroupTask]:
+    def process(self, _: EmptyTask) -> list[FileGroupTask]:
         entries = self._parse_manifest()
 
         tasks: list[FileGroupTask] = []
