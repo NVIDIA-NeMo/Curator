@@ -12,14 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+FLEURS audio curation pipeline for NeMo Curator.
+
+Downloads a FLEURS split, runs ASR, scores WER, filters by threshold, and
+writes a JSONL manifest — all driven by ``pipeline.yaml`` via Hydra.
+
+Usage (from Curator repo root)::
+
+    python tutorials/audio/fleurs/main.py \\
+        --config-path . \\
+        --config-name pipeline \\
+        raw_data_dir=./example_audio/fleurs
+
+    python tutorials/audio/fleurs/main.py \\
+        --config-path . \\
+        --config-name pipeline \\
+        raw_data_dir=./example_audio/fleurs \\
+        lang=en_us \\
+        stages.1.model_name=nvidia/parakeet-tdt-0.6b-v2 \\
+        wer_threshold=25.0 \\
+        backend=ray_data
+"""
+
 import importlib
 
 import hydra
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
+from nemo_curator.config.run import create_pipeline_from_yaml
 from nemo_curator.core.client import RayClient
-from nemo_curator.pipeline import Pipeline
 
 _EXECUTOR_FACTORIES = {
     "xenna": "nemo_curator.backends.xenna:XennaExecutor",
@@ -34,24 +57,14 @@ def _create_executor(backend: str) -> object:
     return cls()
 
 
-def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
-    pipeline = Pipeline(name="yaml_pipeline", description="Pipeline created using yaml config file")
-    for p in cfg.processors:
-        stage = hydra.utils.instantiate(p)
-        pipeline.add_stage(stage)
-    return pipeline
-
-
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
-    """
-    Prepare pipeline and run YAML pipeline.
-    """
+    """Run the FLEURS pipeline using Hydra configuration."""
     ray_client = RayClient()
     try:
         ray_client.start()
-        logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
-        pipeline = create_pipeline_from_yaml(cfg)
+        logger.info(f"Hydra config:\n{OmegaConf.to_yaml(cfg)}")
+        pipeline = create_pipeline_from_yaml(cfg, log_config=False)
 
         logger.info(pipeline.describe())
         logger.info("\n" + "=" * 50 + "\n")

@@ -197,16 +197,20 @@ def main() -> int:
         "--raw-data-dir",
         default=None,
         help=(
-            "Path to a pre-staged FLEURS dataset dir (containing <split>.tsv and <split>/) "
-            "produced by benchmarking/data_prep/prepare_fleurs_data.py. Use with "
-            "--no-auto-download to avoid re-fetching from Hugging Face."
+            "Parent workspace directory for FLEURS staging (the same path passed to "
+            "prepare_fleurs_data.py --output-path). Pre-staged data lives under "
+            "<raw-data-dir>/<lang>/<split>.tsv and <raw-data-dir>/<lang>/<split>/. "
+            "Use with --no-auto-download and --lang to avoid re-fetching from Hugging Face."
         ),
     )
     parser.add_argument(
         "--no-auto-download",
         dest="auto_download",
         action="store_false",
-        help="Disable runtime Hugging Face download; read the pre-staged --raw-data-dir instead.",
+        help=(
+            "Disable runtime Hugging Face download; read pre-staged data from "
+            "<raw-data-dir>/<lang>/ instead."
+        ),
     )
     parser.set_defaults(auto_download=True)
     parser.add_argument(

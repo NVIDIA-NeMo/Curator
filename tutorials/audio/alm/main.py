@@ -49,7 +49,7 @@ import importlib
 
 import hydra
 from loguru import logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from nemo_curator.config.run import create_pipeline_from_yaml
 from nemo_curator.core.client import RayClient
@@ -74,7 +74,8 @@ def main(cfg: DictConfig) -> None:
     ray_client = RayClient()
     try:
         ray_client.start()
-        pipeline = create_pipeline_from_yaml(cfg)
+        logger.info(f"Hydra config:\n{OmegaConf.to_yaml(cfg)}")
+        pipeline = create_pipeline_from_yaml(cfg, log_config=False)
 
         logger.info(pipeline.describe())
         logger.info("\n" + "=" * 50 + "\n")

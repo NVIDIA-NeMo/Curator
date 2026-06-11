@@ -33,11 +33,12 @@ PIPELINE COMPLETE
 ```bash
 uv sync --extra audio_cuda12 && source .venv/bin/activate
 
-python tutorials/audio/fleurs/pipeline.py \
-  --raw_data_dir ./example_audio/fleurs \
-  --lang en_us --split dev --gpus 1 \
-  --model_name nvidia/parakeet-tdt-0.6b-v2 \
-  --wer_threshold 75 --clean
+python tutorials/audio/fleurs/main.py \
+  --config-path . --config-name pipeline \
+  raw_data_dir=./example_audio/fleurs \
+  lang=en_us \
+  stages.1.model_name=nvidia/parakeet-tdt-0.6b-v2 \
+  stages.1.resources.gpus=1
 ```
 
 ## Which tutorial should I use?

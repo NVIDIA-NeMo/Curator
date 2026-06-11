@@ -112,7 +112,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
             audio_root: Directory containing the extracted ``.wav`` files.
         """
         entries: list[AudioTask] = []
-        min_num_parts = 2
+        min_num_parts = 3
         with open(file_path, encoding="utf-8") as fin:
             for line in fin:
                 parts = line.strip().split("\t")
