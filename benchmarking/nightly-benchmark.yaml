@@ -124,7 +124,7 @@ datasets:
   - name: "fleurs_hy_am"
     formats:
     - type: "files"
-      path: "{datasets_path}/fleurs/hy_am"
+      path: "{datasets_path}/fleurs"
 # Timeout knobs consumed by tools/generate_ci_tests.py to compute each SLURM job's wall-clock:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; cleanup_timeout_s: post-run cleanup buffer; min_timeout_s:

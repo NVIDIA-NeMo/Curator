@@ -43,7 +43,7 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioTask, _EmptyTask
+from nemo_curator.tasks import AudioTask, EmptyTask
 
 COLLAR = 0.25
 CKPT_HASH_KEY = "_ckpt_hash"
@@ -129,7 +129,7 @@ def parse_args() -> argparse.Namespace:
 
 
 @dataclass
-class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioTask]):
+class CallHomeReaderStage(ProcessingStage[EmptyTask, AudioTask]):
     """Discover CallHome WAV files with matching .cha annotations, skipping already-processed."""
 
     data_dir: str = ""
@@ -147,7 +147,7 @@ class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioTask]):
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers_per_node": 1}
 
-    def process(self, task: _EmptyTask) -> list[AudioTask]:  # noqa: ARG002
+    def process(self, task: EmptyTask) -> list[AudioTask]:  # noqa: ARG002
         cha_path = Path(self.cha_dir)
         done = {p.stem for p in Path(self.rttm_out_dir).glob("*.rttm")} if self.rttm_out_dir else set()
         tasks: list[AudioTask] = []

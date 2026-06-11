@@ -45,7 +45,7 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 DEFAULT_FLEURS_CACHE_DIR = "/tmp/curator/fleurs_cache"  # noqa: S108
 
 
-def run_audio_fleurs_benchmark(  # noqa: PLR0913
+def run_audio_fleurs_benchmark(  # noqa: PLR0913, PLR0915
     benchmark_results_path: str,
     scratch_output_path: str,
     model_name: str,
@@ -57,6 +57,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     raw_data_dir: str | None = None,
     auto_download: bool = True,
     cache_dir: str | None = None,
+    execution_mode: str | None = None,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the audio fleurs benchmark and collect comprehensive metrics."""
@@ -72,7 +73,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         data_dir = Path(raw_data_dir)
         hf_cache_dir = None
     else:
-        data_dir = scratch_output_path / lang / "fleurs"
+        data_dir = scratch_output_path / "fleurs"
         hf_cache_dir = str(cache_dir or os.environ.get("CURATOR_FLEURS_CACHE_DIR") or DEFAULT_FLEURS_CACHE_DIR)
 
     run_start_time = time.perf_counter()
@@ -84,6 +85,8 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
 
         logger.info("Starting audio fleurs benchmark")
         logger.info(f"Executor: {executor}")
+        if execution_mode:
+            logger.info(f"Execution mode: {execution_mode}")
         logger.info(f"Model: {model_name}")
         logger.info(f"Language: {lang}")
         logger.info(f"Split: {split}")
@@ -93,7 +96,8 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
         logger.info(f"HF cache dir: {hf_cache_dir}")
         logger.info(f"Data dir: {data_dir}")
 
-        executor_obj = setup_executor(executor)
+        executor_config = {"execution_mode": execution_mode} if execution_mode else None
+        executor_obj = setup_executor(executor, config=executor_config)
         pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
 
         pipeline.add_stage(
@@ -193,16 +197,20 @@ def main() -> int:
         "--raw-data-dir",
         default=None,
         help=(
-            "Path to a pre-staged FLEURS dataset dir (containing <split>.tsv and <split>/) "
-            "produced by benchmarking/data_prep/prepare_fleurs_data.py. Use with "
-            "--no-auto-download to avoid re-fetching from Hugging Face."
+            "Parent workspace directory for FLEURS staging (the same path passed to "
+            "prepare_fleurs_data.py --output-path). Pre-staged data lives under "
+            "<raw-data-dir>/<lang>/<split>.tsv and <raw-data-dir>/<lang>/<split>/. "
+            "Use with --no-auto-download and --lang to avoid re-fetching from Hugging Face."
         ),
     )
     parser.add_argument(
         "--no-auto-download",
         dest="auto_download",
         action="store_false",
-        help="Disable runtime Hugging Face download; read the pre-staged --raw-data-dir instead.",
+        help=(
+            "Disable runtime Hugging Face download; read pre-staged data from "
+            "<raw-data-dir>/<lang>/ instead."
+        ),
     )
     parser.set_defaults(auto_download=True)
     parser.add_argument(
@@ -212,6 +220,13 @@ def main() -> int:
             "Hugging Face cache directory used only for standalone auto-download runs so "
             f"repeated runs reuse it. Defaults to $CURATOR_FLEURS_CACHE_DIR or {DEFAULT_FLEURS_CACHE_DIR}."
         ),
+    )
+    parser.add_argument(
+        "--execution-mode",
+        type=str,
+        default=None,
+        choices=["streaming", "batch"],
+        help="Xenna execution mode (streaming or batch). Only applies to xenna executor.",
     )
 
     args = parser.parse_args()
@@ -226,6 +241,7 @@ def main() -> int:
         },
         "tasks": [],
     }
+
     try:
         results.update(run_audio_fleurs_benchmark(**vars(args)))
     finally:
