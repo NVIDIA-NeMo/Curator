@@ -15,6 +15,10 @@
 import argparse
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nemo_curator.core.client import RayClient
 
 
 def attach_ray_client_args(parser: argparse.ArgumentParser) -> None:
@@ -41,7 +45,7 @@ def attach_ray_client_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--metrics-dir", type=str, default=None)
 
 
-def create_ray_client(args: argparse.Namespace) -> "nemo_curator.core.client.RayClient":
+def create_ray_client(args: argparse.Namespace) -> "RayClient":
     from nemo_curator.core.client import RayClient
 
     return RayClient(

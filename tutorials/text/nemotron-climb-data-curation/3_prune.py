@@ -28,13 +28,13 @@ from loguru import logger
 from scipy.cluster.hierarchy import fcluster, linkage
 from utils import attach_ray_client_args, centroid_id, create_ray_client, list_centroid_dirs
 
-import nemo_curator.utils.hash_utils import get_deterministic_hash
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.text.filters import DocumentFilter, Score
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.client_utils import is_remote_url
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 
 def preprocess_text(text: str) -> str:
