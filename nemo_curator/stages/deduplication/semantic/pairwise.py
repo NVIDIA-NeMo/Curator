@@ -26,7 +26,7 @@ from loguru import logger
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.file_utils import check_disallowed_kwargs
 
 from .pairwise_io import ClusterWiseFilePartitioningStage
@@ -251,7 +251,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
 
 
 @dataclass
-class PairwiseStage(CompositeStage[_EmptyTask, FileGroupTask]):
+class PairwiseStage(CompositeStage[EmptyTask, FileGroupTask]):
     """Pairwise similarity stage for semantic deduplication."""
 
     # Required parameters

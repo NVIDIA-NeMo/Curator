@@ -18,16 +18,15 @@ from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.tasks import Task
-from nemo_curator.tasks.tasks import _EmptyTask
+from nemo_curator.tasks import EmptyTask, Task
 
 
 def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
     """Assign root ``task_id``s to user-provided initial tasks.
 
     Every task in a run descends from the implicit root ``"0"`` (the id of
-    :class:`_EmptyTask`). User-provided initial tasks are its direct
-    children, so they get ``"0_0"``, ``"0_1"``, … ``_EmptyTask`` instances
+    :class:`EmptyTask`). User-provided initial tasks are its direct
+    children, so they get ``"0_0"``, ``"0_1"``, … ``EmptyTask`` instances
     are skipped (already ``"0"``). All downstream ``task_id`` assignment
     happens in ``BaseStageAdapter``.
 
@@ -40,7 +39,7 @@ def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
     source ids, let a source stage emit them.
     """
     for i, task in enumerate(initial_tasks):
-        if isinstance(task, _EmptyTask):
+        if isinstance(task, EmptyTask):
             continue
         task._set_task_id("0", i)
     return initial_tasks

@@ -120,28 +120,3 @@ class Task(ABC, Generic[T]):
     @abstractmethod
     def validate(self) -> bool:
         """Validate the task data."""
-
-
-@dataclass
-class _EmptyTask(Task[None]):
-    """Placeholder input that seeds a pipeline (e.g. for ``ls``/source stages).
-
-    Its ``task_id`` is fixed to ``"0"`` — the implicit root that every task
-    in a run descends from, so all ``task_id``s
-    share the ``"0"`` prefix (source partitions become ``"0_<id>"``,
-    user-provided initial tasks become ``"0_0"``, ``"0_1"``, …).
-    """
-
-    task_id: str = field(init=False, default="0")
-
-    @property
-    def num_items(self) -> int:
-        return 0
-
-    def validate(self) -> bool:
-        """Validate the task data."""
-        return True
-
-
-# Empty tasks are just used for `ls` stages
-EmptyTask = _EmptyTask(dataset_name="empty", data=None)

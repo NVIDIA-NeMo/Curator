@@ -58,7 +58,7 @@ class RayDataExecutor(BaseExecutor):
         # This prevents verbose logging from Ray Data about serialization of the dataclass
         DataContext.get_current().enable_fallback_to_arrow_object_ext_type = True
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
-        tasks: list[Task] = initial_tasks or [EmptyTask]
+        tasks: list[Task] = initial_tasks or [EmptyTask()]
         output_tasks: list[Task] = []
         # When runtime_env with pip is used, Ray's pip plugin sets up per-stage virtualenvs
         # lazily on first task dispatch by cloning the current virtualenv. The NeMo Curator
