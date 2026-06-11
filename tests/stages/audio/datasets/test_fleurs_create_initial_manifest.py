@@ -74,19 +74,27 @@ def test_inputs_outputs(tmp_path: Path) -> None:
     assert stage.outputs() == ([], ["audio_filepath", "text"])
 
 
+def test_language_data_dir_is_namespaced_per_language(tmp_path: Path) -> None:
+    stage_cls, _ = _import_stage_module()
+    raw = str(tmp_path / "fleurs")
+    hy = stage_cls(lang="hy_am", split="dev", raw_data_dir=raw)
+    en = stage_cls(lang="en_us", split="dev", raw_data_dir=raw)
+    assert hy.language_data_dir() != en.language_data_dir()
+    assert hy.language_data_dir().endswith(os.path.join("fleurs", "hy_am"))
+    assert en.language_data_dir().endswith(os.path.join("fleurs", "en_us"))
+
+
 def test_download_extract_files_stages_transcript(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     stage_cls, _ = _import_stage_module()
-    dst = tmp_path / "fleurs"
-    # The transcript comes from the HF cache (a dir distinct from dst) and must be
-    # copied next to the extracted audio so later runs find it on disk.
+    dst = tmp_path / "fleurs" / "en_us"
     hf_cache = tmp_path / "hf_cache"
     hf_cache.mkdir()
     hf_tsv = hf_cache / "dev.tsv"
     hf_tsv.write_text("0\tfile1.wav\thello\n", encoding="utf-8")
 
-    stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(dst))
+    stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(tmp_path / "fleurs"))
 
     with (
         patch(
@@ -98,17 +106,16 @@ def test_download_extract_files_stages_transcript(tmp_path: Path) -> None:
         tsv_path, audio_root = stage.download_extract_files(str(dst))
         assert mock_dl.call_count == 2
         mock_ext.assert_called_once()
-        # transcript is staged under <dst>/<split>.tsv; audio under <dst>/<split>.
         assert tsv_path == os.path.join(str(dst), "dev.tsv")
         assert audio_root == os.path.join(str(dst), "dev")
-        assert os.path.isfile(tsv_path)  # copied out of the HF cache
+        assert os.path.isfile(tsv_path)
 
 
 def test_process_downloads_once_when_missing(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     stage_cls, _ = _import_stage_module()
-    raw_dir = tmp_path / "fleurs"  # intentionally NOT pre-staged
+    raw_dir = tmp_path / "fleurs"
     hf_cache = tmp_path / "hf_cache"
     hf_cache.mkdir()
     hf_tsv = hf_cache / "dev.tsv"
@@ -125,7 +132,7 @@ def test_process_downloads_once_when_missing(tmp_path: Path) -> None:
         patch("nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.extract_archive"),
     ):
         results = stage.process(EmptyTask(dataset_name="test", data=None))
-    assert mock_dl.call_count == 2  # downloaded because nothing was staged yet
+    assert mock_dl.call_count == 2
     assert len(results) == 2
     assert results[0].data["text"] == "hello"
     assert results[1].data["text"] == "world"
@@ -135,10 +142,8 @@ def test_process_auto_download_reuses_when_present(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     stage_cls, _ = _import_stage_module()
-    lang_dir = _stage_prestaged_layout(tmp_path, lang="en_us", split="dev")
-    # auto_download defaults to True, but the dataset is already staged, so no
-    # download should occur ("auto-download only when never downloaded").
-    stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(lang_dir))
+    raw_dir = _stage_prestaged_layout(tmp_path, lang="en_us", split="dev")
+    stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(raw_dir))
     from nemo_curator.tasks import EmptyTask
 
     with patch(
@@ -151,46 +156,47 @@ def test_process_auto_download_reuses_when_present(tmp_path: Path) -> None:
 
 
 def _stage_prestaged_layout(tmp_path: Path, lang: str = "hy_am", split: str = "train") -> Path:
-    """Create the on-disk layout that prepare_fleurs_data.py produces: <lang>/<split>.tsv + <lang>/<split>/."""
-    lang_dir = tmp_path / "fleurs" / lang
+    """Create parent dir with per-language staging: <parent>/<lang>/<split>.tsv + <split>/."""
+    parent = tmp_path / "fleurs"
+    lang_dir = parent / lang
     audio_dir = lang_dir / split
     audio_dir.mkdir(parents=True)
     (lang_dir / f"{split}.tsv").write_text("0\tfile1.wav\thello\n1\tfile2.wav\tworld\n", encoding="utf-8")
     (audio_dir / "file1.wav").write_bytes(b"")
     (audio_dir / "file2.wav").write_bytes(b"")
-    return lang_dir
+    return parent
 
 
 def test_locate_prestaged_files_success(tmp_path: Path) -> None:
     stage_cls, _ = _import_stage_module()
-    lang_dir = _stage_prestaged_layout(tmp_path)
-    stage = stage_cls(lang="hy_am", split="train", raw_data_dir=str(lang_dir), auto_download=False)
+    raw_dir = _stage_prestaged_layout(tmp_path)
+    stage = stage_cls(lang="hy_am", split="train", raw_data_dir=str(raw_dir), auto_download=False)
 
-    tsv_path, audio_root = stage.locate_prestaged_files(str(lang_dir))
-    assert tsv_path == os.path.join(str(lang_dir), "train.tsv")
-    assert audio_root == os.path.join(str(lang_dir), "train")
+    tsv_path, audio_root = stage.locate_prestaged_files(stage.language_data_dir())
+    assert tsv_path == os.path.join(str(raw_dir), "hy_am", "train.tsv")
+    assert audio_root == os.path.join(str(raw_dir), "hy_am", "train")
 
 
 def test_locate_prestaged_files_missing_transcript_raises(tmp_path: Path) -> None:
     stage_cls, _ = _import_stage_module()
-    empty = tmp_path / "fleurs" / "hy_am"
+    raw_dir = tmp_path / "fleurs"
+    empty = raw_dir / "hy_am"
     empty.mkdir(parents=True)
-    stage = stage_cls(lang="hy_am", split="train", raw_data_dir=str(empty), auto_download=False)
+    stage = stage_cls(lang="hy_am", split="train", raw_data_dir=str(raw_dir), auto_download=False)
 
     with pytest.raises(FileNotFoundError, match="transcript not found"):
-        stage.locate_prestaged_files(str(empty))
+        stage.locate_prestaged_files(stage.language_data_dir())
 
 
 def test_process_no_download_reads_prestaged(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     stage_cls, _ = _import_stage_module()
-    lang_dir = _stage_prestaged_layout(tmp_path)
-    stage = stage_cls(lang="hy_am", split="train", raw_data_dir=str(lang_dir), auto_download=False)
+    raw_dir = _stage_prestaged_layout(tmp_path)
+    stage = stage_cls(lang="hy_am", split="train", raw_data_dir=str(raw_dir), auto_download=False)
 
     from nemo_curator.tasks import EmptyTask
 
-    # auto_download=False must NOT touch Hugging Face.
     with patch(
         "nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.hf_hub_download",
     ) as mock_dl:
@@ -213,18 +219,13 @@ def _import_prep_module() -> types.ModuleType:
 
 
 def test_prepare_fleurs_stage_dataset_does_not_recopy(tmp_path: Path) -> None:
-    """Regression: stage_dataset must not re-copy the transcript onto itself.
-
-    ``download_extract_files`` already stages the transcript at
-    ``<lang_dir>/<split>.tsv`` and returns that path, so an extra copy in the prep
-    script would raise ``shutil.SameFileError`` on every first-time staging run.
-    """
+    """Regression: stage_dataset must not re-copy the transcript onto itself."""
     from unittest.mock import patch
 
-    _import_stage_module()  # ensures the 'wget' stub is registered
+    _import_stage_module()
     prep = _import_prep_module()
 
-    output_path = tmp_path / "fleurs"  # prep creates <output_path>/<lang>/
+    output_path = tmp_path / "fleurs"
     hf_cache = tmp_path / "hf_cache" / "audio"
     hf_cache.mkdir(parents=True)
     hf_tsv = hf_cache.parent / "train.tsv"
@@ -240,20 +241,17 @@ def test_prepare_fleurs_stage_dataset_does_not_recopy(tmp_path: Path) -> None:
         ok = prep.stage_dataset(output_path, lang="hy_am", split="train", cache_dir=None)
 
     assert ok is True
-    # Transcript staged at <output_path>/<lang>/<split>.tsv, no SameFileError.
     assert (output_path / "hy_am" / "train.tsv").is_file()
 
 
 def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
     stage_cls, _ = _import_stage_module()
-    # Arrange: create fake dev.tsv and expected wav layout
     lang = "hy_am"
     split = "dev"
     raw_dir = tmp_path / "fleurs"
     audio_dir = raw_dir / split
     audio_dir.mkdir(parents=True)
 
-    # two rows, one malformed that should be skipped
     tsv_path = raw_dir / f"{split}.tsv"
     lines = [
         "idx\tfile1.wav\thello world\n",
@@ -262,16 +260,13 @@ def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
     ]
     tsv_path.write_text("".join(lines), encoding="utf-8")
 
-    # Create the expected audio files (names only needed for abspath join)
     (audio_dir / "file1.wav").write_bytes(b"")
     (audio_dir / "file2.wav").write_bytes(b"")
 
     stage = stage_cls(lang=lang, split=split, raw_data_dir=raw_dir.as_posix())
 
-    # Act
     batches = stage.process_transcript(tsv_path.as_posix(), audio_dir.as_posix())
 
-    # Each valid TSV line produces one AudioTask
     assert len(batches) == 2
     b0, b1 = batches
     assert b0.data[stage.filepath_key].endswith(os.path.join(split, "file1.wav"))

@@ -24,7 +24,7 @@ This script is NOT part of the nightly benchmark YAML -- it is run once (or
 whenever the dataset needs refreshing) on the benchmarking machine.
 
 Layout produced (consumed by ``CreateInitialManifestFleursStage`` with
-``auto_download=False`` and ``raw_data_dir=<output-path>/<lang>``)::
+``auto_download=False`` and ``raw_data_dir=<output-path>``)::
 
     <output-path>/<lang>/<split>.tsv     # transcript
     <output-path>/<lang>/<split>/*.wav   # extracted audio
@@ -42,13 +42,13 @@ Example usage::
     python prepare_fleurs_data.py --output-path /path/to/datasets/fleurs \\
         --lang hy_am --split train --verify-only
 
-After running this script, reference the output path in your benchmark YAML::
+After running this script, reference the parent output path in your benchmark YAML::
 
     datasets:
       - name: "fleurs_hy_am"
         formats:
           - type: "files"
-            path: "{datasets_path}/fleurs/hy_am"
+            path: "{datasets_path}/fleurs"
 """
 
 from __future__ import annotations
@@ -119,13 +119,13 @@ def stage_dataset(output_path: Path, lang: str, split: str, cache_dir: str | Non
     stage = CreateInitialManifestFleursStage(
         lang=lang,
         split=split,
-        raw_data_dir=str(lang_dir),
+        raw_data_dir=str(output_path),
         cache_dir=cache_dir,
         auto_download=True,
     )
     # download_extract_files stages the transcript at <lang_dir>/<split>.tsv and
     # extracts the audio into <lang_dir>/<split>/, returning both final paths.
-    tsv_path, audio_root = stage.download_extract_files(str(lang_dir))
+    tsv_path, audio_root = stage.download_extract_files(stage.language_data_dir())
     logger.info(f"Transcript staged at {tsv_path}")
 
     wav_count = _count_wavs(Path(audio_root))
