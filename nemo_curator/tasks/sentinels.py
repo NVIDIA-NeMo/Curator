@@ -13,9 +13,18 @@
 # limitations under the License.
 """Payload-less marker tasks.
 
-``EmptyTask`` seeds a pipeline (the implicit root id ``"0"``). All markers
-share the :class:`SentinelTask` base and carry no payload (``data is None``).
-Construct one with ``EmptyTask()``.
+``EmptyTask`` seeds a pipeline (the implicit root id ``"0"``). The resumability
+layer adds two more markers on the same :class:`SentinelTask` base:
+
+- ``NoneTask`` — this slot was intentionally filtered. The resumability counter
+  treats it as a consumed branch (decrements). The adapter auto-wraps a
+  returned ``None`` as a ``NoneTask``.
+- ``FailedTask`` — this slot failed and should be retried on resume. The counter
+  is NOT decremented, so its source stays pending and reruns.
+
+All carry no payload (``data is None``) and get their ``task_id`` assigned by
+the executor adapter; sentinels are stripped before the next stage. Construct
+with ``EmptyTask()`` / ``NoneTask()`` / ``FailedTask()``.
 """
 
 from dataclasses import dataclass, field
@@ -52,3 +61,17 @@ class EmptyTask(SentinelTask):
 
     dataset_name: str = "empty"
     task_id: str = field(init=False, default="0")
+
+
+@dataclass
+class NoneTask(SentinelTask):
+    """Marks a slot as intentionally filtered (resumability counter decrements)."""
+
+    dataset_name: str = "none"
+
+
+@dataclass
+class FailedTask(SentinelTask):
+    """Marks a slot as failed → retried on resume (counter does NOT decrement)."""
+
+    dataset_name: str = "failed"

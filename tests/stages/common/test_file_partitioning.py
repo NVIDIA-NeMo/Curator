@@ -349,7 +349,7 @@ class TestFilePartitioningStage:
         """Test that non-integer shard env vars raise a contextual error."""
         monkeypatch.setenv("CUSTOM_SHARD_INDEX", "not-an-int")
 
-        with pytest.raises(ValueError, match="CUSTOM_SHARD_INDEX.*not-an-int"):
+        with pytest.raises(ValueError, match=r"CUSTOM_SHARD_INDEX.*not-an-int"):
             FilePartitioningStage(
                 file_paths="/test/path",
                 enable_array_partitioning=True,

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from nemo_curator.core.utils import ignore_ray_head_node
 from nemo_curator.tasks import Task
+from nemo_curator.tasks.sentinels import FailedTask, NoneTask
 from nemo_curator.utils.performance_utils import StageTimer
 
 if TYPE_CHECKING:
@@ -85,8 +86,17 @@ class BaseStageAdapter:
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
 
+        # A returned ``None`` ("filter this slot") becomes a NoneTask so every
+        # output is a real Task that gets a task_id. Sentinels (NoneTask /
+        # FailedTask) carry no identity and are stripped again before this
+        # method returns.
+        results = [NoneTask() if r is None else r for r in results]
+
         # Guarantee every emitted task has a task_id (derived id, or uuid fallback).
         results = self._post_process_task_ids(tasks, results)
+
+        # Sentinels never propagate to the next stage.
+        results = [r for r in results if not isinstance(r, (NoneTask, FailedTask))]
 
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
