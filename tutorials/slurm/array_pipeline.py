@@ -68,6 +68,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from nemo_curator.backends.base import FAILED_TASKS_DIR_ENV_VAR
 from nemo_curator.core.client import RayClient, SlurmRayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
@@ -75,7 +76,6 @@ from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
 METADATA_DIRNAME = ".nemo_curator_metadata"
 SLURM_ARRAY_RETRY_DIRNAME = ".slurm_array_retry"
-FAILED_TASKS_DIR_ENV_VAR = "NEMO_CURATOR_FAILED_TASKS_DIR"
 FAILED_TASK_MARKER_PATTERN = "failed_task_*.json"
 MAX_FAILED_TASK_MARKERS_IN_MANIFEST = 10
 

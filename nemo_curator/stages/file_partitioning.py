@@ -86,7 +86,7 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     total_shards: int | str | None = None
         The total number of shards. Can be an integer representing the total number of shards or a string representing the environment variable name.
         Only used if enable_array_partitioning is True. If not provided, it will be set to the value of the SLURM_ARRAY_TASK_COUNT environment variable.
-    minimum_shard_index: int = 0
+    minimum_shard_index: int | str = 0
         The minimum shard index to process. Can be an integer representing the minimum shard index or a string representing the environment variable name.
         Only used if enable_array_partitioning is True. If not provided, it will be set to 0.
     """
