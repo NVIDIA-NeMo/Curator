@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
 def _create_test_jsonl_files(base_dir: Path | str, num_files: int, subdir: str | None = None) -> list[str]:
@@ -48,9 +48,9 @@ class TestFilePartitioningStage:
         return files
 
     @pytest.fixture
-    def empty_task(self) -> _EmptyTask:
+    def empty_task(self) -> EmptyTask:
         """Create an empty task for testing."""
-        return _EmptyTask(
+        return EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={"source": "test"},
@@ -122,7 +122,7 @@ class TestFilePartitioningStage:
         spec = stage.ray_stage_spec()
         assert spec["is_fanout_stage"] is True
 
-    def test_process_with_file_list(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_process_with_file_list(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with a list of files."""
         # Create these files in the tmp_path:
         test_files = _create_test_jsonl_files(tmp_path, num_files=3, subdir="path")
@@ -135,7 +135,7 @@ class TestFilePartitioningStage:
         assert result[0].data == [test_files[0]]
         assert result[0].dataset_name == "path"
 
-    def test_process_with_files_per_partition(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_process_with_files_per_partition(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with files_per_partition setting."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=4, subdir="path")
         stage = FilePartitioningStage(file_paths=test_files, files_per_partition=2)
@@ -146,7 +146,7 @@ class TestFilePartitioningStage:
         assert result[0].data == test_files[:2]
         assert result[1].data == test_files[2:]
 
-    def test_process_with_limit(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_process_with_limit(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with limit parameter - this is the main test for the limit functionality."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=10, subdir="path")
         stage = FilePartitioningStage(
@@ -168,7 +168,7 @@ class TestFilePartitioningStage:
             assert task._metadata["partition_index"] == i
             assert task._metadata["total_partitions"] == 5  # Total partitions before limit
 
-    def test_process_with_limit_single_partition(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_process_with_limit_single_partition(self, empty_task: EmptyTask, tmp_path: Path):
         """Test limit when all files would be in a single partition."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=5, subdir="path")
         stage = FilePartitioningStage(
@@ -180,7 +180,7 @@ class TestFilePartitioningStage:
         assert len(result) == 1
         assert result[0].data == [test_files[0]]
 
-    def test_process_with_limit_zero(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_process_with_limit_zero(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with limit set to 0."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=5, subdir="path")
         stage = FilePartitioningStage(
@@ -193,7 +193,7 @@ class TestFilePartitioningStage:
 
         assert len(result) == 0
 
-    def test_process_with_blocksize(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_process_with_blocksize(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with blocksize setting."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=6)
         # Test files are 3 bytes each, so blocksize of 3B should create 6 partitions
@@ -223,7 +223,7 @@ class TestFilePartitioningStage:
                 blocksize="128MB",
             )
 
-    def test_process_empty_file_list(self, empty_task: _EmptyTask):
+    def test_process_empty_file_list(self, empty_task: EmptyTask):
         """Test processing with empty file list."""
         stage = FilePartitioningStage(file_paths=[])
 
@@ -256,7 +256,7 @@ class TestFilePartitioningStage:
         assert partitions[1] == ["file3", "file4"]
         assert partitions[2] == ["file5"]
 
-    def test_task_metadata(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_task_metadata(self, empty_task: EmptyTask, tmp_path: Path):
         """Test that created tasks have proper metadata."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=2, subdir="path")
         storage_options = {"option1": "value1"}
@@ -271,3 +271,128 @@ class TestFilePartitioningStage:
         assert task._metadata["total_partitions"] == 2
         assert task._metadata["source_files"] == [test_files[0]]
         assert task.reader_config == {}
+
+    def test_enable_array_partitioning_with_explicit_values(self, monkeypatch: pytest.MonkeyPatch):
+        """Test array partitioning initialization with explicit shard values."""
+        monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "7")
+        monkeypatch.setenv("SLURM_ARRAY_TASK_COUNT", "11")
+
+        stage = FilePartitioningStage(
+            file_paths="/test/path",
+            enable_array_partitioning=True,
+            shard_index=2,
+            total_shards=10,
+            minimum_shard_index=1,
+        )
+
+        assert stage.name == "array_file_partitioning"
+        assert stage.shard_index == 2
+        assert stage.total_shards == 10
+        assert stage.minimum_shard_index == 1
+
+    def test_enable_array_partitioning_reads_slurm_env_vars(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Test that array partitioning defaults to Slurm array env vars."""
+        monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "7")
+        monkeypatch.setenv("SLURM_ARRAY_TASK_COUNT", "11")
+
+        stage = FilePartitioningStage(
+            file_paths="/test/path",
+            enable_array_partitioning=True,
+        )
+
+        assert stage.shard_index == 7
+        assert stage.total_shards == 11
+        assert stage.minimum_shard_index == 0
+
+    def test_enable_array_partitioning_supports_custom_env_var_names(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Test that shard parameters can be read from custom env var names."""
+        monkeypatch.setenv("CUSTOM_SHARD_INDEX", "3")
+        monkeypatch.setenv("CUSTOM_TOTAL_SHARDS", "8")
+        monkeypatch.setenv("CUSTOM_MINIMUM_SHARD_INDEX", "1")
+
+        stage = FilePartitioningStage(
+            file_paths="/test/path",
+            enable_array_partitioning=True,
+            shard_index="CUSTOM_SHARD_INDEX",
+            total_shards="CUSTOM_TOTAL_SHARDS",
+            minimum_shard_index="CUSTOM_MINIMUM_SHARD_INDEX",
+        )
+
+        assert stage.shard_index == 3
+        assert stage.total_shards == 8
+        assert stage.minimum_shard_index == 1
+
+    def test_enable_array_partitioning_requires_slurm_env_vars_by_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Test that missing default Slurm env vars raise a clear error."""
+        monkeypatch.delenv("SLURM_ARRAY_TASK_ID", raising=False)
+        monkeypatch.delenv("SLURM_ARRAY_TASK_COUNT", raising=False)
+
+        with pytest.raises(ValueError, match="SLURM_ARRAY_TASK_ID"):
+            FilePartitioningStage(
+                file_paths="/test/path",
+                enable_array_partitioning=True,
+            )
+
+    def test_enable_array_partitioning_assigns_each_partition_to_one_shard(
+        self,
+        empty_task: EmptyTask,
+        tmp_path: Path,
+    ):
+        """Test that array partitioning covers all partitions exactly once."""
+        test_files = _create_test_jsonl_files(tmp_path, num_files=8, subdir="path")
+        expected_partitions = {
+            tuple(test_files[i : i + 2])
+            for i in range(0, len(test_files), 2)
+        }
+        assigned_partitions = []
+
+        for shard_index in range(3):
+            stage = FilePartitioningStage(
+                file_paths=test_files,
+                files_per_partition=2,
+                enable_array_partitioning=True,
+                shard_index=shard_index,
+                total_shards=3,
+            )
+
+            assigned_partitions.extend(tuple(task.data) for task in stage.process(empty_task))
+
+        assert set(assigned_partitions) == expected_partitions
+        assert len(assigned_partitions) == len(expected_partitions)
+
+    def test_enable_array_partitioning_supports_minimum_shard_index(
+        self,
+        empty_task: EmptyTask,
+        tmp_path: Path,
+    ):
+        """Test non-zero Slurm arrays by offsetting hash-assigned shard IDs."""
+        test_files = _create_test_jsonl_files(tmp_path, num_files=8, subdir="path")
+        zero_indexed_stage = FilePartitioningStage(
+            file_paths=test_files,
+            files_per_partition=2,
+            enable_array_partitioning=True,
+            shard_index=0,
+            total_shards=3,
+        )
+        one_indexed_stage = FilePartitioningStage(
+            file_paths=test_files,
+            files_per_partition=2,
+            enable_array_partitioning=True,
+            shard_index=1,
+            total_shards=3,
+            minimum_shard_index=1,
+        )
+
+        zero_indexed_result = [task.data for task in zero_indexed_stage.process(empty_task)]
+        one_indexed_result = [task.data for task in one_indexed_stage.process(empty_task)]
+
+        assert one_indexed_result == zero_indexed_result
