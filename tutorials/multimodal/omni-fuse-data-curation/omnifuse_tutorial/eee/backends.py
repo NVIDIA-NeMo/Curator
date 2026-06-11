@@ -42,7 +42,7 @@ BackendFactory = Callable[[Any, Any], EEEBackend]
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
-AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
+AUDIO_EXTENSIONS = {".wav", ".mp3"}
 TEXT_EXTENSIONS = {".txt", ".md", ".json", ".csv"}
 SUPPORTED_EXPERTS = {"text-based", "fusion", "e2e"}
 PHI4_MULTIMODAL_MODEL = "microsoft/phi-4-multimodal-instruct"
@@ -60,10 +60,6 @@ MIME_TYPES = {
     ".gif": "image/gif",
     ".wav": "audio/wav",
     ".mp3": "audio/mpeg",
-    ".flac": "audio/flac",
-    ".m4a": "audio/mp4",
-    ".aac": "audio/aac",
-    ".ogg": "audio/ogg",
     ".mp4": "video/mp4",
     ".mov": "video/quicktime",
     ".avi": "video/x-msvideo",

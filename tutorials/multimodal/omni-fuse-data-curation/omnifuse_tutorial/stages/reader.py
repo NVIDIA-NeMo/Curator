@@ -19,7 +19,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from omnifuse_tutorial.compat.curator import EmptyTask, ProcessingStage, Resources, make_document_batch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import EmptyTask
+
+from omnifuse_tutorial.compat.curator import make_document_batch
 from omnifuse_tutorial.config.models import ExperimentConfig
 from omnifuse_tutorial.data.loader import load_all_pools
 

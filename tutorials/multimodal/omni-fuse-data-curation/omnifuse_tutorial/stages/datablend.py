@@ -19,7 +19,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from omnifuse_tutorial.compat.curator import ProcessingStage, Resources, make_document_batch, records_from_task
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+
+from omnifuse_tutorial.compat.curator import make_document_batch, records_from_task
 from omnifuse_tutorial.config.models import ExperimentConfig
 from omnifuse_tutorial.data.io import write_jsonl
 from omnifuse_tutorial.datablend.ranker import DatablendRanker

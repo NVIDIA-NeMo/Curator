@@ -26,7 +26,7 @@ import numpy as np
 LOGGER = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
-AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg"}
+AUDIO_EXTENSIONS = {".wav", ".mp3"}
 TEXT_EXTENSIONS = {".txt", ".md", ".json", ".csv"}
 OMNI_PROCESSOR_ALLOW_PATTERNS = [
     "*.json",
