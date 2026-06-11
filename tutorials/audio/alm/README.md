@@ -586,8 +586,8 @@ pipeline = Pipeline(
 )
 
 ray_client = RayClient()
-ray_client.start()
 try:
+    ray_client.start()
     pipeline.run(XennaExecutor())
 finally:
     ray_client.stop()

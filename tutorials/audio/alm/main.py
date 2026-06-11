@@ -72,9 +72,8 @@ def _create_executor(backend: str) -> object:
 def main(cfg: DictConfig) -> None:
     """Run ALM pipeline using Hydra configuration."""
     ray_client = RayClient()
-    ray_client.start()
-
     try:
+        ray_client.start()
         pipeline = create_pipeline_from_yaml(cfg)
 
         logger.info(pipeline.describe())

@@ -8,12 +8,14 @@ FLEURS contains spoken utterances across 100+ languages. This pipeline downloads
 
 ### Pipeline flow
 
-```
-┌──────────────────┐    ┌────────────────┐    ┌─────────────┐    ┌──────────────┐    ┌──────────────┐    ┌─────────────┐    ┌────────────┐
-│ CreateInitial    │───▶│ InferenceAsr   │───▶│ GetPairwise  │───▶│ GetAudio     │───▶│ PreserveBy   │───▶│ AudioTo     │───▶│ JsonlWriter│
-│ ManifestFleurs   │    │ NemoStage      │    │ WerStage     │    │ DurationStage│    │ ValueStage   │    │ DocumentStg │    │            │
-└──────────────────┘    └────────────────┘    └─────────────┘    └──────────────┘    └──────────────┘    └─────────────┘    └────────────┘
-  HF download + JSONL     GPU transcription    WER computation     duration calc       WER ≤ threshold     AudioTask→Doc      write JSONL
+```mermaid
+flowchart LR
+    A["CreateInitialManifestFleursStage<br/><small>HF download + JSONL</small>"] --> B["InferenceAsrNemoStage<br/><small>GPU transcription</small>"]
+    B --> C["GetPairwiseWerStage<br/><small>WER computation</small>"]
+    C --> D["GetAudioDurationStage<br/><small>duration calc</small>"]
+    D --> E["PreserveByValueStage<br/><small>WER ≤ threshold</small>"]
+    E --> F["AudioToDocumentStage<br/><small>AudioTask → Doc</small>"]
+    F --> G["JsonlWriter<br/><small>write JSONL</small>"]
 ```
 
 ## Prerequisites

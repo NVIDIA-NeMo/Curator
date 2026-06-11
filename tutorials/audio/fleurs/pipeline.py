@@ -74,9 +74,8 @@ def main(args: argparse.Namespace) -> None:
     logger.add(sys.stderr, level="DEBUG" if args.verbose else "INFO")
 
     ray_client = RayClient()
-    ray_client.start()
-
     try:
+        ray_client.start()
         pipeline = create_audio_pipeline(args)
 
         # Print pipeline description

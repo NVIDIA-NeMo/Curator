@@ -48,9 +48,8 @@ def main(cfg: DictConfig) -> None:
     Prepare pipeline and run YAML pipeline.
     """
     ray_client = RayClient()
-    ray_client.start()
-
     try:
+        ray_client.start()
         logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
         pipeline = create_pipeline_from_yaml(cfg)
 
