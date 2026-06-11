@@ -12,20 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the generic cost-bucketed batching primitives.
-
-Covers the modality-agnostic ``BatchPolicy`` dataclass (validation +
-left-edge bucket math) and the stage-agnostic ``run_bucketed`` dispatch
-helper. These exercise the primitives directly with plain payload dicts and
-a caller-supplied ``cost_fn`` -- no audio, no adapter, no stage -- to keep
-the generic inference layer's tests independent of any consumer.
-"""
+"""Tests for the generic cost-bucketed batching primitives: ``BatchPolicy`` and ``run_bucketed``."""
 
 from __future__ import annotations
 
 import pytest
 
-from nemo_curator.stages.inference.batch_policy import BatchPolicy, run_bucketed
+from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy, run_bucketed
 
 # ----------------------------------------------------------------------
 # BatchPolicy: validation + bucket math

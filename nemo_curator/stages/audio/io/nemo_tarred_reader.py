@@ -14,10 +14,9 @@
 
 """Reader for NeMo-style tarred audio datasets (e.g. Granary YAML configs).
 
-Decomposes into a shard-discovery stage that parses the YAML config and a
-shard-reader stage that streams each local tar, decodes audio in memory via
-lhotse/soundfile, and emits one ``AudioTask`` per utterance with the waveform
-as a numpy array; no files are written to disk.
+Decomposes into a shard-discovery stage (parses the YAML) and a shard-reader
+stage (streams each local tar, decodes audio in memory via lhotse/soundfile,
+emits one ``AudioTask`` per utterance; nothing is written to disk).
 """
 
 from __future__ import annotations
@@ -55,11 +54,7 @@ def _expand_nemo_path(pattern: str) -> list[str]:
 
 
 def _open_tar(tar_path: str) -> tarfile.TarFile:
-    """Open a local tar file via lhotse's ``open_best``.
-
-    Uses streaming mode (``r|*``) so the tar is read sequentially without
-    seeking.
-    """
+    """Open a local tar via lhotse's ``open_best`` in streaming mode (``r|*``)."""
     from lhotse.serialization import open_best
 
     if not os.path.exists(tar_path):
@@ -79,14 +74,87 @@ def _open_text_stream(path: str) -> Any:
     return open_best(path, mode="rb")
 
 
+def _normalize_audio_path(path: str) -> str:
+    """Strip leading ``./`` so manifest and tar-member paths compare consistently."""
+    return path.lstrip("./")
+
+
+def _path_suffix_overlap(a: list[str], b: list[str]) -> int:
+    """Count shared trailing path components between two split paths."""
+    n = 0
+    for x, y in zip(reversed(a), reversed(b), strict=False):
+        if x != y:
+            break
+        n += 1
+    return n
+
+
+class _ManifestIndex:
+    """Resolve a tar member name to its manifest entry, collision-safe.
+
+    Entries are keyed by normalized full path. Lookup prefers an exact
+    full-path match, then falls back to basename. When several entries share a
+    basename, the candidate with the longest trailing path-component overlap
+    wins; genuine ties resolve to no match rather than an arbitrary one.
+    """
+
+    def __init__(self) -> None:
+        self._by_path: dict[str, dict] = {}
+        self._dup_paths: set[str] = set()
+        self._basename_to_paths: dict[str, list[str]] = {}
+
+    def add(self, audio_path: str, entry: dict) -> None:
+        norm = _normalize_audio_path(audio_path)
+        if norm in self._by_path and self._by_path[norm] != entry:
+            self._dup_paths.add(norm)  # same path, different content -> ambiguous
+        else:
+            self._by_path[norm] = entry
+
+    def finalize(self) -> None:
+        for path in self._dup_paths:
+            self._by_path.pop(path, None)
+        self._basename_to_paths = {}
+        for norm in self._by_path:
+            self._basename_to_paths.setdefault(os.path.basename(norm), []).append(norm)
+
+    def match(self, member_name: str) -> dict | None:
+        norm = _normalize_audio_path(member_name)
+        entry = self._by_path.get(norm)
+        if entry is not None:
+            return entry
+        candidates = self._basename_to_paths.get(os.path.basename(norm))
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return self._by_path.get(candidates[0])
+        member_parts = norm.split("/")
+        best, best_overlap, tied = None, 0, False
+        for cand in candidates:
+            overlap = _path_suffix_overlap(member_parts, cand.split("/"))
+            if overlap > best_overlap:
+                best, best_overlap, tied = cand, overlap, False
+            elif overlap == best_overlap:
+                tied = True
+        if best is None or tied:
+            return None
+        return self._by_path.get(best)
+
+    def __getitem__(self, member_name: str) -> dict:
+        entry = self.match(member_name)
+        if entry is None:
+            raise KeyError(member_name)
+        return entry
+
+    def __contains__(self, member_name: str) -> bool:
+        return self.match(member_name) is not None
+
+
 def _iter_discovery_groups(config: object, yaml_path: str) -> list[dict[str, Any]]:
     """Validate the Granary discovery YAML root and return corpus-group dicts.
 
-    ``yaml.safe_load`` can return ``None`` (empty file), a scalar, or a
-    mapping; iterating any of those with ``for group in config`` either crashes
-    (``TypeError`` on ``None``) or silently mis-parses (a string iterates
-    characters). Require a list of mappings at the top level and skip
-    non-mapping entries with a warning.
+    Require a list of mappings at the top level (safe_load can return None /
+    scalar / string, which would crash or silently mis-parse on iteration);
+    skip non-mapping entries with a warning.
     """
     if config is None:
         msg = f"Granary YAML at {yaml_path} is empty (safe_load returned None)"
@@ -150,8 +218,7 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
     Args:
         yaml_path: Path to the Granary YAML data config.
-        corpus_filter: Only include shards whose ``corpus`` field is in this
-            list.  ``None`` means include everything.
+        corpus_filter: Include only these corpora (``None`` = all).
     """
 
     yaml_path: str
@@ -172,7 +239,7 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def _scan_completed_shards(self) -> set[str]:
-        """Scan output_dir recursively for .done marker files and return completed shard keys.
+        """Return shard keys with a ``.done`` marker under output_dir (resume skip set).
 
         Keys are relative paths like ``yodas/0_from_captions/en/sharded_manifests/manifest_42``.
         """
@@ -191,15 +258,11 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
     @staticmethod
     def _manifest_to_rel_path(manifest_path: str, corpus: str) -> str:
-        """Extract relative output path from a manifest path, starting at the corpus name.
+        """Extract the shard-key path from a manifest path, starting at the corpus name.
 
-        Example::
-
-            manifest_path = "/data/yodas/0_from_captions/en/sharded_manifests/manifest_42.jsonl"
-            corpus = "yodas"
-            -> "yodas/0_from_captions/en/sharded_manifests/manifest_42"
-
-        The ``.jsonl`` extension is stripped so it can be used as a shard key.
+        Example: ``/data/yodas/.../manifest_42.jsonl`` + corpus ``yodas`` ->
+        ``yodas/.../manifest_42`` (the ``.jsonl`` extension is stripped).
+        The corpus name must appear exactly once for unambiguous extraction.
         """
         parts = manifest_path.replace("\\", "/").split("/")
         parts_lower = [p.lower() for p in parts]
@@ -279,11 +342,9 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         logger.info(
             f"NemoTarShardDiscoveryStage: found {len(tasks)} shards, skipped {skipped} completed (corpus_filter={self.corpus_filter})"
         )
-        # ``total_items_emitted`` is the actor-pattern fix for the
-        # framework's ``num_items_processed`` counting zero on stages
-        # that synthesise downstream work from config (rather than
-        # consuming an input task per output). Audio summary builder
-        # falls back to this when the framework count is 0.
+        # ``total_items_emitted``: framework ``num_items_processed`` counts 0 for
+        # stages that synthesise work from config, so the summary builder falls
+        # back to this when the framework count is 0.
         self._log_metrics({
             "input_tasks": 1.0,
             "output_tasks": float(len(tasks)),
@@ -305,22 +366,17 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     """Read a single NeMo tar shard and emit one ``AudioTask`` per utterance.
 
-    Expects ``task.data = [manifest_path, tar_path]`` as produced by
-    ``NemoTarShardDiscoveryStage``.
-
-    Audio is decoded entirely in memory using lhotse's ``open_best`` for
-    tar streaming and ``soundfile`` for audio decoding.  No files are
-    written to disk.  Each emitted ``AudioTask`` carries the waveform as
-    a 1-D numpy float32 array (mono) in ``task.data["waveform"]`` and the
-    native sample rate in ``task.data["sample_rate"]``. A
-    ``task.data["sampling_rate"]`` alias is also emitted for compatibility
-    with Granary v2 reference scripts.
+    Expects ``task.data = [manifest_path, tar_path]`` from
+    ``NemoTarShardDiscoveryStage``. Audio is decoded in memory (lhotse
+    ``open_best`` for tar streaming, ``soundfile`` for decode); nothing is
+    written to disk. Each ``AudioTask`` carries a 1-D mono float32 waveform in
+    ``task.data["waveform"]`` and the native rate in ``sample_rate`` (plus a
+    ``sampling_rate`` alias for Granary v2 reference-script compatibility).
 
     Args:
-        filepath_key: Manifest key that identifies the audio filename
-            inside the tar archive.
-        duration_key: Manifest key containing utterance duration in seconds.
-        max_duration_s: Optional upper bound for emitted utterance duration.
+        filepath_key: Manifest key for the audio filename inside the tar.
+        duration_key: Manifest key for utterance duration (seconds).
+        max_duration_s: Optional upper bound on emitted utterance duration.
     """
 
     name: str = "nemo_tar_shard_reader"
@@ -328,6 +384,10 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     duration_key: str = "duration"
     max_duration_s: float | None = None
     max_utterances_per_shard: int | None = None
+    # Used ONLY to write a ``.done`` marker for zero-utterance shards, which
+    # never reach the writer and would otherwise be re-queued forever on resume.
+    # ``None`` -> no checkpoint dir (single-rank tutorial); resume not a concern.
+    output_dir: str | None = None
 
     def __post_init__(self) -> None:
         if self.max_duration_s is not None and self.max_duration_s <= 0:
@@ -344,7 +404,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return ["data"], ["waveform", "sample_rate", "sampling_rate", "corpus", "num_channels"]
 
     def num_workers(self) -> int | None:
-        # Ray Data hook; pins to 1 to bound memory (keep_waveform holds whole shards).
+        # Pin to 1 to bound memory (a shard's waveforms are held in memory).
         return 1
 
     def ray_stage_spec(self) -> dict[str, Any]:
@@ -353,17 +413,11 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True, RayStageSpecKeys.IS_ACTOR_STAGE: True}
 
     def xenna_stage_spec(self) -> dict[str, Any]:
-        # One reader actor per node: node-local decode, ~1 shard of memory per node.
+        # One reader actor per node: node-local decode, ~1 shard of memory/node.
         return {"num_workers_per_node": 1}
 
-    @staticmethod
-    def _manifest_lookup_keys(path: str) -> set[str]:
-        stripped = path.lstrip("./")
-        return {path, stripped, os.path.basename(stripped)}
-
-    def _read_manifest(self, path: str) -> tuple[dict[str, dict], int]:
-        entries: dict[str, dict] = {}
-        duplicate_keys: set[str] = set()
+    def _read_manifest(self, path: str) -> tuple[_ManifestIndex, int]:
+        index = _ManifestIndex()
         entry_count = 0
         skipped_lines = 0
         with _open_text_stream(path) as f:
@@ -371,29 +425,25 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 if isinstance(raw_line, bytes):
                     raw_line = raw_line.decode("utf-8")
                 stripped = raw_line.strip()
-                if stripped:
-                    entry_count += 1
-                    try:
-                        entry = json.loads(stripped)
-                    except json.JSONDecodeError:
-                        skipped_lines += 1
-                        logger.warning("Skipping invalid JSON line in manifest {}", path)
-                        continue
-                    audio_path = entry.get(self.filepath_key)
-                    if audio_path is None:
-                        skipped_lines += 1
-                        logger.warning(
-                            "Skipping manifest line missing {!r} in {}",
-                            self.filepath_key,
-                            path,
-                        )
-                        continue
-                    audio_path = str(audio_path)
-                    for lookup_key in self._manifest_lookup_keys(audio_path):
-                        if lookup_key in entries and entries[lookup_key] != entry:
-                            duplicate_keys.add(lookup_key)
-                        else:
-                            entries[lookup_key] = entry
+                if not stripped:
+                    continue
+                entry_count += 1
+                try:
+                    entry = json.loads(stripped)
+                except json.JSONDecodeError:
+                    skipped_lines += 1
+                    logger.warning("Skipping invalid JSON line in manifest {}", path)
+                    continue
+                audio_path = entry.get(self.filepath_key)
+                if audio_path is None:
+                    skipped_lines += 1
+                    logger.warning(
+                        "Skipping manifest line missing {!r} in {}",
+                        self.filepath_key,
+                        path,
+                    )
+                    continue
+                index.add(str(audio_path), entry)
         if skipped_lines:
             logger.warning(
                 "Manifest {}: skipped {} line(s) (invalid JSON or missing {})",
@@ -401,9 +451,25 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 skipped_lines,
                 self.filepath_key,
             )
-        for lookup_key in duplicate_keys:
-            entries.pop(lookup_key, None)
-        return entries, entry_count
+        index.finalize()
+        return index, entry_count
+
+    def _mark_empty_shard_done(self, shard_key: str) -> None:
+        """Write a ``<shard_key>.jsonl.done`` (count 0) for a zero-utterance shard.
+
+        Mirrors the writer's marker so discovery skips the shard on resume; no
+        ``.jsonl`` is written. No-op when ``output_dir`` is unset.
+        """
+        if not self.output_dir:
+            return
+        done_path = os.path.join(self.output_dir, f"{shard_key}.jsonl.done")
+        try:
+            os.makedirs(os.path.dirname(done_path), exist_ok=True)
+            with open(done_path, "w") as f:
+                f.write("0\n")
+            logger.info(f"Shard {shard_key}: 0 utterances, wrote empty-shard marker {done_path}")
+        except OSError as exc:
+            logger.warning("Failed to write empty-shard marker for {}: {}", shard_key, exc)
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         t0 = time.perf_counter()
@@ -434,14 +500,14 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 tar_members_seen += 1
                 if not tar_info.isfile():
                     continue
-                manifest_entry = next(
-                    (manifest[key] for key in self._manifest_lookup_keys(tar_info.name) if key in manifest),
-                    None,
-                )
+                manifest_entry = manifest.match(tar_info.name)
                 if manifest_entry is None:
                     continue
 
                 entry = dict(manifest_entry)
+                # Cheap pre-decode skip when the manifest has a usable duration.
+                # Missing / non-numeric durations are re-checked post-decode below
+                # so they cannot bypass the cap.
                 if self.max_duration_s is not None and self.duration_key in entry:
                     try:
                         duration_s = float(entry[self.duration_key])
@@ -461,19 +527,27 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                     decode_t0 = time.perf_counter()
                     audio, sample_rate = sf.read(BytesIO(raw_audio), dtype="float32")
                     decode_elapsed += time.perf_counter() - decode_t0
-                except Exception:  # noqa: BLE001
+                # Only genuine decode/format failures count as "corrupt audio";
+                # resource/dependency errors are excluded so they propagate
+                # instead of being mislabeled and skipped.
+                except (sf.LibsndfileError, ValueError, EOFError) as exc:
                     corrupt_audio_count += 1
-                    logger.warning(f"Skipping corrupt audio {tar_info.name} in {tar_path}")
+                    logger.warning(f"Skipping corrupt audio {tar_info.name} in {tar_path}: {exc}")
+                    continue
+
+                num_channels = audio.shape[1] if audio.ndim > 1 else 1
+                if audio.ndim > 1:
+                    audio = audio.mean(axis=1)
+                utt_seconds = float(audio.shape[0]) / float(sample_rate) if sample_rate else 0.0
+                # Post-decode duration enforcement using the authoritative decoded
+                # length (covers rows the pre-decode skip could not bound).
+                if self.max_duration_s is not None and utt_seconds > self.max_duration_s:
+                    duration_filtered_count += 1
                     continue
 
                 audio_members_matched += 1
-                num_channels = audio.shape[1] if audio.ndim > 1 else 1
-
-                if audio.ndim > 1:
-                    audio = audio.mean(axis=1)
                 decoded_waveform_bytes += float(getattr(audio, "nbytes", 0))
-                if sample_rate:
-                    decoded_audio_seconds += float(audio.shape[0]) / float(sample_rate)
+                decoded_audio_seconds += utt_seconds
 
                 entry["waveform"] = audio
                 entry["sample_rate"] = sample_rate
@@ -503,6 +577,11 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         shard_total = len(results)
         for result_task in results:
             result_task._metadata["_shard_total"] = shard_total
+
+        # Empty / fully-filtered shard never reaches the writer, so mark it done
+        # here so resume skips it instead of re-queueing it indefinitely.
+        if shard_total == 0:
+            self._mark_empty_shard_done(shard_key)
 
         logger.info(f"Shard {shard_key}: emitted {shard_total} AudioTasks")
         self._log_metrics({
@@ -536,19 +615,16 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
     """Read NeMo-style tarred audio datasets from a Granary YAML config.
 
-    Decomposes into:
-
-    1. ``NemoTarShardDiscoveryStage`` - parses the YAML, emits one
-       ``FileGroupTask`` per shard.
-    2. ``NemoTarShardReaderStage`` - streams each tar via lhotse, decodes
-       audio in memory, emits ``AudioTask`` objects with waveform arrays.
+    Decomposes into ``NemoTarShardDiscoveryStage`` (parse YAML -> one
+    ``FileGroupTask`` per shard) then ``NemoTarShardReaderStage`` (stream each
+    tar, decode in memory -> ``AudioTask`` with waveform arrays).
 
     Args:
         yaml_path: Path to the Granary YAML data config.
-        corpus_filter: Only process shards whose ``corpus`` matches.
+        corpus_filter: Process only these corpora (``None`` = all).
         filepath_key: Manifest key for audio filenames inside tar archives.
-        duration_key: Manifest key containing utterance duration in seconds.
-        max_duration_s: Optional upper bound for emitted utterance duration.
+        duration_key: Manifest key for utterance duration (seconds).
+        max_duration_s: Optional upper bound on emitted utterance duration.
     """
 
     yaml_path: str
@@ -574,6 +650,7 @@ class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):
                 duration_key=self.duration_key,
                 max_duration_s=self.max_duration_s,
                 max_utterances_per_shard=self.max_utterances_per_shard,
+                output_dir=self.output_dir,
             ),
         ]
 

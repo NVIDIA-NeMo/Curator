@@ -33,11 +33,9 @@ class TestGetAvailableCpuGpuResources:
 
     def test_get_available_cpu_gpu_resources_conftest(self, shared_ray_client: None):
         """Test get_available_cpu_gpu_resources function."""
-        # Test with Ray resources from conftest.py
         cpus, gpus = get_available_cpu_gpu_resources()
         assert cpus == 11
-        # GPU count depends on whether GPU tests are running in this session
-        # Can be 0 (CPU-only) or 2 (GPU-enabled) depending on test selection
+        # GPU count is 0 (CPU-only) or 2 (GPU-enabled) depending on test selection.
         assert gpus in [0.0, 2.0]
 
     @pytest.mark.usefixtures("reset_head_node_cache")
@@ -45,8 +43,7 @@ class TestGetAvailableCpuGpuResources:
         self,
         shared_ray_client: None,
     ):
-        """Test get_available_cpu_gpu_resources with ignore_head_node=True to skip head node.
-        Since this test is run with the head node, the resources should be 0."""
+        """ignore_head_node=True skips the head node; running on the head node, resources are 0."""
         cpus_without_head, gpus_without_head = get_available_cpu_gpu_resources(ignore_head_node=True)
         assert cpus_without_head == 0
         assert gpus_without_head == 0
@@ -71,7 +68,6 @@ class TestCalculateConcurrencyForActorsForStage:
         """Test calculate_concurrency when num_workers is explicitly set."""
         mock_stage = Mock(num_workers=lambda: 4, resources=Resources(cpus=2.0, gpus=0.0))
         assert calculate_concurrency_for_actors_for_stage(mock_stage) == 4
-        # Should not call get_resources if num_workers is set
         mock_get_resources.assert_not_called()
 
     @patch("nemo_curator.backends.ray_data.utils.get_available_cpu_gpu_resources", return_value=(8.0, 2.0))

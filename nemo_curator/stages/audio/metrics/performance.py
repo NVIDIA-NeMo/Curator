@@ -14,31 +14,15 @@
 
 """Reusable audio pipeline performance summary helpers.
 
-Audio stages emit processor-specific counters and timings via
-``ProcessingStage._log_metrics()``. Backends attach those to
-``Task._stage_perf`` as ``StagePerfStats``. Terminal audio stages (the
-writer) consume those chains and call into ``AudioPerformanceSummary``
-to build the published ``perf_summary.json``.
+Audio stages emit counters/timings via ``_log_metrics()``; backends attach
+them to ``Task._stage_perf`` as ``StagePerfStats``. Terminal stages feed those
+into ``AudioPerformanceSummary`` to build the published ``perf_summary.json``.
 
-Architecture:
-
-  * ``AudioStageMetrics`` -- typed superset dataclass of EVERY scalar
-    custom metric any audio stage may emit. Stages populate only what
-    is relevant; unknown keys are preserved in ``extras``.
-  * ``AudioStageSamples`` -- per-invocation sample lists used to derive
-    p50/p95 percentiles (batch sizes, audio durations, queue waits).
-  * ``AudioStageCallerContext`` -- caller-provided fields that cannot
-    be derived from ``StagePerfStats`` alone (GPU-hours, GPU
-    utilisation percentiles, actor-count percentiles, setup-time).
-  * ``AudioPerformanceSummary`` -- accumulator. Dedupes repeat sightings
-    of the same ``StagePerfStats`` (via framework
-    ``StagePerfStats.invocation_id`` when wired; otherwise a synthetic
-    value-tuple fingerprint), collects samples, and renders the final
-    summary dict matching the proposed pipeline-perf shape.
-
-All post-processing (percentiles, ratios, unit conversions, wallclock
-estimation) lives in ``performance_utils.py`` -- this file only does
-collection + orchestration.
+Key types: ``AudioStageMetrics`` (superset of every scalar custom metric),
+``AudioStageSamples`` (per-invocation samples for percentiles),
+``AudioStageCallerContext`` (GPU/actor fields not derivable from perf stats),
+and ``AudioPerformanceSummary`` (the dedup'ing accumulator). All
+post-processing lives in ``performance_utils.py``; this file only collects.
 """
 
 from __future__ import annotations
@@ -57,51 +41,47 @@ from nemo_curator.stages.audio.metrics.performance_utils import (
     summarize_samples,
 )
 from nemo_curator.tasks import Task
+from nemo_curator.utils.gpu_sampler import _norm_uuid
 from nemo_curator.utils.performance_utils import StagePerfStats
 
+# GPU-util metrics ride custom_metrics as ``<base>::<uuid>``, sampled per GPU
+# and summarized as percentiles -- excluded from scalar totals so they are
+# never summed into a meaningless aggregate.
+_GPU_SAMPLE_KEYS = frozenset({"gpu_util_pct", "gpu_mem_used_pct"})
 
-# ===========================================================================
-# Superset dataclass: every custom metric any audio stage may emit
-# ===========================================================================
+
+def _gpu_sample_base(key: str) -> str:
+    """Base metric name of a (possibly UUID-namespaced) GPU sample key."""
+    return key.split("::", 1)[0]
+
 
 @dataclass
 class AudioStageMetrics:
     """Superset of every scalar custom metric the audio pipeline emits.
 
-    Stages populate only the fields relevant to them via
-    ``_log_metrics({"field_name": value, ...})``. The accumulator sums
-    them and rebuilds an ``AudioStageMetrics`` per stage at summary
-    time. Default 0.0 means "stage did not emit"; ``to_dict()`` strips
-    those automatically so the published JSON only carries the
-    populated keys.
-
-    Adding a new audio-pipeline metric is a single-field edit here +
-    the corresponding ``_log_metrics`` call on the producer.
+    Stages populate only relevant fields via ``_log_metrics``; the accumulator
+    sums them and rebuilds an ``AudioStageMetrics`` per stage. Default 0.0 means
+    "not emitted"; ``to_dict()`` strips zeros so JSON only carries populated
+    keys. Adding a metric is one field here plus the producer's ``_log_metrics``.
     """
 
-    # ----- universal counters (any audio stage may emit) -----
+    # ----- universal counters -----
     input_tasks: float = 0.0
     output_tasks: float = 0.0
-    # ``total_items_emitted`` is the actor-pattern fix for stages that
-    # the framework's ``num_items_processed`` cannot count
-    # (e.g. NemoTarShardDiscoveryStage: synthesises work from config,
-    # so the framework sees 0 input items). Stages that synthesise
-    # downstream tasks should set this themselves.
+    # Actor-pattern fix for stages the framework's num_items_processed cannot
+    # count (e.g. discovery synthesises work from config, so input is seen as 0).
     total_items_emitted: float = 0.0
 
     # ----- audio volume scalars -----
     audio_duration_s: float = 0.0
-    # Legacy aliases preserved for backward-compat across older audio
-    # stages (whisperx_vad, pyannote, common, split, resample). New
-    # stages should emit ``audio_duration_s``.
+    # Legacy aliases for older stages; new stages emit ``audio_duration_s``.
     audio_duration: float = 0.0
     duration: float = 0.0
     input_duration: float = 0.0
     filtered_dur: float = 0.0
     waveform_bytes: float = 0.0
-    # New audio-side counter for the "truthful bytes loaded" view that
-    # framework's ``input_data_size_mb`` cannot provide for stages
-    # which load data themselves (e.g. tar reader). Producer-opt-in.
+    # "Truthful bytes loaded" for stages that load data themselves (tar reader)
+    # where framework's input_data_size_mb is unavailable. Producer-opt-in.
     bytes_loaded: float = 0.0
 
     # ----- text/transcript output -----
@@ -112,9 +92,7 @@ class AudioStageMetrics:
 
     # ----- inference timing -----
     inference_time_s: float = 0.0
-    # Legacy alias for older inference stages; new code should emit
-    # ``inference_time_s``.
-    inference_time: float = 0.0
+    inference_time: float = 0.0  # legacy alias
 
     # ----- model-side internal timers / counters -----
     model_turn1_prep_time_s: float = 0.0
@@ -189,7 +167,7 @@ class AudioStageMetrics:
     skipped_conversion: float = 0.0
     entries_processed: float = 0.0
     files_transcribed: float = 0.0
-    process_time: float = 0.0  # legacy custom timer some stages emit alongside framework
+    process_time: float = 0.0  # legacy custom timer some stages emit
 
     # ----- speaker diarization -----
     segments_detected: float = 0.0
@@ -206,7 +184,7 @@ class AudioStageMetrics:
     done_marker_write_time_s: float = 0.0
     perf_write_time_s: float = 0.0
 
-    # ----- forward-compat: any emitted scalar this dataclass doesn't know -----
+    # forward-compat: any emitted scalar this dataclass doesn't know
     extras: dict[str, float] = field(default_factory=dict)
 
     @classmethod
@@ -241,16 +219,11 @@ class AudioStageMetrics:
         return out
 
 
-# ===========================================================================
-# Per-invocation sample lists for p50/p95 percentile computation
-# ===========================================================================
-
 @dataclass
 class AudioStageSamples:
     """Per-invocation sample lists used for percentile derivation.
 
-    Populated once per dedup'd invocation. Empty by default; only the
-    accumulator writes to these.
+    Populated once per dedup'd invocation; only the accumulator writes these.
     """
 
     invocation_process_times_s: list[float] = field(default_factory=list)
@@ -260,15 +233,17 @@ class AudioStageSamples:
     audio_duration_s_per_invocation: list[float] = field(default_factory=list)
 
     def add(self, perf: StagePerfStats) -> None:
-        """Record one dedup'd invocation's per-call samples."""
+        """Record one dedup'd invocation's per-call samples.
+
+        GPU util is sampled per device and accumulated separately, so it is
+        intentionally absent here -- these are actor/stage scalars only.
+        """
         self.invocation_process_times_s.append(float(perf.process_time))
         self.actor_idle_times_s.append(float(perf.actor_idle_time))
         self.items_processed_per_invocation.append(float(perf.num_items_processed))
 
         custom = perf.custom_metrics or {}
-        # Batch size proxy: stages that handle a list of tasks-per-invocation
-        # report this as ``utterances_input`` or ``input_count``. For
-        # single-task-per-invocation stages this collapses to 1.
+        # Batch size proxy; collapses to 1 for single-task-per-invocation stages.
         batch_size = (
             custom.get("utterances_input")
             or custom.get("input_count")
@@ -298,18 +273,12 @@ class AudioStageSamples:
         return out
 
 
-# ===========================================================================
-# Caller-provided context (GPU / actor data the audio summary can't derive)
-# ===========================================================================
-
 @dataclass
 class AudioStageCallerContext:
-    """Caller-provided fields the audio accumulator cannot derive itself.
+    """Optional caller-provided fields the accumulator cannot derive itself.
 
-    Optional. A writer that has access to NVML / DCGM / Xenna autoscaler
-    snapshots can pass these in to populate the GPU- and actor-related
-    fields of the proposed pipeline-perf shape. Leaving them at default
-    causes those fields to be omitted from the published summary.
+    A writer with NVML/DCGM/autoscaler snapshots passes these to populate the
+    GPU/actor fields; defaults cause those fields to be omitted.
     """
 
     actor_count_samples: list[float] = field(default_factory=list)
@@ -318,10 +287,6 @@ class AudioStageCallerContext:
     setup_time_s_total: float = 0.0
     wallclock_s: float | None = None  # overrides estimate if provided
 
-
-# ===========================================================================
-# Per-task serialiser (preserved for backward-compat with existing callers)
-# ===========================================================================
 
 def serialize_stage_perf(stage_perf_list: list[StagePerfStats]) -> list[dict[str, Any]]:
     """Serialise a task's stage performance chain to JSON-friendly dicts."""
@@ -334,7 +299,7 @@ def serialize_stage_perf(stage_perf_list: list[StagePerfStats]) -> list[dict[str
             "actor_idle_time": perf.actor_idle_time,
             "num_items_processed": perf.num_items_processed,
         }
-        # Identity labels (best-effort; empty when the backend could not resolve them).
+        # Identity labels (best-effort; empty when unresolved).
         for identity_field in ("actor_id", "node_id", "gpu_id", "physical_address", "pod_ip", "hostname"):
             identity_value = getattr(perf, identity_field, "")
             if identity_value:
@@ -362,29 +327,18 @@ def _task_audio_seconds(task: Task, duration_key: str) -> float:
     return seconds if seconds > 0 else 0.0
 
 
-# ===========================================================================
-# Per-stage summary builder
-# ===========================================================================
-
 def _build_stage_summary(  # noqa: PLR0913
     stage_totals: dict[str, float],
     custom_totals: dict[str, float],
     samples: AudioStageSamples | None = None,
     caller_context: AudioStageCallerContext | None = None,
     stage_identity: dict[str, Any] | None = None,
-    gpu_breakdown: dict[str, dict[str, Any]] | None = None,
+    actor_breakdown: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Render one stage's summary in the proposed pipeline-perf shape.
 
-    Combines:
-      * Framework scalar totals (process_time, actor_idle_time,
-        num_items_processed, invocation_count).
-      * Custom-metric superset (``AudioStageMetrics``) summed across
-        dedup'd invocations.
-      * Per-invocation sample percentiles
-        (``AudioStageSamples.summarize()``).
-      * Caller-provided GPU / actor / setup-time context
-        (``AudioStageCallerContext``).
+    Combines framework scalar totals, the dedup'd custom-metric superset,
+    per-invocation sample percentiles, and caller-provided GPU/actor context.
     """
     entry: dict[str, Any] = {
         "total_process_time_s": stage_totals.get("process_time", 0.0),
@@ -400,9 +354,8 @@ def _build_stage_summary(  # noqa: PLR0913
     metrics = AudioStageMetrics.from_dict(custom_totals)
     custom_sums = metrics.to_dict()
 
-    # A4 fix: actor-pattern stages cannot get the framework's
-    # num_items_processed populated, so fall back to total_items_emitted
-    # to keep throughput ratios meaningful.
+    # Actor-pattern stages lack framework num_items_processed; fall back to
+    # total_items_emitted to keep throughput ratios meaningful.
     if total_items == 0.0 and metrics.total_items_emitted > 0:
         total_items = metrics.total_items_emitted
         entry["total_items_processed"] = total_items
@@ -412,9 +365,8 @@ def _build_stage_summary(  # noqa: PLR0913
     add_ratio(entry, "avg_invocation_time_s", total_time, invocation_count)
     add_ratio(entry, "throughput_items_per_s", total_items, total_time)
 
-    # ----- caller context: wallclock + GPU + actor -----
+    # caller context: wallclock + GPU + actor
     ctx = caller_context or AudioStageCallerContext()
-    invocation_times = samples.invocation_process_times_s if samples else []
     actor_count_p50 = None
     if ctx.actor_count_samples:
         actor_count_p50 = summarize_samples(ctx.actor_count_samples, "actor_count").get("actor_count_p50")
@@ -422,7 +374,6 @@ def _build_stage_summary(  # noqa: PLR0913
     wallclock_s = ctx.wallclock_s if ctx.wallclock_s is not None else estimate_wallclock_s(
         total_process_time_s=total_time,
         actor_count=actor_count_p50,
-        invocation_times=invocation_times,
     )
     if wallclock_s is not None and wallclock_s > 0:
         entry["wallclock_s"] = wallclock_s
@@ -434,14 +385,13 @@ def _build_stage_summary(  # noqa: PLR0913
     entry.update(summarize_samples(ctx.actor_count_samples, "actor_count"))
     entry.update(summarize_samples(ctx.gpu_util_pct_samples, "gpu_util_pct"))
 
-    # Identity-driven topology + per-GPU scheduling breakdown
-    # (gpu_ids / gpu_count / actor_count and per_gpu items/audio/batch/queue).
-    # Hardware fields (util/mem/gpu_hours/uuid/device_name) are deferred to the
-    # NVML/DCGM proposal and are intentionally absent here.
+    # Identity-driven topology + per-actor scheduling breakdown (keyed by
+    # actor_id for GPU and CPU stages). Hardware gpu_hours/device_name deferred
+    # to the NVML/DCGM proposal.
     if stage_identity:
         entry.update(stage_identity)
-    if gpu_breakdown:
-        entry["per_gpu"] = gpu_breakdown
+    if actor_breakdown:
+        entry["per_actor"] = actor_breakdown
 
     if not custom_sums and not samples:
         return entry
@@ -449,7 +399,6 @@ def _build_stage_summary(  # noqa: PLR0913
     if custom_sums:
         entry["custom_metrics_sum"] = custom_sums
 
-    # ----- per-invocation percentile derivation -----
     if samples is not None:
         entry.update(samples.summarize())
 
@@ -461,10 +410,8 @@ def _build_stage_summary(  # noqa: PLR0913
     waveform_mb = bytes_to_mb(metrics.waveform_bytes)
     bytes_loaded_mb = bytes_to_mb(metrics.bytes_loaded)
 
-    # audio_hours_in/out: per-stage view of the proposed structure.
-    # By default both are the audio duration the stage saw; filter
-    # stages may override audio_hours_out via custom_metrics if they
-    # want to publish a different out-view.
+    # Both default to the audio duration the stage saw; filter stages may
+    # override audio_hours_out via custom_metrics.
     if audio_seconds > 0:
         entry["audio_hours_in"] = seconds_to_hours(audio_seconds)
         entry["audio_hours_out"] = seconds_to_hours(audio_seconds)
@@ -475,8 +422,11 @@ def _build_stage_summary(  # noqa: PLR0913
         if ah_per_gpu_h is not None:
             entry["audio_hours_per_gpu_hour"] = ah_per_gpu_h
 
+    # Two efficiency views: overall (audio per total process-time, incl. overhead)
+    # and inference-only. inference_compute_fraction is the model-vs-overhead share.
     add_ratio(entry, "throughput_audio_s_per_process_s", audio_seconds, total_time)
     add_ratio(entry, "throughput_audio_s_per_inference_s", audio_seconds, inference_time)
+    add_ratio(entry, "inference_compute_fraction", inference_time, total_time)
     add_ratio(entry, "avg_audio_s_per_item", audio_seconds, total_items)
     add_ratio(entry, "throughput_output_tokens_per_process_s", output_tokens, total_time)
     add_ratio(entry, "throughput_output_tokens_per_inference_s", output_tokens, inference_time)
@@ -490,10 +440,8 @@ def _build_stage_summary(  # noqa: PLR0913
     utterances_emitted = metrics.utterances_emitted or metrics.output_utterances
     add_ratio(entry, "utterances_emitted_per_input_shard", utterances_emitted, metrics.input_shards)
 
-    # ----- proposed-structure item-fate aliases -----
-    # The proposed run-report uses generic ``items_skipped`` /
-    # ``items_filtered`` / ``items_recovered`` regardless of stage type;
-    # populate from whichever stage-specific counter is non-zero.
+    # Generic item-fate aliases: populate from whichever stage-specific
+    # counter is non-zero.
     items_skipped = (
         metrics.utterances_skipped
         or metrics.model_utterances_skipped_preprocess
@@ -515,7 +463,7 @@ def _build_stage_summary(  # noqa: PLR0913
     if output_tokens > 0:
         entry["output_tokens"] = output_tokens
 
-    # ----- filter/tagging stages: per-input-utterance ratios -----
+    # filter/tagging stages: per-input-utterance ratios
     utterances_input = metrics.utterances_input or metrics.input_tasks
     if utterances_input > 0:
         for metric_name in (
@@ -539,17 +487,12 @@ def _build_stage_summary(  # noqa: PLR0913
     return entry
 
 
-# ===========================================================================
-# Accumulator
-# ===========================================================================
-
 @dataclass
 class AudioPerformanceSummary:
     """Accumulate and summarise audio task performance metrics.
 
-    Independent of any writer implementation. A terminal audio stage
-    calls ``record_task`` for each output task it sees, then writes
-    ``build_summary()`` to wherever its output contract requires.
+    Writer-independent: a terminal stage calls ``record_task`` per output task,
+    then writes ``build_summary()`` wherever its output contract requires.
     """
 
     duration_key: str = "duration"
@@ -566,28 +509,37 @@ class AudioPerformanceSummary:
         repr=False,
     )
     _seen_perf_invocations: set[str] = field(default_factory=set, repr=False)
-    # Per-(stage, gpu) scheduling breakdown (identity-driven)
-    # Populated only for records that carry a non-empty ``gpu_id`` (GPU stages).
-    # Hardware telemetry (util/mem/gpu_hours/uuid/device_name) is intentionally
-    # NOT here -- that is the separate NVML/DCGM proposal.
-    _stage_gpu_samples: dict[str, dict[str, AudioStageSamples]] = field(
+    # Per-(stage, actor) scheduling breakdown for any record with a resolved
+    # actor_id (GPU and CPU stages). GPU actors also carry physical address +
+    # NVML util/mem percentiles.
+    _stage_actor_samples: dict[str, dict[str, AudioStageSamples]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(AudioStageSamples)), repr=False,
     )
-    _stage_gpu_items: dict[str, dict[str, float]] = field(
+    _stage_actor_items: dict[str, dict[str, float]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(float)), repr=False,
     )
-    _stage_gpu_audio_s: dict[str, dict[str, float]] = field(
+    _stage_actor_audio_s: dict[str, dict[str, float]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(float)), repr=False,
     )
-    _stage_gpu_actor: dict[str, dict[str, str]] = field(
+    _stage_actor_location: dict[str, dict[str, dict[str, Any]]] = field(
         default_factory=lambda: defaultdict(dict), repr=False,
     )
-    _stage_gpu_location: dict[str, dict[str, dict[str, Any]]] = field(
-        default_factory=lambda: defaultdict(dict), repr=False,
+    # Per-GPU NVML samples nested stage -> actor -> address ("<host>:<idx>"),
+    # rolled up under each actor's ``gpus`` block. ``_gpu_unit_meta`` holds
+    # per-address metadata (gpu_index, gpu_uuid).
+    _stage_actor_gpu_util: dict[str, dict[str, dict[str, list[float]]]] = field(
+        default_factory=lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list))), repr=False,
     )
+    _stage_actor_gpu_mem: dict[str, dict[str, dict[str, list[float]]]] = field(
+        default_factory=lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list))), repr=False,
+    )
+    _gpu_unit_meta: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
+    # _stage_gpus: per-actor addresses ("<host>:<idx,idx>"); _stage_gpu_units:
+    # individual devices ("<host>:<idx>") so gpu_count is true under tensor-parallel.
     _stage_gpus: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
+    _stage_gpu_units: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
     _stage_actors: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
-    _gpu_node: dict[str, str] = field(default_factory=dict, repr=False)
+    _actor_node: dict[str, str] = field(default_factory=dict, repr=False)
     _shard_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int), repr=False)
     _shard_audio_seconds: dict[str, float] = field(default_factory=lambda: defaultdict(float), repr=False)
     _total_utterances: int = field(default=0, repr=False)
@@ -629,14 +581,10 @@ class AudioPerformanceSummary:
     def _fingerprint_perf(perf: StagePerfStats) -> str:
         """Deterministic fingerprint of a ``StagePerfStats`` value tuple.
 
-        Used as a fallback dedup key when the backend has not populated
-        ``StagePerfStats.invocation_id``. The audio pipeline observes
-        the same ``StagePerfStats`` once per emitted downstream task,
-        so an actor invocation that emits N output tasks would
-        otherwise be counted N times. Two genuinely distinct
-        invocations producing byte-equal timings AND byte-equal
-        custom-metric tuples is astronomically unlikely, so collisions
-        are not a practical concern.
+        Fallback dedup key when ``invocation_id`` is unset: the same record is
+        seen once per emitted downstream task, so an N-task invocation would be
+        counted N times. Collisions (distinct invocations with byte-equal
+        timings and custom metrics) are not a practical concern.
         """
         custom = sorted((perf.custom_metrics or {}).items())
         return repr((
@@ -644,6 +592,7 @@ class AudioPerformanceSummary:
             getattr(perf, "actor_id", ""),
             getattr(perf, "node_id", ""),
             getattr(perf, "gpu_id", ""),
+            getattr(perf, "physical_address", ""),
             round(perf.process_time, 9),
             round(perf.actor_idle_time, 9),
             perf.num_items_processed,
@@ -653,18 +602,9 @@ class AudioPerformanceSummary:
     def record_stage_perf(self, stage_perf_list: list[StagePerfStats]) -> None:
         """Accumulate ``StagePerfStats``, deduplicating repeat sightings.
 
-        Dedup key:
-          1. ``StagePerfStats.invocation_id`` when the backend wires it
-             (preferred -- fixes the dedup at the framework layer).
-          2. Synthetic value-tuple fingerprint (audio-pipeline fallback;
-             works without framework changes).
-
-        After dedup, the per-invocation perf record contributes to:
-          * stage scalar totals (process_time, actor_idle_time,
-            num_items_processed, invocation_count).
-          * stage custom-metric sums (audio_duration_s, output_tokens,
-            etc. -- the superset).
-          * stage per-invocation samples (used downstream for p50/p95).
+        Dedup key is ``invocation_id`` when wired, else a synthetic value-tuple
+        fingerprint. After dedup, each record feeds stage scalar totals,
+        custom-metric sums, and per-invocation samples (for p50/p95).
         """
         for perf in stage_perf_list:
             invocation_id = getattr(perf, "invocation_id", "") or self._fingerprint_perf(perf)
@@ -679,46 +619,88 @@ class AudioPerformanceSummary:
             totals["invocation_count"] += 1
 
             for key, value in (perf.custom_metrics or {}).items():
+                if _gpu_sample_base(key) in _GPU_SAMPLE_KEYS:
+                    continue
                 if isinstance(value, (int, float, bool)):
                     self._stage_custom_totals[perf.stage_name][key] += float(value)
 
             self._stage_samples[perf.stage_name].add(perf)
-            self._record_gpu_breakdown(perf)
+            self._record_actor_breakdown(perf)
 
-    def _record_gpu_breakdown(self, perf: StagePerfStats) -> None:
-        """Accumulate the per-(stage, gpu) scheduling breakdown for one dedup'd record.
+    def _record_actor_breakdown(self, perf: StagePerfStats) -> None:
+        """Accumulate the per-(stage, actor) scheduling breakdown.
 
-        No-op for records without a resolved ``gpu_id`` (CPU stages, or any
-        backend / unit-test context where identity could not be resolved), so
-        the ``per_gpu`` block only appears for GPU stages with real identity.
+        Keyed by ``actor_id`` so every actor-backed stage (GPU or CPU) reports
+        per-actor metrics; GPU actors also contribute their physical address and
+        device units. No-op for records without a resolved ``actor_id``.
         """
         stage_name = perf.stage_name
-        actor_id = getattr(perf, "actor_id", "") or ""
-        node_id = getattr(perf, "node_id", "") or ""
-        gpu_id = getattr(perf, "gpu_id", "") or ""
-        if actor_id:
-            self._stage_actors[stage_name].add(actor_id)
-        if not gpu_id:
+        actor_id = (getattr(perf, "actor_id", "") or "").strip()
+        if not actor_id:
             return
-        self._stage_gpus[stage_name].add(gpu_id)
+        node_id = (getattr(perf, "node_id", "") or "").strip()
+        self._stage_actors[stage_name].add(actor_id)
         if node_id:
-            self._gpu_node.setdefault(gpu_id, node_id)
-        self._stage_gpu_samples[stage_name][gpu_id].add(perf)
-        self._stage_gpu_items[stage_name][gpu_id] += float(perf.num_items_processed)
+            self._actor_node.setdefault(actor_id, node_id)
+        self._stage_actor_samples[stage_name][actor_id].add(perf)
+        self._stage_actor_items[stage_name][actor_id] += float(perf.num_items_processed)
         custom = perf.custom_metrics or {}
         audio_s = custom.get("audio_duration_s") or custom.get("audio_duration") or 0.0
         try:
-            self._stage_gpu_audio_s[stage_name][gpu_id] += float(audio_s)
+            self._stage_actor_audio_s[stage_name][actor_id] += float(audio_s)
         except (TypeError, ValueError):
             pass
-        if actor_id:
-            self._stage_gpu_actor[stage_name][gpu_id] = actor_id
-        location = self._gpu_location_fields(perf)
+        # GPU topology: physical address + device units (gpu_count true under TP).
+        physical_address = (getattr(perf, "physical_address", "") or "").strip()
+        host = physical_address.rsplit(":", 1)[0] if physical_address else (node_id or "node")
+        if physical_address:
+            self._stage_gpus[stage_name].add(physical_address)
+            for idx in getattr(perf, "gpu_indices", None) or ():
+                self._stage_gpu_units[stage_name].add(f"{host}:{idx}")
+        self._record_gpu_samples(stage_name, actor_id, host, perf)
+        location = self._actor_location_fields(perf)
         if location:
-            self._stage_gpu_location[stage_name][gpu_id] = location
+            self._stage_actor_location[stage_name][actor_id] = location
+
+    def _record_gpu_samples(self, stage_name: str, actor_id: str, host: str, perf: StagePerfStats) -> None:
+        """Fold per-GPU NVML samples (``<base>::<uuid>``) onto a physical address.
+
+        Maps each sample's normalized UUID back to the actor's physical GPU index
+        (via parallel ``gpu_indices``/``gpu_uuids``) so it lands on the canonical
+        ``<host>:<idx>`` address; unmappable UUIDs fall back to ``<host>:<uuid>``.
+        """
+        custom = perf.custom_metrics or {}
+        if not any(_gpu_sample_base(k) in _GPU_SAMPLE_KEYS for k in custom):
+            return
+        gpu_indices = list(getattr(perf, "gpu_indices", None) or [])
+        gpu_uuids = list(getattr(perf, "gpu_uuids", None) or [])
+        uuid_to_index = {_norm_uuid(u): idx for u, idx in zip(gpu_uuids, gpu_indices)}
+        uuid_to_raw = {_norm_uuid(u): u for u in gpu_uuids}
+        for key, value in custom.items():
+            base = _gpu_sample_base(key)
+            if base not in _GPU_SAMPLE_KEYS or "::" not in key:
+                continue
+            try:
+                sample = float(value)
+            except (TypeError, ValueError):
+                continue
+            uuid_key = key.split("::", 1)[1]
+            index = uuid_to_index.get(uuid_key)
+            address = f"{host}:{index}" if index is not None else f"{host}:{uuid_key}"
+            target = self._stage_actor_gpu_util if base == "gpu_util_pct" else self._stage_actor_gpu_mem
+            target[stage_name][actor_id][address].append(sample)
+            meta = self._gpu_unit_meta.setdefault(address, {})
+            if index is not None and "gpu_index" not in meta:
+                meta["gpu_index"] = int(index)
+            if uuid_key in uuid_to_raw and "gpu_uuid" not in meta:
+                meta["gpu_uuid"] = uuid_to_raw[uuid_key]
 
     @staticmethod
-    def _gpu_location_fields(perf: StagePerfStats) -> dict[str, Any]:
+    def _actor_location_fields(perf: StagePerfStats) -> dict[str, Any]:
+        """Additive per-actor metadata (GPU actors carry physical address).
+
+        ``node_id`` is folded in by the builder, not here.
+        """
         block: dict[str, Any] = {}
         physical_address = getattr(perf, "physical_address", "") or ""
         pod_ip = getattr(perf, "pod_ip", "") or ""
@@ -742,55 +724,74 @@ class AudioPerformanceSummary:
     # -----------------------------------------------------------------------
 
     def _stage_identity_meta(self, stage_name: str) -> dict[str, Any]:
-        """Topology labels for a stage: gpu_ids, gpu_count, actor_count.
+        """Topology labels for a stage: gpu_addresses, gpu_count, actor_count.
 
-        Empty for stages without resolved identity (CPU stages / non-Ray
-        contexts), so the keys only appear when there is real data.
-        ``actor_count`` is the distinct-actor count (a static count, not a
-        time-series percentile -- true p50/p95 needs the GPU sampler).
+        ``gpu_count`` counts distinct physical devices (a TP actor on 2 GPUs
+        counts as 2). Keys are omitted for stages without resolved identity.
         """
         meta: dict[str, Any] = {}
-        gpus = sorted(self._stage_gpus.get(stage_name, set()))
-        if gpus:
-            meta["gpu_ids"] = gpus
-            meta["gpu_count"] = float(len(gpus))
+        addresses = sorted(self._stage_gpus.get(stage_name, set()))
+        if addresses:
+            meta["gpu_addresses"] = addresses
+            meta["gpu_count"] = float(len(self._stage_gpu_units.get(stage_name, addresses)))
         actors = self._stage_actors.get(stage_name, set())
         if actors:
             meta["actor_count"] = float(len(actors))
         return meta
 
-    def _build_per_gpu(self, stage_name: str) -> dict[str, dict[str, Any]]:
-        """Per-GPU scheduling breakdown for a stage (empty when no GPU identity).
+    def _build_per_actor(self, stage_name: str) -> dict[str, dict[str, Any]]:
+        """Per-actor scheduling breakdown for a stage (GPU and CPU alike).
 
-        Each entry carries only the *scheduling* half of the proposed
-        ``per_gpu`` shape: ``actor_id``, ``items_processed``,
-        ``audio_hours_in``, and ``batch_size_p*`` / ``queue_wait_s_p*``
-        percentiles. Hardware fields are the NVML/DCGM proposal's job.
+        Keyed by ``actor_id``; empty when no actor identity was resolved. Each
+        entry carries node_id, items_processed, audio_hours_in, and
+        batch_size/queue_wait percentiles. GPU actors also carry physical_address,
+        gpu_indices/gpu_uuids, and a nested ``gpus`` map of per-device NVML
+        percentiles (only when the worker ran a GPU sampler).
         """
-        gpu_samples = self._stage_gpu_samples.get(stage_name, {})
-        if not gpu_samples:
+        actor_samples = self._stage_actor_samples.get(stage_name, {})
+        if not actor_samples:
             return {}
-        per_gpu: dict[str, dict[str, Any]] = {}
-        for gpu_id in sorted(gpu_samples):
+        per_actor: dict[str, dict[str, Any]] = {}
+        for actor_id in sorted(actor_samples):
             block: dict[str, Any] = {}
-            actor_id = self._stage_gpu_actor.get(stage_name, {}).get(gpu_id)
-            if actor_id:
-                block["actor_id"] = actor_id
-            items = self._stage_gpu_items.get(stage_name, {}).get(gpu_id, 0.0)
+            node_id = self._actor_node.get(actor_id)
+            if node_id:
+                block["node_id"] = node_id
+            items = self._stage_actor_items.get(stage_name, {}).get(actor_id, 0.0)
             if items:
                 block["items_processed"] = items
-            audio_s = self._stage_gpu_audio_s.get(stage_name, {}).get(gpu_id, 0.0)
+            audio_s = self._stage_actor_audio_s.get(stage_name, {}).get(actor_id, 0.0)
             if audio_s > 0:
                 block["audio_hours_in"] = seconds_to_hours(audio_s)
-            summary = gpu_samples[gpu_id].summarize()
+            summary = actor_samples[actor_id].summarize()
             for key in ("batch_size_p50", "batch_size_p95", "queue_wait_s_p50", "queue_wait_s_p95"):
                 if key in summary:
                     block[key] = summary[key]
-            location = self._stage_gpu_location.get(stage_name, {}).get(gpu_id)
+            location = self._stage_actor_location.get(stage_name, {}).get(actor_id)
             if location:
                 block.update(location)
-            per_gpu[gpu_id] = block
-        return per_gpu
+            gpus = self._build_actor_gpus(stage_name, actor_id)
+            if gpus:
+                block["gpus"] = gpus
+            per_actor[actor_id] = block
+        return per_actor
+
+    def _build_actor_gpus(self, stage_name: str, actor_id: str) -> dict[str, dict[str, Any]]:
+        """Per-physical-GPU NVML breakdown for one actor, keyed by ``<host>:<idx>``.
+
+        Each device carries gpu_index/gpu_uuid metadata and util/mem percentiles
+        from its own samples. Empty when the actor ran no GPU sampler.
+        """
+        util_by_addr = self._stage_actor_gpu_util.get(stage_name, {}).get(actor_id, {})
+        mem_by_addr = self._stage_actor_gpu_mem.get(stage_name, {}).get(actor_id, {})
+        addresses = sorted(set(util_by_addr) | set(mem_by_addr))
+        gpus: dict[str, dict[str, Any]] = {}
+        for address in addresses:
+            block: dict[str, Any] = dict(self._gpu_unit_meta.get(address, {}))
+            block.update(summarize_samples(util_by_addr.get(address, []), "gpu_util_pct"))
+            block.update(summarize_samples(mem_by_addr.get(address, []), "gpu_mem_used_pct"))
+            gpus[address] = block
+        return gpus
 
     def build_stage_summaries(
         self,
@@ -805,7 +806,7 @@ class AudioPerformanceSummary:
                 samples=self._stage_samples.get(stage_name),
                 caller_context=ctx_by_stage.get(stage_name),
                 stage_identity=self._stage_identity_meta(stage_name),
-                gpu_breakdown=self._build_per_gpu(stage_name),
+                actor_breakdown=self._build_per_actor(stage_name),
             )
             for stage_name, totals in self._stage_totals.items()
         }
@@ -821,16 +822,10 @@ class AudioPerformanceSummary:
     ) -> dict[str, Any]:
         """Build the full audio pipeline performance summary.
 
-        Top-level fields match the proposed pipeline-perf shape:
-          ``run_id``, ``executor``, ``input_hours``, ``output_hours``,
-          ``rows_in``, ``rows_out``, ``stages``.
-
-        Backward-compat keys (``total_utterances``,
-        ``total_audio_seconds``, ``total_audio_hours``,
-        ``writer_wall_time_s``, ``pipeline_audio_s_per_wall_s``,
-        ``pipeline_utterances_per_wall_s``, ``perf_invocations_counted``,
-        ``shards``) are preserved verbatim so the protocol-doc baseline
-        tables continue to read.
+        Top-level fields match the proposed pipeline-perf shape (run_id,
+        executor, input_hours, output_hours, rows_in, rows_out, stages).
+        Backward-compat keys (total_utterances, total_audio_seconds, shards,
+        etc.) are preserved verbatim for the protocol-doc baseline tables.
         """
         resolved_wall_time_s = (
             max(time.perf_counter() - self._wall_start_s, 0.0) if wall_time_s is None else max(wall_time_s, 0.0)
@@ -839,8 +834,8 @@ class AudioPerformanceSummary:
         if extra_stage_summaries:
             stages_summary.update(extra_stage_summaries)
 
-        # Derive top-level input_hours / rows_in from the first stage that
-        # has them populated (typically the reader / discovery).
+        # Derive top-level input_hours / rows_in from the first stage that has
+        # them populated (typically the reader / discovery).
         input_hours = 0.0
         rows_in = 0.0
         for stage_dict in stages_summary.values():
@@ -856,14 +851,14 @@ class AudioPerformanceSummary:
         rows_out = float(self._total_utterances)
 
         summary: dict[str, Any] = {
-            # ----- proposed-structure top-level -----
+            # proposed-structure top-level
             "run_id": run_id or "",
             "executor": executor or "",
             "input_hours": input_hours,
             "output_hours": output_hours,
             "rows_in": rows_in,
             "rows_out": rows_out,
-            # ----- backward-compat top-level (protocol-doc baselines) -----
+            # backward-compat top-level (protocol-doc baselines)
             "total_utterances": self._total_utterances,
             "total_audio_seconds": self._total_audio_seconds,
             "total_audio_hours": output_hours,
@@ -886,19 +881,18 @@ class AudioPerformanceSummary:
             "stages": stages_summary,
         }
 
-        # Cluster-level rollup (scheduling parts only)
-        # Hardware rollups (total_gpu_hours, per_gpu_hours, per_gpu_util_pct)
-        # are deferred to the NVML/DCGM proposal; only identity-derivable and
-        # already-available throughput fields are emitted here.
+        # Cluster-level rollup (scheduling only). Hardware rollups are deferred
+        # to the NVML/DCGM proposal; only identity-derivable fields emitted here.
         pipeline_throughput: dict[str, Any] = {}
         if resolved_wall_time_s > 0 and self._total_audio_seconds > 0:
             pipeline_throughput["audio_hours_per_wallclock_hour"] = (
                 seconds_to_hours(self._total_audio_seconds) / seconds_to_hours(resolved_wall_time_s)
             )
-        all_gpu_ids = sorted({gpu for gpus in self._stage_gpus.values() for gpu in gpus})
-        if all_gpu_ids:
-            pipeline_throughput["gpu_ids"] = all_gpu_ids
-            pipeline_throughput["gpu_count"] = float(len(all_gpu_ids))
+        all_addresses = sorted({addr for addrs in self._stage_gpus.values() for addr in addrs})
+        if all_addresses:
+            all_units = {unit for units in self._stage_gpu_units.values() for unit in units}
+            pipeline_throughput["gpu_addresses"] = all_addresses
+            pipeline_throughput["gpu_count"] = float(len(all_units or all_addresses))
         if pipeline_throughput:
             summary["pipeline_throughput"] = pipeline_throughput
 

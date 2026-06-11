@@ -14,25 +14,15 @@
 
 """Pure post-processing helpers for the audio pipeline performance summary.
 
-The ``performance.py`` accumulator class collects raw counters and
-per-invocation samples from each audio stage's ``_log_metrics`` output.
-This module owns everything that runs *on top of* those raw values to
-produce the published ``perf_summary.json`` shape: percentile
-computation, unit conversions, safe ratio helpers, and audio-domain
-composite throughput metrics (``audio_hours_per_gpu_hour`` etc.).
+Owns everything that runs on top of the raw counters/samples collected by the
+``performance.py`` accumulator: percentile computation, unit conversions, safe
+ratio helpers, and audio-domain composites (``audio_hours_per_gpu_hour`` etc.).
+Pure functions so they can be unit-tested and reused (CI checks, dashboards)
+without the full accumulator.
 
-Keeping these as pure functions in a separate module means they can be
-unit-tested in isolation and reused by anything that consumes the
-audio perf data (e.g. CI throughput checks, dashboards, downstream upload
-tooling) without dragging in the full
-``AudioPerformanceSummary`` accumulator.
-
-NOTE: This module shadows ``nemo_curator.utils.performance_utils`` by
-filename only; the full import paths differ
-(``nemo_curator.stages.audio.metrics.performance_utils`` vs
-``nemo_curator.utils.performance_utils``) so there is no actual
-conflict. The framework-level module owns ``StagePerfStats``; this
-module owns audio-specific post-processing.
+NOTE: shadows ``nemo_curator.utils.performance_utils`` by filename only; the
+import paths differ so there is no conflict. That module owns ``StagePerfStats``;
+this one owns audio-specific post-processing.
 """
 
 from __future__ import annotations
@@ -78,9 +68,8 @@ def bytes_to_gb(b: float) -> float:
 def safe_ratio(numerator: float, denominator: float) -> float | None:
     """Return numerator/denominator, or None if either input is non-positive.
 
-    Returning None (rather than 0 or NaN) lets the consumer omit the
-    field entirely from the published summary instead of carrying a
-    misleading zero through downstream dashboards.
+    None (not 0/NaN) lets the consumer omit the field rather than carry a
+    misleading zero downstream.
     """
     if numerator is None or denominator is None:
         return None
@@ -100,32 +89,33 @@ def add_ratio(entry: dict[str, Any], name: str, numerator: float, denominator: f
 # Percentiles
 # ---------------------------------------------------------------------------
 
+def _percentile_sorted(sorted_values: list[float], p: float) -> float:
+    """``p``-th percentile of an already-sorted, non-empty list (linear interp)."""
+    if p < 0 or p > 100:
+        msg = f"percentile p must be in [0, 100], got {p}"
+        raise ValueError(msg)
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    rank = (len(sorted_values) - 1) * (p / 100.0)
+    lo = int(rank)
+    hi = min(lo + 1, len(sorted_values) - 1)
+    if lo == hi:
+        return sorted_values[lo]
+    frac = rank - lo
+    return sorted_values[lo] + frac * (sorted_values[hi] - sorted_values[lo])
+
+
 def percentile(values: Iterable[float], p: float) -> float | None:
     """Compute the p-th percentile of ``values`` with linear interpolation.
 
-    Mirrors numpy's default behaviour (``np.percentile`` with
-    ``interpolation='linear'``) but avoids importing numpy from this
-    module so it can be used inside a writer pod that may not have
-    numpy on the import path.
-
-    Returns None when ``values`` is empty. ``p`` must be in ``[0, 100]``.
+    Mirrors numpy's default but avoids importing numpy so it works in writer
+    pods without it. Returns None when empty; ``p`` must be in ``[0, 100]``.
     """
     materialized = [float(v) for v in values]
     if not materialized:
         return None
-    if p < 0 or p > 100:
-        msg = f"percentile p must be in [0, 100], got {p}"
-        raise ValueError(msg)
     materialized.sort()
-    if len(materialized) == 1:
-        return materialized[0]
-    rank = (len(materialized) - 1) * (p / 100.0)
-    lo = int(rank)
-    hi = min(lo + 1, len(materialized) - 1)
-    if lo == hi:
-        return materialized[lo]
-    frac = rank - lo
-    return materialized[lo] + frac * (materialized[hi] - materialized[lo])
+    return _percentile_sorted(materialized, p)
 
 
 def summarize_samples(
@@ -135,16 +125,15 @@ def summarize_samples(
 ) -> dict[str, float]:
     """Return ``{f"{name}_p{P}": value}`` for each requested percentile.
 
-    Empty samples -> empty dict (caller omits the field entirely).
+    Empty samples -> empty dict. Sorts once, then indexes each percentile off it.
     """
     out: dict[str, float] = {}
     materialized = [float(v) for v in values]
     if not materialized:
         return out
+    materialized.sort()
     for p in percentiles:
-        v = percentile(materialized, p)
-        if v is not None:
-            out[f"{name}_p{p}"] = v
+        out[f"{name}_p{p}"] = _percentile_sorted(materialized, p)
     return out
 
 
@@ -153,11 +142,10 @@ def summarize_samples(
 # ---------------------------------------------------------------------------
 
 def audio_hours_per_gpu_hour(audio_seconds: float, gpu_seconds: float) -> float | None:
-    """How many hours of audio the stage processes per GPU-hour spent.
+    """Hours of audio processed per GPU-hour spent.
 
-    ``gpu_seconds`` is ``gpu_count * wallclock_s`` for the stage (the
-    caller computes this from its cluster topology). Returns None when
-    either input is non-positive.
+    ``gpu_seconds`` is ``gpu_count * wallclock_s`` (caller-computed). Returns
+    None when either input is non-positive.
     """
     return safe_ratio(seconds_to_hours(audio_seconds), seconds_to_hours(gpu_seconds))
 
@@ -172,28 +160,17 @@ def items_per_hour(items: float, wall_seconds: float) -> float | None:
 def estimate_wallclock_s(
     total_process_time_s: float,
     actor_count: float | None = None,
-    invocation_times: Iterable[float] | None = None,
 ) -> float | None:
     """Best-effort stage wallclock estimate.
 
-    The framework's ``StagePerfStats.process_time`` sums CPU time across
-    all invocations of an actor (and ``invocation_count`` is the number
-    of dedup'd invocations across all actors). True per-stage wall would
-    require first/last invocation timestamps, which the framework does
-    not currently expose.
-
-    Estimation order:
-      1. If ``actor_count`` is positive: ``total_process_time_s / actor_count``.
-      2. Else if ``invocation_times`` is non-empty: ``max(invocation_times)``
-         (longest single invocation = lower bound on wall).
-      3. Else: ``total_process_time_s`` (single-actor stages).
+    ``process_time`` sums CPU time across an actor's invocations; true per-stage
+    wall would need first/last timestamps the framework doesn't expose. So:
+    divide by ``actor_count`` when positive (spread across concurrent actors),
+    else use ``total_process_time_s``. No ``max(invocation_times)`` fallback --
+    it reads optimistically under parallel actors, so we stay conservative.
     """
     if actor_count and actor_count > 0:
         return float(total_process_time_s) / float(actor_count)
-    if invocation_times is not None:
-        materialized = [float(t) for t in invocation_times]
-        if materialized:
-            return max(materialized)
     if total_process_time_s > 0:
         return float(total_process_time_s)
     return None

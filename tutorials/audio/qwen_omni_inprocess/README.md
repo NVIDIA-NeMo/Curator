@@ -8,8 +8,8 @@ The pipeline reads a Granary-style NeMo tarred audio data config, decodes audio 
 
 - **Input**: Granary YAML data config with `nemo_tarred` corpora
 - **Reader**: Streams local NeMo tar shards and decodes waveforms in memory
-- **Inference**: Runs Qwen3-Omni thinker-only audio-to-text generation through in-process vLLM. The Curator-side glue lives in the generic `ASRStage` (input validation, ISO-code -> language-name lookup, stage-side pre-slicing for clips longer than `max_inference_duration_s`, optional duration-bucketed batching, stitch-back, metrics); the Qwen-Omni-specific vLLM setup, prompt formatting, and two-turn generation live in `QwenOmniASRAdapter`. Swap models by changing the single `adapter_target:` line in the YAML; tweak the bucket shape via `batch_policy:`. `ASRStage` itself subclasses the modality-agnostic `BucketedInferenceStage` (`nemo_curator/stages/inference/`), so the bucketize -> dispatch -> reassemble loop is shared with any other GPU inference stage rather than re-coded per model.
-- **Output**: Writes per-shard manifests, `.done` markers, an optional final manifest, per-task `{shard}_perf.jsonl`, and aggregate `perf_summary.json` (see [Performance Summary](#performance-summary))
+- **Inference**: Runs Qwen3-Omni thinker-only audio-to-text generation through in-process vLLM. The Curator-side glue lives in the generic `ASRStage` (input validation, ISO-code -> language-name lookup, stage-side pre-slicing for clips longer than `max_inference_duration_s`, optional duration-bucketed batching, stitch-back, metrics); the Qwen-Omni-specific vLLM setup, prompt formatting, and two-turn generation live in `QwenOmniASRAdapter`. Swap models by changing the single `adapter_target:` line in the YAML; tweak the bucket shape via `batch_policy:`. `ASRStage` itself subclasses `BucketedInferenceStage` (`nemo_curator/stages/audio/inference/`), so the bucketize -> dispatch -> reassemble loop is shared with any other audio GPU inference stage rather than re-coded per model.
+- **Output**: Writes per-shard manifests, `.done` markers, an optional final manifest, and an aggregate `perf_summary.json` (see [Performance Summary](#performance-summary))
 
 ### Pipeline Flow
 
@@ -89,25 +89,16 @@ adapter `prefetch_weights`). For gated checkpoints, set `HF_TOKEN`/`HF_HOME` in
 the worker environment (cluster env or the executor `runtime_env`); the driver
 process does not handle Hugging Face credentials.
 
-## Choosing a Backend
+## Backend
 
-The pipeline supports two execution backends. Override with `backend=`:
+The pipeline defaults to the **Ray Data** executor. To run on Xenna instead,
+override `backend=xenna` (Xenna additionally honors `execution_mode` and the
+autoscale knobs).
 
-| Backend | Description | When to use |
-|---------|-------------|-------------|
-| `xenna` | Default streaming executor. Supports explicit stage resource settings and autoscaling controls. | Multi-GPU throughput runs and launcher-driven jobs. |
-| `ray_data` | Ray Data executor. | Local development or environments where Ray Data is preferred. |
-
-Example with Ray Data:
-
-```bash
-python tutorials/audio/qwen_omni_inprocess/main.py \
-  --config-path tutorials/audio/qwen_omni_inprocess \
-  --config-name qwen_omni_inprocess \
-  input_manifest=/path/to/data_config.yaml \
-  workspace_dir=./qwen_omni_output \
-  backend=ray_data
-```
+> The GPU-stage worker pin is set in the YAML (`asr_num_workers`, cluster-wide)
+> and is honored by every backend as-is — no extra override is needed. See
+> [Worker allocation](#worker-allocation-pin-the-gpu-stage-autoscale-the-cheap-stages)
+> for how the default (`4`) is derived and when to switch to the per-node knob.
 
 ## Configuration
 
@@ -137,8 +128,8 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `final_manifest` | Optional combined JSONL written by the writer | `${workspace_dir}/output.jsonl` |
 | `language_short` | Default language code/name when an input row lacks `source_lang` | `en` |
 | `max_segment_length` | Maximum manifest duration to emit from the reader, in seconds | `40` |
-| `backend` | Execution backend | `xenna` |
-| `execution_mode` | Xenna execution mode | `streaming` |
+| `backend` | Execution backend (`ray_data` or `xenna`) | `ray_data` |
+| `execution_mode` | Xenna execution mode (ignored by `ray_data`) | `streaming` |
 | `autoscale_interval_s` | Xenna autoscale interval | `30` |
 | `prefetch_fail_on_error` | Fail before pipeline execution if model prefetch fails | `true` |
 | `stages_to_run` | Stage selector; `all`, comma-separated names, or list | `all` |
@@ -147,7 +138,7 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `max_utterances_per_shard` | Debug/smoke cap per tar shard | `null` |
 | `source_lang_key` | Manifest key for per-row language | `source_lang` |
 | `duration_key` | Manifest key for utterance duration | `duration` |
-| `adapter_target` | Tier-1 swap line; fully-qualified ASR adapter class path | `nemo_curator.adapters.asr.QwenOmniASRAdapter` |
+| `adapter_target` | Tier-1 swap line; fully-qualified ASR adapter class path | `nemo_curator.stages.audio.inference.asr.adapters.QwenOmniASRAdapter` |
 | `pred_text_key` | Output key for the Turn-1 transcription | `qwen3_prediction_s1` |
 | `disfluency_text_key` | Output key for the optional Turn-2 (disfluency) transcription; set to `null` to disable | `qwen3_prediction_s2` |
 | `model_id` | Hugging Face model identifier | `Qwen/Qwen3-Omni-30B-A3B-Instruct` |
@@ -162,8 +153,8 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `system_prompt` | Optional system prompt | `null` |
 | `tensor_parallel_size` | vLLM tensor parallel size | `2` |
 | `omni_resource_gpus` | GPU resources reserved for the Qwen stage | `2.0` |
-| `asr_num_workers_per_node` | Tier-1, adapter-agnostic. Hard-pin the ASR GPU stage to N workers per node (skips the autoscale cold-start ramp). `= floor(gpus_per_node / resources.gpus)`; with `omni_resource_gpus=2.0` on a 4-GPU node that is `2`. Xenna only. `null` = autoscale. | `2` |
-| `asr_num_workers` | Tier-1, adapter-agnostic. Hard-pin the ASR GPU stage to N workers cluster-wide (honored by both Xenna and Ray Data). Mutually exclusive with `asr_num_workers_per_node`. `null` = autoscale. | `null` |
+| `asr_num_workers` | Tier-1, adapter-agnostic. Hard-pin the ASR GPU stage to N workers cluster-wide (honored by **all** backends: Xenna streaming/batch and Ray Data). `= floor(total_gpus / resources.gpus)`; with `omni_resource_gpus=2.0` on 8 GPUs that is `4`. Mutually exclusive with `asr_num_workers_per_node`. `null` = autoscale. | `4` |
+| `asr_num_workers_per_node` | Tier-1, adapter-agnostic. Hard-pin per node (Xenna only; Ray Data has no per-node primitive). Use instead of `asr_num_workers` on Xenna to scale with node count. `null` = use the cluster-wide knob / autoscale. | `null` |
 | `batch_size` | Qwen stage batch size | `32` |
 | `max_output_tokens` | Maximum generated tokens per request | `256` |
 | `max_model_len` | vLLM maximum model length | `4096` |
@@ -176,7 +167,7 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `seed` | vLLM scheduler / sampling seed. | `1234` |
 | `keep_waveform` | Keep waveform arrays after inference so downstream stages can reuse the in-memory buffer; the writer still drops arrays from JSONL. | `true` |
 | `cpu_batch_size` | Writer batch size | `64` |
-| `write_perf_stats` | When `true`, the writer appends per-task `{shard}_perf.jsonl` lines and maintains `perf_summary.json`. Set `false` to disable all perf file output (manifests only). | `true` (writer stage default; add under `sharded_manifest_writer` in YAML if overriding) |
+| `write_perf_stats` | When `true`, the writer aggregates per-task stage perf and maintains `perf_summary.json`. Set `false` to disable perf output (manifests only). | `true` (writer stage default; add under `sharded_manifest_writer` in YAML if overriding) |
 
 #### Duration-aware bucketed batching (`batch_policy`)
 
@@ -184,7 +175,7 @@ The `qwen_omni` stage declares an optional `batch_policy` block:
 
 ```yaml
 batch_policy:
-  _target_: nemo_curator.stages.inference.batch_policy.BatchPolicy
+  _target_: nemo_curator.stages.audio.inference.batch_policy.BatchPolicy
   strategy: duration_bucketed
   buckets_sec: [0, 600, 1200, 2400]
   max_items_per_batch_by_bucket: [32, 16, 8, 4]
@@ -193,7 +184,7 @@ batch_policy:
 ```
 
 `BatchPolicy` and the `run_bucketed` helper it drives live in the
-modality-agnostic `nemo_curator.stages.inference.batch_policy` module so
+`nemo_curator.stages.audio.inference.batch_policy` module so
 any GPU inference stage can reuse them.
 
 When set, every `process_batch` invocation internally re-partitions its
@@ -214,7 +205,7 @@ is not consumed by the stage today.
 The explicit `stages` list is the source of truth for the graph:
 
 - `reader`: `NemoTarredAudioReader`
-- `qwen_omni`: `ASRStage` with `adapter_target: nemo_curator.adapters.asr.QwenOmniASRAdapter`
+- `qwen_omni`: `ASRStage` with `adapter_target: nemo_curator.stages.audio.inference.asr.adapters.QwenOmniASRAdapter`
 - `sharded_manifest_writer`: `ShardedManifestWriterStage`
 
 Run only selected stages when debugging:
@@ -260,10 +251,11 @@ Qwen-Omni adapter uses `omni_resource_gpus=2.0` (tensor-parallel 2), so on a
 4-GPU node the pin is `4 / 2.0 = 2`; swap in a 1-GPU ASR adapter and the same
 formula gives `4`.
 
-The `qwen_omni` stage is pinned out of the box via `asr_num_workers_per_node`
-(default `2`). With the stage pinned, Xenna's scheduler brings up all GPU workers
-on the first scheduling pass — no measurement gate, models load in parallel up
-front. Set it to `null` only if you deliberately want autoscaling back.
+The `qwen_omni` stage is pinned out of the box via `asr_num_workers` (cluster-wide,
+default `4` for the reference 2-node × 4-GPU shape). With the stage pinned, the
+scheduler brings up all GPU workers on the first scheduling pass — no measurement
+gate, models load in parallel up front. Set it to `null` only if you deliberately
+want autoscaling back.
 
 How the pin reaches each backend (verified in the stage code):
 
@@ -272,9 +264,11 @@ How the pin reaches each backend (verified in the stage code):
 | `asr_num_workers_per_node` → `ASRStage.xenna_stage_spec()["num_workers_per_node"]` | N workers **per node** | not applicable (no per-node primitive) → autoscales |
 | `asr_num_workers` → `ASRStage.xenna_stage_spec()["num_workers"]` **and** `ASRStage.num_workers()` | N workers **cluster-wide** | N workers **cluster-wide** (actor path) |
 
-So for the default Xenna-streaming backend, use `asr_num_workers_per_node` (it
-scales with node count automatically). If you run the Ray Data backend, use
-`asr_num_workers` instead, since Ray Data only honors a cluster-wide count.
+The default uses `asr_num_workers` (cluster-wide) because it is the only knob
+honored by **all** backends — including Ray Data, which has no per-node primitive
+— so one YAML value pins every backend with no per-backend launcher override.
+Switch to `asr_num_workers_per_node` (and set `asr_num_workers: null`) only on
+Xenna when you want the pin to scale with node count automatically.
 
 The cheap stages follow the same principle from the opposite side: the tar
 reader and discovery are pinned to 1 worker per node (bounded memory with
@@ -324,7 +318,6 @@ qwen_omni_output/
 +-- perf_summary.json
 +-- <corpus>/.../manifest_0.jsonl
     <corpus>/.../manifest_0.jsonl.done
-    <corpus>/.../manifest_0_perf.jsonl
 ```
 
 Each output row keeps the original manifest metadata and adds:
@@ -388,22 +381,23 @@ process/idle times, and any custom metrics they emit (e.g. `bytes_loaded`,
 
 `ShardedManifestWriterStage` is the **only** stage that writes perf files.
 It runs as a **single worker** (`num_workers=1` / `xenna_stage_spec`) so all
-append and aggregate I/O is serialized — no cross-worker file races.
+aggregate I/O is serialized — no cross-worker file races.
 
 With `write_perf_stats=true` (the default):
 
 | File | Granularity | When written |
 |------|-------------|--------------|
-| `{shard_key}_perf.jsonl` | **Per task** — one JSON line per utterance, containing the full `task._stage_perf` chain | Appended on every task that passes through the writer |
-| `perf_summary.json` | **Aggregate** — rolled-up totals, percentiles, `per_gpu`, `pipeline_throughput` | Refreshed when a shard completes (`.done` marker) **and** again at writer `teardown()` |
+| `perf_summary.json` | **Aggregate** — rolled-up totals, percentiles, per-actor breakdown, `pipeline_throughput` | Refreshed when a shard completes (`.done` marker) **and** again at writer `teardown()` |
+
+Per-task `StagePerfStats` are aggregated in memory only; there is no per-shard
+sidecar file.
 
 After the pipeline finishes, `main.py` reads `perf_summary.json` (if present),
 adds top-level `pipeline_duration_s` (whole-run wall clock), and rewrites the
 file.
 
 Downstream upload tooling may copy **one** rank’s `perf_summary.json` verbatim
-for cluster-wide reporting; per-shard `*_perf.jsonl` detail files are
-transported as-is (no re-aggregation in Curator).
+for cluster-wide reporting (no re-aggregation in Curator).
 
 ### Adding custom metrics in a stage
 
@@ -413,7 +407,7 @@ In any stage’s `process` / `process_batch` implementation:
 self._log_metrics({"inference_time_s": elapsed, "output_tokens": float(n_tokens)})
 ```
 
-Counters flow: `StagePerfStats.custom_metrics` → per-task `_perf.jsonl` →
+Counters flow: `StagePerfStats.custom_metrics` →
 summed under `stages[<name>].custom_metrics_sum` in `perf_summary.json`.
 To add a **new top-level summary field** consumed by multiple stages, extend
 `AudioStageMetrics` in `nemo_curator/stages/audio/metrics/performance.py`.
@@ -442,8 +436,8 @@ invocation counts, process/idle time percentiles, throughput ratios,
 `per_gpu` (per-actor items processed, audio hours, batch-size / queue-wait p50/p95,
 plus cluster location: `physical_address`, `pod_ip`, `hostname`, `gpu_indices`,
 optional `gpu_uuids`).
-Scheduling identity (`actor_id`, `node_id`, `gpu_id`) appears in per-task
-`_perf.jsonl` and drives dedup; each backend resolves `WorkerPerfIdentity` once
+Scheduling identity (`actor_id`, `node_id`, `gpu_id`) is carried on each
+`StagePerfStats` and drives dedup; each backend resolves `WorkerPerfIdentity` once
 at worker setup via `backends/perf_identity.py` (Xenna:
 `WorkerMetadata.allocation.gpus[0].index` for `gpu_id`, all allocation indices
 for `gpu_indices`, `POD_IP` for `physical_address`; Ray Data / Actor Pool:

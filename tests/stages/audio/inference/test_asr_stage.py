@@ -12,33 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the generic ``ASRStage`` (Curator-side glue).
-
-The stage is exercised against a mock ``ASRAdapter`` (no real model load), so
-these tests pin only stage behavior:
-    * process / process_batch contract + adapter delegation;
-    * stage-side pre-slice + stitch-back;
-    * ``keep_waveform: True`` default;
-    * within-call duration-bucketed dispatch via ``BatchPolicy``;
-    * ISO language-code mapping, I/O schema, skip / metric logging;
-    * ``setup_on_node`` weight prefetch + ``setup()`` adapter construction.
-
-Adapter internals live in ``tests/adapters/asr/test_qwen_omni.py``; the
-generic stage<->adapter contract lives in ``tests/adapters/asr/test_base.py``;
-the bucketing primitives live in ``tests/stages/inference/``.
-"""
+"""Tests for the generic ``ASRStage`` exercised against a mock ``ASRAdapter`` (no real model load)."""
 
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
-from nemo_curator.adapters.asr.base import ASRResult
+from nemo_curator.stages.audio.inference.asr.adapters.base import ASRResult
 from nemo_curator.stages.audio.inference.asr import ASRStage
-from nemo_curator.stages.inference.batch_policy import BatchPolicy
+from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
 from nemo_curator.tasks import AudioTask
 
-_QWEN_ADAPTER_TARGET = "nemo_curator.adapters.asr.qwen_omni.QwenOmniASRAdapter"
+_QWEN_ADAPTER_TARGET = "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.QwenOmniASRAdapter"
 _SR = 16000
 
 
@@ -176,8 +162,7 @@ def test_adapter_result_length_mismatch_raises() -> None:
 
 
 def test_pre_slice_short_clip_passes_through_unchanged() -> None:
-    """A clip well under max_inference_duration_s yields exactly one
-    sub-chunk; no stitching needed."""
+    """A clip under max_inference_duration_s yields one sub-chunk; no stitching."""
     stage = _make_stage(max_inference_duration_s=2400.0)
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="single")]
 
@@ -190,8 +175,7 @@ def test_pre_slice_short_clip_passes_through_unchanged() -> None:
 
 
 def test_pre_slice_over_long_clip_into_contiguous_sub_chunks() -> None:
-    """A 95-s clip with max_inference_duration_s=30 s slices into
-    [30, 30, 30, 5] sub-chunks (no padding, no overlap, last is short)."""
+    """A 95-s clip with max_inference_duration_s=30 s slices into [30, 30, 30, 5] sub-chunks."""
     stage = _make_stage(
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
@@ -213,7 +197,7 @@ def test_pre_slice_over_long_clip_into_contiguous_sub_chunks() -> None:
     chunk_lengths = [int(it["waveform"].shape[0]) for it in items]
     assert chunk_lengths == [_SR * 30, _SR * 30, _SR * 30, _SR * 5]
     assert sum(chunk_lengths) == int(waveform.shape[0])  # no audio lost / repeated
-    # First three sub-chunks should be the contiguous prefix of waveform.
+    # Sub-chunks are the contiguous prefix of waveform.
     np.testing.assert_array_equal(items[0]["waveform"], waveform[: _SR * 30])
     np.testing.assert_array_equal(items[1]["waveform"], waveform[_SR * 30 : _SR * 60])
     np.testing.assert_array_equal(items[2]["waveform"], waveform[_SR * 60 : _SR * 90])
@@ -221,9 +205,7 @@ def test_pre_slice_over_long_clip_into_contiguous_sub_chunks() -> None:
 
 
 def test_pre_slice_stitch_back_joins_per_parent_with_single_space() -> None:
-    """When N sub-chunks per parent come back, stitch-back joins their
-    texts (and secondary texts) with a single space; the parent task
-    gets one row, not N."""
+    """Stitch-back joins sub-chunk texts (and secondary texts) with a single space; one row per parent."""
     stage = _make_stage(
         disfluency_text_key="qwen3_prediction_s2",
         ideal_inference_segment_s=30.0,
@@ -243,8 +225,7 @@ def test_pre_slice_stitch_back_joins_per_parent_with_single_space() -> None:
 
 
 def test_pre_slice_marks_parent_skipped_only_if_all_chunks_skipped() -> None:
-    """Partial success: if any sub-chunk yielded text, the parent is NOT
-    marked skipped. If every sub-chunk was skipped, the parent IS marked."""
+    """A parent is marked skipped only if every sub-chunk was skipped."""
     stage = _make_stage(
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
@@ -273,9 +254,7 @@ def test_pre_slice_marks_parent_skipped_only_if_all_chunks_skipped() -> None:
 
 
 def test_pre_slice_metrics_count_parents_not_chunks() -> None:
-    """``utterances_input`` and ``utterances_processed`` count PARENT
-    tasks (one row per input); ``sub_chunks_generated`` surfaces the
-    fan-out factor for transparency."""
+    """utterances_input/processed count parent tasks; sub_chunks_generated surfaces the fan-out."""
     stage = _make_stage(
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
@@ -301,8 +280,7 @@ def test_pre_slice_metrics_count_parents_not_chunks() -> None:
 
 
 def test_batch_policy_partitions_items_by_bucket() -> None:
-    """Items in different buckets land in different adapter calls so a
-    single vLLM call never mixes a 40-min sub-chunk with 5-s sub-chunks."""
+    """Items in different buckets land in different adapter calls (no mixing of long and short)."""
     policy = BatchPolicy(
         strategy="duration_bucketed",
         buckets_sec=[0, 30, 1200, 2400],
@@ -311,14 +289,11 @@ def test_batch_policy_partitions_items_by_bucket() -> None:
         flush_interval_ms=250,
     )
     stage = _make_stage(batch_policy=policy)
-    # Three tasks: 5 s, 10 s, 600 s. Bucket 1 (<= 30 s) gets [5s, 10s];
-    # bucket 2 (<= 1200 s) gets [600 s]. Two adapter calls expected.
+    # 5s + 10s land in one bucket, 600s in another -> two adapter calls.
     short_a = AudioTask(data={"waveform": np.zeros(_SR * 5, dtype=np.float32), "sample_rate": _SR})
     short_b = AudioTask(data={"waveform": np.zeros(_SR * 10, dtype=np.float32), "sample_rate": _SR})
     long_a = AudioTask(data={"waveform": np.zeros(_SR * 600, dtype=np.float32), "sample_rate": _SR})
 
-    # Mock returns: first call (short bucket: 2 items) -> 2 results;
-    # second call (long bucket: 1 item) -> 1 result.
     stage._adapter.transcribe_batch.side_effect = [
         [ASRResult(text="short-a"), ASRResult(text="short-b")],
         [ASRResult(text="long")],
@@ -326,8 +301,7 @@ def test_batch_policy_partitions_items_by_bucket() -> None:
     results = stage.process_batch([short_a, short_b, long_a])
 
     assert stage._adapter.transcribe_batch.call_count == 2
-    # Parent-order is preserved in the final result list even though
-    # internal sub-batching is bucket-ordered.
+    # Parent order is preserved despite bucket-ordered sub-batching.
     assert results[0].data["qwen3_prediction_s1"] == "short-a"
     assert results[1].data["qwen3_prediction_s1"] == "short-b"
     assert results[2].data["qwen3_prediction_s1"] == "long"
@@ -474,8 +448,7 @@ def test_metrics_account_skipped_utterances() -> None:
 
 
 def test_metrics_model_alias_skips_already_emitted_keys() -> None:
-    """A5-fix: adapter metrics that the stage already emits must NOT be
-    re-aliased as ``model_<name>``."""
+    """Adapter metrics the stage already emits must NOT be re-aliased as ``model_<name>``."""
     stage = _make_stage()
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="text")]
     stage._adapter.last_metrics = {
@@ -496,7 +469,7 @@ def test_metrics_model_alias_skips_already_emitted_keys() -> None:
 # ----------------------------------------------------------------------
 
 
-@patch("nemo_curator.adapters.asr.qwen_omni.snapshot_download")
+@patch("nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.snapshot_download")
 def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
     stage.setup_on_node()
@@ -504,7 +477,7 @@ def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
 
 
 @patch(
-    "nemo_curator.adapters.asr.qwen_omni.snapshot_download",
+    "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.snapshot_download",
     side_effect=RuntimeError("missing auth"),
 )
 def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
@@ -515,7 +488,7 @@ def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
 
 
 @patch(
-    "nemo_curator.adapters.asr.qwen_omni.snapshot_download",
+    "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.snapshot_download",
     side_effect=RuntimeError("offline"),
 )
 def test_setup_on_node_can_warn_and_retry_later(mock_download: MagicMock) -> None:

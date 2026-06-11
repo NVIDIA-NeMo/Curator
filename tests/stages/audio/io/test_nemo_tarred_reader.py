@@ -65,6 +65,25 @@ def test_reader_manifest_lookup_accepts_common_path_variants(tmp_path) -> None:
     assert lookup["audio_0.wav"]["duration"] == 1.0
 
 
+def test_manifest_lookup_disambiguates_shared_basename_by_path_suffix(tmp_path) -> None:
+    """When two entries share a basename, a member resolves by longest path suffix."""
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        '{"audio_filepath": "spk_a/utt.wav", "duration": 1.0}\n'
+        '{"audio_filepath": "spk_b/utt.wav", "duration": 2.0}\n',
+        encoding="utf-8",
+    )
+    stage = NemoTarShardReaderStage()
+
+    lookup, _ = stage._read_manifest(str(manifest))
+
+    # Full path wins outright.
+    assert lookup.match("spk_a/utt.wav")["duration"] == 1.0
+    assert lookup.match("spk_b/utt.wav")["duration"] == 2.0
+    # A bare, ambiguous basename resolves to nothing rather than a wrong entry.
+    assert lookup.match("utt.wav") is None
+
+
 def test_read_manifest_skips_lines_missing_filepath_key(tmp_path) -> None:
     manifest = tmp_path / "manifest.jsonl"
     manifest.write_text(
@@ -98,10 +117,7 @@ def test_read_manifest_skips_invalid_json_lines(tmp_path) -> None:
 
 
 def test_reader_skips_tar_members_when_extractfile_returns_none(tmp_path, monkeypatch) -> None:
-    """Non-regular tar members (hard links, sparse/unknown types) can slip past
-    tar_info.isfile() and produce None from extractfile(); the stage must skip
-    them instead of raising AttributeError on .read().
-    """
+    """Tar members where extractfile() returns None must be skipped, not raise AttributeError."""
     audio = np.zeros(16000, dtype=np.float32)
     wav_buf = io.BytesIO()
     sf.write(wav_buf, audio, 16000, format="WAV")

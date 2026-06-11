@@ -62,11 +62,9 @@ class TestMergeExecutorConfig:
 
         result = merge_executor_configs(base, override)
 
-        # Check that nested dicts are merged
         assert result["runtime_env"]["env_vars"]["A"] == "1"
         assert result["runtime_env"]["env_vars"]["B"] == "3"
         assert result["runtime_env"]["env_vars"]["C"] == "4"
-        # Check that other keys are preserved
         assert result["runtime_env"]["pip"] == ["package1"]
         assert result["runtime_env"]["working_dir"] == "."
         assert result["other_config"] == "value1"
@@ -127,11 +125,9 @@ class TestExecuteSetupOnNode:
         stage1 = MockStage1()
         stage2 = MockStage1().with_(name="mock_stage_2", resources=Resources(cpus=0.5, gpus=0.0))
 
-        # Test
         execute_setup_on_node([stage1, stage2])
 
-        # Check the files written to the temp directory
-        # Verify that NodeInfo and WorkerMetadata were passed correctly
+        # Verify NodeInfo / WorkerMetadata were passed via the per-call files.
         for stage_name in ["mock_stage_1", "mock_stage_2"]:
             stage_files = list(tmp_path.glob(f"{stage_name}_*.txt"))
             assert len(stage_files) == len(ray.nodes()), (
@@ -150,7 +146,7 @@ class TestExecuteSetupOnNode:
                 f"Expected node IDs to be the same as the Ray nodes, got {node_ids}"
             )
 
-        # Check that there are exactly two log records that start with "Executing setup on node" and end with "for 2 stages"
+        # Log records starting with "Executing setup on node" and ending with "for 2 stages".
         matching_logs = [
             record.message
             for record in caplog.records
@@ -190,7 +186,6 @@ class TestExecuteSetupOnNode:
 
         stage = MockStage1()
 
-        # Test with ignore_head_node=True
         execute_setup_on_node([stage], ignore_head_node=True)
 
         # Verify the cache variable is set directly (not using the lazy function)

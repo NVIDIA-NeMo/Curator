@@ -14,21 +14,12 @@
 
 """Generic audio ASR Curator stage with a pluggable adapter.
 
-The stage owns Curator-side glue:
-
-* validates ``task.data`` against ``inputs()`` / ``outputs()``;
-* unpacks per-task knobs (waveform, sample rate, ISO language code -> name);
-* **pre-slices** any task whose audio duration exceeds
-  ``max_inference_duration_s`` into contiguous sub-chunks before adapter dispatch;
-* optionally **re-buckets** items by duration using :class:`BatchPolicy` so a
-  single adapter call does not mix very long and very short clips;
-* dispatches ``transcribe_batch`` once per bucket-respecting sub-batch;
-* **stitches** per-sub-chunk results back per parent task;
-* writes predictions onto ``task.data``; marks skipped items; optionally keeps
-  waveforms in memory; emits performance metrics.
-
-The concrete adapter is resolved at runtime from ``adapter_target`` via
-``hydra.utils.get_class``.
+Curator-side glue: validates I/O, resolves per-task language, pre-slices long
+audio into sub-chunks, optionally re-buckets by duration (:class:`BatchPolicy`)
+so one adapter call doesn't mix long and short clips, dispatches
+``transcribe_batch`` per sub-batch, stitches results per parent task, and writes
+predictions/metrics. The concrete adapter is resolved at runtime from
+``adapter_target`` via ``hydra.utils.get_class``.
 """
 
 from __future__ import annotations
@@ -41,8 +32,8 @@ from typing import TYPE_CHECKING, Any
 import hydra.utils
 from loguru import logger
 
-from nemo_curator.adapters.asr.base import ASRAdapter, ASRResult
-from nemo_curator.stages.inference.bucketed_stage import BucketedInferenceStage
+from nemo_curator.stages.audio.inference.asr.adapters.base import ASRAdapter, ASRResult
+from nemo_curator.stages.audio.inference.bucketed_stage import BucketedInferenceStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
@@ -50,11 +41,10 @@ if TYPE_CHECKING:
     import numpy as np
 
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-    from nemo_curator.stages.inference.batch_policy import BatchPolicy
+    from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
 
 
-# ISO-code -> human-readable language name mapping lives on the stage.
-# The adapter receives resolved names like "English", "Spanish" via each item dict.
+# ISO code -> human-readable name; the adapter receives the resolved name.
 _LANG_CODE_TO_NAME: dict[str, str] = {
     "ar": "Arabic",
     "bg": "Bulgarian",
@@ -113,70 +103,44 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
 class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", ASRResult]):
     """Audio speech-recognition Curator stage with pluggable adapter.
 
-    Tier-1 fields (``adapter_target``, ``model_id``, I/O keys, chunking limits)
-    are set in YAML. Tier-2 model knobs are forwarded opaquely via
-    ``adapter_kwargs``. The stage can pre-slice long audio, optionally
-    duration-bucket batches, stitch chunk outputs per parent task, and by
-    default keeps waveforms in ``task.data`` for downstream stages.
+    Tier-1 fields are set in YAML; Tier-2 model knobs go opaquely via
+    ``adapter_kwargs``. Pre-slices long audio, optionally duration-buckets
+    batches, stitches chunk outputs per parent task, and keeps waveforms in
+    ``task.data`` by default.
 
     Args:
-        adapter_target: Tier-1 swap surface. Fully-qualified class path
-            of the concrete :class:`~nemo_curator.adapters.asr.ASRAdapter`
-            implementation (e.g. ``"nemo_curator.adapters.asr.QwenOmniASRAdapter"``).
-            Resolved at ``setup()`` time via ``hydra.utils.get_class``.
-        model_id: Tier-1. Model checkpoint identifier, forwarded both to
-            ``ASRAdapter.prefetch_weights`` (in ``setup_on_node``) and to
-            the adapter constructor.
-        revision: Tier-1. Optional model revision to pin.
-        waveform_key / sample_rate_key: Keys into ``task.data`` for the
-            input waveform numpy array and its sample rate.
-        source_lang_key: Key into ``task.data`` carrying an ISO language
-            code. Mapped to a human-readable name before being forwarded
-            to the adapter.
-        default_language: Fallback ISO code / language name used when a
-            task has no ``source_lang_key`` value.
-        pred_text_key: Key under which the Turn-1 prediction is written.
-        disfluency_text_key: When set, enables Turn-2 / refined output -
-            the stage writes ``ASRResult.secondary_text or ""`` under
-            this key, and reports the key in ``outputs()``. ``None``
-            means single-turn semantics.
-        skip_me_key: Key set to ``"empty_audio"`` for adapter-flagged
-            skipped items (matches the pre-split convention).
-        ideal_inference_segment_s: Tier-1. Model-card per-turn audio cap.
-            Used as the default upper bound for pre-slicing and as the
-            anchor for ``BatchPolicy`` bucket shapes. Qwen-Omni default:
-            ``2400.0`` (40 min).
-        max_inference_duration_s: Tier-1. Stage-level chunking ceiling.
-            Defaults to ``ideal_inference_segment_s``. Any task whose
-            audio duration exceeds this value is pre-sliced into
-            contiguous ``≤ max_inference_duration_s`` sub-chunks before
-            adapter dispatch. Set lower than ``ideal`` for VRAM-pressured
-            deployments (the slice grain shrinks; bucket shape stays
-            anchored to ``ideal``).
-        keep_waveform: When True (default), keeps ``task.data[waveform_key]``
-            after inference so downstream stages can reuse the in-memory buffer.
-        prefetch_fail_on_error: When False, ``setup_on_node`` warns and
-            defers weight prefetch to ``setup()`` instead of raising.
-        batch_policy: Optional duration-bucketed batching policy
-            (:class:`~nemo_curator.stages.inference.batch_policy.BatchPolicy`).
-            When set, every ``process_batch`` invocation internally
-            re-partitions its items into bucket-respecting sub-batches
-            before dispatching the adapter, so a single vLLM call
-            never mixes a 40-min sub-chunk with a 5-sec sub-chunk.
-            Cross-call queueing with per-bucket flush timers requires
-            framework-scheduler support (not implemented here).
-        adapter_kwargs: Tier-2. Opaque dict forwarded to the adapter
-            constructor as ``**adapter_kwargs``. The stage NEVER reads
-            inside this dict - it is the adapter's private knob bag.
-        xenna_num_workers / xenna_num_workers_per_node: Tier-1,
-            adapter-agnostic worker pin to skip the autoscale cold-start
-            ramp. Mutually exclusive; both unset = autoscale. Value is
-            model-dependent:
-            ``per_node = floor(gpus_per_node / resources.gpus)`` (a smaller
-            model needs fewer GPUs/actor -> more actors fit).
-        resources / batch_size: Standard Curator stage knobs. ``resources.gpus``
-            is the per-actor GPU footprint; match it to the adapter's
-            tensor-parallel degree.
+        adapter_target: Fully-qualified ``ASRAdapter`` class path; resolved at
+            ``setup()`` via ``hydra.utils.get_class``.
+        model_id: Checkpoint id; forwarded to ``prefetch_weights`` and the adapter.
+        revision: Optional model revision to pin.
+        waveform_key / sample_rate_key: ``task.data`` keys for the input waveform
+            and its sample rate.
+        source_lang_key: ``task.data`` key with an ISO code, mapped to a name.
+        default_language: Fallback ISO code / name when ``source_lang_key`` is absent.
+        pred_text_key: Key the Turn-1 prediction is written under.
+        disfluency_text_key: When set, enables Turn-2 output (written here and
+            reported in ``outputs()``); ``None`` = single-turn.
+        skip_me_key: Set to ``"empty_audio"`` for adapter-flagged skipped items.
+        ideal_inference_segment_s: Model-card per-turn audio cap; default pre-slice
+            bound and ``BatchPolicy`` bucket anchor (Qwen-Omni: 2400.0 = 40 min).
+        max_inference_duration_s: Stage chunking ceiling (defaults to ideal). Tasks
+            above it are pre-sliced into contiguous ``<=`` sub-chunks. Lower it for
+            VRAM pressure; bucket shape stays anchored to ideal.
+        keep_waveform: When True (default), keep the waveform after inference for
+            downstream reuse.
+        prefetch_fail_on_error: When False, defer a failed node prefetch to
+            ``setup()`` with a warning instead of raising.
+        batch_policy: Optional duration-bucketed policy; re-partitions each
+            ``process_batch`` into bucket-respecting sub-batches so one adapter
+            call never mixes a 40-min and a 5-sec sub-chunk. (Cross-call queueing
+            with flush timers needs scheduler support; not implemented here.)
+        adapter_kwargs: Opaque dict forwarded as ``**adapter_kwargs``; the stage
+            never reads inside it.
+        xenna_num_workers / xenna_num_workers_per_node: Adapter-agnostic worker pin
+            to skip autoscale cold-start. Mutually exclusive; both unset =
+            autoscale. ``per_node = floor(gpus_per_node / resources.gpus)``.
+        resources / batch_size: Standard knobs; ``resources.gpus`` is the per-actor
+            GPU footprint, match it to the adapter's tensor-parallel degree.
     """
 
     # ---- Tier 1: swap surface ----
@@ -206,7 +170,6 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
     # ---- Tier 1: optional worker pin (skip the autoscale cold-start ramp) ----
     # Mutually exclusive; both unset = autoscale. xenna_num_workers is
     # cluster-wide (Xenna + Ray Data); xenna_num_workers_per_node is Xenna-only.
-    # See the stage docstring / tutorial README for the model-dependent value.
     xenna_num_workers: int | None = None
     xenna_num_workers_per_node: int | None = None
 
@@ -225,8 +188,8 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
             msg = f"ASRStage.ideal_inference_segment_s must be > 0 s, got {self.ideal_inference_segment_s}"
             raise ValueError(msg)
         if self.max_inference_duration_s is None:
-            # Default the slice ceiling to ideal so the stage pre-slices
-            # exactly what the bucket shape expects (top edge = ideal).
+            # Default slice ceiling to ideal so pre-slicing matches the bucket
+            # shape (top edge = ideal).
             self.max_inference_duration_s = self.ideal_inference_segment_s
         if self.max_inference_duration_s <= 0:
             msg = (
@@ -249,10 +212,11 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
             )
             raise ValueError(msg)
         self._adapter: ASRAdapter | None = None
-        # Per-``process_batch`` accumulators, reset in ``build_items`` (the
-        # first hook invoked each call) and consumed in ``assemble``.
+        # Per-``process_batch`` accumulators: reset in ``build_items``, consumed
+        # in ``assemble``.
         self._acc_model_metrics: dict[str, float] = defaultdict(float)
         self._inference_elapsed_s: float = 0.0
+        self._warned_ray_per_node_pin = False
 
     # ------------------------------------------------------------------
     # Adapter lifecycle
@@ -303,7 +267,21 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
     # ------------------------------------------------------------------
 
     def num_workers(self) -> int | None:
-        # Ray Data hook (cluster-wide only; no per-node primitive).
+        # Ray Data has no per-node pin, so a per-node-only pin silently
+        # autoscales this GPU stage; warn once to surface the backend-swap
+        # foot-gun (the shipped default sets xenna_num_workers, so this is quiet).
+        if (
+            self.xenna_num_workers is None
+            and self.xenna_num_workers_per_node is not None
+            and not self._warned_ray_per_node_pin
+        ):
+            logger.warning(
+                "ASRStage: xenna_num_workers_per_node={} is set but xenna_num_workers "
+                "is None; Ray Data has no per-node pin and will AUTOSCALE this GPU "
+                "stage. Set xenna_num_workers for a cluster-wide Ray Data pin.",
+                self.xenna_num_workers_per_node,
+            )
+            self._warned_ray_per_node_pin = True
         return self.xenna_num_workers
 
     def xenna_stage_spec(self) -> dict[str, Any]:
@@ -346,12 +324,10 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
         sample_rate: int,
         max_seconds: float,
     ) -> list[np.ndarray]:
-        """Return contiguous ≤ ``max_seconds`` sub-chunks of ``waveform``.
+        """Return contiguous ``<= max_seconds`` sub-chunks of ``waveform``.
 
-        The last sub-chunk may be shorter than ``max_seconds`` (no
-        padding, no overlap). When the input fits within ``max_seconds``,
-        returns ``[waveform]`` unchanged - the common case for the
-        canonical ``data_config_s3_8`` workload (all clips ≤ 40 s).
+        Last chunk may be shorter (no padding/overlap). Returns ``[waveform]``
+        unchanged when it already fits (the common case for ``data_config_s3_8``).
         """
         if waveform is None or getattr(waveform, "size", 0) == 0 or not sample_rate or sample_rate <= 0:
             return [waveform]
@@ -372,22 +348,14 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
     ) -> tuple[list[dict[str, Any]], list[int]]:
         """Pre-slice tasks into the flat per-sub-chunk item list + parent map.
 
-        :class:`~nemo_curator.stages.inference.bucketed_stage.BucketedInferenceStage`
-        hook (runs first each call): validates inputs, resets the per-call
-        metric accumulators, then expands long clips into contiguous chunks.
+        ``BucketedInferenceStage`` hook (runs first each call): validates inputs,
+        resets per-call metric accumulators, then expands long clips into chunks.
 
         Returns:
-            ``(items, parent_of)`` where ``items[i]`` is the dict the
-            adapter will see and ``parent_of[i]`` is the index of the
-            originating task in ``tasks``.
-
-            Each item carries:
-                * ``waveform``: the sub-chunk (or full waveform if no slice)
-                * ``sample_rate``: the original sample rate (unchanged)
-                * ``language``: stage-resolved human-readable language name
-                * ``task_id``: parent task id (diagnostic)
-                * ``audio_seconds``: this sub-chunk's duration in seconds
-                * ``chunk_idx`` / ``chunk_count``: position within parent
+            ``(items, parent_of)`` where ``parent_of[i]`` is the originating task
+            index. Each item carries ``waveform`` (sub-chunk or full),
+            ``sample_rate`` (unchanged), ``language`` (resolved name), ``task_id``,
+            ``audio_seconds``, and ``chunk_idx`` / ``chunk_count``.
         """
         for task in tasks:
             if not self.validate_input(task):
@@ -410,9 +378,8 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
             waveform = task.data.get(self.waveform_key)
             sample_rate = task.data.get(self.sample_rate_key)
             language = self._resolve_language(task)
-            # Skip-shaped placeholder lets the adapter still see one item per
-            # parent task (preserves the 1:1 invariant on the adapter side
-            # when waveform is empty/None).
+            # Placeholder item for empty/None waveform keeps the adapter's 1:1
+            # item-per-parent invariant.
             if waveform is None or getattr(waveform, "size", 0) == 0 or not sample_rate:
                 items.append({
                     "waveform": waveform,
@@ -449,12 +416,10 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
         parent_of: list[int],
         num_parents: int,
     ) -> list[ASRResult]:
-        """Join per-chunk text outputs per parent task with single-space.
+        """Join per-chunk text outputs per parent task with single spaces.
 
-        The skip flag is propagated up if EVERY chunk for the parent was
-        skipped (i.e. the whole input was unprocessable). If any chunk
-        succeeded, the parent gets the non-empty texts joined and is NOT
-        marked skipped.
+        Parent is marked skipped only if EVERY chunk was skipped; if any chunk
+        succeeded, its non-empty texts are joined and the parent is not skipped.
         """
         per_parent_texts: list[list[str]] = [[] for _ in range(num_parents)]
         per_parent_secondary: list[list[str]] = [[] for _ in range(num_parents)]
@@ -507,9 +472,8 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
     def run_inference(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         """Transcribe ONE bucket-respecting sub-batch via the adapter.
 
-        Also folds the adapter's per-call ``last_metrics`` and the wall-clock
-        inference time into the per-``process_batch`` accumulators that
-        :meth:`assemble` later reports.
+        Also folds the adapter's ``last_metrics`` and wall-clock time into the
+        per-``process_batch`` accumulators that :meth:`assemble` reports.
         """
         inference_t0 = time.perf_counter()
         sub_results = self._adapter.transcribe_batch(items)
@@ -531,17 +495,14 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
         accumulated_model_metrics = self._acc_model_metrics
         inference_elapsed = self._inference_elapsed_s
 
-        # Defensive: turn any None slots into skipped placeholders (won't
-        # happen in correct adapter implementations; guards against silent
-        # data loss if a future adapter forgets a slot).
+        # Defensive: turn any None slots into skipped placeholders, guarding
+        # against silent data loss if a future adapter forgets a slot.
         chunk_results: list[ASRResult] = [
             r if r is not None else ASRResult(text="", skipped=True) for r in results
         ]
 
-        # Stitch sub-chunk results back per parent task
         per_parent_results = self._stitch(chunk_results, parent_of, num_parents=len(tasks))
 
-        # Write outputs onto tasks
         skipped_count = 0
         for task, parent_result in zip(tasks, per_parent_results, strict=True):
             task.data[self.pred_text_key] = parent_result.text
@@ -553,11 +514,9 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
             if not self.keep_waveform:
                 task.data.pop(self.waveform_key, None)
 
-        # Metrics. ``utterances_input``/``utterances_processed`` count
-        # PARENT tasks (preserves the pre-refactor 1-row-per-input
-        # semantic that downstream consumers rely on);
-        # ``sub_chunks_generated`` surfaces the pre-slicer's fan-out
-        # factor for transparency.
+        # ``utterances_*`` count PARENT tasks (the 1-row-per-input semantic
+        # downstream consumers rely on); ``sub_chunks_generated`` surfaces the
+        # pre-slicer fan-out.
         waveforms_for_metric = [it["waveform"] for it in items]
         sample_rates_for_metric = [it["sample_rate"] for it in items]
         metrics: dict[str, float] = {
@@ -584,9 +543,8 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
             "turn2_output_tokens": float(accumulated_model_metrics.get("turn2_output_tokens", 0.0)),
             "inference_time_s": inference_elapsed,
         }
-        # A5-fix preserved: pass through adapter-side scalar metrics under a
-        # "model_<name>" alias, but skip aliases that would just restate a
-        # key the stage already emits above.
+        # Pass through adapter scalar metrics under a "model_<name>" alias,
+        # skipping any that would restate a key the stage already emits.
         metrics.update({
             f"model_{name}": value
             for name, value in accumulated_model_metrics.items()

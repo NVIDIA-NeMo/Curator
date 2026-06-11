@@ -202,19 +202,18 @@ Backend reads stage.batch_size
 GPU inference stages that follow a *bucketize -> dispatch -> reassemble*
 pattern (expand tasks into model-input items, group items so one model
 call does not mix very expensive and very cheap work, run the model,
-stitch results back) no longer need to re-code that loop. Two reusable,
-**modality-agnostic** building blocks live in
-`nemo_curator/stages/inference/`:
+stitch results back) no longer need to re-code that loop. Two reusable
+building blocks live alongside the audio inference stages in
+`nemo_curator/stages/audio/inference/`:
 
 | Component | Location | Role |
 |---|---|---|
-| `BatchPolicy` | `stages/inference/batch_policy.py` | Cost-bucketed batching config (`buckets_sec`, `max_items_per_batch_by_bucket`, `max_audio_sec_per_batch`). `bucketize()` re-partitions a heterogeneous batch into bucket-respecting sub-batches. |
-| `run_bucketed` | `stages/inference/batch_policy.py` | The single importable entry point: dispatches a `run_fn` over cost-bucketed sub-batches and realigns results to the original order. `policy=None` runs one batch. |
-| `BucketedInferenceStage` | `stages/inference/bucketed_stage.py` | Abstract `ProcessingStage` subclass owning `process_batch`. Subclasses implement four small hooks; bucketing comes for free. |
+| `BatchPolicy` | `stages/audio/inference/batch_policy.py` | Cost-bucketed batching config (`buckets_sec`, `max_items_per_batch_by_bucket`, `max_audio_sec_per_batch`). `bucketize()` re-partitions a heterogeneous batch into bucket-respecting sub-batches. |
+| `run_bucketed` | `stages/audio/inference/batch_policy.py` | The single importable entry point: dispatches a `run_fn` over cost-bucketed sub-batches and realigns results to the original order. `policy=None` runs one batch. |
+| `BucketedInferenceStage` | `stages/audio/inference/bucketed_stage.py` | Abstract `ProcessingStage` subclass owning `process_batch`. Subclasses implement four small hooks; bucketing comes for free. |
 
-Import these from `nemo_curator.stages.inference.batch_policy` — that is
-the single canonical home, shared across audio, text, and vision GPU
-inference stages.
+Import these from `nemo_curator.stages.audio.inference.batch_policy` /
+`nemo_curator.stages.audio.inference.bucketed_stage`.
 
 A `BucketedInferenceStage` subclass implements four hooks instead of
 `process_batch`:
@@ -251,8 +250,8 @@ swappable **adapter**:
 | Layer | Location | Responsibility |
 |---|---|---|
 | `ASRStage` | `stages/audio/inference/asr/stage.py` | Generic, model-independent stage glue. |
-| `ASRAdapter` (Protocol) + `ASRResult` | `adapters/asr/base.py` | The contract a model adapter must satisfy (`setup`, `teardown`, `transcribe_batch`, `prefetch_weights`, `last_metrics`). |
-| `QwenOmniASRAdapter` | `adapters/asr/qwen_omni.py` | Qwen3-Omni implementation (built on the shared `VLLMBase` in `models/vllm_model.py`). |
+| `ASRAdapter` (Protocol) + `ASRResult` | `stages/audio/inference/asr/adapters/base.py` | The contract a model adapter must satisfy (`setup`, `teardown`, `transcribe_batch`, `prefetch_weights`, `last_metrics`). |
+| `QwenOmniASRAdapter` | `stages/audio/inference/asr/adapters/qwen_omni.py` | Qwen3-Omni implementation (built on the shared `VLLMBase` in `models/vllm_model.py`). |
 
 The split is **Tier-1 / Tier-2**:
 
@@ -292,8 +291,8 @@ adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
 | Layer | Who | What |
 |-------|-----|------|
 | **Collection** | Every stage, CPU and GPU | Backend adapter times each `process_batch` and appends `StagePerfStats` to `task._stage_perf` |
-| **Serialization** | Single CPU writer (`num_workers=1`) | Appends `{shard}_perf.jsonl` per task; maintains aggregate `perf_summary.json` |
-| **Upload** | External orchestrator (optional) | Verbatim copy/transport of one `perf_summary.json` and `*_perf.jsonl` shards |
+| **Serialization** | Single CPU writer (`num_workers=1`) | Maintains the aggregate `perf_summary.json` |
+| **Upload** | External orchestrator (optional) | Verbatim copy/transport of one `perf_summary.json` |
 
 Do **not** add per-GPU file writers or a second metrics actor. Multiple
 `perf_summary.json` writers produce incompatible summaries and require explicit
@@ -319,17 +318,20 @@ Toggle file output with `write_perf_stats: false` on `ShardedManifestWriterStage
      `WorkerMetadata.allocation.gpus[0].index` only. Under Ray Data / Actor Pool:
      `ray.get_gpu_ids()[0]` only. These strings are stripped from
      `StagePerfStats.items()` so framework metric collectors never `float()` them.
-   - **Cluster location (additive, does not replace `gpu_id`):**
-     `physical_address` (`<pod_or_node_ip>:<comma-separated gpu_indices>`),
-     `pod_ip` (K8s `POD_IP` when set), `hostname`, `gpu_indices` (full allocation,
-     e.g. `[0, 1]` for `tp=2`), optional `gpu_uuids` from CUDA device properties.
-3. **Per-GPU scheduling breakdown** — the writer’s `AudioPerformanceSummary` builds
-   per-stage `gpu_ids`, `gpu_count`, `actor_count`, and `per_gpu` (items
-   processed, audio hours, batch-size / queue-wait percentiles, plus the cluster
-   location fields above) **for GPU stages only** (`gpu_id` non-empty). CPU stages
-   still appear under `stages[<cpu_stage_name>]` with timings and
-   `custom_metrics_sum`; they get `actor_count` but no `per_gpu` block. Top-level
-   `pipeline_throughput` rolls up GPU-stage scheduling IDs (`gpu_ids`).
+   - **Cluster location (additive):** `physical_address`
+     (`<host>:<comma-separated gpu_indices>`, the canonical backend-independent
+     GPU identifier), `pod_ip` (K8s `POD_IP` when set), `hostname`, `gpu_indices`
+     (full allocation, e.g. `[0, 1]` for `tp=2`), optional `gpu_uuids` from CUDA
+     device properties.
+3. **Per-actor scheduling breakdown** — the writer’s `AudioPerformanceSummary`
+   builds per-stage `actor_count` and `per_actor` (keyed by `actor_id`: items
+   processed, audio hours, batch-size / queue-wait percentiles) for **every
+   actor-backed stage, GPU or CPU**. GPU actors additionally carry their
+   `physical_address` + `gpu_indices` / `gpu_uuids` and the NVML
+   `gpu_util_pct_p*` / `gpu_mem_used_pct_p*` percentiles inside their `per_actor`
+   block, and the stage gets `gpu_addresses` (per-actor physical addresses) +
+   `gpu_count` (true device count). Top-level `pipeline_throughput` rolls up the
+   GPU-stage `gpu_addresses` / `gpu_count`.
 4. **Dedup** — `AudioPerformanceSummary.record_stage_perf` fingerprints each
    `StagePerfStats` (including identity) so fan-out stages do not multiply-count
    upstream invocations.
@@ -338,12 +340,10 @@ Toggle file output with `write_perf_stats: false` on `ShardedManifestWriterStage
 
 When `write_perf_stats=true` (default):
 
-- **`{shard_key}_perf.jsonl`** — append one JSON line per task:
-  `{"task_id": "...", "stages": [<serialized StagePerfStats chain>]}`.
-  Written in `process()` as each task arrives at the writer.
 - **`perf_summary.json`** — aggregate summary from `AudioPerformanceSummary.build_summary()`.
   Refreshed when a shard hits its `_shard_total` (`.done` written) and again in
   `teardown()`. Includes writer’s own I/O timings under `stages[sharded_manifest_writer]`.
+  Per-task `StagePerfStats` are aggregated in memory only (no per-shard sidecar file).
 
 `main.py` (tutorial entry points) may add `pipeline_duration_s` after
 `pipeline.run()` returns.
@@ -363,8 +363,8 @@ with self._time_metric("decode_wall_s"):
     ...
 ```
 
-Metrics appear in per-task `_perf.jsonl` and roll up to
-`stages[<stage_name>].custom_metrics_sum`. For a new cross-stage scalar in the
+Metrics roll up to `stages[<stage_name>].custom_metrics_sum` in
+`perf_summary.json`. For a new cross-stage scalar in the
 published summary schema, add a field to `AudioStageMetrics` in
 `metrics/performance.py` and emit it from the producing stage.
 
@@ -375,10 +375,12 @@ published summary schema, add a field to `AudioStageMetrics` in
 | `process_time`, idle, invocations | yes | yes |
 | `custom_metrics_sum` | yes, if stage calls `_log_metrics` | yes |
 | `actor_id`, `node_id` | best-effort | best-effort |
-| `gpu_id` | empty | scheduling join key (e.g. `node-0:0`) |
-| `gpu_ids`, `gpu_count`, `per_gpu` | absent | present |
-| `physical_address`, `pod_ip`, `hostname`, `gpu_indices` | absent | in `per_gpu` when resolved |
-| `gpu_uuids` | absent | in `per_gpu` when CUDA up at setup |
+| `actor_count`, `per_actor` | present (keyed by `actor_id`) | present (keyed by `actor_id`) |
+| `gpu_id` | empty | legacy node label (e.g. `node-0:0`), additive |
+| `gpu_addresses`, `gpu_count` | absent | present |
+| `physical_address`, `gpu_indices` | absent | in each GPU actor's `per_actor` block |
+| `pod_ip`, `hostname` | in `per_actor` when resolved | in `per_actor` when resolved |
+| `gpu_util_pct_p*`, `gpu_mem_used_pct_p*`, `gpu_uuids` | absent | in `per_actor` when CUDA/NVML up |
 
 **Throughput denominator (`writer_wall_time_s`)**
 

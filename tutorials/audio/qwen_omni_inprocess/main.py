@@ -14,28 +14,14 @@
 
 """Hydra entry point for the Granary v2 Qwen-Omni in-process pipeline.
 
-The stage graph is read from the Hydra config, following the same YAML-first
-shape as ``tutorials/audio/alm/main.py``. Qwen needs one extra convention:
-individual stage entries may include ``stage_with``/``with_`` metadata that is
-applied after Hydra instantiation so resource, batch-size, and composite-stage
-worker specs can live beside the stage definition.
+The stage graph comes from the Hydra config; stage entries may carry
+``stage_with``/``with_`` metadata applied after instantiation to set resource,
+batch-size, and composite worker specs. Secrets are redacted before logging.
 
-This entry point can be invoked directly or by an external launcher via::
-
-    python tutorials/audio/qwen_omni_inprocess/main.py \\
-        --config-path=<path> --config-name=qwen_omni_inprocess \\
-        workspace_dir=/work input_manifest=/data/config.yaml
-
-Launchers may pass Hydra overrides such as ``workspace_dir``,
-``input_manifest``, ``language_short``, ``max_segment_length``,
-and ``final_manifest``. Secret values are redacted from logs before the config
-is printed.
-
-Hugging Face credentials are NOT handled here: the model download happens on
-remote Ray workers via ``ASRStage.setup_on_node`` -> adapter ``prefetch_weights``,
-so a token set in this driver process would not propagate. For gated models,
-provide ``HF_TOKEN``/``HF_HOME`` in the worker environment (cluster env or the
-executor ``runtime_env``).
+Hugging Face credentials are NOT handled here: weights download on remote Ray
+workers (``ASRStage.setup_on_node`` -> ``prefetch_weights``), so a token in this
+driver would not propagate. For gated models set ``HF_TOKEN``/``HF_HOME`` in the
+worker environment (cluster env or executor ``runtime_env``).
 """
 
 import importlib
@@ -275,7 +261,7 @@ def build_granary_v2_pipeline(cfg: DictConfig) -> Pipeline:
 
 
 def _create_executor(cfg: DictConfig):  # noqa: ANN201
-    backend = cfg.get("backend", "xenna")
+    backend = cfg.get("backend", "ray_data")
     if backend not in _EXECUTOR_FACTORIES:
         msg = f"Unknown backend '{backend}'. Choose from: {list(_EXECUTOR_FACTORIES)}"
         raise ValueError(msg)

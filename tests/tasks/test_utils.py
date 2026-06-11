@@ -29,9 +29,7 @@ class TestTaskPerfUtils:
     """Test cases for TaskPerfUtils class."""
 
     def test_collect_stage_metrics_ignores_identity_strings(self) -> None:
-        """StagePerfStats identity labels (actor_id/node_id/gpu_id) are string
-        metadata and MUST be excluded from items(); otherwise collect_stage_metrics'
-        float() coercion would raise on every pipeline (text/vision/audio)."""
+        """Identity labels (actor_id/node_id/gpu_id) are excluded from items() so float() coercion won't raise."""
         perf = StagePerfStats(
             stage_name="StageGpu",
             process_time=1.5,

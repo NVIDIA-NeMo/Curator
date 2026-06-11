@@ -14,15 +14,10 @@
 
 """vLLM model wrappers.
 
-Provides:
-
-- :class:`VLLMBase` - shared vLLM engine management (engine creation,
-  generation, GPU cleanup). ``_generate`` accepts plain text prompts *or*
-  multimodal prompt dicts (``{"prompt": ..., "multi_modal_data": {...}}``),
-  because ``vllm.LLM.generate`` handles both transparently, so audio/vision
-  adapters can build on the same engine plumbing.
-- :class:`VLLMModel` - generic text-generation wrapper implementing
-  :class:`ModelInterface`.
+- :class:`VLLMBase` - shared engine management (creation, generation, GPU
+  cleanup). ``_generate`` accepts text prompts *or* multimodal prompt dicts
+  so audio/vision adapters reuse the same plumbing.
+- :class:`VLLMModel` - generic text-generation :class:`ModelInterface`.
 """
 
 from __future__ import annotations
@@ -32,7 +27,6 @@ import time
 from typing import Any
 
 import torch
-import torch.distributed as dist
 from loguru import logger
 
 from nemo_curator.models.base import ModelInterface
@@ -55,14 +49,10 @@ except ImportError:
 class VLLMBase:
     """Shared vLLM engine management for text and multimodal generation.
 
-    Holds the loaded ``LLM`` engine plus its ``SamplingParams`` and exposes
-    protected helpers so subclasses can create the engine, run generation, and
-    release GPU memory without duplicating boilerplate. Not intended for direct
-    instantiation.
-
-    ``_generate`` returns the raw vLLM ``RequestOutput`` list so callers can
-    read generated text *and* token-level metadata. Prompts may be text strings
-    or multimodal prompt dicts.
+    Holds the loaded ``LLM`` engine and ``SamplingParams`` and exposes
+    protected helpers for engine creation, generation, and GPU cleanup. Not
+    for direct instantiation. ``_generate`` returns raw ``RequestOutput``
+    objects so callers can read text *and* token-level metadata.
     """
 
     _llm: LLM | None = None
@@ -71,12 +61,8 @@ class VLLMBase:
     def _init_engine(self, model_kwargs: dict[str, Any], sampling_kwargs: dict[str, Any]) -> None:
         """Create the vLLM ``LLM`` engine and ``SamplingParams``.
 
-        Args:
-            model_kwargs: Keyword arguments forwarded to ``vllm.LLM``.
-            sampling_kwargs: Keyword arguments forwarded to ``vllm.SamplingParams``.
-
-        Raises:
-            RuntimeError: If engine construction fails.
+        Args forward to ``vllm.LLM`` / ``vllm.SamplingParams``. Raises
+        ``RuntimeError`` if engine construction fails.
         """
         start_time = time.perf_counter()
         try:
@@ -89,17 +75,10 @@ class VLLMBase:
         self._sampling_params = SamplingParams(**sampling_kwargs)
 
     def _generate(self, prompts: list, *, use_tqdm: bool = False) -> list:
-        """Run generation on the loaded engine and return raw outputs.
+        """Run generation and return raw ``RequestOutput`` objects, one per prompt.
 
-        Args:
-            prompts: Text prompt strings or multimodal prompt dicts.
-            use_tqdm: Forwarded to ``vllm.LLM.generate``.
-
-        Returns:
-            The vLLM ``RequestOutput`` objects, one per prompt.
-
-        Raises:
-            RuntimeError: If the engine is not initialized or generation fails.
+        ``prompts`` are text strings or multimodal prompt dicts. Raises
+        ``RuntimeError`` if the engine is uninitialized or generation fails.
         """
         if self._llm is None or self._sampling_params is None:
             msg = "vLLM engine not initialized. Call setup() first."
@@ -111,13 +90,17 @@ class VLLMBase:
             raise RuntimeError(msg) from e
 
     def _cleanup_gpu(self) -> None:
-        """Release the engine and GPU memory; destroy any TP process group."""
+        """Release the engine and GPU memory.
+
+        vLLM owns its tensor-parallel process group, so we do not call
+        ``torch.distributed.destroy_process_group()`` here: that destroys the
+        default/global group and would corrupt any other component (another
+        stage, Ray primitives) sharing it in this process.
+        """
         if self._llm is not None:
             del self._llm
             self._llm = None
         self._sampling_params = None
-        if dist.is_initialized():
-            dist.destroy_process_group()
         gc.collect()
         try:
             torch.cuda.empty_cache()
@@ -142,23 +125,15 @@ class VLLMModel(VLLMBase, ModelInterface):
         max_tokens: int | None = None,
         cache_dir: str | None = None,
     ):
-        """
-        Initialize the vLLM model wrapper.
+        """Initialize the vLLM model wrapper.
 
         Args:
-            model: Model identifier (e.g., "microsoft/phi-4")
-            max_model_len: Maximum model context length. If not specified,
-                will be auto-detected from HuggingFace AutoConfig.
-            tensor_parallel_size: Number of GPUs for tensor parallelism.
-                If not specified, auto-detects available GPUs.
-            max_num_batched_tokens: Maximum tokens per batch. Defaults to
-                4096.
-            temperature: Sampling temperature. Defaults to 0.7.
-            top_p: Top-p sampling parameter. Defaults to 0.8.
-            top_k: Top-k sampling parameter. Defaults to 20.
-            min_p: Min-p sampling parameter (for Qwen3). Defaults to 0.0.
-            max_tokens: Maximum tokens to generate. Defaults to None.
-            cache_dir: Cache directory for model weights. Defaults to None.
+            model: Model identifier (e.g., "microsoft/phi-4").
+            max_model_len: Context length; auto-detected from HF AutoConfig
+                when ``None``.
+            tensor_parallel_size: TP GPU count; auto-detected when ``None``.
+            min_p: Min-p sampling (Qwen3 only).
+            cache_dir: Model weight cache directory.
         """
         self.model = model
         self.max_model_len = max_model_len
@@ -184,16 +159,13 @@ class VLLMModel(VLLMBase, ModelInterface):
             msg = "vLLM is required for VLLMModel. Please install it: pip install vllm"
             raise ImportError(msg)
 
-        # Fetch max_model_len from user param or auto-detect from HuggingFace AutoConfig
         if self.max_model_len is not None:
             final_max_model_len = self.max_model_len
         else:
             final_max_model_len = get_max_model_len_from_config(self.model, cache_dir=self.cache_dir)
 
-        # Set tensor_parallel_size as user param or auto-detect from GPU count
         final_tp_size = self.tensor_parallel_size if self.tensor_parallel_size is not None else get_gpu_count()
 
-        # Set max_num_batched_tokens as user param or use default
         final_max_batched = self.max_num_batched_tokens
 
         llm_kwargs: dict[str, Any] = {
@@ -249,18 +221,9 @@ class VLLMModel(VLLMBase, ModelInterface):
         self,
         prompts: list[str],
     ) -> list[str]:
-        """
-        Generate text from prompts.
+        """Generate text from prompt strings (or chat message dicts).
 
-        Args:
-            prompts: List of prompt strings or list of message dicts
-                (for chat template).
-
-        Returns:
-            List of generated text strings.
-
-        Raises:
-            RuntimeError: If the model is not set up or generation fails.
+        Raises ``RuntimeError`` if the model is not set up or generation fails.
         """
         outputs = self._generate(prompts)
         return [out.outputs[0].text if out.outputs else "" for out in outputs]

@@ -48,7 +48,8 @@ workspace_dir: /local/qwen_omni_workspace
 final_manifest: ${workspace_dir}/output.jsonl
 language_short: en
 max_segment_length: 40
-backend: xenna
+backend: ray_data
+# Xenna-only; ignored by the default ray_data backend.
 execution_mode: streaming
 autoscale_interval_s: 30
 # When true, ASRStage.setup_on_node raises if the adapter's prefetch_weights fails.
@@ -71,7 +72,7 @@ duration_key: duration
 # Tier-1 swap surface: replace adapter_target to change the underlying ASR
 # model without touching stage code. Tier-2 knobs (adapter_kwargs.*) are
 # adapter-specific and must be rewritten as a block when swapping adapters.
-adapter_target: nemo_curator.adapters.asr.QwenOmniASRAdapter
+adapter_target: nemo_curator.stages.audio.inference.asr.adapters.QwenOmniASRAdapter
 model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 revision: null
 
@@ -102,14 +103,22 @@ keep_waveform: true
 #   footprint is this stage's resources.gpus - itself set by the adapter you pick
 #   (e.g. the Qwen-Omni block below uses omni_resource_gpus=2.0, so on a 4-GPU
 #   node the pin is 4 / 2.0 = 2). Swap to a 1-GPU adapter and the pin becomes 4.
-# asr_num_workers_per_node : per-node pin. Xenna only; scales with node count.
-# asr_num_workers          : cluster-wide pin. Honored by both Xenna and Ray Data
-#                            (use this one if you run the Ray Data backend).
+# asr_num_workers          : cluster-wide pin. Honored by ALL backends (Xenna
+#                            streaming, Xenna batch, AND Ray Data) - this is the
+#                            default so a single value pins every backend with no
+#                            per-backend launcher override.
+# asr_num_workers_per_node : per-node pin. Xenna only (Ray Data has no per-node
+#                            primitive and would autoscale). Use it instead of
+#                            asr_num_workers when you want the pin to scale
+#                            automatically with node count on Xenna.
 # Set both to null to fall back to autoscaling. Mutually exclusive.
+# The default 4 is sized for the reference 2-node x 4-GPU shape: total_gpus(8) /
+# per-actor footprint (omni_resource_gpus=2.0) = 4 replicas. Re-derive it for a
+# different shape (e.g. single 4-GPU node -> 2; swap to a 1-GPU adapter -> 8).
 # WARNING: a pin the cluster cannot satisfy makes Xenna's scheduler panic, so
-# keep asr_num_workers_per_node <= floor(gpus_per_node / resources.gpus).
-asr_num_workers_per_node: 2
-asr_num_workers: null
+# keep it <= floor(total_gpus / resources.gpus).
+asr_num_workers_per_node: null
+asr_num_workers: 4
 
 # Qwen-Omni adapter-specific knobs (Tier-2: adapter_kwargs.*)
 ml_prompt: "Transcribe the audio."
@@ -188,7 +197,7 @@ stages:
     # 4 bins at [0, ideal/4, ideal/2, ideal] with item caps shrinking by
     # bucket and a global audio-second ceiling of K × ideal (K=1 here).
     batch_policy:
-      _target_: nemo_curator.stages.inference.batch_policy.BatchPolicy
+      _target_: nemo_curator.stages.audio.inference.batch_policy.BatchPolicy
       strategy: duration_bucketed
       buckets_sec: [0, 600, 1200, 2400]
       max_items_per_batch_by_bucket: [32, 16, 8, 4]

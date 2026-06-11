@@ -12,17 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the generic stage-adapter split contract.
-
-These pin the seam between ``ASRStage`` (Curator-side glue) and any
-``ASRAdapter`` (model-side library call), using a minimal **non-Qwen** fake
-adapter so the split is proven model-agnostic:
-
-    * the canonical ``ASRResult`` shape/defaults the stage relies on;
-    * ``@runtime_checkable`` protocol conformance for an arbitrary adapter;
-    * end-to-end swappability -- ``ASRStage`` constructs, sets up, and
-      delegates to any conforming adapter resolved from ``adapter_target``.
-"""
+"""Tests for the generic ASRStage<->ASRAdapter split contract via a non-Qwen fake adapter."""
 
 from __future__ import annotations
 
@@ -31,7 +21,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from nemo_curator.adapters.asr.base import ASRAdapter, ASRResult
+from nemo_curator.stages.audio.inference.asr.adapters.base import ASRAdapter, ASRResult
 from nemo_curator.stages.audio.inference.asr import ASRStage
 from nemo_curator.tasks import AudioTask
 
@@ -39,12 +29,7 @@ _SR = 16000
 
 
 class _FakeASRAdapter:
-    """Minimal non-Qwen adapter implementing the ``ASRAdapter`` protocol.
-
-    Echoes each item's stage-mapped ``language`` back as the transcription so
-    a test can prove the stage both constructed this adapter and forwarded the
-    per-item dicts through to it.
-    """
+    """Minimal non-Qwen ``ASRAdapter`` that echoes each item's language as the transcription."""
 
     def __init__(self, model_id: str, revision: str | None = None, **adapter_kwargs: object) -> None:
         self.model_id = model_id
@@ -90,8 +75,7 @@ def test_asr_result_defaults() -> None:
 
 
 def test_fake_adapter_conforms_to_asr_protocol() -> None:
-    """isinstance() works only because ASRAdapter is @runtime_checkable;
-    a minimal hand-written adapter must satisfy the structural contract."""
+    """A minimal hand-written adapter satisfies ASRAdapter (requires @runtime_checkable)."""
     adapter = _FakeASRAdapter(model_id="fake/model")
     assert isinstance(adapter, ASRAdapter)
 
@@ -102,18 +86,14 @@ def test_fake_adapter_conforms_to_asr_protocol() -> None:
 
 
 def test_asr_stage_drives_arbitrary_conforming_adapter() -> None:
-    """The split's core promise: ASRStage resolves ``adapter_target``,
-    constructs the adapter with model_id+revision, calls its ``setup()``,
-    and delegates ``process_batch`` to it -- with no Qwen-specific coupling.
-    """
+    """ASRStage resolves adapter_target, constructs+sets up the adapter, and delegates process_batch."""
     stage = ASRStage(
-        adapter_target="tests.adapters.asr.test_base._FakeASRAdapter",
+        adapter_target="tests.stages.audio.inference.asr.adapters.test_base._FakeASRAdapter",
         model_id="fake/model",
         pred_text_key="pred_text",
     )
 
-    # adapter_target resolution is patched so the dotted string need not be
-    # importable; the stage still does the construct -> setup -> store wiring.
+    # Patch resolution so the dotted string need not be importable.
     with patch("hydra.utils.get_class", return_value=_FakeASRAdapter):
         stage.setup()
 
@@ -123,6 +103,5 @@ def test_asr_stage_drives_arbitrary_conforming_adapter() -> None:
     task = AudioTask(data={"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR, "source_lang": "es"})
     results = stage.process_batch([task])
 
-    # Stage mapped ISO "es" -> "Spanish", forwarded it to the fake adapter,
-    # and packaged the adapter's ASRResult.text under the configured key.
+    # Stage mapped "es" -> "Spanish" and packaged the result under the configured key.
     assert results[0].data["pred_text"] == "fake:Spanish"

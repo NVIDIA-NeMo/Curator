@@ -12,26 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the generic ``BucketedInferenceStage`` base.
-
-A minimal non-audio concrete subclass exercises the base's
-``build_items -> bucketed dispatch -> assemble`` loop to prove the bucketing
-machinery is reusable by any GPU inference processor, independent of the
-ASR/Qwen consumer.
-"""
+"""Tests for the generic ``BucketedInferenceStage`` base via a minimal non-audio subclass."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from nemo_curator.stages.inference.batch_policy import BatchPolicy
-from nemo_curator.stages.inference.bucketed_stage import BucketedInferenceStage
+from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
+from nemo_curator.stages.audio.inference.bucketed_stage import BucketedInferenceStage
 from nemo_curator.tasks import AudioTask
 
 
 class _SumBucketStage(BucketedInferenceStage):
-    """Minimal concrete stage: fan a task's ``vals`` out into items, x10 each,
-    then sum the per-item results back onto the parent task."""
+    """Minimal stage: fan ``vals`` into items, x10 each, then sum results back per parent task."""
 
     name = "test_sum_bucket"
 
@@ -70,8 +63,7 @@ class _SumBucketStage(BucketedInferenceStage):
 
 
 def test_bucketed_inference_stage_fans_out_buckets_and_reassembles() -> None:
-    """The base drives build_items -> bucketed dispatch -> assemble, with one
-    output per input task and per-parent fan-in preserved across buckets."""
+    """The base drives build_items -> bucketed dispatch -> assemble, one output per input task."""
     stage = _SumBucketStage()
     stage.calls = []
     stage.batch_policy = BatchPolicy(

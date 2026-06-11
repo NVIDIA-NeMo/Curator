@@ -14,21 +14,15 @@
 
 """Qwen3-Omni ASR adapter (in-process vLLM).
 
-Implements the :class:`~nemo_curator.adapters.asr.ASRAdapter` protocol on
-top of the in-process vLLM thinker-only path. Two-turn output (Turn-1
-transcribe, Turn-2 disfluency/refinement) is supported when
-``followup_prompt`` is set; single-turn otherwise.
+Implements the :class:`~nemo_curator.stages.audio.inference.asr.adapters.ASRAdapter` protocol on the
+in-process vLLM thinker-only path. Two-turn (Turn-1 transcribe, Turn-2
+disfluency/refinement) when ``followup_prompt`` is set; single-turn otherwise.
 
-The engine plumbing (vLLM ``LLM`` creation, ``SamplingParams``, batched
-``generate``, GPU teardown) is inherited from
-:class:`nemo_curator.models.vllm_model.VLLMBase`. This module adds the
-Qwen-Omni-specific surface: ``qwen_omni_utils.process_mm_info`` multimodal
-preprocessing, Turn-1/Turn-2 prompt construction, a batched preprocessing
-thread pool, and the ``prefetch_weights`` / ``transcribe_batch`` adapter
-protocol methods. Both turns funnel their vLLM call through a single
-``_infer_turn`` helper (and pack requests through ``_pack_vllm_inputs``),
-so the turns differ only in the prompt they build and the output list
-they fill.
+Engine plumbing is inherited from
+:class:`nemo_curator.models.vllm_model.VLLMBase`; this module adds the
+Qwen-Omni surface (multimodal preprocessing, prompt construction, prep thread
+pool, adapter protocol methods). Both turns share ``_infer_turn`` and
+``_pack_vllm_inputs``, differing only in prompt and output list.
 """
 
 from __future__ import annotations
@@ -42,7 +36,7 @@ from typing import TYPE_CHECKING, Any
 from huggingface_hub import snapshot_download
 from loguru import logger
 
-from nemo_curator.adapters.asr.base import ASRResult
+from nemo_curator.stages.audio.inference.asr.adapters.base import ASRResult
 from nemo_curator.models.vllm_model import VLLM_AVAILABLE, VLLMBase
 from nemo_curator.utils.gpu_utils import get_gpu_count
 
@@ -90,56 +84,30 @@ _FOLLOWUP_PROMPT_DEFAULT = (
 class QwenOmniASRAdapter(VLLMBase):
     """Qwen3-Omni in-process vLLM adapter (thinker-only path).
 
-    Stages instantiate adapters as
-    via ``cls(model_id=..., revision=..., **adapter_kwargs)``, so every
-    field below is a keyword-only knob the YAML's ``adapter_kwargs`` block
-    can set.
+    Stages construct adapters via
+    ``cls(model_id=..., revision=..., **adapter_kwargs)``, so every field
+    below is a keyword-only knob settable from the YAML ``adapter_kwargs``.
 
     Resource expectations:
-        * ~40 GB VRAM for Qwen3-Omni-30B-A3B (FP8). One A100-80GB or two
+        * ~40 GB VRAM for Qwen3-Omni-30B-A3B (FP8): one A100-80GB or two
           A100-40GB with ``tensor_parallel_size=2``.
-        * ~50-80 audio-seconds/GPU-second on A100-80GB with
-          ``batch_size=32`` and ``max_num_seqs=32``.
+        * ~50-80 audio-seconds/GPU-second on A100-80GB at ``batch_size=32``.
         * ~15 GB cached weights on first run (HuggingFace Hub).
 
-    Args:
-        model_id: HuggingFace model identifier. Defaults to the published
-            Qwen3-Omni-30B-A3B Instruct checkpoint.
-        revision: Optional HuggingFace revision to pin.
-        prompt_text: User prompt sent alongside the audio for Turn-1.
-            ``{language}`` is interpolated per-item from the stage-supplied
-            language name.
-        prompt_file: Optional path to a UTF-8 text file whose contents
-            replace ``prompt_text`` when present. Resolved at
-            ``__post_init__`` time.
-        en_prompt_text / en_prompt_file: English-specific prompt override
-            (used when the per-item language resolves to ``"English"``).
-        followup_prompt / followup_prompt_file: When set, enables Turn-2
-            inference. ``{language}`` is interpolated.
-        system_prompt / system_prompt_file: Optional system message
-            prepended to both turns.
-        max_model_len: vLLM context length.
-        max_num_seqs: vLLM max concurrent sequences.
-        gpu_memory_utilization: Fraction of GPU memory vLLM may use.
-        tensor_parallel_size: TP world size. ``None`` -> auto-detect from
-            visible GPUs on the worker.
-        max_output_tokens: Max generated tokens per turn.
-        temperature: Sampling temperature (0.0 = greedy).
-        top_k: Top-k sampling.
-        prep_workers: Thread-pool size for parallel audio preprocessing.
-        enable_prefix_caching: vLLM prefix-cache toggle. Default ``True``
-            because system / user / follow-up prompts repeat across requests;
-            disable for deployments with highly variable prompts.
-        prefix_caching_hash_algo: Backing hash algorithm for the prefix
-            cache. ``"xxhash"`` matches the doc default; vLLM also accepts
-            ``"sha256"``.
-        limit_mm_per_prompt_audio: Per-prompt audio-token cap for vLLM's
-            multi-modal limiter. Default ``2`` matches the doc and the
-            default (enough for the two-turn flow).
-            Set to ``1`` for strictly single-turn deployments.
-        seed: vLLM scheduler / sampling seed. Exposed so reproducibility
-            tests (and follow-up bit-exactness checks) can override it
-            from YAML.
+    Notable Args (most are plain vLLM/sampling knobs):
+        prompt_text / *_file: Turn-1 user prompt; ``{language}`` is
+            interpolated per-item. ``*_file`` variants load text from a UTF-8
+            file at ``__post_init__`` time.
+        en_prompt_text / en_prompt_file: override used when language is
+            ``"English"``.
+        followup_prompt / *_file: when set, enables Turn-2 inference.
+        system_prompt / *_file: optional system message for both turns.
+        tensor_parallel_size: ``None`` -> auto-detect from visible GPUs.
+        enable_prefix_caching: default ``True`` since prompts repeat across
+            requests; disable for highly variable prompts.
+        limit_mm_per_prompt_audio: per-prompt audio cap; ``2`` covers the
+            two-turn flow, ``1`` for strictly single-turn.
+        seed: exposed so reproducibility / bit-exactness tests can override.
     """
 
     # Universal adapter constructor fields (forwarded by ASRStage).
@@ -175,8 +143,7 @@ class QwenOmniASRAdapter(VLLMBase):
     last_metrics: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # Resolve any file-backed prompts into their text form once at
-        # construction so the per-batch path stays cheap.
+        # Resolve file-backed prompts once so the per-batch path stays cheap.
         self.prompt_text = self._load_text(self.prompt_text, self.prompt_file) or ""
         self.en_prompt_text = self._load_text(self.en_prompt_text, self.en_prompt_file)
         self.followup_prompt = self._load_text(self.followup_prompt, self.followup_prompt_file)
@@ -257,12 +224,10 @@ class QwenOmniASRAdapter(VLLMBase):
         self._cleanup_gpu()
 
     def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
-        """Run batched Qwen-Omni inference over a batch of per-task dicts.
+        """Run batched two-turn inference over per-task dicts.
 
-        Unpacks the per-task dicts the stage assembles, dispatches into
-        the underlying two-turn generation, and packs each output into
-        an :class:`ASRResult`. Skipped items (empty / unprocessable
-        waveforms) round-trip as ``ASRResult(text="", skipped=True)``.
+        Skipped items (empty / unprocessable waveforms) round-trip as
+        ``ASRResult(text="", skipped=True)`` to preserve ordering.
         """
         if not items:
             return []
@@ -281,9 +246,7 @@ class QwenOmniASRAdapter(VLLMBase):
             for i, (pred, disfl) in enumerate(zip(pred_texts, disfl_texts, strict=True))
         ]
 
-    # ------------------------------------------------------------------
-    # Input preparation - logic preserved from pre-split QwenOmni
-    # ------------------------------------------------------------------
+    # Input preparation
 
     @staticmethod
     def _resample(waveform: np.ndarray, orig_sr: int, target_sr: int = _QWEN_SAMPLE_RATE) -> np.ndarray:
@@ -344,13 +307,7 @@ class QwenOmniASRAdapter(VLLMBase):
         return messages
 
     def _pack_vllm_inputs(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        """Render chat ``messages`` into a vLLM request dict.
-
-        Turn-1 and Turn-2 build their ``messages`` differently (the only
-        prompt difference between the turns) but pack the rendered prompt
-        and multi-modal payload into a request identically; that shared
-        packing lives here.
-        """
+        """Render chat ``messages`` into a vLLM request dict (shared by both turns)."""
         text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
         inputs: dict[str, Any] = {
@@ -459,29 +416,22 @@ class QwenOmniASRAdapter(VLLMBase):
     ) -> tuple[list[str], float, float]:
         """Run one vLLM turn and scatter its texts back to input order.
 
-        Turn-1 and Turn-2 share this generate -> count-tokens -> scatter
-        sequence; they differ only in the prompts already baked into
-        ``inputs`` and the output list each fills (Turn-1 -> ``pred_texts``,
-        Turn-2 -> ``disfluency_texts``). ``indices[k]`` is the position in
-        the length-``n`` batch that ``inputs[k]`` came from.
-
-        Returns ``(texts_of_len_n, generation_time_s, output_token_count)``.
+        ``indices[k]`` is the position in the length-``n`` batch that
+        ``inputs[k]`` came from. Returns
+        ``(texts_of_len_n, generation_time_s, output_token_count)``.
         """
         t0 = time.perf_counter()
         outputs = self._generate(inputs)
         generation_time_s = time.perf_counter() - t0
         output_tokens = self._count_output_tokens(outputs)
         texts: list[str] = [""] * n
-        # strict=True: vLLM must return exactly one output per input, in order.
-        # A count mismatch means a broken engine contract - fail loud here
-        # instead of silently emitting empty transcriptions with skipped=False.
+        # strict=True: a count mismatch means a broken engine contract; fail
+        # loud rather than silently emit empty text with skipped=False.
         for idx, out in zip(indices, outputs, strict=True):
             texts[idx] = self._first_output_text(out)
         return texts, generation_time_s, output_tokens
 
-    # ------------------------------------------------------------------
-    # Two-turn generation - logic preserved from pre-split QwenOmni
-    # ------------------------------------------------------------------
+    # Two-turn generation
 
     def _run_two_turn(
         self,
@@ -496,18 +446,10 @@ class QwenOmniASRAdapter(VLLMBase):
         is not set.
         """
         n = len(waveforms)
+        # audio_duration_s / waveform_bytes are deliberately omitted: the stage
+        # (ASRStage.assemble) owns those canonical, adapter-agnostic counters.
         metrics: dict[str, float] = {
             "utterances_input": float(n),
-            "audio_duration_s": sum(
-                float(w.shape[0]) / float(sr)
-                for w, sr in zip(waveforms, sample_rates, strict=False)
-                if sr and w is not None and getattr(w, "size", 0) > 0
-            ),
-            "waveform_bytes": sum(
-                float(getattr(w, "nbytes", 0))
-                for w in waveforms
-                if w is not None
-            ),
             "turn1_prep_time_s": 0.0,
             "turn1_generation_time_s": 0.0,
             "turn2_prep_time_s": 0.0,

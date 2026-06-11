@@ -14,13 +14,12 @@
 
 """Backend-specific perf identity labels.
 
-Each executor backend resolves ``WorkerPerfIdentity`` once at worker setup from
-**that backend's own APIs only**. ``BaseStageAdapter`` copies the values stamped
-on ``WorkerMetadata`` — no cross-backend fallback chain.
+Each backend resolves ``WorkerPerfIdentity`` once at worker setup from its own
+APIs; ``BaseStageAdapter`` copies the values stamped on ``WorkerMetadata``.
 
-``gpu_id`` remains the stable within-run join key for ``per_gpu`` aggregation.
-``physical_address`` / ``pod_ip`` / ``hostname`` / ``gpu_indices`` are additive
-cluster-location metadata for debugging and cross-artifact correlation.
+Metrics aggregate by ``actor_id``. ``physical_address`` (``<host>:<gpu_indices>``)
+is the canonical, backend-independent GPU identifier on each GPU actor's block;
+the remaining fields are additive cluster-location metadata for debugging.
 """
 
 from __future__ import annotations
@@ -102,30 +101,66 @@ def _allocation_gpu_indices(allocation: object | None, requires_gpu: bool) -> tu
     return tuple(indices)
 
 
+def _visible_gpu_ordinals(gpu_indices: tuple[int, ...], visible_count: int) -> list[int]:
+    """Translate physical CUDA indices to torch's *visible* ordinals.
+
+    ``gpu_indices`` are physical ids but torch enumerates only the devices in
+    ``CUDA_VISIBLE_DEVICES`` as ordinals ``0..visible_count-1``. Map via the env
+    when it lists integer ids; under per-worker isolation every visible ordinal
+    belongs to this worker.
+    """
+    env = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if not env:
+        # No mask -> all GPUs visible -> physical index == torch ordinal.
+        return [i for i in gpu_indices if 0 <= i < visible_count]
+    phys_to_ordinal: dict[int, int] = {}
+    for ordinal, token in enumerate(t.strip() for t in env.split(",") if t.strip()):
+        try:
+            phys_to_ordinal[int(token)] = ordinal
+        except ValueError:
+            phys_to_ordinal = {}  # UUID-style mask -> no positional int mapping
+            break
+    mapped = [phys_to_ordinal[i] for i in gpu_indices if i in phys_to_ordinal]
+    if mapped:
+        return mapped
+    # Isolated worker (or unmappable ids): the visible set *is* this worker's.
+    return list(range(visible_count))
+
+
 def _collect_gpu_uuids(gpu_indices: tuple[int, ...]) -> tuple[str, ...]:
     if not gpu_indices:
         return ()
-    uuids: list[str] = []
     try:
         import torch
 
         if not torch.cuda.is_available():
             return ()
-        for idx in gpu_indices:
-            props = torch.cuda.get_device_properties(idx)
-            uuid = str(getattr(props, "uuid", "") or "").strip()
-            if uuid:
-                uuids.append(uuid)
+        visible_count = torch.cuda.device_count()
     except Exception:  # noqa: BLE001
         return ()
+    uuids: list[str] = []
+    # Per-ordinal guard: one bad index must not wipe the rest.
+    for ordinal in _visible_gpu_ordinals(gpu_indices, visible_count):
+        try:
+            uuid = str(getattr(torch.cuda.get_device_properties(ordinal), "uuid", "") or "").strip()
+        except Exception:  # noqa: BLE001
+            continue
+        if uuid:
+            uuids.append(uuid)
     return tuple(uuids)
 
 
-def _format_physical_address(host_ip: str, gpu_indices: tuple[int, ...]) -> str:
-    if not host_ip or not gpu_indices:
+def _format_physical_address(host_token: str, gpu_indices: tuple[int, ...]) -> str:
+    """Canonical physical GPU address: ``<host>:<idx[,idx...]>``.
+
+    ``host_token`` degrades to ``node`` so a GPU worker always gets a non-empty,
+    backend-independent identifier. Returns ``""`` only when it holds no GPUs.
+    """
+    if not gpu_indices:
         return ""
+    host = (host_token or "").strip() or "node"
     idx_part = ",".join(str(idx) for idx in gpu_indices)
-    return f"{host_ip}:{idx_part}"
+    return f"{host}:{idx_part}"
 
 
 def build_xenna_perf_identity(
@@ -138,9 +173,8 @@ def build_xenna_perf_identity(
 ) -> WorkerPerfIdentity:
     """Identity from Xenna ``WorkerMetadata`` + ``NodeInfo`` (allocation-first GPU).
 
-    GPU index comes **only** from ``allocation.gpus[0].index``. Node label comes
-    from Xenna's ``node_id``, then the MPI rank env (launcher-provided fact on
-    multi-node jobs), then ``allocation.node``.
+    GPU index comes only from ``allocation.gpus[0].index``; node label falls back
+    ``node_id`` -> MPI rank env -> ``allocation.node``.
     """
     node_label = (node_id or "").strip()
     if not node_label:
@@ -159,8 +193,8 @@ def build_xenna_perf_identity(
         if gpu_indices:
             gpu_label = _format_gpu_label(node_label, gpu_indices[0])
 
-    host_ip = _resolve_host_ip()
-    physical_address = _format_physical_address(host_ip, gpu_indices)
+    hostname = _resolve_hostname()
+    physical_address = _format_physical_address(_resolve_host_ip() or hostname or node_label, gpu_indices)
     gpu_uuids = _collect_gpu_uuids(gpu_indices) if gpu_indices else ()
 
     return WorkerPerfIdentity(
@@ -169,7 +203,7 @@ def build_xenna_perf_identity(
         gpu_id=gpu_label,
         physical_address=physical_address,
         pod_ip=_resolve_pod_ip(),
-        hostname=_resolve_hostname(),
+        hostname=hostname,
         gpu_indices=gpu_indices,
         gpu_uuids=gpu_uuids,
     )
@@ -198,17 +232,33 @@ def _ray_worker_short_id(ctx: object) -> str:
         return ""
 
 
+def _parse_int_indices(values: object) -> tuple[int, ...]:
+    """Best-effort int-index parse; silently drops non-integer (e.g. UUID) ids."""
+    out: list[int] = []
+    for value in values or ():  # type: ignore[union-attr]
+        try:
+            out.append(int(str(value).strip()))
+        except (TypeError, ValueError):
+            continue  # UUID-style assignment -> no positional index
+    return tuple(out)
+
+
 def _ray_gpu_indices(requires_gpu: bool) -> tuple[int, ...]:
     if not requires_gpu:
         return ()
     try:
         import ray
 
-        gpu_ids = ray.get_gpu_ids()
-        if gpu_ids:
-            return tuple(int(gpu_id) for gpu_id in gpu_ids)
+        indices = _parse_int_indices(ray.get_gpu_ids())
+        if indices:
+            return indices
     except Exception:  # noqa: BLE001
-        return ()
+        pass
+    # Fallback: Ray leaves CUDA_VISIBLE_DEVICES set to this worker's slice when
+    # ``get_gpu_ids()`` is empty.
+    env = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if env:
+        return _parse_int_indices(env.split(","))
     return ()
 
 
@@ -226,9 +276,9 @@ def build_ray_perf_identity(
 ) -> WorkerPerfIdentity:
     """Identity from Ray runtime context (Ray Data / Ray Actor Pool).
 
-    GPU index comes **only** from ``ray.get_gpu_ids()`` when the stage requests
-    a GPU. No ``CUDA_VISIBLE_DEVICES`` parsing. Only resolves inside a Ray
-    worker process (returns blanks on the driver).
+    GPU index comes from ``ray.get_gpu_ids()``, falling back to
+    ``CUDA_VISIBLE_DEVICES`` when Ray returns no positional ids. Resolves only
+    inside a Ray worker (blanks on the driver).
     """
     blank = WorkerPerfIdentity()
     if os.environ.get("RAY_WORKER_ID") is None:
@@ -252,7 +302,8 @@ def build_ray_perf_identity(
         host_ip = (ray.util.get_node_ip_address() or "").strip()
     except Exception:  # noqa: BLE001
         host_ip = ""
-    physical_address = _format_physical_address(host_ip, gpu_indices)
+    hostname = _resolve_hostname()
+    physical_address = _format_physical_address(host_ip or hostname or node_label, gpu_indices)
     gpu_uuids = _collect_gpu_uuids(gpu_indices) if gpu_indices else ()
 
     return WorkerPerfIdentity(
@@ -261,7 +312,7 @@ def build_ray_perf_identity(
         gpu_id=gpu_label,
         physical_address=physical_address,
         pod_ip=_resolve_pod_ip(),
-        hostname=_resolve_hostname(),
+        hostname=hostname,
         gpu_indices=gpu_indices,
         gpu_uuids=gpu_uuids,
     )

@@ -30,15 +30,14 @@ class RayActorPoolStageAdapter(BaseStageAdapter):
         super().__init__(stage)
 
         requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
-        node_info, worker_metadata = get_worker_metadata_and_node_id(
+        _node_info, worker_metadata = get_worker_metadata_and_node_id(
             str(stage.name),
             requires_gpu=requires_gpu,
         )
 
-        self.worker_metadata = worker_metadata
-        self.node_info = node_info
-
-        super().setup_on_node(node_info, worker_metadata)
+        # Per-actor setup only (identity + GPU sampler + model load). The
+        # once-per-node prefetch already ran in the executor's
+        # execute_setup_on_node phase, so we do NOT call setup_on_node here.
         super().setup(worker_metadata)
 
         self._batch_size = self.stage.batch_size
@@ -49,11 +48,3 @@ class RayActorPoolStageAdapter(BaseStageAdapter):
     def get_batch_size(self) -> int:
         """Get the batch size for this stage."""
         return self._batch_size
-
-    def setup_on_node(self) -> None:
-        """Setup method for Ray actors.
-
-        Note: This method is not used in the current implementation since we use
-        the Ray Data pattern of calling setup_on_node before actor creation.
-        """
-        super().setup_on_node(self.node_info, self.worker_metadata)
