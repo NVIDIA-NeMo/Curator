@@ -16,9 +16,10 @@ current implementation needs local model execution.
 
 ## Setup
 
-Install the tutorial dependencies from the Curator repository root:
+Install the tutorial dependencies from the tutorial directory:
 
 ```bash
+cd tutorials/multimodal/omni-fuse-data-curation/
 uv sync --extra dev
 ```
 

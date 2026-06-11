@@ -671,7 +671,7 @@ def _path_or_none(value: Any) -> Path | None:
         path = Path(value)
     except OSError:
         return None
-    return path if path.exists() else path
+    return path
 
 
 def _text_or_empty(value: Any) -> str:
