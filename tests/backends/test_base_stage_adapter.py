@@ -14,6 +14,9 @@
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
+
+from pytest import MonkeyPatch
 
 from nemo_curator.backends.base import FAILED_TASKS_DIR_ENV_VAR, BaseStageAdapter
 from nemo_curator.stages.base import ProcessingStage
@@ -52,7 +55,9 @@ def _task(task_id: str = "") -> _SimpleTask:
 
 
 class TestBaseStageAdapter:
-    def test_process_batch_writes_failed_task_marker_when_enabled(self, tmp_path, monkeypatch) -> None:
+    def test_process_batch_writes_failed_task_marker_when_enabled(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
         marker_dir = tmp_path / "failed-tasks"
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(marker_dir))
 
@@ -71,7 +76,9 @@ class TestBaseStageAdapter:
         assert isinstance(payload["pid"], int)
         assert isinstance(payload["created_at"], str)
 
-    def test_process_batch_does_not_write_failed_task_marker_by_default(self, tmp_path, monkeypatch) -> None:
+    def test_process_batch_does_not_write_failed_task_marker_by_default(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
         marker_dir = tmp_path / "failed-tasks"
         monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
 

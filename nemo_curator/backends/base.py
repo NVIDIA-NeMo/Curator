@@ -79,7 +79,7 @@ def _write_failed_task_marker(marker_dir: Path, stage_name: str, task: FailedTas
             tmp.write("\n")
 
         os.replace(tmp_path, final_path)
-    except Exception:  # noqa: BLE001
+    except Exception:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
         raise
