@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from nemo_curator.tasks.image import ImageSampleTask
 
-from nemo_curator.models.omni.base import NVInferenceModel
+from nemo_curator.models.omni.base import NVInferenceClient
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.synthetic.omni.base import ModelProcessingStage, SkipSample
 from nemo_curator.stages.synthetic.omni.ocr_conversationalize import OCRConversationData
@@ -152,7 +152,6 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         dense_dump_prob: float = 0.05,
         batch_size: int | None = None,
         priority_mode: bool = False,
-        use_async: bool = True,
     ) -> None:
         """Initialise the combined scoring + QA stage.
 
@@ -179,9 +178,6 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
                 underlying coverage warrants.
             batch_size: Override the default batch size of 16.
             priority_mode: Use priority API queue (lower latency, higher cost).
-            use_async: Issue the per-batch verifier calls concurrently via an
-                async client (recommended for API-backed inference). When
-                ``False``, prompts are processed sequentially.
         """
         self._scoring_model_id = model_id
         self.min_bbox_match = min_bbox_match
@@ -189,14 +185,11 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
         self.fail_on_missing_text = fail_on_missing_text
         self.dense_dump_prob = dense_dump_prob
         super().__init__(
-            model=NVInferenceModel(
-                model_id=model_id,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=1.0,
-                priority_mode=priority_mode,
-                use_async=use_async,
-            ),
+            client=NVInferenceClient(priority_mode=priority_mode),
+            model_name=model_id,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=1.0,
             batch_size=batch_size or self.batch_size,
         )
 
@@ -207,8 +200,8 @@ class OCRScoringQAStage(ModelProcessingStage[OCRData]):
 
         bboxes_for_prompt = []
         for idx, item in enumerate(ocr_items):
-            bbox = item.bbox_2d if hasattr(item, "bbox_2d") else item.get("bbox_2d")
-            text = item.text_content if hasattr(item, "text_content") else item.get("text_content", "")
+            bbox = item.bbox_2d
+            text = item.text_content
             if bbox is None or len(bbox) != _BBOX_COORD_COUNT:
                 continue
             x1, y1, x2, y2 = bbox

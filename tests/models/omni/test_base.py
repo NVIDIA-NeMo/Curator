@@ -12,28 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for nemo_curator.models.omni.base.
+"""Unit tests for nemo_curator.models.omni.base.NVInferenceClient."""
 
-The underlying ``openai.OpenAI`` / ``openai.AsyncOpenAI`` client (held by
-``OpenAIClient`` / ``AsyncOpenAIClient``) is mocked; what these tests verify is
-that the wrapper:
-  - reads + validates the env-var API key on setup,
-  - constructs the sync or async transport depending on ``use_async``,
-  - builds correct OpenAI-compatible message contents (text-only, embedded
-    PIL image, URL string passthrough),
-  - reassembles streamed deltas while skipping ``None`` content and
-    empty-choices chunks, in both the sync and async paths,
-  - threads priority_mode through to the extra-headers parameter,
-  - swallows per-prompt errors and preserves batch length.
-"""
-
-import base64
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from PIL import Image
 
-from nemo_curator.models.omni.base import NVInferenceModel
+from nemo_curator.models.client.llm_client import GenerationConfig
+from nemo_curator.models.omni.base import NVInferenceClient
 
 
 def _content_chunk(content: str | None) -> MagicMock:
@@ -46,15 +33,6 @@ def _empty_choices_chunk() -> MagicMock:
     chunk = MagicMock()
     chunk.choices = []
     return chunk
-
-
-def _stream(chunks: list[MagicMock]) -> MagicMock:
-    """Build a MagicMock OpenAIClient whose chat.completions.create returns ``chunks``."""
-    inner_openai = MagicMock()
-    inner_openai.chat.completions.create.return_value = chunks
-    wrapper = MagicMock()
-    wrapper.client = inner_openai
-    return wrapper
 
 
 class _AsyncStreamIter:
@@ -72,108 +50,68 @@ class _AsyncStreamIter:
         return self._chunks.pop(0)
 
 
-def _async_stream(chunks: list[MagicMock]) -> MagicMock:
-    """Build a MagicMock AsyncOpenAIClient whose async create() yields ``chunks``."""
-    inner_openai = MagicMock()
-    inner_openai.chat.completions.create = AsyncMock(return_value=_AsyncStreamIter(chunks))
-    wrapper = MagicMock()
-    wrapper.client = inner_openai
-    return wrapper
+def _client_with_stream(chunks: list[MagicMock], **kwargs: object) -> NVInferenceClient:
+    """An NVInferenceClient whose underlying async create() yields ``chunks``."""
+    client = NVInferenceClient(**kwargs)
+    inner = MagicMock()
+    inner.chat.completions.create = AsyncMock(return_value=_AsyncStreamIter(chunks))
+    client.client = inner  # bypass setup()
+    return client
 
 
-class TestNVInferenceModel:
-    def _model(self, **kwargs: object) -> NVInferenceModel:
-        return NVInferenceModel("test/model", **kwargs)
+def _run_query(client: NVInferenceClient, **kwargs: object) -> list[str]:
+    return asyncio.run(client._query_model_impl(model="test/model", **kwargs))
 
+
+class TestNVInferenceClientSetup:
     def test_setup_raises_when_env_var_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("NVINFERENCE_API_KEY", raising=False)
         with pytest.raises(RuntimeError, match="NVINFERENCE_API_KEY is not set"):
-            self._model().setup()
+            NVInferenceClient().setup()
 
     def test_setup_whitespace_only_treated_as_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("NVINFERENCE_API_KEY", "   ")
         with pytest.raises(RuntimeError, match="NVINFERENCE_API_KEY is not set"):
-            self._model().setup()
+            NVInferenceClient().setup()
 
-    def test_setup_constructs_sync_client_with_resolved_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_setup_constructs_asyncopenai_with_resolved_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("NVINFERENCE_API_KEY", "key-xyz")  # pragma: allowlist secret
-        with patch("nemo_curator.models.omni.base.OpenAIClient") as Client:  # noqa: N806
-            m = self._model(base_url="https://example.test", use_async=False)
-            m.setup()
-            m.setup()  # idempotent — second call should not reconstruct.
-            Client.assert_called_once_with(
-                base_url="https://example.test",
-                api_key="key-xyz",  # pragma: allowlist secret
-            )
-            Client.return_value.setup.assert_called_once()
-            assert m.is_loaded
+        with patch("nemo_curator.models.client.openai_client.AsyncOpenAI") as AsyncOpenAI:  # noqa: N806
+            NVInferenceClient(base_url="https://example.test").setup()
+            kwargs = AsyncOpenAI.call_args.kwargs
+            assert kwargs["base_url"] == "https://example.test"
+            assert kwargs["api_key"] == "key-xyz"  # pragma: allowlist secret
 
-    def test_setup_constructs_async_client_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("NVINFERENCE_API_KEY", "key-xyz")  # pragma: allowlist secret
-        with patch("nemo_curator.models.omni.base.AsyncOpenAIClient") as Client:  # noqa: N806
-            m = self._model(base_url="https://example.test", max_concurrent_requests=4)
-            m.setup()
-            m.setup()  # idempotent — second call should not reconstruct.
-            Client.assert_called_once_with(
-                base_url="https://example.test",
-                api_key="key-xyz",  # pragma: allowlist secret
-                max_concurrent_requests=4,
-            )
-            Client.return_value.setup.assert_called_once()
-            assert m.is_loaded
 
-    def test_encode_image_to_base64_produces_real_png(self) -> None:
-        img = Image.new("RGB", (4, 4), color=(255, 0, 0))
-        decoded = base64.b64decode(self._model()._encode_image_to_base64(img))
-        assert decoded[:8] == b"\x89PNG\r\n\x1a\n"
-
-    def test_build_message_content_handles_pil_image_and_url_string(self) -> None:
-        # PIL image → real PNG → real base64 → data URL prefix
-        pil_content = self._model()._build_message_content("describe", Image.new("RGB", (4, 4)))
-        assert pil_content[0]["type"] == "image_url"
-        assert pil_content[0]["image_url"]["url"].startswith("data:image/png;base64,")
-        assert pil_content[1] == {"type": "text", "text": "describe"}
-
-        # Pre-built URL string passes through untouched (no re-encoding)
-        url = "https://example.com/img.jpg"
-        url_content = self._model()._build_message_content("describe", url)
-        assert url_content[0]["image_url"]["url"] == url
-
-    def test_generate_requires_setup(self) -> None:
-        with pytest.raises(RuntimeError, match="not loaded"):
-            self._model().generate(["prompt"])
-
-    # --- sync path (use_async=False) ---
-
-    def test_sync_generate_reassembles_stream_skipping_none_and_empty_chunks(self) -> None:
-        m = self._model(use_async=False)
-        m._client = _stream(
+class TestNVInferenceClientStreaming:
+    def test_reassembles_stream_skipping_none_and_empty_chunks(self) -> None:
+        client = _client_with_stream(
             [
                 _content_chunk("hello"),
-                _content_chunk(None),  # skipped — reasoning models emit None deltas
-                _empty_choices_chunk(),  # skipped — final usage chunk
+                _content_chunk(None),  # reasoning models emit None content deltas
+                _empty_choices_chunk(),  # final usage chunk has no choices
                 _content_chunk(" "),
                 _content_chunk("world"),
             ]
         )
-        assert m.generate(["p"], [Image.new("RGB", (4, 4))]) == ["hello world"]
-        # The underlying OpenAI client was called with the right model + stream=True.
-        call = m._client.client.chat.completions.create.call_args.kwargs
+        out = _run_query(client, messages=[{"role": "user", "content": "p"}])
+        assert out == ["hello world"]
+        call = client.client.chat.completions.create.call_args.kwargs
         assert call["model"] == "test/model"
         assert call["stream"] is True
-        # First user message has both an image part and a text part.
-        first_msg = call["messages"][0]
-        assert first_msg["role"] == "user"
-        assert any(part["type"] == "image_url" for part in first_msg["content"])
+        assert call["messages"] == [{"role": "user", "content": "p"}]
 
-    def test_sync_generate_swallows_per_prompt_errors_as_empty_string(self) -> None:
-        m = self._model(use_async=False)
-        m._client = _stream([])
-        m._client.client.chat.completions.create.side_effect = [
-            RuntimeError("transient"),
-            iter([_content_chunk("ok")]),
-        ]
-        assert m.generate(["a", "b"]) == ["", "ok"]
+    def test_generation_config_threads_through(self) -> None:
+        client = _client_with_stream([_content_chunk("ok")])
+        _run_query(
+            client,
+            messages=[{"role": "user", "content": "p"}],
+            generation_config=GenerationConfig(max_tokens=123, temperature=0.5, top_p=0.9),
+        )
+        call = client.client.chat.completions.create.call_args.kwargs
+        assert call["max_tokens"] == 123
+        assert call["temperature"] == 0.5
+        assert call["top_p"] == 0.9
 
     @pytest.mark.parametrize(
         ("flag", "expected_header"),
@@ -182,52 +120,7 @@ class TestNVInferenceModel:
             (False, None),
         ],
     )
-    def test_sync_priority_mode_threads_to_extra_headers(self, flag: bool, expected_header: dict | None) -> None:
-        m = self._model(use_async=False, priority_mode=flag)
-        m._client = _stream([_content_chunk("ok")])
-        m.generate(["p"])
-        assert m._client.client.chat.completions.create.call_args.kwargs["extra_headers"] == expected_header
-
-    # --- async path (use_async=True, the default) ---
-
-    def test_async_generate_reassembles_stream_skipping_none_and_empty_chunks(self) -> None:
-        m = self._model()
-        m._client = _async_stream(
-            [
-                _content_chunk("hello"),
-                _content_chunk(None),  # skipped — reasoning models emit None deltas
-                _empty_choices_chunk(),  # skipped — final usage chunk
-                _content_chunk(" "),
-                _content_chunk("world"),
-            ]
-        )
-        assert m.generate(["p"], [Image.new("RGB", (4, 4))]) == ["hello world"]
-        call = m._client.client.chat.completions.create.call_args.kwargs
-        assert call["model"] == "test/model"
-        assert call["stream"] is True
-        first_msg = call["messages"][0]
-        assert first_msg["role"] == "user"
-        assert any(part["type"] == "image_url" for part in first_msg["content"])
-
-    def test_async_generate_preserves_order_and_swallows_errors(self) -> None:
-        # max_concurrent_requests=1 serialises the calls so the side_effect order is deterministic.
-        m = self._model(max_concurrent_requests=1)
-        m._client = _async_stream([])
-        m._client.client.chat.completions.create.side_effect = [
-            RuntimeError("transient"),
-            _AsyncStreamIter([_content_chunk("ok")]),
-        ]
-        assert m.generate(["a", "b"]) == ["", "ok"]
-
-    @pytest.mark.parametrize(
-        ("flag", "expected_header"),
-        [
-            (True, {"X-Vertex-AI-LLM-Shared-Request-Type": "priority"}),
-            (False, None),
-        ],
-    )
-    def test_async_priority_mode_threads_to_extra_headers(self, flag: bool, expected_header: dict | None) -> None:
-        m = self._model(priority_mode=flag)
-        m._client = _async_stream([_content_chunk("ok")])
-        m.generate(["p"])
-        assert m._client.client.chat.completions.create.call_args.kwargs["extra_headers"] == expected_header
+    def test_priority_mode_threads_to_extra_headers(self, flag: bool, expected_header: dict | None) -> None:
+        client = _client_with_stream([_content_chunk("ok")], priority_mode=flag)
+        _run_query(client, messages=[{"role": "user", "content": "p"}])
+        assert client.client.chat.completions.create.call_args.kwargs.get("extra_headers") == expected_header

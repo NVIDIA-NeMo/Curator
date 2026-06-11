@@ -46,7 +46,7 @@ def _make_task(words: list[OCRDenseItem] | None = None) -> ImageSampleTask[OCRDa
 
 def _make_stage(**kwargs: object) -> OCRScoringQAStage:
     with patch(
-        "nemo_curator.stages.synthetic.omni.ocr_scoring_qa.NVInferenceModel",
+        "nemo_curator.stages.synthetic.omni.ocr_scoring_qa.NVInferenceClient",
         return_value=MagicMock(),
     ):
         return OCRScoringQAStage(**kwargs)

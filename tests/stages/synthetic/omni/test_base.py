@@ -14,9 +14,10 @@
 
 """Unit tests for nemo_curator.stages.synthetic.omni.base.
 
-The verifier model is mocked because the API client lives in
-``nemo_curator.models.omni.base`` and is exercised there; what these tests
-verify is the stage's batch dispatch and error-handling logic.
+The async client + its ``query_model`` are exercised in
+``tests/models/omni/test_base.py``; here we mock the stage's batch-level
+``_generate`` and verify the stage's batch dispatch, message assembly, and
+error-handling logic.
 """
 
 from pathlib import Path
@@ -51,46 +52,52 @@ def _make_task(*, task_id: str = "t0", is_valid: bool = True) -> ImageSampleTask
 
 
 def _make_model_stage() -> _SimpleModelStage:
-    return _SimpleModelStage(model=MagicMock(), batch_size=4)
+    stage = _SimpleModelStage(client=MagicMock(), model_name="test/model", batch_size=4)
+    # _generate wraps the async client; mock it so these tests stay focused on dispatch.
+    stage._generate = MagicMock()
+    return stage
 
 
 class TestModelProcessingStage:
-    """Batch dispatch, lifecycle, and error containment."""
+    """Batch dispatch, message assembly, and error containment."""
 
     def test_invalid_inputs_pass_through_untouched(self) -> None:
         stage = _make_model_stage()
         results = stage.process_batch([_make_task(is_valid=False)])
         assert len(results) == 1
-        stage.model.generate.assert_not_called()
+        stage._generate.assert_not_called()
 
     def test_batch_dispatches_in_one_generate_call(self) -> None:
         stage = _make_model_stage()
-        stage.model.generate.return_value = ["r0", "r1", "r2"]
+        stage._generate.return_value = ["r0", "r1", "r2"]
         results = stage.process_batch([_make_task(task_id=f"t{i}") for i in range(3)])
-        assert stage.model.generate.call_count == 1
-        prompts, images = stage.model.generate.call_args.args[:2]
-        assert len(prompts) == 3
-        assert len(images) == 3
+        assert stage._generate.call_count == 1
+        messages_batch = stage._generate.call_args.args[0]
+        assert len(messages_batch) == 3
+        # each message carries an image part (multimodal) + a text part
+        first_content = messages_batch[0][0]["content"]
+        assert any(part["type"] == "image_url" for part in first_content)
         # handle_response stored each response into task.data.error
         assert [r.data.error for r in results] == ["r0", "r1", "r2"]
 
-    def test_non_multimodal_sends_none_for_images(self) -> None:
+    def test_non_multimodal_builds_text_only_messages(self) -> None:
         stage = _make_model_stage()
         stage.multimodal = False
-        stage.model.generate.return_value = ["r"]
+        stage._generate.return_value = ["r"]
         stage.process_batch([_make_task()])
-        assert stage.model.generate.call_args.args[1] is None
+        content = stage._generate.call_args.args[0][0][0]["content"]
+        assert all(part["type"] != "image_url" for part in content)
 
     def test_skip_sample_in_build_prompt_drops_task_without_invalidating(self) -> None:
         stage = _make_model_stage()
         stage.build_prompt = MagicMock(side_effect=SkipSample)
         results = stage.process_batch([_make_task()])
         assert results[0].data.is_valid is True
-        stage.model.generate.assert_not_called()
+        stage._generate.assert_not_called()
 
     def test_build_prompt_exception_marks_only_its_task_invalid(self) -> None:
         stage = _make_model_stage()
-        stage.model.generate.return_value = ["ok"]
+        stage._generate.return_value = ["ok"]
         tasks = [_make_task(task_id="t0"), _make_task(task_id="t1")]
         # Fail only on t0
         stage.build_prompt = MagicMock(side_effect=[RuntimeError("bad prompt t0"), "p1"])
@@ -101,7 +108,7 @@ class TestModelProcessingStage:
 
     def test_handle_response_exception_marks_only_its_task_invalid(self) -> None:
         stage = _make_model_stage()
-        stage.model.generate.return_value = ["r0", "r1"]
+        stage._generate.return_value = ["r0", "r1"]
         stage.handle_response = MagicMock(side_effect=[RuntimeError("parse t0"), None])
         results = stage.process_batch([_make_task(task_id="t0"), _make_task(task_id="t1")])
         assert results[0].data.is_valid is False
@@ -110,17 +117,17 @@ class TestModelProcessingStage:
 
     def test_generate_exception_marks_entire_batch_invalid(self) -> None:
         stage = _make_model_stage()
-        stage.model.generate.side_effect = RuntimeError("GPU OOM")
+        stage._generate.side_effect = RuntimeError("api down")
         results = stage.process_batch([_make_task(task_id=f"t{i}") for i in range(3)])
         assert all(not r.data.is_valid for r in results)
-        assert all("GPU OOM" in (r.data.error or "") for r in results)
+        assert all("api down" in (r.data.error or "") for r in results)
 
     def test_response_length_mismatch_fails_batch_without_partial_writes(self) -> None:
         """Regression: strict=True zip used to process the shorter sequence first,
         then the outer except clobbered already-handled tasks. The fix raises
         on length mismatch BEFORE any _handle_response_one call."""
         stage = _make_model_stage()
-        stage.model.generate.return_value = ["r0", "r1"]  # 2 responses, 3 prompts
+        stage._generate.return_value = ["r0", "r1"]  # 2 responses, 3 prompts
         handle_calls: list[int] = []
         stage._handle_response_one = MagicMock(side_effect=lambda _t, idx, _r: handle_calls.append(idx))
         results = stage.process_batch([_make_task(task_id=f"t{i}") for i in range(3)])
