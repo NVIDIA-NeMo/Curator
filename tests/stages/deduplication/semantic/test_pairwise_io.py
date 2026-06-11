@@ -121,13 +121,18 @@ class TestClusterWiseFilePartitioningStage:
             def ls(self, _path: str) -> list[str]:
                 return ["bucket/kmeans/centroid=7"]
 
-            def expand_path(self, path: str, _recursive: bool = False) -> list[str]:
+            def expand_path(self, path: str, recursive: bool = False) -> list[str]:
+                assert recursive is False
                 return [path]
 
             def isdir(self, _path: str) -> bool:
                 return True
 
-            def find(self, _path: str, _maxdepth: int | None, _withdirs: bool, _detail: bool) -> list[str]:
+            def find(self, path: str, maxdepth: int | None, withdirs: bool, detail: bool) -> list[str]:
+                assert path == "gs://bucket/kmeans/centroid=7"
+                assert maxdepth == 1
+                assert withdirs is False
+                assert detail is False
                 return ["bucket/kmeans/centroid=7/part.0.parquet"]
 
         stage = ClusterWiseFilePartitioningStage("gs://bucket/kmeans")
