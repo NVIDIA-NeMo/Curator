@@ -106,6 +106,15 @@ RUN export MAX_JOBS=$(( $(nproc) > 16 ? 16 : $(nproc) )) && \
         echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
     fi
 
+# Ray nightly wheels omit the prebuilt dashboard frontend (client/build is an npm artifact),
+# so the dashboard process dies with FrontendNotFoundError and its HTTP/API server never
+# registers — which breaks every ray.util.state call (cosmos-xenna uses it to drive the
+# pipeline, failing with "Could not read 'dashboard' from GCS"). Stub the build dir so the
+# dashboard + API server start (the web UI itself is unused). No-op on stable wheels that
+# already ship client/build. Remove once the nightly wheel bundles the frontend.
+# Kept as its own layer so it does not invalidate the expensive uv sync layer above.
+RUN mkdir -p /opt/venv/lib/python3.13/site-packages/ray/dashboard/client/build/static
+
 # Patch wandb-core: bump google.golang.org/grpc from 1.79.2 to 1.79.3 (CVE fix)
 ARG TARGETARCH
 RUN if python3 -c "import wandb" 2>/dev/null; then \
