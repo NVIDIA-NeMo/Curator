@@ -75,7 +75,6 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
-
 METADATA_DIRNAME = ".nemo_curator_metadata"
 SLURM_ARRAY_RETRY_DIRNAME = ".slurm_array_retry"
 
@@ -122,7 +121,7 @@ def _retry_manifest_payload(
         "total_shards": total_shards,
         "minimum_shard_index": minimum_shard_index,
         "status": status,
-        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
         "slurm_array_job_id": os.environ.get("SLURM_ARRAY_JOB_ID"),
         "slurm_array_task_id": os.environ.get("SLURM_ARRAY_TASK_ID"),
@@ -138,7 +137,7 @@ def _retry_manifest_payload(
     return payload
 
 
-def write_retry_manifest(
+def write_retry_manifest(  # noqa: PLR0913
     checkpoint_path: str,
     shard_index: int | None,
     total_shards: int | None,
@@ -151,7 +150,7 @@ def write_retry_manifest(
     retry_dir = Path(checkpoint_path, METADATA_DIRNAME, SLURM_ARRAY_RETRY_DIRNAME).absolute()
     retry_dir.mkdir(parents=True, exist_ok=True)
 
-    created_at = datetime.datetime.now(datetime.timezone.utc)
+    created_at = datetime.datetime.now(datetime.UTC)
     manifest = _retry_manifest_payload(
         shard_index=shard_index,
         total_shards=total_shards,
@@ -214,7 +213,7 @@ def remove_retry_manifests(
             manifest_file.unlink()
 
 
-def build_pipeline(
+def build_pipeline(  # noqa: PLR0913
     input_dir: str,
     input_file_type: str,
     output_dir: str,
@@ -227,8 +226,7 @@ def build_pipeline(
     pipeline = Pipeline(
         name="slurm_array_demo",
         description=(
-            "Read files from input directory assigned to this Slurm array task "
-            "and write them out to output directory."
+            "Read files from input directory assigned to this Slurm array task and write them out to output directory."
         ),
     )
 
@@ -258,14 +256,16 @@ def build_pipeline(
             )
         )
     else:
-        raise ValueError(f"Unsupported input file type: {input_file_type}")
+        msg = f"Unsupported input file type: {input_file_type}"
+        raise ValueError(msg)
 
     if output_file_type == "jsonl":
         pipeline.add_stage(JsonlWriter(output_dir))
     elif output_file_type == "parquet":
         pipeline.add_stage(ParquetWriter(output_dir))
     else:
-        raise ValueError(f"Unsupported output file type: {output_file_type}")
+        msg = f"Unsupported output file type: {output_file_type}"
+        raise ValueError(msg)
 
     return pipeline
 
@@ -377,7 +377,7 @@ def main() -> None:
                     total_shards=total_shards,
                     minimum_shard_index=minimum_shard_index,
                 )
-            except Exception as cleanup_error:
+            except Exception as cleanup_error:  # noqa: BLE001
                 logger.error(f"Pipeline succeeded but failed to remove retry manifest: {cleanup_error}")
     except Exception as e:
         if should_manage_retry_manifest:
@@ -392,7 +392,7 @@ def main() -> None:
                     manifest_file=retry_manifest_file,
                 )
                 logger.error(f"Wrote Slurm array retry manifest to {manifest_file}")
-            except Exception as manifest_error:
+            except Exception as manifest_error:  # noqa: BLE001
                 logger.error(f"Failed to write Slurm array retry manifest: {manifest_error}")
 
         logger.error(f"Error running pipeline: {e}")
