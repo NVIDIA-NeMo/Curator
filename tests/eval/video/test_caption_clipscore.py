@@ -28,7 +28,8 @@ if TYPE_CHECKING:
 import numpy as np
 import pytest
 import torch
-from caption_clipscore import (
+
+from eval.video.caption_clipscore import (
     _collect_tasks,
     _cosine_sim,
     _get_source_video,
