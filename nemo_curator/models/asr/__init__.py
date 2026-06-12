@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ASR adapter family for the stage-adapter pattern.
+"""ASR model adapters.
 
 Exposes :class:`ASRAdapter` / :class:`ASRResult` (always importable) from
 ``base``. Concrete adapters (e.g. :class:`QwenOmniASRAdapter`) live in
@@ -20,13 +20,13 @@ submodules, resolved via YAML ``adapter_target`` or lazy attribute access
 (PEP 562) to avoid importing heavy GPU deps eagerly.
 """
 
-from nemo_curator.stages.audio.inference.asr.adapters.base import ASRAdapter, ASRResult
+from nemo_curator.models.asr.base import ASRAdapter, ASRResult
 
 _LAZY: dict[str, str] = {
     "QwenOmniASRAdapter": ".qwen_omni",
 }
 
-__all__ = ["ASRAdapter", "ASRResult", *list(_LAZY)]
+__all__ = ["ASRAdapter", "ASRResult", "QwenOmniASRAdapter"]
 
 
 def __getattr__(name: str) -> object:

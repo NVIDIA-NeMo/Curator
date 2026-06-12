@@ -218,6 +218,27 @@ def test_pipeline_throughput_rollup_unions_gpu_addresses() -> None:
     assert pt["audio_hours_per_wallclock_hour"] == 2.0  # 2 audio-h / 1 wall-h
 
 
+def test_rows_in_prefers_reader_manifest_entries_over_discovery_input_task() -> None:
+    summary = AudioPerformanceSummary(duration_key="duration")
+    summary.record_stage_perf([
+        StagePerfStats(
+            stage_name="nemo_tar_shard_discovery",
+            process_time=0.1,
+            custom_metrics={"input_tasks": 1.0, "shards_emitted": 8.0},
+        ),
+        StagePerfStats(
+            stage_name="nemo_tar_shard_reader",
+            process_time=1.0,
+            custom_metrics={"manifest_entries": 123.0, "output_utterances": 100.0, "audio_duration_s": 3600.0},
+        ),
+    ])
+
+    out = summary.build_summary(wall_time_s=10.0)
+
+    assert out["rows_in"] == 123.0
+    assert out["input_hours"] == 1.0
+
+
 # ----------------------------------------------------------------------
 # Graceful absence when identity is unresolved (CPU / non-Ray)
 # ----------------------------------------------------------------------

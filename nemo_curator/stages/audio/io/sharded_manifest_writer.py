@@ -24,8 +24,8 @@ from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
-from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.audio.metrics.performance import AudioPerformanceSummary
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask
 
 
@@ -41,8 +41,8 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
 
     Args:
         output_dir: Root directory for output manifests.
-        final_manifest_path: Optional JSONL that also receives every output row
-            (handy for single-rank tutorial runs); sharded files stay primary.
+        final_manifest_path: Optional aggregate JSONL rebuilt from completed
+            shard outputs at teardown; sharded files stay primary.
         write_perf_stats: If True, record per-task stage perf into the aggregate
             and refresh ``perf_summary.json`` on each shard completion.
     """
@@ -56,7 +56,8 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
     _perf_summary: AudioPerformanceSummary = field(init=False, repr=False)
     _writer_manifest_write_time_s: float = field(default=0.0, repr=False)
     _writer_done_write_time_s: float = field(default=0.0, repr=False)
-    _writer_process_calls: int = field(default=0, repr=False)
+    _writer_invocation_count: int = field(default=0, repr=False)
+    _writer_items_processed: int = field(default=0, repr=False)
 
     def __post_init__(self) -> None:
         self._perf_summary = AudioPerformanceSummary(duration_key=self.duration_key)
@@ -66,6 +67,14 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def _has_completed_shards(self) -> bool:
+        if not os.path.isdir(self.output_dir):
+            return False
+        for _root, _dirs, files in os.walk(self.output_dir):
+            if any(name.endswith(".jsonl.done") for name in files):
+                return True
+        return False
 
     def setup_on_node(
         self,
@@ -78,7 +87,13 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             if final_parent:
                 os.makedirs(final_parent, exist_ok=True)
             if os.path.exists(self.final_manifest_path):
-                os.remove(self.final_manifest_path)
+                if self._has_completed_shards():
+                    logger.info(
+                        "Preserving final manifest until teardown rebuild: {}",
+                        self.final_manifest_path,
+                    )
+                else:
+                    os.remove(self.final_manifest_path)
         self._perf_summary.reset_wall_timer()
         logger.info(f"ShardedManifestWriterStage: output_dir={self.output_dir}")
 
@@ -107,7 +122,7 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         """Persist all utterances of one shard with one open/close per file.
 
         Rows are serialized in memory and written with a single ``writelines``
-        (one open per shard for manifest + perf JSONL, not one per utterance).
+        (one open per shard manifest, not one per utterance).
         """
         out_path = os.path.join(self.output_dir, f"{shard_key}.jsonl")
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -116,9 +131,6 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         write_t0 = time.perf_counter()
         with open(out_path, "a", encoding="utf-8") as f:
             f.writelines(manifest_lines)
-        if self.final_manifest_path:
-            with open(self.final_manifest_path, "a", encoding="utf-8") as f:
-                f.writelines(manifest_lines)
         self._writer_manifest_write_time_s += time.perf_counter() - write_t0
 
         for task in group:
@@ -150,7 +162,8 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             if not self.validate_input(task):
                 msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
                 raise ValueError(msg)
-        self._writer_process_calls += len(tasks)
+        self._writer_invocation_count += 1
+        self._writer_items_processed += len(tasks)
 
         # Group by shard (dict preserves first-seen order) so each shard writes
         # in a single open/append rather than once per utterance.
@@ -180,15 +193,17 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         )
         writer_summary = {
             "total_process_time_s": writer_total_time,
-            "total_items_processed": float(self._writer_process_calls),
-            "invocation_count": float(self._writer_process_calls),
+            "total_items_processed": float(self._writer_items_processed),
+            "invocation_count": float(self._writer_invocation_count),
             "throughput_items_per_s": (
-                float(self._writer_process_calls) / writer_total_time if writer_total_time > 0 else 0.0
+                float(self._writer_items_processed) / writer_total_time if writer_total_time > 0 else 0.0
             ),
             "custom_metrics_sum": {
                 "manifest_write_time_s": self._writer_manifest_write_time_s,
                 "done_marker_write_time_s": self._writer_done_write_time_s,
-                "writer_process_calls": float(self._writer_process_calls),
+                "writer_process_calls": float(self._writer_invocation_count),
+                "writer_invocation_count": float(self._writer_invocation_count),
+                "writer_items_processed": float(self._writer_items_processed),
             },
         }
 
@@ -198,7 +213,50 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             json.dump(summary, f, indent=2, ensure_ascii=False)
         logger.info(f"Wrote perf_summary.json: {summary_path}")
 
+    def _completed_shard_manifest_paths(self) -> list[str]:
+        """Return completed shard JSONL paths, excluding the aggregate final manifest."""
+        if not os.path.isdir(self.output_dir):
+            return []
+        final_abs = os.path.abspath(self.final_manifest_path) if self.final_manifest_path else ""
+        paths: list[str] = []
+        for root, _dirs, files in os.walk(self.output_dir):
+            for fname in files:
+                if not fname.endswith(".jsonl.done"):
+                    continue
+                manifest_path = os.path.join(root, fname[:-len(".done")])
+                if not os.path.isfile(manifest_path):
+                    continue
+                if final_abs and os.path.abspath(manifest_path) == final_abs:
+                    continue
+                paths.append(manifest_path)
+        return sorted(paths)
+
+    def _write_final_manifest_from_shards(self) -> None:
+        """Rebuild the aggregate final manifest from completed shard outputs."""
+        if not self.final_manifest_path:
+            return
+        final_parent = os.path.dirname(self.final_manifest_path)
+        if final_parent:
+            os.makedirs(final_parent, exist_ok=True)
+
+        shard_paths = self._completed_shard_manifest_paths()
+        tmp_path = f"{self.final_manifest_path}.tmp"
+        write_t0 = time.perf_counter()
+        with open(tmp_path, "w", encoding="utf-8") as out_f:
+            for shard_path in shard_paths:
+                with open(shard_path, encoding="utf-8") as in_f:
+                    out_f.writelines(in_f)
+        os.replace(tmp_path, self.final_manifest_path)
+        self._writer_manifest_write_time_s += time.perf_counter() - write_t0
+        logger.info(
+            "Rebuilt final manifest {} from {} completed shard file(s)",
+            self.final_manifest_path,
+            len(shard_paths),
+        )
+
     def teardown(self) -> None:
+        self._write_final_manifest_from_shards()
+
         total = self._perf_summary.total_utterances
         done = sum(
             1 for k in self._perf_summary.shard_keys
@@ -209,8 +267,10 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             f"{len(self._perf_summary.shard_keys)} shards, {done} completed with .done"
         )
 
-        if self.write_perf_stats:
+        if self.write_perf_stats and (self._writer_items_processed > 0 or self._perf_summary.total_utterances > 0):
             self._write_perf_summary()
+        elif self.write_perf_stats:
+            logger.info("Skipping perf_summary.json write because no tasks were processed")
 
     def num_workers(self) -> int | None:
         return 1

@@ -41,6 +41,9 @@ class BatchPolicy:
     2400]`` when ``ideal_inference_segment_s=2400``).
 
     Args:
+        enabled: When ``False``, the policy is carried in config but
+            ``run_bucketed`` dispatches one normal batch, matching
+            ``policy=None``.
         strategy: Only ``"duration_bucketed"`` is implemented; other values are
             reserved for future use.
         buckets_sec: Strictly-increasing left edges starting at ``0`` (cost
@@ -54,6 +57,7 @@ class BatchPolicy:
             compat, not consumed by ``bucketize``.
     """
 
+    enabled: bool = True
     strategy: str = "duration_bucketed"
     buckets_sec: list[float] = field(default_factory=lambda: [0.0, 600.0, 1200.0, 2400.0])
     max_items_per_batch_by_bucket: list[int] = field(default_factory=lambda: [32, 16, 8, 4])
@@ -61,12 +65,27 @@ class BatchPolicy:
     flush_interval_ms: int = 250
 
     def __post_init__(self) -> None:
+        self._validate_enabled()
+        if not self.enabled:
+            return
+        self._validate_strategy()
+        self._validate_bucket_edges()
+        self._validate_batch_caps()
+
+    def _validate_enabled(self) -> None:
+        if not isinstance(self.enabled, bool):
+            msg = f"BatchPolicy: enabled must be a bool, got {type(self.enabled).__name__}"
+            raise TypeError(msg)
+
+    def _validate_strategy(self) -> None:
         if self.strategy != "duration_bucketed":
             msg = (
                 f"BatchPolicy: strategy={self.strategy!r} not yet implemented; "
                 "only 'duration_bucketed' is supported."
             )
             raise ValueError(msg)
+
+    def _validate_bucket_edges(self) -> None:
         if not self.buckets_sec:
             msg = "BatchPolicy: buckets_sec must contain at least one edge"
             raise ValueError(msg)
@@ -80,6 +99,8 @@ class BatchPolicy:
                     f"got {self.buckets_sec[i]} -> {self.buckets_sec[i + 1]}"
                 )
                 raise ValueError(msg)
+
+    def _validate_batch_caps(self) -> None:
         if len(self.max_items_per_batch_by_bucket) != len(self.buckets_sec):
             msg = (
                 f"BatchPolicy: max_items_per_batch_by_bucket has "
@@ -176,15 +197,17 @@ def run_bucketed(
 
     The single importable bucketing entry point for GPU inference stages, so
     stages don't re-implement the bucketize -> dispatch -> reassemble loop.
-    ``policy=None`` (or empty ``items``) runs a single ``run_fn`` call; otherwise
-    each sub-batch is dispatched and results are realigned to ``items`` order so
-    callers never see the internal bucket ordering.
+    ``policy=None`` / ``policy.enabled=False`` (or empty ``items``) runs a single
+    ``run_fn`` call; otherwise each sub-batch is dispatched and results are
+    realigned to ``items`` order so callers never see the internal bucket
+    ordering.
 
     Args:
         items: Flat list of per-item payloads the stage assembled this call.
         run_fn: Runs one sub-batch, returning one result per item (1:1, in order).
         cost_fn: Returns the per-item cost (audio seconds by default).
-        policy: Optional bucketing policy; ``None`` runs a single batch.
+        policy: Optional bucketing policy; ``None`` or disabled runs a single
+            batch.
 
     Returns:
         Results aligned 1:1 with ``items``.
@@ -195,7 +218,7 @@ def run_bucketed(
     if not items:
         return []
 
-    if policy is not None:
+    if policy is not None and policy.enabled:
         sub_batches = policy.bucketize(items, cost_fn=cost_fn)
     else:
         sub_batches = [(list(range(len(items))), list(items))]

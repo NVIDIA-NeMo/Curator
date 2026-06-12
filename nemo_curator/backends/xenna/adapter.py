@@ -19,7 +19,6 @@ from cosmos_xenna.pipelines import v1 as pipelines_v1
 from cosmos_xenna.pipelines.private.resources import NodeInfo as XennaNodeInfo
 from cosmos_xenna.pipelines.private.resources import Resources as XennaResources
 from cosmos_xenna.pipelines.private.resources import WorkerMetadata as XennaWorkerMetadata
-from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter, NodeInfo, WorkerMetadata
 from nemo_curator.backends.perf_identity import build_xenna_perf_identity, stamp_worker_metadata
@@ -69,7 +68,6 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
     @property
     def required_resources(self) -> XennaResources:
         """Get the resources required for this stage."""
-        logger.info(f"Resources: {self.processing_stage.resources}")
         return XennaResources(
             cpus=self.processing_stage.resources.cpus,
             gpus=self.processing_stage.resources.gpus,

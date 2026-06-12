@@ -250,8 +250,8 @@ swappable **adapter**:
 | Layer | Location | Responsibility |
 |---|---|---|
 | `ASRStage` | `stages/audio/inference/asr/stage.py` | Generic, model-independent stage glue. |
-| `ASRAdapter` (Protocol) + `ASRResult` | `stages/audio/inference/asr/adapters/base.py` | The contract a model adapter must satisfy (`setup`, `teardown`, `transcribe_batch`, `prefetch_weights`, `last_metrics`). |
-| `QwenOmniASRAdapter` | `stages/audio/inference/asr/adapters/qwen_omni.py` | Qwen3-Omni implementation (built on the shared `VLLMBase` in `models/vllm_model.py`). |
+| `ASRAdapter` (Protocol) + `ASRResult` | `models/asr/base.py` | The contract a model adapter must satisfy (`setup`, `teardown`, `transcribe_batch`, `prefetch_weights`, `last_metrics`). |
+| `QwenOmniASRAdapter` | `models/asr/qwen_omni.py` | Qwen3-Omni implementation (built on the shared `VLLMBase` in `models/vllm_model.py`). |
 
 The split is **Tier-1 / Tier-2**:
 

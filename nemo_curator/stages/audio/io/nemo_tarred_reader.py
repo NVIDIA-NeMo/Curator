@@ -28,7 +28,7 @@ import tarfile
 import time
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any
+from typing import Any, BinaryIO
 
 import soundfile as sf
 import yaml
@@ -38,9 +38,6 @@ from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _expand_nemo_path(pattern: str) -> list[str]:
     """Expand NeMo brace patterns like ``__OP_0..N_CL_``."""
@@ -64,7 +61,7 @@ def _open_tar(tar_path: str) -> tarfile.TarFile:
     return tarfile.open(fileobj=fileobj, mode="r|*")
 
 
-def _open_text_stream(path: str) -> Any:
+def _open_text_stream(path: str) -> BinaryIO:
     """Open a local text file as a binary stream."""
     from lhotse.serialization import open_best
 
@@ -164,7 +161,7 @@ def _iter_discovery_groups(config: object, yaml_path: str) -> list[dict[str, Any
             f"Granary YAML at {yaml_path} must be a list of corpus-group mappings, "
             f"got {type(config).__name__}"
         )
-        raise ValueError(msg)
+        raise TypeError(msg)
 
     groups: list[dict[str, Any]] = []
     for idx, group in enumerate(config):
@@ -205,10 +202,6 @@ def _iter_input_cfg_entries(group: dict[str, Any], yaml_path: str) -> list[dict[
         entries.append(cfg)
     return entries
 
-
-# ---------------------------------------------------------------------------
-# Stage 1: Shard discovery
-# ---------------------------------------------------------------------------
 
 @dataclass
 class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
@@ -302,6 +295,8 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         corpora_seen = 0
         shards_seen = 0
         skipped = 0
+        invalid_corpora = 0
+        invalid_shards = 0
         for group in _iter_discovery_groups(config, self.yaml_path):
             for cfg in _iter_input_cfg_entries(group, self.yaml_path):
                 corpus = cfg.get("corpus", "unknown")
@@ -311,8 +306,18 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 if cfg.get("type", "nemo_tarred") != "nemo_tarred":
                     logger.warning(f"Skipping non-nemo_tarred corpus {corpus} (type={cfg.get('type')})")
                     continue
-                manifest_paths = _expand_nemo_path(cfg["manifest_filepath"])
-                tar_paths = _expand_nemo_path(cfg["tarred_audio_filepaths"])
+                manifest_pattern = cfg.get("manifest_filepath")
+                tar_pattern = cfg.get("tarred_audio_filepaths")
+                if not isinstance(manifest_pattern, str) or not isinstance(tar_pattern, str):
+                    invalid_corpora += 1
+                    logger.warning(
+                        "Skipping corpus {} in {}: manifest_filepath and tarred_audio_filepaths are required strings",
+                        corpus,
+                        self.yaml_path,
+                    )
+                    continue
+                manifest_paths = _expand_nemo_path(manifest_pattern)
+                tar_paths = _expand_nemo_path(tar_pattern)
                 if len(manifest_paths) != len(tar_paths):
                     msg = (
                         f"Manifest/tar count mismatch for corpus={corpus}: "
@@ -321,7 +326,12 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                     raise ValueError(msg)
                 for mp, tp in zip(manifest_paths, tar_paths, strict=False):
                     shards_seen += 1
-                    shard_key = self._manifest_to_rel_path(mp, corpus)
+                    try:
+                        shard_key = self._manifest_to_rel_path(mp, corpus)
+                    except ValueError as exc:
+                        invalid_shards += 1
+                        logger.warning("Skipping manifest {} for corpus {}: {}", mp, corpus, exc)
+                        continue
                     if shard_key in completed:
                         skipped += 1
                         continue
@@ -353,14 +363,12 @@ class NemoTarShardDiscoveryStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             "shards_seen": float(shards_seen),
             "shards_emitted": float(len(tasks)),
             "shards_skipped_completed": float(skipped),
+            "corpora_skipped_invalid": float(invalid_corpora),
+            "shards_skipped_invalid": float(invalid_shards),
             "discovery_time_s": time.perf_counter() - t0,
         })
         return tasks
 
-
-# ---------------------------------------------------------------------------
-# Stage 2: Shard reader (in-memory via lhotse/soundfile)
-# ---------------------------------------------------------------------------
 
 @dataclass
 class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
@@ -422,9 +430,8 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         skipped_lines = 0
         with _open_text_stream(path) as f:
             for raw_line in f:
-                if isinstance(raw_line, bytes):
-                    raw_line = raw_line.decode("utf-8")
-                stripped = raw_line.strip()
+                line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+                stripped = line.strip()
                 if not stripped:
                     continue
                 entry_count += 1
@@ -471,7 +478,7 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         except OSError as exc:
             logger.warning("Failed to write empty-shard marker for {}: {}", shard_key, exc)
 
-    def process(self, task: FileGroupTask) -> list[AudioTask]:
+    def process(self, task: FileGroupTask) -> list[AudioTask]:  # noqa: C901, PLR0912, PLR0915
         t0 = time.perf_counter()
         manifest_path, tar_path = task.data[0], task.data[1]
         corpus = task.reader_config.get("corpus", "unknown")
@@ -606,10 +613,6 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         })
         return results
 
-
-# ---------------------------------------------------------------------------
-# Composite stage (user-facing API)
-# ---------------------------------------------------------------------------
 
 @dataclass
 class NemoTarredAudioReader(CompositeStage[_EmptyTask, AudioTask]):

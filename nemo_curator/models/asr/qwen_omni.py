@@ -14,7 +14,7 @@
 
 """Qwen3-Omni ASR adapter (in-process vLLM).
 
-Implements the :class:`~nemo_curator.stages.audio.inference.asr.adapters.ASRAdapter` protocol on the
+Implements the :class:`~nemo_curator.models.asr.ASRAdapter` protocol on the
 in-process vLLM thinker-only path. Two-turn (Turn-1 transcribe, Turn-2
 disfluency/refinement) when ``followup_prompt`` is set; single-turn otherwise.
 
@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any
 from huggingface_hub import snapshot_download
 from loguru import logger
 
-from nemo_curator.stages.audio.inference.asr.adapters.base import ASRResult
+from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.models.vllm_model import VLLM_AVAILABLE, VLLMBase
 from nemo_curator.utils.gpu_utils import get_gpu_count
 
@@ -110,11 +110,9 @@ class QwenOmniASRAdapter(VLLMBase):
         seed: exposed so reproducibility / bit-exactness tests can override.
     """
 
-    # Universal adapter constructor fields (forwarded by ASRStage).
     model_id: str = _QWEN3_OMNI_MODEL_ID
     revision: str | None = None
 
-    # Qwen-Omni-specific knobs (flow in via adapter_kwargs).
     prompt_text: str = "Transcribe the audio."
     prompt_file: str | None = None
     en_prompt_text: str | None = None
@@ -132,18 +130,14 @@ class QwenOmniASRAdapter(VLLMBase):
     top_k: int = 1
     prep_workers: int = 8
 
-    # vLLM knobs (set via adapter_kwargs in YAML).
     enable_prefix_caching: bool = True
     prefix_caching_hash_algo: str = "xxhash"
     limit_mm_per_prompt_audio: int = 2
     seed: int = 1234
 
-    # Per-batch state - reset by transcribe_batch, surfaced to the stage
-    # for _log_metrics merging.
     last_metrics: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # Resolve file-backed prompts once so the per-batch path stays cheap.
         self.prompt_text = self._load_text(self.prompt_text, self.prompt_file) or ""
         self.en_prompt_text = self._load_text(self.en_prompt_text, self.en_prompt_file)
         self.followup_prompt = self._load_text(self.followup_prompt, self.followup_prompt_file)
@@ -161,10 +155,6 @@ class QwenOmniASRAdapter(VLLMBase):
                 raise FileNotFoundError(msg)
             return path.read_text(encoding="utf-8").strip()
         return text
-
-    # ------------------------------------------------------------------
-    # ASRAdapter protocol surface
-    # ------------------------------------------------------------------
 
     @classmethod
     def prefetch_weights(cls, model_id: str, revision: str | None = None) -> None:
@@ -207,14 +197,17 @@ class QwenOmniASRAdapter(VLLMBase):
             "max_tokens": self.max_output_tokens,
         }
 
-        self._init_engine(model_kwargs, sampling_kwargs)
+        try:
+            self._init_engine(model_kwargs, sampling_kwargs)
 
-        proc_kwargs: dict[str, Any] = {}
-        if self.revision is not None:
-            proc_kwargs["revision"] = self.revision
-        self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id, **proc_kwargs)
-
-        self._prep_pool = ThreadPoolExecutor(max_workers=self.prep_workers)
+            proc_kwargs: dict[str, Any] = {}
+            if self.revision is not None:
+                proc_kwargs["revision"] = self.revision
+            self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id, **proc_kwargs)
+            self._prep_pool = ThreadPoolExecutor(max_workers=self.prep_workers)
+        except Exception:
+            self.teardown()
+            raise
 
     def teardown(self) -> None:
         if self._prep_pool is not None:
@@ -266,7 +259,11 @@ class QwenOmniASRAdapter(VLLMBase):
             return self.en_prompt_text
         return self._resolve_prompt(self.prompt_text, language)
 
-    def _build_messages(self, waveform: np.ndarray, language: str | None = None) -> list[dict[str, Any]]:
+    def _build_audio_prompt_messages(
+        self,
+        waveform: np.ndarray,
+        language: str | None = None,
+    ) -> list[dict[str, Any]]:
         prompt = self._get_prompt_text(language)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
@@ -281,22 +278,14 @@ class QwenOmniASRAdapter(VLLMBase):
         })
         return messages
 
+    def _build_messages(self, waveform: np.ndarray, language: str | None = None) -> list[dict[str, Any]]:
+        return self._build_audio_prompt_messages(waveform, language)
+
     def _build_turn2_messages(
         self, waveform: np.ndarray, pred_text: str, language: str | None = None,
     ) -> list[dict[str, Any]]:
-        prompt = self._get_prompt_text(language)
         followup = self._resolve_prompt(self.followup_prompt or _FOLLOWUP_PROMPT_DEFAULT, language)
-        messages: list[dict[str, Any]] = []
-        if self.system_prompt:
-            sys_prompt = self._resolve_prompt(self.system_prompt, language)
-            messages.append({"role": "system", "content": [{"type": "text", "text": sys_prompt}]})
-        messages.append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "audio", "audio": waveform},
-            ],
-        })
+        messages = self._build_audio_prompt_messages(waveform, language)
         messages.append({"role": "assistant", "content": [{"type": "text", "text": pred_text}]})
         messages.append({
             "role": "user",
@@ -431,7 +420,19 @@ class QwenOmniASRAdapter(VLLMBase):
             texts[idx] = self._first_output_text(out)
         return texts, generation_time_s, output_tokens
 
-    # Two-turn generation
+    def _run_vllm_turn(
+        self,
+        inputs: list[dict[str, Any]],
+        indices: list[int],
+        n: int,
+        metrics: dict[str, float],
+        turn_name: str,
+    ) -> list[str]:
+        texts, generation_s, output_tokens = self._infer_turn(inputs, indices, n)
+        metrics[f"{turn_name}_generation_time_s"] = generation_s
+        metrics[f"{turn_name}_output_tokens"] = output_tokens
+        metrics["output_tokens"] += output_tokens
+        return texts
 
     def _run_two_turn(
         self,
@@ -457,6 +458,7 @@ class QwenOmniASRAdapter(VLLMBase):
             "turn1_valid_inputs": 0.0,
             "turn2_valid_inputs": 0.0,
             "utterances_skipped_preprocess": 0.0,
+            "utterances_skipped_empty_output": 0.0,
             "output_tokens": 0.0,
             "turn1_output_tokens": 0.0,
             "turn2_output_tokens": 0.0,
@@ -481,16 +483,22 @@ class QwenOmniASRAdapter(VLLMBase):
         if len(valid_inputs) < n:
             logger.warning(f"Skipped {n - len(valid_inputs)}/{n} corrupt audio samples")
 
-        pred_texts, t1_generation_s, t1_tokens = self._infer_turn(valid_inputs, valid_indices, n)
-        metrics["turn1_generation_time_s"] = t1_generation_s
-        metrics["turn1_output_tokens"] = t1_tokens
-        metrics["output_tokens"] += t1_tokens
+        pred_texts = self._run_vllm_turn(valid_inputs, valid_indices, n, metrics, "turn1")
+        empty_output_indices = {i for i in valid_indices if not pred_texts[i]}
+        if empty_output_indices:
+            skipped_indices.update(empty_output_indices)
+            metrics["utterances_skipped_empty_output"] = float(len(empty_output_indices))
+            logger.warning(
+                "Skipping {}/{} audio samples with empty Turn 1 vLLM output",
+                len(empty_output_indices),
+                len(valid_indices),
+            )
 
         # -- Turn 2 (disfluency refinement) -----------------------------------
         if not self.followup_prompt:
             return pred_texts, [""] * n, skipped_indices
 
-        t2_indices = [i for i in valid_indices if pred_texts[i]]
+        t2_indices = [i for i in valid_indices if i not in skipped_indices and pred_texts[i]]
         if not t2_indices:
             return pred_texts, [""] * n, skipped_indices
 
@@ -511,9 +519,6 @@ class QwenOmniASRAdapter(VLLMBase):
 
         t2_valid_indices = [i for i, _ in t2_valid]
         t2_inputs = [p for _, p in t2_valid]
-        disfluency_texts, t2_generation_s, t2_tokens = self._infer_turn(t2_inputs, t2_valid_indices, n)
-        metrics["turn2_generation_time_s"] = t2_generation_s
-        metrics["turn2_output_tokens"] = t2_tokens
-        metrics["output_tokens"] += t2_tokens
+        disfluency_texts = self._run_vllm_turn(t2_inputs, t2_valid_indices, n, metrics, "turn2")
 
         return pred_texts, disfluency_texts, skipped_indices

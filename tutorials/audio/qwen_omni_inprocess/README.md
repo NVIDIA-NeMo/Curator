@@ -138,7 +138,7 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `max_utterances_per_shard` | Debug/smoke cap per tar shard | `null` |
 | `source_lang_key` | Manifest key for per-row language | `source_lang` |
 | `duration_key` | Manifest key for utterance duration | `duration` |
-| `adapter_target` | Tier-1 swap line; fully-qualified ASR adapter class path | `nemo_curator.stages.audio.inference.asr.adapters.QwenOmniASRAdapter` |
+| `adapter_target` | Tier-1 swap line; fully-qualified ASR adapter class path | `nemo_curator.models.asr.QwenOmniASRAdapter` |
 | `pred_text_key` | Output key for the Turn-1 transcription | `qwen3_prediction_s1` |
 | `disfluency_text_key` | Output key for the optional Turn-2 (disfluency) transcription; set to `null` to disable | `qwen3_prediction_s2` |
 | `model_id` | Hugging Face model identifier | `Qwen/Qwen3-Omni-30B-A3B-Instruct` |
@@ -169,13 +169,14 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `cpu_batch_size` | Writer batch size | `64` |
 | `write_perf_stats` | When `true`, the writer aggregates per-task stage perf and maintains `perf_summary.json`. Set `false` to disable perf output (manifests only). | `true` (writer stage default; add under `sharded_manifest_writer` in YAML if overriding) |
 
-#### Duration-aware bucketed batching (`batch_policy`)
+#### Duration-aware bucketed batching
 
-The `qwen_omni` stage declares an optional `batch_policy` block:
+The user-facing switch and policy shape live under
+`duration_aware_bucketing`:
 
 ```yaml
-batch_policy:
-  _target_: nemo_curator.stages.audio.inference.batch_policy.BatchPolicy
+duration_aware_bucketing:
+  enabled: true
   strategy: duration_bucketed
   buckets_sec: [0, 600, 1200, 2400]
   max_items_per_batch_by_bucket: [32, 16, 8, 4]
@@ -183,17 +184,19 @@ batch_policy:
   flush_interval_ms: 250
 ```
 
+The `qwen_omni` stage converts that block into its `BatchPolicy`.
 `BatchPolicy` and the `run_bucketed` helper it drives live in the
-`nemo_curator.stages.audio.inference.batch_policy` module so
-any GPU inference stage can reuse them.
+`nemo_curator.stages.audio.inference.batch_policy` module so any GPU
+inference stage can reuse them.
 
 When set, every `process_batch` invocation internally re-partitions its
 items into bucket-respecting sub-batches before dispatching the adapter,
 so a single vLLM call never mixes a 40-minute sub-chunk with 5-second
 sub-chunks. Bucket edges are anchored on `ideal_inference_segment_s`:
 short clips fire in larger batches, long clips fire alone or near-alone.
-Set `batch_policy: null` to disable bucketing (single adapter call per
-`process_batch` over all items).
+Set `duration_aware_bucketing.enabled: false` to disable bucketing while
+leaving the policy shape in YAML. Legacy configs can still set
+`batch_policy: null` on the stage for the same single-adapter-call behavior.
 
 Cross-`process_batch` queueing with per-bucket queues and a flush timer
 requires a Curator-framework scheduler hook and is a follow-up PR.
@@ -205,7 +208,7 @@ is not consumed by the stage today.
 The explicit `stages` list is the source of truth for the graph:
 
 - `reader`: `NemoTarredAudioReader`
-- `qwen_omni`: `ASRStage` with `adapter_target: nemo_curator.stages.audio.inference.asr.adapters.QwenOmniASRAdapter`
+- `qwen_omni`: `ASRStage` with `adapter_target: nemo_curator.models.asr.QwenOmniASRAdapter`
 - `sharded_manifest_writer`: `ShardedManifestWriterStage`
 
 Run only selected stages when debugging:

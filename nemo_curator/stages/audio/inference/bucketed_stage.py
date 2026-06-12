@@ -32,8 +32,8 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Generic, TypeVar
 
-from nemo_curator.stages.base import ProcessingStage, X, Y
 from nemo_curator.stages.audio.inference.batch_policy import run_bucketed
+from nemo_curator.stages.base import ProcessingStage, X, Y
 
 if TYPE_CHECKING:
     from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
@@ -46,9 +46,10 @@ ResultT = TypeVar("ResultT")
 class BucketedInferenceStage(ProcessingStage[X, Y], Generic[X, Y, ItemT, ResultT]):
     """Abstract cost-bucketed inference stage.
 
-    Subclasses set a ``batch_policy`` (``None`` = one sub-batch per call) and
-    implement the four hooks. The base owns the 1:1 ``process_batch`` contract:
-    exactly one output per input task, in input order.
+    Subclasses set a ``batch_policy`` (``None`` or ``enabled=False`` = one
+    sub-batch per call) and implement the four hooks. The base owns the 1:1
+    ``process_batch`` contract: exactly one output per input task, in input
+    order.
     """
 
     _is_abstract_root = True  # never registered / instantiated directly

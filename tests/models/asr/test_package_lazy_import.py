@@ -12,41 +12,43 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests that ``nemo_curator.stages.audio.inference.asr.adapters`` does not eagerly import GPU adapters."""
+"""Tests that ``nemo_curator.models.asr`` does not eagerly import GPU adapters."""
 
 from __future__ import annotations
 
 import builtins
 import sys
+from typing import TYPE_CHECKING
 
-import pytest
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_importing_asr_subpackage_does_not_load_qwen_omni(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``import nemo_curator.stages.audio.inference.asr.adapters`` must not pull in ``qwen_omni`` at init time."""
+    """``import nemo_curator.models.asr`` must not pull in ``qwen_omni`` at init time."""
     original_import = builtins.__import__
     blocked: list[str] = []
 
     def tracking_import(
         name: str,
-        globals: object | None = None,
-        locals: object | None = None,
+        globals_: object | None = None,
+        locals_: object | None = None,
         fromlist: tuple[str, ...] = (),
         level: int = 0,
     ) -> object:
-        if name.endswith("nemo_curator.stages.audio.inference.asr.adapters.qwen_omni") or name == "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni":
+        if name.endswith("nemo_curator.models.asr.qwen_omni") or name == "nemo_curator.models.asr.qwen_omni":
             blocked.append(name)
             msg = f"blocked eager import of {name}"
             raise ImportError(msg)
-        return original_import(name, globals, locals, fromlist, level)
+        return original_import(name, globals_, locals_, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", tracking_import)
 
     for mod_name in list(sys.modules):
-        if mod_name in {"nemo_curator.stages.audio.inference.asr.adapters", "nemo_curator.stages.audio.inference.asr.adapters.base"}:
+        if mod_name in {"nemo_curator.models.asr", "nemo_curator.models.asr.base"}:
             del sys.modules[mod_name]
 
-    import nemo_curator.stages.audio.inference.asr.adapters as asr_pkg
+    import nemo_curator.models.asr as asr_pkg
 
     assert blocked == []
     assert asr_pkg.ASRAdapter is not None
@@ -55,6 +57,6 @@ def test_importing_asr_subpackage_does_not_load_qwen_omni(monkeypatch: pytest.Mo
 
 
 def test_asr_subpackage_lazy_getattr_resolves_qwen_adapter() -> None:
-    from nemo_curator.stages.audio.inference.asr.adapters import QwenOmniASRAdapter
+    from nemo_curator.models.asr import QwenOmniASRAdapter
 
     assert QwenOmniASRAdapter.__name__ == "QwenOmniASRAdapter"

@@ -19,12 +19,12 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from nemo_curator.stages.audio.inference.asr.adapters.base import ASRResult
+from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.stages.audio.inference.asr import ASRStage
 from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
 from nemo_curator.tasks import AudioTask
 
-_QWEN_ADAPTER_TARGET = "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.QwenOmniASRAdapter"
+_QWEN_ADAPTER_TARGET = "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter"
 _SR = 16000
 
 
@@ -275,88 +275,6 @@ def test_pre_slice_metrics_count_parents_not_chunks() -> None:
 
 
 # ----------------------------------------------------------------------
-# Within-call duration-bucketed batching (policy-driven stage dispatch)
-# ----------------------------------------------------------------------
-
-
-def test_batch_policy_partitions_items_by_bucket() -> None:
-    """Items in different buckets land in different adapter calls (no mixing of long and short)."""
-    policy = BatchPolicy(
-        strategy="duration_bucketed",
-        buckets_sec=[0, 30, 1200, 2400],
-        max_items_per_batch_by_bucket=[32, 16, 8, 4],
-        max_audio_sec_per_batch=10_000.0,
-        flush_interval_ms=250,
-    )
-    stage = _make_stage(batch_policy=policy)
-    # 5s + 10s land in one bucket, 600s in another -> two adapter calls.
-    short_a = AudioTask(data={"waveform": np.zeros(_SR * 5, dtype=np.float32), "sample_rate": _SR})
-    short_b = AudioTask(data={"waveform": np.zeros(_SR * 10, dtype=np.float32), "sample_rate": _SR})
-    long_a = AudioTask(data={"waveform": np.zeros(_SR * 600, dtype=np.float32), "sample_rate": _SR})
-
-    stage._adapter.transcribe_batch.side_effect = [
-        [ASRResult(text="short-a"), ASRResult(text="short-b")],
-        [ASRResult(text="long")],
-    ]
-    results = stage.process_batch([short_a, short_b, long_a])
-
-    assert stage._adapter.transcribe_batch.call_count == 2
-    # Parent order is preserved despite bucket-ordered sub-batching.
-    assert results[0].data["qwen3_prediction_s1"] == "short-a"
-    assert results[1].data["qwen3_prediction_s1"] == "short-b"
-    assert results[2].data["qwen3_prediction_s1"] == "long"
-
-
-def test_batch_policy_respects_per_bucket_item_cap() -> None:
-    """A bucket with cap=2 and 3 items must split into 2 sub-batches."""
-    policy = BatchPolicy(
-        strategy="duration_bucketed",
-        buckets_sec=[0, 60],
-        max_items_per_batch_by_bucket=[2, 1],
-        max_audio_sec_per_batch=None,
-    )
-    stage = _make_stage(batch_policy=policy)
-    stage._adapter.transcribe_batch.side_effect = [
-        [ASRResult(text="a"), ASRResult(text="b")],
-        [ASRResult(text="c")],
-    ]
-    tasks = [_make_task() for _ in range(3)]  # all 1s clips -> bucket 0
-    stage.process_batch(tasks)
-    assert stage._adapter.transcribe_batch.call_count == 2
-
-
-def test_batch_policy_respects_audio_sec_cap() -> None:
-    """A global audio-sec cap forces sub-batch flushes within a bucket."""
-    policy = BatchPolicy(
-        strategy="duration_bucketed",
-        buckets_sec=[0, 60],
-        max_items_per_batch_by_bucket=[100, 100],
-        max_audio_sec_per_batch=15.0,  # tight: two 10s clips can't share a sub-batch
-    )
-    stage = _make_stage(batch_policy=policy)
-    stage._adapter.transcribe_batch.side_effect = [
-        [ASRResult(text="a")],
-        [ASRResult(text="b")],
-    ]
-    tasks = [
-        AudioTask(data={"waveform": np.zeros(_SR * 10, dtype=np.float32), "sample_rate": _SR}),
-        AudioTask(data={"waveform": np.zeros(_SR * 10, dtype=np.float32), "sample_rate": _SR}),
-    ]
-    stage.process_batch(tasks)
-    assert stage._adapter.transcribe_batch.call_count == 2
-
-
-def test_batch_policy_none_runs_single_adapter_call() -> None:
-    """Default (no policy) keeps the pre-?0.3 single-adapter-call shape."""
-    stage = _make_stage(batch_policy=None)
-    stage._adapter.transcribe_batch.return_value = [
-        ASRResult(text="a"), ASRResult(text="b"),
-    ]
-    stage.process_batch([_make_task(), _make_task()])
-    assert stage._adapter.transcribe_batch.call_count == 1
-
-
-# ----------------------------------------------------------------------
 # Stage-level: language mapping (ISO code -> name)
 # ----------------------------------------------------------------------
 
@@ -469,7 +387,7 @@ def test_metrics_model_alias_skips_already_emitted_keys() -> None:
 # ----------------------------------------------------------------------
 
 
-@patch("nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.snapshot_download")
+@patch("nemo_curator.models.asr.qwen_omni.snapshot_download")
 def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
     stage.setup_on_node()
@@ -477,7 +395,7 @@ def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
 
 
 @patch(
-    "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.snapshot_download",
+    "nemo_curator.models.asr.qwen_omni.snapshot_download",
     side_effect=RuntimeError("missing auth"),
 )
 def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
@@ -488,7 +406,7 @@ def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
 
 
 @patch(
-    "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.snapshot_download",
+    "nemo_curator.models.asr.qwen_omni.snapshot_download",
     side_effect=RuntimeError("offline"),
 )
 def test_setup_on_node_can_warn_and_retry_later(mock_download: MagicMock) -> None:

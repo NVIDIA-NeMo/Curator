@@ -22,9 +22,9 @@ import pytest
 import soundfile as sf
 
 from nemo_curator.stages.audio.io.nemo_tarred_reader import (
+    NemoTarredAudioReader,
     NemoTarShardDiscoveryStage,
     NemoTarShardReaderStage,
-    NemoTarredAudioReader,
     _iter_discovery_groups,
     _iter_input_cfg_entries,
 )
@@ -49,7 +49,7 @@ def test_reader_rejects_non_positive_max_duration() -> None:
         NemoTarShardReaderStage(max_duration_s=0)
 
 
-def test_reader_manifest_lookup_accepts_common_path_variants(tmp_path) -> None:
+def test_reader_manifest_lookup_accepts_common_path_variants(tmp_path: Path) -> None:
     manifest = tmp_path / "manifest.jsonl"
     manifest.write_text(
         '{"audio_filepath": "/data/shard/audio_0.wav", "duration": 1.0}\n',
@@ -65,7 +65,7 @@ def test_reader_manifest_lookup_accepts_common_path_variants(tmp_path) -> None:
     assert lookup["audio_0.wav"]["duration"] == 1.0
 
 
-def test_manifest_lookup_disambiguates_shared_basename_by_path_suffix(tmp_path) -> None:
+def test_manifest_lookup_disambiguates_shared_basename_by_path_suffix(tmp_path: Path) -> None:
     """When two entries share a basename, a member resolves by longest path suffix."""
     manifest = tmp_path / "manifest.jsonl"
     manifest.write_text(
@@ -84,7 +84,7 @@ def test_manifest_lookup_disambiguates_shared_basename_by_path_suffix(tmp_path) 
     assert lookup.match("utt.wav") is None
 
 
-def test_read_manifest_skips_lines_missing_filepath_key(tmp_path) -> None:
+def test_read_manifest_skips_lines_missing_filepath_key(tmp_path: Path) -> None:
     manifest = tmp_path / "manifest.jsonl"
     manifest.write_text(
         '{"audio_filepath": "a.wav", "duration": 1.0}\n'
@@ -101,7 +101,7 @@ def test_read_manifest_skips_lines_missing_filepath_key(tmp_path) -> None:
     assert lookup["c.wav"]["duration"] == 3.0
 
 
-def test_read_manifest_skips_invalid_json_lines(tmp_path) -> None:
+def test_read_manifest_skips_invalid_json_lines(tmp_path: Path) -> None:
     manifest = tmp_path / "manifest.jsonl"
     manifest.write_text(
         '{"audio_filepath": "ok.wav", "duration": 1.0}\n'
@@ -116,7 +116,10 @@ def test_read_manifest_skips_invalid_json_lines(tmp_path) -> None:
     assert lookup["ok.wav"]["duration"] == 1.0
 
 
-def test_reader_skips_tar_members_when_extractfile_returns_none(tmp_path, monkeypatch) -> None:
+def test_reader_skips_tar_members_when_extractfile_returns_none(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Tar members where extractfile() returns None must be skipped, not raise AttributeError."""
     audio = np.zeros(16000, dtype=np.float32)
     wav_buf = io.BytesIO()
@@ -135,7 +138,10 @@ def test_reader_skips_tar_members_when_extractfile_returns_none(tmp_path, monkey
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(tarfile.TarFile, "extractfile", lambda self, member: None)
+    def _extractfile_returns_none(_self: tarfile.TarFile, _member: tarfile.TarInfo) -> None:
+        return None
+
+    monkeypatch.setattr(tarfile.TarFile, "extractfile", _extractfile_returns_none)
 
     stage = NemoTarShardReaderStage()
     task = FileGroupTask(
@@ -157,7 +163,7 @@ def test_iter_discovery_groups_rejects_empty_yaml() -> None:
 
 @pytest.mark.parametrize("config", [{"corpus": "x"}, "scalar", 42])
 def test_iter_discovery_groups_rejects_non_list_root(config: object) -> None:
-    with pytest.raises(ValueError, match="must be a list"):
+    with pytest.raises(TypeError, match="must be a list"):
         _iter_discovery_groups(config, "bad.yaml")
 
 
@@ -185,5 +191,51 @@ def test_discovery_process_raises_on_scalar_yaml_root(tmp_path: Path) -> None:
     yaml_path.write_text("just_a_string\n", encoding="utf-8")
     stage = NemoTarShardDiscoveryStage(yaml_path=str(yaml_path))
 
-    with pytest.raises(ValueError, match="must be a list"):
+    with pytest.raises(TypeError, match="must be a list"):
         stage.process(None)  # type: ignore[arg-type]
+
+
+def test_discovery_skips_corpus_missing_required_paths(tmp_path: Path) -> None:
+    yaml_path = tmp_path / "data.yaml"
+    yaml_path.write_text(
+        """
+- input_cfg:
+  - corpus: broken
+    type: nemo_tarred
+    manifest_filepath: /data/broken/manifest_0.jsonl
+  - corpus: good
+    type: nemo_tarred
+    manifest_filepath: /data/good/manifest_0.jsonl
+    tarred_audio_filepaths: /data/good/audio_0.tar
+""".lstrip(),
+        encoding="utf-8",
+    )
+    stage = NemoTarShardDiscoveryStage(yaml_path=str(yaml_path))
+
+    tasks = stage.process(None)  # type: ignore[arg-type]
+
+    assert [task.task_id for task in tasks] == ["good/manifest_0"]
+    assert tasks[0].data == ["/data/good/manifest_0.jsonl", "/data/good/audio_0.tar"]
+
+
+def test_discovery_skips_manifest_path_that_cannot_map_to_corpus(tmp_path: Path) -> None:
+    yaml_path = tmp_path / "data.yaml"
+    yaml_path.write_text(
+        """
+- input_cfg:
+  - corpus: good
+    type: nemo_tarred
+    manifest_filepath: /data/other/manifest_0.jsonl
+    tarred_audio_filepaths: /data/other/audio_0.tar
+  - corpus: good
+    type: nemo_tarred
+    manifest_filepath: /data/good/manifest_1.jsonl
+    tarred_audio_filepaths: /data/good/audio_1.tar
+""".lstrip(),
+        encoding="utf-8",
+    )
+    stage = NemoTarShardDiscoveryStage(yaml_path=str(yaml_path))
+
+    tasks = stage.process(None)  # type: ignore[arg-type]
+
+    assert [task.task_id for task in tasks] == ["good/manifest_1"]

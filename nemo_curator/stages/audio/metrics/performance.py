@@ -180,6 +180,8 @@ class AudioStageMetrics:
 
     # ----- sharded manifest writer (ShardedManifestWriterStage) -----
     writer_process_calls: float = 0.0
+    writer_invocation_count: float = 0.0
+    writer_items_processed: float = 0.0
     manifest_write_time_s: float = 0.0
     done_marker_write_time_s: float = 0.0
     perf_write_time_s: float = 0.0
@@ -834,18 +836,25 @@ class AudioPerformanceSummary:
         if extra_stage_summaries:
             stages_summary.update(extra_stage_summaries)
 
-        # Derive top-level input_hours / rows_in from the first stage that has
-        # them populated (typically the reader / discovery).
+        # Derive top-level input_hours from the first stage that has audio volume.
+        # Derive rows_in by priority so discovery's synthetic input_tasks=1 does
+        # not mask reader-level row counts.
         input_hours = 0.0
-        rows_in = 0.0
+        rows_in_by_key = {
+            "manifest_entries": 0.0,
+            "output_utterances": 0.0,
+            "input_shards": 0.0,
+            "input_tasks": 0.0,
+        }
         for stage_dict in stages_summary.values():
             if input_hours == 0.0 and "audio_hours_in" in stage_dict:
                 input_hours = stage_dict["audio_hours_in"]
             cm = stage_dict.get("custom_metrics_sum", {})
-            if rows_in == 0.0:
-                rows_in = float(cm.get("input_tasks", 0.0) or cm.get("input_shards", 0.0))
-            if input_hours and rows_in:
-                break
+            for key, value in rows_in_by_key.items():
+                if value == 0.0:
+                    rows_in_by_key[key] = float(cm.get(key, 0.0) or 0.0)
+
+        rows_in = next((value for value in rows_in_by_key.values() if value > 0.0), 0.0)
 
         output_hours = seconds_to_hours(self._total_audio_seconds)
         rows_out = float(self._total_utterances)

@@ -78,7 +78,7 @@ def _as_container(value: Any, *, resolve: bool = True) -> Any:
 
 
 def _normalise_name_set(value: Any) -> set[str] | None:
-    """Return selected processor names, or ``None`` for all processors."""
+    """Return selected stage names, or ``None`` for all stages."""
     value = _as_container(value)
     if value is None:
         return None
@@ -215,7 +215,7 @@ def _instantiate_configured_stages(cfg: DictConfig) -> list[ProcessingStage]:
     for stage_cfg in stage_entries:
         raw_unresolved = _as_container(stage_cfg, resolve=False)
         if not isinstance(raw_unresolved, dict):
-            msg = f"Each processor entry must be a mapping, got {type(raw_unresolved).__name__}"
+            msg = f"Each stage entry must be a mapping, got {type(raw_unresolved).__name__}"
             raise TypeError(msg)
 
         stage_id = raw_unresolved.get("stage_id", raw_unresolved.get("processor_id", raw_unresolved.get("id")))
@@ -248,7 +248,7 @@ def _instantiate_configured_stages(cfg: DictConfig) -> list[ProcessingStage]:
             details.append(f"stages_to_run={sorted(unknown_run)}")
         if unknown_skip:
             details.append(f"stages_to_skip={sorted(unknown_skip)}")
-        msg = f"Unknown processor selector(s): {', '.join(details)}. Available: {sorted(available)}"
+        msg = f"Unknown stage selector(s): {', '.join(details)}. Available: {sorted(available)}"
         raise ValueError(msg)
     if not stages:
         raise ValueError("No stages selected; check enabled/stages_to_run/stages_to_skip")

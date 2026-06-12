@@ -22,8 +22,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from nemo_curator.stages.audio.inference.asr.adapters.base import ASRAdapter
-from nemo_curator.stages.audio.inference.asr.adapters.qwen_omni import QwenOmniASRAdapter
+from nemo_curator.models.asr.base import ASRAdapter
+from nemo_curator.models.asr.qwen_omni import QwenOmniASRAdapter
 
 _SR = 16000
 
@@ -88,6 +88,26 @@ def test_qwen_adapter_infer_turn_raises_on_vllm_count_mismatch() -> None:
 
     with pytest.raises(ValueError, match="zip"):
         adapter._infer_turn(inputs=[{"prompt": "a"}, {"prompt": "b"}], indices=[0, 1], n=2)
+
+
+def test_qwen_adapter_turn2_extends_shared_audio_prompt_messages() -> None:
+    adapter = QwenOmniASRAdapter(
+        model_id="mock/qwen-omni",
+        prompt_text="Transcribe {language}.",
+        followup_prompt="Refine {language}.",
+        system_prompt="System {language}.",
+    )
+    waveform = np.zeros(_SR, dtype=np.float32)
+
+    turn1_messages = adapter._build_messages(waveform, "English")
+    turn2_messages = adapter._build_turn2_messages(waveform, "draft text", "English")
+
+    assert [message["role"] for message in turn2_messages[:2]] == [message["role"] for message in turn1_messages]
+    assert turn2_messages[0]["content"][0]["text"] == turn1_messages[0]["content"][0]["text"]
+    assert turn2_messages[1]["content"][0]["text"] == turn1_messages[1]["content"][0]["text"]
+    assert turn2_messages[1]["content"][1]["audio"] is waveform
+    assert turn2_messages[2] == {"role": "assistant", "content": [{"type": "text", "text": "draft text"}]}
+    assert turn2_messages[3] == {"role": "user", "content": [{"type": "text", "text": "Refine English."}]}
 
 
 def test_qwen_adapter_transcribe_batch_packages_results() -> None:
@@ -169,10 +189,11 @@ def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
     fake_llm = MagicMock()
     fake_processor = MagicMock()
     with (
-        patch("nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.VLLM_AVAILABLE", new=True),
+        patch("nemo_curator.models.asr.qwen_omni.VLLM_AVAILABLE", new=True),
+        patch("nemo_curator.models.asr.qwen_omni.process_mm_info", MagicMock()),
         patch("nemo_curator.models.vllm_model.LLM", return_value=fake_llm) as llm_ctor,
         patch(
-            "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
+            "nemo_curator.models.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
             return_value=fake_processor,
         ),
         patch("nemo_curator.models.vllm_model.SamplingParams"),
@@ -198,10 +219,11 @@ def test_qwen_adapter_setup_forwards_revision_to_llm_and_processor() -> None:
     fake_llm = MagicMock()
     fake_processor = MagicMock()
     with (
-        patch("nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.VLLM_AVAILABLE", new=True),
+        patch("nemo_curator.models.asr.qwen_omni.VLLM_AVAILABLE", new=True),
+        patch("nemo_curator.models.asr.qwen_omni.process_mm_info", MagicMock()),
         patch("nemo_curator.models.vllm_model.LLM", return_value=fake_llm) as llm_ctor,
         patch(
-            "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
+            "nemo_curator.models.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
             return_value=fake_processor,
         ) as proc_ctor,
         patch("nemo_curator.models.vllm_model.SamplingParams"),
@@ -210,3 +232,56 @@ def test_qwen_adapter_setup_forwards_revision_to_llm_and_processor() -> None:
 
     assert llm_ctor.call_args.kwargs["revision"] == "abc123"
     proc_ctor.assert_called_once_with("mock/qwen-omni", revision="abc123")
+
+
+def test_qwen_adapter_setup_cleans_up_partial_engine_when_processor_fails() -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", tensor_parallel_size=1)
+    fake_llm = MagicMock()
+    with (
+        patch("nemo_curator.models.asr.qwen_omni.VLLM_AVAILABLE", new=True),
+        patch("nemo_curator.models.asr.qwen_omni.process_mm_info", MagicMock()),
+        patch("nemo_curator.models.vllm_model.LLM", return_value=fake_llm),
+        patch(
+            "nemo_curator.models.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
+            side_effect=RuntimeError("processor failed"),
+        ),
+        patch("nemo_curator.models.vllm_model.SamplingParams"),
+        pytest.raises(RuntimeError, match="processor failed"),
+    ):
+        adapter.setup()
+
+    assert adapter._llm is None
+    assert adapter._sampling_params is None
+    assert adapter._processor is None
+    assert adapter._prep_pool is None
+
+
+def test_qwen_adapter_marks_empty_turn1_outputs_skipped_and_excludes_turn2() -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt="refine")
+    waveform_a = np.ones(_SR, dtype=np.float32)
+    waveform_b = np.ones(_SR, dtype=np.float32)
+    adapter._prepare_batch = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            ({"prompt": "a"}, waveform_a),
+            ({"prompt": "b"}, waveform_b),
+        ],
+    )
+    adapter._prepare_turn2_batch = MagicMock(return_value=[{"prompt": "turn2-b"}])  # type: ignore[method-assign]
+    adapter._infer_turn = MagicMock(  # type: ignore[method-assign]
+        side_effect=[
+            (["", "text-b"], 0.1, 2.0),
+            (["", "refined-b"], 0.2, 3.0),
+        ],
+    )
+
+    pred_texts, disfluency_texts, skipped_indices = adapter._run_two_turn(
+        [waveform_a, waveform_b],
+        [_SR, _SR],
+        ["English", "English"],
+    )
+
+    assert pred_texts == ["", "text-b"]
+    assert disfluency_texts == ["", "refined-b"]
+    assert skipped_indices == {0}
+    adapter._prepare_turn2_batch.assert_called_once_with([waveform_b], ["text-b"], ["English"])
+    assert adapter.last_metrics["utterances_skipped_empty_output"] == 1.0

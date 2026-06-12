@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from nemo_curator.stages.audio.inference.asr.adapters.base import ASRAdapter, ASRResult
+from nemo_curator.models.asr.base import ASRAdapter, ASRResult
 from nemo_curator.stages.audio.inference.asr import ASRStage
 from nemo_curator.tasks import AudioTask
 
@@ -88,7 +88,7 @@ def test_fake_adapter_conforms_to_asr_protocol() -> None:
 def test_asr_stage_drives_arbitrary_conforming_adapter() -> None:
     """ASRStage resolves adapter_target, constructs+sets up the adapter, and delegates process_batch."""
     stage = ASRStage(
-        adapter_target="tests.stages.audio.inference.asr.adapters.test_base._FakeASRAdapter",
+        adapter_target="tests.models.asr.test_base._FakeASRAdapter",
         model_id="fake/model",
         pred_text_key="pred_text",
     )

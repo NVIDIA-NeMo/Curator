@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+from pathlib import Path
 
 import numpy as np
 
@@ -20,7 +21,7 @@ from nemo_curator.stages.audio.io.sharded_manifest_writer import ShardedManifest
 from nemo_curator.tasks import AudioTask
 
 
-def test_writer_drops_waveform_and_writes_final_manifest(tmp_path) -> None:
+def test_writer_drops_waveform_and_writes_final_manifest_at_teardown(tmp_path: Path) -> None:
     final_manifest = tmp_path / "output.jsonl"
     stage = ShardedManifestWriterStage(
         output_dir=str(tmp_path),
@@ -46,7 +47,85 @@ def test_writer_drops_waveform_and_writes_final_manifest(tmp_path) -> None:
     shard_path = tmp_path / "corpus" / "manifest_0.jsonl"
     assert result.data == [str(shard_path)]
     shard_row = json.loads(shard_path.read_text(encoding="utf-8").strip())
-    final_row = json.loads(final_manifest.read_text(encoding="utf-8").strip())
-    assert shard_row == final_row
     assert "waveform" not in shard_row
     assert shard_row["qwen3_prediction_s1"] == "hello"
+    assert not final_manifest.exists()
+
+    stage.teardown()
+
+    final_row = json.loads(final_manifest.read_text(encoding="utf-8").strip())
+    assert shard_row == final_row
+
+
+def test_writer_rebuilds_final_manifest_from_completed_shards_on_teardown(tmp_path: Path) -> None:
+    final_manifest = tmp_path / "output.jsonl"
+    final_manifest.write_text('{"audio_filepath": "stale.wav"}\n', encoding="utf-8")
+    shard_path = tmp_path / "corpus" / "manifest_0.jsonl"
+    shard_path.parent.mkdir(parents=True)
+    shard_path.write_text('{"audio_filepath": "fresh.wav"}\n', encoding="utf-8")
+    done_path = tmp_path / "corpus" / "manifest_0.jsonl.done"
+    done_path.write_text("1\n", encoding="utf-8")
+    stage = ShardedManifestWriterStage(
+        output_dir=str(tmp_path),
+        final_manifest_path=str(final_manifest),
+        write_perf_stats=False,
+    )
+
+    stage.setup_on_node()
+    stage.teardown()
+
+    assert final_manifest.read_text(encoding="utf-8") == '{"audio_filepath": "fresh.wav"}\n'
+
+
+def test_writer_perf_summary_splits_invocations_and_items(tmp_path: Path) -> None:
+    stage = ShardedManifestWriterStage(output_dir=str(tmp_path), write_perf_stats=True)
+    stage.setup_on_node()
+    tasks = [
+        AudioTask(
+            task_id=f"utt-{i}",
+            dataset_name="test",
+            data={"audio_filepath": f"utt-{i}.wav", "duration": 1.0},
+            _metadata={"_shard_key": "corpus/manifest_0", "_shard_total": 2},
+        )
+        for i in range(2)
+    ]
+
+    stage.process_batch(tasks)
+    stage.teardown()
+
+    writer_summary = json.loads((tmp_path / "perf_summary.json").read_text(encoding="utf-8"))["stages"][
+        "sharded_manifest_writer"
+    ]
+    assert writer_summary["total_items_processed"] == 2.0
+    assert writer_summary["invocation_count"] == 1.0
+    assert writer_summary["custom_metrics_sum"]["writer_process_calls"] == 1.0
+    assert writer_summary["custom_metrics_sum"]["writer_invocation_count"] == 1.0
+    assert writer_summary["custom_metrics_sum"]["writer_items_processed"] == 2.0
+
+
+def test_writer_preserves_final_manifest_when_done_markers_exist(tmp_path: Path) -> None:
+    final_manifest = tmp_path / "output.jsonl"
+    final_manifest.write_text('{"audio_filepath": "old.wav"}\n', encoding="utf-8")
+    done_path = tmp_path / "corpus" / "manifest_0.jsonl.done"
+    done_path.parent.mkdir(parents=True)
+    done_path.write_text("1\n", encoding="utf-8")
+    stage = ShardedManifestWriterStage(
+        output_dir=str(tmp_path),
+        final_manifest_path=str(final_manifest),
+        write_perf_stats=False,
+    )
+
+    stage.setup_on_node()
+
+    assert final_manifest.read_text(encoding="utf-8") == '{"audio_filepath": "old.wav"}\n'
+
+
+def test_writer_teardown_does_not_overwrite_existing_perf_summary_without_new_tasks(tmp_path: Path) -> None:
+    perf_summary = tmp_path / "perf_summary.json"
+    perf_summary.write_text('{"existing": true}\n', encoding="utf-8")
+    stage = ShardedManifestWriterStage(output_dir=str(tmp_path), write_perf_stats=True)
+
+    stage.setup_on_node()
+    stage.teardown()
+
+    assert json.loads(perf_summary.read_text(encoding="utf-8")) == {"existing": True}
