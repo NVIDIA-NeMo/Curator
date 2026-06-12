@@ -96,7 +96,6 @@ class PidRecorderStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
         return DocumentBatch(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=pd.DataFrame({"worker_pid": [os.getpid()]}),
         )
@@ -130,7 +129,7 @@ class PassthroughTaskStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 @pytest.mark.parametrize("max_calls_per_worker", [2, None])
 @pytest.mark.usefixtures("single_cpu_ray_client")
 def test_pid_recycling(max_calls_per_worker: int | None):
-    tasks = [EmptyTask] * 8
+    tasks = [EmptyTask()] * 8
 
     stage = PidRecorderStage(max_calls_per_worker=max_calls_per_worker)
     executor = RayDataExecutor()
@@ -160,7 +159,7 @@ def test_max_calls_not_fused_with_actor_stage(max_calls_per_worker: int | None):
     the execution plan directly to ensure no fusion occurred.
     """
     num_tasks = 4
-    tasks = [EmptyTask] * num_tasks
+    tasks = [EmptyTask()] * num_tasks
 
     pid_stage = PidRecorderStage(max_calls_per_worker=max_calls_per_worker).with_(resources=Resources(cpus=0.5))
     actor_stage = PassthroughActorStage().with_(resources=Resources(cpus=0.5))
@@ -221,7 +220,7 @@ def test_max_calls_not_fused_with_task_stage(max_calls_per_worker: int | None):
     We also verify the execution plan directly to ensure no fusion occurred.
     """
     num_tasks = 4
-    tasks = [EmptyTask] * num_tasks
+    tasks = [EmptyTask()] * num_tasks
 
     pid_stage = PidRecorderStage(max_calls_per_worker=max_calls_per_worker).with_(resources=Resources(cpus=0.5))
     task_stage = PassthroughTaskStage().with_(resources=Resources(cpus=0.5))

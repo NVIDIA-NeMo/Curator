@@ -149,7 +149,6 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         for idx in range(len(clip_chunks)):
             # create subtask for each video task
             subtask = VideoTask(
-                task_id=f"{task.task_id}_chunk_{idx}",
                 dataset_name=task.dataset_name,
                 data=Video(
                     input_video=video.input_video,

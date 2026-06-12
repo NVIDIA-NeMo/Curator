@@ -17,11 +17,44 @@ set -ex
 
 mkdir -p "/tmp/curator/results/${BRANCH_NAME}"
 
+# Install lynx unconditionally. The math/* benchmarks shell out to lynx for HTML
+# extraction. lynx is GPL-licensed so we deliberately do not bake it into the
+# redistributable Curator image; instead it is installed transiently at CI run
+# time inside the existing benchmark container, used during the run, and
+# discarded with the container.
+apt-get update -qq && apt-get install -y --no-install-recommends lynx
+
 cd /opt/Curator
 uv pip install GitPython pynvml pyyaml rich
+
+# Session name resolution:
+#   - If NEMO_CI_SESSION_NAME is set by the launcher (curator_benchmark_launch.py
+#     wrapper or similar), use it verbatim.
+#   - Else if this is a scheduled (cron) nightly pipeline, generate nightly-<TS>.
+#   - Else fall back to the legacy benchmark_run_<pipeline-id> name so existing
+#     manual launches via launch_pipeline.py keep producing the same paths.
+if [ -n "${NEMO_CI_SESSION_NAME:-}" ]; then
+    SESSION_NAME="${NEMO_CI_SESSION_NAME}"
+elif [ "${CI_PIPELINE_SOURCE:-}" = "schedule" ]; then
+    SESSION_NAME="nightly-$(date -u +%Y_%m_%d__%H_%M_%S_UTC)"
+else
+    SESSION_NAME="benchmark_run_${CI_PIPELINE_ID}"
+fi
+
+# Compose viewer URL only when a viewer host was provided by the launcher.
+# Host path used so the viewer can read results without container-mount knowledge.
+VIEWER_URL=""
+if [ -n "${NEMO_CI_VIEWER_HOST:-}" ]; then
+    RESULTS_HOST_DIR="${DEFAULT_CLUSTER_DIR}/curator_ci/results/${BRANCH_NAME}/${SESSION_NAME}"
+    ENC_DIR=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${RESULTS_HOST_DIR}")
+    ENC_RUN=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${SESSION_NAME}")
+    VIEWER_URL="http://${NEMO_CI_VIEWER_HOST}/run-viewer?dir=${ENC_DIR}&run=${ENC_RUN}"
+fi
 
 python benchmarking/run.py \
   --config /opt/Curator/benchmarking/nightly-benchmark.yaml \
   --config /opt/Curator/benchmarking/test-paths.yaml \
-  --session-name "benchmark_run_${CI_PIPELINE_ID}" \
-  --entries "${ENTRY_NAME}"
+  --session-name "${SESSION_NAME}" \
+  ${VIEWER_URL:+--viewer-url "${VIEWER_URL}"} \
+  ${NEMO_CI_RUN_REASON:+--run-reason "${NEMO_CI_RUN_REASON}"} \
+  --entries-exact "${ENTRY_NAME}"

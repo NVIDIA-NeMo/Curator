@@ -98,7 +98,6 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
                 result = self._assign_ids_func(task.data, result)
 
         return DocumentBatch(
-            task_id=f"{task.task_id}_processed",
             dataset_name=task.dataset_name,
             data=result,
             _metadata=task._metadata,

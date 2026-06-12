@@ -87,6 +87,16 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     batch_size = 1
     runtime_env: ClassVar[dict[str, Any] | None] = None
 
+    # Source / sink role flags. User-overridable on the stage class or
+    # instance. If neither is set explicitly on any stage in the pipeline,
+    # ``Pipeline.build()`` defaults the first stage to source and the last
+    # to sink. The source flag selects content-based ids from
+    # ``Task.get_deterministic_id()`` (when the Task subclass implements
+    # one) for this task's id segment; the sink flag is reserved for the
+    # resumability layer to mark the counter-decrement boundary.
+    is_source_stage: bool = False
+    is_sink_stage: bool = False
+
     @property
     @final
     def _name(self) -> str:
@@ -182,6 +192,14 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         Note: The returned list should have the same length as the input list,
         with each element corresponding to the result of processing the task
         at the same index.
+
+        ``task_id`` is framework-owned: stages must NOT set it. The executor
+        adapter (``BaseStageAdapter._post_process_task_ids``) assigns a
+        deterministic id to every emitted task — regardless of whether
+        a stage uses this default or overrides ``process_batch``. Where the
+        input→output mapping is ambiguous (e.g. a batch aggregation), the
+        adapter falls back to a random ``"r"``-prefixed id (see
+        ``Task.task_id``); there is no way for a stage to supply its own.
         """
         # Default implementation: process tasks one by one
         # This is only used as a fallback if a stage doesn't override this method

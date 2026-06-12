@@ -104,7 +104,7 @@ class RayActorPoolExecutor(BaseExecutor):
                 f"Setup on node complete for all stages. Starting Ray Actor Pool pipeline with {len(stages)} stages"
             )
             # Initialize with initial tasks
-            current_tasks = initial_tasks or [EmptyTask]
+            current_tasks = initial_tasks or [EmptyTask()]
             # Process through each stage with ActorPool
             for i, stage in enumerate(stages):
                 logger.info(f"\nProcessing stage {i + 1}/{len(stages)}: {stage}")

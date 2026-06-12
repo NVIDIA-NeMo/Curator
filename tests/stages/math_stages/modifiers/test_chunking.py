@@ -54,7 +54,7 @@ class TestTokenSplitterStage:
         stage.setup()
 
         df = pd.DataFrame({"text": ["Short text here"]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -72,7 +72,7 @@ class TestTokenSplitterStage:
         # Create text with multiple paragraphs that will exceed token limit
         text = "Paragraph one.\n\nParagraph two.\n\nParagraph three.\n\nParagraph four."
         df = pd.DataFrame({"text": [text]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -97,7 +97,7 @@ class TestTokenSplitterStage:
                 "metadata": ["extra info"],
             }
         )
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -119,7 +119,7 @@ class TestTokenSplitterStage:
                 "doc_id": [1, 2, 3],
             }
         )
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -134,7 +134,7 @@ class TestTokenSplitterStage:
         stage.setup()
 
         df = pd.DataFrame({"text": [""]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -147,7 +147,7 @@ class TestTokenSplitterStage:
         stage.setup()
 
         df = pd.DataFrame({"text": ["   \n\n   \n\n   "]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -161,7 +161,7 @@ class TestTokenSplitterStage:
 
         text = "Line one\nLine two\nLine three\nLine four"
         df = pd.DataFrame({"text": [text]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -180,7 +180,7 @@ class TestTokenSplitterStage:
 
         text = "Para one.\n\nPara two.\n\nPara three.\n\nPara four.\n\nPara five."
         df = pd.DataFrame({"text": [text]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -194,7 +194,7 @@ class TestTokenSplitterStage:
         stage.setup()
 
         df = pd.DataFrame({"text": ["Some text here"]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -212,7 +212,7 @@ class TestTokenSplitterStage:
 
         text = "First paragraph.\n\nSecond paragraph."
         df = pd.DataFrame({"text": [text]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -226,7 +226,7 @@ class TestTokenSplitterStage:
         stage.setup()
 
         df = pd.DataFrame({"other_field": ["Some text"]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 

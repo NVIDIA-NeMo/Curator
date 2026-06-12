@@ -81,7 +81,6 @@ class AudioToDocumentStage(ProcessingStage[AudioTask, DocumentBatch]):
         return [
             DocumentBatch(
                 data=df,
-                task_id=",".join(t.task_id for t in tasks),
                 dataset_name=",".join(dict.fromkeys(t.dataset_name for t in tasks)),
                 _stage_perf=perf,
             )
