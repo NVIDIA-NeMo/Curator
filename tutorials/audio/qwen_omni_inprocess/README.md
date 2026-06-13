@@ -8,7 +8,7 @@ The pipeline reads a Granary-style NeMo tarred audio data config, decodes audio 
 
 - **Input**: Granary YAML data config with `nemo_tarred` corpora
 - **Reader**: Streams local NeMo tar shards and decodes waveforms in memory
-- **Inference**: Runs Qwen3-Omni thinker-only audio-to-text generation through in-process vLLM. The Curator-side glue lives in the generic `ASRStage` (input validation, ISO-code -> language-name lookup, stage-side pre-slicing for clips longer than `max_inference_duration_s`, optional duration-bucketed batching, stitch-back, metrics); the Qwen-Omni-specific vLLM setup, prompt formatting, and two-turn generation live in `QwenOmniASRAdapter`. Swap models by changing the single `adapter_target:` line in the YAML; tweak the bucket shape via `batch_policy:`. `ASRStage` itself subclasses `BucketedInferenceStage` (`nemo_curator/stages/audio/inference/`), so the bucketize -> dispatch -> reassemble loop is shared with any other audio GPU inference stage rather than re-coded per model.
+- **Inference**: Runs Qwen3-Omni thinker-only audio-to-text generation through in-process vLLM. The Curator-side glue lives in the generic `ASRStage` (input validation, ISO-code -> language-name lookup, backend duration-bucketing hook, stage-side pre-slicing for clips longer than `max_inference_duration_s`, stitch-back, metrics); the Qwen-Omni-specific vLLM setup, prompt formatting, and two-turn generation live in `QwenOmniASRAdapter`. Swap models by changing the single `adapter_target:` line in the YAML; tweak the bucket shape via `batch_policy:`. `ASRStage` itself subclasses `BucketedInferenceStage` (`nemo_curator/stages/audio/inference/`), so the dispatch -> reassemble loop is shared with any other audio GPU inference stage rather than re-coded per model.
 - **Output**: Writes per-shard manifests, `.done` markers, an optional final manifest, and an aggregate `perf_summary.json` (see [Performance Summary](#performance-summary))
 
 ### Pipeline Flow
@@ -112,7 +112,7 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
   workspace_dir=/work/qwen \
   language_short=en \
   max_segment_length=40 \
-  batch_size=32 \
+  candidate_batch_size=32 \
   tensor_parallel_size=2 \
   omni_resource_gpus=2.0
 ```
@@ -155,7 +155,7 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `omni_resource_gpus` | GPU resources reserved for the Qwen stage | `2.0` |
 | `asr_num_workers` | Tier-1, adapter-agnostic. Hard-pin the ASR GPU stage to N workers cluster-wide (honored by **all** backends: Xenna streaming/batch and Ray Data). `= floor(total_gpus / resources.gpus)`; with `omni_resource_gpus=2.0` on 8 GPUs that is `4`. Mutually exclusive with `asr_num_workers_per_node`. `null` = autoscale. | `4` |
 | `asr_num_workers_per_node` | Tier-1, adapter-agnostic. Hard-pin per node (Xenna only; Ray Data has no per-node primitive). Use instead of `asr_num_workers` on Xenna to scale with node count. `null` = use the cluster-wide knob / autoscale. | `null` |
-| `batch_size` | Qwen stage batch size | `32` |
+| `candidate_batch_size` | Candidate/fallback row window for the Qwen stage. With duration-aware bucketing enabled, `batch_policy` caps define GPU dispatch width. | `32` |
 | `max_output_tokens` | Maximum generated tokens per request | `256` |
 | `max_model_len` | vLLM maximum model length | `4096` |
 | `max_num_seqs` | vLLM maximum concurrent sequences | `16` |
@@ -181,27 +181,30 @@ duration_aware_bucketing:
   buckets_sec: [0, 600, 1200, 2400]
   max_items_per_batch_by_bucket: [32, 16, 8, 4]
   max_audio_sec_per_batch: 2400
+  prebatching_window_size: null
   flush_interval_ms: 250
 ```
 
-The `qwen_omni` stage converts that block into its `BatchPolicy`.
-`BatchPolicy` and the `run_bucketed` helper it drives live in the
-`nemo_curator.stages.audio.inference.batch_policy` module so any GPU
-inference stage can reuse them.
+The `qwen_omni` stage converts that block into its `BatchPolicy`. `enabled:
+true` lets supporting executors form cost-aware candidate batches before workers
+receive them. `prebatching_window_size: null` preserves the default planner
+window of `sum(max_items_per_batch_by_bucket)`; set an integer to bound the
+candidate window explicitly for larger future policies. ASR uses a chunk-aware
+work-unit planner: it materializes chunk tasks once, then the shared
+`BatchPolicy` queue scheduler buckets those chunks by duration. Generic planned
+batches are submitted longest-first to reduce multi-worker tail time. If a
+backend hands a mixed candidate window to a worker, the base adapter runs the
+same scheduler path and sends each planned chunk bucket directly to one model
+dispatch without re-bucketing.
 
-When set, every `process_batch` invocation internally re-partitions its
-items into bucket-respecting sub-batches before dispatching the adapter,
-so a single vLLM call never mixes a 40-minute sub-chunk with 5-second
-sub-chunks. Bucket edges are anchored on `ideal_inference_segment_s`:
-short clips fire in larger batches, long clips fire alone or near-alone.
-Set `duration_aware_bucketing.enabled: false` to disable bucketing while
-leaving the policy shape in YAML. Legacy configs can still set
-`batch_policy: null` on the stage for the same single-adapter-call behavior.
-
-Cross-`process_batch` queueing with per-bucket queues and a flush timer
-requires a Curator-framework scheduler hook and is a follow-up PR.
-`flush_interval_ms` is recorded on the dataclass for forward-compat but
-is not consumed by the stage today.
+Bucket edges are anchored on `ideal_inference_segment_s`: short clips fire in
+larger batches, long clips fire alone or near-alone. Set
+`duration_aware_bucketing.enabled: false` to disable the scheduler and local
+bucket partitioning so backend batches pass through like current main. Legacy
+configs can still set `batch_policy: null` on the stage for the same
+no-bucketing behavior. `flush_interval_ms` is consumed by the shared bucket
+queue scheduler; finite candidate windows drain all remaining buckets at window
+end.
 
 ### Stage Selectors
 

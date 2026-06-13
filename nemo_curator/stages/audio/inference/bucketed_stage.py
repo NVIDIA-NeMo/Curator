@@ -14,17 +14,23 @@
 
 """Generic cost-bucketed GPU inference stage.
 
-``BucketedInferenceStage`` factors the bucketize -> dispatch -> reassemble loop
-out of individual stages, so any GPU inference processor gets bucketing for free
-by implementing four hooks:
+``BucketedInferenceStage`` factors the model-item dispatch -> reassemble loop
+out of individual stages. Supporting executors can form centralized planned
+batches when ``BatchPolicy.enabled`` is true; stages with fan-out work units
+should expose executor scheduler hooks so fan-out happens once and the shared
+policy scheduler owns bucketing before worker dispatch. Direct stage calls still
+apply an enabled ``batch_policy`` at item level when the stage is not in
+centralized scheduler mode.
+
+Any GPU inference processor implements four hooks:
 
 * :meth:`build_items`   - expand input tasks into flat model-input items;
 * :meth:`item_cost`     - per-item bucketing cost (audio sec, tokens, ...);
 * :meth:`run_inference` - run the model on ONE sub-batch (1:1 results);
 * :meth:`assemble`      - stitch per-item results back onto the tasks.
 
-The base :meth:`process_batch` wires these through ``run_bucketed``, which honors
-``batch_policy`` and realigns results to the original item order.
+The base :meth:`process_batch` wires these through ``run_bucketed``, which
+honors ``batch_policy`` and realigns results to the original item order.
 """
 
 from __future__ import annotations
@@ -47,9 +53,11 @@ class BucketedInferenceStage(ProcessingStage[X, Y], Generic[X, Y, ItemT, ResultT
     """Abstract cost-bucketed inference stage.
 
     Subclasses set a ``batch_policy`` (``None`` or ``enabled=False`` = one
-    sub-batch per call) and implement the four hooks. The base owns the 1:1
-    ``process_batch`` contract: exactly one output per input task, in input
-    order.
+    sub-batch per call) and implement the four hooks. Stages that require
+    executor-level fan-out can additionally implement
+    ``build_prebucketed_tasks`` and ``assemble_prebucketed_task_results``.
+    The base owns the 1:1 ``process_batch`` contract: exactly one output per
+    input task, in input order.
     """
 
     _is_abstract_root = True  # never registered / instantiated directly

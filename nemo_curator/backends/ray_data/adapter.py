@@ -19,7 +19,14 @@ from typing import Any
 from loguru import logger
 from ray.data import Dataset
 
-from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.base import (
+    BaseStageAdapter,
+    plan_upstream_task_batches,
+    scheduler_ready_batch_tasks,
+    stage_uses_centralized_batching,
+    stage_uses_upstream_prebatching,
+    upstream_prebatching_batch_size,
+)
 from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
 
@@ -71,6 +78,54 @@ class RayDataStageAdapter(BaseStageAdapter):
         # For Task objects, we return them in the 'item' column
         return {"item": results}
 
+    def _process_preplanned_batch_internal(self, batch: dict[str, Any]) -> dict[str, Any]:
+        """Process one or more planner-emitted rows, each carrying ``list[Task]``."""
+        planned_rows = coerce_batch_tasks(batch["item"])
+        results = []
+        for planned_row in planned_rows:
+            task_batch = coerce_batch_tasks(planned_row)
+            if not task_batch:
+                continue
+            results.extend(self.process_batch(task_batch))
+        return {"item": results}
+
+    def _process_scheduler_ready_batch_internal(self, batch: dict[str, Any]) -> dict[str, Any]:
+        """Process scheduler-ready rows without re-entering planning."""
+        planned_rows = coerce_batch_tasks(batch["item"])
+        results = []
+        for planned_row in planned_rows:
+            task_batch = scheduler_ready_batch_tasks(planned_row)
+            if not task_batch:
+                continue
+            results.extend(self.process_scheduler_ready_batch(planned_row))
+        return {"item": results}
+
+    def _prebatch_dataset(self, dataset: Dataset) -> Dataset:
+        """Convert task rows into planner-emitted rows of ``list[Task]``.
+
+        Ray Data's regular ``map_batches(batch_size=N)`` has a fixed row count.
+        The prebatch planner emits one object row per variable-size planned
+        batch, then the actual stage map uses ``batch_size=1`` to preserve that
+        plan. Planning runs over policy-sized windows to avoid a global
+        repartition bottleneck for large waveform-bearing datasets.
+        """
+        stage = self.stage
+
+        def prebatch_map_fn(batch: dict[str, Any]) -> dict[str, Any]:
+            tasks = coerce_batch_tasks(batch["item"])
+            return {"item": plan_upstream_task_batches(stage, tasks)}
+
+        planner_batch_size = upstream_prebatching_batch_size(stage, self.batch_size)
+        return dataset.map_batches(prebatch_map_fn, batch_size=planner_batch_size)
+
+    def process_scheduler_ready_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
+        """Process a dataset whose rows are ``SchedulerReadyTaskBatch`` objects."""
+        return self._process_dataset(
+            dataset,
+            ignore_head_node=ignore_head_node,
+            scheduler_ready_batches=True,
+        )
+
     def process_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
         """Process a Ray Data dataset through this stage.
 
@@ -80,18 +135,73 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dataset: Processed Ray Data dataset
         """
+        return self._process_dataset(dataset, ignore_head_node=ignore_head_node)
 
+    def _process_dataset(
+        self,
+        dataset: Dataset,
+        *,
+        ignore_head_node: bool = False,
+        scheduler_ready_batches: bool = False,
+    ) -> Dataset:
         is_actor_stage_ = self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
 
-        if is_actor_stage_:
-            map_batches_fn = create_actor_from_stage(self.stage)
+        use_centralized_batching = stage_uses_centralized_batching(self.stage)
+        if use_centralized_batching and not scheduler_ready_batches:
+            msg = (
+                f"{type(self.stage).__name__} uses centralized batching and must be run through "
+                "RayDataExecutor's scheduler-ready stream."
+            )
+            raise RuntimeError(msg)
+        use_preplanned_batches = (
+            stage_uses_upstream_prebatching(self.stage) and not use_centralized_batching and not scheduler_ready_batches
+        )
+        if use_preplanned_batches:
+            dataset = self._prebatch_dataset(dataset)
+
+        map_batches_fn, concurrency_kwargs = self._map_batches_fn_and_kwargs(
+            is_actor_stage=is_actor_stage_,
+            ignore_head_node=ignore_head_node,
+            preplanned_batches=use_preplanned_batches,
+            scheduler_ready_batches=scheduler_ready_batches,
+        )
+
+        # Calculate concurrency based on available resources
+        logger.info(f"{self.stage.__class__.__name__} {is_actor_stage_=} with {concurrency_kwargs=}")
+
+        map_batch_size = 1 if scheduler_ready_batches or use_preplanned_batches else self.batch_size
+        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=map_batch_size, **concurrency_kwargs)  # type: ignore[reportArgumentType]
+
+        if self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
+            processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
+
+        return processed_dataset
+
+    def _map_batches_fn_and_kwargs(
+        self,
+        *,
+        is_actor_stage: bool,
+        ignore_head_node: bool,
+        preplanned_batches: bool,
+        scheduler_ready_batches: bool,
+    ) -> tuple[Any, dict[str, Any]]:
+        if is_actor_stage:
+            map_batches_fn = create_actor_from_stage(
+                self.stage,
+                preplanned_batches=preplanned_batches,
+                scheduler_ready_batches=scheduler_ready_batches,
+            )
             concurrency_kwargs = {
                 "concurrency": calculate_concurrency_for_actors_for_stage(
                     self.stage, ignore_head_node=ignore_head_node
                 ),
             }
         else:
-            map_batches_fn = create_task_from_stage(self.stage)
+            map_batches_fn = create_task_from_stage(
+                self.stage,
+                preplanned_batches=preplanned_batches,
+                scheduler_ready_batches=scheduler_ready_batches,
+            )
             concurrency_kwargs = {"concurrency": None}
             max_calls = self.stage.ray_stage_spec().get(RayStageSpecKeys.MAX_CALLS_PER_WORKER, None)
             if max_calls is not None:
@@ -102,27 +212,20 @@ class RayDataStageAdapter(BaseStageAdapter):
         if self.stage.resources.gpus > 0:
             concurrency_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
 
-        # Per-stage ray_remote_args (e.g. runtime_env with different pip versions per stage).
         ray_remote_args = copy.deepcopy(self.stage.ray_stage_spec().get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {})
-        # If the stage declares runtime_env, forward it directly to Ray so Ray creates and
-        # caches an isolated virtualenv for this stage's workers.
         if self.stage.runtime_env:
             ray_remote_args["runtime_env"] = self.stage.runtime_env
 
         concurrency_kwargs.update(ray_remote_args)
-
-        # Calculate concurrency based on available resources
-        logger.info(f"{self.stage.__class__.__name__} {is_actor_stage_=} with {concurrency_kwargs=}")
-
-        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **concurrency_kwargs)  # type: ignore[reportArgumentType]
-
-        if self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
-            processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
-
-        return processed_dataset
+        return map_batches_fn, concurrency_kwargs
 
 
-def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]:
+def create_actor_from_stage(
+    stage: ProcessingStage,
+    *,
+    preplanned_batches: bool = False,
+    scheduler_ready_batches: bool = False,
+) -> type[RayDataStageAdapter]:
     """Create a StageProcessor class with the proper stage name for display."""
 
     class RayDataStageActorAdapter(RayDataStageAdapter):
@@ -141,6 +244,10 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
             self.setup(worker_metadata)
 
         def __call__(self, batch: dict[str, Any]) -> dict[str, Any]:
+            if scheduler_ready_batches:
+                return self._process_scheduler_ready_batch_internal(batch)
+            if preplanned_batches:
+                return self._process_preplanned_batch_internal(batch)
             return self._process_batch_internal(batch)
 
     # Set the class name to match the stage name
@@ -151,7 +258,12 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
     return RayDataStageActorAdapter
 
 
-def create_task_from_stage(stage: ProcessingStage) -> Callable[[dict[str, Any]], dict[str, Any]]:
+def create_task_from_stage(
+    stage: ProcessingStage,
+    *,
+    preplanned_batches: bool = False,
+    scheduler_ready_batches: bool = False,
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Create a named Ray Data stage adapter function.
 
     This creates a standalone function that wraps the stage processing logic
@@ -169,6 +281,10 @@ def create_task_from_stage(stage: ProcessingStage) -> Callable[[dict[str, Any]],
     # Create a standalone function that wraps the adapter's processing logic
     def stage_map_fn(batch: dict[str, Any]) -> dict[str, Any]:
         """Dynamically named map function that processes a batch of Task objects."""
+        if scheduler_ready_batches:
+            return adapter._process_scheduler_ready_batch_internal(batch)
+        if preplanned_batches:
+            return adapter._process_preplanned_batch_internal(batch)
         return adapter._process_batch_internal(batch)
 
     # Set the function name to include the stage name with Task suffix

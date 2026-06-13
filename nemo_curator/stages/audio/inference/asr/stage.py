@@ -14,12 +14,12 @@
 
 """Generic audio ASR Curator stage with a pluggable adapter.
 
-Curator-side glue: validates I/O, resolves per-task language, pre-slices long
-audio into sub-chunks, optionally re-buckets by duration (:class:`BatchPolicy`)
-so one adapter call doesn't mix long and short clips, dispatches
-``transcribe_batch`` per sub-batch, stitches results per parent task, and writes
-predictions/metrics. The concrete adapter is resolved at runtime from
-``adapter_target`` via ``hydra.utils.get_class``.
+Curator-side glue: validates I/O, resolves per-task language, optionally
+pre-slices long audio into scheduler work units when duration-aware bucketing is
+enabled, dispatches ``transcribe_batch`` on duration-coherent chunk groups,
+stitches results per parent task, and writes predictions/metrics. The concrete
+adapter is resolved at runtime from ``adapter_target`` via
+``hydra.utils.get_class``.
 """
 
 from __future__ import annotations
@@ -100,12 +100,33 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
 
 
 @dataclass
+class _PrebucketChunk:
+    task: AudioTask
+    parent_idx: int
+    chunk_idx: int
+    chunk_count: int
+    cost: float
+
+
+@dataclass(frozen=True)
+class _ChunkSpec:
+    parent_task: AudioTask
+    parent_idx: int
+    chunk_idx: int
+    chunk_count: int
+    waveform: object
+    sample_rate: object
+    language: str | None
+    cost: float
+
+
+@dataclass
 class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", ASRResult]):
     """Audio speech-recognition Curator stage with pluggable adapter.
 
-    Resolves an ``ASRAdapter`` from ``adapter_target``, slices long audio,
-    optionally duration-buckets each call, and stitches chunk outputs back to
-    one result per input task.
+    Resolves an ``ASRAdapter`` from ``adapter_target``, slices long audio only
+    for enabled chunk-aware backend bucketing, and stitches chunk outputs back
+    to one result per input task.
     """
 
     # Adapter selection.
@@ -306,39 +327,9 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
         self._acc_model_metrics = defaultdict(float)
         self._inference_elapsed_s = 0.0
 
-        items: list[dict[str, Any]] = []
-        parent_of: list[int] = []
-        slice_ceiling = float(self.max_inference_duration_s or self.ideal_inference_segment_s)
-        for parent_idx, task in enumerate(tasks):
-            waveform = task.data.get(self.waveform_key)
-            sample_rate = task.data.get(self.sample_rate_key)
-            language = self._resolve_language(task)
-            # Placeholder item for empty/None waveform keeps the adapter's 1:1
-            # item-per-parent invariant.
-            if waveform is None or getattr(waveform, "size", 0) == 0 or not sample_rate:
-                items.append({
-                    "waveform": waveform,
-                    "sample_rate": sample_rate,
-                    "language": language,
-                    "task_id": task.task_id,
-                    "audio_seconds": 0.0,
-                    "chunk_idx": 0,
-                    "chunk_count": 1,
-                })
-                parent_of.append(parent_idx)
-                continue
-            chunks = self._chunk_waveform(waveform, int(sample_rate), slice_ceiling)
-            for chunk_idx, chunk in enumerate(chunks):
-                items.append({
-                    "waveform": chunk,
-                    "sample_rate": int(sample_rate),
-                    "language": language,
-                    "task_id": task.task_id,
-                    "audio_seconds": float(chunk.shape[0]) / float(sample_rate),
-                    "chunk_idx": chunk_idx,
-                    "chunk_count": len(chunks),
-                })
-                parent_of.append(parent_idx)
+        chunk_specs = self._build_chunk_specs(tasks)
+        items = [self._chunk_spec_to_item(spec) for spec in chunk_specs]
+        parent_of = [spec.parent_idx for spec in chunk_specs]
         return items, parent_of
 
     def _stitch(
@@ -387,6 +378,404 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
     def process(self, task: AudioTask) -> AudioTask:
         msg = f"{type(self).__name__} only supports process_batch"
         raise NotImplementedError(msg)
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Run normal ASR batches, or scheduler-built chunk batches directly."""
+        if len(tasks) == 0:
+            return []
+        if self._is_prebucketed_chunk_batch(tasks):
+            return self._process_prebucketed_chunk_batch(tasks)
+        if self._requires_centralized_scheduler():
+            msg = (
+                f"{type(self).__name__} has duration-aware bucketing enabled; "
+                "call build_prebucketed_tasks() at the executor, let the shared "
+                "BatchPolicy scheduler form dispatch batches, and send only those "
+                "planned chunk batches to process_batch()."
+            )
+            raise RuntimeError(msg)
+        return self._process_plain_batch(tasks)
+
+    @staticmethod
+    def _is_prebucketed_chunk_batch(tasks: list[AudioTask]) -> bool:
+        return all("_curator_asr_chunk_count" in task.data for task in tasks)
+
+    def _process_plain_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Dispatch one unbucketed backend batch, matching current-main semantics."""
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = (
+                    f"Task {task.task_id} missing required columns for "
+                    f"{type(self).__name__}: {self.inputs()}"
+                )
+                raise ValueError(msg)
+        if self._adapter is None:
+            msg = "Adapter not initialized - setup() was not called"
+            raise RuntimeError(msg)
+
+        self._acc_model_metrics = defaultdict(float)
+        self._inference_elapsed_s = 0.0
+
+        items: list[dict[str, Any]] = []
+        parent_of: list[int] = []
+        for idx, task in enumerate(tasks):
+            sample_rate = task.data.get(self.sample_rate_key)
+            items.append({
+                "waveform": task.data.get(self.waveform_key),
+                "sample_rate": sample_rate,
+                "language": self._resolve_language(task),
+                "task_id": task.task_id,
+                "audio_seconds": self.batch_task_cost(task),
+                "chunk_idx": 0,
+                "chunk_count": 1,
+            })
+            parent_of.append(idx)
+
+        results = self.run_inference(items)
+        if len(results) != len(items):
+            msg = f"run_fn returned {len(results)} results for {len(items)} items (must match 1:1)"
+            raise RuntimeError(msg)
+        return self.assemble(tasks, items, parent_of, results)
+
+    def _process_prebucketed_chunk_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        """Dispatch one already bucketed chunk batch without chunking/bucketing again."""
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = (
+                    f"Task {task.task_id} missing required columns for "
+                    f"{type(self).__name__}: {self.inputs()}"
+                )
+                raise ValueError(msg)
+        if self._adapter is None:
+            msg = "Adapter not initialized - setup() was not called"
+            raise RuntimeError(msg)
+
+        self._acc_model_metrics = defaultdict(float)
+        self._inference_elapsed_s = 0.0
+
+        items: list[dict[str, Any]] = []
+        parent_of: list[int] = []
+        for idx, task in enumerate(tasks):
+            waveform = task.data.get(self.waveform_key)
+            sample_rate = task.data.get(self.sample_rate_key)
+            audio_seconds = self.scheduler_task_cost(task)
+            items.append({
+                "waveform": waveform,
+                "sample_rate": sample_rate,
+                "language": self._resolve_language(task),
+                "task_id": task.task_id,
+                "audio_seconds": audio_seconds,
+                "chunk_idx": int(task.data.get("_curator_asr_chunk_idx", 0)),
+                "chunk_count": int(task.data.get("_curator_asr_chunk_count", 1)),
+            })
+            parent_of.append(idx)
+
+        results = self.run_inference(items)
+        return self.assemble(tasks, items, parent_of, results)
+
+    def _requires_centralized_scheduler(self) -> bool:
+        policy = self.batch_policy
+        return bool(policy is not None and policy.enabled)
+
+    def build_prebucketed_tasks(self, tasks: list[AudioTask]) -> list[AudioTask] | None:
+        """Build ASR scheduler work units; the shared policy owns bucketing."""
+        policy = self.batch_policy
+        if policy is None or not policy.enabled:
+            return None
+        if self._is_prebucketed_chunk_batch(tasks):
+            return None
+        if len(tasks) == 0:
+            return []
+
+        chunk_plan = self._build_prebucket_chunk_plan(tasks)
+        if not chunk_plan:
+            return []
+
+        return [chunk.task for chunk in chunk_plan]
+
+    def build_prebucketed_task_batches(self, tasks: list[AudioTask]) -> list[list[AudioTask]] | None:
+        """Compatibility wrapper for callers that still ask the stage to plan batches."""
+        policy = self.batch_policy
+        scheduler_tasks = self.build_prebucketed_tasks(tasks)
+        if scheduler_tasks is None:
+            return None
+        if not scheduler_tasks:
+            return []
+
+        return [
+            list(sub_tasks)
+            for _sub_indices, sub_tasks, _total_cost in policy.bucketize_with_costs(
+                scheduler_tasks,
+                cost_fn=self.scheduler_task_cost,
+            )
+            if sub_tasks
+        ]
+
+    def scheduler_task_cost(self, task: AudioTask) -> float:
+        """Cost hook for executor-created ASR chunk work units."""
+        if "_curator_asr_chunk_cost" in task.data:
+            return float(task.data["_curator_asr_chunk_cost"])
+        return self.batch_task_cost(task)
+
+    def assemble_prebucketed_task_results(
+        self,
+        tasks: list[AudioTask],
+        processed_tasks: list[AudioTask],
+    ) -> list[AudioTask]:
+        """Stitch executor-dispatched ASR chunk tasks back to parent rows."""
+        chunks = [self._prebucket_chunk_from_processed_task(task) for task in processed_tasks]
+        self._validate_prebucketed_chunks(len(tasks), chunks)
+        return self._assemble_prebucketed_chunks(tasks, chunks)
+
+    def _prebucket_chunk_from_processed_task(self, task: AudioTask) -> _PrebucketChunk:
+        chunk_data = task.data
+        if "_curator_asr_parent_idx" not in chunk_data:
+            msg = f"Processed ASR chunk task {task.task_id!r} is missing _curator_asr_parent_idx"
+            raise RuntimeError(msg)
+        return _PrebucketChunk(
+            task=task,
+            parent_idx=int(chunk_data["_curator_asr_parent_idx"]),
+            chunk_idx=int(chunk_data.get("_curator_asr_chunk_idx", 0)),
+            chunk_count=int(chunk_data.get("_curator_asr_chunk_count", 1)),
+            cost=float(chunk_data.get("_curator_asr_chunk_cost", self.batch_task_cost(task))),
+        )
+
+    def _validate_prebucketed_chunks(self, num_parents: int, chunks: list[_PrebucketChunk]) -> None:
+        expected_by_parent: list[int | None] = [None] * num_parents
+        seen_by_parent: list[set[int]] = [set() for _ in range(num_parents)]
+        for chunk in chunks:
+            self._validate_prebucketed_chunk_bounds(chunk, num_parents)
+            self._record_seen_prebucketed_chunk(chunk, expected_by_parent, seen_by_parent)
+
+        missing = self._missing_prebucketed_chunks(expected_by_parent, seen_by_parent)
+        if missing:
+            msg = f"ASR centralized scheduler did not receive exact chunk results for parent indices {missing}"
+            raise RuntimeError(msg)
+
+    @staticmethod
+    def _validate_prebucketed_chunk_bounds(chunk: _PrebucketChunk, num_parents: int) -> None:
+        if chunk.parent_idx < 0 or chunk.parent_idx >= num_parents:
+            msg = f"ASR chunk parent index {chunk.parent_idx} is outside input parent range"
+            raise RuntimeError(msg)
+        if chunk.chunk_count <= 0:
+            msg = f"ASR chunk count must be > 0 for parent index {chunk.parent_idx}"
+            raise RuntimeError(msg)
+        if chunk.chunk_idx < 0 or chunk.chunk_idx >= chunk.chunk_count:
+            msg = (
+                f"ASR chunk index {chunk.chunk_idx} is outside expected range "
+                f"0..{chunk.chunk_count - 1} for parent index {chunk.parent_idx}"
+            )
+            raise RuntimeError(msg)
+
+    @staticmethod
+    def _record_seen_prebucketed_chunk(
+        chunk: _PrebucketChunk,
+        expected_by_parent: list[int | None],
+        seen_by_parent: list[set[int]],
+    ) -> None:
+        expected_count = expected_by_parent[chunk.parent_idx]
+        if expected_count is None:
+            expected_by_parent[chunk.parent_idx] = chunk.chunk_count
+        elif expected_count != chunk.chunk_count:
+            msg = (
+                f"ASR chunks for parent index {chunk.parent_idx} disagree on chunk count: "
+                f"{expected_count} vs {chunk.chunk_count}"
+            )
+            raise RuntimeError(msg)
+
+        seen = seen_by_parent[chunk.parent_idx]
+        if chunk.chunk_idx in seen:
+            msg = f"ASR received duplicate chunk index {chunk.chunk_idx} for parent index {chunk.parent_idx}"
+            raise RuntimeError(msg)
+        seen.add(chunk.chunk_idx)
+
+    @staticmethod
+    def _missing_prebucketed_chunks(
+        expected_by_parent: list[int | None],
+        seen_by_parent: list[set[int]],
+    ) -> list[tuple[int, list[int]]]:
+        return [
+            (parent_idx, sorted(set(range(expected_count or 0)) - seen_by_parent[parent_idx]))
+            for parent_idx, expected_count in enumerate(expected_by_parent)
+            if expected_count is None
+            or len(seen_by_parent[parent_idx]) != expected_count
+            or seen_by_parent[parent_idx] != set(range(expected_count))
+        ]
+
+    def _build_chunk_specs(self, tasks: list[AudioTask]) -> list[_ChunkSpec]:
+        """Build virtual ASR chunk descriptors shared by direct and scheduler paths."""
+        specs: list[_ChunkSpec] = []
+        slice_ceiling = float(self.max_inference_duration_s or self.ideal_inference_segment_s)
+        for parent_idx, task in enumerate(tasks):
+            waveform = task.data.get(self.waveform_key)
+            sample_rate = task.data.get(self.sample_rate_key)
+            language = self._resolve_language(task)
+            if waveform is None or getattr(waveform, "size", 0) == 0 or not sample_rate:
+                specs.append(
+                    _ChunkSpec(
+                        parent_task=task,
+                        parent_idx=parent_idx,
+                        chunk_idx=0,
+                        chunk_count=1,
+                        waveform=waveform,
+                        sample_rate=sample_rate,
+                        language=language,
+                        cost=0.0,
+                    )
+                )
+                continue
+
+            sr = int(sample_rate)
+            chunks = self._chunk_waveform(waveform, sr, slice_ceiling)
+            chunk_count = len(chunks)
+            for chunk_idx, chunk in enumerate(chunks):
+                specs.append(
+                    _ChunkSpec(
+                        parent_task=task,
+                        parent_idx=parent_idx,
+                        chunk_idx=chunk_idx,
+                        chunk_count=chunk_count,
+                        waveform=chunk,
+                        sample_rate=sr,
+                        language=language,
+                        cost=0.0 if sr <= 0 else float(chunk.shape[0]) / float(sr),
+                    )
+                )
+        return specs
+
+    def _chunk_spec_to_item(self, spec: _ChunkSpec) -> dict[str, Any]:
+        """Convert a virtual chunk descriptor into one adapter input item."""
+        return {
+            "waveform": spec.waveform,
+            "sample_rate": spec.sample_rate,
+            "language": spec.language,
+            "task_id": spec.parent_task.task_id,
+            "audio_seconds": spec.cost,
+            "chunk_idx": spec.chunk_idx,
+            "chunk_count": spec.chunk_count,
+        }
+
+    def _build_prebucket_chunk_plan(self, tasks: list[AudioTask]) -> list[_PrebucketChunk]:
+        """Create temporary chunk tasks used for actual prebucketed inference."""
+        return [
+            _PrebucketChunk(
+                task=self._make_prebucket_chunk_task_from_spec(spec),
+                parent_idx=spec.parent_idx,
+                chunk_idx=spec.chunk_idx,
+                chunk_count=spec.chunk_count,
+                cost=spec.cost,
+            )
+            for spec in self._build_chunk_specs(tasks)
+        ]
+
+    def _make_prebucket_chunk_task_from_spec(self, spec: _ChunkSpec) -> AudioTask:
+        """Materialize a scheduler dispatch task from a virtual chunk descriptor."""
+        return self._make_prebucket_chunk_task(
+            spec.parent_task,
+            spec.waveform,
+            spec.sample_rate,
+            spec.chunk_idx,
+            spec.chunk_count,
+            spec.parent_idx,
+            spec.cost,
+        )
+
+    def _make_prebucket_chunk_task(  # noqa: PLR0913
+        self,
+        task: AudioTask,
+        waveform: object,
+        sample_rate: object,
+        chunk_idx: int,
+        chunk_count: int,
+        parent_idx: int | None = None,
+        cost: float | None = None,
+    ) -> AudioTask:
+        chunk_data = {
+            self.waveform_key: waveform,
+            self.sample_rate_key: sample_rate,
+            "_curator_asr_chunk_idx": chunk_idx,
+            "_curator_asr_chunk_count": chunk_count,
+        }
+        if parent_idx is not None:
+            chunk_data["_curator_asr_parent_idx"] = parent_idx
+        if cost is not None:
+            chunk_data["_curator_asr_chunk_cost"] = cost
+        if self.source_lang_key and self.source_lang_key in task.data:
+            chunk_data[self.source_lang_key] = task.data[self.source_lang_key]
+        if task.filepath_key and task.filepath_key in task.data and task.filepath_key not in chunk_data:
+            chunk_data[task.filepath_key] = task.data[task.filepath_key]
+        return AudioTask(
+            task_id=f"{task.task_id}::chunk{chunk_idx}",
+            dataset_name=task.dataset_name,
+            data=chunk_data,
+            filepath_key=task.filepath_key,
+            _metadata=dict(task._metadata),
+        )
+
+    def _assemble_prebucketed_chunks(
+        self,
+        tasks: list[AudioTask],
+        chunks: list[_PrebucketChunk],
+    ) -> list[AudioTask]:
+        per_parent: list[list[_PrebucketChunk]] = [[] for _ in tasks]
+        for chunk in chunks:
+            per_parent[chunk.parent_idx].append(chunk)
+
+        for parent_idx, task in enumerate(tasks):
+            parent_chunks = sorted(per_parent[parent_idx], key=lambda chunk: chunk.chunk_idx)
+            seen_perf_invocations: set[str] = set()
+            for chunk in parent_chunks:
+                self._copy_chunk_perf(chunk.task, task, seen_perf_invocations)
+
+            texts, secondary_texts, skipped_chunks = self._collect_prebucketed_chunk_outputs(parent_chunks)
+            task.data[self.pred_text_key] = " ".join(texts)
+            if self.disfluency_text_key:
+                task.data[self.disfluency_text_key] = " ".join(secondary_texts)
+            if parent_chunks and skipped_chunks == len(parent_chunks):
+                task.data[self.skip_me_key] = "empty_audio"
+            if not self.keep_waveform:
+                task.data.pop(self.waveform_key, None)
+        return tasks
+
+    def _collect_prebucketed_chunk_outputs(
+        self,
+        parent_chunks: list[_PrebucketChunk],
+    ) -> tuple[list[str], list[str], int]:
+        texts: list[str] = []
+        secondary_texts: list[str] = []
+        skipped_chunks = 0
+        for chunk in parent_chunks:
+            chunk_data = chunk.task.data
+            text = str(chunk_data.get(self.pred_text_key, "") or "").strip()
+            if text:
+                texts.append(text)
+            if self.disfluency_text_key:
+                secondary = str(chunk_data.get(self.disfluency_text_key, "") or "").strip()
+                if secondary:
+                    secondary_texts.append(secondary)
+            if self.skip_me_key in chunk_data:
+                skipped_chunks += 1
+        return texts, secondary_texts, skipped_chunks
+
+    @staticmethod
+    def _copy_chunk_perf(
+        chunk_task: AudioTask,
+        parent_task: AudioTask,
+        seen_perf_invocations: set[str],
+    ) -> None:
+        for perf in getattr(chunk_task, "_stage_perf", []) or []:
+            invocation_id = getattr(perf, "invocation_id", "") or str(id(perf))
+            if invocation_id in seen_perf_invocations:
+                continue
+            seen_perf_invocations.add(invocation_id)
+            parent_task.add_stage_perf(perf)
+
+    def batch_task_cost(self, task: AudioTask) -> float:
+        """Bucketing cost before ``process_batch``: task audio duration in seconds."""
+        waveform = task.data.get(self.waveform_key)
+        sample_rate = task.data.get(self.sample_rate_key)
+        if waveform is None or getattr(waveform, "size", 0) == 0 or not sample_rate:
+            return 0.0
+        return float(waveform.shape[0]) / float(sample_rate)
 
     def item_cost(self, item: dict[str, Any]) -> float:
         """Bucketing cost of one sub-chunk: its audio duration in seconds."""
@@ -480,7 +869,7 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
                 f"ASRStage ({self.adapter_target}): marked {skipped_count}/{len(tasks)} "
                 f"tasks as empty_audio ({self.skip_me_key})",
             )
-        logger.info(
+        logger.debug(
             f"ASRStage ({self.adapter_target}): generated {len(per_parent_results)} parent predictions "
             f"from {len(items)} sub-chunk(s) "
             f"(disfluency_text={'on' if self.disfluency_text_key else 'off'})",

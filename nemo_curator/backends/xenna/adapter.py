@@ -20,7 +20,13 @@ from cosmos_xenna.pipelines.private.resources import NodeInfo as XennaNodeInfo
 from cosmos_xenna.pipelines.private.resources import Resources as XennaResources
 from cosmos_xenna.pipelines.private.resources import WorkerMetadata as XennaWorkerMetadata
 
-from nemo_curator.backends.base import BaseStageAdapter, NodeInfo, WorkerMetadata
+from nemo_curator.backends.base import (
+    BaseStageAdapter,
+    NodeInfo,
+    SchedulerReadyTaskBatch,
+    WorkerMetadata,
+    upstream_prebatching_batch_size,
+)
 from nemo_curator.backends.perf_identity import build_xenna_perf_identity, stamp_worker_metadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import Task
@@ -77,7 +83,7 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
     def stage_batch_size(self) -> int:
         """Get the batch size for this stage."""
         batch_size = self.processing_stage.batch_size
-        return batch_size if batch_size is not None else 1
+        return upstream_prebatching_batch_size(self.processing_stage, batch_size)
 
     @property
     def env_info(self) -> pipelines_v1.RuntimeEnv | None:
@@ -150,6 +156,22 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
         super().setup(generic_worker_metadata)
 
 
+class XennaSchedulerReadyStageAdapter(XennaStageAdapter):
+    """Xenna adapter for rows that already contain scheduler-ready batches."""
+
+    @property
+    def stage_batch_size(self) -> int:
+        """Preserve one scheduler-ready dispatch row per Xenna worker call."""
+        return 1
+
+    def process_data(self, ready_batches: list[SchedulerReadyTaskBatch]) -> list[Task] | None:
+        """Process scheduler-ready rows without re-entering centralized planning."""
+        results: list[Task] = []
+        for ready_batch in ready_batches:
+            results.extend(self.process_scheduler_ready_batch(ready_batch))
+        return results
+
+
 def create_named_xenna_stage_adapter(stage: ProcessingStage) -> XennaStageAdapter:
     """When we run a pipeline in Xenna, since we wrap using XennaStageAdapter,
     the stage name is shown as XennaStageAdapter. This is not what we want.
@@ -175,4 +197,20 @@ def create_named_xenna_stage_adapter(stage: ProcessingStage) -> XennaStageAdapte
     )
 
     # Create and return an instance of the dynamic adapter
+    return DynamicAdapter(stage)
+
+
+def create_named_xenna_scheduler_ready_stage_adapter(stage: ProcessingStage) -> XennaSchedulerReadyStageAdapter:
+    """Create a named Xenna adapter for scheduler-ready backend rows."""
+    original_class_name = type(stage).__name__
+    dynamic_name = f"{original_class_name}SchedulerReady"
+
+    DynamicAdapter = type(  # noqa: N806
+        dynamic_name,
+        (XennaSchedulerReadyStageAdapter,),
+        {
+            "__module__": XennaSchedulerReadyStageAdapter.__module__,
+        },
+    )
+
     return DynamicAdapter(stage)

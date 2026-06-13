@@ -199,18 +199,18 @@ Backend reads stage.batch_size
 
 ## Pluggable-adapter inference + the generic cost-bucketed base
 
-GPU inference stages that follow a *bucketize -> dispatch -> reassemble*
-pattern (expand tasks into model-input items, group items so one model
-call does not mix very expensive and very cheap work, run the model,
-stitch results back) no longer need to re-code that loop. Two reusable
-building blocks live alongside the audio inference stages in
+GPU inference stages that follow a *prebucket -> dispatch -> reassemble*
+pattern (estimate cost before `process_batch`, group work so one stage call
+does not mix very expensive and very cheap items, run the model, stitch results
+back) no longer need to re-code that loop. Reusable building blocks live
+alongside the audio inference stages in
 `nemo_curator/stages/audio/inference/`:
 
 | Component | Location | Role |
 |---|---|---|
-| `BatchPolicy` | `stages/audio/inference/batch_policy.py` | Cost-bucketed batching config (`buckets_sec`, `max_items_per_batch_by_bucket`, `max_audio_sec_per_batch`). `bucketize()` re-partitions a heterogeneous batch into bucket-respecting sub-batches. |
-| `run_bucketed` | `stages/audio/inference/batch_policy.py` | The single importable entry point: dispatches a `run_fn` over cost-bucketed sub-batches and realigns results to the original order. `policy=None` runs one batch. |
-| `BucketedInferenceStage` | `stages/audio/inference/bucketed_stage.py` | Abstract `ProcessingStage` subclass owning `process_batch`. Subclasses implement four small hooks; bucketing comes for free. |
+| `BatchPolicy` | `stages/audio/inference/batch_policy.py` | Cost-bucketed batching config (`enabled`, `buckets_sec`, `max_items_per_batch_by_bucket`, `max_audio_sec_per_batch`). Supporting executors form scheduler-owned planned batches before worker dispatch when enabled. |
+| `run_bucketed` | `stages/audio/inference/batch_policy.py` | Direct-call helper: dispatches a `run_fn` over cost-bucketed model-item sub-batches and realigns results to the original order. `policy=None` runs one batch. |
+| `BucketedInferenceStage` | `stages/audio/inference/bucketed_stage.py` | Abstract `ProcessingStage` subclass owning item dispatch and reassembly. Subclasses implement four small hooks; fan-out stages can add centralized scheduler hooks. |
 
 Import these from `nemo_curator.stages.audio.inference.batch_policy` /
 `nemo_curator.stages.audio.inference.bucketed_stage`.
@@ -219,6 +219,12 @@ A `BucketedInferenceStage` subclass implements four hooks instead of
 `process_batch`:
 
 ```
+build_prebucketed_tasks(tasks) -> list[tasks] | None
+                                            optional centralized scheduler hook; emit worker-ready work units.
+assemble_prebucketed_task_results(tasks, processed_tasks) -> out_tasks
+                                            optional centralized scheduler hook; stitch worker results.
+scheduler_task_cost(task) -> float           optional work-unit cost hook; falls back to batch_task_cost().
+batch_task_cost(task) -> float                optional simple-stage prebatching cost before process_batch.
 build_items(tasks)   -> (items, parent_of)   expand tasks into flat model-input items (+ parent map);
                                               ALSO reset any per-call accumulators here (runs first).
 item_cost(item)      -> float                per-item bucketing cost (audio seconds, tokens, pixels, ...).
@@ -226,11 +232,18 @@ run_inference(items) -> results              run the model on ONE sub-batch; ret
 assemble(tasks, items, parent_of, results) -> out_tasks   stitch results back; write outputs; emit metrics.
 ```
 
-The base `process_batch` wires them through `run_bucketed`:
+When `BatchPolicy.enabled` is true, supporting executors first ask for
+centralized scheduler work units. ASR uses this to materialize chunk tasks once;
+the shared `BatchPolicy` queue scheduler buckets those chunks by duration across
+the full executor-visible input, dispatches the planned chunk batches to
+workers, and stitches chunk outputs back to parent rows after all worker results
+return. Simpler stages can use `batch_task_cost()` plus `BatchPolicy` for
+generic parent-task prebatching. Direct stage calls still wire model-item
+dispatch through `run_bucketed` when centralized scheduler mode is not enabled:
 
 ```python
 def process_batch(self, tasks):
-    if not tasks:
+    if len(tasks) == 0:
         return []
     items, parent_of = self.build_items(tasks)
     results = run_bucketed(items, self.run_inference, cost_fn=self.item_cost, policy=self.batch_policy)

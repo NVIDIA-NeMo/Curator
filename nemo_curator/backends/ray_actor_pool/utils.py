@@ -31,12 +31,13 @@ if TYPE_CHECKING:
 _LARGE_INT = 2**31 - 1
 
 
-def calculate_optimal_actors_for_stage(
+def calculate_optimal_actors_for_stage(  # noqa: PLR0913
     stage: "ProcessingStage",
     num_tasks: int,
     reserved_cpus: float = 0.0,
     reserved_gpus: float = 0.0,
     ignore_head_node: bool = False,
+    num_batches: int | None = None,
 ) -> int:
     """Calculate optimal number of actors for a stage."""
     # Get available resources (not total cluster resources)
@@ -61,9 +62,14 @@ def calculate_optimal_actors_for_stage(
         msg = f"No resources available for stage {stage.name}."
         raise ValueError(msg)
 
-    number_of_batches = (
-        math.ceil(num_tasks / stage.batch_size) if stage.batch_size is not None and stage.batch_size > 0 else num_tasks
-    )
+    if num_batches is not None:
+        number_of_batches = num_batches
+    else:
+        number_of_batches = (
+            math.ceil(num_tasks / stage.batch_size)
+            if stage.batch_size is not None and stage.batch_size > 0
+            else num_tasks
+        )
     # Don't create more actors than batches of work
     optimal_actors = min(number_of_batches, max_actors_resources)
 

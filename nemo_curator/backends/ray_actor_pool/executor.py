@@ -22,7 +22,14 @@ from loguru import logger
 from ray.util.actor_pool import ActorPool
 from tqdm import tqdm
 
-from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.base import (
+    BaseExecutor,
+    ScheduledTaskBatchPlan,
+    assemble_scheduled_task_batch_results,
+    build_scheduled_task_batch_plan,
+    plan_upstream_task_batches,
+    stage_uses_upstream_prebatching,
+)
 from nemo_curator.backends.utils import RayStageSpecKeys, execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -78,7 +85,7 @@ class RayActorPoolExecutor(BaseExecutor):
         self.show_progress = show_progress
         self.progress_interval = progress_interval
 
-    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:  # noqa: PLR0912
+    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:
         """Execute the pipeline stages using ActorPool.
 
         Args:
@@ -117,36 +124,7 @@ class RayActorPoolExecutor(BaseExecutor):
                 if stage.ray_stage_spec().get(RayStageSpecKeys.IS_LSH_STAGE, False):
                     current_tasks = self._execute_lsh_stage(stage, current_tasks)
                 else:
-                    # Create actor pool for this stage
-                    num_actors = calculate_optimal_actors_for_stage(
-                        stage,
-                        len(current_tasks),
-                        reserved_cpus=self.config.get("reserved_cpus", 0.0),
-                        reserved_gpus=self.config.get("reserved_gpus", 0.0),
-                        ignore_head_node=self.ignore_head_node,
-                    )
-                    logger.info(
-                        f" {stage} - Creating {num_actors} actors (CPUs: {stage.resources.cpus}, GPUs: {stage.resources.gpus})"
-                    )
-                    # TODO: Clean up branching logic and handling here
-                    # Check if this is a RAFT stage and create appropriate actor pool
-                    if stage.ray_stage_spec().get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
-                        logger.info(f"  Creating RAFT actor pool for stage: {stage.name}")
-                        actor_pool = self._create_raft_actor_pool(stage, num_actors, session_id)
-                    elif stage.ray_stage_spec().get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
-                        logger.info(f"  Creating Shuffle actors for stage: {stage.name}")
-                        actor_pool = self._create_rapidsmpf_actors(stage, num_actors, len(current_tasks))
-                    else:
-                        actor_pool = self._create_actor_pool(stage, num_actors)
-                    logger.info(f"Created actor pool for {stage.name} with {num_actors} actors")
-                    if stage.ray_stage_spec().get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
-                        current_tasks = self._process_shuffle_stage_with_rapidsmpf_actors(actor_pool, current_tasks)
-                        # Clean up actor pool
-                        self._cleanup_actors(actor_pool)
-                    else:
-                        current_tasks = self._process_stage_with_pool(actor_pool, stage, current_tasks)
-                        # Clean up actor pool
-                        self._cleanup_actor_pool(actor_pool)
+                    current_tasks = self.process_stage_with_active_ray(stage, current_tasks, session_id=session_id)
 
                     logger.info(f"  Output tasks: {len(current_tasks)}")
 
@@ -182,6 +160,46 @@ class RayActorPoolExecutor(BaseExecutor):
             actors.append(actor)
 
         return ActorPool(actors)
+
+    def process_stage_with_active_ray(
+        self,
+        stage: "ProcessingStage",
+        tasks: list[Task],
+        *,
+        session_id: bytes | None = None,
+    ) -> list[Task]:
+        """Process one stage with the current Ray runtime."""
+        session_id = session_id or uuid.uuid4().bytes
+        centralized_plan = build_scheduled_task_batch_plan(stage, tasks)
+        scheduler_batch_count = len(centralized_plan.ready_batches) if centralized_plan is not None else None
+        num_actors = calculate_optimal_actors_for_stage(
+            stage,
+            len(tasks),
+            reserved_cpus=self.config.get("reserved_cpus", 0.0),
+            reserved_gpus=self.config.get("reserved_gpus", 0.0),
+            ignore_head_node=self.ignore_head_node,
+            num_batches=scheduler_batch_count,
+        )
+        logger.info(
+            f" {stage} - Creating {num_actors} actors (CPUs: {stage.resources.cpus}, GPUs: {stage.resources.gpus})"
+        )
+        if stage.ray_stage_spec().get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
+            logger.info(f"  Creating RAFT actor pool for stage: {stage.name}")
+            actor_pool = self._create_raft_actor_pool(stage, num_actors, session_id)
+        elif stage.ray_stage_spec().get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
+            logger.info(f"  Creating Shuffle actors for stage: {stage.name}")
+            actors = self._create_rapidsmpf_actors(stage, num_actors, len(tasks))
+            try:
+                return self._process_shuffle_stage_with_rapidsmpf_actors(actors, tasks)
+            finally:
+                self._cleanup_actors(actors)
+        else:
+            actor_pool = self._create_actor_pool(stage, num_actors)
+        logger.info(f"Created actor pool for {stage.name} with {num_actors} actors")
+        try:
+            return self._process_stage_with_pool(actor_pool, stage, tasks, centralized_plan=centralized_plan)
+        finally:
+            self._cleanup_actor_pool(actor_pool)
 
     def _create_raft_actor_pool(self, stage: "ProcessingStage", num_actors: int, session_id: bytes) -> ActorPool:
         """Create a RAFT ActorPool for a specific stage."""
@@ -275,7 +293,12 @@ class RayActorPoolExecutor(BaseExecutor):
             return [tasks[i : i + batch_size] for i in range(0, len(tasks), batch_size)]
 
     def _process_stage_with_pool(
-        self, actor_pool: ActorPool, _stage: "ProcessingStage", tasks: list[Task]
+        self,
+        actor_pool: ActorPool,
+        _stage: "ProcessingStage",
+        tasks: list[Task],
+        *,
+        centralized_plan: ScheduledTaskBatchPlan | None = None,
     ) -> list[Task]:
         """Process tasks through the actor pool.
 
@@ -287,7 +310,12 @@ class RayActorPoolExecutor(BaseExecutor):
         Returns:
             List of processed Task objects
         """
-        stage_batch_size: int = ray.get(actor_pool._idle_actors[0].get_batch_size.remote())
+        stage_batch_size: int | None = None
+        if centralized_plan is not None:
+            task_batches = centralized_plan.ready_batches
+        else:
+            stage_batch_size = ray.get(actor_pool._idle_actors[0].get_batch_size.remote())
+
         if _stage.ray_stage_spec().get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
             # For a RAFT stage we want to ensure all actors are utilized by distributing tasks evenly
             if stage_batch_size is not None:
@@ -296,6 +324,13 @@ class RayActorPoolExecutor(BaseExecutor):
                 )
             num_actors = len(actor_pool._idle_actors)
             task_batches = self._generate_task_batches(tasks, num_output_tasks=num_actors)
+        elif centralized_plan is not None:
+            logger.info(
+                f"Built centralized scheduler plan with {len(task_batches)} bucketed batches "
+                f"from {len(tasks)} parent tasks for {_stage.name}"
+            )
+        elif stage_uses_upstream_prebatching(_stage):
+            task_batches = plan_upstream_task_batches(_stage, tasks)
         else:
             # For non-RAFT stages, we batch it based on the stage batch size
             task_batches = self._generate_task_batches(tasks, batch_size=stage_batch_size)
@@ -304,15 +339,26 @@ class RayActorPoolExecutor(BaseExecutor):
             logger.info(
                 f"Distributed {len(tasks)} tasks evenly across {len(task_batches)} actors for RAFT stage {_stage.name}"
             )
+        elif centralized_plan is not None:
+            logger.info(
+                f"Dispatching {len(task_batches)} centralized bucketed batches "
+                f"for {_stage.name} across {len(actor_pool._idle_actors)} actors"
+            )
         else:
             logger.info(
-                f"Broke down {len(tasks)} tasks into batches of {stage_batch_size} for a total of {len(task_batches)} batches for {_stage.name}"
+                f"Broke down {len(tasks)} tasks into {len(task_batches)} batches "
+                f"for {_stage.name} (stage batch size: {stage_batch_size})"
             )
 
         # Process each task and flatten the results since each task can produce multiple output tasks
         all_results = []
+        process_remote = (
+            (lambda actor, batch: actor.process_scheduler_ready_batch.remote(batch))
+            if centralized_plan is not None
+            else (lambda actor, batch: actor.process_batch.remote(batch))
+        )
         for result_batch in tqdm(
-            actor_pool.map_unordered(lambda actor, batch: actor.process_batch.remote(batch), task_batches),
+            actor_pool.map_unordered(process_remote, task_batches),
             total=len(task_batches),
             desc=f"Processing {_stage.name}",
             mininterval=self.progress_interval,
@@ -321,6 +367,8 @@ class RayActorPoolExecutor(BaseExecutor):
             # result_batch is a list of tasks from processing a single input task
             all_results.extend(result_batch)
 
+        if centralized_plan is not None:
+            return assemble_scheduled_task_batch_results(_stage, centralized_plan, all_results)
         return all_results
 
     def _process_shuffle_stage_with_rapidsmpf_actors(

@@ -19,9 +19,17 @@ from cosmos_xenna.pipelines import v1 as pipelines_v1
 from cosmos_xenna.utils.verbosity import VerbosityLevel
 from loguru import logger
 
-from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.base import (
+    BaseExecutor,
+    assemble_scheduled_task_batch_results,
+    build_scheduled_task_batch_plan,
+    stage_uses_centralized_batching,
+)
 from nemo_curator.backends.utils import register_loguru_serializer
-from nemo_curator.backends.xenna.adapter import create_named_xenna_stage_adapter
+from nemo_curator.backends.xenna.adapter import (
+    create_named_xenna_scheduler_ready_stage_adapter,
+    create_named_xenna_stage_adapter,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -69,20 +77,73 @@ class XennaExecutor(BaseExecutor):
         Returns:
             list[Task]: List of output tasks from the pipeline
         """
+        initial_tasks = initial_tasks if initial_tasks else [EmptyTask]
+        if any(stage_uses_centralized_batching(stage) for stage in stages):
+            return self._run_pipeline_with_scheduler_ready_stages(stages, initial_tasks)
+        return self._run_xenna_pipeline(stages, initial_tasks)
+
+    def _run_pipeline_with_scheduler_ready_stages(
+        self,
+        stages: list[ProcessingStage],
+        initial_tasks: list[Task],
+    ) -> list[Task]:
+        """Run Xenna segments around Curator-owned centralized scheduler stages."""
+        current_tasks = initial_tasks
+        xenna_segment: list[ProcessingStage] = []
+
+        for stage in stages:
+            if not stage_uses_centralized_batching(stage):
+                xenna_segment.append(stage)
+                continue
+
+            if xenna_segment:
+                current_tasks = self._run_xenna_pipeline(xenna_segment, current_tasks)
+                xenna_segment = []
+
+            current_tasks = self._run_scheduler_ready_stage(stage, current_tasks)
+
+        if xenna_segment:
+            current_tasks = self._run_xenna_pipeline(xenna_segment, current_tasks)
+        return current_tasks
+
+    def _run_scheduler_ready_stage(self, stage: ProcessingStage, tasks: list[Task]) -> list[Task]:
+        """Run one centralized stage as a Xenna scheduler-ready stream."""
+        plan = build_scheduled_task_batch_plan(stage, tasks)
+        if plan is None:
+            return self._run_xenna_pipeline([stage], tasks)
+
+        processed_tasks = self._run_xenna_pipeline(
+            [stage],
+            plan.ready_batches,
+            scheduler_ready_stage=True,
+        )
+        return assemble_scheduled_task_batch_results(stage, plan, processed_tasks)
+
+    def _run_xenna_pipeline(
+        self,
+        stages: list[ProcessingStage],
+        initial_tasks: list[Any],
+        *,
+        scheduler_ready_stage: bool = False,
+    ) -> list[Any]:
+        if not stages:
+            return initial_tasks
+        if scheduler_ready_stage and len(stages) != 1:
+            msg = "scheduler_ready_stage=True is only valid for a single centralized stage"
+            raise ValueError(msg)
+
         # Convert stages to Xenna stage specs
         stage_specs = []
-
-        # Initialize with initial tasks if provided, otherwise start with EmptyTask
-        initial_tasks = initial_tasks if initial_tasks else [EmptyTask]
 
         for stage in stages:
             # Get stage configuration
             stage_config = stage.xenna_stage_spec()
 
             # Create Xenna stage adapter with the original stage's name
-            xenna_stage = create_named_xenna_stage_adapter(
-                stage=stage,
-            )
+            if scheduler_ready_stage:
+                xenna_stage = create_named_xenna_scheduler_ready_stage_adapter(stage)
+            else:
+                xenna_stage = create_named_xenna_stage_adapter(stage=stage)
 
             # Create stage spec with configuration from stage
             stage_spec = pipelines_v1.StageSpec(

@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.stages.audio.inference.asr import ASRStage
 from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
@@ -63,6 +64,14 @@ def _make_task(waveform_len: int = _SR, source_lang: str | None = "en") -> Audio
     if source_lang is not None:
         data["source_lang"] = source_lang
     return AudioTask(data=data)
+
+
+def _chunking_policy() -> BatchPolicy:
+    return BatchPolicy(
+        buckets_sec=[0],
+        max_items_per_batch_by_bucket=[32],
+        max_audio_sec_per_batch=None,
+    )
 
 
 # ----------------------------------------------------------------------
@@ -157,16 +166,16 @@ def test_adapter_result_length_mismatch_raises() -> None:
 
 
 # ----------------------------------------------------------------------
-# Stage-side pre-slice + stitch-back
+# Enabled scheduler pre-slice + stitch-back
 # ----------------------------------------------------------------------
 
 
 def test_pre_slice_short_clip_passes_through_unchanged() -> None:
     """A clip under max_inference_duration_s yields one sub-chunk; no stitching."""
-    stage = _make_stage(max_inference_duration_s=2400.0)
+    stage = _make_stage(max_inference_duration_s=2400.0, batch_policy=_chunking_policy())
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="single")]
 
-    stage.process_batch([_make_task(waveform_len=_SR * 30)])  # 30 s clip
+    BaseStageAdapter(stage).process_batch([_make_task(waveform_len=_SR * 30)])  # 30 s clip
 
     items = stage._adapter.transcribe_batch.call_args[0][0]
     assert len(items) == 1
@@ -179,6 +188,7 @@ def test_pre_slice_over_long_clip_into_contiguous_sub_chunks() -> None:
     stage = _make_stage(
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
+        batch_policy=_chunking_policy(),
     )
     stage._adapter.transcribe_batch.return_value = [
         ASRResult(text="chunk0"),
@@ -188,7 +198,7 @@ def test_pre_slice_over_long_clip_into_contiguous_sub_chunks() -> None:
     ]
     waveform = np.arange(_SR * 95, dtype=np.float32)
     task = AudioTask(data={"waveform": waveform, "sample_rate": _SR, "source_lang": "en"})
-    stage.process_batch([task])
+    BaseStageAdapter(stage).process_batch([task])
 
     items = stage._adapter.transcribe_batch.call_args[0][0]
     assert len(items) == 4
@@ -210,6 +220,7 @@ def test_pre_slice_stitch_back_joins_per_parent_with_single_space() -> None:
         disfluency_text_key="qwen3_prediction_s2",
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
+        batch_policy=_chunking_policy(),
     )
     stage._adapter.transcribe_batch.return_value = [
         ASRResult(text="hello", secondary_text="hello clean"),
@@ -217,7 +228,7 @@ def test_pre_slice_stitch_back_joins_per_parent_with_single_space() -> None:
     ]
     waveform = np.zeros(_SR * 50, dtype=np.float32)  # 50s -> 2 sub-chunks
     task = AudioTask(data={"waveform": waveform, "sample_rate": _SR, "source_lang": "en"})
-    results = stage.process_batch([task])
+    results = BaseStageAdapter(stage).process_batch([task])
 
     assert len(results) == 1  # one parent in, one parent out
     assert results[0].data["qwen3_prediction_s1"] == "hello world"
@@ -229,6 +240,7 @@ def test_pre_slice_marks_parent_skipped_only_if_all_chunks_skipped() -> None:
     stage = _make_stage(
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
+        batch_policy=_chunking_policy(),
     )
     stage._adapter.transcribe_batch.return_value = [
         ASRResult(text="good", skipped=False),
@@ -245,7 +257,7 @@ def test_pre_slice_marks_parent_skipped_only_if_all_chunks_skipped() -> None:
         "waveform": np.zeros(_SR * 50, dtype=np.float32),
         "sample_rate": _SR,
     })
-    results = stage.process_batch([task_partial, task_all_skip])
+    results = BaseStageAdapter(stage).process_batch([task_partial, task_all_skip])
 
     assert results[0].data["qwen3_prediction_s1"] == "good"
     assert results[0].data.get("_skip_me") != "empty_audio"
@@ -253,11 +265,12 @@ def test_pre_slice_marks_parent_skipped_only_if_all_chunks_skipped() -> None:
     assert results[1].data["_skip_me"] == "empty_audio"
 
 
-def test_pre_slice_metrics_count_parents_not_chunks() -> None:
-    """utterances_input/processed count parent tasks; sub_chunks_generated surfaces the fan-out."""
+def test_enabled_scheduler_worker_metrics_count_dispatched_chunks() -> None:
+    """Scheduler-ready worker metrics describe dispatched chunk tasks; stitch-back restores parent rows."""
     stage = _make_stage(
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
+        batch_policy=_chunking_policy(),
     )
     stage._adapter.transcribe_batch.return_value = [
         ASRResult(text="a"), ASRResult(text="b"), ASRResult(text="c"), ASRResult(text="d"),
@@ -266,12 +279,37 @@ def test_pre_slice_metrics_count_parents_not_chunks() -> None:
 
     task_short = AudioTask(data={"waveform": np.zeros(_SR * 10, dtype=np.float32), "sample_rate": _SR})  # 1 chunk
     task_long = AudioTask(data={"waveform": np.zeros(_SR * 75, dtype=np.float32), "sample_rate": _SR})  # 3 chunks
-    stage.process_batch([task_short, task_long])
+    BaseStageAdapter(stage).process_batch([task_short, task_long])
 
     metrics = stage._log_metrics.call_args[0][0]
-    assert metrics["utterances_input"] == 2.0
-    assert metrics["utterances_processed"] == 2.0
+    assert metrics["utterances_input"] == 4.0
+    assert metrics["utterances_processed"] == 4.0
     assert metrics["sub_chunks_generated"] == 4.0
+
+
+def test_disabled_policy_does_not_pre_slice_long_clip() -> None:
+    """Disabling the single switch sends one full item per parent, like current main backend batching."""
+    stage = _make_stage(
+        ideal_inference_segment_s=30.0,
+        max_inference_duration_s=30.0,
+        batch_policy=BatchPolicy(
+            enabled=False,
+            strategy="placeholder",
+            buckets_sec=[],
+            max_items_per_batch_by_bucket=[],
+        ),
+    )
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="full")]
+    waveform = np.arange(_SR * 95, dtype=np.float32)
+    task = AudioTask(data={"waveform": waveform, "sample_rate": _SR, "source_lang": "en"})
+
+    stage.process_batch([task])
+
+    items = stage._adapter.transcribe_batch.call_args[0][0]
+    assert len(items) == 1
+    assert items[0]["chunk_count"] == 1
+    assert items[0]["chunk_idx"] == 0
+    np.testing.assert_array_equal(items[0]["waveform"], waveform)
 
 
 # ----------------------------------------------------------------------

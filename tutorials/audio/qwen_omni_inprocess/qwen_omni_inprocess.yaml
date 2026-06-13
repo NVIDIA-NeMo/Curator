@@ -92,7 +92,11 @@ followup_prompt_file: null
 system_prompt: null
 tensor_parallel_size: 2
 omni_resource_gpus: 2.0
-batch_size: 32
+# Candidate row window used when duration-aware bucketing is disabled, and as
+# the fallback if a policy cannot derive a planner window. It is not the GPU
+# dispatch width when duration-aware bucketing is enabled; batch_policy caps
+# control that.
+candidate_batch_size: 32
 max_output_tokens: 256
 max_model_len: 4096
 max_num_seqs: 16
@@ -105,15 +109,17 @@ prefix_caching_hash_algo: xxhash
 limit_mm_per_prompt_audio: 2
 seed: 1234
 
-# Duration-aware bucketing is optional. Set
-# `duration_aware_bucketing.enabled=false` to keep the policy shape in config
-# while dispatching one adapter call per process_batch.
+# Duration-aware chunking + bucketing is one switch. Set `enabled=false` for the
+# current-main behavior: backend batches pass to process_batch with no scheduler
+# chunking, no duration bucketing, and no extra planning path.
 duration_aware_bucketing:
   enabled: true
   strategy: duration_bucketed
   buckets_sec: [0, 600, 1200, 2400]
   max_items_per_batch_by_bucket: [32, 16, 8, 4]
   max_audio_sec_per_batch: 2400
+  # null preserves the default sum(max_items_per_batch_by_bucket) candidate window.
+  prebatching_window_size: null
   flush_interval_ms: 250
 
 # Stage graph.
@@ -148,7 +154,9 @@ stages:
     prefetch_fail_on_error: ${prefetch_fail_on_error}
     xenna_num_workers_per_node: ${asr_num_workers_per_node}
     xenna_num_workers: ${asr_num_workers}
-    batch_size: ${batch_size}
+    # ASRStage field remains `batch_size`; this value is a fallback row window,
+    # not the duration-aware GPU dispatch width.
+    batch_size: ${candidate_batch_size}
     batch_policy:
       _target_: nemo_curator.stages.audio.inference.batch_policy.BatchPolicy
       enabled: ${duration_aware_bucketing.enabled}
@@ -156,6 +164,7 @@ stages:
       buckets_sec: ${duration_aware_bucketing.buckets_sec}
       max_items_per_batch_by_bucket: ${duration_aware_bucketing.max_items_per_batch_by_bucket}
       max_audio_sec_per_batch: ${duration_aware_bucketing.max_audio_sec_per_batch}
+      prebatching_window_size: ${duration_aware_bucketing.prebatching_window_size}
       flush_interval_ms: ${duration_aware_bucketing.flush_interval_ms}
     adapter_kwargs:
       prompt_text: ${ml_prompt}

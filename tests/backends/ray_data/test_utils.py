@@ -12,19 +12,114 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
 from unittest.mock import MagicMock, Mock, patch
 
+import numpy as np
 import pytest
 
-import numpy as np
-
+from nemo_curator.backends.base import SchedulerReadyTaskBatch
+from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter, create_task_from_stage
+from nemo_curator.backends.ray_data.executor import RayDataExecutor
 from nemo_curator.backends.ray_data.utils import (
     calculate_concurrency_for_actors_for_stage,
     coerce_batch_tasks,
     get_available_cpu_gpu_resources,
 )
+from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import AudioTask
 from tests.backends.test_utils import reset_head_node_cache  # noqa: F401
+
+
+class _PreplannedEchoStage(ProcessingStage[AudioTask, AudioTask]):
+    name = "preplanned_echo"
+    resources = Resources(cpus=1.0)
+    batch_size = 99
+
+    def process(self, task: AudioTask) -> AudioTask:
+        return task
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        for task in tasks:
+            task.data["seen_batch_size"] = len(tasks)
+        return tasks
+
+
+class _PrebatchPlanningStage(ProcessingStage[AudioTask, AudioTask]):
+    name = "prebatch_planning"
+    resources = Resources(cpus=1.0)
+    batch_size = 2
+
+    def __init__(self) -> None:
+        self.batch_policy = BatchPolicy(
+            buckets_sec=[0, 30, 1200],
+            max_items_per_batch_by_bucket=[2, 1, 1],
+            max_audio_sec_per_batch=None,
+        )
+
+    def process(self, task: AudioTask) -> AudioTask:
+        return task
+
+    def batch_task_cost(self, task: AudioTask) -> float:
+        return float(task.data["duration"])
+
+
+class _CentralizedPlanningStage(ProcessingStage[AudioTask, AudioTask]):
+    name = "centralized_planning"
+    resources = Resources(cpus=1.0)
+    batch_size = 2
+
+    def __init__(self) -> None:
+        self.batch_policy = BatchPolicy(
+            buckets_sec=[0, 30, 1200],
+            max_items_per_batch_by_bucket=[2, 1, 1],
+            max_audio_sec_per_batch=None,
+        )
+
+    def process(self, task: AudioTask) -> AudioTask:
+        return task
+
+    def build_prebucketed_tasks(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        return list(tasks)
+
+    def scheduler_task_cost(self, task: AudioTask) -> float:
+        return float(task.data["duration"])
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        for task in tasks:
+            task.data["processed_batch_size"] = len(tasks)
+        return tasks
+
+    def assemble_prebucketed_task_results(
+        self,
+        tasks: list[AudioTask],
+        _processed_tasks: list[AudioTask],
+    ) -> list[AudioTask]:
+        return list(tasks)
+
+
+class _FakeDataset:
+    def __init__(self, sample_items: list[object] | None = None) -> None:
+        self.repartition_calls: list[tuple[tuple, dict]] = []
+        self.map_batches_calls: list[tuple[object, dict]] = []
+        self.sample_output: dict | None = None
+        self.sample_items = sample_items
+
+    def repartition(self, *args, **kwargs) -> "_FakeDataset":
+        self.repartition_calls.append((args, kwargs))
+        return self
+
+    def map_batches(self, fn: Callable[[dict[str, object]], dict[str, object]], **kwargs) -> "_FakeDataset":
+        self.map_batches_calls.append((fn, kwargs))
+        sample_items = self.sample_items
+        if sample_items is None:
+            first = AudioTask(data={"duration": 5.0})
+            second = AudioTask(data={"duration": 600.0})
+            sample_items = [first, second]
+        self.sample_output = fn({"item": sample_items})
+        return self
 
 
 class TestGetAvailableCpuGpuResources:
@@ -35,8 +130,8 @@ class TestGetAvailableCpuGpuResources:
         """Test get_available_cpu_gpu_resources function."""
         cpus, gpus = get_available_cpu_gpu_resources()
         assert cpus == 11
-        # GPU count is 0 (CPU-only) or 2 (GPU-enabled) depending on test selection.
-        assert gpus in [0.0, 2.0]
+        # GPU count depends on local hardware and whether GPU tests are selected.
+        assert gpus in [0.0, 1.0, 2.0]
 
     @pytest.mark.usefixtures("reset_head_node_cache")
     def test_get_resources_with_ignore_head_node(
@@ -137,12 +232,158 @@ class TestCalculateConcurrencyForActorsForStage:
 
 
 class TestCoerceBatchTasks:
-  def test_coerce_batch_tasks_from_numpy_object_array(self) -> None:
-      sentinel = object()
-      batch = np.array([sentinel], dtype=object)
-      assert coerce_batch_tasks(batch) == [sentinel]
+    def test_coerce_batch_tasks_from_numpy_object_array(self) -> None:
+        sentinel = object()
+        batch = np.array([sentinel], dtype=object)
+        assert coerce_batch_tasks(batch) == [sentinel]
 
-  def test_coerce_batch_tasks_empty(self) -> None:
-      assert coerce_batch_tasks([]) == []
-      assert coerce_batch_tasks(np.array([], dtype=object)) == []
-      assert coerce_batch_tasks(None) == []
+    def test_coerce_batch_tasks_empty(self) -> None:
+        assert coerce_batch_tasks([]) == []
+        assert coerce_batch_tasks(np.array([], dtype=object)) == []
+        assert coerce_batch_tasks(None) == []
+
+
+def test_preplanned_ray_data_task_adapter_preserves_planned_batches() -> None:
+    first = AudioTask(data={})
+    second = AudioTask(data={})
+    third = AudioTask(data={})
+    stage_map_fn = create_task_from_stage(_PreplannedEchoStage(), preplanned_batches=True)
+
+    out = stage_map_fn({"item": [[first, second], [third]]})
+
+    assert out["item"] == [first, second, third]
+    assert first.data["seen_batch_size"] == 2
+    assert second.data["seen_batch_size"] == 2
+    assert third.data["seen_batch_size"] == 1
+
+
+def test_ray_data_prebatch_planning_uses_distributed_windows() -> None:
+    dataset = _FakeDataset()
+    adapter = RayDataStageAdapter(_PrebatchPlanningStage())
+
+    out = adapter._prebatch_dataset(dataset)
+
+    assert out is dataset
+    assert dataset.repartition_calls == []
+    assert dataset.map_batches_calls[0][1]["batch_size"] == 4
+    assert dataset.sample_output is not None
+    planned_durations = [[task.data["duration"] for task in row] for row in dataset.sample_output["item"]]
+    assert planned_durations == [[600.0], [5.0]]
+
+
+def test_ray_data_scheduler_ready_stage_preserves_ready_rows() -> None:
+    first = AudioTask(data={"duration": 5.0})
+    second = AudioTask(data={"duration": 600.0})
+    dataset = _FakeDataset(
+        [
+            SchedulerReadyTaskBatch(tasks=[first]),
+            SchedulerReadyTaskBatch(tasks=[second]),
+        ]
+    )
+    adapter = RayDataStageAdapter(_CentralizedPlanningStage())
+
+    out = adapter.process_scheduler_ready_dataset(dataset)
+
+    assert out is dataset
+    assert dataset.repartition_calls == []
+    assert len(dataset.map_batches_calls) == 1
+    assert dataset.map_batches_calls[0][1]["batch_size"] == 1
+    assert dataset.sample_output is not None
+    processed_durations = [task.data["duration"] for task in dataset.sample_output["item"]]
+    processed_batch_sizes = [task.data["processed_batch_size"] for task in dataset.sample_output["item"]]
+    assert processed_durations == [5.0, 600.0]
+    assert processed_batch_sizes == [1, 1]
+
+
+def test_ray_data_adapter_rejects_centralized_parent_dataset() -> None:
+    dataset = _FakeDataset()
+    adapter = RayDataStageAdapter(_CentralizedPlanningStage())
+
+    with pytest.raises(RuntimeError, match="scheduler-ready stream"):
+        adapter.process_dataset(dataset)
+
+
+def test_ray_data_executor_routes_centralized_stage_to_scheduler_ready_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor = RayDataExecutor(ignore_head_node=True)
+    stage = _CentralizedPlanningStage()
+    input_dataset = object()
+    scheduler_dataset = object()
+    processed_dataset = object()
+    output_dataset = object()
+    parent_tasks = [AudioTask(data={"duration": 5.0})]
+    processed_tasks = [AudioTask(data={"duration": 5.0, "processed": True})]
+    calls: dict[str, object] = {}
+
+    def fake_dataset_to_tasks(dataset: object) -> list[AudioTask]:
+        if dataset is processed_dataset:
+            return processed_tasks
+        assert dataset is input_dataset
+        return parent_tasks
+
+    def fake_tasks_to_dataset(tasks: list[AudioTask]) -> object:
+        calls["assembled_tasks"] = tasks
+        return output_dataset
+
+    def fake_scheduler_ready_batches_to_dataset(ready_batches: list[SchedulerReadyTaskBatch]) -> object:
+        calls["ready_batches"] = ready_batches
+        return scheduler_dataset
+
+    class FakeRayDataStageAdapter:
+        def __init__(self, stage_arg: ProcessingStage) -> None:
+            calls["stage"] = stage_arg
+
+        def process_scheduler_ready_dataset(self, dataset_arg: object, ignore_head_node: bool) -> object:
+            calls["scheduler_dataset"] = dataset_arg
+            calls["ignore_head_node"] = ignore_head_node
+            return processed_dataset
+
+    monkeypatch.setattr(executor, "_dataset_to_tasks", fake_dataset_to_tasks)
+    monkeypatch.setattr(executor, "_tasks_to_dataset", fake_tasks_to_dataset)
+    monkeypatch.setattr(executor, "_scheduler_ready_batches_to_dataset", fake_scheduler_ready_batches_to_dataset)
+    monkeypatch.setattr("nemo_curator.backends.ray_data.executor.RayDataStageAdapter", FakeRayDataStageAdapter)
+
+    out = executor._process_stage_dataset(stage, input_dataset)
+
+    assert out is output_dataset
+    assert calls["stage"] is stage
+    assert calls["scheduler_dataset"] is scheduler_dataset
+    assert calls["ignore_head_node"] is True
+    ready_batches = calls["ready_batches"]
+    assert isinstance(ready_batches, list)
+    assert [task.data["duration"] for row in ready_batches for task in row.tasks] == [5.0]
+    assert calls["assembled_tasks"] == parent_tasks
+
+
+def test_ray_data_executor_keeps_noncentral_stage_in_ray_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    executor = RayDataExecutor(ignore_head_node=True)
+    stage = _PreplannedEchoStage()
+    input_dataset = object()
+    output_dataset = object()
+    calls: dict[str, object] = {}
+
+    class FakeRayDataStageAdapter:
+        def __init__(self, stage_arg: ProcessingStage) -> None:
+            calls["stage"] = stage_arg
+
+        def process_dataset(self, dataset_arg: object, ignore_head_node: bool) -> object:
+            calls["dataset"] = dataset_arg
+            calls["ignore_head_node"] = ignore_head_node
+            return output_dataset
+
+    monkeypatch.setattr("nemo_curator.backends.ray_data.executor.RayDataStageAdapter", FakeRayDataStageAdapter)
+    monkeypatch.setattr(
+        executor,
+        "_scheduler_ready_batches_to_dataset",
+        Mock(side_effect=AssertionError("noncentral stages should stay in Ray Data")),
+    )
+
+    out = executor._process_stage_dataset(stage, input_dataset)
+
+    assert out is output_dataset
+    assert calls == {
+        "stage": stage,
+        "dataset": input_dataset,
+        "ignore_head_node": True,
+    }
