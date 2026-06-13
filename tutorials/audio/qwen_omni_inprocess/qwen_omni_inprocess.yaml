@@ -74,9 +74,16 @@ revision: null
 pred_text_key: qwen3_prediction_s1
 disfluency_text_key: qwen3_prediction_s2
 
-# Qwen-Omni's per-turn audio cap is 40 minutes.
-ideal_inference_segment_s: 2400
-max_inference_duration_s: 2400
+# Qwen-Omni chunking is model-safety slicing. Duration-aware bucketing below is
+# the optional GPU-dispatch scheduler that mixes those chunks by cost.
+chunking:
+  enabled: true
+  ideal_inference_segment_s: 2400
+  max_inference_duration_s: 2400
+
+# Backward-compatible flat aliases for existing Hydra overrides.
+ideal_inference_segment_s: ${chunking.ideal_inference_segment_s}
+max_inference_duration_s: ${chunking.max_inference_duration_s}
 
 keep_waveform: true
 
@@ -109,9 +116,9 @@ prefix_caching_hash_algo: xxhash
 limit_mm_per_prompt_audio: 2
 seed: 1234
 
-# Duration-aware chunking + bucketing is one switch. Set `enabled=false` for the
-# current-main behavior: backend batches pass to process_batch with no scheduler
-# chunking, no duration bucketing, and no extra planning path.
+# Duration-aware bucketing only controls scheduler mixing. Set `enabled=false`
+# to keep normal backend batch flow while preserving chunking when
+# `chunking.enabled=true`.
 duration_aware_bucketing:
   enabled: true
   strategy: duration_bucketed
@@ -148,6 +155,7 @@ stages:
     default_language: ${language_short}
     pred_text_key: ${pred_text_key}
     disfluency_text_key: ${disfluency_text_key}
+    chunking_enabled: ${chunking.enabled}
     ideal_inference_segment_s: ${ideal_inference_segment_s}
     max_inference_duration_s: ${max_inference_duration_s}
     keep_waveform: ${keep_waveform}

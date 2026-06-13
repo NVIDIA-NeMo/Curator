@@ -36,7 +36,9 @@ def _make_stage(  # noqa: PLR0913
     default_language: str | None = None,
     ideal_inference_segment_s: float = 2400.0,
     max_inference_duration_s: float | None = None,
+    chunking_enabled: bool = False,
     batch_policy: BatchPolicy | None = None,
+    batch_size: int = 32,
 ) -> ASRStage:
     """Build an ASRStage wired to a mock adapter (no real model load)."""
     stage = ASRStage(
@@ -46,9 +48,11 @@ def _make_stage(  # noqa: PLR0913
         disfluency_text_key=disfluency_text_key,
         keep_waveform=keep_waveform,
         default_language=default_language,
+        chunking_enabled=chunking_enabled,
         ideal_inference_segment_s=ideal_inference_segment_s,
         max_inference_duration_s=max_inference_duration_s,
         batch_policy=batch_policy,
+        batch_size=batch_size,
     )
     mock_adapter = MagicMock()
     mock_adapter.last_metrics = {}
@@ -172,7 +176,11 @@ def test_adapter_result_length_mismatch_raises() -> None:
 
 def test_pre_slice_short_clip_passes_through_unchanged() -> None:
     """A clip under max_inference_duration_s yields one sub-chunk; no stitching."""
-    stage = _make_stage(max_inference_duration_s=2400.0, batch_policy=_chunking_policy())
+    stage = _make_stage(
+        max_inference_duration_s=2400.0,
+        chunking_enabled=True,
+        batch_policy=_chunking_policy(),
+    )
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="single")]
 
     BaseStageAdapter(stage).process_batch([_make_task(waveform_len=_SR * 30)])  # 30 s clip
@@ -188,6 +196,7 @@ def test_pre_slice_over_long_clip_into_contiguous_sub_chunks() -> None:
     stage = _make_stage(
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
+        chunking_enabled=True,
         batch_policy=_chunking_policy(),
     )
     stage._adapter.transcribe_batch.return_value = [
@@ -220,6 +229,7 @@ def test_pre_slice_stitch_back_joins_per_parent_with_single_space() -> None:
         disfluency_text_key="qwen3_prediction_s2",
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
+        chunking_enabled=True,
         batch_policy=_chunking_policy(),
     )
     stage._adapter.transcribe_batch.return_value = [
@@ -240,6 +250,7 @@ def test_pre_slice_marks_parent_skipped_only_if_all_chunks_skipped() -> None:
     stage = _make_stage(
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
+        chunking_enabled=True,
         batch_policy=_chunking_policy(),
     )
     stage._adapter.transcribe_batch.return_value = [
@@ -270,6 +281,7 @@ def test_enabled_scheduler_worker_metrics_count_dispatched_chunks() -> None:
     stage = _make_stage(
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
+        chunking_enabled=True,
         batch_policy=_chunking_policy(),
     )
     stage._adapter.transcribe_batch.return_value = [
@@ -287,11 +299,12 @@ def test_enabled_scheduler_worker_metrics_count_dispatched_chunks() -> None:
     assert metrics["sub_chunks_generated"] == 4.0
 
 
-def test_disabled_policy_does_not_pre_slice_long_clip() -> None:
-    """Disabling the single switch sends one full item per parent, like current main backend batching."""
+def test_chunking_disabled_does_not_pre_slice_long_clip() -> None:
+    """Disabling chunking sends one full item per parent, like current main backend batching."""
     stage = _make_stage(
         ideal_inference_segment_s=30.0,
         max_inference_duration_s=30.0,
+        chunking_enabled=False,
         batch_policy=BatchPolicy(
             enabled=False,
             strategy="placeholder",
@@ -310,6 +323,57 @@ def test_disabled_policy_does_not_pre_slice_long_clip() -> None:
     assert items[0]["chunk_count"] == 1
     assert items[0]["chunk_idx"] == 0
     np.testing.assert_array_equal(items[0]["waveform"], waveform)
+
+
+def test_chunking_enabled_without_batch_policy_slices_normal_flow() -> None:
+    """Chunking is independent from scheduler bucketing and works in normal process_batch."""
+    stage = _make_stage(
+        ideal_inference_segment_s=30.0,
+        max_inference_duration_s=30.0,
+        chunking_enabled=True,
+        batch_policy=BatchPolicy(
+            enabled=False,
+            strategy="placeholder",
+            buckets_sec=[],
+            max_items_per_batch_by_bucket=[],
+        ),
+    )
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(text="chunk0"),
+        ASRResult(text="chunk1"),
+        ASRResult(text="chunk2"),
+        ASRResult(text="chunk3"),
+    ]
+    waveform = np.arange(_SR * 95, dtype=np.float32)
+    task = AudioTask(data={"waveform": waveform, "sample_rate": _SR, "source_lang": "en"})
+
+    result = stage.process_batch([task])
+
+    items = stage._adapter.transcribe_batch.call_args[0][0]
+    assert [it["chunk_idx"] for it in items] == [0, 1, 2, 3]
+    assert all(it["chunk_count"] == 4 for it in items)
+    assert result[0].data["qwen3_prediction_s1"] == "chunk0 chunk1 chunk2 chunk3"
+
+
+def test_chunking_enabled_normal_flow_caps_adapter_calls_by_batch_size() -> None:
+    stage = _make_stage(
+        ideal_inference_segment_s=30.0,
+        max_inference_duration_s=30.0,
+        chunking_enabled=True,
+        batch_policy=None,
+        batch_size=2,
+    )
+    stage._adapter.transcribe_batch.side_effect = [
+        [ASRResult(text="chunk0"), ASRResult(text="chunk1")],
+        [ASRResult(text="chunk2"), ASRResult(text="chunk3")],
+    ]
+    waveform = np.arange(_SR * 95, dtype=np.float32)
+    task = AudioTask(data={"waveform": waveform, "sample_rate": _SR, "source_lang": "en"})
+
+    result = stage.process_batch([task])
+
+    assert [len(call.args[0]) for call in stage._adapter.transcribe_batch.call_args_list] == [2, 2]
+    assert result[0].data["qwen3_prediction_s1"] == "chunk0 chunk1 chunk2 chunk3"
 
 
 # ----------------------------------------------------------------------

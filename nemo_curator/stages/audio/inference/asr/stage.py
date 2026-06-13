@@ -15,10 +15,10 @@
 """Generic audio ASR Curator stage with a pluggable adapter.
 
 Curator-side glue: validates I/O, resolves per-task language, optionally
-pre-slices long audio into scheduler work units when duration-aware bucketing is
-enabled, dispatches ``transcribe_batch`` on duration-coherent chunk groups,
-stitches results per parent task, and writes predictions/metrics. The concrete
-adapter is resolved at runtime from ``adapter_target`` via
+pre-slices long audio into model-sized work units, optionally lets the executor
+bucket those work units for duration-coherent GPU dispatch, stitches results per
+parent task, and writes predictions/metrics. The concrete adapter is resolved
+at runtime from ``adapter_target`` via
 ``hydra.utils.get_class``.
 """
 
@@ -124,9 +124,10 @@ class _ChunkSpec:
 class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", ASRResult]):
     """Audio speech-recognition Curator stage with pluggable adapter.
 
-    Resolves an ``ASRAdapter`` from ``adapter_target``, slices long audio only
-    for enabled chunk-aware backend bucketing, and stitches chunk outputs back
-    to one result per input task.
+    Resolves an ``ASRAdapter`` from ``adapter_target``, optionally slices long
+    audio into model-safe chunks, and stitches chunk outputs back to one result
+    per input task. Duration-aware bucketing is controlled independently by
+    ``batch_policy``.
     """
 
     # Adapter selection.
@@ -145,6 +146,7 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
     skip_me_key: str = "_skip_me"
 
     # Chunking and output retention.
+    chunking_enabled: bool = False
     ideal_inference_segment_s: float = 2400.0
     max_inference_duration_s: float | None = None
     keep_waveform: bool = True
@@ -163,6 +165,9 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
     batch_size: int = 32
 
     def __post_init__(self) -> None:
+        if not isinstance(self.chunking_enabled, bool):
+            msg = f"ASRStage.chunking_enabled must be a bool, got {type(self.chunking_enabled).__name__}"
+            raise TypeError(msg)
         if self.ideal_inference_segment_s <= 0:
             msg = f"ASRStage.ideal_inference_segment_s must be > 0 s, got {self.ideal_inference_segment_s}"
             raise ValueError(msg)
@@ -302,14 +307,15 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
         self,
         tasks: list[AudioTask],
     ) -> tuple[list[dict[str, Any]], list[int]]:
-        """Pre-slice tasks into the flat per-sub-chunk item list + parent map.
+        """Expand tasks into the flat adapter item list + parent map.
 
         ``BucketedInferenceStage`` hook (runs first each call): validates inputs,
-        resets per-call metric accumulators, then expands long clips into chunks.
+        resets per-call metric accumulators, then expands long clips into chunks
+        when ``chunking_enabled`` is true.
 
         Returns:
             ``(items, parent_of)`` where ``parent_of[i]`` is the originating task
-            index. Each item carries ``waveform`` (sub-chunk or full),
+            index. Each item carries ``waveform`` (chunk or full),
             ``sample_rate`` (unchanged), ``language`` (resolved name), ``task_id``,
             ``audio_seconds``, and ``chunk_idx`` / ``chunk_count``.
         """
@@ -400,7 +406,13 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
         return all("_curator_asr_chunk_count" in task.data for task in tasks)
 
     def _process_plain_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        """Dispatch one unbucketed backend batch, matching current-main semantics."""
+        """Dispatch one unbucketed backend batch.
+
+        With chunking disabled, this matches current-main semantics exactly:
+        one adapter item per parent row. With chunking enabled, the backend's
+        normal batch still stays intact, but each long parent is sliced before
+        adapter inference and stitched back afterward.
+        """
         for task in tasks:
             if not self.validate_input(task):
                 msg = (
@@ -415,26 +427,48 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
         self._acc_model_metrics = defaultdict(float)
         self._inference_elapsed_s = 0.0
 
-        items: list[dict[str, Any]] = []
-        parent_of: list[int] = []
-        for idx, task in enumerate(tasks):
-            sample_rate = task.data.get(self.sample_rate_key)
-            items.append({
-                "waveform": task.data.get(self.waveform_key),
-                "sample_rate": sample_rate,
-                "language": self._resolve_language(task),
-                "task_id": task.task_id,
-                "audio_seconds": self.batch_task_cost(task),
-                "chunk_idx": 0,
-                "chunk_count": 1,
-            })
-            parent_of.append(idx)
+        if self.chunking_enabled:
+            chunk_specs = self._build_chunk_specs(tasks)
+            items = [self._chunk_spec_to_item(spec) for spec in chunk_specs]
+            parent_of = [spec.parent_idx for spec in chunk_specs]
+        else:
+            items = [
+                {
+                    "waveform": task.data.get(self.waveform_key),
+                    "sample_rate": task.data.get(self.sample_rate_key),
+                    "language": self._resolve_language(task),
+                    "task_id": task.task_id,
+                    "audio_seconds": self.batch_task_cost(task),
+                    "chunk_idx": 0,
+                    "chunk_count": 1,
+                }
+                for task in tasks
+            ]
+            parent_of = list(range(len(tasks)))
 
-        results = self.run_inference(items)
+        results = self._run_plain_inference(items)
         if len(results) != len(items):
             msg = f"run_fn returned {len(results)} results for {len(items)} items (must match 1:1)"
             raise RuntimeError(msg)
         return self.assemble(tasks, items, parent_of, results)
+
+    def _run_plain_inference(self, items: list[dict[str, Any]]) -> list[ASRResult]:
+        """Run normal-flow adapter calls without duration-aware regrouping.
+
+        When chunking fans one backend batch out into many model work units, cap
+        each direct adapter call at ``batch_size`` to avoid turning one long
+        parent row into an oversized vLLM request list. Scheduler-ready batches
+        already arrive capped by ``BatchPolicy`` and bypass this helper.
+        """
+        if not items:
+            return []
+        item_batch_size = max(1, int(self.batch_size or len(items)))
+        if len(items) <= item_batch_size:
+            return self.run_inference(items)
+        results: list[ASRResult] = []
+        for start in range(0, len(items), item_batch_size):
+            results.extend(self.run_inference(items[start : start + item_batch_size]))
+        return results
 
     def _process_prebucketed_chunk_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Dispatch one already bucketed chunk batch without chunking/bucketing again."""
@@ -609,6 +643,20 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
             waveform = task.data.get(self.waveform_key)
             sample_rate = task.data.get(self.sample_rate_key)
             language = self._resolve_language(task)
+            if not self.chunking_enabled:
+                specs.append(
+                    _ChunkSpec(
+                        parent_task=task,
+                        parent_idx=parent_idx,
+                        chunk_idx=0,
+                        chunk_count=1,
+                        waveform=waveform,
+                        sample_rate=sample_rate,
+                        language=language,
+                        cost=self.batch_task_cost(task),
+                    )
+                )
+                continue
             if waveform is None or getattr(waveform, "size", 0) == 0 or not sample_rate:
                 specs.append(
                     _ChunkSpec(

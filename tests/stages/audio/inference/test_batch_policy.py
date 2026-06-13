@@ -42,11 +42,12 @@ _QWEN_ADAPTER_TARGET = "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter"
 _SR = 16000
 
 
-def _make_stage(*, batch_policy: BatchPolicy | None = None) -> ASRStage:
+def _make_stage(*, batch_policy: BatchPolicy | None = None, chunking_enabled: bool = True) -> ASRStage:
     stage = ASRStage(
         adapter_target=_QWEN_ADAPTER_TARGET,
         model_id="mock/qwen-omni",
         pred_text_key="qwen3_prediction_s1",
+        chunking_enabled=chunking_enabled,
         batch_policy=batch_policy,
     )
     mock_adapter = MagicMock()
@@ -447,6 +448,24 @@ def test_asr_prebucket_chunk_task_uses_minimal_data() -> None:
         "_curator_asr_chunk_count",
     }
     assert "large_extra_column" not in chunk_task.data
+
+
+def test_asr_centralized_bucketing_without_chunking_buckets_full_parent_rows() -> None:
+    policy = BatchPolicy(
+        strategy="duration_bucketed",
+        buckets_sec=[0, 600, 1200, 2400],
+        max_items_per_batch_by_bucket=[32, 16, 8, 4],
+        max_audio_sec_per_batch=10_000.0,
+    )
+    stage = _make_stage(batch_policy=policy, chunking_enabled=False)
+    long_50m = _make_task(_SR * 3000)
+    ten_min = _make_task(_SR * 600)
+
+    planned = plan_upstream_task_batches(stage, [long_50m, ten_min])
+
+    planned_costs = [[task.data["_curator_asr_chunk_cost"] for task in batch] for batch in planned]
+    assert planned_costs == [[3000.0], [600.0]]
+    assert all(task.data["_curator_asr_chunk_count"] == 1 for batch in planned for task in batch)
 
 
 def test_asr_upstream_planner_splits_fanout_parents_across_bucket_batches() -> None:
