@@ -172,6 +172,10 @@ class TestManifestReaderStage:
         assert all(isinstance(r, AudioTask) for r in result)
         assert result[0].data["audio_filepath"] == "a.wav"
         assert result[1].data["audio_filepath"] == "b.wav"
+        assert result[0]._metadata["_shard_total"] == 2
+        assert result[1]._metadata["_shard_total"] == 2
+        assert result[0]._metadata["_shard_key"] == result[1]._metadata["_shard_key"]
+        assert result[0]._metadata["_shard_key"].endswith("file_0_input")
 
     def test_reads_multiple_manifests(self, tmp_path: Path) -> None:
         m1 = tmp_path / "m1.jsonl"
@@ -185,6 +189,9 @@ class TestManifestReaderStage:
         assert len(result) == 2
         paths = [r.data["audio_filepath"] for r in result]
         assert paths == ["a.wav", "b.wav"]
+        assert result[0]._metadata["_shard_total"] == 1
+        assert result[1]._metadata["_shard_total"] == 1
+        assert result[0]._metadata["_shard_key"] != result[1]._metadata["_shard_key"]
 
     def test_one_audio_entry_per_line(self, tmp_path: Path) -> None:
         entries = [{"audio_filepath": f"{i}.wav", "segments": []} for i in range(5)]
@@ -254,6 +261,8 @@ class TestManifestReaderStage:
 
         assert len(result) == 3
         assert all(r.data["audio_filepath"] == "a.wav" for r in result)
+        assert [r._metadata["_shard_total"] for r in result] == [1, 1, 1]
+        assert len({r._metadata["_shard_key"] for r in result}) == 3
 
 
 class TestManifestReaderDirectory:

@@ -142,13 +142,31 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     name: str = "manifest_reader_stage"
 
+    @staticmethod
+    def _shard_key(manifest: str, task: FileGroupTask, manifest_idx: int) -> str:
+        basename = (
+            os.path.splitext(os.path.basename(str(manifest).rstrip("/")))[0]
+            or f"manifest_{manifest_idx}"
+        )
+        partition = task._metadata.get("partition_index")
+        if partition is not None:
+            return f"manifest_reader/partition_{partition}/file_{manifest_idx}_{basename}"
+        return f"manifest_reader/file_{manifest_idx}_{basename}"
+
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         t0 = time.perf_counter()
         paths = task.data
         results: list[AudioTask] = []
         count = 0
-        for manifest in paths:
+        for manifest_idx, manifest in enumerate(paths):
             fs, resolved = url_to_fs(manifest)
+            shard_total = 0
+            with fs.open(resolved, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        shard_total += 1
+
+            shard_key = self._shard_key(manifest, task, manifest_idx)
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
@@ -157,12 +175,16 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                                 task_id=f"{task.task_id}_{count}",
                                 dataset_name=task.dataset_name,
                                 data=json.loads(line.strip()),
-                                _metadata=task._metadata,
+                                _metadata={
+                                    **task._metadata,
+                                    "_shard_key": shard_key,
+                                    "_shard_total": shard_total,
+                                },
                                 _stage_perf=list(task._stage_perf),
                             )
                         )
                         count += 1
-            logger.info(f"ManifestReaderStage: loaded {count} entries from {manifest}")
+            logger.info(f"ManifestReaderStage: loaded {shard_total} entries from {manifest}")
         self._log_metrics(
             {
                 "process_time": time.perf_counter() - t0,

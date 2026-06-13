@@ -1,0 +1,201 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Granary v2 - Qwen-Omni raw-manifest in-process pipeline.
+#
+# Raw harvested JSONL path:
+#   ManifestReader -> ResampleAudioStage -> MonoConversionStage
+#   -> ASRStage (Qwen-Omni adapter) -> ShardedManifestWriterStage
+#
+# This tutorial intentionally stays separate from qwen_omni_inprocess. The
+# tarred tutorial keeps Curator-native NeMoTarredAudioReader behavior; this
+# sibling lets NvLLMOps use its existing raw Swift-audio download path.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+# ===========================================================================
+# CORE - these may be overridden at runtime by the launcher
+# ===========================================================================
+input_manifest: ???
+workspace_dir: /local/qwen_omni_raw_workspace
+output_dir: ${workspace_dir}
+final_manifest: ${workspace_dir}/output.jsonl
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+language_short: en
+max_segment_length: 40
+backend: ray_data
+# Xenna-only; ignored by the default ray_data backend.
+execution_mode: streaming
+autoscale_interval_s: 30
+prefetch_fail_on_error: true
+stages_to_run: all
+stages_to_skip: []
+
+data_config: ${input_manifest}
+corpus: null
+max_utterances_per_shard: null
+source_lang_key: source_lang
+cpu_batch_size: 64
+duration_key: duration
+
+# ASR adapter.
+adapter_target: nemo_curator.models.asr.QwenOmniASRAdapter
+model_id: "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+revision: null
+
+pred_text_key: qwen3_prediction_s1
+disfluency_text_key: qwen3_prediction_s2
+
+# Qwen-Omni's per-turn audio cap is 40 minutes. With bucketing enabled, ASR
+# creates 40-minute-or-smaller inference chunks centrally before GPU dispatch.
+# With bucketing disabled, no chunking/bucketing path is used.
+ideal_inference_segment_s: 2400
+max_inference_duration_s: 2400
+
+# Drop waveform tensors after ASR writes predictions; writer also drops waveform
+# keys before JSON serialization.
+keep_waveform: false
+
+# Worker pin. For 4-GPU nodes with tensor_parallel_size=2, two Qwen workers per
+# node avoid GPU oversubscription. Override for larger multi-node runs.
+asr_num_workers_per_node: null
+asr_num_workers: 2
+
+ml_prompt: "Transcribe the audio."
+ml_prompt_file: null
+en_prompt_file: null
+followup_prompt: null
+followup_prompt_file: null
+system_prompt: null
+tensor_parallel_size: 2
+omni_resource_gpus: 2.0
+candidate_batch_size: 32
+max_output_tokens: 256
+max_model_len: 4096
+max_num_seqs: 16
+gpu_memory_utilization: 0.90
+prep_workers: 16
+
+# vLLM runtime knobs.
+enable_prefix_caching: true
+prefix_caching_hash_algo: xxhash
+limit_mm_per_prompt_audio: 2
+seed: 1234
+
+# Duration-aware chunking + bucketing is one switch. Set `enabled=false` for the
+# current-main behavior: backend batches pass to process_batch with no scheduler
+# chunking, no duration bucketing, and no extra planning path.
+duration_aware_bucketing:
+  enabled: true
+  strategy: duration_bucketed
+  buckets_sec: [0, 600, 1200, 2400]
+  max_items_per_batch_by_bucket: [32, 16, 8, 4]
+  max_audio_sec_per_batch: 2400
+  prebatching_window_size: null
+  flush_interval_ms: 250
+
+# Stage graph.
+stages:
+  - stage_id: reader
+    _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+    files_per_partition: 1
+
+  - stage_id: resample_audio
+    _target_: nemo_curator.stages.audio.tagging.resample_audio.ResampleAudioStage
+    resampled_audio_dir: ${resampled_audio_dir}
+    target_sample_rate: 16000
+    target_format: wav
+    target_nchannels: 1
+    audio_filepath_key: audio_filepath
+    resampled_audio_filepath_key: resampled_audio_filepath
+    duration_key: ${duration_key}
+    stage_with:
+      resources:
+        _target_: nemo_curator.stages.resources.Resources
+        cpus: 4.0
+
+  - stage_id: load_waveform
+    _target_: nemo_curator.stages.audio.preprocessing.mono_conversion.MonoConversionStage
+    output_sample_rate: 16000
+    audio_filepath_key: resampled_audio_filepath
+    strict_sample_rate: true
+    stage_with:
+      resources:
+        _target_: nemo_curator.stages.resources.Resources
+        cpus: 1.0
+
+  - stage_id: qwen_omni
+    _target_: nemo_curator.stages.audio.inference.asr.ASRStage
+    name: QwenOmni_inference
+    adapter_target: ${adapter_target}
+    model_id: ${model_id}
+    revision: ${revision}
+    source_lang_key: ${source_lang_key}
+    default_language: ${language_short}
+    pred_text_key: ${pred_text_key}
+    disfluency_text_key: ${disfluency_text_key}
+    ideal_inference_segment_s: ${ideal_inference_segment_s}
+    max_inference_duration_s: ${max_inference_duration_s}
+    keep_waveform: ${keep_waveform}
+    prefetch_fail_on_error: ${prefetch_fail_on_error}
+    xenna_num_workers_per_node: ${asr_num_workers_per_node}
+    xenna_num_workers: ${asr_num_workers}
+    batch_size: ${candidate_batch_size}
+    batch_policy:
+      _target_: nemo_curator.stages.audio.inference.batch_policy.BatchPolicy
+      enabled: ${duration_aware_bucketing.enabled}
+      strategy: ${duration_aware_bucketing.strategy}
+      buckets_sec: ${duration_aware_bucketing.buckets_sec}
+      max_items_per_batch_by_bucket: ${duration_aware_bucketing.max_items_per_batch_by_bucket}
+      max_audio_sec_per_batch: ${duration_aware_bucketing.max_audio_sec_per_batch}
+      prebatching_window_size: ${duration_aware_bucketing.prebatching_window_size}
+      flush_interval_ms: ${duration_aware_bucketing.flush_interval_ms}
+    adapter_kwargs:
+      prompt_text: ${ml_prompt}
+      prompt_file: ${ml_prompt_file}
+      en_prompt_file: ${en_prompt_file}
+      followup_prompt: ${followup_prompt}
+      followup_prompt_file: ${followup_prompt_file}
+      system_prompt: ${system_prompt}
+      tensor_parallel_size: ${tensor_parallel_size}
+      max_output_tokens: ${max_output_tokens}
+      max_model_len: ${max_model_len}
+      max_num_seqs: ${max_num_seqs}
+      gpu_memory_utilization: ${gpu_memory_utilization}
+      prep_workers: ${prep_workers}
+      enable_prefix_caching: ${enable_prefix_caching}
+      prefix_caching_hash_algo: ${prefix_caching_hash_algo}
+      limit_mm_per_prompt_audio: ${limit_mm_per_prompt_audio}
+      seed: ${seed}
+    stage_with:
+      resources:
+        _target_: nemo_curator.stages.resources.Resources
+        gpus: ${omni_resource_gpus}
+
+  - stage_id: sharded_manifest_writer
+    _target_: nemo_curator.stages.audio.io.sharded_manifest_writer.ShardedManifestWriterStage
+    output_dir: ${output_dir}
+    final_manifest_path: ${final_manifest}
+    duration_key: ${duration_key}
+    stage_with:
+      batch_size: ${cpu_batch_size}
