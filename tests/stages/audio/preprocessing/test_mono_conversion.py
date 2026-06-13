@@ -15,6 +15,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import torch
 
 from nemo_curator.stages.audio.preprocessing.mono_conversion import MonoConversionStage
@@ -57,6 +58,36 @@ class TestMonoConversionStage:
         assert isinstance(result, AudioTask)
         assert result.data["waveform"].shape[0] == 1
         assert result.data["num_samples"] == 16000
+
+    def test_process_can_emit_shard_compatible_numpy_1d_waveform(self, tmp_path: Path) -> None:
+        wav = tmp_path / "stereo.wav"
+        wav.touch()
+
+        stereo = torch.stack([torch.ones(16000), torch.zeros(16000)])
+
+        with patch(MOCK_TARGET, return_value=(stereo, 16000)), patch(MOCK_EXISTS, return_value=True):
+            stage = MonoConversionStage(
+                output_sample_rate=16000,
+                output_waveform_format="numpy_1d",
+            )
+            task = AudioTask(data={"audio_filepath": wav.as_posix()}, task_id="t1")
+            result = stage.process(task)
+
+        assert isinstance(result, AudioTask)
+        assert isinstance(result.data["waveform"], np.ndarray)
+        assert result.data["waveform"].shape == (16000,)
+        assert result.data["waveform"].dtype == np.float32
+        np.testing.assert_allclose(result.data["waveform"], np.full(16000, 0.5, dtype=np.float32))
+        assert result.data["num_samples"] == 16000
+        assert result.data["duration"] == 1.0
+
+    def test_rejects_unknown_output_waveform_format(self) -> None:
+        try:
+            MonoConversionStage(output_waveform_format="torch_1d")
+        except ValueError as exc:
+            assert "output_waveform_format" in str(exc)
+        else:
+            raise AssertionError("Expected invalid output_waveform_format to raise")
 
     def test_strict_sample_rate_rejects_mismatch(self, tmp_path: Path) -> None:
         wav = tmp_path / "wrong_sr.wav"

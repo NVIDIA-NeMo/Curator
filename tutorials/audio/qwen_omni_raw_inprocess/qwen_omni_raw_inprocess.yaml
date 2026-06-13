@@ -139,6 +139,7 @@ stages:
     output_sample_rate: 16000
     audio_filepath_key: resampled_audio_filepath
     strict_sample_rate: true
+    output_waveform_format: numpy_1d
     stage_with:
       resources:
         _target_: nemo_curator.stages.resources.Resources
