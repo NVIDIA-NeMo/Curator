@@ -58,6 +58,7 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
     _writer_done_write_time_s: float = field(default=0.0, repr=False)
     _writer_invocation_count: int = field(default=0, repr=False)
     _writer_items_processed: int = field(default=0, repr=False)
+    _final_shards_materialized: set[str] = field(default_factory=set, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._perf_summary = AudioPerformanceSummary(duration_key=self.duration_key)
@@ -82,12 +83,14 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         _worker_metadata: WorkerMetadata | None = None,
     ) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
+        self._final_shards_materialized = set()
         if self.final_manifest_path:
             final_parent = os.path.dirname(self.final_manifest_path)
             if final_parent:
                 os.makedirs(final_parent, exist_ok=True)
             if os.path.exists(self.final_manifest_path):
                 if self._has_completed_shards():
+                    self._final_shards_materialized.update(self._completed_shard_keys())
                     logger.info(
                         "Preserving final manifest until teardown rebuild: {}",
                         self.final_manifest_path,
@@ -148,6 +151,7 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
                 f"Shard {shard_key} complete: "
                 f"{self._perf_summary.shard_count(shard_key)} utterances, wrote {done_path}"
             )
+            self._append_completed_shard_to_final(shard_key, out_path)
             if self.write_perf_stats:
                 self._write_perf_summary()
         return out_path
@@ -231,6 +235,37 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
                 paths.append(manifest_path)
         return sorted(paths)
 
+    def _completed_shard_keys(self) -> set[str]:
+        """Return shard keys whose done markers are present."""
+        output_abs = os.path.abspath(self.output_dir)
+        keys: set[str] = set()
+        for manifest_path in self._completed_shard_manifest_paths():
+            rel_path = os.path.relpath(os.path.abspath(manifest_path), output_abs)
+            keys.add(rel_path.removesuffix(".jsonl"))
+        return keys
+
+    def _append_completed_shard_to_final(self, shard_key: str, shard_path: str) -> None:
+        """Append one completed shard into the aggregate manifest for eager consumers."""
+        if not self.final_manifest_path or shard_key in self._final_shards_materialized:
+            return
+        final_parent = os.path.dirname(self.final_manifest_path)
+        if final_parent:
+            os.makedirs(final_parent, exist_ok=True)
+
+        write_t0 = time.perf_counter()
+        with (
+            open(self.final_manifest_path, "a", encoding="utf-8") as out_f,
+            open(shard_path, encoding="utf-8") as in_f,
+        ):
+            out_f.writelines(in_f)
+        self._writer_manifest_write_time_s += time.perf_counter() - write_t0
+        self._final_shards_materialized.add(shard_key)
+        logger.info(
+            "Appended completed shard {} into final manifest {}",
+            shard_key,
+            self.final_manifest_path,
+        )
+
     def _write_final_manifest_from_shards(self) -> None:
         """Rebuild the aggregate final manifest from completed shard outputs."""
         if not self.final_manifest_path:
@@ -248,6 +283,7 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
                     out_f.writelines(in_f)
         os.replace(tmp_path, self.final_manifest_path)
         self._writer_manifest_write_time_s += time.perf_counter() - write_t0
+        self._final_shards_materialized = self._completed_shard_keys()
         logger.info(
             "Rebuilt final manifest {} from {} completed shard file(s)",
             self.final_manifest_path,

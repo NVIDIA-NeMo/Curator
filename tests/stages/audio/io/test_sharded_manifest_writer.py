@@ -21,7 +21,7 @@ from nemo_curator.stages.audio.io.sharded_manifest_writer import ShardedManifest
 from nemo_curator.tasks import AudioTask
 
 
-def test_writer_drops_waveform_and_writes_final_manifest_at_teardown(tmp_path: Path) -> None:
+def test_writer_drops_waveform_and_writes_final_manifest_on_completion(tmp_path: Path) -> None:
     final_manifest = tmp_path / "output.jsonl"
     stage = ShardedManifestWriterStage(
         output_dir=str(tmp_path),
@@ -49,12 +49,46 @@ def test_writer_drops_waveform_and_writes_final_manifest_at_teardown(tmp_path: P
     shard_row = json.loads(shard_path.read_text(encoding="utf-8").strip())
     assert "waveform" not in shard_row
     assert shard_row["qwen3_prediction_s1"] == "hello"
-    assert not final_manifest.exists()
+    assert json.loads(final_manifest.read_text(encoding="utf-8").strip()) == shard_row
 
     stage.teardown()
 
     final_row = json.loads(final_manifest.read_text(encoding="utf-8").strip())
     assert shard_row == final_row
+
+
+def test_writer_appends_each_completed_shard_to_final_manifest_once(tmp_path: Path) -> None:
+    final_manifest = tmp_path / "output.jsonl"
+    stage = ShardedManifestWriterStage(
+        output_dir=str(tmp_path),
+        final_manifest_path=str(final_manifest),
+        write_perf_stats=False,
+    )
+    stage.setup_on_node()
+
+    first = AudioTask(
+        task_id="utt-1",
+        dataset_name="test",
+        data={"audio_filepath": "utt-1.wav", "duration": 1.0},
+        _metadata={"_shard_key": "corpus/manifest_0", "_shard_total": 1},
+    )
+    second = AudioTask(
+        task_id="utt-2",
+        dataset_name="test",
+        data={"audio_filepath": "utt-2.wav", "duration": 1.0},
+        _metadata={"_shard_key": "corpus/manifest_1", "_shard_total": 1},
+    )
+
+    stage.process(first)
+    stage.process(second)
+
+    rows = [json.loads(line) for line in final_manifest.read_text(encoding="utf-8").splitlines()]
+    assert [row["audio_filepath"] for row in rows] == ["utt-1.wav", "utt-2.wav"]
+
+    stage.teardown()
+
+    rows = [json.loads(line) for line in final_manifest.read_text(encoding="utf-8").splitlines()]
+    assert [row["audio_filepath"] for row in rows] == ["utt-1.wav", "utt-2.wav"]
 
 
 def test_writer_rebuilds_final_manifest_from_completed_shards_on_teardown(tmp_path: Path) -> None:
