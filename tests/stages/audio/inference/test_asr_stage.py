@@ -376,6 +376,37 @@ def test_chunking_enabled_normal_flow_caps_adapter_calls_by_batch_size() -> None
     assert result[0].data["qwen3_prediction_s1"] == "chunk0 chunk1 chunk2 chunk3"
 
 
+def test_prebucketed_chunk_batch_caps_adapter_calls_by_batch_size() -> None:
+    """Scheduler-ready chunks keep bucket order but still respect the model-call cap."""
+    stage = _make_stage(
+        chunking_enabled=True,
+        batch_policy=_chunking_policy(),
+        batch_size=2,
+    )
+    stage._adapter.transcribe_batch.side_effect = [
+        [ASRResult(text="chunk0"), ASRResult(text="chunk1")],
+        [ASRResult(text="chunk2"), ASRResult(text="chunk3")],
+    ]
+    tasks = []
+    for chunk_idx in range(4):
+        task = _make_task(waveform_len=_SR * 30)
+        task.data["_curator_asr_chunk_idx"] = chunk_idx
+        task.data["_curator_asr_chunk_count"] = 4
+        task.data["_curator_asr_parent_idx"] = chunk_idx
+        task.data["_curator_asr_chunk_cost"] = 30.0
+        tasks.append(task)
+
+    results = stage.process_batch(tasks)
+
+    assert [len(call.args[0]) for call in stage._adapter.transcribe_batch.call_args_list] == [2, 2]
+    assert [result.data["qwen3_prediction_s1"] for result in results] == [
+        "chunk0",
+        "chunk1",
+        "chunk2",
+        "chunk3",
+    ]
+
+
 # ----------------------------------------------------------------------
 # Stage-level: language mapping (ISO code -> name)
 # ----------------------------------------------------------------------

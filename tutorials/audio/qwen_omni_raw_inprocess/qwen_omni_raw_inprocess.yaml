@@ -95,7 +95,13 @@ followup_prompt_file: null
 system_prompt: null
 tensor_parallel_size: 2
 omni_resource_gpus: 2.0
+# Candidate/planning row window. This is intentionally larger than the model
+# call cap so duration-aware bucketing has enough chunks to mix.
 candidate_batch_size: 32
+# Hard per-Qwen adapter call cap. Real 4-minute audio chunks are memory-heavy
+# on 44 GB GPUs; keeping this separate from the planner window prevents Xenna
+# batch and Ray Data from turning a large candidate window into one vLLM call.
+model_batch_size: 2
 max_output_tokens: 256
 max_model_len: 4096
 max_num_seqs: 16
@@ -114,10 +120,10 @@ seed: 1234
 duration_aware_bucketing:
   enabled: true
   strategy: duration_bucketed
-  buckets_sec: [0, 600, 1200, 2400]
-  max_items_per_batch_by_bucket: [32, 16, 8, 4]
-  max_audio_sec_per_batch: 2400
-  prebatching_window_size: null
+  buckets_sec: [0, 30, 120, 300]
+  max_items_per_batch_by_bucket: [8, 4, 2, 1]
+  max_audio_sec_per_batch: 480
+  prebatching_window_size: ${candidate_batch_size}
   flush_interval_ms: 250
 
 # Stage graph.
@@ -169,7 +175,7 @@ stages:
     prefetch_fail_on_error: ${prefetch_fail_on_error}
     xenna_num_workers_per_node: ${asr_num_workers_per_node}
     xenna_num_workers: ${asr_num_workers}
-    batch_size: ${candidate_batch_size}
+    batch_size: ${model_batch_size}
     batch_policy:
       _target_: nemo_curator.stages.audio.inference.batch_policy.BatchPolicy
       enabled: ${duration_aware_bucketing.enabled}

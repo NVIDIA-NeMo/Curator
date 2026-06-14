@@ -104,6 +104,7 @@ omni_resource_gpus: 2.0
 # dispatch width when duration-aware bucketing is enabled; batch_policy caps
 # control that.
 candidate_batch_size: 32
+model_batch_size: ${candidate_batch_size}
 max_output_tokens: 256
 max_model_len: 4096
 max_num_seqs: 16
@@ -162,9 +163,10 @@ stages:
     prefetch_fail_on_error: ${prefetch_fail_on_error}
     xenna_num_workers_per_node: ${asr_num_workers_per_node}
     xenna_num_workers: ${asr_num_workers}
-    # ASRStage field remains `batch_size`; this value is a fallback row window,
-    # not the duration-aware GPU dispatch width.
-    batch_size: ${candidate_batch_size}
+    # ASRStage field remains `batch_size`; this is the direct model-call cap.
+    # Duration-aware mode should set bucket caps no larger than this for the
+    # target model/GPU shape.
+    batch_size: ${model_batch_size}
     batch_policy:
       _target_: nemo_curator.stages.audio.inference.batch_policy.BatchPolicy
       enabled: ${duration_aware_bucketing.enabled}

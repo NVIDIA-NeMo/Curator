@@ -446,19 +446,20 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
             ]
             parent_of = list(range(len(tasks)))
 
-        results = self._run_plain_inference(items)
+        results = self._run_inference_capped(items)
         if len(results) != len(items):
             msg = f"run_fn returned {len(results)} results for {len(items)} items (must match 1:1)"
             raise RuntimeError(msg)
         return self.assemble(tasks, items, parent_of, results)
 
-    def _run_plain_inference(self, items: list[dict[str, Any]]) -> list[ASRResult]:
-        """Run normal-flow adapter calls without duration-aware regrouping.
+    def _run_inference_capped(self, items: list[dict[str, Any]]) -> list[ASRResult]:
+        """Run adapter calls with a hard per-call item cap, without regrouping.
 
         When chunking fans one backend batch out into many model work units, cap
         each direct adapter call at ``batch_size`` to avoid turning one long
         parent row into an oversized vLLM request list. Scheduler-ready batches
-        already arrive capped by ``BatchPolicy`` and bypass this helper.
+        should already arrive capped by ``BatchPolicy``; this cap is a final
+        model-memory guard and does not re-bucket or reorder work.
         """
         if not items:
             return []
@@ -503,7 +504,7 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
             })
             parent_of.append(idx)
 
-        results = self.run_inference(items)
+        results = self._run_inference_capped(items)
         return self.assemble(tasks, items, parent_of, results)
 
     def _requires_centralized_scheduler(self) -> bool:
