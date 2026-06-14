@@ -16,7 +16,7 @@
 #
 # Raw harvested JSONL path:
 #   ManifestReader -> ResampleAudioStage -> MonoConversionStage
-#   -> ASRStage (Qwen-Omni adapter) -> ShardedManifestWriterStage
+#   -> ASRStage (Qwen-Omni adapter) -> ManifestWriterStage
 #
 # This tutorial intentionally stays separate from qwen_omni_inprocess. The
 # tarred tutorial keeps Curator-native NeMoTarredAudioReader behavior; this
@@ -152,7 +152,6 @@ stages:
     output_sample_rate: 16000
     audio_filepath_key: resampled_audio_filepath
     strict_sample_rate: true
-    output_waveform_format: numpy_1d
     stage_with:
       resources:
         _target_: nemo_curator.stages.resources.Resources
@@ -207,10 +206,10 @@ stages:
         _target_: nemo_curator.stages.resources.Resources
         gpus: ${omni_resource_gpus}
 
-  - stage_id: sharded_manifest_writer
-    _target_: nemo_curator.stages.audio.io.sharded_manifest_writer.ShardedManifestWriterStage
-    output_dir: ${output_dir}
-    final_manifest_path: ${final_manifest}
+  - stage_id: manifest_writer
+    _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${final_manifest}
+    write_perf_stats: true
     duration_key: ${duration_key}
     stage_with:
       batch_size: ${cpu_batch_size}

@@ -65,7 +65,9 @@ class ASRAdapter(Protocol):
     (unpacked from ``task.data``) and returns one ``ASRResult`` per input, in
     order. Expected per-item keys (stage-populated):
 
-    * ``waveform`` (``numpy.ndarray``): 1-D mono float32 array.
+    * ``waveform``: canonical Curator waveform object from the stage
+      (typically a torch tensor shaped ``(channels, samples)``); adapters own
+      any model-specific conversion such as squeezing to 1-D numpy.
     * ``sample_rate`` (``int``): source rate; adapter handles any resampling.
     * ``language`` (``str | None``): human-readable name (e.g. ``"English"``).
     * ``task_id`` (``str | None``): carried through for diagnostics.

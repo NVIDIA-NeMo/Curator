@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+import torch
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.models.asr.base import ASRResult
@@ -221,6 +222,36 @@ def test_pre_slice_over_long_clip_into_contiguous_sub_chunks() -> None:
     np.testing.assert_array_equal(items[1]["waveform"], waveform[_SR * 30 : _SR * 60])
     np.testing.assert_array_equal(items[2]["waveform"], waveform[_SR * 60 : _SR * 90])
     np.testing.assert_array_equal(items[3]["waveform"], waveform[_SR * 90 :])
+
+
+def test_pre_slice_canonical_torch_waveform_uses_sample_axis() -> None:
+    """Canonical ``(channels, samples)`` tensors are sliced along the sample axis."""
+    stage = _make_stage(
+        ideal_inference_segment_s=30.0,
+        max_inference_duration_s=30.0,
+        chunking_enabled=True,
+        batch_policy=_chunking_policy(),
+    )
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(text="chunk0"),
+        ASRResult(text="chunk1"),
+        ASRResult(text="chunk2"),
+        ASRResult(text="chunk3"),
+    ]
+    waveform = torch.arange(_SR * 95, dtype=torch.float32).reshape(1, -1)
+    task = AudioTask(data={"waveform": waveform, "sample_rate": _SR, "source_lang": "en"})
+    BaseStageAdapter(stage).process_batch([task])
+
+    items = stage._adapter.transcribe_batch.call_args[0][0]
+    assert len(items) == 4
+    assert [tuple(it["waveform"].shape) for it in items] == [
+        (1, _SR * 30),
+        (1, _SR * 30),
+        (1, _SR * 30),
+        (1, _SR * 5),
+    ]
+    torch.testing.assert_close(items[0]["waveform"], waveform[:, : _SR * 30])
+    assert stage.batch_task_cost(task) == 95.0
 
 
 def test_pre_slice_stitch_back_joins_per_parent_with_single_space() -> None:

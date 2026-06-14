@@ -129,8 +129,9 @@ Key differences from a CPU stage:
   dicts into a single multi-row `pd.DataFrame` in one `DocumentBatch`,
   avoiding N single-row DataFrame allocations.  Not a GPU stage, but
   benefits from batched processing.
-- `ManifestWriterStage` (`common.py`) — writes
-  entries to JSONL, returns `AudioTask`.
+- `ManifestWriterStage` (`common.py`) — batch-writes entries to JSONL,
+  drops waveform/array-like values from serialized rows, optionally writes
+  `perf_summary.json`, and returns `AudioTask`.
 
 ### Setting `batch_size` for GPU inference
 
@@ -296,7 +297,7 @@ adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
 
 ## Performance metrics (`perf_summary.json`)
 
-`ShardedManifestWriterStage` aggregates per-stage stats into `perf_summary.json`
+Audio manifest writer stages aggregate per-stage stats into `perf_summary.json`
 (all math stays in Curator; downstream tooling should transport the file as-is).
 
 ### Design principle: collect everywhere, write once
@@ -304,15 +305,16 @@ adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
 | Layer | Who | What |
 |-------|-----|------|
 | **Collection** | Every stage, CPU and GPU | Backend adapter times each `process_batch` and appends `StagePerfStats` to `task._stage_perf` |
-| **Serialization** | Single CPU writer (`num_workers=1`) | Maintains the aggregate `perf_summary.json` |
+| **Serialization** | Single CPU writer (`num_workers=1`) | Maintains output JSONL and the aggregate `perf_summary.json` |
 | **Upload** | External orchestrator (optional) | Verbatim copy/transport of one `perf_summary.json` |
 
 Do **not** add per-GPU file writers or a second metrics actor. Multiple
 `perf_summary.json` writers produce incompatible summaries and require explicit
 multi-writer handling downstream.
 
-Toggle file output with `write_perf_stats: false` on `ShardedManifestWriterStage`
-(manifest / `.done` markers still written).
+Toggle perf file output with `write_perf_stats: false` on either
+`ManifestWriterStage` or `ShardedManifestWriterStage` (manifest output still
+written; sharded `.done` markers still written for the sharded writer).
 
 ### Collection flow
 
@@ -349,14 +351,20 @@ Toggle file output with `write_perf_stats: false` on `ShardedManifestWriterStage
    `StagePerfStats` (including identity) so fan-out stages do not multiply-count
    upstream invocations.
 
-### File writes (`ShardedManifestWriterStage`)
+### File writes (`ManifestWriterStage` / `ShardedManifestWriterStage`)
 
 When `write_perf_stats=true` (default):
 
 - **`perf_summary.json`** — aggregate summary from `AudioPerformanceSummary.build_summary()`.
-  Refreshed when a shard hits its `_shard_total` (`.done` written) and again in
-  `teardown()`. Includes writer’s own I/O timings under `stages[sharded_manifest_writer]`.
+  `ManifestWriterStage` writes it at `teardown()` next to the output manifest by
+  default. `ShardedManifestWriterStage` refreshes it when a shard hits its
+  `_shard_total` (`.done` written) and again in `teardown()`. Includes writer’s
+  own I/O timings under `stages[manifest_writer]` or
+  `stages[sharded_manifest_writer]`.
   Per-task `StagePerfStats` are aggregated in memory only (no per-shard sidecar file).
+- **Manifest rows** — both writers omit `waveform` by default and also skip
+  accidental array-like values (`shape` + `dtype`) so in-memory tensors are not
+  serialized to JSONL.
 
 `main.py` (tutorial entry points) may add `pipeline_duration_s` after
 `pipeline.run()` returns.
@@ -1214,8 +1222,9 @@ The two surviving windows:
 
 ### Stage 3: `ManifestWriterStage`
 
-Appends the entry as a single JSON line to
-`./alm_output/alm_output.jsonl` (351 KB for this entry).
+Appends the entry as a JSON line to `./alm_output/alm_output.jsonl` (351 KB for
+this entry). The writer omits waveform/array-like values from serialized JSONL
+and can write `perf_summary.json` at teardown when `write_perf_stats=true`.
 
 ### ALM summary table
 

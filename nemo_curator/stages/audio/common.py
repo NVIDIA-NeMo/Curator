@@ -25,6 +25,8 @@ from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio.io.manifest_writer_utils import AudioManifestWriterMetrics, manifest_lines
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
@@ -142,31 +144,14 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     name: str = "manifest_reader_stage"
 
-    @staticmethod
-    def _shard_key(manifest: str, task: FileGroupTask, manifest_idx: int) -> str:
-        basename = (
-            os.path.splitext(os.path.basename(str(manifest).rstrip("/")))[0]
-            or f"manifest_{manifest_idx}"
-        )
-        partition = task._metadata.get("partition_index")
-        if partition is not None:
-            return f"manifest_reader/partition_{partition}/file_{manifest_idx}_{basename}"
-        return f"manifest_reader/file_{manifest_idx}_{basename}"
-
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         t0 = time.perf_counter()
         paths = task.data
         results: list[AudioTask] = []
         count = 0
-        for manifest_idx, manifest in enumerate(paths):
+        for manifest in paths:
             fs, resolved = url_to_fs(manifest)
-            shard_total = 0
-            with fs.open(resolved, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip():
-                        shard_total += 1
-
-            shard_key = self._shard_key(manifest, task, manifest_idx)
+            manifest_count = 0
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
@@ -175,16 +160,13 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                                 task_id=f"{task.task_id}_{count}",
                                 dataset_name=task.dataset_name,
                                 data=json.loads(line.strip()),
-                                _metadata={
-                                    **task._metadata,
-                                    "_shard_key": shard_key,
-                                    "_shard_total": shard_total,
-                                },
+                                _metadata=task._metadata,
                                 _stage_perf=list(task._stage_perf),
                             )
                         )
                         count += 1
-            logger.info(f"ManifestReaderStage: loaded {shard_total} entries from {manifest}")
+                        manifest_count += 1
+            logger.info(f"ManifestReaderStage: loaded {manifest_count} entries from {manifest}")
         self._log_metrics(
             {
                 "process_time": time.perf_counter() - t0,
@@ -253,31 +235,44 @@ class ManifestReader(CompositeStage[_EmptyTask, AudioTask]):
 
 @dataclass
 class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
-    """Append a single AudioTask to a JSONL manifest file.
+    """Append AudioTasks to a JSONL manifest file.
 
     The output file is truncated once in ``setup()`` (called on the driver)
     so repeated pipeline runs produce a clean output.  ``setup_on_node()``
     only creates the parent directory -- it never truncates, so multi-node
     deployments do not erase each other's data.
 
-    .. note::
-       Because all nodes append to the same path, callers in multi-node
-       setups should either use a shared filesystem or provide a
-       node-unique ``output_path``.
+    The stage is pinned to one worker/actor for all supported backends so
+    append writes to ``output_path`` are serialized. In-memory waveform tensors
+    and array-like values are omitted from JSON output by default.
 
     Supports local and cloud paths via fsspec.
 
     Args:
         output_path: Destination JSONL path (local or cloud).
+        write_perf_stats: If True, aggregate attached stage perf and write
+            ``perf_summary.json`` next to the output manifest at teardown.
+        drop_manifest_keys: Explicit task data keys to omit from JSONL output.
+        perf_summary_path: Optional override for perf summary output path.
     """
 
     output_path: str
     name: str = "manifest_writer"
+    write_perf_stats: bool = True
+    duration_key: str = "duration"
+    drop_manifest_keys: tuple[str, ...] = ("waveform",)
+    perf_summary_path: str | None = None
+    _writer_metrics: AudioManifestWriterMetrics = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.output_path:
             msg = "output_path is required for ManifestWriterStage"
             raise ValueError(msg)
+        self._writer_metrics = AudioManifestWriterMetrics(
+            stage_name=self.name,
+            duration_key=self.duration_key,
+            write_perf_stats=self.write_perf_stats,
+        )
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Truncate the output file once on the driver before processing starts."""
@@ -287,6 +282,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             self._fs.makedirs(parent_dir, exist_ok=True)
         with self._fs.open(self._path, "w", encoding="utf-8"):
             pass
+        self._writer_metrics.reset_wall_timer()
         logger.info(f"ManifestWriterStage: writing to {self.output_path}")
 
     def setup_on_node(
@@ -299,20 +295,69 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         parent_dir = "/".join(self._path.split("/")[:-1])
         if parent_dir:
             self._fs.makedirs(parent_dir, exist_ok=True)
+        self._writer_metrics.reset_wall_timer()
 
     def process(self, task: AudioTask) -> AudioTask:
+        return self.process_batch([task])[0]
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        if len(tasks) == 0:
+            return []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
+        lines = manifest_lines(tasks, self.drop_manifest_keys)
+        self._writer_metrics.record_invocation(len(tasks))
+        write_t0 = time.perf_counter()
         with self._fs.open(self._path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
-        return AudioTask(
-            task_id=task.task_id,
-            dataset_name=task.dataset_name,
-            data=task.data,
-            _metadata=task._metadata,
-            _stage_perf=list(task._stage_perf),
-        )
+            f.writelines(lines)
+        self._writer_metrics.add_manifest_write_time(time.perf_counter() - write_t0)
+        for task in tasks:
+            self._writer_metrics.record_task(task)
+        return [
+            AudioTask(
+                task_id=task.task_id,
+                dataset_name=task.dataset_name,
+                data=task.data,
+                _metadata=task._metadata,
+                _stage_perf=list(task._stage_perf),
+            )
+            for task in tasks
+        ]
+
+    def _resolved_perf_summary_path(self) -> str:
+        if self.perf_summary_path:
+            return self.perf_summary_path
+        parent = self.output_path.rsplit("/", 1)[0] if "/" in self.output_path else ""
+        return f"{parent}/perf_summary.json" if parent else "perf_summary.json"
+
+    def _write_perf_summary(self) -> None:
+        summary_path = self._resolved_perf_summary_path()
+        fs, resolved = url_to_fs(summary_path)
+        parent_dir = "/".join(resolved.split("/")[:-1])
+        if parent_dir:
+            fs.makedirs(parent_dir, exist_ok=True)
+        summary = self._writer_metrics.build_perf_summary()
+        write_t0 = time.perf_counter()
+        with fs.open(resolved, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+        self._writer_metrics.add_perf_write_time(time.perf_counter() - write_t0)
+        logger.info(f"Wrote perf_summary.json: {summary_path}")
+
+    def teardown(self) -> None:
+        if self.write_perf_stats and (
+            self._writer_metrics.items_processed > 0 or self._writer_metrics.total_utterances > 0
+        ):
+            self._write_perf_summary()
+        elif self.write_perf_stats:
+            logger.info("Skipping perf_summary.json write because no tasks were processed")
 
     def num_workers(self) -> int | None:
         return 1
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {RayStageSpecKeys.IS_ACTOR_STAGE: True}
 
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers": 1}

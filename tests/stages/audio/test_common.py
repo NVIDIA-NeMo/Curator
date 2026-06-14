@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 import torch
 
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
@@ -172,10 +173,8 @@ class TestManifestReaderStage:
         assert all(isinstance(r, AudioTask) for r in result)
         assert result[0].data["audio_filepath"] == "a.wav"
         assert result[1].data["audio_filepath"] == "b.wav"
-        assert result[0]._metadata["_shard_total"] == 2
-        assert result[1]._metadata["_shard_total"] == 2
-        assert result[0]._metadata["_shard_key"] == result[1]._metadata["_shard_key"]
-        assert result[0]._metadata["_shard_key"].endswith("file_0_input")
+        assert "_shard_total" not in result[0]._metadata
+        assert "_shard_key" not in result[0]._metadata
 
     def test_reads_multiple_manifests(self, tmp_path: Path) -> None:
         m1 = tmp_path / "m1.jsonl"
@@ -189,9 +188,8 @@ class TestManifestReaderStage:
         assert len(result) == 2
         paths = [r.data["audio_filepath"] for r in result]
         assert paths == ["a.wav", "b.wav"]
-        assert result[0]._metadata["_shard_total"] == 1
-        assert result[1]._metadata["_shard_total"] == 1
-        assert result[0]._metadata["_shard_key"] != result[1]._metadata["_shard_key"]
+        assert all("_shard_total" not in r._metadata for r in result)
+        assert all("_shard_key" not in r._metadata for r in result)
 
     def test_one_audio_entry_per_line(self, tmp_path: Path) -> None:
         entries = [{"audio_filepath": f"{i}.wav", "segments": []} for i in range(5)]
@@ -261,8 +259,8 @@ class TestManifestReaderStage:
 
         assert len(result) == 3
         assert all(r.data["audio_filepath"] == "a.wav" for r in result)
-        assert [r._metadata["_shard_total"] for r in result] == [1, 1, 1]
-        assert len({r._metadata["_shard_key"] for r in result}) == 3
+        assert all("_shard_total" not in r._metadata for r in result)
+        assert all("_shard_key" not in r._metadata for r in result)
 
 
 class TestManifestReaderDirectory:
@@ -374,7 +372,7 @@ class TestManifestWriterStage:
 
     def test_writes_entry_to_jsonl(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
-        writer = ManifestWriterStage(output_path=str(out))
+        writer = ManifestWriterStage(output_path=str(out), write_perf_stats=False)
         writer.setup_on_node()
         writer.setup()
 
@@ -405,7 +403,7 @@ class TestManifestWriterStage:
 
     def test_propagates_metadata_and_stage_perf(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
-        writer = ManifestWriterStage(output_path=str(out))
+        writer = ManifestWriterStage(output_path=str(out), write_perf_stats=False)
         writer.setup_on_node()
         writer.setup()
 
@@ -436,6 +434,53 @@ class TestManifestWriterStage:
         lines = out.read_text().strip().split("\n")
         assert len(lines) == 3
         assert [json.loads(line)["entry"] for line in lines] == [1, 2, 3]
+
+    def test_process_batch_drops_waveform_and_array_like_keys(self, tmp_path: Path) -> None:
+        out = tmp_path / "output.jsonl"
+        writer = ManifestWriterStage(output_path=str(out), write_perf_stats=False)
+        writer.setup_on_node()
+        writer.setup()
+
+        returned = writer.process_batch([
+            AudioTask(
+                data={
+                    "audio_filepath": "a.wav",
+                    "duration": 1.0,
+                    "waveform": torch.zeros(1, 16000),
+                    "embedding": np.zeros(4, dtype=np.float32),
+                    "text": "hello",
+                },
+                task_id="t1",
+            ),
+            AudioTask(data={"audio_filepath": "b.wav", "duration": 2.0}, task_id="t2"),
+        ])
+
+        rows = [json.loads(line) for line in out.read_text().splitlines()]
+        assert [row["audio_filepath"] for row in rows] == ["a.wav", "b.wav"]
+        assert "waveform" not in rows[0]
+        assert "embedding" not in rows[0]
+        assert rows[0]["text"] == "hello"
+        assert [task.task_id for task in returned] == ["t1", "t2"]
+
+    def test_writes_perf_summary_on_teardown(self, tmp_path: Path) -> None:
+        out = tmp_path / "output.jsonl"
+        writer = ManifestWriterStage(output_path=str(out), write_perf_stats=True)
+        writer.setup_on_node()
+        writer.setup()
+
+        writer.process_batch([
+            AudioTask(data={"audio_filepath": "a.wav", "duration": 1.0}, task_id="t1"),
+            AudioTask(data={"audio_filepath": "b.wav", "duration": 2.0}, task_id="t2"),
+        ])
+        writer.teardown()
+
+        summary = json.loads((tmp_path / "perf_summary.json").read_text(encoding="utf-8"))
+        assert summary["total_utterances"] == 2
+        assert summary["total_audio_seconds"] == 3.0
+        writer_summary = summary["stages"]["manifest_writer"]
+        assert writer_summary["total_items_processed"] == 2.0
+        assert writer_summary["invocation_count"] == 1.0
+        assert writer_summary["custom_metrics_sum"]["writer_items_processed"] == 2.0
 
     def test_setup_truncates_existing_file(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
@@ -493,6 +538,10 @@ class TestManifestWriterStage:
     def test_xenna_stage_spec(self, tmp_path: Path) -> None:
         writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
         assert writer.xenna_stage_spec() == {"num_workers": 1}
+
+    def test_ray_stage_spec_is_actor_stage(self, tmp_path: Path) -> None:
+        writer = ManifestWriterStage(output_path=str(tmp_path / "out.jsonl"))
+        assert writer.ray_stage_spec() == {RayStageSpecKeys.IS_ACTOR_STAGE: True}
 
 
 class TestManifestWriterRoundTrip:

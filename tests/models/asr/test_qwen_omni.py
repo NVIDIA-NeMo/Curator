@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+import torch
 
 from nemo_curator.models.asr.base import ASRAdapter
 from nemo_curator.models.asr.qwen_omni import QwenOmniASRAdapter
@@ -145,6 +146,22 @@ def test_qwen_adapter_single_turn_drops_secondary_text() -> None:
         {"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR},
     ])
     assert results[0].secondary_text is None
+
+
+def test_qwen_adapter_prepare_single_accepts_canonical_torch_2d_waveform() -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
+    adapter._build_messages = MagicMock(return_value=[{"role": "user", "content": []}])  # type: ignore[method-assign]
+    adapter._pack_vllm_inputs = MagicMock(return_value={"prompt": "p"})  # type: ignore[method-assign]
+    waveform = torch.stack([torch.ones(_SR), torch.zeros(_SR)])
+
+    prepared = adapter._prepare_single(waveform, _SR, "English")
+
+    assert prepared is not None
+    inputs, waveform_16k = prepared
+    assert inputs == {"prompt": "p"}
+    assert waveform_16k.shape == (_SR,)
+    assert waveform_16k.dtype == np.float32
+    np.testing.assert_allclose(waveform_16k, np.full(_SR, 0.5, dtype=np.float32))
 
 
 # ----------------------------------------------------------------------

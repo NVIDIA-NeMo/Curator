@@ -38,8 +38,6 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
     from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
 
@@ -280,27 +278,60 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
         return None
 
     @staticmethod
+    def _waveform_num_samples(waveform: object) -> int:
+        shape = getattr(waveform, "shape", None)
+        if shape:
+            return int(shape[-1])
+        try:
+            return len(waveform)  # type: ignore[arg-type]
+        except TypeError:
+            return 0
+
+    @classmethod
+    def _waveform_is_empty(cls, waveform: object) -> bool:
+        return waveform is None or cls._waveform_num_samples(waveform) <= 0
+
+    @staticmethod
+    def _slice_waveform(waveform: object, start: int, stop: int) -> object:
+        try:
+            return waveform[..., start:stop]  # type: ignore[index]
+        except TypeError:
+            return waveform[start:stop]  # type: ignore[index]
+
+    @staticmethod
+    def _waveform_nbytes(waveform: object) -> float:
+        nbytes = getattr(waveform, "nbytes", None)
+        if isinstance(nbytes, int):
+            return float(nbytes)
+        element_size = getattr(waveform, "element_size", None)
+        nelement = getattr(waveform, "nelement", None)
+        if callable(element_size) and callable(nelement):
+            return float(element_size() * nelement())
+        return 0.0
+
+    @classmethod
     def _chunk_waveform(
-        waveform: np.ndarray,
+        cls,
+        waveform: object,
         sample_rate: int,
         max_seconds: float,
-    ) -> list[np.ndarray]:
+    ) -> list[object]:
         """Return contiguous ``<= max_seconds`` sub-chunks of ``waveform``.
 
         Last chunk may be shorter (no padding/overlap). Returns ``[waveform]``
         unchanged when it already fits (the common case for ``data_config_s3_8``).
         """
-        if waveform is None or getattr(waveform, "size", 0) == 0 or not sample_rate or sample_rate <= 0:
+        if cls._waveform_is_empty(waveform) or not sample_rate or sample_rate <= 0:
             return [waveform]
         max_samples = int(max_seconds * sample_rate)
         if max_samples <= 0:
             return [waveform]
-        n = int(waveform.shape[0])
+        n = cls._waveform_num_samples(waveform)
         if n <= max_samples:
             return [waveform]
-        chunks: list[np.ndarray] = []
+        chunks: list[object] = []
         for start in range(0, n, max_samples):
-            chunks.append(waveform[start : start + max_samples])
+            chunks.append(cls._slice_waveform(waveform, start, start + max_samples))
         return chunks
 
     def build_items(
@@ -658,7 +689,7 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
                     )
                 )
                 continue
-            if waveform is None or getattr(waveform, "size", 0) == 0 or not sample_rate:
+            if self._waveform_is_empty(waveform) or not sample_rate:
                 specs.append(
                     _ChunkSpec(
                         parent_task=task,
@@ -686,7 +717,7 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
                         waveform=chunk,
                         sample_rate=sr,
                         language=language,
-                        cost=0.0 if sr <= 0 else float(chunk.shape[0]) / float(sr),
+                        cost=0.0 if sr <= 0 else float(self._waveform_num_samples(chunk)) / float(sr),
                     )
                 )
         return specs
@@ -822,9 +853,9 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
         """Bucketing cost before ``process_batch``: task audio duration in seconds."""
         waveform = task.data.get(self.waveform_key)
         sample_rate = task.data.get(self.sample_rate_key)
-        if waveform is None or getattr(waveform, "size", 0) == 0 or not sample_rate:
+        if self._waveform_is_empty(waveform) or not sample_rate:
             return 0.0
-        return float(waveform.shape[0]) / float(sample_rate)
+        return float(self._waveform_num_samples(waveform)) / float(sample_rate)
 
     def item_cost(self, item: dict[str, Any]) -> float:
         """Bucketing cost of one sub-chunk: its audio duration in seconds."""
@@ -886,12 +917,12 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
             "utterances_skipped": float(skipped_count),
             "sub_chunks_generated": float(len(items)),
             "audio_duration_s": sum(
-                float(w.shape[0]) / float(sr)
+                float(self._waveform_num_samples(w)) / float(sr)
                 for w, sr in zip(waveforms_for_metric, sample_rates_for_metric, strict=False)
-                if sr and w is not None and getattr(w, "size", 0) > 0
+                if sr and not self._waveform_is_empty(w)
             ),
             "waveform_bytes": sum(
-                float(getattr(w, "nbytes", 0))
+                self._waveform_nbytes(w)
                 for w in waveforms_for_metric
                 if w is not None
             ),

@@ -31,17 +31,15 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+import numpy as np
 from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.models.vllm_model import VLLM_AVAILABLE, VLLMBase
 from nemo_curator.utils.gpu_utils import get_gpu_count
-
-if TYPE_CHECKING:
-    import numpy as np
 
 try:
     from qwen_omni_utils import process_mm_info
@@ -73,6 +71,7 @@ def _require_audio_cuda12_stack(*, context: str) -> None:
 
 _QWEN3_OMNI_MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 _QWEN_SAMPLE_RATE = 16000
+_WAVEFORM_2D_NDIM = 2
 _FOLLOWUP_PROMPT_DEFAULT = (
     "Now listen to the audio again and add any false starts, filler words "
     "and preserve colloquial words (like lemme, gonna, wanna, etc) as is "
@@ -242,6 +241,34 @@ class QwenOmniASRAdapter(VLLMBase):
     # Input preparation
 
     @staticmethod
+    def _to_mono_numpy_1d(waveform: object) -> np.ndarray:
+        """Normalize Curator waveform objects to Qwen's 1-D mono numpy input."""
+        if waveform is None:
+            return np.asarray([], dtype=np.float32)
+        if hasattr(waveform, "detach"):
+            waveform = waveform.detach().cpu().numpy()
+        arr = np.asarray(waveform, dtype=np.float32)
+        if arr.size == 0:
+            return arr.reshape(0)
+        if arr.ndim == 0:
+            return arr.reshape(1)
+        if arr.ndim == 1:
+            return np.ascontiguousarray(arr)
+
+        squeezed = np.squeeze(arr)
+        if squeezed.ndim == 1:
+            return np.ascontiguousarray(squeezed.astype(np.float32, copy=False))
+        if squeezed.ndim == _WAVEFORM_2D_NDIM:
+            # Curator's canonical waveform is channels-first (C, T). If an
+            # adapter caller supplies channel-last (T, C), average over the
+            # smaller channel-looking axis.
+            axis = 0 if squeezed.shape[0] <= squeezed.shape[1] else 1
+            return np.ascontiguousarray(squeezed.mean(axis=axis).astype(np.float32, copy=False))
+
+        msg = f"Expected 1-D or 2-D waveform, got shape {arr.shape}"
+        raise ValueError(msg)
+
+    @staticmethod
     def _resample(waveform: np.ndarray, orig_sr: int, target_sr: int = _QWEN_SAMPLE_RATE) -> np.ndarray:
         if orig_sr == target_sr:
             return waveform
@@ -313,14 +340,14 @@ class QwenOmniASRAdapter(VLLMBase):
         return inputs
 
     def _prepare_single(
-        self, waveform: np.ndarray, sample_rate: int, language: str | None = None,
+        self, waveform: object, sample_rate: int, language: str | None = None,
     ) -> tuple[dict[str, Any], np.ndarray] | None:
-        if waveform is None or waveform.size == 0:
-            logger.warning("Skipping empty waveform")
-            return None
-
         try:
-            waveform_16k = self._resample(waveform, sample_rate)
+            waveform_1d = self._to_mono_numpy_1d(waveform)
+            if waveform_1d.size == 0:
+                logger.warning("Skipping empty waveform")
+                return None
+            waveform_16k = self._resample(waveform_1d, sample_rate)
             messages = self._build_messages(waveform_16k, language)
             inputs = self._pack_vllm_inputs(messages)
         except Exception as exc:  # noqa: BLE001
@@ -336,7 +363,7 @@ class QwenOmniASRAdapter(VLLMBase):
 
     def _prepare_batch(
         self,
-        waveforms: list[np.ndarray],
+        waveforms: list[object],
         sample_rates: list[int],
         languages: list[str | None] | None = None,
     ) -> list[tuple[dict[str, Any], np.ndarray] | None]:
@@ -436,7 +463,7 @@ class QwenOmniASRAdapter(VLLMBase):
 
     def _run_two_turn(
         self,
-        waveforms: list[np.ndarray],
+        waveforms: list[object],
         sample_rates: list[int],
         languages: list[str | None] | None = None,
     ) -> tuple[list[str], list[str], set[int]]:

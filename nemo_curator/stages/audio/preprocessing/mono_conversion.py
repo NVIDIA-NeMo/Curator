@@ -50,28 +50,15 @@ class MonoConversionStage(ProcessingStage[AudioTask, AudioTask]):
         output_sample_rate: Expected sample rate in Hz (default: 48000)
         audio_filepath_key: Key in data dict for audio file path
         strict_sample_rate: If True, reject audio with wrong sample rate
-        output_waveform_format: "torch_2d" for canonical audio processors,
-            or "numpy_1d" to match NeMo tar shard reader outputs.
     """
 
     output_sample_rate: int = 48000
     audio_filepath_key: str = "audio_filepath"
     strict_sample_rate: bool = True
-    output_waveform_format: str = "torch_2d"
 
     name: str = "MonoConversion"
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
-
-    def __post_init__(self):
-        super().__init__()
-        allowed_formats = {"torch_2d", "numpy_1d"}
-        if self.output_waveform_format not in allowed_formats:
-            msg = (
-                f"MonoConversionStage.output_waveform_format must be one of "
-                f"{sorted(allowed_formats)}, got {self.output_waveform_format!r}"
-            )
-            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -114,12 +101,7 @@ class MonoConversionStage(ProcessingStage[AudioTask, AudioTask]):
                 mono_waveform = waveform
 
             num_samples = int(mono_waveform.shape[-1])
-            if self.output_waveform_format == "numpy_1d":
-                output_waveform = mono_waveform.squeeze(0).contiguous().cpu().numpy()
-            else:
-                output_waveform = mono_waveform
-
-            task.data["waveform"] = output_waveform
+            task.data["waveform"] = mono_waveform
             task.data["sample_rate"] = sample_rate
             task.data["is_mono"] = True
             task.data["duration"] = num_samples / sample_rate
