@@ -356,11 +356,13 @@ written; sharded `.done` markers still written for the sharded writer).
 When `write_perf_stats=true` (default):
 
 - **`perf_summary.json`** — aggregate summary from `AudioPerformanceSummary.build_summary()`.
-  `ManifestWriterStage` writes it at `teardown()` next to the output manifest by
-  default. `ShardedManifestWriterStage` refreshes it when a shard hits its
-  `_shard_total` (`.done` written) and again in `teardown()`. Includes writer’s
-  own I/O timings under `stages[manifest_writer]` or
-  `stages[sharded_manifest_writer]`.
+  `ManifestWriterStage` refreshes it next to the output manifest after each
+  successful batch write, with `teardown()` as a final backstop. This keeps the
+  summary available even when a backend runs the writer as an actor whose
+  teardown is not called on the driver. `ShardedManifestWriterStage` refreshes
+  it when a shard hits its `_shard_total` (`.done` written) and again in
+  `teardown()`. Includes writer’s own I/O timings under
+  `stages[manifest_writer]` or `stages[sharded_manifest_writer]`.
   Per-task `StagePerfStats` are aggregated in memory only (no per-shard sidecar file).
 - **Manifest rows** — both writers omit `waveform` by default and also skip
   accidental array-like values (`shape` + `dtype`) so in-memory tensors are not
@@ -1224,7 +1226,8 @@ The two surviving windows:
 
 Appends the entry as a JSON line to `./alm_output/alm_output.jsonl` (351 KB for
 this entry). The writer omits waveform/array-like values from serialized JSONL
-and can write `perf_summary.json` at teardown when `write_perf_stats=true`.
+and can refresh `perf_summary.json` during batch writes when
+`write_perf_stats=true`.
 
 ### ALM summary table
 

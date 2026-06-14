@@ -462,7 +462,7 @@ class TestManifestWriterStage:
         assert rows[0]["text"] == "hello"
         assert [task.task_id for task in returned] == ["t1", "t2"]
 
-    def test_writes_perf_summary_on_teardown(self, tmp_path: Path) -> None:
+    def test_writes_perf_summary_during_process_batch(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ManifestWriterStage(output_path=str(out), write_perf_stats=True)
         writer.setup_on_node()
@@ -472,7 +472,6 @@ class TestManifestWriterStage:
             AudioTask(data={"audio_filepath": "a.wav", "duration": 1.0}, task_id="t1"),
             AudioTask(data={"audio_filepath": "b.wav", "duration": 2.0}, task_id="t2"),
         ])
-        writer.teardown()
 
         summary = json.loads((tmp_path / "perf_summary.json").read_text(encoding="utf-8"))
         assert summary["total_utterances"] == 2

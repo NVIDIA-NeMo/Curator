@@ -250,8 +250,9 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         output_path: Destination JSONL path (local or cloud).
-        write_perf_stats: If True, aggregate attached stage perf and write
-            ``perf_summary.json`` next to the output manifest at teardown.
+        write_perf_stats: If True, aggregate attached stage perf and refresh
+            ``perf_summary.json`` next to the output manifest after each batch
+            write, with teardown as a final backstop.
         drop_manifest_keys: Explicit task data keys to omit from JSONL output.
         perf_summary_path: Optional override for perf summary output path.
     """
@@ -315,6 +316,8 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         self._writer_metrics.add_manifest_write_time(time.perf_counter() - write_t0)
         for task in tasks:
             self._writer_metrics.record_task(task)
+        if self.write_perf_stats:
+            self._write_perf_summary()
         return [
             AudioTask(
                 task_id=task.task_id,
