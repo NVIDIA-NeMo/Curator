@@ -295,65 +295,61 @@ def test_ray_data_scheduler_ready_stage_preserves_ready_rows() -> None:
     assert processed_batch_sizes == [1, 1]
 
 
-def test_ray_data_adapter_rejects_centralized_parent_dataset() -> None:
+def test_ray_data_adapter_processes_centralized_parent_windows_in_ray_data() -> None:
     dataset = _FakeDataset()
     adapter = RayDataStageAdapter(_CentralizedPlanningStage())
 
-    with pytest.raises(RuntimeError, match="scheduler-ready stream"):
-        adapter.process_dataset(dataset)
+    out = adapter.process_dataset(dataset)
+
+    assert out is dataset
+    assert dataset.repartition_calls == []
+    assert len(dataset.map_batches_calls) == 1
+    assert dataset.map_batches_calls[0][1]["batch_size"] == 4
+    assert dataset.sample_output is not None
+    processed_durations = [task.data["duration"] for task in dataset.sample_output["item"]]
+    processed_batch_sizes = [task.data["processed_batch_size"] for task in dataset.sample_output["item"]]
+    assert processed_durations == [5.0, 600.0]
+    assert processed_batch_sizes == [1, 1]
 
 
-def test_ray_data_executor_routes_centralized_stage_to_scheduler_ready_stream(
+def test_ray_data_executor_keeps_centralized_stage_in_ray_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     executor = RayDataExecutor(ignore_head_node=True)
     stage = _CentralizedPlanningStage()
     input_dataset = object()
-    scheduler_dataset = object()
-    processed_dataset = object()
     output_dataset = object()
-    parent_tasks = [AudioTask(data={"duration": 5.0})]
-    processed_tasks = [AudioTask(data={"duration": 5.0, "processed": True})]
     calls: dict[str, object] = {}
-
-    def fake_dataset_to_tasks(dataset: object) -> list[AudioTask]:
-        if dataset is processed_dataset:
-            return processed_tasks
-        assert dataset is input_dataset
-        return parent_tasks
-
-    def fake_tasks_to_dataset(tasks: list[AudioTask]) -> object:
-        calls["assembled_tasks"] = tasks
-        return output_dataset
-
-    def fake_scheduler_ready_batches_to_dataset(ready_batches: list[SchedulerReadyTaskBatch]) -> object:
-        calls["ready_batches"] = ready_batches
-        return scheduler_dataset
 
     class FakeRayDataStageAdapter:
         def __init__(self, stage_arg: ProcessingStage) -> None:
             calls["stage"] = stage_arg
 
-        def process_scheduler_ready_dataset(self, dataset_arg: object, ignore_head_node: bool) -> object:
-            calls["scheduler_dataset"] = dataset_arg
+        def process_dataset(self, dataset_arg: object, ignore_head_node: bool) -> object:
+            calls["dataset"] = dataset_arg
             calls["ignore_head_node"] = ignore_head_node
-            return processed_dataset
+            return output_dataset
 
-    monkeypatch.setattr(executor, "_dataset_to_tasks", fake_dataset_to_tasks)
-    monkeypatch.setattr(executor, "_tasks_to_dataset", fake_tasks_to_dataset)
-    monkeypatch.setattr(executor, "_scheduler_ready_batches_to_dataset", fake_scheduler_ready_batches_to_dataset)
+    monkeypatch.setattr(
+        executor,
+        "_dataset_to_tasks",
+        Mock(side_effect=AssertionError("centralized stages should not materialize Ray Data datasets")),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_tasks_to_dataset",
+        Mock(side_effect=AssertionError("centralized stages should not rebuild Ray Data datasets")),
+    )
     monkeypatch.setattr("nemo_curator.backends.ray_data.executor.RayDataStageAdapter", FakeRayDataStageAdapter)
 
     out = executor._process_stage_dataset(stage, input_dataset)
 
     assert out is output_dataset
-    assert calls["stage"] is stage
-    assert calls["scheduler_dataset"] is scheduler_dataset
-    assert calls["ignore_head_node"] is True
-    ready_batches = calls["ready_batches"]
-    assert isinstance(ready_batches, list)
-    assert [task.data["duration"] for row in ready_batches for task in row.tasks] == [5.0]
-    assert calls["assembled_tasks"] == parent_tasks
+    assert calls == {
+        "stage": stage,
+        "dataset": input_dataset,
+        "ignore_head_node": True,
+    }
 
 
 def test_ray_data_executor_keeps_noncentral_stage_in_ray_data(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -373,11 +369,6 @@ def test_ray_data_executor_keeps_noncentral_stage_in_ray_data(monkeypatch: pytes
             return output_dataset
 
     monkeypatch.setattr("nemo_curator.backends.ray_data.executor.RayDataStageAdapter", FakeRayDataStageAdapter)
-    monkeypatch.setattr(
-        executor,
-        "_scheduler_ready_batches_to_dataset",
-        Mock(side_effect=AssertionError("noncentral stages should stay in Ray Data")),
-    )
 
     out = executor._process_stage_dataset(stage, input_dataset)
 

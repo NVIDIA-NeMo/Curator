@@ -157,7 +157,13 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
 
 
 class XennaSchedulerReadyStageAdapter(XennaStageAdapter):
-    """Xenna adapter for rows that already contain scheduler-ready batches."""
+    """Xenna adapter for rows that already contain scheduler-ready batches.
+
+    Compatibility/future-native scheduler hook only. The default Xenna executor
+    now keeps centralized planning inside the regular stage adapter window so
+    bucket-on does not split the pipeline into separate scheduler-ready
+    segments.
+    """
 
     @property
     def stage_batch_size(self) -> int:
@@ -201,7 +207,11 @@ def create_named_xenna_stage_adapter(stage: ProcessingStage) -> XennaStageAdapte
 
 
 def create_named_xenna_scheduler_ready_stage_adapter(stage: ProcessingStage) -> XennaSchedulerReadyStageAdapter:
-    """Create a named Xenna adapter for scheduler-ready backend rows."""
+    """Create a named Xenna adapter for scheduler-ready backend rows.
+
+    Not used by the default Xenna executor path; retained for external callers
+    that explicitly provide ``SchedulerReadyTaskBatch`` rows.
+    """
     original_class_name = type(stage).__name__
     dynamic_name = f"{original_class_name}SchedulerReady"
 

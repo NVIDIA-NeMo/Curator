@@ -438,6 +438,25 @@ def test_prebucketed_chunk_batch_caps_adapter_calls_by_batch_size() -> None:
     ]
 
 
+def test_prebucketed_chunk_batch_result_length_mismatch_raises() -> None:
+    stage = _make_stage(
+        chunking_enabled=True,
+        batch_policy=_chunking_policy(),
+    )
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="chunk0")]
+    tasks = []
+    for chunk_idx in range(2):
+        task = _make_task(waveform_len=_SR * 30)
+        task.data["_curator_asr_chunk_idx"] = chunk_idx
+        task.data["_curator_asr_chunk_count"] = 2
+        task.data["_curator_asr_parent_idx"] = chunk_idx
+        task.data["_curator_asr_chunk_cost"] = 30.0
+        tasks.append(task)
+
+    with pytest.raises(RuntimeError, match=r"returned 1 results for 2 items"):
+        stage.process_batch(tasks)
+
+
 # ----------------------------------------------------------------------
 # Stage-level: language mapping (ISO code -> name)
 # ----------------------------------------------------------------------

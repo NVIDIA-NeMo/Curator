@@ -119,7 +119,14 @@ class RayDataStageAdapter(BaseStageAdapter):
         return dataset.map_batches(prebatch_map_fn, batch_size=planner_batch_size)
 
     def process_scheduler_ready_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
-        """Process a dataset whose rows are ``SchedulerReadyTaskBatch`` objects."""
+        """Process a dataset whose rows are ``SchedulerReadyTaskBatch`` objects.
+
+        This is a compatibility/future-native scheduler hook. The default
+        ``RayDataExecutor`` no longer routes centralized stages through a
+        separate scheduler-ready dataset, because that forced a driver
+        materialization barrier. Current executor flow keeps centralized
+        planning inside the stage worker's Ray Data window.
+        """
         return self._process_dataset(
             dataset,
             ignore_head_node=ignore_head_node,
@@ -147,12 +154,6 @@ class RayDataStageAdapter(BaseStageAdapter):
         is_actor_stage_ = self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
 
         use_centralized_batching = stage_uses_centralized_batching(self.stage)
-        if use_centralized_batching and not scheduler_ready_batches:
-            msg = (
-                f"{type(self.stage).__name__} uses centralized batching and must be run through "
-                "RayDataExecutor's scheduler-ready stream."
-            )
-            raise RuntimeError(msg)
         use_preplanned_batches = (
             stage_uses_upstream_prebatching(self.stage) and not use_centralized_batching and not scheduler_ready_batches
         )
@@ -169,13 +170,31 @@ class RayDataStageAdapter(BaseStageAdapter):
         # Calculate concurrency based on available resources
         logger.info(f"{self.stage.__class__.__name__} {is_actor_stage_=} with {concurrency_kwargs=}")
 
-        map_batch_size = 1 if scheduler_ready_batches or use_preplanned_batches else self.batch_size
+        map_batch_size = self._map_batch_size(
+            scheduler_ready_batches=scheduler_ready_batches,
+            preplanned_batches=use_preplanned_batches,
+            centralized_batches=use_centralized_batching,
+        )
         processed_dataset = dataset.map_batches(map_batches_fn, batch_size=map_batch_size, **concurrency_kwargs)  # type: ignore[reportArgumentType]
 
         if self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
             processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
 
         return processed_dataset
+
+    def _map_batch_size(
+        self,
+        *,
+        scheduler_ready_batches: bool,
+        preplanned_batches: bool,
+        centralized_batches: bool,
+    ) -> int | None:
+        """Choose the Ray Data row window for this stage."""
+        if scheduler_ready_batches or preplanned_batches:
+            return 1
+        if centralized_batches:
+            return upstream_prebatching_batch_size(self.stage, self.batch_size)
+        return self.batch_size
 
     def _map_batches_fn_and_kwargs(
         self,

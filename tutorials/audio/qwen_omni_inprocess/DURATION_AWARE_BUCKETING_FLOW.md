@@ -1,13 +1,33 @@
 # Duration-Aware Bucketing Execution Flow
 
-This note describes the current PR code on disk for a large input, e.g.
-100,000 audio rows with mixed durations such as 5 seconds, 10 minutes,
-50 minutes, 2 hours, and 4 hours.
+This note describes the current PR code on disk for mixed-duration audio,
+including long-tail inputs such as 5 seconds, 10 minutes, 50 minutes, 2 hours,
+and 4 hours.
 
-The user-facing switch is singular:
+The current design is **window-local scheduler planning inside regular backend
+stage execution**:
+
+```text
+backend row window
+  -> BaseStageAdapter.process_batch()
+  -> build_scheduled_task_batch_plan()
+  -> ASR chunk work units
+  -> BatchPolicy bucket queues
+  -> ready batches processed inside that worker call
+  -> stitched parent rows returned to the backend
+```
+
+This replaced the older Ray Data/Xenna scheduler-ready stream path. The default
+executors no longer materialize a whole Ray Dataset at the ASR boundary and no
+longer split Xenna into separate pre-ASR / scheduler-ready ASR / post-ASR
+pipelines.
+
+## Config
+
+The Qwen tutorial keeps chunking and bucketing as separate controls:
 
 ```yaml
-# tutorials/audio/qwen_omni_inprocess/qwen_omni_inprocess.yaml:112-123
+# qwen_omni_inprocess.yaml:120-131
 duration_aware_bucketing:
   enabled: true
   strategy: duration_bucketed
@@ -18,13 +38,12 @@ duration_aware_bucketing:
   flush_interval_ms: 250
 ```
 
-The ASR stage receives that policy here:
-
 ```yaml
-# tutorials/audio/qwen_omni_inprocess/qwen_omni_inprocess.yaml:141-168
+# qwen_omni_inprocess.yaml:149-176
 - stage_id: qwen_omni
   _target_: nemo_curator.stages.audio.inference.asr.ASRStage
-  batch_size: ${candidate_batch_size}
+  chunking_enabled: ${chunking.enabled}
+  batch_size: ${model_batch_size}
   batch_policy:
     _target_: nemo_curator.stages.audio.inference.batch_policy.BatchPolicy
     enabled: ${duration_aware_bucketing.enabled}
@@ -35,54 +54,16 @@ The ASR stage receives that policy here:
     prebatching_window_size: ${duration_aware_bucketing.prebatching_window_size}
 ```
 
-There is no second boolean. `enabled: false` means no scheduler chunking, no
-duration bucketing, and no extra planning path.
+`chunking.enabled=true` protects model request size. `duration_aware_bucketing`
+only controls whether chunk work units are mixed into duration-coherent batches.
+With bucketing off, chunking can still happen in the normal backend batch flow.
 
-## Common Startup
+## Shared Gate
 
-1. Hydra enters `main()` at
-   `tutorials/audio/qwen_omni_inprocess/main.py:285-297`.
-2. `build_granary_v2_pipeline(cfg)` constructs the `Pipeline` at
-   `main.py:258-260`.
-3. `_instantiate_configured_stages(cfg)` reads the `stages:` list, instantiates
-   each Hydra target, applies `stage_with`, and appends enabled stages at
-   `main.py:201-238`.
-4. `_create_executor(cfg)` chooses:
-   - `backend: ray_data` -> `RayDataExecutor`, `main.py:263-282`
-   - `backend: xenna` -> `XennaExecutor`, `main.py:263-279`
-5. `Pipeline.run()` decomposes composite stages and calls
-   `executor.execute(self.stages, initial_tasks)` at
-   `nemo_curator/pipeline/pipeline.py:177-215`.
-
-For a JSONL manifest reader, each line becomes one `AudioTask`:
+Every backend reaches the same structural gate:
 
 ```python
-# nemo_curator/stages/audio/common.py:145-173
-def process(self, task: FileGroupTask) -> list[AudioTask]:
-    ...
-    for line in f:
-        if line.strip():
-            results.append(AudioTask(data=json.loads(line.strip()), ...))
-    return results
-```
-
-The Qwen tutorial YAML uses `NemoTarredAudioReader` instead of
-`ManifestReaderStage`, but the backend behavior below starts from the same
-shape: many `AudioTask` rows, each carrying decoded waveform/sample-rate data by
-the time ASR runs.
-
-## Shared Bucketing Decision
-
-The central gate is `stage_uses_centralized_batching()`:
-
-```python
-# nemo_curator/backends/base.py:92-113
-def _enabled_batch_policy(stage):
-    policy = getattr(stage, "batch_policy", None)
-    if policy is None or not getattr(policy, "enabled", False):
-        return None
-    return policy
-
+# nemo_curator/backends/base.py:99-113
 def stage_uses_centralized_batching(stage):
     policy = _enabled_batch_policy(stage)
     if policy is None:
@@ -92,16 +73,18 @@ def stage_uses_centralized_batching(stage):
     return callable(build_tasks) and callable(assemble_results) and _scheduler_task_cost_fn(stage) is not None
 ```
 
-For ASR with `enabled: true`, this returns true because ASR exposes
-`build_prebucketed_tasks()`, `assemble_prebucketed_task_results()`, and
-`scheduler_task_cost()`.
+ASR opts in when its `BatchPolicy.enabled` is true because it has:
 
-For ASR with `enabled: false`, `_enabled_batch_policy()` returns `None`.
-Everything falls back to ordinary backend batches.
+- `build_prebucketed_tasks()` at `asr/stage.py:548-562`
+- `scheduler_task_cost()` at `asr/stage.py:564-568`
+- `assemble_prebucketed_task_results()` at `asr/stage.py:570-576`
 
-## ASR Bucketing On: Chunk Then Bucket Once
+With `enabled=false`, `_enabled_batch_policy()` returns `None`, the gate is
+false, and ASR follows normal backend batching.
 
-The executor builds scheduler tasks before any ASR worker call:
+## Bucketing On
+
+The core planner is backend-independent:
 
 ```python
 # nemo_curator/backends/base.py:167-201
@@ -113,14 +96,38 @@ def build_scheduled_task_batch_plan(stage, tasks):
     ready_batches = [
         SchedulerReadyTaskBatch(tasks=list(sub_tasks), total_cost=total_cost)
         for source_indices, sub_tasks, total_cost in policy.bucketize_with_costs(...)
+        if sub_tasks
     ]
     return ScheduledTaskBatchPlan(parent_tasks=list(tasks), ready_batches=ready_batches)
 ```
 
-ASR builds chunk tasks here:
+`BaseStageAdapter.process_batch()` invokes that planner on the backend-visible
+row window:
 
 ```python
-# nemo_curator/stages/audio/inference/asr/stage.py:479-493
+# nemo_curator/backends/base.py:267-283
+def process_batch(self, tasks):
+    centralized_plan = build_scheduled_task_batch_plan(self.stage, tasks)
+    if centralized_plan is not None:
+        return self._process_scheduled_task_batch_plan(centralized_plan)
+    return self._process_batch_after_worker_planning(tasks)
+```
+
+Ready batches are processed serially inside the same worker call:
+
+```python
+# nemo_curator/backends/base.py:278-287
+def _process_scheduled_task_batch_plan(self, plan):
+    processed_tasks = []
+    for ready_batch in plan.ready_batches:
+        processed_tasks.extend(self.process_scheduler_ready_batch(ready_batch))
+    return assemble_scheduled_task_batch_results(self.stage, plan, processed_tasks)
+```
+
+ASR builds chunk work units once:
+
+```python
+# nemo_curator/stages/audio/inference/asr/stage.py:548-562
 def build_prebucketed_tasks(self, tasks):
     policy = self.batch_policy
     if policy is None or not policy.enabled:
@@ -129,31 +136,19 @@ def build_prebucketed_tasks(self, tasks):
     return [chunk.task for chunk in chunk_plan]
 ```
 
-The actual split is duration based:
+Chunk descriptors come from `_build_chunk_specs()`:
 
 ```python
-# nemo_curator/stages/audio/inference/asr/stage.py:604-643
-def _build_chunk_specs(self, tasks):
-    slice_ceiling = float(self.max_inference_duration_s or self.ideal_inference_segment_s)
-    for parent_idx, task in enumerate(tasks):
-        chunks = self._chunk_waveform(waveform, sr, slice_ceiling)
-        for chunk_idx, chunk in enumerate(chunks):
-            specs.append(_ChunkSpec(parent_idx=parent_idx, chunk_idx=chunk_idx, cost=...))
+# nemo_curator/stages/audio/inference/asr/stage.py:655-705
+slice_ceiling = float(self.max_inference_duration_s or self.ideal_inference_segment_s)
+for parent_idx, task in enumerate(tasks):
+    chunks = self._chunk_waveform(waveform, sr, slice_ceiling)
+    for chunk_idx, chunk in enumerate(chunks):
+        specs.append(_ChunkSpec(parent_idx=parent_idx, chunk_idx=chunk_idx, cost=...))
 ```
 
-Then each virtual chunk becomes a minimal dispatch `AudioTask`:
-
-```python
-# nemo_curator/stages/audio/inference/asr/stage.py:657-703
-def _build_prebucket_chunk_plan(self, tasks):
-    return [
-        _PrebucketChunk(task=self._make_prebucket_chunk_task_from_spec(spec), ...)
-        for spec in self._build_chunk_specs(tasks)
-    ]
-```
-
-`BatchPolicy.bucketize_with_costs()` owns bucket formation and longest-first
-ordering:
+The finite planner computes costs once, disables timer checks, drains at the
+end, and sorts heavier batches first:
 
 ```python
 # nemo_curator/stages/audio/inference/batch_policy.py:355-381
@@ -167,253 +162,202 @@ def bucketize_with_costs(self, items, cost_fn):
     return sorted(..., key=lambda batch: batch.total_cost, reverse=True)
 ```
 
-Example for 100,000 varied rows:
+Shape:
 
 ```text
-100,000 parent rows
-  -> ASR chunks long rows by max_inference_duration_s
-  -> maybe 130,000 scheduler chunk tasks
-  -> chunks enter duration buckets:
+backend window of parent rows
+  -> ASR chunk work units
+  -> buckets:
        [0, 600) seconds     cap 32 items
        [600, 1200) seconds  cap 16 items
        [1200, 2400) seconds cap 8 items
        [2400, +inf) seconds cap 4 items
-  -> scheduler-ready GPU batches run longest-first
-  -> processed chunk tasks stitch back to 100,000 parent rows
+  -> ready batches processed heavy-first inside the worker call
+  -> exact chunk validation and stitch-back
 ```
 
-## Ray Data, Bucketing On
+The stitch-back validation now rejects:
 
-Mock config:
+- parent indices outside the input range
+- non-positive chunk counts
+- chunk ids outside `0..chunk_count-1`
+- duplicate `(parent_idx, chunk_idx)`
+- chunk-count disagreement for a parent
+- any missing chunk id
+- adapter result count mismatches before assembly
 
-```yaml
-backend: ray_data
-duration_aware_bucketing:
-  enabled: true
-```
+Relevant code: `asr/stage.py:538-542` for result-count validation and
+`asr/stage.py:596-653` for exact chunk-id validation.
 
-Flow:
+## Ray Data
 
-1. `RayDataExecutor.execute()` initializes Ray and converts initial tasks to a
-   dataset at `nemo_curator/backends/ray_data/executor.py:50-91`.
-2. For each stage, `_process_stage_dataset()` checks centralized bucketing at
-   `ray_data/executor.py:105-111`.
-3. ASR is centralized, so Ray Data takes the current dataset to parent tasks at
-   `ray_data/executor.py:113-116`.
-4. `build_scheduled_task_batch_plan()` chunks and buckets at
-   `base.py:167-201`.
-5. The ready batches become a Ray dataset at
-   `ray_data/executor.py:120-142`.
-6. `RayDataStageAdapter.process_scheduler_ready_dataset()` marks the dataset as
-   scheduler-ready at `ray_data/adapter.py:121-127`.
-7. `_process_dataset()` keeps `map_batch_size = 1` for scheduler-ready rows at
-   `ray_data/adapter.py:140-173`.
-8. `create_actor_from_stage().__call__()` or `create_task_from_stage()` routes
-   scheduler-ready rows to `_process_scheduler_ready_batch_internal()` at
-   `ray_data/adapter.py:246-251` and `ray_data/adapter.py:282-288`.
-9. `_process_scheduler_ready_batch_internal()` calls
-   `process_scheduler_ready_batch()` at `ray_data/adapter.py:92-101`.
-10. `BaseStageAdapter.process_scheduler_ready_batch()` calls exactly one
-    `stage.process_batch()` without recursive planning at `base.py:285-299`.
-11. ASR recognizes prebucketed chunk tasks and runs `_process_prebucketed_chunk_batch()`
-    at `asr/stage.py:382-439`.
-12. After workers return processed chunks, Ray Data collects them and stitches
-    parent rows at `ray_data/executor.py:125-126`.
-
-Diagram:
-
-```text
-Ray Dataset[parent AudioTask rows]
-  -> take_all() at centralized ASR boundary
-  -> build_scheduled_task_batch_plan()
-  -> Ray Dataset[SchedulerReadyTaskBatch rows]
-  -> map_batches(batch_size=1)
-  -> ASR process_batch(prebucketed chunk tasks)
-  -> processed chunk tasks
-  -> assemble_prebucketed_task_results()
-  -> Ray Dataset[parent AudioTask rows]
-```
-
-## Xenna Streaming, Bucketing On
-
-Mock config:
-
-```yaml
-backend: xenna
-execution_mode: streaming
-duration_aware_bucketing:
-  enabled: true
-```
-
-Flow:
-
-1. `XennaExecutor.execute()` sees at least one centralized stage and routes to
-   `_run_pipeline_with_scheduler_ready_stages()` at
-   `nemo_curator/backends/xenna/executor.py:70-83`.
-2. `_run_pipeline_with_scheduler_ready_stages()` accumulates ordinary stages in
-   `xenna_segment` until it reaches ASR at `xenna/executor.py:85-107`.
-3. Any segment before ASR runs through normal Xenna at
-   `xenna/executor.py:99-101`.
-4. ASR runs through `_run_scheduler_ready_stage()` at
-   `xenna/executor.py:109-120`.
-5. `_run_scheduler_ready_stage()` calls `build_scheduled_task_batch_plan()` at
-   `xenna/executor.py:111`.
-6. The one-stage scheduler-ready Xenna pipeline receives `plan.ready_batches` at
-   `xenna/executor.py:115-119`.
-7. `_run_xenna_pipeline()` creates a `SchedulerReady` adapter at
-   `xenna/executor.py:138-146`.
-8. Because `execution_mode` is not `batch`, `_run_xenna_pipeline()` chooses
-   `ExecutionMode.STREAMING` and adds `StreamingSpecificSpec` at
-   `xenna/executor.py:165-177`.
-9. Xenna runs the one-stage scheduler-ready pipeline at
-   `xenna/executor.py:192-211`.
-10. `XennaSchedulerReadyStageAdapter.stage_batch_size` returns `1`, preserving
-    one scheduler-ready dispatch per worker call at `xenna/adapter.py:159-165`.
-11. `XennaSchedulerReadyStageAdapter.process_data()` calls
-    `process_scheduler_ready_batch()` for each ready row at
-    `xenna/adapter.py:167-172`.
-12. ASR processes the prebucketed chunks at `asr/stage.py:382-439`.
-13. Xenna returns processed chunk tasks; `_run_scheduler_ready_stage()` stitches
-    them to parent rows at `xenna/executor.py:120`.
-
-Diagram:
-
-```text
-Xenna streaming segment before ASR
-  -> current parent tasks returned
-  -> Curator scheduler chunks + buckets
-  -> Xenna streaming one-stage SchedulerReady ASR
-  -> stitch chunks back to parents
-  -> Xenna streaming downstream segment
-```
-
-Streaming changes Xenna execution behavior and autoscaling. It does not change
-the bucketing plan: ASR workers still receive scheduler-ready duration-coherent
-chunk batches.
-
-## Xenna Batch, Bucketing On
-
-Mock config:
-
-```yaml
-backend: xenna
-execution_mode: batch
-duration_aware_bucketing:
-  enabled: true
-```
-
-The call chain is the same as Xenna streaming through
-`xenna/executor.py:70-146`. The difference is execution mode:
+Ray Data no longer has a special centralized-stage executor branch:
 
 ```python
-# nemo_curator/backends/xenna/executor.py:165-168
+# nemo_curator/backends/ray_data/executor.py:101-104
+def _process_stage_dataset(self, stage, dataset):
+    adapter = RayDataStageAdapter(stage)
+    return adapter.process_dataset(dataset, self.ignore_head_node)
+```
+
+For a centralized ASR stage, `RayDataStageAdapter` chooses a larger candidate
+window instead of `batch_size=1` scheduler-ready rows:
+
+```python
+# nemo_curator/backends/ray_data/adapter.py:185-197
+def _map_batch_size(..., centralized_batches):
+    if scheduler_ready_batches or preplanned_batches:
+        return 1
+    if centralized_batches:
+        return upstream_prebatching_batch_size(self.stage, self.batch_size)
+    return self.batch_size
+```
+
+Default `upstream_prebatching_batch_size()` is the sum of bucket item caps,
+unless `duration_aware_bucketing.prebatching_window_size` overrides it:
+
+```python
+# nemo_curator/backends/base.py:235-253
+configured_window = getattr(policy, "prebatching_window_size", None)
+if configured_window is not None:
+    return int(configured_window)
+...
+policy_window = sum(int(cap) for cap in caps)
+return max(1, policy_window)
+```
+
+Ray Data shape:
+
+```text
+Ray Dataset[parent rows]
+  -> lazy map_batches chain
+  -> ASR map_batches window, e.g. sum(bucket caps)
+  -> BaseStageAdapter plans and runs bucketed chunk batches in that actor/task
+  -> parent rows returned to the Ray Dataset
+  -> final dataset.take_all() only after all stages
+```
+
+Throughput implication: this removes the previous driver `take_all()` barrier at
+the ASR boundary and preserves Ray Data's normal streaming execution model.
+However, planning is still local to each Ray Data map window. Ready batches from
+different windows do not become independent global work items.
+
+## Xenna Streaming
+
+Xenna no longer detects centralized stages and splits the pipeline. The complete
+stage list goes through one pipeline:
+
+```python
+# nemo_curator/backends/xenna/executor.py:66-77
+def execute(self, stages, initial_tasks=None):
+    initial_tasks = initial_tasks if initial_tasks else [EmptyTask]
+    return self._run_xenna_pipeline(stages, initial_tasks)
+```
+
+Each stage uses the regular Xenna adapter:
+
+```python
+# nemo_curator/backends/xenna/executor.py:90-112
+for stage in stages:
+    xenna_stage = create_named_xenna_stage_adapter(stage=stage)
+    stage_specs.append(StageSpec(stage=xenna_stage, ...))
+```
+
+The adapter reports a scheduler-sized candidate window:
+
+```python
+# nemo_curator/backends/xenna/adapter.py:82-86
+def stage_batch_size(self):
+    batch_size = self.processing_stage.batch_size
+    return upstream_prebatching_batch_size(self.processing_stage, batch_size)
+```
+
+Xenna streaming shape:
+
+```text
+one Xenna streaming pipeline
+  -> reader/prep/writer can stay in the same Xenna graph
+  -> ASR worker receives a scheduler-sized parent window
+  -> BaseStageAdapter plans chunk buckets inside that worker call
+  -> ASR returns stitched parent rows downstream
+```
+
+Throughput implication: this avoids the previous pre-ASR segment barrier and
+the one-stage scheduler-ready ASR pipeline. It should reduce orchestration and
+materialization overhead. It is still not a persistent cross-worker scheduler:
+ready batches inside one ASR call are processed serially by that call.
+
+## Xenna Batch
+
+Xenna batch uses the same Curator adapter path as streaming. The only executor
+difference is the Xenna execution mode:
+
+```python
+# nemo_curator/backends/xenna/executor.py:114-117
 exec_mode = pipelines_v1.ExecutionMode.STREAMING
 if self._get_pipeline_config("execution_mode") == "batch":
     exec_mode = pipelines_v1.ExecutionMode.BATCH
 ```
 
-With `batch`, no `StreamingSpecificSpec` is created because
-`xenna/executor.py:170-177` only applies that config to streaming mode.
-
-Diagram:
+Shape:
 
 ```text
-Xenna batch segment before ASR
-  -> current parent tasks returned
-  -> Curator scheduler chunks + buckets
-  -> Xenna batch one-stage SchedulerReady ASR
-  -> stitch chunks back to parents
-  -> Xenna batch downstream segment
+one Xenna batch pipeline
+  -> Xenna finite-stage execution
+  -> ASR receives scheduler-sized parent windows
+  -> chunking/bucketing/stitch-back happen inside each ASR worker call
 ```
 
-The GPU dispatch shape is identical to streaming: one scheduler-ready row maps
-to one ASR worker call, and each row already contains duration-coherent chunks.
+This removes the older Curator-side split into multiple `_run_xenna_pipeline()`
+segments. Xenna batch itself is still finite-stage oriented, so do not interpret
+it as a persistent global GPU work queue.
 
-## Bucketing Off: Current-Main-Compatible Path
+## Bucketing Off
 
-Mock config:
+With `duration_aware_bucketing.enabled=false`, `stage_uses_centralized_batching`
+returns false. ASR follows `_process_plain_batch()`:
 
-```yaml
-duration_aware_bucketing:
-  enabled: false
+```python
+# nemo_curator/stages/audio/inference/asr/stage.py:439-484
+def _process_plain_batch(self, tasks):
+    if self.chunking_enabled:
+        chunk_specs = self._build_chunk_specs(tasks)
+        items = [self._chunk_spec_to_item(spec) for spec in chunk_specs]
+    else:
+        items = [{... one item per parent task ...} for task in tasks]
+    results = self._run_inference_capped(items)
+    return self.assemble(tasks, items, parent_of, results)
 ```
 
-What happens:
+Off mode means no duration-bucket mixing. If chunking is enabled, each normal
+backend batch can still be sliced for model safety, then stitched back.
 
-1. `_enabled_batch_policy()` returns `None` at `base.py:92-96`.
-2. `stage_uses_centralized_batching()` returns false at `base.py:108-113`.
-3. Ray Data does not enter `_process_centralized_stage_dataset()` and instead
-   calls the ordinary adapter path at `ray_data/executor.py:105-111`.
-4. Xenna does not enter `_run_pipeline_with_scheduler_ready_stages()` and
-   instead calls `_run_xenna_pipeline()` at `xenna/executor.py:80-83`.
-5. If ASR receives a normal backend batch, `_requires_centralized_scheduler()`
-   is false at `asr/stage.py:475-477`, and `_process_plain_batch()` builds one
-   full item per parent row at `asr/stage.py:402-437`.
+## Throughput Ceiling
 
-So off mode for a mixed-duration backend batch is:
+Current Ray Data/Xenna bucket-on is better than the stale split/materialization
+path, but it is not the same ceiling as actor-pool scheduler-ready dispatch.
+
+Current Ray Data/Xenna:
 
 ```text
-[5s parent, 10m parent, 4h parent, 50m parent]
-  -> one process_batch call
-  -> one adapter item per parent
-  -> no scheduler chunk tasks
-  -> no duration buckets
-  -> one output row per input row
+backend window -> one worker call -> local plan -> serial ready-batch loop
 ```
 
-## Current Main Comparison
+Actor-pool scheduler-ready dispatch:
 
-The current-main checkout has no backend duration-aware scheduler symbols. A
-grep for `BatchPolicy`, `duration_aware_bucketing`,
-`SchedulerReadyTaskBatch`, `stage_uses_centralized_batching`, and `prebucketed`
-under `references/Curator-main/nemo_curator` and audio tutorials returns no
-matches.
-
-Main `BaseStageAdapter` directly invokes `stage.process_batch(tasks)`:
-
-```python
-# references/Curator-main/nemo_curator/backends/base.py:65-96
-def process_batch(self, tasks):
-    ...
-    with self._timer.time_process(input_size):
-        results = self.stage.process_batch(tasks)
-    ...
-    return results
+```text
+parent tasks -> global scheduler -> ready batches as independent work items
+                              -> idle GPU workers pull/receive batches
 ```
 
-Main Ray Data maps fixed backend batches directly:
+The actor-pool shape can reduce tail time better because each ready batch can be
+scheduled independently across workers. The Ray Data/Xenna shape avoids major
+driver/materialization overhead and preserves backend pipeline semantics, but it
+cannot rebalance ready batches across map-window or Xenna-call boundaries.
 
-```python
-# references/Curator-main/nemo_curator/backends/ray_data/adapter.py:68-117
-tasks = batch["item"]
-results = self.process_batch(tasks)
-...
-processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, ...)
-```
+Live throughput analysis should therefore report this precisely:
 
-Main Xenna uses the stage `batch_size` and directly processes data:
-
-```python
-# references/Curator-main/nemo_curator/backends/xenna/adapter.py:78-102
-def stage_batch_size(self):
-    batch_size = self.processing_stage.batch_size
-    return batch_size if batch_size is not None else 1
-
-def process_data(self, tasks):
-    return self.process_batch(tasks)
-```
-
-Main NeMo ASR similarly transcribes the backend-provided batch as-is:
-
-```python
-# references/Curator-main/nemo_curator/stages/audio/inference/asr/asr_nemo.py:112-130
-def process_batch(self, tasks):
-    files = [t.data[self.filepath_key] for t in tasks]
-    texts = self.transcribe(files)
-    ...
-    return tasks
-```
-
-That is the behavior `duration_aware_bucketing.enabled: false` now preserves in
-this PR: fixed backend batches are sent through without scheduler chunking,
-without duration bucketing, and without a second partial/local bucketing mode.
+- Ray Data/Xenna fixed path: window-local duration-aware bucketing with no
+  centralized driver materialization or Xenna pipeline split.
+- Actor-pool ideal/theory path: independent scheduler-ready dispatch, higher
+  throughput ceiling under skewed long-tail duration distributions.

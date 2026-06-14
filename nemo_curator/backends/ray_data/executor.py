@@ -20,10 +20,6 @@ from ray.data import DataContext, Dataset
 
 from nemo_curator.backends.base import (
     BaseExecutor,
-    SchedulerReadyTaskBatch,
-    assemble_scheduled_task_batch_results,
-    build_scheduled_task_batch_plan,
-    stage_uses_centralized_batching,
 )
 from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
@@ -103,27 +99,9 @@ class RayDataExecutor(BaseExecutor):
         return output_tasks
 
     def _process_stage_dataset(self, stage: "ProcessingStage", dataset: Dataset) -> Dataset:
-        """Process one stage, routing centralized stages through the Curator scheduler."""
-        if stage_uses_centralized_batching(stage):
-            return self._process_centralized_stage_dataset(stage, dataset)
-
+        """Process one stage as a Ray Data transform."""
         adapter = RayDataStageAdapter(stage)
         return adapter.process_dataset(dataset, self.ignore_head_node)
-
-    def _process_centralized_stage_dataset(self, stage: "ProcessingStage", dataset: Dataset) -> Dataset:
-        """Run a centralized stage as a Ray Data scheduler-ready stream."""
-        parent_tasks = self._dataset_to_tasks(dataset)
-        plan = build_scheduled_task_batch_plan(stage, parent_tasks)
-        if plan is None:
-            return RayDataStageAdapter(stage).process_dataset(dataset, self.ignore_head_node)
-
-        scheduler_dataset = self._scheduler_ready_batches_to_dataset(plan.ready_batches)
-        processed_dataset = RayDataStageAdapter(stage).process_scheduler_ready_dataset(
-            scheduler_dataset,
-            self.ignore_head_node,
-        )
-        processed_tasks = self._dataset_to_tasks(processed_dataset)
-        return self._tasks_to_dataset(assemble_scheduled_task_batch_results(stage, plan, processed_tasks))
 
     def _tasks_to_dataset(self, tasks: list[Task]) -> Dataset:
         """Convert list of tasks to Ray Data dataset.
@@ -136,10 +114,6 @@ class RayDataExecutor(BaseExecutor):
         """
         # Create Ray Data dataset directly from Task objects
         return ray.data.from_items(tasks, override_num_blocks=len(tasks))
-
-    def _scheduler_ready_batches_to_dataset(self, ready_batches: list[SchedulerReadyTaskBatch]) -> Dataset:
-        """Convert scheduler-ready worker rows to a Ray Data dataset."""
-        return ray.data.from_items(ready_batches, override_num_blocks=max(1, len(ready_batches)))
 
     def _dataset_to_tasks(self, dataset: Dataset) -> list[Task]:
         """Convert Ray Data dataset back to list of tasks.

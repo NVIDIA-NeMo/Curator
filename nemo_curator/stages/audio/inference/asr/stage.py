@@ -536,6 +536,9 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
             parent_of.append(idx)
 
         results = self._run_inference_capped(items)
+        if len(results) != len(items):
+            msg = f"run_fn returned {len(results)} results for {len(items)} items (must match 1:1)"
+            raise RuntimeError(msg)
         return self.assemble(tasks, items, parent_of, results)
 
     def _requires_centralized_scheduler(self) -> bool:
@@ -557,24 +560,6 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
             return []
 
         return [chunk.task for chunk in chunk_plan]
-
-    def build_prebucketed_task_batches(self, tasks: list[AudioTask]) -> list[list[AudioTask]] | None:
-        """Compatibility wrapper for callers that still ask the stage to plan batches."""
-        policy = self.batch_policy
-        scheduler_tasks = self.build_prebucketed_tasks(tasks)
-        if scheduler_tasks is None:
-            return None
-        if not scheduler_tasks:
-            return []
-
-        return [
-            list(sub_tasks)
-            for _sub_indices, sub_tasks, _total_cost in policy.bucketize_with_costs(
-                scheduler_tasks,
-                cost_fn=self.scheduler_task_cost,
-            )
-            if sub_tasks
-        ]
 
     def scheduler_task_cost(self, task: AudioTask) -> float:
         """Cost hook for executor-created ASR chunk work units."""
