@@ -312,42 +312,55 @@ def test_ray_data_adapter_processes_centralized_parent_windows_in_ray_data() -> 
     assert processed_batch_sizes == [1, 1]
 
 
-def test_ray_data_executor_keeps_centralized_stage_in_ray_data(
+def test_ray_data_executor_globalizes_centralized_stage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     executor = RayDataExecutor(ignore_head_node=True)
     stage = _CentralizedPlanningStage()
     input_dataset = object()
+    ready_dataset = object()
+    processed_dataset = object()
     output_dataset = object()
+    first = AudioTask(data={"duration": 5.0})
+    second = AudioTask(data={"duration": 600.0})
     calls: dict[str, object] = {}
 
     class FakeRayDataStageAdapter:
         def __init__(self, stage_arg: ProcessingStage) -> None:
             calls["stage"] = stage_arg
 
-        def process_dataset(self, dataset_arg: object, ignore_head_node: bool) -> object:
-            calls["dataset"] = dataset_arg
+        def process_scheduler_ready_dataset(self, dataset_arg: object, ignore_head_node: bool) -> object:
+            calls["ready_dataset"] = dataset_arg
             calls["ignore_head_node"] = ignore_head_node
-            return output_dataset
+            return processed_dataset
 
+    dataset_to_tasks = Mock(side_effect=[[first, second], [second, first]])
+    tasks_to_dataset = Mock(return_value=output_dataset)
     monkeypatch.setattr(
         executor,
         "_dataset_to_tasks",
-        Mock(side_effect=AssertionError("centralized stages should not materialize Ray Data datasets")),
+        dataset_to_tasks,
     )
     monkeypatch.setattr(
         executor,
         "_tasks_to_dataset",
-        Mock(side_effect=AssertionError("centralized stages should not rebuild Ray Data datasets")),
+        tasks_to_dataset,
     )
+    from_items = Mock(return_value=ready_dataset)
+    monkeypatch.setattr("ray.data.from_items", from_items)
     monkeypatch.setattr("nemo_curator.backends.ray_data.executor.RayDataStageAdapter", FakeRayDataStageAdapter)
 
     out = executor._process_stage_dataset(stage, input_dataset)
 
     assert out is output_dataset
+    dataset_to_tasks.assert_any_call(input_dataset)
+    dataset_to_tasks.assert_any_call(processed_dataset)
+    tasks_to_dataset.assert_called_once_with([first, second])
+    ready_batches = from_items.call_args.args[0]
+    assert [batch.tasks for batch in ready_batches] == [[second], [first]]
     assert calls == {
         "stage": stage,
-        "dataset": input_dataset,
+        "ready_dataset": ready_dataset,
         "ignore_head_node": True,
     }
 

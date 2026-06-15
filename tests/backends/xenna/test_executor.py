@@ -54,15 +54,17 @@ class _CentralizedStage(_PassthroughStage):
         return processed_tasks
 
 
-def test_xenna_executor_keeps_centralized_stage_inside_one_pipeline(monkeypatch) -> None:  # noqa: ANN001
+def test_xenna_executor_globalizes_centralized_stage_into_scheduler_segment(monkeypatch) -> None:  # noqa: ANN001
     executor = XennaExecutor()
+    centralized_stage = _CentralizedStage()
     stages: list[ProcessingStage[Any, Any]] = [
         _PassthroughStage(),
-        _CentralizedStage(),
+        centralized_stage,
         _PassthroughStage(),
     ]
     initial_tasks = [AudioTask(data={"duration": 5.0})]
     calls: list[tuple[list[ProcessingStage[Any, Any]], list[Task]]] = []
+    scheduler_calls: list[tuple[ProcessingStage[Any, Any], int]] = []
 
     def fake_run_xenna_pipeline(
         stages_arg: list[ProcessingStage[Any, Any]],
@@ -71,9 +73,18 @@ def test_xenna_executor_keeps_centralized_stage_inside_one_pipeline(monkeypatch)
         calls.append((stages_arg, initial_tasks_arg))
         return initial_tasks_arg
 
+    def fake_run_xenna_scheduler_ready_pipeline(
+        stage_arg: ProcessingStage[Any, Any],
+        ready_batches: list[Any],
+    ) -> list[Task]:
+        scheduler_calls.append((stage_arg, len(ready_batches)))
+        return [task for ready_batch in ready_batches for task in ready_batch.tasks]
+
     monkeypatch.setattr(executor, "_run_xenna_pipeline", fake_run_xenna_pipeline)
+    monkeypatch.setattr(executor, "_run_xenna_scheduler_ready_pipeline", fake_run_xenna_scheduler_ready_pipeline)
 
     out = executor.execute(stages, initial_tasks)
 
     assert out == initial_tasks
-    assert calls == [(stages, initial_tasks)]
+    assert calls == [([stages[0]], initial_tasks), ([stages[2]], initial_tasks)]
+    assert scheduler_calls == [(centralized_stage, 1)]

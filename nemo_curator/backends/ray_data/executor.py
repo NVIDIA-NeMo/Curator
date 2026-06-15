@@ -20,6 +20,9 @@ from ray.data import DataContext, Dataset
 
 from nemo_curator.backends.base import (
     BaseExecutor,
+    assemble_scheduled_task_batch_results,
+    build_scheduled_task_batch_plan,
+    stage_uses_centralized_batching,
 )
 from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
@@ -100,8 +103,40 @@ class RayDataExecutor(BaseExecutor):
 
     def _process_stage_dataset(self, stage: "ProcessingStage", dataset: Dataset) -> Dataset:
         """Process one stage as a Ray Data transform."""
+        if self.config.get("global_centralized_batching", True) and stage_uses_centralized_batching(stage):
+            return self._process_global_centralized_stage_dataset(stage, dataset)
+
         adapter = RayDataStageAdapter(stage)
         return adapter.process_dataset(dataset, self.ignore_head_node)
+
+    def _process_global_centralized_stage_dataset(self, stage: "ProcessingStage", dataset: Dataset) -> Dataset:
+        """Process a centralized stage with one global scheduler plan.
+
+        This experimental path intentionally materializes all upstream parent
+        tasks at the stage boundary, builds one global scheduler-ready plan, then
+        dispatches the ready batches as independent Ray Data rows before
+        assembling the processed chunks back into parent tasks.
+        """
+        parent_tasks = self._dataset_to_tasks(dataset)
+        plan = build_scheduled_task_batch_plan(stage, parent_tasks)
+        if plan is None:
+            adapter = RayDataStageAdapter(stage)
+            return adapter.process_dataset(dataset, self.ignore_head_node)
+
+        logger.info(
+            "Built global Ray Data scheduler plan with {} ready batches from {} parent tasks for {}",
+            len(plan.ready_batches),
+            len(plan.parent_tasks),
+            stage.name,
+        )
+        ready_dataset = ray.data.from_items(plan.ready_batches, override_num_blocks=max(1, len(plan.ready_batches)))
+        processed_dataset = RayDataStageAdapter(stage).process_scheduler_ready_dataset(
+            ready_dataset,
+            self.ignore_head_node,
+        )
+        processed_tasks = self._dataset_to_tasks(processed_dataset)
+        assembled_tasks = assemble_scheduled_task_batch_results(stage, plan, processed_tasks)
+        return self._tasks_to_dataset(assembled_tasks)
 
     def _tasks_to_dataset(self, tasks: list[Task]) -> Dataset:
         """Convert list of tasks to Ray Data dataset.

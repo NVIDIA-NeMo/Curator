@@ -21,10 +21,14 @@ from loguru import logger
 
 from nemo_curator.backends.base import (
     BaseExecutor,
+    assemble_scheduled_task_batch_results,
+    build_scheduled_task_batch_plan,
+    stage_uses_centralized_batching,
 )
 from nemo_curator.backends.utils import register_loguru_serializer
 from nemo_curator.backends.xenna.adapter import (
     create_named_xenna_stage_adapter,
+    create_named_xenna_scheduler_ready_stage_adapter,
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
@@ -61,6 +65,7 @@ class XennaExecutor(BaseExecutor):
             "execution_mode": "streaming",
             "cpu_allocation_percentage": 0.95,
             "autoscale_interval_s": 180,
+            "global_centralized_batching": True,
         }
 
     def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
@@ -74,7 +79,52 @@ class XennaExecutor(BaseExecutor):
             list[Task]: List of output tasks from the pipeline
         """
         initial_tasks = initial_tasks if initial_tasks else [EmptyTask]
+        if self._get_pipeline_config("global_centralized_batching"):
+            return self._run_xenna_pipeline_with_global_centralized(stages, initial_tasks)
         return self._run_xenna_pipeline(stages, initial_tasks)
+
+    def _run_xenna_pipeline_with_global_centralized(
+        self,
+        stages: list[ProcessingStage],
+        initial_tasks: list[Any],
+    ) -> list[Any]:
+        """Run centralized stages through a global scheduler-ready boundary.
+
+        This experimental path materializes the output of the upstream Xenna
+        segment, builds one global scheduler plan for the centralized stage, runs
+        the ready batches as independent Xenna work items, stitches parent rows
+        back together, then resumes the remaining stages.
+        """
+        current_tasks = initial_tasks
+        pending_stages: list[ProcessingStage] = []
+
+        for stage in stages:
+            if not stage_uses_centralized_batching(stage):
+                pending_stages.append(stage)
+                continue
+
+            if pending_stages:
+                current_tasks = self._run_xenna_pipeline(pending_stages, current_tasks)
+                pending_stages = []
+
+            plan = build_scheduled_task_batch_plan(stage, current_tasks)
+            if plan is None:
+                pending_stages.append(stage)
+                continue
+
+            logger.info(
+                "Built global Xenna scheduler plan with {} ready batches from {} parent tasks for {}",
+                len(plan.ready_batches),
+                len(plan.parent_tasks),
+                stage.name,
+            )
+            processed_tasks = self._run_xenna_scheduler_ready_pipeline(stage, plan.ready_batches)
+            current_tasks = assemble_scheduled_task_batch_results(stage, plan, processed_tasks)
+
+        if pending_stages:
+            current_tasks = self._run_xenna_pipeline(pending_stages, current_tasks)
+
+        return current_tasks
 
     def _run_xenna_pipeline(
         self,
@@ -88,28 +138,7 @@ class XennaExecutor(BaseExecutor):
         stage_specs = []
 
         for stage in stages:
-            # Get stage configuration
-            stage_config = stage.xenna_stage_spec()
-
-            # Create Xenna stage adapter with the original stage's name
-            xenna_stage = create_named_xenna_stage_adapter(stage=stage)
-
-            # Create stage spec with configuration from stage
-            stage_spec = pipelines_v1.StageSpec(
-                stage=xenna_stage,
-                num_workers=stage_config.get("num_workers"),
-                num_workers_per_node=stage_config.get("num_workers_per_node"),
-                num_setup_attempts_python=stage_config.get("num_setup_attempts_python"),
-                num_run_attempts_python=stage_config.get("num_run_attempts_python"),
-                ignore_failures=stage_config.get("ignore_failures"),
-                reset_workers_on_failure=stage_config.get("reset_workers_on_failure"),
-                slots_per_actor=stage_config.get("slots_per_actor"),
-                worker_max_lifetime_m=stage_config.get("worker_max_lifetime_m"),
-                worker_restart_interval_m=stage_config.get("worker_restart_interval_m"),
-                max_setup_failure_percentage=stage_config.get("max_setup_failure_percentage"),
-            )
-
-            stage_specs.append(stage_spec)
+            stage_specs.append(self._build_stage_spec(stage))
 
         # Determine execution mode
         exec_mode = pipelines_v1.ExecutionMode.STREAMING
@@ -164,6 +193,101 @@ class XennaExecutor(BaseExecutor):
             raise
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
+            ray.shutdown()
+        return results if results else []
+
+    def _run_xenna_scheduler_ready_pipeline(
+        self,
+        stage: ProcessingStage,
+        ready_batches: list[Any],
+    ) -> list[Any]:
+        """Run one centralized stage over scheduler-ready batch rows."""
+        if not ready_batches:
+            return []
+        return self._run_xenna_pipeline_from_specs(
+            [self._build_stage_spec(stage, scheduler_ready=True)],
+            ready_batches,
+        )
+
+    def _build_stage_spec(
+        self,
+        stage: ProcessingStage,
+        *,
+        scheduler_ready: bool = False,
+    ) -> pipelines_v1.StageSpec:
+        """Create a Xenna StageSpec from a Curator stage."""
+        stage_config = stage.xenna_stage_spec()
+        if scheduler_ready:
+            xenna_stage = create_named_xenna_scheduler_ready_stage_adapter(stage=stage)
+        else:
+            xenna_stage = create_named_xenna_stage_adapter(stage=stage)
+
+        return pipelines_v1.StageSpec(
+            stage=xenna_stage,
+            num_workers=stage_config.get("num_workers"),
+            num_workers_per_node=stage_config.get("num_workers_per_node"),
+            num_setup_attempts_python=stage_config.get("num_setup_attempts_python"),
+            num_run_attempts_python=stage_config.get("num_run_attempts_python"),
+            ignore_failures=stage_config.get("ignore_failures"),
+            reset_workers_on_failure=stage_config.get("reset_workers_on_failure"),
+            slots_per_actor=stage_config.get("slots_per_actor"),
+            worker_max_lifetime_m=stage_config.get("worker_max_lifetime_m"),
+            worker_restart_interval_m=stage_config.get("worker_restart_interval_m"),
+            max_setup_failure_percentage=stage_config.get("max_setup_failure_percentage"),
+        )
+
+    def _run_xenna_pipeline_from_specs(
+        self,
+        stage_specs: list[pipelines_v1.StageSpec],
+        initial_tasks: list[Any],
+    ) -> list[Any]:
+        """Run a Xenna pipeline from already-built stage specs."""
+        if not stage_specs:
+            return initial_tasks
+
+        exec_mode = pipelines_v1.ExecutionMode.STREAMING
+        if self._get_pipeline_config("execution_mode") == "batch":
+            exec_mode = pipelines_v1.ExecutionMode.BATCH
+
+        streaming_config = None
+        if exec_mode == pipelines_v1.ExecutionMode.STREAMING:
+            streaming_config = pipelines_v1.StreamingSpecificSpec(
+                autoscale_interval_s=self._get_pipeline_config("autoscale_interval_s"),
+                autoscaler_verbosity_level=VerbosityLevel.INFO,
+                executor_verbosity_level=VerbosityLevel.INFO,
+            )
+
+        pipeline_config = pipelines_v1.PipelineConfig(
+            execution_mode=exec_mode,
+            logging_interval_s=self._get_pipeline_config("logging_interval"),
+            log_worker_allocation_layout=True,
+            return_last_stage_outputs=True,
+            ignore_failures=self._get_pipeline_config("ignore_failures"),
+            cpu_allocation_percentage=self._get_pipeline_config("cpu_allocation_percentage"),
+            mode_specific=streaming_config,
+            actor_pool_verbosity_level=VerbosityLevel.INFO,
+            monitoring_verbosity_level=VerbosityLevel.INFO,
+        )
+
+        pipeline_spec = pipelines_v1.PipelineSpec(input_data=initial_tasks, stages=stage_specs, config=pipeline_config)
+        logger.info(f"Execution mode: {exec_mode.name}")
+
+        try:
+            register_loguru_serializer()
+            ray.init(
+                ignore_reinit_error=True,
+                runtime_env={
+                    "env_vars": {
+                        "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+                    }
+                },
+            )
+            results = pipelines_v1.run_pipeline(pipeline_spec)
+            logger.info(f"Pipeline completed successfully with {len(results) if results else 0} output tasks")
+        except Exception as e:
+            logger.error(f"Pipeline execution failed: {e}")
+            raise
+        finally:
             ray.shutdown()
         return results if results else []
 
