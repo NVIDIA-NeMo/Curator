@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 from typing import Any
 
 import pandas as pd
@@ -47,13 +48,16 @@ def make_document_batch(
 ) -> DocumentBatch:
     """Construct a NeMo Curator DocumentBatch."""
 
-    return DocumentBatch(
-        task_id=task_id,
-        dataset_name=dataset_name,
-        data=pd.DataFrame.from_records(records),
-        _metadata=metadata or {},
-        _stage_perf=stage_perf or [],
-    )
+    kwargs = {
+        "dataset_name": dataset_name,
+        "data": pd.DataFrame.from_records(records),
+        "_metadata": metadata or {},
+        "_stage_perf": stage_perf or [],
+    }
+    if "task_id" in inspect.signature(DocumentBatch).parameters:
+        kwargs["task_id"] = task_id
+
+    return DocumentBatch(**kwargs)
 
 
 def make_empty_task() -> EmptyTask:
