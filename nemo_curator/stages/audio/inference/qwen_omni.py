@@ -80,6 +80,7 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     waveform_key: str = "waveform"
     sample_rate_key: str = "sampling_rate"
     source_lang_key: str = "source_lang"
+    reference_text_key: str | None = None
     pred_text_key: str = "qwen3_prediction_s1"
     disfluency_text_key: str = "qwen3_prediction_s2"
     skip_me_key: str = "_skipme"
@@ -164,7 +165,10 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
     # ------------------------------------------------------------------
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.waveform_key, self.sample_rate_key]
+        keys = [self.waveform_key, self.sample_rate_key]
+        if self.reference_text_key:
+            keys.append(self.reference_text_key)
+        return [], keys
 
     def outputs(self) -> tuple[list[str], list[str]]:
         keys = [self.pred_text_key]
@@ -233,7 +237,16 @@ class InferenceQwenOmniStage(ProcessingStage[AudioTask, AudioTask]):
                 for code in (t.data.get(self.source_lang_key) for t in eligible_tasks)
             ]
 
-        pred_texts, disfluency_texts, skipped_indices = self._model.generate(waveforms, sample_rates, languages)
+        reference_texts: list[str | None] | None = None
+        if self.reference_text_key:
+            reference_texts = [
+                str(t.data.get(self.reference_text_key, "") or "").strip() or None
+                for t in eligible_tasks
+            ]
+
+        pred_texts, disfluency_texts, skipped_indices = self._model.generate(
+            waveforms, sample_rates, languages, reference_texts,
+        )
 
         for local_i, (task_idx, pred, disfl) in enumerate(
             zip(eligible_indices, pred_texts, disfluency_texts, strict=True)

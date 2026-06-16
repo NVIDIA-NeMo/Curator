@@ -46,6 +46,11 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
        near-identical output is strong evidence the text is correct.
     3. **Fallback** -- the primary (omni) prediction is used as-is.
 
+    When ``use_reference_on_hallucination`` is enabled and the primary
+  output is flagged as a hallucination, the text at
+  ``reference_text_key`` (e.g. the dataset's original transcript) is
+  used instead, if non-empty.
+
     This allows downstream stages (FastTextLID, RegexSubstitution) to
     always read from ``best_prediction`` regardless of which model
     produced the final text.
@@ -66,11 +71,17 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
     agreement_wer_key: str = "omni_asr_agreement_wer"
     primary_source_label: str = "primary"
     fallback_source_label: str = "fallback"
+    reference_text_key: str | None = None
+    use_reference_on_hallucination: bool = False
+    reference_source_label: str = "reference"
     name: str = "SelectBestPrediction"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.primary_text_key]
+        keys = [self.primary_text_key]
+        if self.reference_text_key:
+            keys.append(self.reference_text_key)
+        return [], keys
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.output_key, self.skip_me_key, self.agreement_wer_key, self.source_key]
@@ -107,6 +118,25 @@ class SelectBestPredictionStage(ProcessingStage[AudioTask, AudioTask]):
             task.data[self.source_key] = self.fallback_source_label
             set_note(task.data, self.name, f"used {self.fallback_source_label}", self.notes_key)
             return task
+
+        # Reference fallback: primary hallucinated, use existing dataset text
+        if (
+            self.use_reference_on_hallucination
+            and self.reference_text_key
+            and skip_me.startswith("Hallucination")
+        ):
+            ref_text = str(task.data.get(self.reference_text_key, "") or "").strip()
+            if ref_text:
+                task.data[self.output_key] = ref_text
+                task.data[self.source_key] = self.reference_source_label
+                task.data[self.skip_me_key] = ""
+                set_note(
+                    task.data,
+                    self.name,
+                    f"used {self.reference_source_label} (primary hallucination)",
+                    self.notes_key,
+                )
+                return task
 
         # Cross-model agreement: both hallucinated but texts match
         both_hallucinated = skip_me.startswith("Hallucination") and asr_pred

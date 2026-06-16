@@ -165,21 +165,34 @@ class QwenOmni(ModelInterface):
 
         return librosa.resample(waveform, orig_sr=orig_sr, target_sr=target_sr)
 
-    def _resolve_prompt(self, template: str, language: str | None) -> str:
-        """Replace ``{language}`` placeholder if *language* is provided."""
-        if language and "{language}" in template:
-            return template.replace("{language}", language)
-        return template
+    def _resolve_prompt(
+        self,
+        template: str,
+        language: str | None = None,
+        reference_text: str | None = None,
+    ) -> str:
+        """Replace ``{language}`` and ``{transcript}`` placeholders when values are provided."""
+        result = template
+        if language and "{language}" in result:
+            result = result.replace("{language}", language)
+        if reference_text is not None and "{transcript}" in result:
+            result = result.replace("{transcript}", reference_text)
+        return result
 
-    def _get_prompt_text(self, language: str | None) -> str:
+    def _get_prompt_text(self, language: str | None, reference_text: str | None = None) -> str:
         """Return the EN-specific prompt for English, otherwise the default prompt."""
         if language and language == "English" and self.en_prompt_text:
-            return self.en_prompt_text
-        return self._resolve_prompt(self.prompt_text, language)
+            return self._resolve_prompt(self.en_prompt_text, language, reference_text)
+        return self._resolve_prompt(self.prompt_text, language, reference_text)
 
-    def _build_messages(self, waveform: np.ndarray, language: str | None = None) -> list[dict[str, Any]]:
+    def _build_messages(
+        self,
+        waveform: np.ndarray,
+        language: str | None = None,
+        reference_text: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Build Turn 1 chat messages with an in-memory waveform (numpy array at 16 kHz)."""
-        prompt = self._get_prompt_text(language)
+        prompt = self._get_prompt_text(language, reference_text)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
             sys_prompt = self._resolve_prompt(self.system_prompt, language)
@@ -193,10 +206,16 @@ class QwenOmni(ModelInterface):
         })
         return messages
 
-    def _build_turn2_messages(self, waveform: np.ndarray, pred_text: str, language: str | None = None) -> list[dict[str, Any]]:
+    def _build_turn2_messages(
+        self,
+        waveform: np.ndarray,
+        pred_text: str,
+        language: str | None = None,
+        reference_text: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Build Turn 2 messages: full Turn 1 conversation history + follow-up prompt."""
-        prompt = self._get_prompt_text(language)
-        followup = self._resolve_prompt(self.followup_prompt, language)
+        prompt = self._get_prompt_text(language, reference_text)
+        followup = self._resolve_prompt(self.followup_prompt, language, reference_text)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
             sys_prompt = self._resolve_prompt(self.system_prompt, language)
@@ -218,7 +237,11 @@ class QwenOmni(ModelInterface):
         return messages
 
     def _prepare_single(
-        self, waveform: np.ndarray, sample_rate: int, language: str | None = None,
+        self,
+        waveform: np.ndarray,
+        sample_rate: int,
+        language: str | None = None,
+        reference_text: str | None = None,
     ) -> tuple[dict[str, Any], np.ndarray] | None:
         from qwen_omni_utils import process_mm_info
 
@@ -236,7 +259,7 @@ class QwenOmni(ModelInterface):
 
         try:
             waveform_16k = self._resample(waveform, sample_rate)
-            messages = self._build_messages(waveform_16k, language)
+            messages = self._build_messages(waveform_16k, language, reference_text)
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
         except Exception:  # noqa: BLE001
@@ -261,19 +284,28 @@ class QwenOmni(ModelInterface):
         waveforms: list[np.ndarray],
         sample_rates: list[int],
         languages: list[str | None] | None = None,
+        reference_texts: list[str | None] | None = None,
     ) -> list[tuple[dict[str, Any], np.ndarray] | None]:
         langs = languages or [None] * len(waveforms)
+        refs = reference_texts or [None] * len(waveforms)
         if self._prep_pool is None:
-            return [self._prepare_single(w, sr, lang) for w, sr, lang in zip(waveforms, sample_rates, langs, strict=False)]
-        return list(self._prep_pool.map(self._prepare_single, waveforms, sample_rates, langs))
+            return [
+                self._prepare_single(w, sr, lang, ref)
+                for w, sr, lang, ref in zip(waveforms, sample_rates, langs, refs, strict=False)
+            ]
+        return list(self._prep_pool.map(self._prepare_single, waveforms, sample_rates, langs, refs))
 
     def _prepare_turn2_single(
-        self, waveform_16k: np.ndarray, pred_text: str, language: str | None = None,
+        self,
+        waveform_16k: np.ndarray,
+        pred_text: str,
+        language: str | None = None,
+        reference_text: str | None = None,
     ) -> dict[str, Any] | None:
         from qwen_omni_utils import process_mm_info
 
         try:
-            messages = self._build_turn2_messages(waveform_16k, pred_text, language)
+            messages = self._build_turn2_messages(waveform_16k, pred_text, language, reference_text)
             text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
         except Exception:  # noqa: BLE001
@@ -298,14 +330,16 @@ class QwenOmni(ModelInterface):
         waveforms_16k: list[np.ndarray],
         pred_texts: list[str],
         languages: list[str | None] | None = None,
+        reference_texts: list[str | None] | None = None,
     ) -> list[dict[str, Any] | None]:
         langs = languages or [None] * len(waveforms_16k)
+        refs = reference_texts or [None] * len(waveforms_16k)
         if self._prep_pool is None:
             return [
-                self._prepare_turn2_single(w, pt, lang)
-                for w, pt, lang in zip(waveforms_16k, pred_texts, langs, strict=False)
+                self._prepare_turn2_single(w, pt, lang, ref)
+                for w, pt, lang, ref in zip(waveforms_16k, pred_texts, langs, refs, strict=False)
             ]
-        return list(self._prep_pool.map(self._prepare_turn2_single, waveforms_16k, pred_texts, langs))
+        return list(self._prep_pool.map(self._prepare_turn2_single, waveforms_16k, pred_texts, langs, refs))
 
     # ------------------------------------------------------------------
     # Generation
@@ -316,6 +350,7 @@ class QwenOmni(ModelInterface):
         waveforms: list[np.ndarray],
         sample_rates: list[int],
         languages: list[str | None] | None = None,
+        reference_texts: list[str | None] | None = None,
     ) -> tuple[list[str], list[str], set[int]]:
         """Run batched two-turn inference on in-memory audio waveforms.
 
@@ -323,16 +358,17 @@ class QwenOmni(ModelInterface):
         is set, Turn 2 re-listens with the full conversation history and
         a follow-up prompt (e.g. to add disfluencies / filler words).
 
-        Prompts may contain a ``{language}`` placeholder which is replaced
-        per-sample with the corresponding entry from *languages* (e.g.
-        ``"English"``).  When *languages* is ``None`` or an entry is
-        ``None``, prompts are used as-is.
+        Prompts may contain ``{language}`` and ``{transcript}`` placeholders
+        which are replaced per-sample from *languages* and
+        *reference_texts* respectively.
 
         Args:
             waveforms: List of 1-D mono numpy float32 arrays.
             sample_rates: Corresponding sample rates for each waveform.
             languages: Optional per-sample language names for prompt
                 interpolation.
+            reference_texts: Optional per-sample reference transcripts for
+                ``{transcript}`` interpolation.
 
         Returns:
             ``(pred_texts, disfluency_texts, skipped_indices)`` — one string
@@ -347,7 +383,7 @@ class QwenOmni(ModelInterface):
         n = len(waveforms)
 
         # -- Turn 1 ----------------------------------------------------------
-        prepared = self._prepare_batch(waveforms, sample_rates, languages)
+        prepared = self._prepare_batch(waveforms, sample_rates, languages, reference_texts)
         valid_indices = [i for i, p in enumerate(prepared) if p is not None]
         skipped_indices = set(range(n)) - set(valid_indices)
         valid_inputs = [prepared[i][0] for i in valid_indices]
@@ -375,10 +411,12 @@ class QwenOmni(ModelInterface):
             return pred_texts, [""] * n, skipped_indices
 
         langs = languages or [None] * n
+        refs = reference_texts or [None] * n
         t2_prepared = self._prepare_turn2_batch(
             [waveforms_16k[i] for i in t2_indices],
             [pred_texts[i] for i in t2_indices],
             [langs[i] for i in t2_indices],
+            [refs[i] for i in t2_indices],
         )
 
         t2_valid = [(i, p) for i, p in zip(t2_indices, t2_prepared, strict=False) if p is not None]
