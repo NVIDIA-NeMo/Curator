@@ -90,7 +90,6 @@ inference_server = [
     "ai-dynamo-runtime>=1.3.0.dev0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "orjson>=3.10.0",
     "ray[serve,llm]>=2.55.1",
 ]
 
