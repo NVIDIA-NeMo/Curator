@@ -59,7 +59,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--data_config", type=str, required=True, help="Granary YAML data config.")
     ap.add_argument("--corpus", type=str, nargs="*", default=None, help="Process only these corpora.")
     ap.add_argument("--output_dir", type=str, required=True, help="Output directory for per-shard manifests.")
-    ap.add_argument("--language", type=str, default="en", help="ISO 639-1 language code filter.")
+    ap.add_argument("--language", type=str, default=None, help="ISO 639-1 language code filter.")
     ap.add_argument("--model_id", type=str, default="Qwen/Qwen3-Omni-30B-A3B-Instruct")
     ap.add_argument(
         "--ml_prompt",
@@ -223,7 +223,8 @@ def main() -> None:
     pipeline = Pipeline(name="qwen_omni_reference_pipeline", stages=stages)
     logger.info(f"Pipeline: {pipeline.describe()}")
     logger.info(
-        "reference_text_key={}, use_reference_on_hallucination={}, followup={}",
+        "language_filter={}, reference_text_key={}, use_reference_on_hallucination={}, followup={}",
+        language_filter,
         args.reference_text_key,
         args.use_reference_on_hallucination,
         bool(followup_prompt),
