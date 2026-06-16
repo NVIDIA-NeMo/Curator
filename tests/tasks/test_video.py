@@ -47,7 +47,7 @@ class TestWindow:
         assert window.start_frame == 0
         assert window.end_frame == 10
         assert window.mp4_bytes is None
-        assert window.qwen_llm_input is None
+        assert window.llm_inputs == {}
         assert window.x1_input is None
         assert window.caption == {}
         assert window.enhanced_caption == {}
@@ -65,7 +65,7 @@ class TestWindow:
             start_frame=5,
             end_frame=15,
             mp4_bytes=mp4_data,
-            qwen_llm_input=qwen_input,
+            llm_inputs={"qwen": qwen_input},
             webp_bytes=webp_data,
             caption=caption,
             enhanced_caption=enhanced_caption,
@@ -74,7 +74,7 @@ class TestWindow:
         assert window.start_frame == 5
         assert window.end_frame == 15
         assert window.mp4_bytes == mp4_data
-        assert window.qwen_llm_input == qwen_input
+        assert window.llm_inputs["qwen"] == qwen_input
         assert window.webp_bytes == webp_data
         assert window.caption == caption
         assert window.enhanced_caption == enhanced_caption
@@ -99,7 +99,7 @@ class TestWindow:
             start_frame=0,
             end_frame=10,
             mp4_bytes=mp4_data,
-            qwen_llm_input=qwen_input,
+            llm_inputs={"qwen": qwen_input},
             webp_bytes=webp_data,
             caption=caption,
             enhanced_caption=enhanced_caption,
@@ -537,12 +537,10 @@ class TestVideoTask:
         """Test VideoTask initialization."""
         video_data = Video(input_video=pathlib.Path("test.mp4"))
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=video_data,
         )
 
-        assert task.task_id == "test_task"
         assert task.dataset_name == "test_dataset"
         assert isinstance(task.data, Video)
 
@@ -550,7 +548,6 @@ class TestVideoTask:
         """Test VideoTask initialization with video data."""
         video_data = Video(input_video=pathlib.Path("test.mp4"))
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=video_data,
         )
@@ -565,7 +562,6 @@ class TestVideoTask:
             try:
                 video_data = Video(input_video=tmp_path)
                 task = VideoTask(
-                    task_id="test_task",
                     dataset_name="test_dataset",
                     data=video_data,
                 )
@@ -578,7 +574,6 @@ class TestVideoTask:
         """Test validate method with non-existing file."""
         video_data = Video(input_video=pathlib.Path("non_existing_file.mp4"))
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=video_data,
         )
@@ -590,7 +585,6 @@ class TestVideoTask:
         """Test num_items property."""
         video_data = Video(input_video=pathlib.Path("test.mp4"))
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=video_data,
         )

@@ -15,7 +15,7 @@
 # This workflow validates NeMo Curator installation for each optional dependency.
 # Tests both pip and uv (lockfile) installations.
 # - Most jobs: CPU runner, install-only validation
-# - UV Py3.12 jobs: GPU runner, install + import validation
+# - UV Py3.13 jobs: GPU runner, install + import validation
 
 name: Installation Test
 
@@ -37,12 +37,13 @@ env:
 
 jobs:
   pre-flight:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.69.1
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cicd_preflight.yml@v0.80.1
     with:
       default_runner_prefix: ${{ vars.DEFAULT_RUNNER_PREFIX }}
       non_nvidia_runner_prefix: ${{ vars.NON_NVIDIA_RUNNER_PREFIX }}
       default_test_data_path: ${{ vars.DEFAULT_TEST_DATA_PATH }}
       non_nvidia_test_data_path: ${{ vars.NON_NVIDIA_TEST_DATA_PATH }}
+      sso_users_filename: ${{ vars.SSO_USERS_FILENAME }}
     secrets:
       NVIDIA_MANAGEMENT_ORG_PAT: ${{ secrets.NVIDIA_MANAGEMENT_ORG_PAT }}
 
@@ -51,7 +52,7 @@ jobs:
     outputs:
       cuda_base_image: ${{ steps.cuda_config.outputs.base_image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Extract CUDA config
@@ -68,13 +69,13 @@ jobs:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
-    name: CPU Extras Individual - Install + Import (${{ matrix.installer }}) - Py3.12
+    name: CPU Extras Individual - Install + Import (${{ matrix.installer }}) - Py3.13
     strategy:
       fail-fast: false
       matrix:
         installer: [pip, uv]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -82,15 +83,15 @@ jobs:
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Set up uv
         if: matrix.installer == 'uv'
         uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           enable-cache: false  # We use isolated venvs with uv cache clean
 
       - name: Test each CPU extra (${{ matrix.installer }})
@@ -98,7 +99,7 @@ jobs:
         run: |
           set -o pipefail
           INSTALLER="${{ matrix.installer }}"
-          CPU_EXTRAS=("audio_cpu" "image_cpu" "text_cpu" "video_cpu")
+          CPU_EXTRAS=("audio_cpu" "image_cpu" "sdg_cpu" "text_cpu" "video_cpu")
           RESULTS=""
           FAILED=0
 
@@ -190,7 +191,7 @@ jobs:
 
       - name: Upload status artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cpu-status-${{ matrix.installer }}
           path: cpu-status/
@@ -209,24 +210,29 @@ jobs:
       fail-fast: false
       matrix:
         installer: [pip, uv]
-    name: "GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.12"
+    name: "GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.13"
     steps:
       - name: Install dependencies for setup-python
-        run: apt-get update && apt-get install -y --no-install-recommends git curl
+        run: |
+          for i in 1 2 3; do
+            apt-get update && apt-get install -y --no-install-recommends git curl && break
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Setup uv
         if: matrix.installer == 'uv'
         uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.12"
+          python-version: "3.13"
           enable-cache: false
 
       - name: Test each GPU extra (${{ matrix.installer }})
@@ -235,7 +241,7 @@ jobs:
         run: |
           set -o pipefail
           INSTALLER="${{ matrix.installer }}"
-          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12")
+          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "inference_server" "text_cuda12" "inference_server")
           RESULTS=""
           FAILED=0
 
@@ -312,7 +318,7 @@ jobs:
 
       - name: Upload status artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gpu-status-${{ matrix.installer }}
           path: gpu-status/
@@ -335,16 +341,16 @@ jobs:
   #       python-version: ["3.12", "3.10"]
   #       exclude:
   #         - installer: uv
-  #           python-version: "3.12"  # This combo runs on GPU with import checks
+  #           python-version: "3.13"  # This combo runs on GPU with import checks
   #   steps:
   #     - name: Install dependencies for setup-python
   #       run: apt-get update && apt-get install -y --no-install-recommends git curl
 
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v6
   #       with:
   #         submodules: recursive
 
-  #     - uses: actions/setup-python@v5
+  #     - uses: actions/setup-python@v6
   #       with:
   #         python-version: "${{ matrix.python-version }}"
 
@@ -404,15 +410,15 @@ jobs:
   #         fi
 
   # ============================================================================
-  # ALL Extras - Install + Import (GPU Runner, uv Py3.12 only)
+  # ALL Extras - Install + Import (GPU Runner, uv Py3.13 only)
   # ============================================================================
   all-install-import-test:
     needs: [pre-flight, cuda-pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
-    runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
-    name: "ALL Extras - Install + Import (uv) - Py3.12"
+    runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}
+    name: "ALL Extras - Install + Import (uv) - Py3.13"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: recursive
 
@@ -421,14 +427,18 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          echo "🚀 Installing ALL extras (uv, Py3.12) - Install + Import"
+          echo "🚀 Installing ALL extras (uv, Py3.13) - Install + Import"
 
           cat > ${{ github.workspace }}/.run_install.sh << 'SCRIPT'
           set -e
-          apt-get update && apt-get install -y --no-install-recommends git curl
+          for i in 1 2 3; do
+            apt-get update && apt-get install -y --no-install-recommends git curl && break
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
           curl -LsSf https://astral.sh/uv/install.sh | sh
           export PATH="/root/.local/bin:$PATH"
-          uv sync --locked --link-mode copy --extra all --python 3.12 2>&1 | tee install.log
+          uv sync --locked --link-mode copy --extra all --python 3.13 2>&1 | tee install.log
 
           echo "::group::Import Verification"
           uv run python -c "import sys; print('Python:', sys.version);"
@@ -470,7 +480,7 @@ jobs:
     steps:
       - name: Download CPU status artifacts
         continue-on-error: true  # May not exist if job was skipped
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: cpu-status-*
           merge-multiple: true
@@ -478,7 +488,7 @@ jobs:
 
       - name: Download GPU status artifacts
         continue-on-error: true  # May not exist if job was skipped
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: gpu-status-*
           merge-multiple: true
@@ -507,7 +517,7 @@ jobs:
           echo "| Job | Runner | Validation | Status |"
           echo "|-----|--------|------------|--------|"
           # echo "| ALL (pip/uv, Py3.10/3.12) | CPU | Install Only | ${{ needs.all-install-only-test.result == 'success' && '✅' || '⚠️ (expected)' }} |"
-          echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '❌' }} |"
+          echo "| ALL (uv, Py3.13) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '❌' }} |"
           echo ""
 
           # Core tests: CPU extras (both), GPU extras (uv), and ALL extras (uv) must pass
@@ -517,4 +527,3 @@ jobs:
           else
             echo "❌ Core installation tests failed"; exit 1
           fi
-

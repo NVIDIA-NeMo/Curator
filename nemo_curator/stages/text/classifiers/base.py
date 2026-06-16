@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,6 +31,8 @@ from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD
 from nemo_curator.tasks import DocumentBatch
+
+from .utils import SortByLengthStage
 
 
 class Deberta(nn.Module, PyTorchModelHubMixin):
@@ -75,8 +77,10 @@ class ClassifierModelStage(ModelStage):
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         padding_side: The side to pad the input tokens. Defaults to "right".
+        max_seq_length: If provided, clips the input tokens before the forward pass. Defaults to None.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
 
     """
 
@@ -89,7 +93,9 @@ class ClassifierModelStage(ModelStage):
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
+        max_seq_length: int | None = None,
         autocast: bool = True,
+        keep_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -97,6 +103,7 @@ class ClassifierModelStage(ModelStage):
             has_seq_order=has_seq_order,
             model_inference_batch_size=model_inference_batch_size,
             padding_side=padding_side,
+            max_seq_length=max_seq_length,
             unpack_inference_batch=False,
             autocast=autocast,
         )
@@ -108,6 +115,8 @@ class ClassifierModelStage(ModelStage):
         else:
             self.score_field = "probs"
             self.keep_score_field = False
+
+        self.keep_tokens = keep_tokens
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.label_field] + ([self.score_field] if self.keep_score_field else [])
@@ -139,7 +148,9 @@ class ClassifierModelStage(ModelStage):
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+        if not self.keep_tokens:
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+
         df_cpu[self.label_field] = collected_output[self.label_field]
 
         if self.keep_score_field:
@@ -172,6 +183,10 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            Defaults to False.
 
     """
 
@@ -187,12 +202,16 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     sort_by_length: bool = True
     model_inference_batch_size: int = 256
     autocast: bool = True
+    keep_tokens: bool = False
+    use_existing_tokens: bool = False
 
     def __post_init__(self) -> None:
         super().__init__()
 
-        self.stages = [
-            TokenizerStage(
+        self.stages = []
+
+        if not self.use_existing_tokens:
+            tokenizer_stage = TokenizerStage(
                 model_identifier=self.model_identifier,
                 cache_dir=self.cache_dir,
                 text_field=self.text_field,
@@ -200,18 +219,32 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 max_seq_length=self.max_seq_length,
                 padding_side=self.padding_side,
                 sort_by_length=self.sort_by_length,
-            ),
-            ClassifierModelStage(
-                model_identifier=self.model_identifier,
-                cache_dir=self.cache_dir,
-                label_field=self.label_field,
-                score_field=self.score_field,
-                model_inference_batch_size=self.model_inference_batch_size,
-                has_seq_order=self.sort_by_length,
-                padding_side=self.padding_side,
-                autocast=self.autocast,
-            ),
-        ]
+            )
+            self.stages.append(tokenizer_stage)
+            # The TokenizerStage already truncates to the max_seq_length, so the ModelStage does not need to do it again
+            model_max_seq_length = None
+        else:
+            # The ModelStage will truncate to the max_seq_length before the forward pass
+            model_max_seq_length = self.max_seq_length
+
+        # Ensure that the data is sorted by length if the tokens are already present and sort_by_length is True
+        if self.use_existing_tokens and self.sort_by_length:
+            sort_by_length_stage = SortByLengthStage()
+            self.stages.append(sort_by_length_stage)
+
+        model_stage = ClassifierModelStage(
+            model_identifier=self.model_identifier,
+            cache_dir=self.cache_dir,
+            label_field=self.label_field,
+            score_field=self.score_field,
+            model_inference_batch_size=self.model_inference_batch_size,
+            has_seq_order=self.sort_by_length,
+            padding_side=self.padding_side,
+            max_seq_length=model_max_seq_length,
+            autocast=self.autocast,
+            keep_tokens=self.keep_tokens,
+        )
+        self.stages.append(model_stage)
 
         if self.filter_by is not None and len(self.filter_by) > 0:
             self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.label_field))
@@ -220,7 +253,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         return self.stages[0].inputs()
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return self.stages[1].outputs()
+        return self.stages[-1].outputs()
 
     def filter_by_category(self, value: str) -> bool:
         return value in self.filter_by

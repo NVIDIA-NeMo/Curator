@@ -132,7 +132,6 @@ class Resources:
     cpus: float = 1.0 # Number of CPU cores
     gpu_memory_gb: float = 0.0 # Number of GPU memory in GB (Only for single GPU)
     gpus: float = 0.0 # Number of GPUs (Only for multi-GPU)
-    entire_gpu: bool = False # Whether to use the entire GPU
 ```
 
 ### Pipelines

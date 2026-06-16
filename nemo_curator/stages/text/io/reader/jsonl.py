@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import DocumentBatch, _EmptyTask
+from nemo_curator.tasks import DocumentBatch, EmptyTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, pandas_select_columns
 
 from .base import BaseReader
@@ -81,7 +81,7 @@ class JsonlReaderStage(BaseReader):
 
 
 @dataclass
-class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
+class JsonlReader(CompositeStage[EmptyTask, DocumentBatch]):
     """Composite stage for reading JSONL files.
 
     This high-level stage decomposes into:

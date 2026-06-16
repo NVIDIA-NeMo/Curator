@@ -95,7 +95,6 @@ class TextDuplicatesRemovalStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         # Create output batch with filtered data
         return DocumentBatch(
-            task_id=f"removal_{task.task_id}",
             dataset_name=task.dataset_name,
             data=df,
             _metadata={**task._metadata, "num_removed": len(removal_ids)},

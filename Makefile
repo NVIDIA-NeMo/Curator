@@ -1,106 +1,75 @@
-# Makefile targets for Sphinx documentation (all targets prefixed with 'docs-')
-
-.PHONY: docs-html docs-clean docs-live docs-env docs-publish \
-        docs-html-internal docs-html-ga docs-html-ea docs-html-draft \
-        docs-live-internal docs-live-ga docs-live-ea docs-live-draft \
-        docs-publish-internal docs-publish-ga docs-publish-ea docs-publish-draft
-
+# Makefile targets for NeMo Curator's Fern documentation.
+# All targets are prefixed with `docs-` (the bare `docs` target boots the dev server).
+#
 # Usage:
-#   make docs-html DOCS_ENV=internal   # Build docs for internal use
-#   make docs-html DOCS_ENV=ga         # Build docs for GA
-#   make docs-html                     # Build docs with no special tag
-#   make docs-live DOCS_ENV=draft      # Live server with draft tag
-#   make docs-live SPHINX_AUTOBUILD_FLAGS="--port 8080 --host 0.0.0.0"  # Custom flags
-#   make docs-publish DOCS_ENV=ga      # Production build (fails on warnings)
+#   make docs                          # local dev server at http://localhost:3000
+#   make docs-check                    # validate Fern config + MDX
+#   make docs-login                    # guided dashboard sign-in + fern login
+#   make docs-generate-library         # regenerate the Python API reference (libraries:)
+#   make docs-substitute               # substitute {{ variables }} in MDX (CI runs this automatically)
+#   make docs-substitute DOCS_VERSION=26.02
+#   make docs-preview                  # build a shared preview URL (needs DOCS_FERN_TOKEN)
+#   make docs-publish                  # trigger the Publish Fern Docs workflow on origin/main
+#   make docs-clean                    # remove generated product-docs/
+#
+# See fern/README.md for the full authoring guide.
 
-DOCS_ENV ?=
-SPHINX_AUTOBUILD_FLAGS ?=
+.PHONY: docs docs-check docs-login docs-generate-library docs-substitute \
+        docs-preview docs-publish docs-clean docs-help
 
-# Detect OS for cross-platform compatibility
-ifeq ($(OS),Windows_NT)
-    VENV_PYTHON = $(CURDIR)/.venv-docs/Scripts/python.exe
-    VENV_ACTIVATE = .venv-docs\Scripts\activate
-    VENV_ACTIVATE_PS = .venv-docs\Scripts\Activate.ps1
-    RM_CMD = if exist docs\_build rmdir /s /q docs\_build
-else
-    VENV_PYTHON = $(CURDIR)/.venv-docs/bin/python
-    VENV_ACTIVATE = source .venv-docs/bin/activate
-    RM_CMD = cd docs && rm -rf _build
-endif
+# Override FERN to pin a CLI version, e.g. `FERN=npx -y fern-api@4.43.1 make docs-check`.
+FERN ?= npx -y fern-api@latest
+FERN_DIR := fern
 
-# Pass DOCS_ENV to sphinx-build if set
+# The bleeding-edge train. Override on the command line to substitute a different snapshot.
+DOCS_VERSION ?= 26.04
 
-# Makefile targets for Sphinx documentation (all targets prefixed with 'docs-')
+docs:
+	@echo "Starting Fern dev server (http://localhost:3000)..."
+	cd $(FERN_DIR) && $(FERN) docs dev
 
-.PHONY: docs-html docs-clean docs-live docs-env
+docs-check:
+	@echo "Validating Fern config and MDX..."
+	cd $(FERN_DIR) && $(FERN) check
 
+docs-login:
+	@echo "Step 1/2: open https://dashboard.buildwithfern.com and sign in to the NVIDIA org."
+	@echo "          (Skipping this makes 'fern docs md generate' return HTTP 403.)"
+	@echo "Step 2/2: authenticating the Fern CLI..."
+	$(FERN) login
 
-docs-html:
-	@echo "Building HTML documentation..."
-	cd docs && $(VENV_PYTHON) -m sphinx -b html $(if $(DOCS_ENV),-t $(DOCS_ENV)) . _build/html
+docs-generate-library:
+	@echo "Generating Python API reference under $(FERN_DIR)/product-docs/ (requires FERN_TOKEN)..."
+	cd $(FERN_DIR) && $(FERN) docs md generate
+
+docs-substitute:
+	@echo "Substituting {{ variables }} in versions/v$(DOCS_VERSION) MDX..."
+	python $(FERN_DIR)/substitute_variables.py versions/v$(DOCS_VERSION) --version $(DOCS_VERSION)
+
+docs-preview:
+	@if [ -z "$$DOCS_FERN_TOKEN" ]; then \
+	    echo "DOCS_FERN_TOKEN is not set. Issue a token via 'fern token' on a privileged NVIDIA Fern dashboard account."; \
+	    exit 1; \
+	fi
+	@echo "Building a shared Fern preview URL..."
+	cd $(FERN_DIR) && FERN_TOKEN=$$DOCS_FERN_TOKEN $(FERN) generate --docs --preview
 
 docs-publish:
-	@echo "Building HTML documentation for publication (fail on warnings)..."
-	cd docs && $(VENV_PYTHON) -m sphinx --fail-on-warning --builder html $(if $(DOCS_ENV),-t $(DOCS_ENV)) . _build/html
+	@echo "Triggering the 'Publish Fern Docs' workflow on origin/main..."
+	gh workflow run publish-fern-docs.yml --ref main
 
 docs-clean:
-	@echo "Cleaning built documentation..."
-	$(RM_CMD)
+	@echo "Removing generated product-docs/..."
+	rm -rf $(FERN_DIR)/product-docs
 
-docs-live:
-	@echo "Starting live-reload server (sphinx-autobuild)..."
-	cd docs && $(VENV_PYTHON) -m sphinx_autobuild $(if $(DOCS_ENV),-t $(DOCS_ENV)) $(SPHINX_AUTOBUILD_FLAGS) . _build/html
-
-docs-env:
-	@echo "Setting up docs virtual environment with uv..."
-	uv venv .venv-docs
-	uv pip install -r requirements-docs.txt --python .venv-docs
-	@echo "\nTo activate the docs environment, run:"
-ifeq ($(OS),Windows_NT)
-	@echo "  For Command Prompt: $(VENV_ACTIVATE)"
-	@echo "  For PowerShell: $(VENV_ACTIVATE_PS)"
-else
-	@echo "  $(VENV_ACTIVATE)"
-endif
-
-# HTML build shortcuts
-
-docs-html-internal:
-	$(MAKE) docs-html DOCS_ENV=internal
-
-docs-html-ga:
-	$(MAKE) docs-html DOCS_ENV=ga
-
-docs-html-ea:
-	$(MAKE) docs-html DOCS_ENV=ea
-
-docs-html-draft:
-	$(MAKE) docs-html DOCS_ENV=draft
-
-# Publish build shortcuts
-
-docs-publish-internal:
-	$(MAKE) docs-publish DOCS_ENV=internal
-
-docs-publish-ga:
-	$(MAKE) docs-publish DOCS_ENV=ga
-
-docs-publish-ea:
-	$(MAKE) docs-publish DOCS_ENV=ea
-
-docs-publish-draft:
-	$(MAKE) docs-publish DOCS_ENV=draft
-
-# Live server shortcuts
-
-docs-live-internal:
-	$(MAKE) docs-live DOCS_ENV=internal
-
-docs-live-ga:
-	$(MAKE) docs-live DOCS_ENV=ga
-
-docs-live-ea:
-	$(MAKE) docs-live DOCS_ENV=ea
-
-docs-live-draft:
-	$(MAKE) docs-live DOCS_ENV=draft
+docs-help:
+	@echo "NeMo Curator Fern docs — make targets:"
+	@echo "  docs                    local dev server (http://localhost:3000)"
+	@echo "  docs-check              validate Fern config + MDX"
+	@echo "  docs-login              guided dashboard sign-in + fern login"
+	@echo "  docs-generate-library   regenerate Python API reference (libraries:)"
+	@echo "  docs-substitute         run substitute_variables.py on a version tree"
+	@echo "                          (override version: make docs-substitute DOCS_VERSION=26.02)"
+	@echo "  docs-preview            build a shared preview URL (needs DOCS_FERN_TOKEN)"
+	@echo "  docs-publish            trigger the Publish Fern Docs workflow on origin/main"
+	@echo "  docs-clean              remove generated product-docs/"

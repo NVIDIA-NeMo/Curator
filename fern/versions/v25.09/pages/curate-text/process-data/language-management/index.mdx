@@ -1,0 +1,71 @@
+---
+title: Language Management
+description: "Handle multilingual content and language-specific processing including language identification and stop word management"
+---
+
+Handle multilingual content and language-specific processing requirements using NeMo Curator's tools and utilities.
+
+NeMo Curator provides robust tools for managing multilingual text datasets through language detection, stop word management, and specialized handling for non-spaced languages. These tools are essential for creating high-quality monolingual datasets and applying language-specific processing.
+
+## Before You Start
+
+- The `FastTextLangId` filter (used with the `ScoreFilter` stage) requires a FastText language identification model file. Download `lid.176.bin` (or `lid.176.ftz`) from FastText: [Language identification](https://fasttext.cc/docs/en/language-identification.html).
+- On a cluster, ensure the FastText model file is accessible to all workers (for example, a shared filesystem or object storage path).
+- Provide newline-delimited JSON (`.jsonl`) with a `text` field, or set `text_field` in `ScoreFilter(...)`.
+- For HTML extraction workflows (for example, Common Crawl), Curator uses CLD2 to provide language hints.
+
+---
+
+## How it Works
+
+Language management in NeMo Curator typically follows this pattern using the Pipeline API:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import FastTextLangId
+
+# 1) Build the pipeline
+pipeline = Pipeline(name="language_management")
+
+# Read JSONL files into document batches
+pipeline.add_stage(
+    JsonlReader(file_paths="input_data/*.jsonl", files_per_partition=2)
+)
+
+# Identify languages and keep docs above a confidence threshold
+pipeline.add_stage(
+    ScoreFilter(
+        FastTextLangId(model_path="/path/to/lid.176.bin", min_langid_score=0.3),
+        score_field="language",
+    )
+)
+
+# 2) Execute
+results = pipeline.run()
+```
+
+---
+
+## Language Processing Capabilities
+
+- **Language detection** using FastText (176 languages) and CLD2 (used in HTML extraction pipelines)
+- **Stop word management** with built-in lists and customizable thresholds
+- **Special handling** for non-spaced languages (Chinese, Japanese, Thai, Korean)
+- **Language-specific** text processing and quality filtering
+
+## Available Tools
+
+<Cards>
+
+<Card title="Language Identification" href="/curate-text/process-data/language-management/language">
+Identify document languages and separate multilingual datasets
+</Card>
+
+<Card title="Stop Words" href="/curate-text/process-data/language-management/stopwords">
+Manage high-frequency words to enhance text extraction and content detection
+</Card>
+
+</Cards>
+

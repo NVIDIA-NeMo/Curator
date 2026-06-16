@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
@@ -33,7 +34,7 @@ class TestCaptionEnhancementStage:
         """Set up test fixtures."""
         self.stage = CaptionEnhancementStage(
             model_dir="test/models",
-            model_variant="qwen",
+            model_variant="qwen2.5",
             prompt_variant="default",
             model_batch_size=2,
             fp8=False,
@@ -44,8 +45,8 @@ class TestCaptionEnhancementStage:
     def test_init_default_values(self):
         """Test initialization with default values."""
         stage = CaptionEnhancementStage()
-        assert stage.model_dir == "models/qwen"
-        assert stage.model_variant == "qwen"
+        assert stage.model_variant == "qwen2.5"
+        assert stage.captioning_model_variant == "qwen2.5"
         assert stage.prompt_variant == "default"
         assert stage.prompt_text is None
         assert stage.model_batch_size == 128
@@ -59,7 +60,7 @@ class TestCaptionEnhancementStage:
         custom_prompt = "Custom enhancement prompt"
         stage = CaptionEnhancementStage(
             model_dir="custom/models",
-            model_variant="qwen",
+            model_variant="qwen2.5",
             prompt_variant="av-surveillance",
             prompt_text=custom_prompt,
             model_batch_size=64,
@@ -68,7 +69,7 @@ class TestCaptionEnhancementStage:
             verbose=True,
         )
         assert stage.model_dir == "custom/models"
-        assert stage.model_variant == "qwen"
+        assert stage.model_variant == "qwen2.5"
         assert stage.prompt_variant == "av-surveillance"
         assert stage.prompt_text == custom_prompt
         assert stage.model_batch_size == 64
@@ -109,6 +110,7 @@ class TestCaptionEnhancementStage:
 
         mock_qwen_lm.assert_called_once_with(
             model_dir="test/models",
+            model_variant="qwen2.5",
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
@@ -142,11 +144,11 @@ class TestCaptionEnhancementStage:
 
         # Add windows with existing captions
         window1 = _Window(start_frame=0, end_frame=5)
-        window1.caption = {"qwen": "A person walks down the street"}
+        window1.caption = {"qwen2.5": "A person walks down the street"}
         window1.enhanced_caption = {}
 
         window2 = _Window(start_frame=5, end_frame=10)
-        window2.caption = {"qwen": "The person enters a building"}
+        window2.caption = {"qwen2.5": "The person enters a building"}
         window2.enhanced_caption = {}
 
         clip1.windows = [window1, window2]
@@ -155,12 +157,12 @@ class TestCaptionEnhancementStage:
 
         # Add window with caption
         window3 = _Window(start_frame=10, end_frame=15)
-        window3.caption = {"qwen": "Cars drive by on the road"}
+        window3.caption = {"qwen2.5": "Cars drive by on the road"}
         window3.enhanced_caption = {}
         clip2.windows = [window3]
 
         video.clips = [clip1, clip2]
-        return VideoTask(task_id="test", dataset_name="test", data=video)
+        return VideoTask(dataset_name="test", data=video)
 
     def _create_test_video_task_empty_clips(self) -> VideoTask:
         """Create a test VideoTask with empty clips."""
@@ -172,7 +174,7 @@ class TestCaptionEnhancementStage:
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 10.0), buffer=b"test_buffer")
         clip.windows = []
         video.clips = [clip]
-        return VideoTask(task_id="test", dataset_name="test", data=video)
+        return VideoTask(dataset_name="test", data=video)
 
     def _create_test_video_task_no_captions(self) -> VideoTask:
         """Create a test VideoTask with windows but no captions."""
@@ -189,7 +191,7 @@ class TestCaptionEnhancementStage:
         clip.windows = [window]
 
         video.clips = [clip]
-        return VideoTask(task_id="test", dataset_name="test", data=video)
+        return VideoTask(dataset_name="test", data=video)
 
     @patch("nemo_curator.stages.video.caption.caption_enhancement.logger")
     def test_process_with_valid_captions(self, _mock_logger: Mock):  # noqa: PT019
@@ -298,12 +300,12 @@ class TestCaptionEnhancementStage:
 
         for i in range(3):
             window = _Window(start_frame=i * 10, end_frame=(i + 1) * 10)
-            window.caption = {"qwen": f"Caption {i + 1}"}
+            window.caption = {"qwen2.5": f"Caption {i + 1}"}
             window.enhanced_caption = {}
             clip.windows.append(window)
 
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -345,11 +347,11 @@ class TestCaptionEnhancementStage:
         video = Video(input_video=pathlib.Path("test.mp4"))
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 10.0), buffer=b"test")
         window = _Window(start_frame=0, end_frame=5)
-        window.caption = {"qwen": "Original caption"}
+        window.caption = {"qwen2.5": "Original caption"}
         window.enhanced_caption = {}
         clip.windows = [window]
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -406,3 +408,54 @@ class TestGetEnhancePrompt:
         assert "longer than the provided input" in default_prompt
         assert "surveillance cameras" in av_prompt
         assert "longer than the provided input" in av_prompt
+
+
+# ---------------------------------------------------------------------------
+# Integration tests (real model weights + GPU required)
+# ---------------------------------------------------------------------------
+
+
+def _make_task_with_captions(captions: list[str], task_id: str = "enhancement-test") -> VideoTask:
+    """Build a VideoTask with pre-populated window captions, bypassing all video stages."""
+    windows = [
+        _Window(start_frame=i * 10, end_frame=(i + 1) * 10, caption={"qwen2.5": cap}) for i, cap in enumerate(captions)
+    ]
+    clip = Clip(uuid=uuid4(), source_video=task_id, span=(0.0, float(len(captions) * 10)))
+    clip.windows = windows
+    video = Video(input_video=Path(task_id + ".mp4"))
+    video.clips = [clip]
+    return VideoTask(dataset_name="integration", data=video)
+
+
+@pytest.mark.gpu
+class TestQwenLMCaptionEnhancementIntegration:
+    """Integration tests for the QwenLM caption enhancement stage.
+
+    Exercises the real Qwen2.5-14B-Instruct text model via vLLM.  No video
+    bytes are needed — the stage works purely on existing caption strings.
+    Model weights are downloaded automatically from HuggingFace on first run.
+    """
+
+    def test_enhancement_stage_produces_enhanced_captions(
+        self,
+        enhancement_stage: CaptionEnhancementStage,
+    ) -> None:
+        """CaptionEnhancementStage must write a non-empty enhanced_caption["qwen_lm"]
+        for every window that has a qwen caption, with no unhandled exceptions."""
+        captions = [
+            "A herd of cattle walking slowly through a wide green field.",
+            "A person riding a bicycle on a busy city street.",
+        ]
+        task = _make_task_with_captions(captions)
+
+        result = enhancement_stage.process(task)
+
+        clip = result.data.clips[0]
+        assert len(clip.errors) == 0, f"Enhancement stage set clip errors: {clip.errors}"
+        assert len(clip.windows) == len(captions), "Window count changed after enhancement"
+
+        for i, window in enumerate(clip.windows):
+            enhanced = window.enhanced_caption.get("qwen_lm")
+            assert enhanced is not None, f"Window {i}: enhanced_caption key 'qwen_lm' not set"
+            assert isinstance(enhanced, str), f"Window {i}: enhanced_caption is not a str"
+            assert len(enhanced.strip()) > 0, f"Window {i}: enhanced_caption is blank"

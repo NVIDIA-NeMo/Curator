@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, format_name_with_suffix
 from nemo_curator.tasks import DocumentBatch
 
-from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
+from .utils import DEBERTA_TOKENIZER_PADDING_SIDE, SortByLengthStage
 
 PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER = "nvidia/prompt-task-and-complexity-classifier"
 MAX_SEQ_LENGTH = 512
@@ -222,17 +222,21 @@ class PromptTaskComplexityModelStage(ModelStage):
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        max_seq_length: If provided, clips the input tokens before the forward pass. Defaults to None.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         cache_dir: str | None = None,
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
+        max_seq_length: int | None = None,
         autocast: bool = True,
+        keep_tokens: bool = False,
     ):
         super().__init__(
             model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
@@ -240,10 +244,12 @@ class PromptTaskComplexityModelStage(ModelStage):
             has_seq_order=has_seq_order,
             model_inference_batch_size=model_inference_batch_size,
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
+            max_seq_length=max_seq_length,
             unpack_inference_batch=False,
+            autocast=autocast,
         )
 
-        self.autocast = autocast
+        self.keep_tokens = keep_tokens
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], OUTPUT_FIELDS
@@ -263,7 +269,8 @@ class PromptTaskComplexityModelStage(ModelStage):
         return outputs
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+        if not self.keep_tokens:
+            df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         for column in OUTPUT_FIELDS:
             df_cpu[column] = collected_output[column]
@@ -286,22 +293,28 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
             Not supported with PromptTaskComplexityClassifier (raises NotImplementedError).
         max_chars: Limits the total number of characters that can be fed to the tokenizer.
-            If None, text will not be truncated. Defaults to 2000.
+            If None, text will not be truncated. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
+        keep_tokens: Whether to keep the input tokens in the output dataframe. Defaults to False.
+        use_existing_tokens: Whether to use the existing tokens from the input dataframe.
+            If True, assume the relevant token fields are ["input_ids", "attention_mask"] and skip tokenization.
+            Defaults to False.
 
     """
 
     cache_dir: str | None = None
     text_field: str = "text"
     filter_by: list[str] | None = None
-    max_chars: int = 2000
+    max_chars: int | None = None
     sort_by_length: bool = True
     model_inference_batch_size: int = 256
     autocast: bool = True
+    keep_tokens: bool = False
+    use_existing_tokens: bool = False
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -312,8 +325,10 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
             msg = "filter_by not supported with PromptTaskComplexityClassifier"
             raise NotImplementedError(msg)
 
-        self.stages = [
-            TokenizerStage(
+        self.stages = []
+
+        if not self.use_existing_tokens:
+            tokenizer_stage = TokenizerStage(
                 model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
                 cache_dir=self.cache_dir,
                 text_field=self.text_field,
@@ -321,20 +336,34 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 max_seq_length=MAX_SEQ_LENGTH,
                 padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
-            ),
-            PromptTaskComplexityModelStage(
-                cache_dir=self.cache_dir,
-                model_inference_batch_size=self.model_inference_batch_size,
-                has_seq_order=self.sort_by_length,
-                autocast=self.autocast,
-            ),
-        ]
+            )
+            self.stages.append(tokenizer_stage)
+            # The TokenizerStage already truncates to the max_seq_length, so the ModelStage does not need to do it again
+            model_max_seq_length = None
+        else:
+            # The ModelStage will truncate to the max_seq_length before the forward pass
+            model_max_seq_length = MAX_SEQ_LENGTH
+
+        # Ensure that the data is sorted by length if the tokens are already present and sort_by_length is True
+        if self.use_existing_tokens and self.sort_by_length:
+            sort_by_length_stage = SortByLengthStage()
+            self.stages.append(sort_by_length_stage)
+
+        model_stage = PromptTaskComplexityModelStage(
+            cache_dir=self.cache_dir,
+            model_inference_batch_size=self.model_inference_batch_size,
+            has_seq_order=self.sort_by_length,
+            max_seq_length=model_max_seq_length,
+            autocast=self.autocast,
+            keep_tokens=self.keep_tokens,
+        )
+        self.stages.append(model_stage)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return self.stages[0].inputs()
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return self.stages[1].outputs()
+        return self.stages[-1].outputs()
 
     def decompose(self) -> list[ProcessingStage]:
         return self.stages

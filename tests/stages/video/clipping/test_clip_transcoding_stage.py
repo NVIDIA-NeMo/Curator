@@ -34,13 +34,6 @@ class MockGpuInfo:
         self.name = name
 
 
-# Mock GPU resources class to simulate GPU resources
-class MockGpuResources:
-    def __init__(self, num_nvencs: int = 3, num_nvdecs: int = 3):
-        self.num_nvencs = num_nvencs
-        self.num_nvdecs = num_nvdecs
-
-
 class TestClipTranscodingStage:
     """Test cases for ClipTranscodingStage."""
 
@@ -87,7 +80,7 @@ class TestClipTranscodingStage:
             clips=copy.deepcopy(self.mock_clips),
         )
 
-        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
+        self.mock_task = VideoTask(dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self) -> None:
         """Test that the name property returns the correct value."""
@@ -114,7 +107,7 @@ class TestClipTranscodingStage:
         spec = self.stage.ray_stage_spec()
 
         # Verify the expected keys and values based on the git diff
-        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+        from nemo_curator.backends.utils import RayStageSpecKeys
 
         assert RayStageSpecKeys.IS_FANOUT_STAGE in spec
         assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
@@ -126,7 +119,6 @@ class TestClipTranscodingStage:
         resources = stage.resources
         assert isinstance(resources, Resources)
         assert resources.cpus == 6.0
-        assert not resources.entire_gpu
 
     def test_process_no_clips(self) -> None:
         """Test processing when video has no clips."""
@@ -188,7 +180,6 @@ class TestClipTranscodingStage:
             # Verify task properties
             for i, task in enumerate(result):
                 assert isinstance(task, VideoTask)
-                assert task.task_id == f"test_task_chunk_{i}"
                 assert task.data.num_total_clips == len(self.mock_clips)
                 assert task.data.num_clip_chunks == 2
                 assert task.data.clip_chunk_index == i
@@ -279,6 +270,34 @@ class TestClipTranscodingStage:
 
         # Should not add any hwaccel options
         assert "-hwaccel" not in command
+
+    def test_add_hwaccel_options_enabled(self) -> None:
+        """Test hardware acceleration command options when hwaccel is enabled."""
+        command = []
+        stage = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=1)
+
+        stage._add_hwaccel_options(command)
+
+        assert "-hwaccel" in command
+        assert "-hwaccel_output_format" in command
+
+    def test_add_hwaccel_options_enabled_multiple_streams(self) -> None:
+        """Test hardware acceleration command options with multiple streams."""
+        command = []
+        stage = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=4)
+
+        stage._add_hwaccel_options(command)
+
+        assert "-hwaccel" in command
+        assert "-hwaccel_output_format" in command
+
+    def test_resources_fractional_gpu_allocation(self) -> None:
+        """Test that nb_streams_per_gpu correctly sets fractional GPU allocation."""
+        stage_single = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=1)
+        assert stage_single.resources.gpus == 1.0
+
+        stage_multi = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=4)
+        assert stage_multi.resources.gpus == 0.25
 
     def test_add_input_options(self) -> None:
         """Test adding input options to FFmpeg command."""
@@ -543,7 +562,7 @@ class TestClipTranscodingStage:
             clips=[],
         )
 
-        empty_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=empty_video)
+        empty_task = VideoTask(dataset_name="test_dataset", data=empty_video)
 
         with patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
             result = stage.process(empty_task)

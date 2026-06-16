@@ -96,7 +96,7 @@ class TestClipAestheticFilterStage:
             clip_chunk_index=0,
         )
 
-        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
+        self.mock_task = VideoTask(dataset_name="test_dataset", data=self.mock_video)
 
     def test_stage_initialization_defaults(self) -> None:
         """Test stage initialization with default parameters."""
@@ -317,7 +317,7 @@ class TestClipAestheticFilterStage:
             clip_stats=ClipStats(),
             clip_chunk_index=0,
         )
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         result = self.stage.process(task)
 
@@ -353,7 +353,7 @@ class TestClipAestheticFilterStage:
             clip_stats=ClipStats(),
             clip_chunk_index=0,
         )
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         result = self.stage.process(task)
 
@@ -443,7 +443,7 @@ class TestClipAestheticFilterStage:
             clip_stats=ClipStats(),
             clip_chunk_index=0,
         )
-        empty_task = VideoTask(task_id="test", dataset_name="test", data=empty_video)
+        empty_task = VideoTask(dataset_name="test", data=empty_video)
 
         self.stage.model = Mock()
         self.stage.reduction_fn = np.min

@@ -26,8 +26,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from nemo_curator.stages.audio.common import LegacySpeechStage
-from nemo_curator.tasks import AudioBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioTask
 
 MIN_SEGMENTS_PER_WINDOW = 2
 
@@ -124,21 +124,15 @@ def _record_window_loss(  # noqa: PLR0913
 
 
 @dataclass
-class ALMDataBuilderStage(LegacySpeechStage):
+class ALMDataBuilderStage(ProcessingStage[AudioTask, AudioTask]):
+    """Build ALM training windows from audio segments.
+
+    Filters segments by sample rate, bandwidth, speaker count, and duration
+    to create valid training windows.  Mutates the entry dict in-place,
+    adding ``windows``, ``stats``, and ``truncation_events`` keys.
     """
-    Build ALM training windows from audio segments.
 
-    Native NeMo Curator stage that filters segments by sample rate,
-    bandwidth, speaker count, and duration to create valid training windows.
-
-    This follows the exact pattern from nemo_curator.stages.audio.common:
-    - Inherits from LegacySpeechStage
-    - Uses @dataclass decorator
-    - Implements process_dataset_entry() method
-    - Returns list[AudioBatch] from process_dataset_entry
-
-    Produces identical output to SDP implementation.
-    """
+    name: str = "alm_data_builder"
 
     # Processing parameters (EXACT match to SDP)
     target_window_duration: float = 120.0
@@ -155,9 +149,6 @@ class ALMDataBuilderStage(LegacySpeechStage):
     # Top-level fields to drop from output entry (comma-separated)
     drop_fields_top_level: str = "words,segments"
 
-    # Stage metadata
-    name: str = "alm_data_builder"
-
     def __post_init__(self) -> None:
         """Compute derived parameters - EXACT match to SDP."""
 
@@ -167,32 +158,27 @@ class ALMDataBuilderStage(LegacySpeechStage):
         self._drop_fields_set = {f.strip() for f in self.drop_fields.split(",") if f.strip()}
         self._drop_fields_top_level_set = {f.strip() for f in self.drop_fields_top_level.split(",") if f.strip()}
 
-    def process_dataset_entry(self, data_entry: dict[str, Any]) -> list[AudioBatch]:
-        """
-        Process a single manifest entry and build windows.
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["audio_filepath", "segments", "audio_sample_rate"]
 
-        Args:
-            data_entry: Single entry from manifest (dict with audio_filepath, segments, etc.)
-
-        Returns:
-            list[AudioBatch] - Always returns entry (even with empty windows, matching SDP)
-        """
+    def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
-        result = self._process_single_entry(data_entry)
+        num_segments = len(task.data.get("segments", []))
+        result = self._process_single_entry(task.data)
+        task.data.clear()
+        task.data.update(result)
         process_time = time.perf_counter() - t0
 
-        # Log timing metrics for regression tracking
-        num_segments = len(data_entry.get("segments", []))
-        num_windows = len(result.get("windows", []))
+        num_windows = len(task.data.get("windows", []))
         self._log_metrics(
             {
-                "process_entry_time": process_time,
+                "process_time": process_time,
                 "segments_processed": num_segments,
                 "windows_created": num_windows,
             }
         )
 
-        return [AudioBatch(data=[result])]
+        return task
 
     def _process_single_entry(self, entry_data: dict[str, Any]) -> dict[str, Any]:  # noqa: C901, PLR0912, PLR0915
         """Process a single entry and extract valid training windows."""

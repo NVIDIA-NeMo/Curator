@@ -47,7 +47,6 @@ def domain_dataset() -> DocumentBatch:
     df = pd.DataFrame({"text": text})
     return DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -87,6 +86,10 @@ def run_and_assert_classifier_stages(
 
     # Check that the classifier output columns are correct
     assert all(col in result_batch.data.columns for col in classifier.outputs()[1])
+
+    # Teardown stages to release GPU memory
+    model_stage.teardown()
+    tokenizer_stage.teardown()
 
     return result_batch
 
@@ -128,7 +131,6 @@ def test_quality_classifier() -> None:
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -169,7 +171,6 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -234,6 +235,10 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
 
     # Check that the classifier output columns are correct
     assert all(col in postprocessed_batch.data.columns for col in classifier.outputs()[1])
+
+    # Teardown stages to release GPU memory
+    model_stage.teardown()
+    tokenizer_stage.teardown()
 
     # Check that the classifier output values are correct
     expected_pred = pd.Series(["safe", "O3", "O13", "O3"])
@@ -316,7 +321,6 @@ def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -358,7 +362,6 @@ def test_multilingual_domain_classifier() -> None:
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -381,7 +384,6 @@ def test_content_type_classifier() -> None:
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -405,7 +407,6 @@ def test_prompt_task_complexity_classifier(filter_by: list[str] | None) -> None:
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 

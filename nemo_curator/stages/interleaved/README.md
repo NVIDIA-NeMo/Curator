@@ -5,26 +5,30 @@ Row-wise interleaved multimodal ingestion and write path for WebDataset tar shar
 ## Architecture
 
 ```
-WebDataset tar shards
-        |
-        v
-┌─────────────────────────┐
-│  WebdatasetReader       │  CompositeStage: FilePartitioning + WebdatasetReaderStage
-│  (io/reader.py)         │  Parses tar members -> normalized interleaved rows
-└────────┬────────────────┘
-         |  InterleavedBatch (Arrow/Pandas)
-         v
-┌─────────────────────────┐
-│  Filter Stages          │  e.g. InterleavedAspectRatioFilterStage
-│  (stages.py)            │  Row-wise filtering with optional materialization
-└────────┬────────────────┘
-         |
-         v
-┌─────────────────────────┐
-│  InterleavedParquet-    │  InterleavedParquetWriterStage
-│  WriterStage            │  Parquet output with optional materialize-on-write
-│  (io/writers/tabular.py)│  Supports snappy/zstd compression, configurable row groups
-└─────────────────────────┘
+WebDataset tar shards          Parquet files
+        |                            |
+        v                            v
+┌──────────────────────────┐  ┌──────────────────────────┐
+│ InterleavedWebdataset-   │  │ InterleavedParquetReader  │  Both are CompositeStages:
+│ Reader (io/reader.py)    │  │ (io/reader.py)            │  FilePartitioningStage +
+│                          │  │                           │  <modality>ReaderStage
+└──────────┬───────────────┘  └────────────┬─────────────┘
+           └──────────┬────────────────────┘
+                      |  InterleavedBatch (Arrow/Pandas)
+                      v
+         ┌─────────────────────────┐
+         │  Filter Stages          │  e.g. InterleavedAspectRatioFilterStage
+         │  (stages.py)            │  Row-wise filtering with optional materialization
+         └────────┬────────────────┘
+                  |
+        ┌─────────┴──────────┐
+        v                    v
+┌───────────────┐   ┌──────────────────────────┐
+│ Interleaved-  │   │ InterleavedWebdataset-    │
+│ ParquetWriter │   │ WriterStage               │
+│ Stage         │   │ (io/writers/webdataset.py)│
+│ (tabular.py)  │   │ MINT-1T-style tar shards  │
+└───────────────┘   └──────────────────────────┘
 ```
 
 ## Schema (`INTERLEAVED_SCHEMA`)
@@ -51,8 +55,7 @@ These are set and managed by pipeline stages. Users should not write to them dir
 Extra fields from the source data flow through the pipeline as additional columns. Specify them with the `fields` parameter on the reader:
 
 ```python
-reader = WebdatasetReader(
-    source_id_field="pdf_name",
+reader = InterleavedWebdatasetReader(
     file_paths="/data/shards/",
     fields=("p_hash", "score", "aux"),  # These become extra columns
 )
@@ -112,12 +115,11 @@ Materialization can happen at read time (`materialize_on_read=True`) or write ti
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.interleaved.io import WebdatasetReader, InterleavedParquetWriterStage
+from nemo_curator.stages.interleaved.io import InterleavedWebdatasetReader, InterleavedParquetWriterStage
 from nemo_curator.stages.interleaved.stages import InterleavedAspectRatioFilterStage
 
 pipeline = Pipeline(name="mint1t_pipeline")
-pipeline.add_stage(WebdatasetReader(
-    source_id_field="pdf_name",
+pipeline.add_stage(InterleavedWebdatasetReader(
     file_paths="/data/mint1t/shards/",
 ))
 pipeline.add_stage(InterleavedAspectRatioFilterStage(drop_invalid_rows=True))
@@ -137,14 +139,17 @@ stages/interleaved/
 ├── stages.py                       # BaseInterleavedAnnotatorStage, BaseInterleavedFilterStage,
 │                                   # InterleavedAspectRatioFilterStage
 ├── io/
-│   ├── __init__.py                 # Exports WebdatasetReader, InterleavedParquetWriterStage
-│   ├── reader.py                   # WebdatasetReader (CompositeStage)
+│   ├── __init__.py                 # Exports InterleavedWebdatasetReader, InterleavedParquetReader,
+│   │                               # InterleavedParquetWriterStage, InterleavedWebdatasetWriterStage
+│   ├── reader.py                   # InterleavedWebdatasetReader, InterleavedParquetReader (CompositeStages)
 │   ├── readers/
 │   │   ├── base.py                 # BaseInterleavedReader
-│   │   └── webdataset.py           # WebdatasetReaderStage (ProcessingStage)
+│   │   ├── parquet.py              # InterleavedParquetReaderStage (ProcessingStage)
+│   │   └── webdataset.py           # InterleavedWebdatasetReaderStage (ProcessingStage)
 │   └── writers/
 │       ├── base.py                 # BaseInterleavedWriter (filesystem + materialization + process)
-│       └── tabular.py              # InterleavedParquetWriterStage
+│       ├── tabular.py              # InterleavedParquetWriterStage
+│       └── webdataset.py           # InterleavedWebdatasetWriterStage
 └── utils/
     ├── constants.py                # Default file extensions
     ├── materialization.py          # Three-strategy materialization dispatch

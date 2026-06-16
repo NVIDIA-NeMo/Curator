@@ -39,16 +39,19 @@ class WikipediaParaphrasingStage(BaseSyntheticStage):
     prompt: str = WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "rephrased"
+    name: str = "WikipediaParaphrasing"
+
 
 @dataclass
 class DiverseQAStage(BaseSyntheticStage):
-    system_prompt: str = None
+    system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
     prompt: str = DIVERSE_QA_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "diverse_qa"
     tokenizer: AutoTokenizer = None
     prefix: str = "Here are the questions and answers based on the provided text:"
     max_num_pairs: int = 10
+    name: str = "DiverseQA"
 
 
 @dataclass
@@ -112,10 +115,10 @@ class DiverseQAPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]
         return DocumentBatch(
             data=df,
             dataset_name=batch.dataset_name,
-            task_id=f"{batch.task_id}_{self.name}",
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
+
 
 @dataclass
 class DistillStage(BaseSyntheticStage):
@@ -123,20 +126,26 @@ class DistillStage(BaseSyntheticStage):
     prompt: str = DISTILL_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "distill"
+    name: str = "Distill"
+
 
 @dataclass
 class ExtractKnowledgeStage(BaseSyntheticStage):
-    system_prompt: str = None
+    system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
     prompt: str = EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "extract_knowledge"
+    name: str = "ExtractKnowledge"
+
 
 @dataclass
 class KnowledgeListStage(BaseSyntheticStage):
-    system_prompt: str = None
+    system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
     prompt: str = KNOWLEDGE_LIST_PROMPT_TEMPLATE
     input_field: str = "text"
     output_field: str = "knowledge_list"
+    name: str = "KnowledgeList"
+
 
 @dataclass
 class KnowledgeListPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -168,7 +177,6 @@ class KnowledgeListPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBa
         return DocumentBatch(
             data=df,
             dataset_name=batch.dataset_name,
-            task_id=f"{batch.task_id}_{self.name}",
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )

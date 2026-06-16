@@ -16,12 +16,19 @@
 
 import pathlib
 import re
+from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
 
-from nemo_curator.models.qwen_vl import _QWEN2_5_VL_MODEL_ID, _QWEN_VARIANTS_INFO, QwenVL
+from nemo_curator.models.qwen_vl import (
+    _QWEN2_5_VL_MODEL_ID,
+    _QWEN_REVISION_INFO,
+    _QWEN_VARIANTS_INFO,
+    _QWEN_VL_PIXEL_PARAMS,
+    QwenVL,
+)
 
 
 class TestQwenVL:
@@ -34,7 +41,7 @@ class TestQwenVL:
         self.vllm_patcher.start()
 
         self.model_dir = "/test/model/dir"
-        self.model_variant = "qwen"
+        self.model_variant = "qwen2.5"
         self.caption_batch_size = 4
         self.qwen_vl = QwenVL(
             model_dir=self.model_dir,
@@ -55,8 +62,10 @@ class TestQwenVL:
     def test_constants(self) -> None:
         """Test that module constants are correctly defined."""
         assert _QWEN2_5_VL_MODEL_ID == "Qwen/Qwen2.5-VL-7B-Instruct"
-        assert "qwen" in _QWEN_VARIANTS_INFO
-        assert _QWEN_VARIANTS_INFO["qwen"] == _QWEN2_5_VL_MODEL_ID
+        assert "qwen2.5" in _QWEN_VARIANTS_INFO
+        assert "qwen3" in _QWEN_VARIANTS_INFO
+        assert _QWEN_VARIANTS_INFO["qwen2.5"] == _QWEN2_5_VL_MODEL_ID
+        assert _QWEN_VARIANTS_INFO["qwen3"] == "Qwen/Qwen3-VL-8B-Instruct"
 
     def test_initialization_default_parameters(self) -> None:
         """Test initialization with default parameters."""
@@ -71,7 +80,7 @@ class TestQwenVL:
         assert qwen_vl.max_output_tokens == 512
         assert qwen_vl.model_does_preprocess is False
         assert qwen_vl.disable_mmcache is False
-        assert qwen_vl.stage2_prompt is None
+        assert qwen_vl.stage2_prompt == "Please refine this caption: "
         assert qwen_vl.verbose is False
 
         expected_weight_file = str(pathlib.Path(self.model_dir) / _QWEN_VARIANTS_INFO[self.model_variant])
@@ -92,9 +101,9 @@ class TestQwenVL:
     def test_initialization_different_variant(self) -> None:
         """Test initialization with different model variant."""
         # Note: This test assumes the variant exists in _QWEN_VARIANTS_INFO
-        qwen_vl = QwenVL(model_dir="/another/path", model_variant="qwen", caption_batch_size=8)
+        qwen_vl = QwenVL(model_dir="/another/path", model_variant="qwen2.5", caption_batch_size=8)
 
-        expected_weight_file = str(pathlib.Path("/another/path") / _QWEN_VARIANTS_INFO["qwen"])
+        expected_weight_file = str(pathlib.Path("/another/path") / _QWEN_VARIANTS_INFO["qwen2.5"])
         assert qwen_vl.weight_file == expected_weight_file
 
     def test_model_id_names_property(self) -> None:
@@ -125,6 +134,12 @@ class TestQwenVL:
             "do_resize": False,
             "do_rescale": False,
             "do_normalize": False,
+            "image_factor": 28,
+            "min_pixels": 4 * 28 * 28,
+            "max_pixels": 16384 * 28 * 28,
+            "video_min_pixels": 128 * 28 * 28,
+            "video_max_pixels": 768 * 28 * 28,
+            "video_total_pixels": 24576 * 28 * 28,
         }
         mock_llm.assert_called_once_with(
             model=self.qwen_vl.weight_file,
@@ -196,6 +211,12 @@ class TestQwenVL:
             "do_resize": True,
             "do_rescale": True,
             "do_normalize": True,
+            "image_factor": 28,
+            "min_pixels": 4 * 28 * 28,
+            "max_pixels": 16384 * 28 * 28,
+            "video_min_pixels": 128 * 28 * 28,
+            "video_max_pixels": 768 * 28 * 28,
+            "video_total_pixels": 24576 * 28 * 28,
         }
         assert call_args[1]["mm_processor_kwargs"] == expected_mm_processor_kwargs
         assert call_args[1]["mm_processor_cache_gb"] == 0
@@ -375,9 +396,22 @@ class TestQwenVL:
         assert self.qwen_vl.weight_file == expected_path
 
         # Test with different paths
-        qwen_vl2 = QwenVL(model_dir="/different/path", model_variant="qwen", caption_batch_size=1)
-        expected_path2 = str(pathlib.Path("/different/path") / _QWEN_VARIANTS_INFO["qwen"])
+        qwen_vl2 = QwenVL(model_dir="/different/path", model_variant="qwen2.5", caption_batch_size=1)
+        expected_path2 = str(pathlib.Path("/different/path") / _QWEN_VARIANTS_INFO["qwen2.5"])
         assert qwen_vl2.weight_file == expected_path2
+
+    @patch("nemo_curator.models.qwen_vl.LLM")
+    @patch("nemo_curator.models.qwen_vl.SamplingParams")
+    def test_setup_qwen3_pixel_params(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
+        """Test that qwen3 setup uses the correct 32-factor pixel params."""
+        qwen_vl = QwenVL(model_dir=self.model_dir, model_variant="qwen3", caption_batch_size=1)
+        qwen_vl.setup()
+
+        call_args = mock_llm.call_args
+        mm_kwargs = call_args[1]["mm_processor_kwargs"]
+        assert mm_kwargs["image_factor"] == 32
+        assert mm_kwargs["video_total_pixels"] == 24576 * 32 * 32
+        assert mm_kwargs["video_total_pixels"] != _QWEN_VL_PIXEL_PARAMS["qwen2.5"]["video_total_pixels"]
 
     def test_max_output_tokens_parameter(self) -> None:
         """Test that max_output_tokens parameter is properly handled."""
@@ -390,6 +424,23 @@ class TestQwenVL:
         )
 
         assert qwen_vl.max_output_tokens == custom_tokens
+
+    @patch("nemo_curator.models.qwen_vl.LLM")
+    @patch("nemo_curator.models.qwen_vl.SamplingParams")
+    def test_setup_qwen3_do_resize_always_true(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
+        """Test that qwen3 sets do_resize=True even when model_does_preprocess=False."""
+        qwen_vl = QwenVL(
+            model_dir=self.model_dir,
+            model_variant="qwen3",
+            caption_batch_size=1,
+            model_does_preprocess=False,
+        )
+        qwen_vl.setup()
+
+        mm_kwargs = mock_llm.call_args[1]["mm_processor_kwargs"]
+        assert mm_kwargs["do_resize"] is True
+        assert mm_kwargs["do_rescale"] is False
+        assert mm_kwargs["do_normalize"] is False
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
@@ -413,3 +464,32 @@ class TestQwenVL:
             max_tokens=custom_tokens,
             stop_token_ids=[],
         )
+
+
+class TestQwenVLDownloadWeightsOnNode:
+    """Test cases for QwenVL.download_weights_on_node class method."""
+
+    @patch("nemo_curator.models.qwen_vl._weights_complete", return_value=True)
+    @patch("nemo_curator.models.qwen_vl.download_model_from_hf")
+    @patch("nemo_curator.models.qwen_vl.logger")
+    def test_skips_download_when_weights_complete(
+        self, mock_logger: Mock, mock_download: Mock, mock_complete: Mock, tmp_path: Path
+    ) -> None:
+        QwenVL.download_weights_on_node(str(tmp_path), variant="qwen2.5")
+        mock_download.assert_not_called()
+        assert "already present" in mock_logger.info.call_args[0][0]
+
+    @patch("nemo_curator.models.qwen_vl._weights_complete", return_value=False)
+    @patch("nemo_curator.models.qwen_vl.download_model_from_hf")
+    @patch("nemo_curator.models.qwen_vl.logger")
+    def test_downloads_when_weights_missing(
+        self, mock_logger: Mock, mock_download: Mock, mock_complete: Mock, tmp_path: Path
+    ) -> None:
+        QwenVL.download_weights_on_node(str(tmp_path), variant="qwen2.5")
+        expected_model_id = _QWEN_VARIANTS_INFO["qwen2.5"]
+        mock_download.assert_called_once_with(
+            model_id=expected_model_id,
+            local_dir=tmp_path / expected_model_id,
+            revision=_QWEN_REVISION_INFO["qwen2.5"],
+        )
+        assert "downloaded" in mock_logger.info.call_args[0][0]
