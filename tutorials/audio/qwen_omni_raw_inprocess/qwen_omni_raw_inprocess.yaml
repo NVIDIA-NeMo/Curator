@@ -46,11 +46,6 @@ backend: ray_data
 # Xenna-only; ignored by the default ray_data backend.
 execution_mode: streaming
 autoscale_interval_s: 30
-global_centralized_batching: true
-# "windowed" keeps centralized batching inside backend windows. "materialized"
-# runs the explicit global scheduler path; lightweight ASR descriptors avoid
-# materializing every waveform chunk in scheduler-ready rows.
-global_centralized_batching_mode: materialized
 prefetch_fail_on_error: true
 stages_to_run: all
 stages_to_skip: []

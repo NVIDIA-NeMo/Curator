@@ -104,14 +104,8 @@ class RayDataExecutor(BaseExecutor):
 
     def _process_stage_dataset(self, stage: "ProcessingStage", dataset: Dataset) -> Dataset:
         """Process one stage as a Ray Data transform."""
-        if self._materialized_global_centralized_batching_enabled() and stage_uses_centralized_batching(stage):
+        if stage_uses_centralized_batching(stage):
             return self._process_global_centralized_stage_dataset(stage, dataset)
-        if self.config.get("global_centralized_batching", True) and stage_uses_centralized_batching(stage):
-            logger.info(
-                "Using bounded Ray Data centralized batching for {}. "
-                "Set global_centralized_batching_mode=materialized to run the global scheduler path.",
-                stage.name,
-            )
 
         adapter = RayDataStageAdapter(stage)
         return adapter.process_dataset(dataset, self.ignore_head_node)
@@ -176,9 +170,3 @@ class RayDataExecutor(BaseExecutor):
         for item in items:
             tasks.append(item["item"])
         return tasks
-
-    def _materialized_global_centralized_batching_enabled(self) -> bool:
-        """Return whether to use the all-at-once global scheduler experiment."""
-        if not self.config.get("global_centralized_batching", True):
-            return False
-        return str(self.config.get("global_centralized_batching_mode", "windowed")).lower() == "materialized"
