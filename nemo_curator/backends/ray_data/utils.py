@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from loguru import logger
 from ray.data import ActorPoolStrategy
 
-from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys, get_available_cpu_gpu_resources
 from nemo_curator.stages.base import ProcessingStage
 
 ACTOR_POOL_SIZING_KEYS = (
@@ -33,7 +33,9 @@ def get_configured_actor_pool_sizing_keys(ray_stage_spec: Mapping[str, object]) 
     return [key.value for key in ACTOR_POOL_SIZING_KEYS if key.value in stage_spec_keys]
 
 
-def get_actor_compute_strategy_for_stage(stage: ProcessingStage) -> ActorPoolStrategy:
+def get_actor_compute_strategy_for_stage(
+    stage: ProcessingStage, *, ignore_head_node: bool = False
+) -> ActorPoolStrategy:
     """Get the Ray Data actor-pool compute strategy for a processing stage.
 
     Explicit stage ``num_workers`` requests a fixed-size actor pool. Otherwise,
@@ -51,11 +53,38 @@ def get_actor_compute_strategy_for_stage(stage: ProcessingStage) -> ActorPoolStr
         return ActorPoolStrategy(size=num_workers)
 
     ray_stage_spec = stage.ray_stage_spec()
-    return ActorPoolStrategy(
-        min_size=ray_stage_spec.get(RayStageSpecKeys.MIN_WORKERS, 1),
-        max_size=ray_stage_spec.get(RayStageSpecKeys.MAX_WORKERS),
-        initial_size=ray_stage_spec.get(RayStageSpecKeys.INITIAL_WORKERS),
+    min_size = ray_stage_spec.get(RayStageSpecKeys.MIN_WORKERS, 1)
+    max_size = ray_stage_spec.get(RayStageSpecKeys.MAX_WORKERS)
+    initial_size = ray_stage_spec.get(RayStageSpecKeys.INITIAL_WORKERS)
+
+    if ignore_head_node and max_size is None:
+        max_size = calculate_actor_pool_max_size_for_stage(stage, ignore_head_node=True)
+
+    try:
+        return ActorPoolStrategy(min_size=min_size, max_size=max_size, initial_size=initial_size)
+    except ValueError as e:
+        msg = f"Invalid Ray Data actor pool sizing for stage {stage.name}: {e}"
+        raise ValueError(msg) from e
+
+
+def calculate_actor_pool_max_size_for_stage(stage: ProcessingStage, *, ignore_head_node: bool = False) -> int | None:
+    """Calculate a resource-limited actor-pool max size for legacy resource caps."""
+    available_cpus, available_gpus = get_available_cpu_gpu_resources(
+        init_and_shutdown=False, ignore_head_node=ignore_head_node
     )
+
+    max_cpu_actors = float("inf")
+    if stage.resources.cpus > 0:
+        max_cpu_actors = available_cpus // stage.resources.cpus
+
+    max_gpu_actors = float("inf")
+    if stage.resources.gpus > 0:
+        max_gpu_actors = available_gpus // stage.resources.gpus
+
+    max_actors = min(max_cpu_actors, max_gpu_actors)
+    if max_actors == float("inf"):
+        return None
+    return int(max_actors)
 
 
 def is_actor_stage(stage: ProcessingStage) -> bool:

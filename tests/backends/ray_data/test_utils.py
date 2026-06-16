@@ -67,6 +67,8 @@ class TestGetActorComputeStrategyForStage:
         ("num_workers", "ray_stage_spec", "expected", "expected_warning"),
         [
             (4, {}, ActorPoolStrategy(size=4), None),
+            (0, {}, ActorPoolStrategy(min_size=1, max_size=None), None),
+            (-1, {}, ActorPoolStrategy(min_size=1, max_size=None), None),
             (None, {}, ActorPoolStrategy(min_size=1, max_size=None), None),
             (
                 None,
@@ -98,6 +100,7 @@ class TestGetActorComputeStrategyForStage:
         expected_warning: str | None,
     ):
         mock_stage = Mock(num_workers=lambda: num_workers, ray_stage_spec=lambda: ray_stage_spec)
+        mock_stage.name = "stage"
 
         with patch("nemo_curator.backends.ray_data.utils.logger.warning") as mock_warning:
             assert get_actor_compute_strategy_for_stage(mock_stage) == expected
@@ -107,3 +110,17 @@ class TestGetActorComputeStrategyForStage:
         else:
             mock_warning.assert_called_once()
             assert expected_warning in mock_warning.call_args.args[0]
+
+    def test_actor_compute_strategy_rejects_invalid_sizing(self):
+        mock_stage = Mock(
+            num_workers=lambda: None,
+            ray_stage_spec=lambda: {
+                RayStageSpecKeys.MIN_WORKERS: 1,
+                RayStageSpecKeys.MAX_WORKERS: 4,
+                RayStageSpecKeys.INITIAL_WORKERS: 10,
+            },
+        )
+        mock_stage.name = "stage"
+
+        with pytest.raises(ValueError, match="Invalid Ray Data actor pool sizing for stage stage"):
+            get_actor_compute_strategy_for_stage(mock_stage)

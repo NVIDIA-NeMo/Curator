@@ -25,6 +25,8 @@ from nemo_curator.stages.base import ProcessingStage
 
 from .utils import get_actor_compute_strategy_for_stage, get_configured_actor_pool_sizing_keys, is_actor_stage
 
+CURATOR_MANAGED_MAP_BATCHES_KWARGS = {"compute", "max_calls", "num_cpus", "num_gpus"}
+
 
 class RayDataStageAdapter(BaseStageAdapter):
     """Adapts ProcessingStage to Ray Data operations.
@@ -71,11 +73,12 @@ class RayDataStageAdapter(BaseStageAdapter):
         # For Task objects, we return them in the 'item' column
         return {"item": results}
 
-    def process_dataset(self, dataset: Dataset) -> Dataset:
+    def process_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
         """Process a Ray Data dataset through this stage.
 
         Args:
             dataset (Dataset): Ray Data dataset containing Task objects
+            ignore_head_node (bool): Whether to exclude head-node resources from the actor-pool max size.
 
         Returns:
             Dataset: Processed Ray Data dataset
@@ -85,7 +88,9 @@ class RayDataStageAdapter(BaseStageAdapter):
 
         if stage_is_actor:
             map_batches_fn = create_actor_from_stage(self.stage)
-            map_batches_kwargs = {"compute": get_actor_compute_strategy_for_stage(self.stage)}
+            map_batches_kwargs = {
+                "compute": get_actor_compute_strategy_for_stage(self.stage, ignore_head_node=ignore_head_node)
+            }
         else:
             map_batches_fn = create_task_from_stage(self.stage)
             map_batches_kwargs = {}
@@ -119,6 +124,14 @@ class RayDataStageAdapter(BaseStageAdapter):
         # caches an isolated virtualenv for this stage's workers.
         if self.stage.runtime_env:
             ray_remote_args["runtime_env"] = self.stage.runtime_env
+
+        colliding_ray_remote_args = sorted(CURATOR_MANAGED_MAP_BATCHES_KWARGS & ray_remote_args.keys())
+        if colliding_ray_remote_args:
+            msg = (
+                f"ray_remote_args for Ray Data stage {self.stage.name} must not override "
+                f"Curator-managed map_batches arguments {colliding_ray_remote_args}."
+            )
+            raise ValueError(msg)
 
         map_batches_kwargs.update(ray_remote_args)
 
