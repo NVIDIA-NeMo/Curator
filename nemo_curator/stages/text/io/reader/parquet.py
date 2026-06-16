@@ -18,7 +18,7 @@ from typing import Any, Literal
 import pandas as pd
 
 from nemo_curator.stages.base import CompositeStage
-from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.file_partitioning import FilePartitioningStage, SlurmArrayConfig
 from nemo_curator.tasks import DocumentBatch, EmptyTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
 
@@ -79,10 +79,7 @@ class ParquetReader(CompositeStage[EmptyTask, DocumentBatch]):
     blocksize: int | str | None = None
     fields: list[str] | None = None  # If specified, only read these columns
     read_kwargs: dict[str, Any] | None = None
-    enable_array_partitioning: bool = False
-    shard_index: int | str | None = None
-    total_shards: int | str | None = None
-    minimum_shard_index: int | str = 0
+    slurm_array: SlurmArrayConfig | None = None
     file_extensions: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["parquet"])
     task_type: Literal["document", "image", "video", "audio"] = "document"
     _generate_ids: bool = False
@@ -109,10 +106,7 @@ class ParquetReader(CompositeStage[EmptyTask, DocumentBatch]):
                 blocksize=self.blocksize,
                 file_extensions=self.file_extensions,
                 storage_options=self.read_kwargs.get("storage_options", {}) if self.read_kwargs is not None else None,
-                enable_array_partitioning=self.enable_array_partitioning,
-                shard_index=self.shard_index,
-                total_shards=self.total_shards,
-                minimum_shard_index=self.minimum_shard_index,
+                slurm_array=self.slurm_array,
             ),
             # Second stage: process file groups into document batches
             ParquetReaderStage(

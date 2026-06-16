@@ -71,6 +71,7 @@ from loguru import logger
 from nemo_curator.backends.base import FAILED_TASKS_DIR_ENV_VAR
 from nemo_curator.core.client import RayClient, SlurmRayClient
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.file_partitioning import SlurmArrayConfig
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
@@ -282,15 +283,18 @@ def build_pipeline(  # noqa: PLR0913
     # submit_array.sh maps Slurm array env vars into explicit shard arguments.
     # Direct users may also pass env var names; those are resolved before the
     # pipeline is built so retry manifests record concrete shard values.
+    slurm_array = SlurmArrayConfig(
+        shard_index=shard_index,
+        total_shards=total_shards,
+        minimum_shard_index=minimum_shard_index,
+    )
+
     if input_file_type == "jsonl":
         pipeline.add_stage(
             JsonlReader(
                 file_paths=input_dir,
                 files_per_partition=files_per_partition,
-                enable_array_partitioning=True,
-                shard_index=shard_index,
-                total_shards=total_shards,
-                minimum_shard_index=minimum_shard_index,
+                slurm_array=slurm_array,
             )
         )
     elif input_file_type == "parquet":
@@ -298,10 +302,7 @@ def build_pipeline(  # noqa: PLR0913
             ParquetReader(
                 file_paths=input_dir,
                 files_per_partition=files_per_partition,
-                enable_array_partitioning=True,
-                shard_index=shard_index,
-                total_shards=total_shards,
-                minimum_shard_index=minimum_shard_index,
+                slurm_array=slurm_array,
             )
         )
     else:

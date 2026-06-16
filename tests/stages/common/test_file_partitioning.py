@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.file_partitioning import FilePartitioningStage, SlurmArrayConfig
 from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
@@ -66,6 +66,7 @@ class TestFilePartitioningStage:
         assert stage.file_extensions == [".jsonl", ".json", ".parquet"]
         assert stage.storage_options == {}
         assert stage.limit is None
+        assert stage.slurm_array is None
         assert stage.name == "file_partitioning"
 
     def test_initialization_custom_values_with_files_per_partition(self):
@@ -272,25 +273,27 @@ class TestFilePartitioningStage:
         assert task._metadata["source_files"] == [test_files[0]]
         assert task.reader_config == {}
 
-    def test_enable_array_partitioning_with_explicit_values(self, monkeypatch: pytest.MonkeyPatch):
+    def test_slurm_array_partitioning_with_explicit_values(self, monkeypatch: pytest.MonkeyPatch):
         """Test array partitioning initialization with explicit shard values."""
         monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "7")
         monkeypatch.setenv("SLURM_ARRAY_TASK_COUNT", "11")
 
         stage = FilePartitioningStage(
             file_paths="/test/path",
-            enable_array_partitioning=True,
-            shard_index=2,
-            total_shards=10,
-            minimum_shard_index=1,
+            slurm_array=SlurmArrayConfig(
+                shard_index=2,
+                total_shards=10,
+                minimum_shard_index=1,
+            ),
         )
 
         assert stage.name == "array_file_partitioning"
-        assert stage.shard_index == 2
-        assert stage.total_shards == 10
-        assert stage.minimum_shard_index == 1
+        assert stage.slurm_array is not None
+        assert stage.slurm_array.shard_index == 2
+        assert stage.slurm_array.total_shards == 10
+        assert stage.slurm_array.minimum_shard_index == 1
 
-    def test_enable_array_partitioning_reads_slurm_env_vars(
+    def test_slurm_array_partitioning_reads_slurm_env_vars(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ):
@@ -300,14 +303,15 @@ class TestFilePartitioningStage:
 
         stage = FilePartitioningStage(
             file_paths="/test/path",
-            enable_array_partitioning=True,
+            slurm_array=SlurmArrayConfig(),
         )
 
-        assert stage.shard_index == 7
-        assert stage.total_shards == 11
-        assert stage.minimum_shard_index == 0
+        assert stage.slurm_array is not None
+        assert stage.slurm_array.shard_index == 7
+        assert stage.slurm_array.total_shards == 11
+        assert stage.slurm_array.minimum_shard_index == 0
 
-    def test_enable_array_partitioning_supports_custom_env_var_names(
+    def test_slurm_array_partitioning_supports_custom_env_var_names(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ):
@@ -318,17 +322,19 @@ class TestFilePartitioningStage:
 
         stage = FilePartitioningStage(
             file_paths="/test/path",
-            enable_array_partitioning=True,
-            shard_index="CUSTOM_SHARD_INDEX",
-            total_shards="CUSTOM_TOTAL_SHARDS",
-            minimum_shard_index="CUSTOM_MINIMUM_SHARD_INDEX",
+            slurm_array=SlurmArrayConfig(
+                shard_index="CUSTOM_SHARD_INDEX",
+                total_shards="CUSTOM_TOTAL_SHARDS",
+                minimum_shard_index="CUSTOM_MINIMUM_SHARD_INDEX",
+            ),
         )
 
-        assert stage.shard_index == 3
-        assert stage.total_shards == 8
-        assert stage.minimum_shard_index == 1
+        assert stage.slurm_array is not None
+        assert stage.slurm_array.shard_index == 3
+        assert stage.slurm_array.total_shards == 8
+        assert stage.slurm_array.minimum_shard_index == 1
 
-    def test_enable_array_partitioning_requires_slurm_env_vars_by_default(
+    def test_slurm_array_partitioning_requires_slurm_env_vars_by_default(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ):
@@ -339,10 +345,10 @@ class TestFilePartitioningStage:
         with pytest.raises(ValueError, match="SLURM_ARRAY_TASK_ID"):
             FilePartitioningStage(
                 file_paths="/test/path",
-                enable_array_partitioning=True,
+                slurm_array=SlurmArrayConfig(),
             )
 
-    def test_enable_array_partitioning_rejects_non_integer_env_var(
+    def test_slurm_array_partitioning_rejects_non_integer_env_var(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ):
@@ -352,22 +358,24 @@ class TestFilePartitioningStage:
         with pytest.raises(ValueError, match=r"CUSTOM_SHARD_INDEX.*not-an-int"):
             FilePartitioningStage(
                 file_paths="/test/path",
-                enable_array_partitioning=True,
-                shard_index="CUSTOM_SHARD_INDEX",
-                total_shards=4,
+                slurm_array=SlurmArrayConfig(
+                    shard_index="CUSTOM_SHARD_INDEX",
+                    total_shards=4,
+                ),
             )
 
-    def test_enable_array_partitioning_requires_positive_total_shards(self):
+    def test_slurm_array_partitioning_requires_positive_total_shards(self):
         """Test that array partitioning rejects non-positive shard counts."""
         with pytest.raises(ValueError, match="total_shards must be greater than 0"):
             FilePartitioningStage(
                 file_paths="/test/path",
-                enable_array_partitioning=True,
-                shard_index=0,
-                total_shards=0,
+                slurm_array=SlurmArrayConfig(
+                    shard_index=0,
+                    total_shards=0,
+                ),
             )
 
-    def test_enable_array_partitioning_warns_for_out_of_range_shard(
+    def test_slurm_array_partitioning_warns_for_out_of_range_shard(
         self,
         caplog: pytest.LogCaptureFixture,
     ):
@@ -375,18 +383,20 @@ class TestFilePartitioningStage:
         with caplog.at_level("WARNING"):
             stage = FilePartitioningStage(
                 file_paths="/test/path",
-                enable_array_partitioning=True,
-                shard_index=0,
-                total_shards=10,
-                minimum_shard_index=1,
+                slurm_array=SlurmArrayConfig(
+                    shard_index=0,
+                    total_shards=10,
+                    minimum_shard_index=1,
+                ),
             )
 
-        assert stage.shard_index == 0
-        assert stage.total_shards == 10
-        assert stage.minimum_shard_index == 1
+        assert stage.slurm_array is not None
+        assert stage.slurm_array.shard_index == 0
+        assert stage.slurm_array.total_shards == 10
+        assert stage.slurm_array.minimum_shard_index == 1
         assert "outside the assignable shard range [1, 10]" in caplog.text
 
-    def test_enable_array_partitioning_warns_when_no_partitions_assigned(
+    def test_slurm_array_partitioning_warns_when_no_partitions_assigned(
         self,
         caplog: pytest.LogCaptureFixture,
         empty_task: EmptyTask,
@@ -396,9 +406,10 @@ class TestFilePartitioningStage:
         test_files = _create_test_jsonl_files(tmp_path, num_files=2, subdir="path")
         stage = FilePartitioningStage(
             file_paths=test_files,
-            enable_array_partitioning=True,
-            shard_index=2,
-            total_shards=2,
+            slurm_array=SlurmArrayConfig(
+                shard_index=2,
+                total_shards=2,
+            ),
         )
 
         with caplog.at_level("WARNING"):
@@ -407,7 +418,7 @@ class TestFilePartitioningStage:
         assert result == []
         assert "assigned 0 of 2 partitions" in caplog.text
 
-    def test_enable_array_partitioning_assigns_each_partition_to_one_shard(
+    def test_slurm_array_partitioning_assigns_each_partition_to_one_shard(
         self,
         empty_task: EmptyTask,
         tmp_path: Path,
@@ -424,9 +435,10 @@ class TestFilePartitioningStage:
             stage = FilePartitioningStage(
                 file_paths=test_files,
                 files_per_partition=2,
-                enable_array_partitioning=True,
-                shard_index=shard_index,
-                total_shards=3,
+                slurm_array=SlurmArrayConfig(
+                    shard_index=shard_index,
+                    total_shards=3,
+                ),
             )
 
             assigned_partitions.extend(tuple(task.data) for task in stage.process(empty_task))
@@ -434,7 +446,7 @@ class TestFilePartitioningStage:
         assert set(assigned_partitions) == expected_partitions
         assert len(assigned_partitions) == len(expected_partitions)
 
-    def test_enable_array_partitioning_supports_minimum_shard_index(
+    def test_slurm_array_partitioning_supports_minimum_shard_index(
         self,
         empty_task: EmptyTask,
         tmp_path: Path,
@@ -444,17 +456,19 @@ class TestFilePartitioningStage:
         zero_indexed_stage = FilePartitioningStage(
             file_paths=test_files,
             files_per_partition=2,
-            enable_array_partitioning=True,
-            shard_index=0,
-            total_shards=3,
+            slurm_array=SlurmArrayConfig(
+                shard_index=0,
+                total_shards=3,
+            ),
         )
         one_indexed_stage = FilePartitioningStage(
             file_paths=test_files,
             files_per_partition=2,
-            enable_array_partitioning=True,
-            shard_index=1,
-            total_shards=3,
-            minimum_shard_index=1,
+            slurm_array=SlurmArrayConfig(
+                shard_index=1,
+                total_shards=3,
+                minimum_shard_index=1,
+            ),
         )
 
         zero_indexed_result = [task.data for task in zero_indexed_stage.process(empty_task)]

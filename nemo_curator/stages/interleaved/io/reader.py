@@ -22,7 +22,7 @@ from nemo_curator.stages.base import CompositeStage
 if TYPE_CHECKING:
     import pyarrow as pa
 
-from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.file_partitioning import FilePartitioningStage, SlurmArrayConfig
 from nemo_curator.stages.interleaved.io.readers.parquet import InterleavedParquetReaderStage
 from nemo_curator.stages.interleaved.io.readers.webdataset import InterleavedWebdatasetReaderStage
 from nemo_curator.stages.interleaved.utils import (
@@ -43,10 +43,7 @@ class InterleavedWebdatasetReader(CompositeStage[EmptyTask, InterleavedBatch]):
     blocksize: int | str | None = None
     max_batch_bytes: int | None = None
     read_kwargs: dict[str, Any] = field(default_factory=dict)
-    enable_array_partitioning: bool = False
-    shard_index: int | str | None = None
-    total_shards: int | str | None = None
-    minimum_shard_index: int | str = 0
+    slurm_array: SlurmArrayConfig | None = None
     materialize_on_read: bool = False
     file_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_WEBDATASET_EXTENSIONS))
     json_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_JSON_EXTENSIONS))
@@ -72,10 +69,7 @@ class InterleavedWebdatasetReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 blocksize=self.blocksize,
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
-                enable_array_partitioning=self.enable_array_partitioning,
-                shard_index=self.shard_index,
-                total_shards=self.total_shards,
-                minimum_shard_index=self.minimum_shard_index,
+                slurm_array=self.slurm_array,
             ),
             InterleavedWebdatasetReaderStage(
                 read_kwargs=self.read_kwargs,
@@ -104,10 +98,7 @@ class InterleavedParquetReader(CompositeStage[EmptyTask, InterleavedBatch]):
     fields: tuple[str, ...] | None = None
     max_batch_bytes: int | None = None
     read_kwargs: dict[str, Any] = field(default_factory=dict)
-    enable_array_partitioning: bool = False
-    shard_index: int | str | None = None
-    total_shards: int | str | None = None
-    minimum_shard_index: int | str = 0
+    slurm_array: SlurmArrayConfig | None = None
     schema: pa.Schema | None = None
     schema_overrides: dict[str, pa.DataType] | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".parquet"])
@@ -125,10 +116,7 @@ class InterleavedParquetReader(CompositeStage[EmptyTask, InterleavedBatch]):
                 blocksize=self.blocksize,
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
-                enable_array_partitioning=self.enable_array_partitioning,
-                shard_index=self.shard_index,
-                total_shards=self.total_shards,
-                minimum_shard_index=self.minimum_shard_index,
+                slurm_array=self.slurm_array,
             ),
             InterleavedParquetReaderStage(
                 read_kwargs=self.read_kwargs,
