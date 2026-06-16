@@ -23,15 +23,16 @@ import zipfile
 from typing import TYPE_CHECKING
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 from PIL import Image
 
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
 from nemo_curator.tasks import EmptyTask
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _empty_task() -> EmptyTask:
@@ -39,6 +40,16 @@ def _empty_task() -> EmptyTask:
 
 
 class TestPDFPartitioningStage:
+    def test_worker_defaults(self, tmp_path: Path):
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text("")
+
+        stage = PDFPartitioningStage(manifest_path=str(manifest), pdfs_per_task=2)
+
+        assert stage.ray_stage_spec() == {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
+
     def test_simple_manifest(self, tmp_path: Path):
         manifest = tmp_path / "manifest.jsonl"
         manifest.write_text(
