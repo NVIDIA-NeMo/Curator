@@ -40,7 +40,8 @@ def minhash_overlap(minhash1: np.ndarray, minhash2: np.ndarray) -> float:
 
 def jaccard_index(str1: str, str2: str, char_ngrams: int) -> float:
     """Calculate the true Jaccard index between two strings."""
-    return cudf.Series([str1]).str.jaccard_index(cudf.Series([str2]), width=char_ngrams).values_host[0]
+    # cudf 26.08 removed Series.values_host; to_numpy() returns the equivalent host array.
+    return cudf.Series([str1]).str.jaccard_index(cudf.Series([str2]), width=char_ngrams).to_numpy()[0]
 
 
 def generate_all_pairs(item: Iterable) -> Iterable:

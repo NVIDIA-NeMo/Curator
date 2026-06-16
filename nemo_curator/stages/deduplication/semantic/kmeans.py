@@ -208,7 +208,10 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
 
         # Fit the model cooperatively across actors, then predict on local data
         concatenated_embeddings = cp.concatenate(embeddings_arrays, axis=0)
-        self.kmeans._fit(concatenated_embeddings, sample_weight=None, convert_dtype=False, multigpu=True)
+        # cuml 26.08: the cooperative multi-GPU fit is KMeansMG.fit() — the private
+        # _fit(multigpu=True) entrypoint was removed. KMeansMG carries _multi_gpu=True,
+        # so fit() dispatches to the multi-GPU C++ impl using the RAFT comms handle.
+        self.kmeans.fit(concatenated_embeddings, sample_weight=None, convert_dtype=False)
 
         if self.cache_path is not None and getattr(self, "_actor_index", 0) == 0:
             os.makedirs(self.cache_path, exist_ok=True)
@@ -350,7 +353,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
             f"(fit_data_fraction={fraction:.4f}, {len(fit_files)}/{len(all_files)} files)"
         )
 
-        self.kmeans._fit(concatenated_samples, sample_weight=None, convert_dtype=False, multigpu=True)
+        # cuml 26.08: cooperative multi-GPU fit via KMeansMG.fit() (see setup()).
+        self.kmeans.fit(concatenated_samples, sample_weight=None, convert_dtype=False)
         del concatenated_samples
         gc.collect()
         # Stop the fit-time clock before centroid I/O so the metric isn't skewed
@@ -425,7 +429,11 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], Dedupli
         return results, pass2_read_time, total_rows
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        from cuml.cluster.kmeans import KMeans as cumlKMeans
+        # cuml 26.08: the single-GPU KMeans no longer accepts a ``handle`` and the
+        # private multi-GPU ``_fit(multigpu=True)`` entrypoint was removed. The
+        # multi-node/multi-GPU estimator is KMeansMG, constructed with the RAFT comms
+        # handle; its fit() does the cooperative fit (see _process_batch_single_pass).
+        from cuml.cluster.kmeans_mg import KMeansMG as cumlKMeans
 
         if not hasattr(self, "_raft_handle"):
             msg = "RAFT handle not found. Make sure the stage is initialized with RAFT"

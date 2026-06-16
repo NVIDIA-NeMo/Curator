@@ -66,7 +66,7 @@ dependencies = [
     "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]>=2.55.1",
+    "ray[default,data]>=2.55.1",  # nightly wheel routed per (python, arch) via [tool.uv.sources]
     "torch",
     "transformers",
 ]
@@ -76,28 +76,57 @@ cuda12 = [
     "gpustat",
     "nvidia-ml-py",
 ]
-vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
+vllm = ["vllm[flashinfer,runai,otel]==0.22.0+cu129; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
 inference_server = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
-    "vllm<0.19; (platform_machine == 'x86_64' and platform_system != 'Darwin')", # Ray Serve LLM 2.55.1 isn't compatible with vllm 0.19+
-    "ai-dynamo==1.1.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')", # pin so the Dynamo actor venv resolves to the same release we test against; gated to x86_64 since vllm wheels are x86_64-only
+    "ai-dynamo>=1.3.0.dev0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "ray[serve,llm]>=2.55.1",
 ]
 
 # Installs CPU + GPU text curation modules
+# RAPIDS pinned to the nightly dev line (26.08.0a*) from the rapids-nightly index
+# (see [[tool.uv.index]] + [tool.uv.sources]) so the weekly benchmark exercises
+# upstream cudf/cuml/cugraph as they land. The >=…a0 floor is an explicit
+# prerelease marker, which prerelease="if-necessary-or-explicit" honors.
 deduplication_cuda12 = [
-    "cudf-cu12==25.10.*",
-    "cuml-cu12==25.10.*",
-    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
-    "pylibcugraph-cu12==25.10.*",
-    "pylibraft-cu12==25.10.*",
-    "raft-dask-cu12==25.10.*",
-    "rapidsmpf-cu12==25.10.*",
+    # Top-level RAPIDS packages
+    "cudf-cu12>=26.8.0a0,<26.10",
+    "cuml-cu12>=26.8.0a0,<26.10",
+    "pylibcugraph-cu12>=26.8.0a0,<26.10",
+    "pylibraft-cu12>=26.8.0a0,<26.10",
+    "raft-dask-cu12>=26.8.0a0,<26.10",
+    "rapidsmpf-cu12>=26.8.0a0,<26.10",
+    # rapidsmpf 26.08 moved partition_and_pack/unpack_and_concat out of rapidsmpf into the
+    # new cudf-streaming package; the dedup shuffler now depends on it directly.
+    "cudf-streaming-cu12>=26.8.0a0,<26.10",
+    # RAPIDS nightly transitives, listed EXPLICITLY so prerelease="if-necessary-or-explicit"
+    # enables prereleases for them (stable <26.8 builds also exist on the nvidia index, so
+    # they would NOT qualify as "if-necessary"). Enumerated from a resolved uv.lock; keep in
+    # sync when the RAPIDS line bumps (re-run: parse uv.lock for the rapids-nightly index).
+    "libcudf-cu12>=26.8.0a0,<26.10",
+    "pylibcudf-cu12>=26.8.0a0,<26.10",
+    "rmm-cu12>=26.8.0a0,<26.10",
+    "librmm-cu12>=26.8.0a0,<26.10",
+    "libcuml-cu12>=26.8.0a0,<26.10",
+    "libcugraph-cu12>=26.8.0a0,<26.10",
+    "libraft-cu12>=26.8.0a0,<26.10",
+    "libcuvs-cu12>=26.8.0a0,<26.10",
+    "libkvikio-cu12>=26.8.0a0,<26.10",
+    "libnvforest-cu12>=26.8.0a0,<26.10",
+    "nvforest-cu12>=26.8.0a0,<26.10",
+    "librapidsmpf-cu12>=26.8.0a0,<26.10",
+    "libcudf-streaming-cu12>=26.8.0a0,<26.10",
+    "dask-cuda>=26.8.0a0,<26.10",
+    "rapids-dask-dependency>=26.8.0a0,<26.10",
+    # UCXX stack (RAPIDS comms) — separate 0.5x version line
+    "ucxx-cu12>=0.51.0a0,<0.52",
+    "libucxx-cu12>=0.51.0a0,<0.52",
+    "distributed-ucxx-cu12>=0.51.0a0,<0.52",
 ]
 
 audio_common = [
@@ -230,7 +259,7 @@ video_cuda12 = [
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "torch<=2.10.0",
+    "torch<=2.11.0",
     "torchaudio",
 ]
 
@@ -267,7 +296,7 @@ interleaved_cuda12 = [
 
 # Synthetic Data Generation (SDG) Dependencies
 sdg_cpu = [
-    "data-designer==0.5.5",
+    "data-designer==0.6.1",
 ]
 
 sdg_cuda12 = [
@@ -290,7 +319,7 @@ all = [
 ]
 
 [dependency-groups]
-build = ["setuptools", "torch<=2.10.0", "Cython", "packaging"]
+build = ["setuptools", "torch<=2.11.0", "Cython", "packaging"]
 dev = ["jupyter"]
 linting = ["pre-commit", "ruff==0.14.10"]
 test = [
@@ -306,7 +335,7 @@ test = [
     "pytest-loguru",
     "pyyaml",
     "rich",
-    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
+    "scikit-learn",  # cap lifted for RAPIDS nightly (cuml 25.10's <1.8.0 incompatibility no longer applies); re-cap if the lock surfaces it
     "s3fs>=2024.12.0", # added for testing cloud fs
     "slack_sdk",
 ]
@@ -317,36 +346,43 @@ package = true
 managed = true
 default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
+# Only pick a prerelease when a requirement carries an explicit prerelease marker
+# (ai-dynamo>=1.3.0.dev0, ray nightly URL, and the RAPIDS nightly tree listed
+# explicitly in deduplication_cuda12) or when every version in range is a
+# prerelease (otel's 0.x betas). This deliberately avoids "allow", which would
+# also drag in unrelated prereleases (e.g. azure-identity betas, msal rc).
+prerelease = "if-necessary-or-explicit"
 no-build-isolation-package = ["flash-attn"]
+# CVE floors removed as proven-redundant (2026-06): with the ray-nightly /
+# ai-dynamo-nightly / transformers-5 / RAPIDS-nightly stack, the resolver already
+# lands at or above every prior CVE fix without an explicit floor — verified by
+# locking with this list empty and comparing resolved versions:
+#   aiohttp 3.14.0 (≥3.13.3), cryptography 46.0.7 (≥46.0.6), nbconvert 7.17.1
+#   (≥7.17.0), pillow 12.2.0 (≥12.1.1), pyasn1 0.6.3 (≥0.6.2), pyopenssl 26.0.0,
+#   python-multipart 0.0.32 (≥0.0.22), starlette 1.0.1 (≥0.49.1), urllib3 2.7.0
+#   (≥2.6.3), wheel 0.46.3 (≥0.46.2), setuptools 80.10.2 (≥80.10.1).
+# If a weekly re-lock ever drops one below its fix, re-add just that floor here.
 constraint-dependencies = [
-    "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
-    "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
-    "nbconvert>=7.17.0", # Address CVE GHSA-xm59-rqc7-hhvf
-    "pillow>=12.1.1", # Address CVE GHSA-cfh3-3jmp-rvhc
-    "protobuf>=5.29.6,<7.0", # Address CVE GHSA-8qvm-5x2c-j2w7; <7.0 due to ray serve FieldDescriptor API breakage
-    "pyasn1>=0.6.2", # Address CVE GHSA-63vm-454h-vhhq
-    "pyopenssl>=26.0.0", # Address CVE GHSA-5pwr-322w-8jr4
-    "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
-    "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
-    "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
-    "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
-    "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
 override-dependencies = [
-    "fsspec>=2025.3.0", # required for nemo-toolkit[asr]==2.7.2 (fsspec==2024.12.0), override due to data-designer-engine==0.5.5 requires >=2025.3.0
+    "fsspec>=2025.3.0", # required because nemo-toolkit[asr] pins fsspec==2024.12.0 while data-designer-engine==0.6.1 requires fsspec>=2025.3.0,<2026
+    "huggingface-hub>=1.5.0,<2", # Override whisperx's huggingface-hub<1.0.0 pin (and other audio transitives); transformers 5 needs >=1.5,<2 and data-designer-engine 0.6.1 needs >=1.0.1,<2 — intersection is >=1.5,<2. Audio stack on hub 1.x is a known canary risk.
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
-    "huggingface-hub>=0.34,<1.0", # Override huggingface-hub, transformers and data-designer require two different versions of hugging-face hub
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
-    "numpy>=2.0.0,<=2.2.0", # Override nemo-toolkits constraint of <2.0.0, upperbounds for Numba compatibility
-    "protobuf>=5.29.5,<7.0",  # Override nemo-toolkits constraint of ~=5.29.5; <7.0 due to ray serve FieldDescriptor API breakage
-    "setuptools>=80.10.1", # Override setuptools range in other dependencies to address CVE GHSA-58pv-8j8x-9vj2
-    "torch==2.10.0", # Override whisperx's <2.9 cap to match cu129 / vllm 0.18.x
-    "torchaudio==2.10.0", # Override whisperx's <2.9 cap to match cu129 / vllm 0.18.x
-    "torchvision==0.25.0", # Match torch==2.10.0
-    "torchcodec~=0.10.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # pin to torchcodec 0.10.x for torch 2.10 ABI compatibility — torchcodec doesn't declare a torch dep, so the resolver can't enforce the match; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
+    "numpy>=2.0.0", # Override nemo-toolkit's <2.0.0 cap; upper bound dropped (numba 0.65 + cudf nightly govern the real ceiling) — let the resolver pick the newest compatible numpy
+    "packaging>=25", # Override lightning 2.4.0's packaging<25 cap (lightning is pinned to 2.4.0 by nemo-toolkit[asr]<=2.4.0 ∩ pyannote-audio>=2.4); data-designer 0.6.1 requires packaging>=25. packaging 25 is low-risk for lightning.
+    "pandas>=3.0.0", # cudf-cu12 nightly (26.08) requires pandas>=3.0.0, but data-designer-config 0.6.1 (and nemo-toolkit transitives) still cap pandas<3. Force pandas 3 so the nightly RAPIDS line wins; data-designer on pandas 3 is a known canary risk surfaced by the weekly run.
+    "numba==0.65.0", # Override RAPIDS/legacy caps for the inference image; vLLM 0.22 requires numba 0.65.0
+    "protobuf>=5.29.6",  # Override nemo-toolkit's ~=5.29.5 pin; floor at 5.29.6 for CVE GHSA-8qvm-5x2c-j2w7. <7.0 cap dropped — ray nightly should handle protobuf 6/7; weekly run will catch the FieldDescriptor break if it regresses
+    "transformers>=5.0,<6", # Override nemo-toolkit[asr]'s transformers>=4.57,<4.58 pin to force the transformers 5.x nightly bump; audio stack on transformers 5 is a known canary risk (prior runs passed with the pin overridden)
+    "torch==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match vLLM's CUDA requirements; Linux resolves to cu129 via tool.uv.sources
+    "torchaudio==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
+    "torchvision==0.26.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
+    "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # pin to torchcodec 0.11.x for torch 2.11 ABI compatibility; torchcodec does not declare a torch dep, so the resolver cannot enforce the match; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
+    "nixl-cu13; sys_platform == 'never'", # ray[llm]/nixl hard-pin the CUDA-13 NIXL backend. On this CUDA-12.9 image vLLM's eager `import nixl_ep` would load cu13's nixl_ep_cpp.so and dlopen the absent libcudart.so.13. Drop it; the nixl meta + nixl-cu12 backend (nixl's own default) remain.
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
 ]
 
@@ -365,6 +401,20 @@ name = "pytorch"
 url = "https://download.pytorch.org/whl/cu129"
 explicit = true
 
+[[tool.uv.index]]
+name = "vllm-cu129"
+url = "https://wheels.vllm.ai/0.22.0/cu129"
+explicit = true
+
+# RAPIDS nightly wheels (cudf/cuml/cugraph/raft + their lib*/rmm transitives).
+# Non-explicit so the unsafe-best-match resolver can also pull the nightly-only
+# transitives (librmm-cu12==26.8.*, pylibcudf-cu12, libcuml-cu12, libkvikio-cu12,
+# …); prerelease="if-necessary-or-explicit" keeps it from leaking prereleases to
+# unrelated packages.
+[[tool.uv.index]]
+name = "rapids-nightly"
+url = "https://pypi.anaconda.org/rapidsai-wheels-nightly/simple"
+
 [tool.uv.sources]
 torch = [
     { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
@@ -382,8 +432,30 @@ torchcodec = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
+# Route the Ray nightly wheel per (python, arch); the dependency stays a clean
+# ray[default,data]>=2.55.1. Re-pinned by re-locking, not frozen. aarch64/other
+# resolve ray from PyPI via the >= floor (avoids ray[llm]'s default cu130 vllm on aarch64).
+ray = [
+    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-3.0.0.dev0-cp311-cp311-manylinux2014_x86_64.whl", marker = "python_version == '3.11' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-3.0.0.dev0-cp312-cp312-manylinux2014_x86_64.whl", marker = "python_version == '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-3.0.0.dev0-cp313-cp313-manylinux2014_x86_64.whl", marker = "python_version == '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
+ai-dynamo = { index = "nvidia" }
+ai-dynamo-runtime = { index = "nvidia" }
+vllm = [
+    { index = "vllm-cu129", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
 nixl = { index = "pypi" }
 nixl-cu12 = { index = "pypi" }
+# Pin the top-level RAPIDS packages to the nightly index for determinism; their
+# lib*/rmm transitives resolve from the same (non-explicit) index automatically.
+cudf-cu12 = { index = "rapids-nightly" }
+cuml-cu12 = { index = "rapids-nightly" }
+pylibcugraph-cu12 = { index = "rapids-nightly" }
+pylibraft-cu12 = { index = "rapids-nightly" }
+raft-dask-cu12 = { index = "rapids-nightly" }
+rapidsmpf-cu12 = { index = "rapids-nightly" }
 
 [tool.coverage.paths]
 source = ["nemo_curator", "/opt/Curator/nemo_curator", "/home/runner/work/Curator/Curator/nemo_curator"]

@@ -415,7 +415,7 @@ class TestKMeansReadFitWriteStage:
 
         total_rows = len(df) * len(expected_groups)
         stage.kmeans = Mock()
-        stage.kmeans._fit = Mock()
+        stage.kmeans.fit = Mock()  # cuml 26.08: cooperative fit is KMeansMG.fit() (was private _fit)
         stage.kmeans.predict = Mock(return_value=cp.zeros(total_rows, dtype=cp.int32))
         stage.kmeans.cluster_centers_ = cp.random.random((2, 2), dtype=cp.float32)
 
@@ -449,7 +449,7 @@ class TestKMeansReadFitWriteStage:
                 assert call.kwargs["columns"] == ["id", "embeddings", "metadata_col"]
                 assert call.kwargs["assign_id"] is False
 
-            stage.kmeans._fit.assert_called_once()
+            stage.kmeans.fit.assert_called_once()
             stage.kmeans.predict.assert_called_once()
 
             assert mock_write.call_count == len(expected_groups)

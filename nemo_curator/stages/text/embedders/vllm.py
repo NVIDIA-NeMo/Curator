@@ -153,7 +153,8 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
             t0 = time.perf_counter()
             max_model_len = self.model.model_config.max_model_len
-            tokenized_data = self.tokenizer.batch_encode_plus(input_data, truncation=True, max_length=max_model_len)
+            # transformers 5 removed batch_encode_plus; __call__ is the supported equivalent.
+            tokenized_data = self.tokenizer(input_data, truncation=True, max_length=max_model_len)
             input_data = [TokensPrompt(prompt_token_ids=ids) for ids in tokenized_data.input_ids]
             metrics["tokenization_time"] = time.perf_counter() - t0
 
