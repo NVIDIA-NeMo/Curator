@@ -21,14 +21,16 @@ from loguru import logger
 
 from nemo_curator.backends.base import (
     BaseExecutor,
+    ScheduledTaskBatchPlan,
     assemble_scheduled_task_batch_results,
     build_scheduled_task_batch_plan,
+    prepare_scheduled_task_batch_plan_for_backend,
     stage_uses_centralized_batching,
 )
 from nemo_curator.backends.utils import register_loguru_serializer
 from nemo_curator.backends.xenna.adapter import (
-    create_named_xenna_stage_adapter,
     create_named_xenna_scheduler_ready_stage_adapter,
+    create_named_xenna_stage_adapter,
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
@@ -66,6 +68,7 @@ class XennaExecutor(BaseExecutor):
             "cpu_allocation_percentage": 0.95,
             "autoscale_interval_s": 180,
             "global_centralized_batching": True,
+            "global_centralized_batching_mode": "windowed",
         }
 
     def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
@@ -79,8 +82,18 @@ class XennaExecutor(BaseExecutor):
             list[Task]: List of output tasks from the pipeline
         """
         initial_tasks = initial_tasks if initial_tasks else [EmptyTask]
-        if self._get_pipeline_config("global_centralized_batching"):
+        if self._materialized_global_centralized_batching_enabled():
             return self._run_xenna_pipeline_with_global_centralized(stages, initial_tasks)
+        if self._get_pipeline_config("global_centralized_batching"):
+            centralized_stage_names = [
+                str(stage.name) for stage in stages if stage_uses_centralized_batching(stage)
+            ]
+            if centralized_stage_names:
+                logger.info(
+                    "Using bounded Xenna centralized batching for stages {}. "
+                    "Set global_centralized_batching_mode=materialized to run the global scheduler path.",
+                    centralized_stage_names,
+                )
         return self._run_xenna_pipeline(stages, initial_tasks)
 
     def _run_xenna_pipeline_with_global_centralized(
@@ -90,10 +103,11 @@ class XennaExecutor(BaseExecutor):
     ) -> list[Any]:
         """Run centralized stages through a global scheduler-ready boundary.
 
-        This experimental path materializes the output of the upstream Xenna
-        segment, builds one global scheduler plan for the centralized stage, runs
-        the ready batches as independent Xenna work items, stitches parent rows
-        back together, then resumes the remaining stages.
+        This path materializes the output of the upstream Xenna segment, builds
+        one scheduler plan for the centralized stage, runs the ready batches as
+        independent Xenna work items, stitches parent rows back together, then
+        resumes the remaining stages. Stages can provide lightweight scheduler
+        descriptors so ready rows do not carry copied waveform chunks.
         """
         current_tasks = initial_tasks
         pending_stages: list[ProcessingStage] = []
@@ -107,7 +121,7 @@ class XennaExecutor(BaseExecutor):
                 current_tasks = self._run_xenna_pipeline(pending_stages, current_tasks)
                 pending_stages = []
 
-            plan = build_scheduled_task_batch_plan(stage, current_tasks)
+            plan = build_scheduled_task_batch_plan(stage, current_tasks, lightweight=True)
             if plan is None:
                 pending_stages.append(stage)
                 continue
@@ -118,6 +132,7 @@ class XennaExecutor(BaseExecutor):
                 len(plan.parent_tasks),
                 stage.name,
             )
+            self._prepare_global_scheduler_plan(stage, plan)
             processed_tasks = self._run_xenna_scheduler_ready_pipeline(stage, plan.ready_batches)
             current_tasks = assemble_scheduled_task_batch_results(stage, plan, processed_tasks)
 
@@ -209,6 +224,24 @@ class XennaExecutor(BaseExecutor):
             ready_batches,
         )
 
+    def _prepare_global_scheduler_plan(self, stage: ProcessingStage, plan: ScheduledTaskBatchPlan) -> None:
+        """Attach Ray object refs for lightweight scheduler rows before dispatch."""
+        if not any(getattr(ready_batch, "work_items", None) for ready_batch in plan.ready_batches):
+            return
+        self._ensure_ray_initialized_for_scheduler_refs()
+        prepare_scheduled_task_batch_plan_for_backend(stage, plan, ray.put)
+
+    @staticmethod
+    def _ensure_ray_initialized_for_scheduler_refs() -> None:
+        ray.init(
+            ignore_reinit_error=True,
+            runtime_env={
+                "env_vars": {
+                    "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
+                }
+            },
+        )
+
     def _build_stage_spec(
         self,
         stage: ProcessingStage,
@@ -294,3 +327,18 @@ class XennaExecutor(BaseExecutor):
     def _get_pipeline_config(self, key: str) -> Any:  # noqa: ANN401
         """Get configuration value with fallback to defaults."""
         return self.config.get(key, self._default_pipeline_config.get(key))
+
+    def _materialized_global_centralized_batching_enabled(self) -> bool:
+        """Return whether to use the all-at-once global scheduler experiment.
+
+        The materialized path builds every scheduler-ready batch for a stage and
+        passes that list to Xenna as ``PipelineSpec.input_data``. ASR can keep
+        those rows lightweight by carrying duration/start-stop descriptors and
+        Ray object refs to parent waveforms. The default
+        ``global_centralized_batching`` behavior remains bounded inside normal
+        Xenna worker windows unless this mode is explicitly selected.
+        """
+        if not self._get_pipeline_config("global_centralized_batching"):
+            return False
+        mode = self._get_pipeline_config("global_centralized_batching_mode")
+        return str(mode).lower() == "materialized"

@@ -38,6 +38,8 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
     from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
 
@@ -116,6 +118,19 @@ class _ChunkSpec:
     sample_rate: object
     language: str | None
     cost: float
+
+
+@dataclass
+class _SchedulerChunkSpec:
+    parent_idx: int
+    chunk_idx: int
+    chunk_count: int
+    start_sample: int
+    stop_sample: int
+    sample_rate: int
+    language: str | None
+    cost: float
+    parent_task_ref: object | None = None
 
 
 @dataclass
@@ -561,6 +576,75 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
 
         return [chunk.task for chunk in chunk_plan]
 
+    def build_scheduler_work_items(self, tasks: list[AudioTask]) -> list[_SchedulerChunkSpec] | None:
+        """Build lightweight ASR chunk descriptors for global backend schedulers."""
+        policy = self.batch_policy
+        if policy is None or not policy.enabled:
+            return None
+        if self._is_prebucketed_chunk_batch(tasks):
+            return None
+        if len(tasks) == 0:
+            return []
+        return self._build_scheduler_chunk_specs(tasks)
+
+    @staticmethod
+    def scheduler_work_item_cost(item: _SchedulerChunkSpec) -> float:
+        """Cost hook for lightweight scheduler chunk descriptors."""
+        return float(item.cost)
+
+    def prepare_scheduler_ready_batches(
+        self,
+        ready_batches: list[Any],
+        parent_tasks: list[AudioTask],
+        put_fn: Callable[[AudioTask], object],
+    ) -> None:
+        """Attach backend object refs so ready rows do not carry waveform copies."""
+        if not ready_batches:
+            return
+        parent_refs = []
+        for task in parent_tasks:
+            parent_refs.append(put_fn(task))
+            if not self.keep_waveform:
+                task.data.pop(self.waveform_key, None)
+        for ready_batch in ready_batches:
+            for item in getattr(ready_batch, "work_items", []) or []:
+                if isinstance(item, _SchedulerChunkSpec):
+                    item.parent_task_ref = parent_refs[item.parent_idx]
+
+    def materialize_scheduler_work_items(self, work_items: list[_SchedulerChunkSpec]) -> list[AudioTask]:
+        """Materialize lightweight descriptors into waveform chunk tasks on the worker."""
+        if not work_items:
+            return []
+        try:
+            import ray
+        except ImportError as e:
+            msg = "ASR lightweight scheduler work items require Ray object refs"
+            raise RuntimeError(msg) from e
+
+        chunk_tasks: list[AudioTask] = []
+        for item in work_items:
+            if item.parent_task_ref is None:
+                msg = "ASR lightweight scheduler work item is missing a parent task ref"
+                raise RuntimeError(msg)
+            parent_task = ray.get(item.parent_task_ref)
+            waveform = parent_task.data.get(self.waveform_key)
+            if waveform is None:
+                msg = f"ASR parent task {parent_task.task_id!r} is missing {self.waveform_key!r}"
+                raise RuntimeError(msg)
+            chunk_waveform = self._slice_waveform(waveform, item.start_sample, item.stop_sample)
+            chunk_tasks.append(
+                self._make_prebucket_chunk_task(
+                    parent_task,
+                    chunk_waveform,
+                    item.sample_rate,
+                    item.chunk_idx,
+                    item.chunk_count,
+                    item.parent_idx,
+                    item.cost,
+                )
+            )
+        return chunk_tasks
+
     def scheduler_task_cost(self, task: AudioTask) -> float:
         """Cost hook for executor-created ASR chunk work units."""
         if "_curator_asr_chunk_cost" in task.data:
@@ -703,6 +787,57 @@ class ASRStage(BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", AS
                         sample_rate=sr,
                         language=language,
                         cost=0.0 if sr <= 0 else float(self._waveform_num_samples(chunk)) / float(sr),
+                    )
+                )
+        return specs
+
+    def _build_scheduler_chunk_specs(self, tasks: list[AudioTask]) -> list[_SchedulerChunkSpec]:
+        """Build lightweight chunk descriptors without embedding waveforms."""
+        specs: list[_SchedulerChunkSpec] = []
+        slice_ceiling = float(self.max_inference_duration_s or self.ideal_inference_segment_s)
+        for parent_idx, task in enumerate(tasks):
+            sample_rate = task.data.get(self.sample_rate_key)
+            waveform = task.data.get(self.waveform_key)
+            n_samples = self._waveform_num_samples(waveform)
+            if n_samples <= 0:
+                try:
+                    n_samples = int(task.data.get("num_samples", 0) or 0)
+                except (TypeError, ValueError):
+                    n_samples = 0
+            language = self._resolve_language(task)
+            if not sample_rate or int(sample_rate) <= 0 or n_samples <= 0:
+                specs.append(
+                    _SchedulerChunkSpec(
+                        parent_idx=parent_idx,
+                        chunk_idx=0,
+                        chunk_count=1,
+                        start_sample=0,
+                        stop_sample=0,
+                        sample_rate=int(sample_rate or 0),
+                        language=language,
+                        cost=0.0,
+                    )
+                )
+                continue
+
+            sr = int(sample_rate)
+            max_samples = int(slice_ceiling * sr) if self.chunking_enabled else n_samples
+            if max_samples <= 0 or n_samples <= max_samples:
+                boundaries = [(0, n_samples)]
+            else:
+                boundaries = [(start, min(start + max_samples, n_samples)) for start in range(0, n_samples, max_samples)]
+            chunk_count = len(boundaries)
+            for chunk_idx, (start, stop) in enumerate(boundaries):
+                specs.append(
+                    _SchedulerChunkSpec(
+                        parent_idx=parent_idx,
+                        chunk_idx=chunk_idx,
+                        chunk_count=chunk_count,
+                        start_sample=start,
+                        stop_sample=stop,
+                        sample_rate=sr,
+                        language=language,
+                        cost=float(stop - start) / float(sr),
                     )
                 )
         return specs

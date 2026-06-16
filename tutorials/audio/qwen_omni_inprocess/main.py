@@ -275,11 +275,18 @@ def _create_executor(cfg: DictConfig):  # noqa: ANN201
             config={
                 "execution_mode": cfg.get("execution_mode", "streaming"),
                 "autoscale_interval_s": cfg.get("autoscale_interval_s", 180),
+                "global_centralized_batching": cfg.get("global_centralized_batching", True),
+                "global_centralized_batching_mode": cfg.get("global_centralized_batching_mode", "windowed"),
             }
         )
     if cfg.get("execution_mode") not in (None, "streaming"):
         logger.info("execution_mode={} is Xenna-only and is ignored by Ray Data", cfg.get("execution_mode"))
-    return executor_cls()
+    return executor_cls(
+        config={
+            "global_centralized_batching": cfg.get("global_centralized_batching", True),
+            "global_centralized_batching_mode": cfg.get("global_centralized_batching_mode", "windowed"),
+        }
+    )
 
 
 @hydra.main(version_base=None)

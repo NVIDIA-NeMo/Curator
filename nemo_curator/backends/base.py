@@ -12,20 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import time
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from nemo_curator.backends.perf_identity import apply_worker_perf_identity, read_worker_metadata_identity
 from nemo_curator.core.utils import ignore_ray_head_node
-from nemo_curator.tasks import Task
 from nemo_curator.utils.performance_utils import StageTimer
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.tasks import Task
 
 
 @dataclass
@@ -59,7 +62,8 @@ class WorkerMetadata:
 class SchedulerReadyTaskBatch:
     """A backend row containing one scheduler-ready worker dispatch batch."""
 
-    tasks: list[Task]
+    tasks: list[Task] = field(default_factory=list)
+    work_items: list[Any] = field(default_factory=list)
     total_cost: float = 0.0
     source_indices: list[int] = field(default_factory=list)
 
@@ -85,18 +89,18 @@ class BaseExecutor(ABC):
         self.ignore_head_node = ignore_head_node or ignore_ray_head_node()
 
     @abstractmethod
-    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
+    def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> None:
         """Execute the pipeline."""
 
 
-def _enabled_batch_policy(stage: "ProcessingStage") -> object | None:
+def _enabled_batch_policy(stage: ProcessingStage) -> object | None:
     policy = getattr(stage, "batch_policy", None)
     if policy is None or not getattr(policy, "enabled", False):
         return None
     return policy
 
 
-def stage_uses_centralized_batching(stage: "ProcessingStage") -> bool:
+def stage_uses_centralized_batching(stage: ProcessingStage) -> bool:
     """Return whether a stage opts into the centralized executor scheduler.
 
     Centralized stages split once before worker dispatch, let the shared batch
@@ -113,7 +117,7 @@ def stage_uses_centralized_batching(stage: "ProcessingStage") -> bool:
     return callable(build_tasks) and callable(assemble_results) and _scheduler_task_cost_fn(stage) is not None
 
 
-def stage_uses_upstream_prebatching(stage: "ProcessingStage") -> bool:
+def stage_uses_upstream_prebatching(stage: ProcessingStage) -> bool:
     """Return whether a stage explicitly opts into executor-level prebatching.
 
     This is intentionally structural rather than audio-specific: any modality can
@@ -132,7 +136,7 @@ def stage_uses_upstream_prebatching(stage: "ProcessingStage") -> bool:
     return callable(stage_planner) or callable(batch_task_cost)
 
 
-def plan_upstream_task_batches(stage: "ProcessingStage", tasks: list[Task]) -> list[list[Task]]:
+def plan_upstream_task_batches(stage: ProcessingStage, tasks: list[Task]) -> list[list[Task]]:
     """Build executor-visible task batches before backend workers run a stage.
 
     Centralized stages return scheduler-ready work-unit batches. Simple
@@ -165,12 +169,19 @@ def plan_upstream_task_batches(stage: "ProcessingStage", tasks: list[Task]) -> l
 
 
 def build_scheduled_task_batch_plan(
-    stage: "ProcessingStage",
+    stage: ProcessingStage,
     tasks: list[Task],
+    *,
+    lightweight: bool = False,
 ) -> ScheduledTaskBatchPlan | None:
     """Build the one centralized work-unit and bucketed-dispatch plan, if any."""
     if not tasks or not stage_uses_centralized_batching(stage):
         return None
+
+    if lightweight:
+        lightweight_plan = _build_lightweight_scheduled_task_batch_plan(stage, tasks)
+        if lightweight_plan is not None:
+            return lightweight_plan
 
     build_tasks = getattr(stage, "build_prebucketed_tasks", None)
     scheduler_tasks = build_tasks(tasks)
@@ -201,8 +212,46 @@ def build_scheduled_task_batch_plan(
     )
 
 
+def _build_lightweight_scheduled_task_batch_plan(
+    stage: ProcessingStage,
+    tasks: list[Task],
+) -> ScheduledTaskBatchPlan | None:
+    """Build a scheduler plan from stage-owned lightweight work descriptors."""
+    build_work_items = getattr(stage, "build_scheduler_work_items", None)
+    materialize_work_items = getattr(stage, "materialize_scheduler_work_items", None)
+    scheduler_work_item_cost = getattr(stage, "scheduler_work_item_cost", None)
+    if not (callable(build_work_items) and callable(materialize_work_items) and callable(scheduler_work_item_cost)):
+        return None
+
+    scheduler_work_items = build_work_items(tasks)
+    if scheduler_work_items is None:
+        return None
+    scheduler_work_items = list(scheduler_work_items)
+    if not scheduler_work_items:
+        return ScheduledTaskBatchPlan(parent_tasks=list(tasks), ready_batches=[])
+
+    policy = _enabled_batch_policy(stage)
+    if policy is None:
+        msg = f"{type(stage).__name__} is missing a batch policy"
+        raise RuntimeError(msg)
+
+    ready_batches = [
+        SchedulerReadyTaskBatch(
+            work_items=list(sub_items),
+            total_cost=total_cost,
+            source_indices=list(source_indices),
+        )
+        for source_indices, sub_items, total_cost in policy.bucketize_with_costs(
+            scheduler_work_items,
+            cost_fn=scheduler_work_item_cost,
+        )
+        if sub_items
+    ]
+    return ScheduledTaskBatchPlan(parent_tasks=list(tasks), ready_batches=ready_batches)
+
+
 def assemble_scheduled_task_batch_results(
-    stage: "ProcessingStage",
+    stage: ProcessingStage,
     plan: ScheduledTaskBatchPlan,
     processed_tasks: list[Task],
 ) -> list[Task]:
@@ -214,7 +263,18 @@ def assemble_scheduled_task_batch_results(
     return assemble_results(plan.parent_tasks, processed_tasks)
 
 
-def _scheduler_task_cost_fn(stage: "ProcessingStage") -> Callable[[Task], float] | None:
+def prepare_scheduled_task_batch_plan_for_backend(
+    stage: ProcessingStage,
+    plan: ScheduledTaskBatchPlan,
+    put_fn: Callable[[Task], Any],
+) -> None:
+    """Let a stage attach backend-local references before scheduler dispatch."""
+    prepare = getattr(stage, "prepare_scheduler_ready_batches", None)
+    if callable(prepare):
+        prepare(plan.ready_batches, plan.parent_tasks, put_fn)
+
+
+def _scheduler_task_cost_fn(stage: ProcessingStage) -> Callable[[Task], float] | None:
     """Return the cost hook for scheduler-created work units, if available."""
     scheduler_task_cost = getattr(stage, "scheduler_task_cost", None)
     if callable(scheduler_task_cost):
@@ -225,14 +285,28 @@ def _scheduler_task_cost_fn(stage: "ProcessingStage") -> Callable[[Task], float]
     return None
 
 
-def scheduler_ready_batch_tasks(ready_batch: SchedulerReadyTaskBatch | list[Task]) -> list[Task]:
+def scheduler_ready_batch_tasks(
+    ready_batch: SchedulerReadyTaskBatch | list[Task],
+    stage: ProcessingStage | None = None,
+) -> list[Task]:
     """Return dispatch tasks from a scheduler-ready backend row."""
     if isinstance(ready_batch, SchedulerReadyTaskBatch):
+        if ready_batch.tasks:
+            return ready_batch.tasks
+        if ready_batch.work_items:
+            if stage is None:
+                msg = "Scheduler-ready work items require a stage materializer"
+                raise RuntimeError(msg)
+            materialize_work_items = getattr(stage, "materialize_scheduler_work_items", None)
+            if not callable(materialize_work_items):
+                msg = f"{type(stage).__name__} does not implement materialize_scheduler_work_items"
+                raise RuntimeError(msg)
+            return list(materialize_work_items(ready_batch.work_items))
         return ready_batch.tasks
     return list(ready_batch)
 
 
-def upstream_prebatching_batch_size(stage: "ProcessingStage", fallback_batch_size: int | None) -> int:
+def upstream_prebatching_batch_size(stage: ProcessingStage, fallback_batch_size: int | None) -> int:
     """Suggest a scheduler input window large enough to fill policy buckets."""
     fallback = fallback_batch_size if fallback_batch_size is not None and fallback_batch_size > 0 else 1
     if not stage_uses_upstream_prebatching(stage):
@@ -256,7 +330,7 @@ def upstream_prebatching_batch_size(stage: "ProcessingStage", fallback_batch_siz
 class BaseStageAdapter:
     """Adapts ProcessingStage to an execution backend, if needed."""
 
-    def __init__(self, stage: "ProcessingStage"):
+    def __init__(self, stage: ProcessingStage):
         self.stage = stage
 
     def _cache_perf_identity(self) -> None:
@@ -284,7 +358,7 @@ class BaseStageAdapter:
 
     def process_scheduler_ready_batch(self, ready_batch: SchedulerReadyTaskBatch | list[Task]) -> list[Task]:
         """Process an already-planned scheduler batch without recursive planning."""
-        return self._process_batch_once(scheduler_ready_batch_tasks(ready_batch))
+        return self._process_batch_once(scheduler_ready_batch_tasks(ready_batch, self.stage))
 
     def _process_batch_once(self, tasks: list[Task]) -> list[Task]:
         """Run exactly one ``stage.process_batch`` invocation."""

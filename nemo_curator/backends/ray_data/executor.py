@@ -22,6 +22,7 @@ from nemo_curator.backends.base import (
     BaseExecutor,
     assemble_scheduled_task_batch_results,
     build_scheduled_task_batch_plan,
+    prepare_scheduled_task_batch_plan_for_backend,
     stage_uses_centralized_batching,
 )
 from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
@@ -103,8 +104,14 @@ class RayDataExecutor(BaseExecutor):
 
     def _process_stage_dataset(self, stage: "ProcessingStage", dataset: Dataset) -> Dataset:
         """Process one stage as a Ray Data transform."""
-        if self.config.get("global_centralized_batching", True) and stage_uses_centralized_batching(stage):
+        if self._materialized_global_centralized_batching_enabled() and stage_uses_centralized_batching(stage):
             return self._process_global_centralized_stage_dataset(stage, dataset)
+        if self.config.get("global_centralized_batching", True) and stage_uses_centralized_batching(stage):
+            logger.info(
+                "Using bounded Ray Data centralized batching for {}. "
+                "Set global_centralized_batching_mode=materialized to run the global scheduler path.",
+                stage.name,
+            )
 
         adapter = RayDataStageAdapter(stage)
         return adapter.process_dataset(dataset, self.ignore_head_node)
@@ -112,13 +119,14 @@ class RayDataExecutor(BaseExecutor):
     def _process_global_centralized_stage_dataset(self, stage: "ProcessingStage", dataset: Dataset) -> Dataset:
         """Process a centralized stage with one global scheduler plan.
 
-        This experimental path intentionally materializes all upstream parent
-        tasks at the stage boundary, builds one global scheduler-ready plan, then
-        dispatches the ready batches as independent Ray Data rows before
-        assembling the processed chunks back into parent tasks.
+        This path materializes the upstream parent rows at the stage boundary,
+        builds one scheduler-ready plan, then dispatches ready batches as
+        independent Ray Data rows before assembling processed chunks back into
+        parent tasks. Stages can provide lightweight scheduler descriptors so
+        ready rows do not carry copied waveform chunks.
         """
         parent_tasks = self._dataset_to_tasks(dataset)
-        plan = build_scheduled_task_batch_plan(stage, parent_tasks)
+        plan = build_scheduled_task_batch_plan(stage, parent_tasks, lightweight=True)
         if plan is None:
             adapter = RayDataStageAdapter(stage)
             return adapter.process_dataset(dataset, self.ignore_head_node)
@@ -129,6 +137,7 @@ class RayDataExecutor(BaseExecutor):
             len(plan.parent_tasks),
             stage.name,
         )
+        prepare_scheduled_task_batch_plan_for_backend(stage, plan, ray.put)
         ready_dataset = ray.data.from_items(plan.ready_batches, override_num_blocks=max(1, len(plan.ready_batches)))
         processed_dataset = RayDataStageAdapter(stage).process_scheduler_ready_dataset(
             ready_dataset,
@@ -167,3 +176,9 @@ class RayDataExecutor(BaseExecutor):
         for item in items:
             tasks.append(item["item"])
         return tasks
+
+    def _materialized_global_centralized_batching_enabled(self) -> bool:
+        """Return whether to use the all-at-once global scheduler experiment."""
+        if not self.config.get("global_centralized_batching", True):
+            return False
+        return str(self.config.get("global_centralized_batching_mode", "windowed")).lower() == "materialized"

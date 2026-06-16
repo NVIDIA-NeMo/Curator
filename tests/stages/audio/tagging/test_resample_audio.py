@@ -14,6 +14,7 @@
 
 import tempfile
 from collections.abc import Callable
+from math import isclose
 from pathlib import Path
 
 from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
@@ -36,3 +37,34 @@ class TestResampleAudioStage:
             assert out.get("audio_filepath") == str(audio_filepath)
             assert out.get("resampled_audio_filepath") == f"{tmpdir}/id_1.wav"
             assert out.get("duration") == 60.0
+
+    def test_process_emit_waveform_without_writing_audio(
+        self,
+        audio_task: Callable[..., AudioTask],
+        audio_filepath: Path,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stage = ResampleAudioStage(
+                resampled_audio_dir=tmpdir,
+                write_resampled_audio=False,
+                emit_waveform=True,
+                target_sample_rate=16000,
+                target_nchannels=1,
+            )
+            stage.setup_on_node()
+            task = audio_task(
+                audio_filepath=str(audio_filepath),
+                audio_item_id="id_1",
+            )
+
+            result = stage.process(task)
+
+            out = result.data
+            assert out.get("audio_filepath") == str(audio_filepath)
+            assert "resampled_audio_filepath" not in out
+            assert out.get("sample_rate") == 16000
+            assert out.get("is_mono") is True
+            assert out["waveform"].shape[0] == 1
+            assert out.get("num_samples") == out["waveform"].shape[-1]
+            assert isclose(out.get("duration"), 60.0)
+            assert not (Path(tmpdir) / "id_1.wav").exists()

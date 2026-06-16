@@ -22,7 +22,6 @@ from ray.data import Dataset
 from nemo_curator.backends.base import (
     BaseStageAdapter,
     plan_upstream_task_batches,
-    scheduler_ready_batch_tasks,
     stage_uses_centralized_batching,
     stage_uses_upstream_prebatching,
     upstream_prebatching_batch_size,
@@ -94,8 +93,7 @@ class RayDataStageAdapter(BaseStageAdapter):
         planned_rows = coerce_batch_tasks(batch["item"])
         results = []
         for planned_row in planned_rows:
-            task_batch = scheduler_ready_batch_tasks(planned_row)
-            if not task_batch:
+            if not getattr(planned_row, "tasks", planned_row) and not getattr(planned_row, "work_items", []):
                 continue
             results.extend(self.process_scheduler_ready_batch(planned_row))
         return {"item": results}
