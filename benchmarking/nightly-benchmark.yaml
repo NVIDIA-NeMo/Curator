@@ -113,7 +113,25 @@ datasets:
     formats:
     - type: "wav"
       path: "{datasets_path}/read_speech"
+  # Persistent on-disk location for the FLEURS dataset (transcript <split>.tsv +
+  # extracted <split>/ audio). The nightly entries below run with
+  # --no-auto-download, so this must be pre-staged once on the benchmark machine
+  # via:
+  #   python benchmarking/data_prep/prepare_fleurs_data.py \
+  #       --output-path {datasets_path}/fleurs
+  # (downloads from Hugging Face once; defaults to --lang hy_am --split train).
+  # Every subsequent run then reuses it and never re-fetches (avoids HTTP 429).
+  - name: "fleurs_hy_am"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/fleurs"
+# Timeout knobs consumed by tools/generate_ci_tests.py to compute each SLURM job's wall-clock:
+#   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
+# default_timeout_s: per-entry default; cleanup_timeout_s: post-run cleanup buffer; min_timeout_s:
+# floor covering container setup. (default_timeout_s is also the runner's per-entry default.)
 default_timeout_s: 7200
+cleanup_timeout_s: 60
+min_timeout_s: 600
 
 # Optional sinks
 sinks:
@@ -667,6 +685,8 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:fleurs_hy_am,files}
+      --no-auto-download
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train
@@ -693,6 +713,8 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:fleurs_hy_am,files}
+      --no-auto-download
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train

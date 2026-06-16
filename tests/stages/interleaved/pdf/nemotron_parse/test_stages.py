@@ -31,11 +31,11 @@ from PIL import Image
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
-from nemo_curator.tasks import _EmptyTask
+from nemo_curator.tasks import EmptyTask
 
 
-def _empty_task() -> _EmptyTask:
-    return _EmptyTask(dataset_name="test", data=None)
+def _empty_task() -> EmptyTask:
+    return EmptyTask(dataset_name="test", data=None)
 
 
 class TestPDFPartitioningStage:

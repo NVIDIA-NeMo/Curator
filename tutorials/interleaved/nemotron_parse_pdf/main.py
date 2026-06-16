@@ -20,7 +20,7 @@ renders each page to an image, runs Nemotron-Parse for structured extraction
 
 Pipeline stages::
 
-    1. PDFPartitioningStage           (_EmptyTask -> FileGroupTask)   [CPU]
+    1. PDFPartitioningStage           (EmptyTask -> FileGroupTask)   [CPU]
        Reads a JSONL manifest and packs PDF entries into FileGroupTasks.
 
     2. PDFPreprocessStage             (FileGroupTask -> InterleavedBatch) [CPU]

@@ -20,7 +20,7 @@ from loguru import logger
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.file_utils import (
     _split_files_as_per_blocksize,
     get_all_file_paths_and_size_under,
@@ -30,7 +30,7 @@ from nemo_curator.utils.file_utils import (
 
 
 @dataclass
-class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
+class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     """Stage that partitions input file paths into FileGroupTasks.
 
     This stage runs as a dedicated processing stage (not on the driver)
@@ -106,7 +106,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers_per_node": 1}
 
-    def process(self, _: _EmptyTask) -> list[FileGroupTask]:
+    def process(self, _: EmptyTask) -> list[FileGroupTask]:
         """Process the initial task to create file group tasks.
 
         This stage expects a simple Task with file paths information
