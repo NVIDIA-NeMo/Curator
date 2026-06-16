@@ -13,5 +13,6 @@
 # limitations under the License.
 
 from nemo_curator.stages.audio.asr.io.split_manifest_writer import SplitAwareManifestWriter
+from nemo_curator.stages.audio.asr.io.tarred_dataset_writer import TarredAudioDatasetWriterStage
 
-__all__ = ["SplitAwareManifestWriter"]
+__all__ = ["SplitAwareManifestWriter", "TarredAudioDatasetWriterStage"]

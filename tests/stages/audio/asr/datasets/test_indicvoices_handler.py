@@ -21,10 +21,18 @@ import pytest
 import soundfile as sf
 from datasets import Dataset
 
-from nemo_curator.stages.audio.asr.datasets import indicvoices as indicvoices_module
-from nemo_curator.stages.audio.asr.datasets.indicvoices import IndicVoicesHandler
+from nemo_curator.stages.audio.asr.datasets import huggingface as huggingface_module
+from nemo_curator.stages.audio.asr.datasets.huggingface import HuggingFaceASRDatasetHandler
 from nemo_curator.tasks import _EmptyTask
 from tests.stages.audio.asr.datasets.conftest import INPUT_SAMPLE_RATE, OUTPUT_SAMPLE_RATE
+
+
+def _indicvoices_stage(**kwargs: object) -> HuggingFaceASRDatasetHandler:
+    return HuggingFaceASRDatasetHandler(
+        source_name="IndicVoices",
+        valid_split_strategy="dev_test",
+        **kwargs,
+    )
 
 
 def test_indicvoices_handler_ingests_realistic_hf_dataset(
@@ -33,7 +41,7 @@ def test_indicvoices_handler_ingests_realistic_hf_dataset(
 ) -> None:
     raw_root, total_rows = indicvoices_raw_dataset
     output_dir = tmp_path / "out"
-    stage = IndicVoicesHandler(
+    stage = _indicvoices_stage(
         raw_data_dir=str(raw_root),
         output_dir=str(output_dir),
         langs=["gu"],
@@ -45,7 +53,7 @@ def test_indicvoices_handler_ingests_realistic_hf_dataset(
     tasks = stage.process(_EmptyTask(dataset_name="test", data=None))
 
     assert len(tasks) == total_rows
-    split_helper = IndicVoicesHandler(raw_data_dir=str(raw_root), output_dir=str(output_dir), langs=["gu"])
+    split_helper = _indicvoices_stage(raw_data_dir=str(raw_root), output_dir=str(output_dir), langs=["gu"])
     expected_counts = Counter(split_helper.assign_split("valid", f"gu_valid_{i}") for i in range(total_rows))
     actual_counts = Counter(task.data["split_type"] for task in tasks)
     assert actual_counts == expected_counts
@@ -64,6 +72,10 @@ def test_indicvoices_handler_ingests_realistic_hf_dataset(
         assert task.data["lang"] == "gu"
         assert task.data["source"] == "IndicVoices"
         assert task.data["speaker_id"].startswith("speaker_")
+        assert task.data["gender"] in {"Female", "Male"}
+        assert task.data["age"] == "30-45"
+        assert "age_group" not in task.data
+        assert task.data["scenario"] == "Extempore"
 
 
 def test_indicvoices_handler_reports_skipped_rows_from_realistic_hf_dataset(tmp_path: Path) -> None:
@@ -91,7 +103,7 @@ def test_indicvoices_handler_reports_skipped_rows_from_realistic_hf_dataset(tmp_
     )
     dataset.save_to_disk(str(valid_dir))
 
-    stage = IndicVoicesHandler(
+    stage = _indicvoices_stage(
         raw_data_dir=str(raw_root),
         output_dir=str(tmp_path / "out"),
         langs=["gu"],
@@ -117,10 +129,10 @@ def test_indicvoices_handler_writes_manifests_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     log_messages = []
-    monkeypatch.setattr(indicvoices_module.logger, "info", log_messages.append)
+    monkeypatch.setattr(huggingface_module.logger, "info", log_messages.append)
     raw_root, total_rows = indicvoices_raw_dataset
     output_dir = tmp_path / "out"
-    stage = IndicVoicesHandler(
+    stage = _indicvoices_stage(
         raw_data_dir=str(raw_root),
         output_dir=str(output_dir),
         langs=["gu"],

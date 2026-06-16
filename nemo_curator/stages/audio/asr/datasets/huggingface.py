@@ -12,53 +12,51 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""IndicVoices ASR dataset handler.
-
-Dataset: ai4bharat/IndicVoices (https://huggingface.co/datasets/ai4bharat/IndicVoices)
-
-The raw dataset is distributed as HuggingFace arrow datasets, one per
-``{lang}_{split}`` (e.g. ``hindi_train`` / ``hindi_valid``). Each row carries an
-``audio_filepath`` ``Audio`` feature (array + sampling rate), a ``text``
-transcript, and assorted metadata (``snr``, ``gender``, ``collectionSource`` ...).
-
-This handler decodes those arrow datasets, converts every clip to
-WAV/16 kHz/mono/PCM16 under ``output_dir``, partitions the native ``valid`` split
-into ``dev``/``test`` (60/40 by default), and emits one :class:`AudioTask` per
-utterance. Manifest writing can either be handled by a downstream writer stage,
-or enabled through the base handler's ``write_manifest`` support.
-
-Extraction is parallelized inside a single Xenna worker via ``extraction_workers``.
-"""
+"""Generic Hugging Face ASR dataset handler for saved Arrow datasets."""
 
 from __future__ import annotations
 
 import hashlib
 import os
 import time
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field, fields
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
 
+from datasets import Audio, load_from_disk
+from joblib import Parallel, delayed
 from loguru import logger
 
 from nemo_curator.stages.audio.asr.datasets.base import BaseASRDatasetHandlerStage
 from nemo_curator.stages.audio.asr.metadata import ASRMetadata
 
 if TYPE_CHECKING:
-    from nemo_curator.backends.base import WorkerMetadata
     from nemo_curator.tasks import AudioTask, _EmptyTask
 
-# Metadata columns to carry into ASRMetadata.extra when present in a row.
-_INDICVOICES_EXTRA_KEYS = (
-    "speaker_id",
-    "gender",
-    "age_group",
-    "scenario",
-    "task_name",
-    "state",
-    "district",
-    "normalized",
-)
-_SPLIT_HASH_BUCKETS = 100
+_DEFAULT_SOURCE_FIELD_MAPPING = {
+    "gender": "gender",
+    "speaker_id": "speaker_id",
+    "age": "age",
+    "text_verbatim": "text_verbatim",
+}
+_SOURCE_FIELD_MAPPING_BY_SOURCE = {
+    "indicvoices": {
+        "speaker_id": "speaker_id",
+        "gender": "gender",
+        "age_group": "age",
+        "scenario": "scenario",
+        "task_name": "task_name",
+        "state": "state",
+        "district": "district",
+        "normalized": "normalized",
+    },
+    "kathbath": {
+        "speaker_id": "speaker_id",
+        "gender": "gender",
+    },
+    "shrutilipi": {},
+}
+_ASR_METADATA_FIELD_NAMES = {metadata_field.name for metadata_field in fields(ASRMetadata)} - {"extra"}
 
 
 @dataclass
@@ -68,85 +66,70 @@ class _RowResult:
 
 
 @dataclass
-class IndicVoicesHandler(BaseASRDatasetHandlerStage):
-    """Extract the IndicVoices dataset into ASR-training-ready audio tasks.
+class HuggingFaceASRDatasetHandler(BaseASRDatasetHandlerStage):
+    """Extract saved Hugging Face ASR datasets into canonical ASR audio tasks.
 
-    Expected input layout depends on ``split_dir_pattern``. The default expects
-    one HuggingFace dataset directory per language/split:
-
-    .. code-block:: text
-
-        raw_data_dir/
-        ├── gu_train/
-        │   ├── data-00000-of-00001.arrow
-        │   ├── dataset_info.json
-        │   └── state.json
-        └── gu_valid/
-            ├── data-00000-of-00001.arrow
-            ├── dataset_info.json
-            └── state.json
-
-    For a downloaded single-language sample like ``raw_data_dir/valid``, pass
-    ``split_dir_pattern="{split}"``.
-
-    Output audio is written after split assignment, so native ``train`` remains
-    ``train`` while native ``valid`` is deterministically partitioned into
-    ``dev`` and ``test``:
-
-    .. code-block:: text
-
-        output_dir/
-        └── gu/
-            ├── train.jsonl
-            ├── dev.jsonl
-            ├── test.jsonl
-            ├── train/
-            │   └── audio/
-            │       └── gu_train_0.wav
-            ├── dev/
-            │   └── audio/
-            │       └── gu_valid_0.wav
-            └── test/
-                └── audio/
-                    └── gu_valid_3.wav
-
-    Args:
-        native_splits: Native splits to read under ``raw_data_dir``.
-        split_dir_pattern: Directory pattern for each native split under
-            ``raw_data_dir`` (e.g. ``"{lang}_{split}"`` or ``"{split}"``).
-        dev_fraction: Fraction of native ``valid`` assigned to ``dev``;
-            the remainder is assigned to ``test``.
+    The handler expects datasets that were written with ``Dataset.save_to_disk``
+    and contain an audio column compatible with ``datasets.Audio``.
     """
 
-    name: str = "indicvoices_handler"
-    source_name: str = "IndicVoices"
+    name: str = "huggingface_asr_dataset_handler"
     native_splits: list[str] = field(default_factory=lambda: ["train", "valid"])
-    split_dir_pattern: str = "{lang}_{split}"
+    split_dir_pattern: str = "{lang}/{split}"
+    valid_split_strategy: Literal["keep", "map", "dev_test"] = "keep"
     dev_fraction: float = 0.6
-
-    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
-        super().setup(_worker_metadata)
-        from datasets import Audio, load_from_disk
-
-        self._load_from_disk = load_from_disk
-        self._Audio = Audio
+    hash_buckets: int = 100
+    split_mapping: dict[str, str] | None = None
+    duration_key: str | None = "duration"
+    filename_key: str | None = "fname"
+    extra_keys: list[str] = field(default_factory=list)
 
     def _output_splits(self) -> list[str]:
-        """Return native output splits after expanding IndicVoices validation data."""
+        if self.manifest_splits:
+            return list(dict.fromkeys(self.manifest_splits))
         splits = []
         for native_split in self.native_splits:
-            if native_split.lower() in {"valid", "val", "validation"}:
+            if self._is_validation_split(native_split) and self.valid_split_strategy == "dev_test":
                 splits.extend(["dev", "test"])
             else:
-                splits.append(native_split)
+                splits.append(self.assign_split(native_split))
         return list(dict.fromkeys(splits))
 
-    def coerce_audio(self, audio_obj: Any) -> tuple[Any, int, int]:  # noqa: ANN401
-        """Coerce IndicVoices decoded audio into mono ``(array, sample_rate, channels)``.
+    def assign_split(self, native_split: str, utt_id: str | None = None) -> str:
+        """Map native dataset split names to emitted split names."""
+        if self.split_mapping and native_split in self.split_mapping:
+            return self.split_mapping[native_split]
+        if self._is_validation_split(native_split) and self.valid_split_strategy == "dev_test":
+            if utt_id is None:
+                msg = "utt_id is required when valid_split_strategy='dev_test'"
+                raise ValueError(msg)
+            bucket = int(hashlib.md5(utt_id.encode("utf-8")).hexdigest(), 16) % self.hash_buckets  # noqa: S324
+            return "dev" if bucket < self.dev_fraction * self.hash_buckets else "test"
+        return native_split
 
-        ``datasets`` 4.x returns a torchcodec ``AudioDecoder`` while older
-        versions return the legacy ``{"array", "sampling_rate"}`` dict.
-        """
+    @staticmethod
+    def _is_validation_split(native_split: str) -> bool:
+        return native_split.lower() in {"valid", "val", "validation"}
+
+    def _source_field_mapping(self) -> dict[str, str]:
+        if self.extra_keys:
+            return {key: key for key in self.extra_keys}
+        return _SOURCE_FIELD_MAPPING_BY_SOURCE.get(self.source_name.lower(), _DEFAULT_SOURCE_FIELD_MAPPING)
+
+    def _metadata_fields_from_row(self, row: dict) -> tuple[dict[str, object], dict[str, object]]:
+        metadata_fields = {}
+        extra = {}
+        for source_key, output_key in self._source_field_mapping().items():
+            if source_key not in row:
+                continue
+            if output_key in _ASR_METADATA_FIELD_NAMES:
+                metadata_fields[output_key] = row[source_key]
+            else:
+                extra[output_key] = row[source_key]
+        return metadata_fields, extra
+
+    def coerce_audio(self, audio_obj: Any) -> tuple[Any, int, int]:  # noqa: ANN401
+        """Coerce decoded Hugging Face audio into mono ``(array, sample_rate, channels)``."""
         np = self._np
         if hasattr(audio_obj, "get_all_samples"):
             samples = audio_obj.get_all_samples()
@@ -156,31 +139,22 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
             arr = np.asarray(audio_obj["array"])
             sample_rate = int(audio_obj["sampling_rate"])
         else:
-            msg = f"Unsupported IndicVoices audio object type: {type(audio_obj)!r}"
+            msg = f"Unsupported Hugging Face audio object type: {type(audio_obj)!r}"
             raise TypeError(msg)
 
         arr = np.asarray(arr, dtype=np.float32)
         if arr.ndim == 1:
             return arr, sample_rate, 1
-        if arr.shape[0] <= arr.shape[1]:  # channel-first [C, N]
+        if arr.shape[0] <= arr.shape[1]:
             return arr.mean(axis=0), sample_rate, int(arr.shape[0])
         return arr.mean(axis=1), sample_rate, int(arr.shape[1])
 
-    def assign_split(self, native_split: str, utt_id: str) -> str:
-        """Map an IndicVoices native split to the emitted ``split_type``.
-
-        ``train`` is passed through unchanged. ``valid``/``val``/``validation``
-        is split into ``dev`` and ``test`` using a deterministic hash of the
-        utterance id, so the same utterance always lands in the same output
-        split regardless of worker count or processing order.
-        """
-        if native_split.lower() in {"valid", "val", "validation"}:
-            bucket = int(hashlib.md5(utt_id.encode("utf-8")).hexdigest(), 16) % _SPLIT_HASH_BUCKETS  # noqa: S324
-            return "dev" if bucket < self.dev_fraction * _SPLIT_HASH_BUCKETS else "test"
-        return native_split
+    def _audio_filename(self, row: dict, utt_id: str) -> str:
+        if self.filename_key and row.get(self.filename_key):
+            return f"{Path(str(row[self.filename_key])).stem}.wav"
+        return f"{utt_id}.wav"
 
     def _process_row(self, row: dict, index: int, lang: str, native_split: str) -> _RowResult:
-        """Convert a single arrow row to WAV + ASRMetadata, including skip reason."""
         if self.text_key not in row or row.get(self.text_key) is None:
             return _RowResult(meta=None, skip_reason="missing_text")
         if self.audio_filepath_key not in row or row.get(self.audio_filepath_key) is None:
@@ -189,7 +163,7 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
 
         utt_id = f"{lang}_{native_split}_{index}"
         split_type = self.assign_split(native_split, utt_id)
-        dst_path = os.path.join(self.audio_output_dir(lang, split_type), f"{utt_id}.wav")
+        dst_path = os.path.join(self.audio_output_dir(lang, split_type), self._audio_filename(row, utt_id))
 
         try:
             array, sample_rate, orig_channels = self.coerce_audio(row[self.audio_filepath_key])
@@ -198,12 +172,11 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
             logger.warning(f"[{self.name}] failed to convert {utt_id}: {e}")
             return _RowResult(meta=None, skip_reason="audio_load")
 
-        extra = {k: row[k] for k in _INDICVOICES_EXTRA_KEYS if k in row}
-
+        metadata_fields, extra = self._metadata_fields_from_row(row)
         return _RowResult(
             meta=ASRMetadata(
                 audio_filepath=dst_path,
-                text=row[self.text_key],
+                text=str(row[self.text_key]),
                 duration=audio_info["duration"],
                 lang=lang,
                 split_type=split_type,
@@ -212,14 +185,12 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
                 num_channels=self.target_channels,
                 orig_sample_rate=audio_info["orig_sample_rate"],
                 orig_num_channels=audio_info["orig_num_channels"],
+                **metadata_fields,
                 extra=extra,
             )
         )
 
     def _extract_split(self, lang: str, native_split: str) -> tuple[list[ASRMetadata], dict[str, int]]:
-        """Decode one ``{lang}_{split}`` arrow dataset in parallel into ASRMetadata."""
-        from joblib import Parallel, delayed
-
         stats = {
             "input_rows": 0,
             "emitted_tasks": 0,
@@ -233,8 +204,8 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
             return [], stats
 
         logger.info(f"[{self.name}] loading {data_path}")
-        dataset = self._load_from_disk(data_path)
-        dataset = dataset.cast_column(self.audio_filepath_key, self._Audio(decode=True))
+        dataset = load_from_disk(data_path)
+        dataset = dataset.cast_column(self.audio_filepath_key, Audio(decode=True))
 
         def load_and_process(index: int) -> _RowResult:
             try:
@@ -265,7 +236,6 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
     def process(self, _: _EmptyTask) -> list[AudioTask]:
         start = time.perf_counter()
         all_tasks: list[AudioTask] = []
-        duration_by_split = dict.fromkeys(["train", "dev", "test", *self._output_splits()], 0.0)
         total_stats = {
             "input_rows": 0,
             "emitted_tasks": 0,
@@ -273,13 +243,12 @@ class IndicVoicesHandler(BaseASRDatasetHandlerStage):
             "skipped_missing_audio": 0,
             "skipped_audio_load": 0,
         }
+        duration_by_split = dict.fromkeys(["train", "dev", "test", *self._output_splits()], 0.0)
         for lang in self.langs:
             for native_split in self.native_splits:
                 metas, stats = self._extract_split(lang, native_split)
                 for key, value in stats.items():
                     total_stats[key] += value
-                if not metas:
-                    continue
                 for meta in metas:
                     duration_by_split[meta.split_type] = duration_by_split.get(meta.split_type, 0.0) + meta.duration
                     self.write_manifest_entry(meta)

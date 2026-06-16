@@ -18,7 +18,7 @@ A *dataset handler* is a fan-out source stage that takes a raw, already-download
 dataset directory, extracts/decodes the audio into the ASR-training format
 (WAV, 16 kHz, mono, PCM16), and emits one :class:`AudioTask` per utterance.
 
-Concrete handlers (e.g. ``IndicVoicesHandler``) implement :meth:`process`,
+Concrete handlers (e.g. ``HuggingFaceASRDatasetHandler``) implement :meth:`process`,
 reusing the shared helpers provided here (audio conversion, task construction,
 and optional per-language/per-split manifest writing). Heavy extraction is
 parallelized *inside* a single Xenna worker via ``extraction_workers`` (joblib),

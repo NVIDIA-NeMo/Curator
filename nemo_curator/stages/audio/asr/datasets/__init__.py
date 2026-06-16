@@ -13,6 +13,9 @@
 # limitations under the License.
 
 from nemo_curator.stages.audio.asr.datasets.base import BaseASRDatasetHandlerStage
-from nemo_curator.stages.audio.asr.datasets.indicvoices import IndicVoicesHandler
+from nemo_curator.stages.audio.asr.datasets.huggingface import HuggingFaceASRDatasetHandler
 
-__all__ = ["BaseASRDatasetHandlerStage", "IndicVoicesHandler"]
+__all__ = [
+    "BaseASRDatasetHandlerStage",
+    "HuggingFaceASRDatasetHandler",
+]

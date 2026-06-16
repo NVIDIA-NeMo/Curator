@@ -30,19 +30,21 @@ from loguru import logger
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.asr.datasets.indicvoices import IndicVoicesHandler
+from nemo_curator.stages.audio.asr.datasets.huggingface import HuggingFaceASRDatasetHandler
 from nemo_curator.stages.audio.asr.io.split_manifest_writer import SplitAwareManifestWriter
 
 
 def create_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline = Pipeline(name="indicvoices_asr", description="IndicVoices extract + split-aware manifests")
     pipeline.add_stage(
-        IndicVoicesHandler(
+        HuggingFaceASRDatasetHandler(
             raw_data_dir=args.raw_data_dir,
             output_dir=args.output_dir,
             langs=args.langs,
+            source_name="IndicVoices",
             native_splits=args.native_splits,
             split_dir_pattern=args.split_dir_pattern,
+            valid_split_strategy="dev_test",
             dev_fraction=args.dev_fraction,
             extraction_workers=args.extraction_workers,
             skip_untar=args.skip_untar,

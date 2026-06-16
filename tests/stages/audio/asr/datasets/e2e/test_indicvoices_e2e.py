@@ -15,7 +15,7 @@
 """End-to-end test for IndicVoices ASR dataset ingestion.
 
 Runs the YAML-configured pipeline:
-  IndicVoicesHandler -> SplitAwareManifestWriter
+  HuggingFaceASRDatasetHandler -> SplitAwareManifestWriter
 """
 
 import json
@@ -27,7 +27,7 @@ from omegaconf import OmegaConf
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.config.run import create_pipeline_from_yaml
-from nemo_curator.stages.audio.asr.datasets.indicvoices import IndicVoicesHandler
+from nemo_curator.stages.audio.asr.datasets.huggingface import HuggingFaceASRDatasetHandler
 from tests.stages.audio.asr.datasets.conftest import INPUT_SAMPLE_RATE, OUTPUT_SAMPLE_RATE
 
 CONFIGS_DIR = Path(__file__).parent / "configs"
@@ -57,7 +57,13 @@ def test_indicvoices_pipeline_e2e(
     tasks = pipeline.run(XennaExecutor(config={"execution_mode": "batch"}))
 
     assert len(tasks) == total_rows
-    split_helper = IndicVoicesHandler(raw_data_dir=str(raw_root), output_dir=str(output_dir), langs=["gu"])
+    split_helper = HuggingFaceASRDatasetHandler(
+        raw_data_dir=str(raw_root),
+        output_dir=str(output_dir),
+        langs=["gu"],
+        source_name="IndicVoices",
+        valid_split_strategy="dev_test",
+    )
     expected_counts = Counter(split_helper.assign_split("valid", f"gu_valid_{i}") for i in range(total_rows))
     actual_counts = Counter(task.data["split_type"] for task in tasks)
     assert actual_counts == expected_counts

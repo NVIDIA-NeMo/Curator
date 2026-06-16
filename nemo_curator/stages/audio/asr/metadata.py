@@ -31,7 +31,7 @@ class ASRMetadata:
     """A single ASR manifest entry.
 
     Core fields map directly to the JSONL manifest used for ASR training. The
-    ``extra`` dict holds dataset-specific fields (e.g. ``snr``, ``gender``,
+    ``extra`` dict holds dataset-specific fields (e.g. ``snr``,
     ``collection_source``) which are spread into the top level on serialization.
 
     Args:
@@ -45,6 +45,10 @@ class ASRMetadata:
         num_channels: Target channel count of the converted audio.
         orig_sample_rate: Source sample rate before conversion (if known).
         orig_num_channels: Source channel count before conversion (if known).
+        gender: Speaker gender label, if provided by the source dataset.
+        speaker_id: Source dataset speaker identifier, if provided.
+        age: Speaker age or age bucket, if provided by the source dataset.
+        text_verbatim: Original unnormalized transcript, if provided.
         extra: Dataset-specific extra fields, flattened on serialization.
     """
 
@@ -58,6 +62,10 @@ class ASRMetadata:
     num_channels: int = 1
     orig_sample_rate: int | None = None
     orig_num_channels: int | None = None
+    gender: str | None = None
+    speaker_id: str | None = None
+    age: str | None = None
+    text_verbatim: str | None = None
     extra: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:

@@ -105,7 +105,7 @@ python tutorials/audio/asr_data_pipeline/main.py \
   stages.0.extraction_workers=16
 ```
 
-`IndicVoicesHandler` passes native `train` through as `train`. It deterministically splits native `valid` into `dev` and `test` using `dev_fraction` from the config, which defaults to `0.6`.
+`HuggingFaceASRDatasetHandler` passes native `train` through as `train`. For IndicVoices, set `valid_split_strategy: dev_test` to deterministically split native `valid` into `dev` and `test` using `dev_fraction`, which defaults to `0.6`.
 
 ## Example YAML
 
@@ -118,13 +118,15 @@ langs:
   - gu
 
 stages:
-  - _target_: nemo_curator.stages.audio.asr.datasets.indicvoices.IndicVoicesHandler
+  - _target_: nemo_curator.stages.audio.asr.datasets.huggingface.HuggingFaceASRDatasetHandler
     raw_data_dir: ${raw_data_dir}
     output_dir: ${output_dir}/uncleaned
     langs: ${langs}
+    source_name: IndicVoices
     native_splits:
       - valid
     split_dir_pattern: "{lang}/{split}"
+    valid_split_strategy: dev_test
     extraction_workers: 70
     dev_fraction: 0.6
     write_manifest: true
@@ -162,7 +164,7 @@ stages:
       - test
 ```
 
-Set `write_manifest: true` on the ingestion handler only when you also want unnormalized manifests from the source stage. The downstream `SplitAwareManifestWriter` writes the normalized manifests after transcript cleanup and filtering.
+Set `write_manifest: true` on the ingestion handler only when you also want unnormalized manifests from the source stage. The downstream `SplitAwareManifestWriter` writes the normalized manifests after transcript cleanup and filtering. For known sources such as `IndicVoices`, `Kathbath`, and `Shrutilipi`, source-specific metadata keys are preserved by default based on `source_name`; use `extra_keys` only for a new or custom source.
 
 ## Output Layout
 
