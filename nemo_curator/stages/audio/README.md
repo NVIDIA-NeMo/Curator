@@ -235,12 +235,13 @@ assemble(tasks, items, parent_of, results) -> out_tasks   stitch results back; w
 
 When `BatchPolicy.enabled` is true, supporting executors first ask for
 centralized scheduler work units. ASR uses this to materialize chunk tasks once;
-the shared `BatchPolicy` queue scheduler buckets those chunks by duration across
-the full executor-visible input, dispatches the planned chunk batches to
-workers, and stitches chunk outputs back to parent rows after all worker results
+the shared `BatchPolicy` queue scheduler buckets those chunks by duration within
+the current backend-dispatched worker window, dispatches the planned chunk
+batches, and stitches chunk outputs back to parent rows after all worker results
 return. Simpler stages can use `batch_task_cost()` plus `BatchPolicy` for
 generic parent-task prebatching. Direct stage calls still wire model-item
-dispatch through `run_bucketed` when centralized scheduler mode is not enabled:
+dispatch through `run_bucketed` when executor-level scheduler hooks are not
+used:
 
 ```python
 def process_batch(self, tasks):

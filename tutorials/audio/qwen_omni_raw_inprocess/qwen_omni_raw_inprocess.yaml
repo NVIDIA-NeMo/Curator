@@ -46,10 +46,6 @@ backend: ray_data
 # Xenna-only; ignored by the default ray_data backend.
 execution_mode: streaming
 autoscale_interval_s: 30
-global_centralized_batching: true
-# Local-control branch: this value is present so the benchmark config surface
-# matches the global branch, but this branch has no materialized scheduler path.
-global_centralized_batching_mode: windowed
 prefetch_fail_on_error: true
 stages_to_run: all
 stages_to_skip: []
