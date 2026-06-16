@@ -17,11 +17,11 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from omnifuse_tutorial.config.models import SNSConfig
-from omnifuse_tutorial.sns.backends import LocalSNSBackend, SNSBackend
+from omnifuse_tutorial.sns.backends import SNSBackend
 
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
@@ -29,8 +29,8 @@ SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 @dataclass
 class SNSProcessor:
     config: SNSConfig
+    backend: SNSBackend
     embedding_dim: int = 64
-    backend: SNSBackend = field(default_factory=LocalSNSBackend)
 
     def process_record(self, record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         if not self.config.enabled:

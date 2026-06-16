@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import struct
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -60,7 +59,9 @@ def read_jsonl(path: str | Path) -> list[dict]:
 
 
 def write_npy(path: str | Path, rows: list[list[float]]) -> Path:
-    """Write a 2D float64 NumPy .npy file without importing numpy."""
+    """Write a 2D float64 NumPy .npy file."""
+
+    import numpy as np
 
     path = Path(path)
     ensure_dir(path.parent)
@@ -70,25 +71,9 @@ def write_npy(path: str | Path, rows: list[list[float]]) -> Path:
         if len(row) != n_cols:
             raise ValueError("All rows must have the same length")
 
-    header = {
-        "descr": "<f8",
-        "fortran_order": False,
-        "shape": (n_rows, n_cols),
-    }
-    header_text = repr(header)
-    header_bytes = header_text.encode("latin1")
-    preamble_len = 10
-    padding = 16 - ((preamble_len + len(header_bytes) + 1) % 16)
-    full_header = header_bytes + b" " * padding + b"\n"
-
+    array = np.empty((0, 0), dtype=np.float64) if n_rows == 0 else np.asarray(rows, dtype=np.float64)
     with path.open("wb") as handle:
-        handle.write(b"\x93NUMPY")
-        handle.write(bytes([1, 0]))
-        handle.write(struct.pack("<H", len(full_header)))
-        handle.write(full_header)
-        for row in rows:
-            for value in row:
-                handle.write(struct.pack("<d", float(value)))
+        np.save(handle, array, allow_pickle=False)
     return path
 
 
