@@ -23,7 +23,9 @@ from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
 
-from .utils import calculate_concurrency_for_actors_for_stage, is_actor_stage
+from .utils import get_actor_compute_strategy_for_stage, get_configured_actor_pool_sizing_keys, is_actor_stage
+
+CURATOR_MANAGED_MAP_BATCHES_KWARGS = {"compute", "max_calls", "num_cpus", "num_gpus"}
 
 
 class RayDataStageAdapter(BaseStageAdapter):
@@ -71,7 +73,7 @@ class RayDataStageAdapter(BaseStageAdapter):
         # For Task objects, we return them in the 'item' column
         return {"item": results}
 
-    def process_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
+    def process_dataset(self, dataset: Dataset) -> Dataset:
         """Process a Ray Data dataset through this stage.
 
         Args:
@@ -80,43 +82,62 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dataset: Processed Ray Data dataset
         """
+        ray_stage_spec = self.stage.ray_stage_spec()
+        stage_is_actor = ray_stage_spec.get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
 
-        is_actor_stage_ = self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
-
-        if is_actor_stage_:
+        if stage_is_actor:
             map_batches_fn = create_actor_from_stage(self.stage)
-            concurrency_kwargs = {
-                "concurrency": calculate_concurrency_for_actors_for_stage(
-                    self.stage, ignore_head_node=ignore_head_node
-                ),
-            }
+            map_batches_kwargs = {"compute": get_actor_compute_strategy_for_stage(self.stage)}
         else:
             map_batches_fn = create_task_from_stage(self.stage)
-            concurrency_kwargs = {"concurrency": None}
-            max_calls = self.stage.ray_stage_spec().get(RayStageSpecKeys.MAX_CALLS_PER_WORKER, None)
+            map_batches_kwargs = {}
+
+            actor_pool_sizing_keys = get_configured_actor_pool_sizing_keys(ray_stage_spec)
+            if actor_pool_sizing_keys:
+                logger.warning(
+                    f"Ignoring ray_stage_spec worker sizing keys {actor_pool_sizing_keys} "
+                    f"for Ray Data task stage {self.stage.name}; these keys only apply to actor stages."
+                )
+
+            num_workers = self.stage.num_workers()
+            if num_workers is not None and num_workers > 0:
+                logger.warning(
+                    f"Ignoring num_workers={num_workers} for Ray Data task stage {self.stage.name}; "
+                    "num_workers requires an actor stage to represent a fixed worker pool."
+                )
+
+            max_calls = ray_stage_spec.get(RayStageSpecKeys.MAX_CALLS_PER_WORKER)
             if max_calls is not None:
-                concurrency_kwargs["max_calls"] = max_calls
+                map_batches_kwargs["max_calls"] = max_calls
 
         if self.stage.resources.cpus > 0:
-            concurrency_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
+            map_batches_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
         if self.stage.resources.gpus > 0:
-            concurrency_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
+            map_batches_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
 
         # Per-stage ray_remote_args (e.g. runtime_env with different pip versions per stage).
-        ray_remote_args = copy.deepcopy(self.stage.ray_stage_spec().get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {})
+        ray_remote_args = copy.deepcopy(ray_stage_spec.get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {})
         # If the stage declares runtime_env, forward it directly to Ray so Ray creates and
         # caches an isolated virtualenv for this stage's workers.
         if self.stage.runtime_env:
             ray_remote_args["runtime_env"] = self.stage.runtime_env
 
-        concurrency_kwargs.update(ray_remote_args)
+        colliding_ray_remote_args = sorted(CURATOR_MANAGED_MAP_BATCHES_KWARGS & ray_remote_args.keys())
+        if colliding_ray_remote_args:
+            msg = (
+                f"ray_remote_args for Ray Data stage {self.stage.name} must not override "
+                f"Curator-managed map_batches arguments {colliding_ray_remote_args}."
+            )
+            raise ValueError(msg)
 
-        # Calculate concurrency based on available resources
-        logger.info(f"{self.stage.__class__.__name__} {is_actor_stage_=} with {concurrency_kwargs=}")
+        map_batches_kwargs.update(ray_remote_args)
 
-        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **concurrency_kwargs)  # type: ignore[reportArgumentType]
+        # Let Ray Data apply the selected compute strategy and resource requirements.
+        logger.info(f"{self.stage.__class__.__name__} stage_is_actor={stage_is_actor} with {map_batches_kwargs=}")
 
-        if self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
+        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **map_batches_kwargs)  # type: ignore[reportArgumentType]
+
+        if ray_stage_spec.get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
             processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
 
         return processed_dataset
