@@ -273,22 +273,32 @@ def _describe_chat_completion_file(
     headers: dict[str, str],
     timeout: int,
 ) -> str:
-    encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
     mime = MIME_TYPES.get(path.suffix.lower(), "application/octet-stream")
     if content_type == "input_audio":
+        encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
         media_content = {"type": "input_audio", "input_audio": {"data": encoded, "format": _audio_format(path)}}
+        content: str | list[dict[str, Any]] = [{"type": "text", "text": prompt}, media_content]
+        request_headers = headers
+    elif content_type in {"image_url", "video_url"} and path.stat().st_size > NVCF_ASSET_UPLOAD_THRESHOLD_BYTES:
+        asset_id = _upload_nvcf_asset(path, mime, headers, timeout)
+        request_headers = _headers_with_nvcf_asset(headers, asset_id)
+        tag_name = "img" if content_type == "image_url" else "video"
+        content = f'{prompt}\n<{tag_name} src="data:{mime};asset_id,{asset_id}" />'
     else:
+        encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
         media_content = {content_type: {"url": f"data:{mime};base64,{encoded}"}, "type": content_type}
+        content = [{"type": "text", "text": prompt}, media_content]
+        request_headers = headers
     url = f"{api_base_url}/chat/completions"
     payload = {
         "model": model,
-        "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}, media_content]}],
+        "messages": [{"role": "user", "content": content}],
         "max_tokens": 512,
         "temperature": 0.2,
         "stream": False,
     }
-    response = _post_nvidia_json_with_retries(url, headers, payload, timeout)
-    response = _resolve_nvidia_response(response, api_base_url, headers, timeout, model, url)
+    response = _post_nvidia_json_with_retries(url, request_headers, payload, timeout)
+    response = _resolve_nvidia_response(response, api_base_url, request_headers, timeout, model, url)
     return _response_text(response.json(), model, url)
 
 
@@ -303,12 +313,12 @@ def _describe_audio_url_chat_file(
     audio_format = _audio_format(path)
     mime = "audio/wav" if audio_format == "wav" else "audio/mpeg"
     request_headers = dict(headers)
+    used_asset = False
     if path.stat().st_size > NVCF_ASSET_UPLOAD_THRESHOLD_BYTES:
         asset_id = _upload_nvcf_asset(path, mime, headers, timeout)
-        request_headers["NVCF-INPUT-ASSET-REFERENCES"] = asset_id
-        content: str | list[dict[str, Any]] = (
-            f'{prompt}\n<audio src="data:audio/{audio_format};asset_id,{asset_id}" />'
-        )
+        request_headers = _headers_with_nvcf_asset(headers, asset_id)
+        used_asset = True
+        content: str | list[dict[str, Any]] = f'{prompt}\n<audio src="data:{mime};asset_id,{asset_id}" />'
     else:
         encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
         content = [
@@ -324,18 +334,26 @@ def _describe_audio_url_chat_file(
         "stream": False,
     }
     response = _post_nvidia_json_with_retries(url, request_headers, payload, timeout)
-    if _is_missing_nvcf_asset_response(response):
+    response_headers = request_headers
+    if used_asset and _should_retry_inline_audio_preview(response):
         content = _inline_audio_content(path, mime, prompt, preview=True)
         payload = {**payload, "messages": [{"role": "user", "content": content}]}
         response = _post_nvidia_json_with_retries(url, headers, payload, timeout)
-    response = _resolve_nvidia_response(response, api_base_url, headers, timeout, model, url)
+        response_headers = headers
+    response = _resolve_nvidia_response(response, api_base_url, response_headers, timeout, model, url)
     return _response_text(response.json(), model, url)
+
+
+def _headers_with_nvcf_asset(headers: dict[str, str], asset_id: str) -> dict[str, str]:
+    request_headers = dict(headers)
+    request_headers["NVCF-INPUT-ASSET-REFERENCES"] = asset_id
+    return request_headers
 
 
 def _upload_nvcf_asset(path: Path, mime: str, headers: dict[str, str], timeout: int) -> str:
     import requests
 
-    description = f"omni-fuse tutorial audio asset {path.name}"
+    description = f"omni-fuse tutorial media asset {path.name}"
     asset_base_url = os.environ.get("NVIDIA_NVCF_ASSET_BASE_URL", NVCF_ASSET_BASE_URL).rstrip("/")
     create_url = f"{asset_base_url}/assets"
     response = requests.post(
@@ -431,7 +449,13 @@ def _is_degraded_response(response: Any) -> bool:
 
 
 def _is_missing_nvcf_asset_response(response: Any) -> bool:
-    return response.status_code == 400 and "not found in nvcf_assets" in response.text
+    if response.status_code != 400:
+        return False
+    return "not found in nvcf_assets" in response.text or "NVCF asset ID" in response.text
+
+
+def _should_retry_inline_audio_preview(response: Any) -> bool:
+    return _is_missing_nvcf_asset_response(response) or response.status_code in {413, 500, 502, 503, 504}
 
 
 def _resolve_nvidia_response(
