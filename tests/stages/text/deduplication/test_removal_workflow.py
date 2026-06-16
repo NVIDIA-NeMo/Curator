@@ -281,6 +281,27 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         assert workflow_output.get_metadata("num_duplicates_removed") == expected_removed
 
 
+
+def test_removal_stage_can_drop_id_field(tmp_path: Path):
+    ids_to_remove_path = tmp_path / "ids_to_remove.parquet"
+    pd.DataFrame({"id": [1]}).to_parquet(ids_to_remove_path, index=False)
+    task = DocumentBatch(
+        task_id="task",
+        dataset_name="dataset",
+        data=pd.DataFrame({CURATOR_DEDUP_ID_STR: [1, 2], "text": ["drop", "keep"]}),
+    )
+
+    stage = TextDuplicatesRemovalStage(
+        ids_to_remove_path=str(ids_to_remove_path),
+        id_field=CURATOR_DEDUP_ID_STR,
+        drop_id_field=True,
+    )
+
+    result = stage.process(task).to_pandas()
+
+    assert result.to_dict(orient="list") == {"text": ["keep"]}
+
+
 class TestTextDuplicatesRemovalWorkflowGenerateStages:
     def test_invalid_filetypes(self):
         read_invalid_file_type_workflow = TextDuplicatesRemovalWorkflow(
@@ -340,6 +361,7 @@ class TestTextDuplicatesRemovalWorkflowGenerateStages:
         assert stages[2].id_field == CURATOR_DEDUP_ID_STR
         assert stages[2].duplicate_id_field == "id"
         assert stages[2].read_kwargs == {}
+        assert not stages[2].drop_id_field
 
         # test for writer stage (stages[3]) - default output_filetype is parquet
         assert isinstance(stages[3], ParquetWriter)
@@ -352,6 +374,7 @@ class TestTextDuplicatesRemovalWorkflowGenerateStages:
             output_path="output_path",
             output_filetype=output_filetype,
             id_generator_path=None,
+            drop_id_field=True,
         )
         stages = workflow._generate_stages(initial_tasks=None)
         assert len(stages) == 4
@@ -359,6 +382,7 @@ class TestTextDuplicatesRemovalWorkflowGenerateStages:
         # reader stage
         assert isinstance(stages[1], ParquetReaderStage)  # Default input_filetype is parquet
         assert isinstance(stages[2], TextDuplicatesRemovalStage)
+        assert stages[2].drop_id_field
         expected_write_stage = ParquetWriter if output_filetype == "parquet" else JsonlWriter
         assert isinstance(stages[3], expected_write_stage)
 

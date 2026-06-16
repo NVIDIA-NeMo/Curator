@@ -61,6 +61,7 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
     output_kwargs: dict[str, Any] | None = None
     output_fields: list[str] | None = None
     output_mode: Literal["ignore", "overwrite", "append", "error"] | None = None
+    drop_id_field: bool = False
 
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
@@ -120,6 +121,7 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
                 id_field=self.id_field,
                 duplicate_id_field=self.duplicate_id_field,
                 read_kwargs=self.duplicate_id_read_kwargs,
+                drop_id_field=self.drop_id_field,
             )
         )
 
