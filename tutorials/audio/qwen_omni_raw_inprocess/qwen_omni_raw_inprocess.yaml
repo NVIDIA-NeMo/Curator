@@ -15,7 +15,7 @@
 # Granary v2 - Qwen-Omni raw-manifest in-process pipeline.
 #
 # Raw harvested JSONL path:
-#   ManifestReader -> ResampleAudioStage -> MonoConversionStage
+#   ManifestReader -> ResampleAudioStage(in-memory waveform)
 #   -> ASRStage (Qwen-Omni adapter) -> ManifestWriterStage
 #
 # This tutorial intentionally stays separate from qwen_omni_inprocess. The
@@ -46,6 +46,10 @@ backend: ray_data
 # Xenna-only; ignored by the default ray_data backend.
 execution_mode: streaming
 autoscale_interval_s: 30
+global_centralized_batching: true
+# Local-control branch: this value is present so the benchmark config surface
+# matches the global branch, but this branch has no materialized scheduler path.
+global_centralized_batching_mode: windowed
 prefetch_fail_on_error: true
 stages_to_run: all
 stages_to_skip: []
@@ -139,6 +143,8 @@ stages:
     target_sample_rate: 16000
     target_format: wav
     target_nchannels: 1
+    write_resampled_audio: false
+    emit_waveform: true
     audio_filepath_key: audio_filepath
     resampled_audio_filepath_key: resampled_audio_filepath
     duration_key: ${duration_key}
@@ -146,16 +152,6 @@ stages:
       resources:
         _target_: nemo_curator.stages.resources.Resources
         cpus: 4.0
-
-  - stage_id: load_waveform
-    _target_: nemo_curator.stages.audio.preprocessing.mono_conversion.MonoConversionStage
-    output_sample_rate: 16000
-    audio_filepath_key: resampled_audio_filepath
-    strict_sample_rate: true
-    stage_with:
-      resources:
-        _target_: nemo_curator.stages.resources.Resources
-        cpus: 1.0
 
   - stage_id: qwen_omni
     _target_: nemo_curator.stages.audio.inference.asr.ASRStage
