@@ -73,12 +73,11 @@ class RayDataStageAdapter(BaseStageAdapter):
         # For Task objects, we return them in the 'item' column
         return {"item": results}
 
-    def process_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
+    def process_dataset(self, dataset: Dataset) -> Dataset:
         """Process a Ray Data dataset through this stage.
 
         Args:
             dataset (Dataset): Ray Data dataset containing Task objects
-            ignore_head_node (bool): Whether to exclude head-node resources from the actor-pool max size.
 
         Returns:
             Dataset: Processed Ray Data dataset
@@ -88,9 +87,7 @@ class RayDataStageAdapter(BaseStageAdapter):
 
         if stage_is_actor:
             map_batches_fn = create_actor_from_stage(self.stage)
-            map_batches_kwargs = {
-                "compute": get_actor_compute_strategy_for_stage(self.stage, ignore_head_node=ignore_head_node)
-            }
+            map_batches_kwargs = {"compute": get_actor_compute_strategy_for_stage(self.stage)}
         else:
             map_batches_fn = create_task_from_stage(self.stage)
             map_batches_kwargs = {}

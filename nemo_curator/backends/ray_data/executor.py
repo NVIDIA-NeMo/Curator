@@ -87,7 +87,7 @@ class RayDataExecutor(BaseExecutor):
                 adapter = RayDataStageAdapter(stage)
 
                 # Apply stage transformation
-                current_dataset = adapter.process_dataset(current_dataset, ignore_head_node=self.ignore_head_node)
+                current_dataset = adapter.process_dataset(current_dataset)
         except Exception as e:
             logger.error(f"Error during pipeline execution: {e}")
             raise

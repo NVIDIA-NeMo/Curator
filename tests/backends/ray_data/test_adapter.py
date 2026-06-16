@@ -106,15 +106,6 @@ class TestRayDataStageAdapter:
         assert "Ignoring ray_stage_spec worker sizing keys" in warning_messages[0]
         assert "Ignoring num_workers=3" in warning_messages[1]
 
-    def test_process_dataset_applies_head_node_actor_pool_cap(self):
-        with mock.patch(
-            "nemo_curator.backends.ray_data.utils.get_available_cpu_gpu_resources",
-            return_value=(6.0, 0.0),
-        ):
-            actor_kwargs = _map_batches_kwargs(ConfigurableActorStage(), ignore_head_node=True)
-
-        assert actor_kwargs["compute"] == ActorPoolStrategy(min_size=1, max_size=3)
-
     def test_process_dataset_rejects_managed_ray_remote_args(self):
         stage = ConfigurableActorStage(
             ray_stage_spec={
@@ -126,9 +117,9 @@ class TestRayDataStageAdapter:
             _map_batches_kwargs(stage)
 
 
-def _map_batches_kwargs(stage: ProcessingStage, *, ignore_head_node: bool = False) -> dict[str, object]:
+def _map_batches_kwargs(stage: ProcessingStage) -> dict[str, object]:
     dataset = RecordingDataset()
-    RayDataStageAdapter(stage).process_dataset(dataset, ignore_head_node=ignore_head_node)  # type: ignore[arg-type]
+    RayDataStageAdapter(stage).process_dataset(dataset)  # type: ignore[arg-type]
     assert dataset.map_batches_kwargs is not None
     assert dataset.batch_size == stage.batch_size
     return dataset.map_batches_kwargs
