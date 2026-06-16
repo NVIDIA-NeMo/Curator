@@ -65,14 +65,14 @@ revision: null
 pred_text_key: qwen3_prediction_s1
 disfluency_text_key: qwen3_prediction_s2
 
-# Qwen-Omni's vLLM prompt must fit max_model_len. With max_model_len=4096,
-# 40-minute chunks overflow the decoder prompt, so the raw real-data path uses
-# 4-minute chunks. Chunking is model-safety slicing; duration-aware bucketing is
-# the optional GPU-dispatch scheduler that mixes those chunks by cost.
+# Qwen-Omni's vLLM prompt must fit max_model_len, and the audio tower is
+# memory-sensitive on real long-form audio. The raw real-data profile uses
+# 2-minute chunks so bucket-on/off tests exercise scheduler behavior without
+# sending 4-minute audio feature tensors through one model call.
 chunking:
   enabled: true
-  ideal_inference_segment_s: 240
-  max_inference_duration_s: 240
+  ideal_inference_segment_s: 120
+  max_inference_duration_s: 120
 
 # Backward-compatible flat aliases for existing Hydra overrides.
 ideal_inference_segment_s: ${chunking.ideal_inference_segment_s}
@@ -98,10 +98,10 @@ omni_resource_gpus: 2.0
 # Candidate/planning row window. This is intentionally larger than the model
 # call cap so duration-aware bucketing has enough chunks to mix.
 candidate_batch_size: 32
-# Hard per-Qwen adapter call cap. Real 4-minute audio chunks are memory-heavy
+# Hard per-Qwen adapter call cap. Real long-form audio chunks are memory-heavy
 # on 44 GB GPUs; keeping this separate from the planner window prevents Xenna
 # batch and Ray Data from turning a large candidate window into one vLLM call.
-model_batch_size: 2
+model_batch_size: 1
 max_output_tokens: 256
 max_model_len: 4096
 max_num_seqs: 16
@@ -120,9 +120,9 @@ seed: 1234
 duration_aware_bucketing:
   enabled: true
   strategy: duration_bucketed
-  buckets_sec: [0, 30, 120, 300]
-  max_items_per_batch_by_bucket: [8, 4, 2, 1]
-  max_audio_sec_per_batch: 480
+  buckets_sec: [0, 30, 60, 120]
+  max_items_per_batch_by_bucket: [4, 2, 1, 1]
+  max_audio_sec_per_batch: 120
   prebatching_window_size: ${candidate_batch_size}
   flush_interval_ms: 250
 
