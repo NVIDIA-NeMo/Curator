@@ -300,9 +300,20 @@ def test_removal_stage_can_drop_id_field(tmp_path: Path):
     result = stage.process(task).to_pandas()
 
     assert result.to_dict(orient="list") == {"text": ["keep"]}
+    assert CURATOR_DEDUP_ID_STR not in result.columns
 
 
 class TestTextDuplicatesRemovalWorkflowGenerateStages:
+    def test_drop_id_field_conflicts_with_output_fields(self):
+        with pytest.raises(ValueError, match="Cannot drop id_field"):
+            TextDuplicatesRemovalWorkflow(
+                input_path="input_path",
+                ids_to_remove_path="ids_to_remove_path",
+                output_path="output_path",
+                output_fields=["text", CURATOR_DEDUP_ID_STR],
+                drop_id_field=True,
+            )
+
     def test_invalid_filetypes(self):
         read_invalid_file_type_workflow = TextDuplicatesRemovalWorkflow(
             input_path="input_path",

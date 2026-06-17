@@ -69,6 +69,9 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
             logger.warning(
                 f"Using {CURATOR_DEDUP_ID_STR} as id_field for removal stage, even though we are not using id generator."
             )
+        if self.drop_id_field and self.output_fields and self.id_field in self.output_fields:
+            msg = f"Cannot drop id_field {self.id_field!r} when it is included in output_fields."
+            raise ValueError(msg)
 
     def _generate_stages(self, initial_tasks: list[FileGroupTask] | None = None) -> list[ProcessingStage]:
         stages = []
