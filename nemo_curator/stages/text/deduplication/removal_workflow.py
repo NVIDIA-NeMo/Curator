@@ -78,6 +78,10 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
                 msg = "input_path is required when initial_tasks is None"
                 raise ValueError(msg)
 
+            if self.input_filetype not in ("parquet", "jsonl"):
+                msg = f"Invalid input filetype: {self.input_filetype}"
+                raise ValueError(msg)
+
             from nemo_curator.stages.file_partitioning import FilePartitioningStage
 
             stages.append(

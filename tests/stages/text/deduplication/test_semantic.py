@@ -72,6 +72,7 @@ def create_data_with_duplicates(input_dir: Path) -> pd.DataFrame:
     return df
 
 
+@pytest.mark.skipif("semantic" not in globals(), reason="Text semantic workflow requires GPU dependencies")
 @pytest.mark.parametrize(
     ("input_filetype", "expected_extensions"),
     [
@@ -105,6 +106,7 @@ def test_embedding_reader_extensions_default_to_input_filetype(
     assert captured_stages[0].file_extensions == expected_extensions
 
 
+@pytest.mark.skipif("semantic" not in globals(), reason="Text semantic workflow requires GPU dependencies")
 def test_embedding_reader_extensions_override_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     captured_stages = []
 
@@ -127,6 +129,7 @@ def test_embedding_reader_extensions_override_default(monkeypatch: pytest.Monkey
     assert captured_stages[0].file_extensions == [".pq"]
 
 
+@pytest.mark.skipif("semantic" not in globals(), reason="Text semantic workflow requires GPU dependencies")
 def test_embedding_reader_unsupported_filetype_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     def fail_pipeline_run(self, executor) -> None:  # noqa: ANN001, ARG001
         pytest.fail("Pipeline should not run when input_filetype is unsupported")
