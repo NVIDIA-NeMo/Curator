@@ -40,7 +40,6 @@ class TestTextDuplicatesRemovalStage:
             }
         )
         return DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
             _metadata={"source": "test"},
@@ -82,7 +81,6 @@ class TestTextDuplicatesRemovalStage:
 
         # Verify result
         assert isinstance(result, DocumentBatch)
-        assert result.task_id == "removal_test_batch"
         assert result.dataset_name == "test_dataset"
 
         result_df = result.to_pandas()
@@ -162,7 +160,6 @@ class TestTextDuplicatesRemovalStage:
             }
         )
         doc_batch = DocumentBatch(
-            task_id="custom_test",
             dataset_name="test",
             data=df,
         )

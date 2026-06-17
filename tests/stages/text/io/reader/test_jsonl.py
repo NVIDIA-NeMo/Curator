@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ from nemo_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
 )
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader, JsonlReaderStage
-from nemo_curator.tasks import FileGroupTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def sample_jsonl_files(tmp_path: Path) -> list[str]:
 def file_group_tasks(sample_jsonl_files: list[str]) -> list[FileGroupTask]:
     """Create multiple FileGroupTasks."""
     return [
-        FileGroupTask(task_id=f"task_{i}", dataset_name="test_dataset", data=[file_path], _metadata={})
+        FileGroupTask(dataset_name="test_dataset", data=[file_path], _metadata={})
         for i, file_path in enumerate(sample_jsonl_files)
     ]
 
@@ -73,7 +73,7 @@ class TestJsonlReaderWithoutIdGenerator:
         pd.DataFrame({"a": [1]}).to_json(file_path, orient="records", lines=True)
 
         # Reader uses read_kwargs storage options
-        task = FileGroupTask(task_id="t1", dataset_name="ds", data=[str(file_path)], _metadata={})
+        task = FileGroupTask(dataset_name="ds", data=[str(file_path)], _metadata={})
         stage = JsonlReaderStage(read_kwargs={"storage_options": {"auto_mkdir": True}})
 
         seen: dict[str, object] = {}
@@ -114,7 +114,7 @@ class TestJsonlReaderWithoutIdGenerator:
             return pd.DataFrame({"x": [1, 2]})
 
         monkeypatch.setattr(pd, "read_json", fake_read_json)
-        task = FileGroupTask(task_id="t2", dataset_name="ds", data=[str(f)], _metadata={})
+        task = FileGroupTask(dataset_name="ds", data=[str(f)], _metadata={})
         stage = JsonlReaderStage(read_kwargs={"storage_options": {"auto_mkdir": True}})
         out = stage.process(task)
         assert seen["storage_options"] == {"auto_mkdir": True}
@@ -176,3 +176,20 @@ class TestJsonlReaderWithIdGenerator:
 
         with pytest.raises(RuntimeError, match="actor 'id_generator' does not exist"):
             stage.setup()
+
+
+def test_jsonl_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    # Storage size is larger than 10 million bytes
+    # In-memory size is also larger than 10 million bytes
+    size = 1000
+    df = pd.DataFrame({"id": list(range(size)), "text": ["a" * 4000] * size, "other_field": ["b" * 10_000] * size})
+    df.to_json(tmp_path / "test.jsonl", orient="records", lines=True)
+
+    stage = JsonlReader(file_paths=str(tmp_path), blocksize=10_000_000)
+    assert len(stage.decompose()) == 2
+
+    # Since the storage size is larger than 10 million bytes, the FilePartitioningStage should warn
+    file_partitioning_stage = stage.decompose()[0]
+    with caplog.at_level("WARNING"):
+        file_partitioning_stage.process(EmptyTask)
+    assert "File group task has exceeded the storage limit per partition" in caplog.text

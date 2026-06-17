@@ -19,7 +19,7 @@ from loguru import logger
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import get_all_file_paths_under, get_fs, infer_dataset_name_from_path
 
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from fsspec import AbstractFileSystem
 
 
-class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
+class ClusterWiseFilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     """Stage that partitions input files into PairwiseFileGroupTasks for deduplication.
 
     This stage takes an EmptyTask as input and outputs partition-aware file groups.
@@ -69,7 +69,7 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
             "num_workers_per_node": 1,
         }
 
-    def process(self, _: _EmptyTask) -> list[FileGroupTask]:
+    def process(self, _: EmptyTask) -> list[FileGroupTask]:
         """Process the EmptyTask to create PairwiseFileGroupTasks.
 
         Args:
@@ -105,7 +105,6 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
                 fs=self.fs,
             )
             pairwise_task = FileGroupTask(
-                task_id=f"pairwise_centroid_{centroid_id}",
                 dataset_name=dataset_name,
                 data=partition_files,
                 _metadata={

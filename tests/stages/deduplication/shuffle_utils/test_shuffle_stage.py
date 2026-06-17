@@ -26,7 +26,7 @@ with suppress(ImportError):
 
 # Suppress GPU-related import errors when running pytest -m "not gpu"
 with suppress(ImportError):
-    from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+    from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
     from nemo_curator.pipeline import Pipeline
     from nemo_curator.stages.deduplication.shuffle_utils.stage import ShuffleStage
 
@@ -74,7 +74,6 @@ class TestShuffleStage:
 
             tasks.append(
                 FileGroupTask(
-                    task_id=f"test_data_{i}",
                     dataset_name="test_dataset",
                     data=[test_file],
                     _metadata={

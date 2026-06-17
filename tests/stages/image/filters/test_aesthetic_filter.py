@@ -80,7 +80,6 @@ class TestImageAestheticFilterStage:
         return ImageBatch(
             data=sample_image_objects,
             dataset_name="test_dataset",
-            task_id="test_task_001",
             _metadata={"test": "metadata"},
             _stage_perf={},
         )
@@ -144,9 +143,6 @@ class TestImageAestheticFilterStage:
             elif img.image_id == "img_004":
                 assert abs(img.aesthetic_score - 0.8) < 1e-5
 
-        # Check that the task has updated ID
-        assert result.task_id == f"{sample_image_batch.task_id}_{stage.name}"
-
     @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     def test_threshold_variations(
         self, mock_aesthetic_scorer: Mock, sample_image_batch: ImageBatch, mock_model: Mock
@@ -204,7 +200,7 @@ class TestImageAestheticFilterStage:
     @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     def test_empty_batch(self, mock_aesthetic_scorer: Mock, stage: ImageAestheticFilterStage) -> None:
         """Test processing empty image batch."""
-        empty_batch = ImageBatch(data=[], task_id="empty_test", dataset_name="test_dataset")
+        empty_batch = ImageBatch(data=[], dataset_name="test_dataset")
         mock_aesthetic_scorer.return_value = Mock()
 
         stage.setup()
@@ -229,7 +225,7 @@ class TestImageAestheticFilterStage:
             )
         ]
 
-        batch = ImageBatch(data=images_no_embeddings, task_id="no_embed_test", dataset_name="test_dataset")
+        batch = ImageBatch(data=images_no_embeddings, dataset_name="test_dataset")
         mock_aesthetic_scorer.return_value = Mock()
 
         stage = ImageAestheticFilterStage(
@@ -402,9 +398,7 @@ class TestImageAestheticFilterStage:
         """Test processing with many images."""
         # Create a larger batch by replicating existing images
         large_data = sample_image_batch.data * 25  # 100 images
-        large_batch = ImageBatch(
-            data=large_data, dataset_name=sample_image_batch.dataset_name, task_id=sample_image_batch.task_id
-        )
+        large_batch = ImageBatch(data=large_data, dataset_name=sample_image_batch.dataset_name)
 
         stage = ImageAestheticFilterStage(
             model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=10
@@ -516,7 +510,7 @@ def test_image_aesthetic_filter_on_gpu() -> None:
         )
         for i in range(6)
     ]
-    batch = ImageBatch(data=images, dataset_name="ds", task_id="t0")
+    batch = ImageBatch(data=images, dataset_name="ds")
 
     stage = ImageAestheticFilterStage(model_dir="/unused", model_inference_batch_size=3, score_threshold=0.3)
 

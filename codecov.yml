@@ -16,5 +16,8 @@ coverage:
         only_pulls: false
         branches:
           - main
+ignore:
+  - "tutorials/**"
+  - "benchmarking/**"
 fixes:
-  - "/workspace/::"
+  - "/opt/Curator/::"

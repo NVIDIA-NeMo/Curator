@@ -17,11 +17,17 @@ from nemo_curator.stages.interleaved.utils.constants import (
     DEFAULT_JSON_EXTENSIONS,
     DEFAULT_WEBDATASET_EXTENSIONS,
 )
+from nemo_curator.stages.interleaved.utils.image_utils import (
+    image_bytes_to_array,
+)
 from nemo_curator.stages.interleaved.utils.materialization import (
     materialize_task_binary_content,
 )
+from nemo_curator.stages.interleaved.utils.schema import (
+    align_table,
+    reconcile_schema,
+)
 from nemo_curator.stages.interleaved.utils.validation_utils import (
-    require_source_id_field,
     resolve_storage_options,
     validate_and_project_source_fields,
 )
@@ -30,8 +36,10 @@ __all__ = [
     "DEFAULT_IMAGE_EXTENSIONS",
     "DEFAULT_JSON_EXTENSIONS",
     "DEFAULT_WEBDATASET_EXTENSIONS",
+    "align_table",
+    "image_bytes_to_array",
     "materialize_task_binary_content",
-    "require_source_id_field",
+    "reconcile_schema",
     "resolve_storage_options",
     "validate_and_project_source_fields",
 ]

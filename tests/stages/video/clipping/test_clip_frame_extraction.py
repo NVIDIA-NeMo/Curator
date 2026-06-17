@@ -68,7 +68,7 @@ class TestClipFrameExtractionStage:
             clips=self.mock_clips,
         )
 
-        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
+        self.mock_task = VideoTask(dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self) -> None:
         """Test that the name property returns the correct value."""
@@ -178,7 +178,6 @@ class TestClipFrameExtractionStage:
         # With target_fps=[2, 4], LCM=4, so extract_frames is called once per clip with buffer
         assert mock_extract_frames.call_count == 2  # 2 clips with buffers
         assert isinstance(result, VideoTask)
-        assert result.task_id == "test_task"
 
         # Check that extracted frames are stored with correct signatures
         processed_clips = result.data.clips
@@ -249,7 +248,6 @@ class TestClipFrameExtractionStage:
 
         # Create task with clips that have buffers
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=Video(
                 input_video="test_video.mp4",
@@ -295,7 +293,6 @@ class TestClipFrameExtractionStage:
 
         # Create task with clips that have buffers
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=Video(
                 input_video="test_video.mp4",
@@ -329,7 +326,6 @@ class TestClipFrameExtractionStage:
 
         # Create task with clips that have buffers
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=Video(
                 input_video="test_video.mp4",
@@ -372,7 +368,6 @@ class TestClipFrameExtractionStage:
 
         # Create task with clips that have buffers
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=Video(
                 input_video="test_video.mp4",
@@ -392,9 +387,7 @@ class TestClipFrameExtractionStage:
 
     def test_process_no_clips(self) -> None:
         """Test processing when video has no clips."""
-        task = VideoTask(
-            task_id="test_task", dataset_name="test_dataset", data=Video(input_video="test_video.mp4", clips=[])
-        )
+        task = VideoTask(dataset_name="test_dataset", data=Video(input_video="test_video.mp4", clips=[]))
 
         self.stage.setup()
         result = self.stage.process(task)
@@ -419,7 +412,6 @@ class TestClipFrameExtractionStage:
 
                 # Create task with one clip
                 task = VideoTask(
-                    task_id="test_task",
                     dataset_name="test_dataset",
                     data=Video(
                         input_video="test_video.mp4",
@@ -503,9 +495,7 @@ class TestClipFrameExtractionStage:
         original_uuid = uuid.uuid4()
         clip = Clip(uuid=original_uuid, source_video="test_video.mp4", span=(0.0, 5.0), buffer=b"fake_video_data")
 
-        task = VideoTask(
-            task_id="test_task", dataset_name="test_dataset", data=Video(input_video="test_video.mp4", clips=[clip])
-        )
+        task = VideoTask(dataset_name="test_dataset", data=Video(input_video="test_video.mp4", clips=[clip]))
 
         stage = ClipFrameExtractionStage(target_fps=[2])
         stage.setup()

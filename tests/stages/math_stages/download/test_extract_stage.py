@@ -76,9 +76,7 @@ class TestMathContentExtractorStage:
         # Create input DataFrame with single record
         input_data = pd.DataFrame([{"binary_content": b"test content", "url": url, "mime_type": "test/type"}])
 
-        input_task = DocumentBatch(
-            task_id="test_content_type", dataset_name="test_dataset", data=input_data, _metadata={}
-        )
+        input_task = DocumentBatch(dataset_name="test_dataset", data=input_data, _metadata={})
 
         result = stage.process(input_task)
 
@@ -110,9 +108,7 @@ class TestMathContentExtractorStage:
             ]
         )
 
-        input_task = DocumentBatch(
-            task_id="test_extraction_failures", dataset_name="test_dataset", data=input_data, _metadata={}
-        )
+        input_task = DocumentBatch(dataset_name="test_dataset", data=input_data, _metadata={})
 
         result = stage.process(input_task)
 
@@ -164,9 +160,7 @@ class TestMathContentExtractorStage:
             ]
         )
 
-        input_task = DocumentBatch(
-            task_id="test_magic_failures", dataset_name="test_dataset", data=input_data, _metadata={}
-        )
+        input_task = DocumentBatch(dataset_name="test_dataset", data=input_data, _metadata={})
 
         result = stage.process(input_task)
 
@@ -190,14 +184,11 @@ class TestMathContentExtractorStage:
         stage = MathExtractStage(extractor=extractor, add_filename_column=False)
 
         input_data = pd.DataFrame()
-        input_task = DocumentBatch(
-            task_id="empty_task", dataset_name="test_dataset", data=input_data, _metadata={"source": "test"}
-        )
+        input_task = DocumentBatch(dataset_name="test_dataset", data=input_data, _metadata={"source": "test"})
 
         result = stage.process(input_task)
 
         assert isinstance(result, DocumentBatch)
-        assert result.task_id == "empty_task"
         assert result.dataset_name == "test_dataset"
         assert len(result.data) == 0
         assert result._metadata == {"source": "test"}
@@ -217,7 +208,7 @@ class TestMathContentExtractorStage:
             [{"binary_content": b"test", "url": "http://example.com/test.html", "mime_type": "text/html"}]
         )
 
-        input_task = DocumentBatch(task_id="smoke_test", dataset_name="test", data=input_data, _metadata={})
+        input_task = DocumentBatch(dataset_name="test", data=input_data, _metadata={})
 
         result = stage.process(input_task)
 
@@ -245,9 +236,7 @@ class TestMathContentExtractorStage:
             ]
         )
 
-        input_task = DocumentBatch(
-            task_id="test_with_filename", dataset_name="test_dataset", data=input_data, _metadata={}
-        )
+        input_task = DocumentBatch(dataset_name="test_dataset", data=input_data, _metadata={})
 
         # Mock only external system boundaries
         with mock.patch("magic.Magic") as mock_magic_class:
@@ -281,9 +270,7 @@ class TestMathContentExtractorStage:
             ]
         )
 
-        input_task = DocumentBatch(
-            task_id="test_real_notebook", dataset_name="test_dataset", data=input_data, _metadata={}
-        )
+        input_task = DocumentBatch(dataset_name="test_dataset", data=input_data, _metadata={})
 
         # Only mock external system boundaries, not internal methods
         with mock.patch("magic.Magic") as mock_magic_class:
@@ -325,9 +312,7 @@ class TestMathContentExtractorStage:
             ]
         )
 
-        input_task = DocumentBatch(
-            task_id="test_html_math", dataset_name="test_dataset", data=input_data, _metadata={}
-        )
+        input_task = DocumentBatch(dataset_name="test_dataset", data=input_data, _metadata={})
 
         # Mock external systems only - lynx and magic
         mock_lynx = mock.Mock()

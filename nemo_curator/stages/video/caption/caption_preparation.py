@@ -17,7 +17,7 @@ from itertools import zip_longest
 
 from loguru import logger
 
-from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.prompt_formatter import PromptFormatter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks.video import VideoTask, _Window
@@ -77,7 +77,7 @@ def _get_prompt(
 class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that prepares captions for video processing."""
 
-    model_variant: str = "qwen"
+    model_variant: str = "qwen2.5"
     prompt_variant: str = "default"
     prompt_text: str | None = None
     verbose: bool = False
@@ -95,8 +95,26 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+    def __post_init__(self) -> None:
+        self._skip_intermediate_resize = False
+        if self.model_variant.startswith("nemotron"):
+            if not self.model_does_preprocess:
+                logger.warning(
+                    f"model_variant={self.model_variant!r}: overriding model_does_preprocess=True. "
+                    "Nemotron uses vLLM's internal preprocessing; CLIP normalization must not be applied beforehand."
+                )
+                self.model_does_preprocess = True
+            self._skip_intermediate_resize = True
+
+    def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        # Pre-warm the AutoProcessor trust_remote_code module cache once (sequentially)
+        # before parallel workers start. Without this, concurrent workers race to write
+        # the same transformers_modules cache files, causing partial-load AttributeErrors.
         self.prompt_formatter = PromptFormatter(self.model_variant)
+
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        if not hasattr(self, "prompt_formatter"):
+            self.prompt_formatter = PromptFormatter(self.model_variant)
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
@@ -115,6 +133,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     sampling_fps=self.sampling_fps,
                     model_does_preprocess=self.model_does_preprocess,
                     preprocess_dtype=self.preprocess_dtype,
+                    skip_resize=self._skip_intermediate_resize,
                     return_bytes=self.generate_previews,
                     num_threads=max(int(self.resources.cpus), 1),
                 ),
@@ -127,19 +146,20 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     llm_input = self.prompt_formatter.generate_inputs(
                         prompt=prompt,
                         video_inputs=window_frames,
+                        fps=self.sampling_fps,
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.error(f"Error in Caption preparation: {e}")
                     clip.errors[f"{self.model_variant}_input"] = str(e)
                     continue
 
-                clip.windows.append(
-                    _Window(
-                        window_frame_info.start,
-                        window_frame_info.end,
-                        mp4_bytes=window_bytes,
-                        qwen_llm_input=llm_input,
-                    ),
+                window = _Window(
+                    window_frame_info.start,
+                    window_frame_info.end,
+                    mp4_bytes=window_bytes,
                 )
+                window.llm_inputs[self.model_variant] = llm_input
+
+                clip.windows.append(window)
 
         return task

@@ -21,7 +21,7 @@ from pylibcugraph import GraphProperties, MGGraph, ResourceHandle
 from pylibcugraph import weakly_connected_components as pylibcugraph_wcc
 from pylibcugraph.comms.comms_wrapper import init_subcomms as c_init_subcomms
 
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
@@ -173,7 +173,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
         input_files = []
         for task in tasks:
             input_files.extend(task.data)
-        output_file = self.output_fs.sep.join([self.output_path, f"{tasks[0]._uuid}.parquet"])
+        output_file = self.output_fs.sep.join([self.output_path, f"{tasks[0].task_id}.parquet"])
         edgelist_columns = [self.source_field, self.destination_field]
         dfs = []
         for input_file in input_files:
@@ -192,7 +192,6 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
         return [
             FileGroupTask(
                 dataset_name=tasks[0].dataset_name,
-                task_id=tasks[0].task_id,
                 data=[output_file],
                 _metadata={
                     "storage_options": self.write_kwargs.get("storage_options"),

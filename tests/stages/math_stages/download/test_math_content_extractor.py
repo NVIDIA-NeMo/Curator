@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 from unittest import mock
 
 import pytest
@@ -254,7 +255,7 @@ class TestMathContentExtractor:
             assert result["text"] == extracted_text_responses["lynx"]
             assert result["type"] == "html"
 
-    def test_lazy_initialization_magic(self, sample_test_content: str, sample_urls: dict) -> None:
+    def test_lazy_initialization_magic(self, sample_text_content: str, sample_urls: dict) -> None:
         """Test lazy initialization of magic MIME detector."""
         extractor = MathContentExtractor()
 
@@ -267,7 +268,7 @@ class TestMathContentExtractor:
             mock_magic_class.return_value = mock_magic_instance
 
             record = {
-                "binary_content": sample_test_content.encode("utf-8"),
+                "binary_content": sample_text_content.encode("utf-8"),
                 "url": sample_urls["text"],
                 "mime_type": "text/plain",
             }
@@ -278,5 +279,13 @@ class TestMathContentExtractor:
             mock_magic_class.assert_called_once_with(mime=True)
             assert extractor._magic is mock_magic_instance
             assert result["magic_mime_type"] == "text/plain"
-            assert result["text"] == sample_test_content
+            assert result["text"] == sample_text_content
             assert result["type"] == "text"
+
+    def test_deepcopy_extractor_with_lock(self) -> None:
+        extractor = MathContentExtractor()
+
+        cloned = copy.deepcopy(extractor)
+
+        assert cloned is not extractor
+        assert cloned._lock is not None

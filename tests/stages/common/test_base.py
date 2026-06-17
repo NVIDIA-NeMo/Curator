@@ -24,7 +24,7 @@ class MockTask(Task[dict]):
 
     def __init__(self, data: dict | None = None):
         self.data = data or {}
-        super().__init__(task_id="", dataset_name="", data=self.data)
+        super().__init__(dataset_name="", data=self.data)
 
     @property
     def num_items(self) -> int:
@@ -88,6 +88,21 @@ class StringAnnotatedFanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
 
 
 StringAnnotatedFanoutProcessingStage.process.__annotations__["return"] = "list[MissingTask]"
+
+
+class AttributeErrorAnnotatedFanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
+    """ProcessingStage with a string annotation that raises AttributeError in get_type_hints."""
+
+    name = "AttributeErrorAnnotatedFanoutProcessingStage"
+
+    def process(self, task: MockTask) -> list[MockTask]:
+        return [task]
+
+
+missing_annotation_namespace = object()
+AttributeErrorAnnotatedFanoutProcessingStage.process.__annotations__["return"] = (
+    "list[missing_annotation_namespace.MissingTask]"
+)
 
 
 class TestProcessingStageWith:
@@ -220,6 +235,9 @@ class TestProcessingStageWith:
         # Verify that all threads completed successfully
         assert len(thread_results) == num_threads
 
+        # Concurrent appends are unordered; align results with worker_id before indexed asserts.
+        thread_results.sort(key=lambda r: r["worker_id"])
+
         # Verify that each thread got a unique modified stage
         modified_stages = [result["modified_stage"] for result in thread_results]
         modified_names = [stage.name for stage in modified_stages]
@@ -329,6 +347,11 @@ class TestProcessingStageRaySpec:
 
     def test_ray_stage_spec_detects_string_annotated_fanout_stage(self):
         stage = StringAnnotatedFanoutProcessingStage()
+
+        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+
+    def test_ray_stage_spec_falls_back_after_attribute_error(self):
+        stage = AttributeErrorAnnotatedFanoutProcessingStage()
 
         assert stage.ray_stage_spec() == {"is_fanout_stage": True}
 

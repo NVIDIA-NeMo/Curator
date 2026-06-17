@@ -78,7 +78,6 @@ def exact_dedup_data_parquet(tmp_path: Path) -> list[FileGroupTask]:
 
     return [
         FileGroupTask(
-            task_id="exact_dedup_0",
             dataset_name="exact_dedup_dataset",
             data=[str(file1)],
             _metadata={
@@ -88,7 +87,6 @@ def exact_dedup_data_parquet(tmp_path: Path) -> list[FileGroupTask]:
             },
         ),
         FileGroupTask(
-            task_id="exact_dedup_1",
             dataset_name="exact_dedup_dataset",
             data=[str(file2)],
             _metadata={
@@ -109,7 +107,6 @@ def exact_no_dedup_data_jsonl(tmp_path: Path) -> list[FileGroupTask]:
 
     return [
         FileGroupTask(
-            task_id="no_dedup_0",
             dataset_name="no_dedup_dataset",
             data=[str(file1)],
             _metadata={
@@ -124,8 +121,14 @@ def exact_no_dedup_data_jsonl(tmp_path: Path) -> list[FileGroupTask]:
 @pytest.mark.gpu
 @pytest.mark.usefixtures("shared_ray_client")
 class TestExactDuplicatesWorkflow:
-    @pytest.mark.parametrize("assign_id", [True, False])
-    def test_dup(self, exact_dedup_data_parquet: list[FileGroupTask], tmpdir: Path, assign_id: bool) -> None:
+    @pytest.mark.parametrize(("assign_id", "identification_batchsize"), [(True, 1), (False, 3)])
+    def test_dup(
+        self,
+        exact_dedup_data_parquet: list[FileGroupTask],
+        tmpdir: Path,
+        assign_id: bool,
+        identification_batchsize: int,
+    ) -> None:
         workflow = ExactDeduplicationWorkflow(
             output_path=str(tmpdir),
             input_filetype="parquet",
@@ -133,6 +136,7 @@ class TestExactDuplicatesWorkflow:
             id_field="id" if not assign_id else None,
             text_field="text",
             perform_removal=False,
+            identification_batchsize=identification_batchsize,
         )
         result = workflow.run(initial_tasks=exact_dedup_data_parquet)
         assert result.pipeline_tasks

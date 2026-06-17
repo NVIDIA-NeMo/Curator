@@ -15,28 +15,37 @@
 """Audio Fleurs benchmarking script.
 
 This script runs audio Fleurs benchmarks with comprehensive metrics collection
-using XennaExecutor and logs results to configured sinks.
+and logs results to configured sinks.
 """
 
 import argparse
+import os
+import time
+import traceback
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from utils import write_benchmark_results
+from utils import setup_executor, write_benchmark_results
 
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
+from nemo_curator.stages.audio.inference.asr.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
-from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
+from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
+# Fallback Hugging Face cache directory used only when the benchmark is run
+# standalone with auto-download enabled (no pre-staged dataset). The nightly
+# benchmark instead pre-stages FLEURS once via
+# benchmarking/data_prep/prepare_fleurs_data.py and runs with --no-auto-download,
+# so it never re-fetches from Hugging Face (which is what triggered HTTP 429).
+DEFAULT_FLEURS_CACHE_DIR = "/tmp/curator/fleurs_cache"  # noqa: S108
 
-def run_audio_fleurs_benchmark(  # noqa: PLR0913
+
+def run_audio_fleurs_benchmark(  # noqa: PLR0913, PLR0915
     benchmark_results_path: str,
     scratch_output_path: str,
     model_name: str,
@@ -44,6 +53,11 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     split: str,
     wer_threshold: float,
     gpus: int,
+    executor: str = "xenna",
+    raw_data_dir: str | None = None,
+    auto_download: bool = True,
+    cache_dir: str | None = None,
+    execution_mode: str | None = None,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the audio fleurs benchmark and collect comprehensive metrics."""
@@ -52,69 +66,120 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913
     scratch_output_path = Path(scratch_output_path)
     results_dir = benchmark_results_path / "results"
 
-    # Ensure the results dir does not exist so that it will be created.
-    # This ensures no preexisting files are present which would otherwise be treated as additional results.
-    if results_dir.exists():
-        msg = f"Result directory {results_dir} already exists."
-        raise ValueError(msg)
+    # Prefer a dataset pre-staged on disk (no network I/O). Fall back to
+    # auto-downloading into a per-run scratch dir, caching by content hash under a
+    # stable HF cache so a standalone rerun reuses the download.
+    if raw_data_dir:
+        data_dir = Path(raw_data_dir)
+        hf_cache_dir = None
+    else:
+        data_dir = scratch_output_path / "fleurs"
+        hf_cache_dir = str(cache_dir or os.environ.get("CURATOR_FLEURS_CACHE_DIR") or DEFAULT_FLEURS_CACHE_DIR)
 
-    logger.info("Starting audio fleurs benchmark")
-    logger.info(f"Model: {model_name}")
-    logger.info(f"Language: {lang}")
-    logger.info(f"Split: {split}")
-    logger.info(f"WER threshold: {wer_threshold}")
-    logger.info(f"GPUs: {gpus}")
+    run_start_time = time.perf_counter()
 
-    executor = XennaExecutor()
-    pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
+    try:
+        if results_dir.exists():
+            msg = f"Result directory {results_dir} already exists."
+            raise ValueError(msg)  # noqa: TRY301
 
-    # Add stages
-    # Add the composite stage that combines reading and downloading
-    pipeline.add_stage(
-        CreateInitialManifestFleursStage(
-            lang=lang,
-            split=split,
-            raw_data_dir=scratch_output_path / "armenian/fleurs",
-        ).with_(batch_size=4)
-    )
-    pipeline.add_stage(InferenceAsrNemoStage(model_name=model_name).with_(resources=Resources(gpus=gpus)))
-    pipeline.add_stage(
-        GetPairwiseWerStage(
-            text_key="text",
-            pred_text_key="pred_text",
-            wer_key="wer",
+        logger.info("Starting audio fleurs benchmark")
+        logger.info(f"Executor: {executor}")
+        if execution_mode:
+            logger.info(f"Execution mode: {execution_mode}")
+        logger.info(f"Model: {model_name}")
+        logger.info(f"Language: {lang}")
+        logger.info(f"Split: {split}")
+        logger.info(f"WER threshold: {wer_threshold}")
+        logger.info(f"GPUs: {gpus}")
+        logger.info(f"Auto download: {auto_download}")
+        logger.info(f"HF cache dir: {hf_cache_dir}")
+        logger.info(f"Data dir: {data_dir}")
+
+        executor_config = {"execution_mode": execution_mode} if execution_mode else None
+        executor_obj = setup_executor(executor, config=executor_config)
+        pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
+
+        pipeline.add_stage(
+            CreateInitialManifestFleursStage(
+                lang=lang,
+                split=split,
+                raw_data_dir=str(data_dir),
+                cache_dir=hf_cache_dir,
+                auto_download=auto_download,
+            ).with_(batch_size=4)
         )
-    )
-    pipeline.add_stage(
-        GetAudioDurationStage(
-            audio_filepath_key="audio_filepath",
-            duration_key="duration",
+        pipeline.add_stage(InferenceAsrNemoStage(model_name=model_name).with_(resources=Resources(gpus=gpus)))
+        pipeline.add_stage(
+            GetPairwiseWerStage(
+                text_key="text",
+                pred_text_key="pred_text",
+                wer_key="wer_pct",
+            )
         )
-    )
-    pipeline.add_stage(
-        PreserveByValueStage(
-            input_value_key="wer",
-            target_value=wer_threshold,
-            operator="le",
+        pipeline.add_stage(
+            GetAudioDurationStage(
+                audio_filepath_key="audio_filepath",
+                duration_key="duration",
+            )
         )
-    )
-    pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
-    pipeline.add_stage(
-        JsonlWriter(
-            path=results_dir,
-            write_kwargs={"force_ascii": False},
+        pipeline.add_stage(
+            PreserveByValueStage(
+                input_value_key="wer_pct",
+                target_value=wer_threshold,
+                operator="le",
+            )
         )
-    )
+        pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
+        pipeline.add_stage(
+            JsonlWriter(
+                path=results_dir,
+                write_kwargs={"force_ascii": False},
+            )
+        )
 
-    results = pipeline.run(executor)
+        logger.info("Running audio fleurs pipeline...")
+        logger.info(f"Pipeline description:\n{pipeline.describe()}")
 
-    logger.success("Benchmark completed successfully")
+        output_tasks = pipeline.run(executor_obj)
+        run_time_taken = time.perf_counter() - run_start_time
+
+        num_tasks_processed = len(output_tasks) if output_tasks else 0
+
+        logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
+        logger.success(f"Processed {num_tasks_processed} tasks")
+        success = True
+
+    except Exception as e:
+        error_traceback = traceback.format_exc()
+        logger.error(f"Benchmark failed: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
+        output_tasks = []
+        run_time_taken = time.perf_counter() - run_start_time
+        num_tasks_processed = 0
+        success = False
 
     return {
-        "metrics": {
-            "is_success": True,
+        "params": {
+            "executor": executor,
+            "model_name": model_name,
+            "lang": lang,
+            "split": split,
+            "wer_threshold": wer_threshold,
+            "gpus": gpus,
+            "benchmark_results_path": str(benchmark_results_path),
+            "scratch_output_path": str(scratch_output_path),
+            "raw_data_dir": str(data_dir),
+            "auto_download": auto_download,
+            "hf_cache_dir": hf_cache_dir,
         },
-        "tasks": results,
+        "metrics": {
+            "is_success": success,
+            "time_taken_s": run_time_taken,
+            "num_tasks_processed": num_tasks_processed,
+            "throughput_tasks_per_sec": num_tasks_processed / run_time_taken if run_time_taken > 0 else 0,
+        },
+        "tasks": output_tasks,
     }
 
 
@@ -126,29 +191,63 @@ def main() -> int:
     parser.add_argument("--lang", default="hy_am", help="Language code")
     parser.add_argument("--split", default="dev", help="Dataset split to use")
     parser.add_argument("--wer-threshold", type=float, default=5.5, help="WER threshold for filtering")
+    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs to use")
+    parser.add_argument(
+        "--raw-data-dir",
+        default=None,
+        help=(
+            "Parent workspace directory for FLEURS staging (the same path passed to "
+            "prepare_fleurs_data.py --output-path). Pre-staged data lives under "
+            "<raw-data-dir>/<lang>/<split>.tsv and <raw-data-dir>/<lang>/<split>/. "
+            "Use with --no-auto-download and --lang to avoid re-fetching from Hugging Face."
+        ),
+    )
+    parser.add_argument(
+        "--no-auto-download",
+        dest="auto_download",
+        action="store_false",
+        help=(
+            "Disable runtime Hugging Face download; read pre-staged data from "
+            "<raw-data-dir>/<lang>/ instead."
+        ),
+    )
+    parser.set_defaults(auto_download=True)
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help=(
+            "Hugging Face cache directory used only for standalone auto-download runs so "
+            f"repeated runs reuse it. Defaults to $CURATOR_FLEURS_CACHE_DIR or {DEFAULT_FLEURS_CACHE_DIR}."
+        ),
+    )
+    parser.add_argument(
+        "--execution-mode",
+        type=str,
+        default=None,
+        choices=["streaming", "batch"],
+        help="Xenna execution mode (streaming or batch). Only applies to xenna executor.",
+    )
 
     args = parser.parse_args()
 
     logger.info("=== Audio Fleurs Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
-    success_code = 1  # assume failure until benchmark succeeds
-
-    # This dictionary will contain benchmark metadata and results, written to files for the benchmark framework to read.
-    result_dict = {
+    results = {
         "params": vars(args),
         "metrics": {
             "is_success": False,
         },
         "tasks": [],
     }
+
     try:
-        result_dict.update(run_audio_fleurs_benchmark(**vars(args)))
-        success_code = 0 if result_dict["metrics"]["is_success"] else 1
+        results.update(run_audio_fleurs_benchmark(**vars(args)))
     finally:
-        write_benchmark_results(result_dict, args.benchmark_results_path)
-    return success_code
+        write_benchmark_results(results, args.benchmark_results_path)
+
+    return 0 if results["metrics"]["is_success"] else 1
 
 
 if __name__ == "__main__":

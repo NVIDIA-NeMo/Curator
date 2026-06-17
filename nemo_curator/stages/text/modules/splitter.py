@@ -85,10 +85,8 @@ class DocumentSplitter(ProcessingStage[DocumentBatch, DocumentBatch]):
         df = df.drop(columns=["_split_text"]).reset_index(drop=True)
 
         return DocumentBatch(
-            task_id=f"{batch.task_id}_{self.name}",
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
-

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@ from nemo_curator.stages.deduplication.id_generator import (
 from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
-from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
+from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.tasks import Task
@@ -70,13 +70,12 @@ class TextSemanticDeduplicationWorkflow:
     # Embedding generation parameters
     text_field: str = "text"
     embedding_field: str = "embeddings"
-    model_identifier: str = "sentence-transformers/all-MiniLM-L6-v2"
-    embedding_max_seq_length: int = 512
+    model_identifier: str = "google/embeddinggemma-300m"
     embedding_max_chars: int | None = None
-    embedding_padding_side: Literal["left", "right"] = "right"
-    embedding_pooling: Literal["mean_pooling", "last_token"] = "mean_pooling"
-    embedding_model_inference_batch_size: int = 256
+    embedding_pretokenize: bool = False
+    embedding_vllm_init_kwargs: dict[str, Any] | None = None
     hf_token: str | None = None
+    model_cache_dir: str | None = None
     # Semantic deduplication parameters
     n_clusters: int = 100
     id_field: str = CURATOR_DEDUP_ID_STR
@@ -93,6 +92,7 @@ class TextSemanticDeduplicationWorkflow:
     kmeans_n_init: int | Literal["auto"] = 1
     kmeans_oversampling_factor: float = 2.0
     kmeans_max_samples_per_batch: int = 1 << 15  # 32768
+    kmeans_fit_data_fraction: float | None = None
     # Pairwise similarity parameters
     ranking_strategy: RankingStrategy | None = None
     pairwise_batch_size: int = 1024
@@ -127,12 +127,11 @@ class TextSemanticDeduplicationWorkflow:
         text_field: Name of the text field in input data
         embedding_field: Name of the embedding field to create
         model_identifier: HuggingFace model identifier for embeddings
-        embedding_max_seq_length: Maximum sequence length for tokenization
-        embedding_max_chars: Maximum number of characters for tokenization
-        embedding_padding_side: Padding side for tokenization
-        embedding_pooling: Pooling strategy for embeddings
-        embedding_model_inference_batch_size: Batch size for model inference
+        embedding_max_chars: Maximum number of characters for text truncation
+        embedding_pretokenize: Whether to pre-tokenize input before passing to vLLM
+        embedding_vllm_init_kwargs: Additional kwargs passed to vLLM's LLM initializer
         hf_token: HuggingFace token for private models
+        model_cache_dir: Directory to cache model weights
 
         # Semantic deduplication parameters
         n_clusters: Number of clusters for K-means
@@ -149,6 +148,7 @@ class TextSemanticDeduplicationWorkflow:
         kmeans_n_init: Number of K-means initialization runs
         kmeans_oversampling_factor: Oversampling factor for K-means
         kmeans_max_samples_per_batch: Maximum samples per batch for K-means
+        kmeans_fit_data_fraction: Fraction of the dataset (in (0, 1)) used to fit the KMeans model. If None, fit on the full dataset
         ranking_strategy: Custom ranking strategy for documents within clusters (None uses which_to_keep/distance_metric)
         pairwise_batch_size: Batch size for pairwise similarity computation
         _duplicates_num_row_groups_hint: Hint for number of row groups in duplicates output
@@ -194,6 +194,10 @@ class TextSemanticDeduplicationWorkflow:
 
     def _validate_config(self) -> None:
         """Validate workflow configuration."""
+        if self.kmeans_fit_data_fraction is not None and not 0.0 < self.kmeans_fit_data_fraction < 1.0:
+            msg = f"kmeans_fit_data_fraction must be in (0, 1), got {self.kmeans_fit_data_fraction}; pass None to fit on the full dataset"
+            raise ValueError(msg)
+
         if self.perform_removal and self.eps is None:
             msg = "perform_removal=True but eps=None. Without eps, duplicates can't be identified. "
             msg += "Either set eps or set perform_removal=False"
@@ -270,16 +274,16 @@ class TextSemanticDeduplicationWorkflow:
         pipeline.add_stage(reader)
 
         # Embedding generation stage
-        embedding_stage = EmbeddingCreatorStage(
+        embedding_stage = VLLMEmbeddingModelStage(
             model_identifier=self.model_identifier,
             text_field=self.text_field,
             embedding_field=self.embedding_field,
             max_chars=self.embedding_max_chars,
-            max_seq_length=self.embedding_max_seq_length,
-            padding_side=self.embedding_padding_side,
-            embedding_pooling=self.embedding_pooling,
-            model_inference_batch_size=self.embedding_model_inference_batch_size,
+            pretokenize=self.embedding_pretokenize,
+            vllm_init_kwargs=self.embedding_vllm_init_kwargs,
+            cache_dir=self.model_cache_dir,
             hf_token=self.hf_token,
+            verbose=self.verbose,
         )
         pipeline.add_stage(embedding_stage)
 
@@ -318,6 +322,7 @@ class TextSemanticDeduplicationWorkflow:
             n_init=self.kmeans_n_init,
             oversampling_factor=self.kmeans_oversampling_factor,
             max_samples_per_batch=self.kmeans_max_samples_per_batch,
+            fit_data_fraction=self.kmeans_fit_data_fraction,
             # Pairwise similarity parameters
             distance_metric=self.distance_metric,
             which_to_keep=self.which_to_keep,
@@ -386,8 +391,7 @@ class TextSemanticDeduplicationWorkflow:
         logger.info(f"  - Model: {self.model_identifier}")
         logger.info(f"  - Text field: {self.text_field}")
         logger.info(f"  - Embedding field: {self.embedding_field}")
-        logger.info(f"  - Max sequence length: {self.embedding_max_seq_length}")
-        logger.info(f"  - Batch size: {self.embedding_model_inference_batch_size}")
+        logger.info(f"  - Pretokenize: {self.embedding_pretokenize}")
         logger.info(f"  - Executor: {type(self.embedding_executor).__name__}")
 
         logger.info("Semantic deduplication:")
@@ -434,7 +438,7 @@ class TextSemanticDeduplicationWorkflow:
             embedding_executor = pairwise_executor = removal_executor = streaming_executor
 
         if batch_executor is None:
-            from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+            from nemo_curator.backends.ray_actor_pool import RayActorPoolExecutor
 
             batch_executor = RayActorPoolExecutor()
 
