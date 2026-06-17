@@ -19,6 +19,7 @@ from contextlib import ExitStack, contextmanager
 import cudf
 import numpy as np
 import ray
+from fsspec.core import split_protocol
 
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, IdGenerator
 from nemo_curator.utils.client_utils import is_remote_url
@@ -57,9 +58,12 @@ class DeduplicationIO:
 
         with ExitStack() as stack:
             buffers = []
+            filesystems = {}
             for path in paths:
-                fs = get_fs(path, storage_options=storage_options)
-                buffers.append(stack.enter_context(fs.open(path, mode="rb")))
+                protocol, _ = split_protocol(path)
+                if protocol not in filesystems:
+                    filesystems[protocol] = get_fs(path, storage_options=storage_options)
+                buffers.append(stack.enter_context(filesystems[protocol].open(path, mode="rb")))
             yield (buffers[0] if isinstance(filepath, str) else buffers), read_kwargs
 
     def read_parquet(self, filepath: str | list[str], assign_id: bool = False, **kwargs) -> "cudf.DataFrame":
