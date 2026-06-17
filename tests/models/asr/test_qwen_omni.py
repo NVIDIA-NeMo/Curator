@@ -176,11 +176,13 @@ def test_qwen_adapter_has_elevated_vllm_knobs_as_dataclass_fields() -> None:
         enable_prefix_caching=False,
         prefix_caching_hash_algo="sha256",
         limit_mm_per_prompt_audio=1,
+        max_num_batched_tokens=49152,
         seed=99,
     )
     assert adapter.enable_prefix_caching is False
     assert adapter.prefix_caching_hash_algo == "sha256"
     assert adapter.limit_mm_per_prompt_audio == 1
+    assert adapter.max_num_batched_tokens == 49152
     assert adapter.seed == 99
 
 
@@ -190,7 +192,13 @@ def test_qwen_adapter_vllm_knob_defaults_match_doc() -> None:
     assert adapter.enable_prefix_caching is True
     assert adapter.prefix_caching_hash_algo == "xxhash"
     assert adapter.limit_mm_per_prompt_audio == 2
+    assert adapter.max_num_batched_tokens is None
     assert adapter.seed == 1234
+
+
+def test_qwen_adapter_rejects_invalid_max_num_batched_tokens() -> None:
+    with pytest.raises(ValueError, match="max_num_batched_tokens must be positive"):
+        QwenOmniASRAdapter(model_id="mock/qwen-omni", max_num_batched_tokens=0)
 
 
 def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
@@ -200,6 +208,7 @@ def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
         enable_prefix_caching=False,
         prefix_caching_hash_algo="sha256",
         limit_mm_per_prompt_audio=3,
+        max_num_batched_tokens=49152,
         seed=42,
         tensor_parallel_size=1,
     )
@@ -222,6 +231,7 @@ def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
     assert kwargs["enable_prefix_caching"] is False
     assert kwargs["prefix_caching_hash_algo"] == "sha256"
     assert kwargs["limit_mm_per_prompt"] == {"image": 1, "video": 1, "audio": 3}
+    assert kwargs["max_num_batched_tokens"] == 49152
     assert kwargs["seed"] == 42
     assert "revision" not in kwargs
 

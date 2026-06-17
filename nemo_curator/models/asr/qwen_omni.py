@@ -106,6 +106,10 @@ class QwenOmniASRAdapter(VLLMBase):
             requests; disable for highly variable prompts.
         limit_mm_per_prompt_audio: per-prompt audio cap; ``2`` covers the
             two-turn flow, ``1`` for strictly single-turn.
+        max_num_batched_tokens: optional vLLM scheduler/encoder-cache budget.
+            Long single audio items can exceed the default multimodal encoder
+            cache even when ``max_model_len`` is large enough; set this to at
+            least the observed audio feature length for 40-50 minute probes.
         seed: exposed so reproducibility / bit-exactness tests can override.
     """
 
@@ -121,6 +125,7 @@ class QwenOmniASRAdapter(VLLMBase):
     system_prompt: str | None = None
     system_prompt_file: str | None = None
     max_model_len: int = 32768
+    max_num_batched_tokens: int | None = None
     max_num_seqs: int = 32
     gpu_memory_utilization: float = 0.95
     tensor_parallel_size: int | None = None
@@ -141,6 +146,10 @@ class QwenOmniASRAdapter(VLLMBase):
         self.en_prompt_text = self._load_text(self.en_prompt_text, self.en_prompt_file)
         self.followup_prompt = self._load_text(self.followup_prompt, self.followup_prompt_file)
         self.system_prompt = self._load_text(self.system_prompt, self.system_prompt_file)
+
+        if self.max_num_batched_tokens is not None and self.max_num_batched_tokens <= 0:
+            msg = "max_num_batched_tokens must be positive when set"
+            raise ValueError(msg)
 
         self._processor: Any = None
         self._prep_pool: ThreadPoolExecutor | None = None
@@ -172,6 +181,11 @@ class QwenOmniASRAdapter(VLLMBase):
         logger.info(
             f"Loading QwenOmni model={self.model_id}  tp={tp_size}  "
             f"max_model_len={self.max_model_len}  max_num_seqs={self.max_num_seqs}"
+            + (
+                f"  max_num_batched_tokens={self.max_num_batched_tokens}"
+                if self.max_num_batched_tokens is not None
+                else ""
+            )
             + (f"  revision={self.revision}" if self.revision is not None else "")
         )
 
@@ -187,6 +201,8 @@ class QwenOmniASRAdapter(VLLMBase):
             "enable_prefix_caching": bool(self.enable_prefix_caching),
             "prefix_caching_hash_algo": str(self.prefix_caching_hash_algo),
         }
+        if self.max_num_batched_tokens is not None:
+            model_kwargs["max_num_batched_tokens"] = int(self.max_num_batched_tokens)
         if self.revision is not None:
             model_kwargs["revision"] = self.revision
 

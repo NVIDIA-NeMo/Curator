@@ -107,6 +107,7 @@ candidate_batch_size: 32
 model_batch_size: ${candidate_batch_size}
 max_output_tokens: 256
 max_model_len: 4096
+max_num_batched_tokens: null
 max_num_seqs: 16
 gpu_memory_utilization: 0.90
 prep_workers: 16
@@ -186,6 +187,7 @@ stages:
       tensor_parallel_size: ${tensor_parallel_size}
       max_output_tokens: ${max_output_tokens}
       max_model_len: ${max_model_len}
+      max_num_batched_tokens: ${max_num_batched_tokens}
       max_num_seqs: ${max_num_seqs}
       gpu_memory_utilization: ${gpu_memory_utilization}
       prep_workers: ${prep_workers}

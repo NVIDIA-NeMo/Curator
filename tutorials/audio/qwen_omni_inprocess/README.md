@@ -158,6 +158,7 @@ python tutorials/audio/qwen_omni_inprocess/main.py \
 | `candidate_batch_size` | Candidate/fallback row window for the Qwen stage. With duration-aware bucketing enabled, `batch_policy` caps define GPU dispatch width. | `32` |
 | `max_output_tokens` | Maximum generated tokens per request | `256` |
 | `max_model_len` | vLLM maximum model length | `4096` |
+| `max_num_batched_tokens` | Optional vLLM scheduler / multimodal encoder-cache budget. Leave `null` for normal short chunks; raise with `max_model_len` for 40-50 minute single-audio probes. | `null` |
 | `max_num_seqs` | vLLM maximum concurrent sequences | `16` |
 | `gpu_memory_utilization` | vLLM GPU memory utilization fraction | `0.90` |
 | `prep_workers` | Thread workers for audio preprocessing | `16` |
