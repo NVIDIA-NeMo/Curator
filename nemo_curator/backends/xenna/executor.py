@@ -30,6 +30,30 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
 
 
+def _patch_xenna_monitoring_fail_open() -> None:
+    """Keep non-critical Xenna resource monitoring from failing the pipeline."""
+    try:
+        from cosmos_xenna.pipelines.private import monitoring
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"Could not import Xenna monitoring for fail-open patch: {exc}")
+        return
+
+    if getattr(monitoring.RayResourceMonitor.update, "_curator_fail_open", False):
+        return
+
+    original_update = monitoring.RayResourceMonitor.update
+
+    def update_fail_open(self):  # noqa: ANN001, ANN202
+        try:
+            return original_update(self)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Xenna resource monitoring failed; continuing without node metrics: {exc}")
+            return {node_id: None for node_id in getattr(self, "_node_ids", [])}
+
+    update_fail_open._curator_fail_open = True  # type: ignore[attr-defined]
+    monitoring.RayResourceMonitor.update = update_fail_open
+
+
 class XennaExecutor(BaseExecutor):
     """Executor that runs pipelines using Cosmos-Xenna.
     This executor provides integration between the nemo-curator pipeline framework
@@ -146,6 +170,7 @@ class XennaExecutor(BaseExecutor):
 
         try:
             register_loguru_serializer()
+            _patch_xenna_monitoring_fail_open()
             # Prevent Ray from overriding accelerator env vars when num_gpus=0, letting Xenna manage them instead.
             ray.init(
                 ignore_reinit_error=True,
