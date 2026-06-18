@@ -21,10 +21,12 @@ https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/audio/commo
 
 """
 
+import contextlib
 import hashlib
 import os
 import shutil
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 
@@ -137,7 +139,11 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
             path_hash = hashlib.sha256(local_audio_path.encode()).hexdigest()[:8]
             data_entry[self.audio_item_id_key] = f"{stem}_{path_hash}"
 
-        input_audio_path = local_audio_path
+        input_audio_path = (
+            original_audio_filepath
+            if self._is_remote_path(original_audio_filepath)
+            else local_audio_path
+        )
         output_audio_path = os.path.join(
             self.resampled_audio_dir,
             data_entry[self.audio_item_id_key] + "." + self.target_format,
@@ -181,6 +187,110 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
         )
         return task
 
+    @staticmethod
+    def _is_remote_path(path: str) -> bool:
+        return "://" in str(path)
+
+    def _open_remote_audio(self, input_audio_path: str):
+        if input_audio_path.startswith("s3://"):
+            from nvllmops.utils.swift_utils import (  # pylint: disable=import-outside-toplevel
+                SwiftstackHelper,
+                get_s3_client,
+            )
+
+            container, _, object_key = input_audio_path[len("s3://") :].partition("/")
+            if not container or not object_key:
+                msg = f"Invalid s3 audio path: {input_audio_path}"
+                raise ValueError(msg)
+            s3_client = getattr(self, "_curator_s3_client", None)
+            if s3_client is None:
+                swift_env_prefix = os.environ.get("CURATOR_SWIFT_ENV_PREFIX", "pdx")
+                SwiftstackHelper(
+                    storage_env_var_prefix=swift_env_prefix or None,
+                    num_workers=1,
+                )
+                s3_client = get_s3_client(num_workers=1)
+                self._curator_s3_client = s3_client
+            return s3_client.get_object(Bucket=container, Key=object_key)["Body"]
+
+        fs, remote_path = url_to_fs(input_audio_path)
+        return fs.open(remote_path, "rb")
+
+    def _run_ffmpeg(
+        self, cmd: list[str], input_audio_path: str
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Run ffmpeg, streaming remote input through stdin without staging audio to disk."""
+        if not self._is_remote_path(input_audio_path):
+            return subprocess.run(cmd, check=True, capture_output=True)  # noqa: S603
+
+        pipe_cmd = list(cmd)
+        input_idx = pipe_cmd.index("-i") + 1
+        pipe_cmd[input_idx] = "pipe:0"
+
+        proc = subprocess.Popen(  # noqa: S603
+            pipe_cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        write_error: list[BaseException] = []
+        stdout_chunks: list[bytes] = []
+        stderr_chunks: list[bytes] = []
+
+        def _feed_stdin() -> None:
+            try:
+                assert proc.stdin is not None
+                with contextlib.closing(
+                    self._open_remote_audio(input_audio_path)
+                ) as remote:
+                    while True:
+                        chunk = remote.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        proc.stdin.write(chunk)
+                proc.stdin.close()
+            except BaseException as exc:  # noqa: BLE001
+                write_error.append(exc)
+                if proc.stdin:
+                    try:
+                        proc.stdin.close()
+                    except (BrokenPipeError, OSError):
+                        pass
+
+        def _read_stream(stream, chunks: list[bytes]) -> None:  # noqa: ANN001
+            if stream is None:
+                return
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+
+        feeder = threading.Thread(target=_feed_stdin, daemon=True)
+        stdout_reader = threading.Thread(
+            target=_read_stream, args=(proc.stdout, stdout_chunks), daemon=True
+        )
+        stderr_reader = threading.Thread(
+            target=_read_stream, args=(proc.stderr, stderr_chunks), daemon=True
+        )
+        feeder.start()
+        stdout_reader.start()
+        stderr_reader.start()
+        returncode = proc.wait()
+        feeder.join()
+        stdout_reader.join()
+        stderr_reader.join()
+        stdout = b"".join(stdout_chunks)
+        stderr = b"".join(stderr_chunks)
+        if write_error:
+            msg = f"Error streaming remote audio {input_audio_path}: {write_error[0]}"
+            raise RuntimeError(msg) from write_error[0]
+        if returncode:
+            raise subprocess.CalledProcessError(
+                returncode, pipe_cmd, output=stdout, stderr=stderr
+            )
+        return subprocess.CompletedProcess(pipe_cmd, returncode, stdout=stdout, stderr=stderr)
+
     def _write_resampled_audio_file(self, input_audio_path: str, output_audio_path: str) -> None:
         """Run ffmpeg and write a normalized audio file to disk/object storage path."""
         cmd = [
@@ -198,9 +308,14 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
             output_audio_path,
         ]
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)  # noqa: S603
+            self._run_ffmpeg(cmd, input_audio_path)
         except subprocess.CalledProcessError as e:
-            msg = f"Error converting {input_audio_path}: {e.stderr or e}"
+            stderr = (
+                e.stderr.decode("utf-8", errors="replace")
+                if isinstance(e.stderr, bytes)
+                else e.stderr
+            )
+            msg = f"Error converting {input_audio_path}: {stderr or e}"
             raise RuntimeError(msg) from e
 
     def _load_resampled_waveform(self, input_audio_path: str) -> tuple[torch.Tensor, int]:
@@ -222,7 +337,7 @@ class ResampleAudioStage(ProcessingStage[AudioTask, AudioTask]):
             "pipe:1",
         ]
         try:
-            completed = subprocess.run(cmd, check=True, capture_output=True)  # noqa: S603
+            completed = self._run_ffmpeg(cmd, input_audio_path)
         except subprocess.CalledProcessError as e:
             stderr = e.stderr.decode("utf-8", errors="replace") if isinstance(e.stderr, bytes) else e.stderr
             msg = f"Error loading resampled waveform from {input_audio_path}: {stderr or e}"
