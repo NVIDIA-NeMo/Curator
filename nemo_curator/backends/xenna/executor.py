@@ -21,15 +21,9 @@ from loguru import logger
 
 from nemo_curator.backends.base import (
     BaseExecutor,
-    ScheduledTaskBatchPlan,
-    assemble_scheduled_task_batch_results,
-    build_scheduled_task_batch_plan,
-    prepare_scheduled_task_batch_plan_for_backend,
-    stage_uses_centralized_batching,
 )
 from nemo_curator.backends.utils import register_loguru_serializer
 from nemo_curator.backends.xenna.adapter import (
-    create_named_xenna_scheduler_ready_stage_adapter,
     create_named_xenna_stage_adapter,
 )
 from nemo_curator.stages.base import ProcessingStage
@@ -91,6 +85,11 @@ class XennaExecutor(BaseExecutor):
             "execution_mode": "streaming",
             "cpu_allocation_percentage": 0.95,
             "autoscale_interval_s": 180,
+            "actor_pool_verbosity_level": "NONE",
+            "monitoring_verbosity_level": "NONE",
+            "autoscaler_verbosity_level": "NONE",
+            "executor_verbosity_level": "NONE",
+            "log_worker_allocation_layout": False,
         }
 
     def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
@@ -104,54 +103,7 @@ class XennaExecutor(BaseExecutor):
             list[Task]: List of output tasks from the pipeline
         """
         initial_tasks = initial_tasks if initial_tasks else [EmptyTask]
-        if any(stage_uses_centralized_batching(stage) for stage in stages):
-            return self._run_xenna_pipeline_with_global_centralized(stages, initial_tasks)
         return self._run_xenna_pipeline(stages, initial_tasks)
-
-    def _run_xenna_pipeline_with_global_centralized(
-        self,
-        stages: list[ProcessingStage],
-        initial_tasks: list[Any],
-    ) -> list[Any]:
-        """Run centralized stages through a global scheduler-ready boundary.
-
-        This path materializes the output of the upstream Xenna segment, builds
-        one scheduler plan for the centralized stage, runs the ready batches as
-        independent Xenna work items, stitches parent rows back together, then
-        resumes the remaining stages. Stages can provide lightweight scheduler
-        descriptors so ready rows do not carry copied waveform chunks.
-        """
-        current_tasks = initial_tasks
-        pending_stages: list[ProcessingStage] = []
-
-        for stage in stages:
-            if not stage_uses_centralized_batching(stage):
-                pending_stages.append(stage)
-                continue
-
-            if pending_stages:
-                current_tasks = self._run_xenna_pipeline(pending_stages, current_tasks)
-                pending_stages = []
-
-            plan = build_scheduled_task_batch_plan(stage, current_tasks, lightweight=True)
-            if plan is None:
-                pending_stages.append(stage)
-                continue
-
-            logger.info(
-                "Built global Xenna scheduler plan with {} ready batches from {} parent tasks for {}",
-                len(plan.ready_batches),
-                len(plan.parent_tasks),
-                stage.name,
-            )
-            self._prepare_global_scheduler_plan(stage, plan)
-            processed_tasks = self._run_xenna_scheduler_ready_pipeline(stage, plan.ready_batches)
-            current_tasks = assemble_scheduled_task_batch_results(stage, plan, processed_tasks)
-
-        if pending_stages:
-            current_tasks = self._run_xenna_pipeline(pending_stages, current_tasks)
-
-        return current_tasks
 
     def _run_xenna_pipeline(
         self,
@@ -177,21 +129,21 @@ class XennaExecutor(BaseExecutor):
         if exec_mode == pipelines_v1.ExecutionMode.STREAMING:
             streaming_config = pipelines_v1.StreamingSpecificSpec(
                 autoscale_interval_s=self._get_pipeline_config("autoscale_interval_s"),
-                autoscaler_verbosity_level=VerbosityLevel.INFO,  # TODO: Move this to pipeline config
-                executor_verbosity_level=VerbosityLevel.INFO,
+                autoscaler_verbosity_level=self._get_verbosity_config("autoscaler_verbosity_level"),
+                executor_verbosity_level=self._get_verbosity_config("executor_verbosity_level"),
             )
 
         # Create pipeline configuration
         pipeline_config = pipelines_v1.PipelineConfig(
             execution_mode=exec_mode,
             logging_interval_s=self._get_pipeline_config("logging_interval"),
-            log_worker_allocation_layout=True,
+            log_worker_allocation_layout=bool(self._get_pipeline_config("log_worker_allocation_layout")),
             return_last_stage_outputs=True,
             ignore_failures=self._get_pipeline_config("ignore_failures"),
             cpu_allocation_percentage=self._get_pipeline_config("cpu_allocation_percentage"),
             mode_specific=streaming_config,
-            actor_pool_verbosity_level=VerbosityLevel.INFO,  # TODO: Move this to pipeline config
-            monitoring_verbosity_level=VerbosityLevel.INFO,
+            actor_pool_verbosity_level=self._get_verbosity_config("actor_pool_verbosity_level"),
+            monitoring_verbosity_level=self._get_verbosity_config("monitoring_verbosity_level"),
         )
 
         # Create pipeline specification
@@ -224,49 +176,10 @@ class XennaExecutor(BaseExecutor):
             ray.shutdown()
         return results if results else []
 
-    def _run_xenna_scheduler_ready_pipeline(
-        self,
-        stage: ProcessingStage,
-        ready_batches: list[Any],
-    ) -> list[Any]:
-        """Run one centralized stage over scheduler-ready batch rows."""
-        if not ready_batches:
-            return []
-        return self._run_xenna_pipeline_from_specs(
-            [self._build_stage_spec(stage, scheduler_ready=True)],
-            ready_batches,
-        )
-
-    def _prepare_global_scheduler_plan(self, stage: ProcessingStage, plan: ScheduledTaskBatchPlan) -> None:
-        """Attach Ray object refs for lightweight scheduler rows before dispatch."""
-        if not any(getattr(ready_batch, "work_items", None) for ready_batch in plan.ready_batches):
-            return
-        self._ensure_ray_initialized_for_scheduler_refs()
-        prepare_scheduled_task_batch_plan_for_backend(stage, plan, ray.put)
-
-    @staticmethod
-    def _ensure_ray_initialized_for_scheduler_refs() -> None:
-        ray.init(
-            ignore_reinit_error=True,
-            runtime_env={
-                "env_vars": {
-                    "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
-                }
-            },
-        )
-
-    def _build_stage_spec(
-        self,
-        stage: ProcessingStage,
-        *,
-        scheduler_ready: bool = False,
-    ) -> pipelines_v1.StageSpec:
+    def _build_stage_spec(self, stage: ProcessingStage) -> pipelines_v1.StageSpec:
         """Create a Xenna StageSpec from a Curator stage."""
         stage_config = stage.xenna_stage_spec()
-        if scheduler_ready:
-            xenna_stage = create_named_xenna_scheduler_ready_stage_adapter(stage=stage)
-        else:
-            xenna_stage = create_named_xenna_stage_adapter(stage=stage)
+        xenna_stage = create_named_xenna_stage_adapter(stage=stage)
 
         return pipelines_v1.StageSpec(
             stage=xenna_stage,
@@ -282,62 +195,15 @@ class XennaExecutor(BaseExecutor):
             max_setup_failure_percentage=stage_config.get("max_setup_failure_percentage"),
         )
 
-    def _run_xenna_pipeline_from_specs(
-        self,
-        stage_specs: list[pipelines_v1.StageSpec],
-        initial_tasks: list[Any],
-    ) -> list[Any]:
-        """Run a Xenna pipeline from already-built stage specs."""
-        if not stage_specs:
-            return initial_tasks
-
-        exec_mode = pipelines_v1.ExecutionMode.STREAMING
-        if self._get_pipeline_config("execution_mode") == "batch":
-            exec_mode = pipelines_v1.ExecutionMode.BATCH
-
-        streaming_config = None
-        if exec_mode == pipelines_v1.ExecutionMode.STREAMING:
-            streaming_config = pipelines_v1.StreamingSpecificSpec(
-                autoscale_interval_s=self._get_pipeline_config("autoscale_interval_s"),
-                autoscaler_verbosity_level=VerbosityLevel.INFO,
-                executor_verbosity_level=VerbosityLevel.INFO,
-            )
-
-        pipeline_config = pipelines_v1.PipelineConfig(
-            execution_mode=exec_mode,
-            logging_interval_s=self._get_pipeline_config("logging_interval"),
-            log_worker_allocation_layout=True,
-            return_last_stage_outputs=True,
-            ignore_failures=self._get_pipeline_config("ignore_failures"),
-            cpu_allocation_percentage=self._get_pipeline_config("cpu_allocation_percentage"),
-            mode_specific=streaming_config,
-            actor_pool_verbosity_level=VerbosityLevel.INFO,
-            monitoring_verbosity_level=VerbosityLevel.INFO,
-        )
-
-        pipeline_spec = pipelines_v1.PipelineSpec(input_data=initial_tasks, stages=stage_specs, config=pipeline_config)
-        logger.info(f"Execution mode: {exec_mode.name}")
-
-        try:
-            register_loguru_serializer()
-            _patch_xenna_monitoring_fail_open()
-            ray.init(
-                ignore_reinit_error=True,
-                runtime_env={
-                    "env_vars": {
-                        "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1",
-                    }
-                },
-            )
-            results = pipelines_v1.run_pipeline(pipeline_spec)
-            logger.info(f"Pipeline completed successfully with {len(results) if results else 0} output tasks")
-        except Exception as e:
-            logger.error(f"Pipeline execution failed: {e}")
-            raise
-        finally:
-            ray.shutdown()
-        return results if results else []
-
     def _get_pipeline_config(self, key: str) -> Any:  # noqa: ANN401
         """Get configuration value with fallback to defaults."""
         return self.config.get(key, self._default_pipeline_config.get(key))
+
+    def _get_verbosity_config(self, key: str) -> VerbosityLevel:
+        """Get Xenna verbosity level from enum, integer, or string config."""
+        value = self._get_pipeline_config(key)
+        if isinstance(value, VerbosityLevel):
+            return value
+        if isinstance(value, str):
+            return VerbosityLevel[value.upper()]
+        return VerbosityLevel(value)
