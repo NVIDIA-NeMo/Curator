@@ -13,9 +13,11 @@
 # limitations under the License.
 
 import json
+import math
 import os
 import time
 from dataclasses import dataclass, field
+from numbers import Real
 from operator import eq, ge, gt, le, lt, ne
 from typing import Any
 
@@ -231,6 +233,532 @@ class ManifestReader(CompositeStage[_EmptyTask, AudioTask]):
         elif self.blocksize:
             parts.append(f"with target blocksize {self.blocksize}")
         return ", ".join(parts)
+
+
+@dataclass(frozen=True)
+class _VirtualChunkPlan:
+    parent_index: int
+    chunk_idx: int
+    start_sample: int
+    stop_sample: int
+    duration_s: float
+    bucket_id: int
+
+
+@dataclass(frozen=True)
+class _ManifestPlanRecord:
+    source_index: int
+    manifest_index: int
+    row_index: int
+    data: dict[str, Any]
+    duration_s: float
+    estimated_waveform_bytes: int
+    chunks: tuple[_VirtualChunkPlan, ...]
+    total_chunk_cost_s: float
+    dominant_bucket: int
+    dominant_bucket_cost_s: float
+
+    @property
+    def chunk_count(self) -> int:
+        return len(self.chunks)
+
+
+@dataclass(frozen=True)
+class _PlannedManifestRecord:
+    record: _ManifestPlanRecord
+    window_id: int
+    window_order: int
+
+
+@dataclass
+class GlobalBucketedManifestReader(ProcessingStage[_EmptyTask, AudioTask]):
+    """Read manifests and optionally order rows by a full-manifest bucket plan.
+
+    This implements metadata-global parent-coalesced bucketing for audio
+    pipelines. The planner sees all manifest rows and virtual chunks, but it
+    never loads waveform. Runtime rows remain ordinary ``AudioTask`` parents, so
+    downstream resampling streams each source once, keeps waveform in memory for
+    the active backend window, and lets the configured owner GPU stage run its
+    live chunk bucket queues under normal Ray Data/Xenna backpressure.
+    """
+
+    manifest_path: str | list[str]
+    name: str = "global_bucketed_manifest_reader"
+    enabled: bool = False
+    owner_stage: str | None = None
+    planning_scope: str = "full_manifest"
+    planning_unit: str = "parent"
+    gpu_unit: str = "virtual_chunk"
+    parent_coalescing: bool = True
+    duration_key: str = "duration"
+    fallback_duration_keys: list[str] = field(default_factory=lambda: ["actual_duration", "duration_sec"])
+    sample_rate_key: str = "sample_rate"
+    num_samples_key: str = "num_samples"
+    target_sample_rate: int = 16000
+    target_nchannels: int = 1
+    waveform_dtype_bytes: int = 4
+    chunking_enabled: bool = True
+    ideal_inference_segment_s: float = 120.0
+    max_inference_duration_s: float | None = None
+    buckets_sec: list[float] = field(default_factory=lambda: [0.0, 30.0, 60.0, 120.0])
+    max_items_per_batch_by_bucket: list[int] | None = None
+    max_audio_sec_per_batch: float | None = None
+    max_waveform_bytes: int | str | None = None
+    max_audio_seconds: float | None = None
+    max_parent_rows: int | None = None
+    target_ready_batches_per_bucket: int = 4
+    annotate_plan_metadata: bool = True
+    annotate_chunk_plan: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.manifest_path:
+            msg = "manifest_path is required for GlobalBucketedManifestReader"
+            raise ValueError(msg)
+        if not isinstance(self.enabled, bool):
+            msg = f"GlobalBucketedManifestReader.enabled must be a bool, got {type(self.enabled).__name__}"
+            raise TypeError(msg)
+        if not isinstance(self.chunking_enabled, bool):
+            msg = (
+                "GlobalBucketedManifestReader.chunking_enabled must be a bool, "
+                f"got {type(self.chunking_enabled).__name__}"
+            )
+            raise TypeError(msg)
+        if self.planning_scope != "full_manifest":
+            msg = f"planning_scope={self.planning_scope!r} is unsupported; use 'full_manifest'"
+            raise ValueError(msg)
+        if self.planning_unit != "parent":
+            msg = f"planning_unit={self.planning_unit!r} is unsupported; use 'parent'"
+            raise ValueError(msg)
+        if self.gpu_unit != "virtual_chunk":
+            msg = f"gpu_unit={self.gpu_unit!r} is unsupported; use 'virtual_chunk'"
+            raise ValueError(msg)
+        if not self.parent_coalescing:
+            msg = "GlobalBucketedManifestReader requires parent_coalescing=true to avoid repeated audio I/O"
+            raise ValueError(msg)
+        if self.ideal_inference_segment_s <= 0:
+            msg = f"ideal_inference_segment_s must be > 0, got {self.ideal_inference_segment_s}"
+            raise ValueError(msg)
+        if self.max_inference_duration_s is not None and self.max_inference_duration_s <= 0:
+            msg = f"max_inference_duration_s must be > 0 or None, got {self.max_inference_duration_s}"
+            raise ValueError(msg)
+        if self.target_sample_rate <= 0:
+            msg = f"target_sample_rate must be > 0, got {self.target_sample_rate}"
+            raise ValueError(msg)
+        if self.target_nchannels <= 0:
+            msg = f"target_nchannels must be > 0, got {self.target_nchannels}"
+            raise ValueError(msg)
+        if self.waveform_dtype_bytes <= 0:
+            msg = f"waveform_dtype_bytes must be > 0, got {self.waveform_dtype_bytes}"
+            raise ValueError(msg)
+        self._validate_buckets()
+        self._validate_window_limits()
+
+    def _validate_buckets(self) -> None:
+        if not self.buckets_sec:
+            msg = "buckets_sec must contain at least one edge"
+            raise ValueError(msg)
+        for edge in self.buckets_sec:
+            if isinstance(edge, bool) or not isinstance(edge, Real):
+                msg = f"every buckets_sec entry must be numeric, got {type(edge).__name__}"
+                raise TypeError(msg)
+        if float(self.buckets_sec[0]) != 0.0:
+            msg = f"buckets_sec must start at 0.0, got {self.buckets_sec[0]}"
+            raise ValueError(msg)
+        for i in range(len(self.buckets_sec) - 1):
+            if float(self.buckets_sec[i + 1]) <= float(self.buckets_sec[i]):
+                msg = f"buckets_sec must be strictly increasing; got {self.buckets_sec[i]} -> {self.buckets_sec[i + 1]}"
+                raise ValueError(msg)
+        if self.max_items_per_batch_by_bucket is not None:
+            if len(self.max_items_per_batch_by_bucket) != len(self.buckets_sec):
+                msg = "max_items_per_batch_by_bucket length must match buckets_sec length"
+                raise ValueError(msg)
+            for cap in self.max_items_per_batch_by_bucket:
+                if isinstance(cap, bool) or not isinstance(cap, int) or cap <= 0:
+                    msg = f"max_items_per_batch_by_bucket entries must be positive ints, got {cap!r}"
+                    raise ValueError(msg)
+        if self.max_audio_sec_per_batch is not None:
+            if isinstance(self.max_audio_sec_per_batch, bool) or not isinstance(self.max_audio_sec_per_batch, Real):
+                msg = "max_audio_sec_per_batch must be numeric or None"
+                raise TypeError(msg)
+            if self.max_audio_sec_per_batch <= 0:
+                msg = f"max_audio_sec_per_batch must be > 0 or None, got {self.max_audio_sec_per_batch}"
+                raise ValueError(msg)
+
+    def _validate_window_limits(self) -> None:
+        self._max_waveform_bytes_int = self._parse_byte_limit(self.max_waveform_bytes)
+        for name, value in (
+            ("max_audio_seconds", self.max_audio_seconds),
+            ("max_parent_rows", self.max_parent_rows),
+            ("target_ready_batches_per_bucket", self.target_ready_batches_per_bucket),
+        ):
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, Real):
+                msg = f"{name} must be numeric or None"
+                raise TypeError(msg)
+            if value <= 0:
+                msg = f"{name} must be > 0 or None, got {value}"
+                raise ValueError(msg)
+
+    def process(self, task: _EmptyTask) -> list[AudioTask]:
+        t0 = time.perf_counter()
+        records = self._read_manifest_records()
+        planned = self._plan_records(records) if self.enabled else [
+            _PlannedManifestRecord(record=record, window_id=0, window_order=record.source_index)
+            for record in records
+        ]
+        results = [
+            self._record_to_task(task, output_index, planned_record)
+            for output_index, planned_record in enumerate(planned)
+        ]
+
+        self._log_metrics(
+            {
+                "process_time": time.perf_counter() - t0,
+                "manifests_read": float(len(self._manifest_paths())),
+                "entries_read": float(len(records)),
+                "entries_emitted": float(len(results)),
+                "global_manifest_bucketing_enabled": float(self.enabled),
+                "global_manifest_virtual_chunks": float(sum(record.chunk_count for record in records)),
+                "global_manifest_windows": float(len({planned_record.window_id for planned_record in planned})),
+                "audio_duration_s": float(sum(record.duration_s for record in records)),
+                "estimated_waveform_bytes": float(sum(record.estimated_waveform_bytes for record in records)),
+            }
+        )
+        logger.info(
+            "GlobalBucketedManifestReader: loaded {} rows from {} manifest(s); global planning {} with {} window(s)",
+            len(results),
+            len(self._manifest_paths()),
+            "enabled" if self.enabled else "disabled",
+            len({planned_record.window_id for planned_record in planned}),
+        )
+        return results
+
+    def _manifest_paths(self) -> list[str]:
+        if isinstance(self.manifest_path, str):
+            return [self.manifest_path]
+        return [str(path) for path in self.manifest_path]
+
+    def _read_manifest_records(self) -> list[_ManifestPlanRecord]:
+        records: list[_ManifestPlanRecord] = []
+        source_index = 0
+        for manifest_index, manifest in enumerate(self._manifest_paths()):
+            fs, resolved = url_to_fs(manifest)
+            manifest_count = 0
+            with fs.open(resolved, "r", encoding="utf-8") as f:
+                for row_index, line in enumerate(f):
+                    if not line.strip():
+                        continue
+                    data = json.loads(line.strip())
+                    records.append(
+                        self._build_record(
+                            source_index=source_index,
+                            manifest_index=manifest_index,
+                            row_index=row_index,
+                            data=data,
+                        )
+                    )
+                    source_index += 1
+                    manifest_count += 1
+            logger.info("GlobalBucketedManifestReader: loaded {} entries from {}", manifest_count, manifest)
+        return records
+
+    def _build_record(
+        self,
+        *,
+        source_index: int,
+        manifest_index: int,
+        row_index: int,
+        data: dict[str, Any],
+    ) -> _ManifestPlanRecord:
+        duration_s = self._duration_from_row(data)
+        chunks = tuple(self._virtual_chunks(source_index, data, duration_s))
+        bucket_costs: dict[int, float] = {}
+        bucket_counts: dict[int, int] = {}
+        for chunk in chunks:
+            bucket_costs[chunk.bucket_id] = bucket_costs.get(chunk.bucket_id, 0.0) + chunk.duration_s
+            bucket_counts[chunk.bucket_id] = bucket_counts.get(chunk.bucket_id, 0) + 1
+        dominant_bucket = max(
+            bucket_counts,
+            key=lambda bucket: (bucket_counts[bucket], bucket_costs[bucket], bucket),
+        )
+        return _ManifestPlanRecord(
+            source_index=source_index,
+            manifest_index=manifest_index,
+            row_index=row_index,
+            data=data,
+            duration_s=duration_s,
+            estimated_waveform_bytes=self._estimate_waveform_bytes(data, duration_s),
+            chunks=chunks,
+            total_chunk_cost_s=sum(chunk.duration_s for chunk in chunks),
+            dominant_bucket=dominant_bucket,
+            dominant_bucket_cost_s=bucket_costs[dominant_bucket],
+        )
+
+    def _plan_records(self, records: list[_ManifestPlanRecord]) -> list[_PlannedManifestRecord]:
+        if not records:
+            return []
+        ready_batches = self._global_ready_batches(records)
+        windows = self._coalesce_ready_batches_into_windows(records, ready_batches)
+        return [
+            _PlannedManifestRecord(record=record, window_id=window_id, window_order=window_order)
+            for window_id, window in enumerate(windows)
+            for window_order, record in enumerate(window)
+        ]
+
+    def _global_ready_batches(
+        self,
+        records: list[_ManifestPlanRecord],
+    ) -> list[tuple[list[int], list[_VirtualChunkPlan], float]]:
+        from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
+
+        chunk_items = [chunk for record in records for chunk in record.chunks]
+        if not chunk_items:
+            return []
+        caps = self.max_items_per_batch_by_bucket or [
+            max(1, int(self.target_ready_batches_per_bucket)) for _ in self.buckets_sec
+        ]
+        policy = BatchPolicy(
+            enabled=True,
+            strategy="duration_bucketed",
+            buckets_sec=[float(edge) for edge in self.buckets_sec],
+            max_items_per_batch_by_bucket=list(caps),
+            max_audio_sec_per_batch=self.max_audio_sec_per_batch,
+            prebatching_window_size=None,
+            flush_interval_ms=0,
+        )
+        return policy.bucketize_with_costs(chunk_items, cost_fn=lambda chunk: chunk.duration_s)
+
+    def _coalesce_ready_batches_into_windows(
+        self,
+        records: list[_ManifestPlanRecord],
+        ready_batches: list[tuple[list[int], list[_VirtualChunkPlan], float]],
+    ) -> list[list[_ManifestPlanRecord]]:
+        by_parent = {record.source_index: record for record in records}
+        assigned: set[int] = set()
+        windows: list[list[_ManifestPlanRecord]] = []
+        current: list[_ManifestPlanRecord] = []
+        current_audio_s = 0.0
+        current_waveform_bytes = 0
+
+        def flush_current() -> None:
+            nonlocal current, current_audio_s, current_waveform_bytes
+            if current:
+                windows.append(current)
+                current = []
+                current_audio_s = 0.0
+                current_waveform_bytes = 0
+
+        for _, chunk_batch, _ in ready_batches:
+            for chunk in chunk_batch:
+                if chunk.parent_index in assigned:
+                    continue
+                record = by_parent[chunk.parent_index]
+                if self._would_exceed_window(
+                    current,
+                    current_audio_s,
+                    current_waveform_bytes,
+                    record,
+                ):
+                    flush_current()
+                current.append(record)
+                current_audio_s += record.duration_s
+                current_waveform_bytes += record.estimated_waveform_bytes
+                assigned.add(record.source_index)
+
+        for record in records:
+            if record.source_index in assigned:
+                continue
+            if self._would_exceed_window(current, current_audio_s, current_waveform_bytes, record):
+                flush_current()
+            current.append(record)
+            current_audio_s += record.duration_s
+            current_waveform_bytes += record.estimated_waveform_bytes
+            assigned.add(record.source_index)
+        flush_current()
+        return windows
+
+    def _would_exceed_window(
+        self,
+        current: list[_ManifestPlanRecord],
+        current_audio_s: float,
+        current_waveform_bytes: int,
+        record: _ManifestPlanRecord,
+    ) -> bool:
+        if not current:
+            return False
+        if self.max_parent_rows is not None and len(current) + 1 > int(self.max_parent_rows):
+            return True
+        if self.max_audio_seconds is not None and current_audio_s + record.duration_s > float(self.max_audio_seconds):
+            return True
+        if self._max_waveform_bytes_int is not None:
+            return current_waveform_bytes + record.estimated_waveform_bytes > self._max_waveform_bytes_int
+        return False
+
+    def _record_to_task(self, task: _EmptyTask, output_index: int, planned: _PlannedManifestRecord) -> AudioTask:
+        record = planned.record
+        metadata = dict(task._metadata)
+        if self.annotate_plan_metadata:
+            metadata.update(
+                {
+                    "_curator_global_owner_stage": self.owner_stage,
+                    "_curator_global_plan_source_index": record.source_index,
+                    "_curator_global_plan_manifest_index": record.manifest_index,
+                    "_curator_global_plan_row_index": record.row_index,
+                    "_curator_global_plan_window_id": planned.window_id,
+                    "_curator_global_plan_window_order": planned.window_order,
+                    "_curator_global_plan_bucket": record.dominant_bucket,
+                    "_curator_global_plan_chunks": record.chunk_count,
+                    "_curator_global_plan_duration_s": record.duration_s,
+                    "_curator_global_plan_estimated_waveform_bytes": record.estimated_waveform_bytes,
+                }
+            )
+            if self.annotate_chunk_plan:
+                metadata["_curator_global_plan_chunk_boundaries"] = [
+                    {
+                        "chunk_idx": chunk.chunk_idx,
+                        "start_sample": chunk.start_sample,
+                        "stop_sample": chunk.stop_sample,
+                        "duration_s": chunk.duration_s,
+                        "bucket_id": chunk.bucket_id,
+                    }
+                    for chunk in record.chunks
+                ]
+        return AudioTask(
+            task_id=f"{task.task_id}_{output_index}",
+            dataset_name=task.dataset_name,
+            data=record.data,
+            _metadata=metadata,
+            _stage_perf=list(task._stage_perf),
+        )
+
+    def _duration_from_row(self, data: dict[str, Any]) -> float:
+        for key in [self.duration_key, *self.fallback_duration_keys]:
+            if key in data:
+                value = self._numeric_value(data.get(key))
+                if value is not None:
+                    return max(0.0, float(value))
+        return 0.0
+
+    def _virtual_chunks(
+        self,
+        parent_index: int,
+        data: dict[str, Any],
+        duration_s: float,
+    ) -> list[_VirtualChunkPlan]:
+        sample_rate = int(self._numeric_value(data.get(self.sample_rate_key)) or self.target_sample_rate)
+        num_samples = self._num_samples_for_planning(data, duration_s, sample_rate)
+        if num_samples <= 0:
+            return [
+                _VirtualChunkPlan(
+                    parent_index=parent_index,
+                    chunk_idx=0,
+                    start_sample=0,
+                    stop_sample=0,
+                    duration_s=0.0,
+                    bucket_id=0,
+                )
+            ]
+
+        if self.chunking_enabled:
+            segment_s = float(self.max_inference_duration_s or self.ideal_inference_segment_s)
+            max_samples = max(1, int(segment_s * sample_rate))
+        else:
+            max_samples = num_samples
+
+        chunks: list[_VirtualChunkPlan] = []
+        for chunk_idx, start in enumerate(range(0, num_samples, max_samples)):
+            stop = min(start + max_samples, num_samples)
+            chunk_s = float(stop - start) / float(sample_rate)
+            chunks.append(
+                _VirtualChunkPlan(
+                    parent_index=parent_index,
+                    chunk_idx=chunk_idx,
+                    start_sample=start,
+                    stop_sample=stop,
+                    duration_s=chunk_s,
+                    bucket_id=self._bucket_for(chunk_s),
+                )
+            )
+        return chunks
+
+    def _num_samples_for_planning(self, data: dict[str, Any], duration_s: float, sample_rate: int) -> int:
+        value = self._numeric_value(data.get(self.num_samples_key))
+        if value is not None and value > 0:
+            return int(value)
+        return int(math.ceil(max(duration_s, 0.0) * float(sample_rate)))
+
+    def _estimate_waveform_bytes(self, data: dict[str, Any], duration_s: float) -> int:
+        sample_rate = int(self._numeric_value(data.get(self.sample_rate_key)) or self.target_sample_rate)
+        num_samples = self._num_samples_for_planning(data, duration_s, sample_rate)
+        return int(num_samples * self.target_nchannels * self.waveform_dtype_bytes)
+
+    @staticmethod
+    def _numeric_value(value: object) -> float | None:
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _bucket_for(self, cost: float) -> int:
+        for i in range(len(self.buckets_sec) - 1, -1, -1):
+            if cost >= float(self.buckets_sec[i]):
+                return i
+        return 0
+
+    @staticmethod
+    def _parse_byte_limit(value: int | str | None) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            msg = "max_waveform_bytes must be an int, byte string, or None"
+            raise TypeError(msg)
+        if isinstance(value, int):
+            if value <= 0:
+                msg = f"max_waveform_bytes must be > 0 or None, got {value}"
+                raise ValueError(msg)
+            return value
+        if not isinstance(value, str):
+            msg = f"max_waveform_bytes must be an int, byte string, or None, got {type(value).__name__}"
+            raise TypeError(msg)
+        text = value.strip()
+        if not text:
+            return None
+        units = {
+            "b": 1,
+            "kb": 1000,
+            "mb": 1000**2,
+            "gb": 1000**3,
+            "tb": 1000**4,
+            "kib": 1024,
+            "mib": 1024**2,
+            "gib": 1024**3,
+            "tib": 1024**4,
+        }
+        number = text
+        multiplier = 1
+        for suffix, factor in sorted(units.items(), key=lambda item: len(item[0]), reverse=True):
+            if text.lower().endswith(suffix):
+                number = text[: -len(suffix)].strip()
+                multiplier = factor
+                break
+        try:
+            parsed = float(number)
+        except ValueError as exc:
+            msg = f"Invalid max_waveform_bytes value: {value!r}"
+            raise ValueError(msg) from exc
+        if parsed <= 0:
+            msg = f"max_waveform_bytes must be > 0 or None, got {value!r}"
+            raise ValueError(msg)
+        return int(parsed * multiplier)
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_fanout_stage": True}
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {"num_workers": 1}
 
 
 @dataclass

@@ -127,12 +127,53 @@ duration_aware_bucketing:
   prebatching_window_size: ${candidate_batch_size}
   flush_interval_ms: 250
 
+# Global branch: plan parent order over the full manifest using duration/chunk
+# metadata only. Waveforms are still streamed exactly once in ResampleAudioStage
+# and remain bounded by normal Ray Data/Xenna backpressure.
+global_audio_scheduler:
+  enabled: ${duration_aware_bucketing.enabled}
+  owner_stage: qwen_omni
+  planning_scope: full_manifest
+  planning:
+    unit: parent
+    gpu_unit: virtual_chunk
+    parent_coalescing: true
+  execution_window:
+    max_waveform_bytes: null
+    max_audio_seconds: null
+    max_parent_rows: ${candidate_batch_size}
+    target_ready_batches_per_bucket: 4
+  waveform_lifetime:
+    mode: fused_group
+    release_after: [qwen_omni]
+
 # Stage graph.
 stages:
   - stage_id: reader
-    _target_: nemo_curator.stages.audio.common.ManifestReader
+    _target_: nemo_curator.stages.audio.common.GlobalBucketedManifestReader
     manifest_path: ${input_manifest}
-    files_per_partition: 1
+    enabled: ${global_audio_scheduler.enabled}
+    owner_stage: ${global_audio_scheduler.owner_stage}
+    planning_scope: ${global_audio_scheduler.planning_scope}
+    planning_unit: ${global_audio_scheduler.planning.unit}
+    gpu_unit: ${global_audio_scheduler.planning.gpu_unit}
+    parent_coalescing: ${global_audio_scheduler.planning.parent_coalescing}
+    duration_key: ${duration_key}
+    target_sample_rate: 16000
+    target_nchannels: 1
+    waveform_dtype_bytes: 4
+    chunking_enabled: ${chunking.enabled}
+    ideal_inference_segment_s: ${ideal_inference_segment_s}
+    max_inference_duration_s: ${max_inference_duration_s}
+    buckets_sec: ${duration_aware_bucketing.buckets_sec}
+    max_items_per_batch_by_bucket: ${duration_aware_bucketing.max_items_per_batch_by_bucket}
+    max_audio_sec_per_batch: ${duration_aware_bucketing.max_audio_sec_per_batch}
+    max_waveform_bytes: ${global_audio_scheduler.execution_window.max_waveform_bytes}
+    max_audio_seconds: ${global_audio_scheduler.execution_window.max_audio_seconds}
+    max_parent_rows: ${global_audio_scheduler.execution_window.max_parent_rows}
+    target_ready_batches_per_bucket: ${global_audio_scheduler.execution_window.target_ready_batches_per_bucket}
+    annotate_plan_metadata: true
+    annotate_chunk_plan: false
 
   - stage_id: resample_audio
     _target_: nemo_curator.stages.audio.tagging.resample_audio.ResampleAudioStage

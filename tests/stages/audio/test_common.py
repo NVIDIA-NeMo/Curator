@@ -29,6 +29,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
+    GlobalBucketedManifestReader,
     ManifestReader,
     ManifestReaderStage,
     ManifestWriterStage,
@@ -39,7 +40,7 @@ from nemo_curator.stages.audio.common import (
     resolve_model_path,
     resolve_waveform_from_item,
 )
-from nemo_curator.tasks import AudioTask, FileGroupTask
+from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
 from tests import FIXTURES_DIR
 
 ALM_FIXTURES_DIR = FIXTURES_DIR / "audio" / "alm"
@@ -261,6 +262,99 @@ class TestManifestReaderStage:
         assert all(r.data["audio_filepath"] == "a.wav" for r in result)
         assert all("_shard_total" not in r._metadata for r in result)
         assert all("_shard_key" not in r._metadata for r in result)
+
+
+class TestGlobalBucketedManifestReader:
+    """Unit tests for the metadata-global parent-coalesced manifest planner."""
+
+    @staticmethod
+    def _write_manifest(tmp_path: Path, entries: list[dict]) -> Path:
+        manifest = tmp_path / "input.jsonl"
+        manifest.write_text("\n".join(json.dumps(entry) for entry in entries))
+        return manifest
+
+    def test_disabled_preserves_manifest_order(self, tmp_path: Path) -> None:
+        manifest = self._write_manifest(
+            tmp_path,
+            [
+                {"audio_filepath": "a.wav", "duration": 10.0},
+                {"audio_filepath": "b.wav", "duration": 130.0},
+                {"audio_filepath": "c.wav", "duration": 40.0},
+            ],
+        )
+        stage = GlobalBucketedManifestReader(
+            manifest_path=str(manifest),
+            enabled=False,
+            chunking_enabled=True,
+            ideal_inference_segment_s=60.0,
+            max_inference_duration_s=60.0,
+            buckets_sec=[0.0, 30.0, 60.0],
+            max_items_per_batch_by_bucket=[4, 4, 4],
+        )
+
+        result = stage.process(EmptyTask)
+
+        assert [task.data["audio_filepath"] for task in result] == ["a.wav", "b.wav", "c.wav"]
+        assert all(task._metadata["_curator_global_plan_window_id"] == 0 for task in result)
+        assert "_curator_global_plan_window_id" not in result[0].data
+
+    def test_enabled_uses_full_manifest_virtual_chunk_plan(self, tmp_path: Path) -> None:
+        manifest = self._write_manifest(
+            tmp_path,
+            [
+                {"audio_filepath": "short.wav", "duration": 10.0},
+                {"audio_filepath": "long_a.wav", "duration": 70.0},
+                {"audio_filepath": "long_b.wav", "duration": 130.0},
+                {"audio_filepath": "mid.wav", "duration": 40.0},
+            ],
+        )
+        stage = GlobalBucketedManifestReader(
+            manifest_path=str(manifest),
+            enabled=True,
+            owner_stage="qwen_omni",
+            chunking_enabled=True,
+            ideal_inference_segment_s=60.0,
+            max_inference_duration_s=60.0,
+            buckets_sec=[0.0, 30.0, 60.0],
+            max_items_per_batch_by_bucket=[4, 4, 4],
+            max_parent_rows=2,
+            annotate_chunk_plan=True,
+        )
+
+        result = stage.process(EmptyTask)
+
+        paths = [task.data["audio_filepath"] for task in result]
+        assert paths[:2] == ["long_a.wav", "long_b.wav"]
+        assert paths[2:] == ["mid.wav", "short.wav"]
+        assert [task._metadata["_curator_global_plan_window_id"] for task in result] == [0, 0, 1, 1]
+        assert result[0]._metadata["_curator_global_owner_stage"] == "qwen_omni"
+        assert result[1]._metadata["_curator_global_plan_chunks"] == 3
+        chunk_plan = result[1]._metadata["_curator_global_plan_chunk_boundaries"]
+        assert [chunk["duration_s"] for chunk in chunk_plan] == [60.0, 60.0, 10.0]
+        assert [chunk["bucket_id"] for chunk in chunk_plan] == [2, 2, 0]
+
+    def test_window_limits_accept_byte_strings(self, tmp_path: Path) -> None:
+        manifest = self._write_manifest(
+            tmp_path,
+            [
+                {"audio_filepath": "a.wav", "duration": 60.0},
+                {"audio_filepath": "b.wav", "duration": 60.0},
+            ],
+        )
+        stage = GlobalBucketedManifestReader(
+            manifest_path=str(manifest),
+            enabled=True,
+            chunking_enabled=False,
+            buckets_sec=[0.0, 30.0],
+            max_items_per_batch_by_bucket=[1, 1],
+            max_waveform_bytes="4MiB",
+            target_sample_rate=16000,
+            waveform_dtype_bytes=4,
+        )
+
+        result = stage.process(EmptyTask)
+
+        assert [task._metadata["_curator_global_plan_window_id"] for task in result] == [0, 1]
 
 
 class TestManifestReaderDirectory:
