@@ -187,6 +187,10 @@ def init_cluster(  # noqa: PLR0913
 
     # We set some env vars for Xenna here. This is only used for Xenna clusters.
     os.environ["XENNA_RAY_METRICS_PORT"] = str(ray_metrics_port)
+    # Xenna manages GPU assignment itself. This must be present before the Ray
+    # cluster is started, otherwise Ray workers may mask CUDA_VISIBLE_DEVICES
+    # before Xenna can assign GPUs.
+    os.environ.setdefault("RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES", "1")
 
     # Opt into Ray Serve's HAProxy ingress when both binaries resolve. Ray Serve
     # uses socat to drive HAProxy's admin socket — without it, the controller's

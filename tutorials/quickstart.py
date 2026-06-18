@@ -32,7 +32,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.core.client import RayClient
+from nemo_curator.core.client import SlurmRayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -217,7 +217,7 @@ class SentimentStage(ProcessingStage[SampleTask, SampleTask]):
 def main() -> None:
     """Main function to run the pipeline."""
     # Create pipeline
-    ray_client = RayClient()
+    ray_client = SlurmRayClient()
     ray_client.start()
     pipeline = Pipeline(name="sentiment_analysis", description="Analyze sentiment of sample sentences")
 
