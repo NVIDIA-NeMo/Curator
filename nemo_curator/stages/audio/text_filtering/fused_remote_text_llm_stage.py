@@ -201,7 +201,7 @@ class FusedRemoteTextLLMStage(ProcessingStage["AudioTask", "AudioTask"]):
                 model=model,
                 generation_config=self._gen_configs[sub_name],
             )
-            return sub_name, seq_idx, (resp[0] if resp else "").strip()
+            return sub_name, seq_idx, ((resp[0] if resp else None) or "").strip()   # server can return [None] for empty completions
 
         async def _all() -> list[tuple[str, int, str]]:
             coros = []

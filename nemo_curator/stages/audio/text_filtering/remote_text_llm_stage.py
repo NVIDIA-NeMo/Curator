@@ -185,7 +185,7 @@ class RemoteTextLLMStage(TextLLMStage):
                 model=model,
                 generation_config=self._gen_config,
             )
-            return (resp[0] if resp else "").strip()
+            return ((resp[0] if resp else None) or "").strip()   # server can return [None] for empty completions
 
         async def _all() -> list[str]:
             return await asyncio.gather(*[_one(m) for m in messages_list])

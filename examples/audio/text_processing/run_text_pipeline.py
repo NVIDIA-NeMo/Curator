@@ -717,15 +717,18 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         **remote_kwargs,
     }
 
-    # When --fuse_stages is active, independent stages (LanguageID, TN, Captioning,
-    # CodeSwitching, SpeechQA) are collected here instead of appended directly.
-    # They are later wrapped in one FusedRemoteTextLLMStage actor. Only has effect
-    # with --use_inference_server; falls back to normal behaviour otherwise.
+    # When --fuse_stages is active, the parallel stages (LanguageID reads pnc_text;
+    # Captioning/CodeSwitching/SpeechQA read tn_raw) are collected here and wrapped in
+    # one FusedRemoteTextLLMStage actor. TN runs serially before the fused stage so its
+    # tn_raw output is available to those sub-stages. Only has effect with
+    # --use_inference_server; falls back to normal behaviour otherwise.
     use_fusing = bool(args.fuse_stages and remote_base_url)
     fuseable_sub_stages: list[RemoteTextLLMStage] = []
 
     # ITN reads tn_raw (TN's spoken form) when TN is enabled, else pnc_text.
     itn_input_key = args.tn_output_key if args.enable_tn else args.text_key
+    # Captioning/CodeSwitching/SpeechQA read TN's output (tn_raw) when TN is on, else pnc_text.
+    post_tn_text_key = itn_input_key
 
     stages = [
         ALMManifestReader(manifest_path=args.input_manifest, output_dir=args.output_dir, fanout=False),
@@ -780,10 +783,9 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             validation_mode="tn",
             **shared_model_kwargs,
         )
-        if use_fusing:
-            fuseable_sub_stages.append(_tn_stage)
-        else:
-            stages.append(_tn_stage)
+        # TN runs serially (before the fused stage) so tn_raw is available to the downstream
+        # fused sub-stages (Captioning/CodeSwitching/SpeechQA) and to post-fused ITN.
+        stages.append(_tn_stage)
         logger.info(
             "TN stage enabled: %s → %s (validation=%s, mode=tn)",
             args.text_key,
@@ -847,7 +849,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         _captioning_stage = text_stage_cls(
             name="Captioning",
             prompt_file=captioning_prompt,
-            text_key=args.text_key,
+            text_key=post_tn_text_key,
             output_text_key=args.captioning_output_key,
             enable_validation=False,
             **shared_model_kwargs,
@@ -856,7 +858,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             fuseable_sub_stages.append(_captioning_stage)
         else:
             stages.append(_captioning_stage)
-        logger.info(f"Captioning stage enabled: {args.text_key} → {args.captioning_output_key}")
+        logger.info(f"Captioning stage enabled: {post_tn_text_key} → {args.captioning_output_key}")
 
     if args.enable_context_asr:
         context_asr_text_key = args.context_asr_text_key
@@ -930,7 +932,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         _code_switching_stage = text_stage_cls(
             name="CodeSwitching",
             prompt_file=code_switching_prompt,
-            text_key=args.text_key,
+            text_key=post_tn_text_key,
             output_text_key=args.code_switching_output_key,
             enable_validation=False,
             **shared_model_kwargs,
@@ -939,13 +941,13 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             fuseable_sub_stages.append(_code_switching_stage)
         else:
             stages.append(_code_switching_stage)
-        logger.info(f"CodeSwitching stage enabled: {args.text_key} → {args.code_switching_output_key}")
+        logger.info(f"CodeSwitching stage enabled: {post_tn_text_key} → {args.code_switching_output_key}")
 
     if args.enable_speech_qa:
         _speech_qa_stage = text_stage_cls(
             name="SpeechQA",
             prompt_file=speech_qa_prompt,
-            text_key=args.text_key,
+            text_key=post_tn_text_key,
             output_text_key=args.speech_qa_output_key,
             enable_validation=False,
             **shared_model_kwargs,
@@ -954,7 +956,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             fuseable_sub_stages.append(_speech_qa_stage)
         else:
             stages.append(_speech_qa_stage)
-        logger.info(f"SpeechQA stage enabled: {args.text_key} → {args.speech_qa_output_key}")
+        logger.info(f"SpeechQA stage enabled: {post_tn_text_key} → {args.speech_qa_output_key}")
 
     # Fused stage assembly — one actor fires all collected sub-stage prompts in parallel.
     if use_fusing and fuseable_sub_stages:
