@@ -281,7 +281,7 @@ def _parse_slurm_nodelist(nodelist: str) -> list[str]:
                     nodes.append(f"{prefix}{str(n).zfill(width)}")
             else:
                 nodes.append(f"{prefix}{part}")
-    return nodes if nodes else [nodelist]
+    return nodes or [nodelist]
 
 
 # --------------------------------------------------------------------------- #
@@ -518,6 +518,11 @@ class SlurmRayClient(RayClient):
             cmd.extend(["--num-gpus", str(self.num_gpus)])
         if self.num_cpus is not None:
             cmd.extend(["--num-cpus", str(self.num_cpus)])
+
+        # Xenna manages GPU assignment itself. This must be present before the
+        # Ray worker process starts, otherwise Ray may mask CUDA_VISIBLE_DEVICES
+        # before Xenna can assign GPUs on worker nodes.
+        os.environ.setdefault("RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES", "1")
 
         logger.info(f"Ray worker starting: {' '.join(cmd)}")
         result = subprocess.run(cmd, check=False)  # noqa: S603

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nemo_curator.core import client as core_client
 from nemo_curator.core import utils as core_utils
 
 if TYPE_CHECKING:
@@ -48,6 +49,7 @@ def test_init_cluster_sets_xenna_gpu_env_before_ray_start(monkeypatch: pytest.Mo
         ray_dashboard_port=8265,
         ray_metrics_port=8080,
         ray_client_server_port=10001,
+        ray_dashboard_host="127.0.0.1",
     )
 
     assert popen_calls
@@ -66,6 +68,41 @@ def test_init_cluster_preserves_existing_xenna_gpu_env(monkeypatch: pytest.Monke
         ray_dashboard_port=8265,
         ray_metrics_port=8080,
         ray_client_server_port=10001,
+        ray_dashboard_host="127.0.0.1",
     )
 
     assert core_utils.os.environ["RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES"] == "0"
+
+
+def test_slurm_worker_sets_xenna_gpu_env_before_ray_start(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    run_calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> object:
+        run_calls.append(cmd)
+        assert core_client.os.environ["RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES"] == "1"
+        return type("CompletedProcess", (), {"returncode": 0})()
+
+    monkeypatch.delenv("RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.setattr(core_client, "_find_ray_binary", lambda: "ray")
+    monkeypatch.setattr(core_client.subprocess, "run", fake_run)
+
+    client = core_client.SlurmRayClient(ray_port=6379, ray_temp_dir=str(tmp_path))
+
+    assert client._run_as_worker("10.0.0.1") == 0
+    assert run_calls
+    assert run_calls[0][:4] == ["ray", "start", "--address", "10.0.0.1:6379"]
+
+
+def test_slurm_worker_preserves_existing_xenna_gpu_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES", "0")
+    monkeypatch.setattr(core_client, "_find_ray_binary", lambda: "ray")
+    monkeypatch.setattr(
+        core_client.subprocess,
+        "run",
+        lambda *_args, **_kwargs: type("CompletedProcess", (), {"returncode": 0})(),
+    )
+
+    client = core_client.SlurmRayClient(ray_port=6379, ray_temp_dir=str(tmp_path))
+
+    assert client._run_as_worker("10.0.0.1") == 0
+    assert core_client.os.environ["RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES"] == "0"
