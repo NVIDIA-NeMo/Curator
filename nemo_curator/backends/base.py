@@ -44,43 +44,19 @@ SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_MINIMUM_SHAR
 _TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
 
 
-def _get_int_or_env_var(input_value: int | str | None, default_name: str | None = None) -> int:
-    if type(input_value) is int:
-        return input_value
-
-    if type(input_value) is str:
-        try:
-            return int(input_value)
-        except ValueError:
-            env_var = input_value
-    else:
-        env_var = default_name
-
-    if env_var is None:
-        msg = f"Invalid input value: {input_value}, must be an integer or a string"
-        raise ValueError(msg)
-
-    env_value = os.environ.get(env_var)
-    if env_value is None:
-        msg = f"Environment variable {env_var} is not set"
-        raise ValueError(msg)
-    try:
-        return int(env_value)
-    except ValueError as e:
-        msg = f"Environment variable {env_var} must contain an integer, got {env_value!r}"
-        raise ValueError(msg) from e
-
-
 def _get_int_env_var(env_var: str, fallback_name: str | None = None, default: int | None = None) -> int:
     env_value = os.environ.get(env_var)
     if env_value is None:
         if fallback_name is not None:
-            return _get_int_or_env_var(None, fallback_name)
-        if default is not None:
-            return default
+            env_var = fallback_name
+            env_value = os.environ.get(env_var)
 
-        msg = f"Environment variable {env_var} is not set"
-        raise ValueError(msg)
+        if env_value is None:
+            if default is not None:
+                return default
+
+            msg = f"Environment variable {env_var} is not set"
+            raise ValueError(msg)
 
     try:
         return int(env_value)
@@ -93,17 +69,9 @@ def _get_int_env_var(env_var: str, fallback_name: str | None = None, default: in
 class SlurmArrayConfig:
     """Configuration for assigning source tasks to one Slurm array task."""
 
-    shard_index: int | str | None = None
-    total_shards: int | str | None = None
-    minimum_shard_index: int | str = 0
-
-    def resolve(self) -> "SlurmArrayConfig":
-        """Resolve integer values from explicit integers or environment variables."""
-        return SlurmArrayConfig(
-            shard_index=_get_int_or_env_var(self.shard_index, "SLURM_ARRAY_TASK_ID"),
-            total_shards=_get_int_or_env_var(self.total_shards, "SLURM_ARRAY_TASK_COUNT"),
-            minimum_shard_index=_get_int_or_env_var(self.minimum_shard_index),
-        )
+    shard_index: int
+    total_shards: int
+    minimum_shard_index: int = 0
 
     @classmethod
     def from_env(cls) -> "SlurmArrayConfig | None":
@@ -121,6 +89,18 @@ class SlurmArrayConfig:
 
 def _safe_filename_token(value: object) -> str:
     return "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in str(value))
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+
+    dir_fd = os.open(path, flags)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
 
 
 def _write_failed_task_marker(marker_dir: Path, stage_name: str, task: FailedTask) -> None:
@@ -159,8 +139,11 @@ def _write_failed_task_marker(marker_dir: Path, stage_name: str, task: FailedTas
             tmp_path = Path(tmp.name)
             json.dump(payload, tmp, indent=2, sort_keys=True)
             tmp.write("\n")
+            tmp.flush()
+            os.fsync(tmp.fileno())
 
         os.replace(tmp_path, final_path)
+        _fsync_directory(marker_dir)
     except Exception:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
@@ -336,17 +319,17 @@ class BaseStageAdapter:
         re-derived at each stage boundary so the same object passing through
         N stages gets N ids.
 
-        The input→output mapping decides each output's PARENT; whether the
+        The input -> output mapping decides each output's PARENT; whether the
         stage is a source decides each output's SEGMENT (content id vs index)
         — the two are independent. ``None`` outputs (Curator's "return None to
         filter") are NOT removed before the length check — keeping them in
         place preserves positional alignment for filter stages — and are then
         dropped from the returned list.
 
-        - single input → every output is its child (fan-out): ``parent_<seg>``
-        - ``len(output) == len(input)`` → positional 1:1: each ``parent_i_<seg>``;
+        - single input -> every output is its child (fan-out): ``parent_<seg>``
+        - ``len(output) == len(input)`` -> positional 1:1: each ``parent_i_<seg>``;
           a ``None`` slot just means input ``i`` was filtered.
-        - any other (ambiguous) cardinality across a batch → a random ``uuid``
+        - any other (ambiguous) cardinality across a batch -> a random ``uuid``
           prefixed with ``"r"`` (e.g. ``"r3f9a…"``), so ``task_id`` is never
           empty even when a derived id is not possible. The ``"r"`` prefix flags
           the id as non-deterministic / ancestry-not-tracked (see
@@ -355,7 +338,7 @@ class BaseStageAdapter:
         ``seg`` is the output's content id (``Task.get_deterministic_id()``)
         for a source stage when available, else the positional index — so a
         source partition keeps a stable id across reorderings regardless of
-        whether the source is 1→N or N→N.
+        whether the source is 1->N or N->N.
 
         Note: a stage that BOTH filters and fans out within a single batch
         (returning a flat list rather than a per-input slot) cannot be mapped
