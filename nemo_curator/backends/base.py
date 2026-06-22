@@ -361,7 +361,7 @@ class BaseStageAdapter:
         (returning a flat list rather than a per-input slot) cannot be mapped
         positionally; if its length happens to equal the input length the 1:1
         assumption may misattribute parents. That combination is unsupported
-        unless the stage preserves an unambiguous input→output mapping.
+        unless the stage preserves an unambiguous input -> output mapping.
         """
         is_source = getattr(self.stage, "is_source_stage", False)
 

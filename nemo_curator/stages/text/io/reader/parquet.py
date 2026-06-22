@@ -98,6 +98,7 @@ class ParquetReader(CompositeStage[EmptyTask, DocumentBatch]):
             raise NotImplementedError(msg)
 
         return [
+            # First stage: partition files into groups
             FilePartitioningStage(
                 file_paths=self.file_paths,
                 files_per_partition=self.files_per_partition,

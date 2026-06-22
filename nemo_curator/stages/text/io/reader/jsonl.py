@@ -118,7 +118,9 @@ class JsonlReader(CompositeStage[EmptyTask, DocumentBatch]):
                 files_per_partition=self.files_per_partition,
                 blocksize=self.blocksize,
                 file_extensions=self.file_extensions,
-                storage_options=self.read_kwargs.get("storage_options", None) if self.read_kwargs is not None else None,
+                storage_options=self.read_kwargs.get("storage_options", None)
+                if self.read_kwargs is not None
+                else None,
             ),
             JsonlReaderStage(
                 fields=self.fields,
