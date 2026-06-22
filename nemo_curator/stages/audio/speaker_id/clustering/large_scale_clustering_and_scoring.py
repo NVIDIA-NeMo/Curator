@@ -539,6 +539,10 @@ def cluster_embeddings_large_scale(  # noqa: PLR0913, PLR0915
     BACKOFF = 1.25  # noqa: N806
     current_radius = birch_threshold
     birch_retries = 0
+    # Bound before the loop so they are provably defined afterwards regardless
+    # of how the loop exits (the loop reassigns them every iteration).
+    leaf_centroids: np.ndarray = np.empty((0, normed.shape[1]), dtype=np.float32)
+    n_sub = 0
     for attempt in range(8):
         birch = _build_birch_tree(
             normed,
@@ -577,11 +581,12 @@ def cluster_embeddings_large_scale(  # noqa: PLR0913, PLR0915
         )
         current_radius = new_radius
         birch_retries += 1
-        # Explicitly drop the previous BIRCH tree + its leaf array before
-        # starting a new fit; avoids fragmentation / sklearn Cython state
-        # carry-over that has caused segfaults on repeated refits.
+        # Explicitly drop the previous BIRCH tree (holds the heavy Cython
+        # state that has caused segfaults on repeated refits) before starting
+        # a new fit. Keep `leaf_centroids` bound — it is small and reassigned
+        # at the top of every iteration, so it always holds the latest accepted
+        # centroids after the loop (no unbound-name risk).
         del birch
-        del leaf_centroids
         gc.collect()
     effective_birch_threshold = current_radius
     logger.info(
@@ -592,7 +597,7 @@ def cluster_embeddings_large_scale(  # noqa: PLR0913, PLR0915
     )
 
     # Re-L2-normalise centroids (BIRCH means are *inside* the unit sphere).
-    normed_centroids = _l2_normalize(leaf_centroids)  # noqa: F821
+    normed_centroids = _l2_normalize(leaf_centroids)
 
     # ---- Stage 2: utterance -> leaf assignment.
     logger.info("Stage 2: assigning %d utterances to %d leaves (tile=%d)", n, n_sub, assign_tile)

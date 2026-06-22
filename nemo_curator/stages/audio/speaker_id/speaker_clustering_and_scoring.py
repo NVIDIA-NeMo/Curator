@@ -475,7 +475,14 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
             disable=bar_disable,
         ) as bar:
             for idx, mp in enumerate(manifest_paths, start=1):
-                manifest_entries, _cut_ids, embeddings, mapping = self._load_shard_pair(mp)
+                try:
+                    manifest_entries, _cut_ids, embeddings, mapping = self._load_shard_pair(mp)
+                except FileNotFoundError:
+                    # Consistent with _process_global / _process_grouped: a shard
+                    # whose embedding file is missing is skipped, not fatal.
+                    logger.warning(f"Missing embeddings for {mp}, skipping")
+                    bar.update(1)
+                    continue
                 n = embeddings.shape[0]
                 if n == 0:
                     logger.warning(f"Shard {mp} has 0 embeddings, skipping")
@@ -524,7 +531,13 @@ class SpeakerClusteringStage(ProcessingStage[_EmptyTask, _EmptyTask]):
             dynamic_ncols=True,
             disable=bar_disable,
         ):
-            manifest_entries, _cut_ids, embeddings, mapping = self._load_shard_pair(mp)
+            try:
+                manifest_entries, _cut_ids, embeddings, mapping = self._load_shard_pair(mp)
+            except FileNotFoundError:
+                # Consistent with _process_shard_level / _process_grouped: skip
+                # shards whose embedding file is missing rather than aborting.
+                logger.warning(f"Missing embeddings for {mp}, skipping")
+                continue
             if embeddings.shape[0] == 0:
                 logger.warning(f"Shard {mp} has 0 embeddings, skipping")
                 continue
