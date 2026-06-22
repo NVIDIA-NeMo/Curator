@@ -26,7 +26,7 @@ from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.file_partitioning import FilePartitioningStage, SlurmArrayConfig
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
 
 
@@ -192,7 +192,6 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
         blocksize: Target size per partition (e.g., "100MB"). Ignored if files_per_partition is set.
         file_extensions: File extensions to filter. Defaults to [".jsonl", ".json"].
         storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
-        slurm_array: Slurm array configuration used to process only this array task's assigned partitions.
     """
 
     manifest_path: str | list[str]
@@ -201,7 +200,6 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
     blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
     storage_options: dict[str, Any] | None = None
-    slurm_array: SlurmArrayConfig | None = None
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -217,7 +215,6 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
                 blocksize=self.blocksize,
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
-                slurm_array=self.slurm_array,
             ),
             ManifestReaderStage(),
         ]

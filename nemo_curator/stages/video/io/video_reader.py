@@ -20,7 +20,7 @@ from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.client_partitioning import ClientPartitioningStage
-from nemo_curator.stages.file_partitioning import FilePartitioningStage, SlurmArrayConfig
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import EmptyTask
 from nemo_curator.tasks.file_group import FileGroupTask
 from nemo_curator.tasks.video import Video, VideoTask
@@ -244,13 +244,11 @@ class VideoReader(CompositeStage[EmptyTask, VideoTask]):
         input_video_path: Path to the directory containing video files
         video_limit: Maximum number of videos to process (None for unlimited)
         verbose: Whether to enable verbose logging during download/processing
-        slurm_array: Slurm array configuration used to process only this array task's assigned partitions.
     """
 
     input_video_path: str
     video_limit: int | None = None
     verbose: bool = False
-    slurm_array: SlurmArrayConfig | None = None
 
     def __post_init__(self):
         """Initialize the parent CompositeStage after dataclass initialization."""
@@ -278,9 +276,6 @@ class VideoReader(CompositeStage[EmptyTask, VideoTask]):
             List of processing stages: [FilePartitioningStage, VideoReaderStage]
         """
         if is_remote_url(self.input_video_path):
-            if self.slurm_array is not None:
-                msg = "slurm_array is not supported for ClientPartitioningStage"
-                raise NotImplementedError(msg)
             reader_stage = ClientPartitioningStage(
                 file_paths=self.input_video_path,
                 files_per_partition=1,
@@ -293,7 +288,6 @@ class VideoReader(CompositeStage[EmptyTask, VideoTask]):
                 files_per_partition=1,
                 file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
                 limit=self.video_limit,
-                slurm_array=self.slurm_array,
             )
 
         download_stage = VideoReaderStage(input_path=self.input_video_path, verbose=self.verbose)

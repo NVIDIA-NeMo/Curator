@@ -188,7 +188,7 @@ tail -f logs/slurm_demo_<JOB_ID>.log
 
 ## SLURM job arrays — JSONL or Parquet file sharding
 
-Use `submit_array.sh` when you already have a large directory of text data files and want to split the file set across many independent Slurm jobs. Each array task starts its own Curator pipeline, hashes the input file partitions deterministically, and processes only the partitions assigned to that task.
+Use `submit_array.sh` when you already have a large directory of text data files and want to split the file set across many independent Slurm jobs. Each array task starts its own Curator pipeline; source stages still produce the full deterministic task list, and the backend adapter filters that list to only the tasks assigned to the current Slurm task.
 
 This pattern is useful when the dataset is naturally represented as many JSONL or Parquet files and you want simple horizontal scaling without coordination between jobs.
 
@@ -218,7 +218,7 @@ export OUTPUT_DIR=/shared/output/my-jsonl-dataset
 sbatch --array=0-19 tutorials/slurm/submit_array.sh
 ```
 
-For example, if the input directory contains 2000 files and `FILES_PER_PARTITION=1`, each of the 20 array tasks receives roughly 100 file partitions. Assignment is hash-based rather than contiguous, so work remains stable if Slurm retries a task.
+For example, if the input directory contains 2000 files and `FILES_PER_PARTITION=1`, each of the 20 array tasks receives roughly 100 source tasks. `submit_array.sh` enables adapter-level filtering with `NEMO_CURATOR_SLURM_ARRAY_ENABLED=1` and exports the shard index, total shard count, and minimum shard index. Assignment is hash-based rather than contiguous, so work remains stable if Slurm retries a task.
 
 Single-node array tasks use `RayClient`. If you override the allocation to use more than one node per array task, `submit_array.sh` automatically passes `--slurm` to `array_pipeline.py`, which switches that task to `SlurmRayClient` so the nodes form one Ray cluster:
 
@@ -259,7 +259,7 @@ sbatch --array=2000-2999 tutorials/slurm/submit_array.sh
 sbatch --array=9000-9999 tutorials/slurm/submit_array.sh
 ```
 
-In this mode, keep `MINIMUM_SHARD_INDEX=0` because the Slurm array task IDs are already the global shard IDs. Each partition is assigned by `hash(partition) % TOTAL_SHARDS`, so the full set of windowed submissions covers shards `0` through `9999` exactly once. Some individual tasks may receive no files if `TOTAL_SHARDS` is larger than the number of file partitions.
+In this mode, keep `MINIMUM_SHARD_INDEX=0` because the Slurm array task IDs are already the global shard IDs. Each source task is assigned by `hash(task_id) % TOTAL_SHARDS`, so the full set of windowed submissions covers shards `0` through `9999` exactly once. Some individual tasks may receive no files if `TOTAL_SHARDS` is larger than the number of source tasks.
 
 Some clusters enforce the maximum array index rather than just the number of tasks per submitted array. If `--array=1000-1999` is rejected, use `SHARD_INDEX_OFFSET` instead of higher Slurm task IDs.
 
@@ -275,7 +275,7 @@ SHARD_INDEX_OFFSET=2000 sbatch --array=0-999 tutorials/slurm/submit_array.sh
 SHARD_INDEX_OFFSET=9000 sbatch --array=0-999 tutorials/slurm/submit_array.sh
 ```
 
-Keep `MINIMUM_SHARD_INDEX=0` for this offset mode too. `SHARD_INDEX_OFFSET` changes the logical shard ID passed to the pipeline; `MINIMUM_SHARD_INDEX` changes the assignable shard range used by the partitioning stage.
+Keep `MINIMUM_SHARD_INDEX=0` for this offset mode too. `SHARD_INDEX_OFFSET` changes the logical shard ID exported for adapter-level filtering; `MINIMUM_SHARD_INDEX` changes the assignable shard range used by the source-stage adapter.
 
 ### 5. Retry failed array tasks only
 
@@ -331,7 +331,7 @@ export MINIMUM_SHARD_INDEX="${MINIMUM_SHARD_INDEX_VALUES}"
 sbatch --array="${FAILED_SHARDS}" tutorials/slurm/submit_array.sh
 ```
 
-The `TOTAL_SHARDS` override is important. On a retry array like `--array=3,17,42`, Slurm sets `SLURM_ARRAY_TASK_COUNT=3`, but the data was originally assigned using the full logical shard count. Reusing the original `TOTAL_SHARDS` keeps `hash(partition) % total_shards` identical to the first run.
+The `TOTAL_SHARDS` override is important. On a retry array like `--array=3,17,42`, Slurm sets `SLURM_ARRAY_TASK_COUNT=3`, but the data was originally assigned using the full logical shard count. Reusing the original `TOTAL_SHARDS` keeps `hash(task_id) % total_shards` identical to the first run.
 
 Run this retry collection after the original Slurm array has finished, otherwise still-running tasks will still have pending manifests. Use one `CHECKPOINT_PATH` per logical array run, or move old retry manifests aside after building `FAILED_SHARDS`, so later retries do not include failures that already succeeded. If you override `NEMO_CURATOR_FAILED_TASKS_DIR`, keep it unique per Slurm job or clean it before reuse; stale `FailedTask` markers make an otherwise successful shard look retryable.
 

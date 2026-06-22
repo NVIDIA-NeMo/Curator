@@ -14,7 +14,7 @@
 
 """Slurm array tutorial: split a large file collection across array tasks.
 
-Each Slurm array task processes its own slice of the input files.
+Each Slurm array task processes its own slice of the source tasks emitted by the reader.
 With 2000 JSONL or Parquet files and --array=0-19, each of the 20 jobs gets
 ~100 files.
 
@@ -68,10 +68,15 @@ from pathlib import Path
 
 from loguru import logger
 
-from nemo_curator.backends.base import FAILED_TASKS_DIR_ENV_VAR
+from nemo_curator.backends.base import (
+    FAILED_TASKS_DIR_ENV_VAR,
+    SLURM_ARRAY_ENABLED_ENV_VAR,
+    SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR,
+    SLURM_ARRAY_SHARD_INDEX_ENV_VAR,
+    SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR,
+)
 from nemo_curator.core.client import RayClient, SlurmRayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.file_partitioning import SlurmArrayConfig
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
@@ -108,6 +113,18 @@ def _resolve_int_or_env_name(value: int | str, label: str) -> int:
     except ValueError as e:
         msg = f"{label} references environment variable {value}, which must contain an integer, got {env_value!r}"
         raise ValueError(msg) from e
+
+
+def configure_slurm_array_source_filtering(
+    shard_index: int,
+    total_shards: int,
+    minimum_shard_index: int,
+) -> None:
+    """Enable adapter-level source-task filtering for this Slurm array task."""
+    os.environ[SLURM_ARRAY_ENABLED_ENV_VAR] = "1"
+    os.environ[SLURM_ARRAY_SHARD_INDEX_ENV_VAR] = str(shard_index)
+    os.environ[SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR] = str(total_shards)
+    os.environ[SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR] = str(minimum_shard_index)
 
 
 def _is_driver_process(use_slurm: bool) -> bool:
@@ -263,15 +280,12 @@ def remove_retry_manifests(
             manifest_file.unlink()
 
 
-def build_pipeline(  # noqa: PLR0913
+def build_pipeline(
     input_dir: str,
     input_file_type: str,
     output_dir: str,
     output_file_type: str,
     files_per_partition: int,
-    shard_index: int | None,
-    total_shards: int | None,
-    minimum_shard_index: int,
 ) -> Pipeline:
     pipeline = Pipeline(
         name="slurm_array_demo",
@@ -280,21 +294,11 @@ def build_pipeline(  # noqa: PLR0913
         ),
     )
 
-    # submit_array.sh maps Slurm array env vars into explicit shard arguments.
-    # Direct users may also pass env var names; those are resolved before the
-    # pipeline is built so retry manifests record concrete shard values.
-    slurm_array = SlurmArrayConfig(
-        shard_index=shard_index,
-        total_shards=total_shards,
-        minimum_shard_index=minimum_shard_index,
-    )
-
     if input_file_type == "jsonl":
         pipeline.add_stage(
             JsonlReader(
                 file_paths=input_dir,
                 files_per_partition=files_per_partition,
-                slurm_array=slurm_array,
             )
         )
     elif input_file_type == "parquet":
@@ -302,7 +306,6 @@ def build_pipeline(  # noqa: PLR0913
             ParquetReader(
                 file_paths=input_dir,
                 files_per_partition=files_per_partition,
-                slurm_array=slurm_array,
             )
         )
     else:
@@ -384,6 +387,11 @@ def main() -> None:  # noqa: PLR0915
     shard_index = _resolve_int_or_env_name(args.shard_index, "shard_index")
     total_shards = _resolve_int_or_env_name(args.total_shards, "total_shards")
     minimum_shard_index = _resolve_int_or_env_name(args.minimum_shard_index, "minimum_shard_index")
+    configure_slurm_array_source_filtering(
+        shard_index=shard_index,
+        total_shards=total_shards,
+        minimum_shard_index=minimum_shard_index,
+    )
 
     ray_client = SlurmRayClient() if args.slurm else RayClient()
     retry_manifest_file = None
@@ -409,9 +417,6 @@ def main() -> None:  # noqa: PLR0915
             args.output_dir,
             args.output_file_type,
             args.files_per_partition,
-            shard_index=shard_index,
-            total_shards=total_shards,
-            minimum_shard_index=minimum_shard_index,
         )
         logger.info(f"\n{pipeline.describe()}")
 

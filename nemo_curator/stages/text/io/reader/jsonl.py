@@ -19,7 +19,7 @@ import pandas as pd
 from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage
-from nemo_curator.stages.file_partitioning import FilePartitioningStage, SlurmArrayConfig
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import DocumentBatch, EmptyTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, pandas_select_columns
 
@@ -94,7 +94,6 @@ class JsonlReader(CompositeStage[EmptyTask, DocumentBatch]):
     blocksize: int | str | None = None
     fields: list[str] | None = None  # If specified, only read these columns
     read_kwargs: dict[str, Any] | None = None
-    slurm_array: SlurmArrayConfig | None = None
     task_type: Literal["document", "image", "video", "audio"] = "document"
     file_extensions: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["jsonl"])
     _generate_ids: bool = False
@@ -119,10 +118,7 @@ class JsonlReader(CompositeStage[EmptyTask, DocumentBatch]):
                 files_per_partition=self.files_per_partition,
                 blocksize=self.blocksize,
                 file_extensions=self.file_extensions,
-                storage_options=self.read_kwargs.get("storage_options", None)
-                if self.read_kwargs is not None
-                else None,
-                slurm_array=self.slurm_array,
+                storage_options=self.read_kwargs.get("storage_options", None) if self.read_kwargs is not None else None,
             ),
             JsonlReaderStage(
                 fields=self.fields,

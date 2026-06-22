@@ -8,9 +8,9 @@
 # Example: 2000 input files, --array=0-19 -> 20 jobs x ~100 files each.
 #
 # How it works:
-#   - FilePartitioningStage groups all files into partitions of files_per_partition.
+#   - FilePartitioningStage groups all files into source tasks.
 #   - Each array task reads SLURM_ARRAY_TASK_ID / SLURM_ARRAY_TASK_COUNT and
-#     selects only the partitions assigned to it via deterministic SHA-256 hashing.
+#     selects only the source tasks assigned to it via deterministic SHA-256 hashing.
 #   - Jobs run in parallel with no coordination between them.
 #
 # Prerequisites:
@@ -100,6 +100,13 @@ TOTAL_SHARDS="${TOTAL_SHARDS:-${SLURM_ARRAY_TASK_COUNT}}"
 # Leave at 0 for --array=0-N. Set to the array start value for --array=K-N.
 MINIMUM_SHARD_INDEX="${MINIMUM_SHARD_INDEX:-0}"
 
+# Backend adapter source-task filtering is controlled by environment rather
+# than reader-stage constructor arguments.
+NEMO_CURATOR_SLURM_ARRAY_ENABLED=1
+NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX="${SHARD_INDEX}"
+NEMO_CURATOR_SLURM_ARRAY_TOTAL_SHARDS="${TOTAL_SHARDS}"
+NEMO_CURATOR_SLURM_ARRAY_MINIMUM_SHARD_INDEX="${MINIMUM_SHARD_INDEX}"
+
 # BaseStageAdapter writes one marker JSON per FailedTask when this env var is
 # set. Keep one directory per Slurm array job/task so retries can inspect just
 # the FailedTasks from that job, while multi-node workers for that same job
@@ -130,6 +137,10 @@ export SHARD_INDEX_OFFSET
 export SHARD_INDEX
 export TOTAL_SHARDS
 export MINIMUM_SHARD_INDEX
+export NEMO_CURATOR_SLURM_ARRAY_ENABLED
+export NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX
+export NEMO_CURATOR_SLURM_ARRAY_TOTAL_SHARDS
+export NEMO_CURATOR_SLURM_ARRAY_MINIMUM_SHARD_INDEX
 export USE_SLURM_RAY
 
 echo "=================================================="
@@ -151,7 +162,7 @@ echo "  Checkpoint path: ${CHECKPOINT_PATH}"
 echo "  FailedTask dir : ${NEMO_CURATOR_FAILED_TASKS_DIR}"
 echo "=================================================="
 
-# Each array task processes only the file partitions hashed to its
+# Each array task processes only the deterministic source tasks hashed to its
 # SLURM_ARRAY_TASK_ID. With --nodes=1, the task uses a local RayClient. With
 # --nodes>1, the same Python entrypoint runs on every node and --slurm enables
 # SlurmRayClient so workers join the head-node Ray cluster.

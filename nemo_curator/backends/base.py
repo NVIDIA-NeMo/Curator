@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import datetime
+import hashlib
 import json
 import os
 import socket
@@ -35,6 +36,87 @@ if TYPE_CHECKING:
 
 
 FAILED_TASKS_DIR_ENV_VAR = "NEMO_CURATOR_FAILED_TASKS_DIR"
+SLURM_ARRAY_ENABLED_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_ENABLED"
+SLURM_ARRAY_SHARD_INDEX_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX"
+SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_TOTAL_SHARDS"
+SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_MINIMUM_SHARD_INDEX"
+
+_TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def _get_int_or_env_var(input_value: int | str | None, default_name: str | None = None) -> int:
+    if type(input_value) is int:
+        return input_value
+
+    if type(input_value) is str:
+        try:
+            return int(input_value)
+        except ValueError:
+            env_var = input_value
+    else:
+        env_var = default_name
+
+    if env_var is None:
+        msg = f"Invalid input value: {input_value}, must be an integer or a string"
+        raise ValueError(msg)
+
+    env_value = os.environ.get(env_var)
+    if env_value is None:
+        msg = f"Environment variable {env_var} is not set"
+        raise ValueError(msg)
+    try:
+        return int(env_value)
+    except ValueError as e:
+        msg = f"Environment variable {env_var} must contain an integer, got {env_value!r}"
+        raise ValueError(msg) from e
+
+
+def _get_int_env_var(env_var: str, fallback_name: str | None = None, default: int | None = None) -> int:
+    env_value = os.environ.get(env_var)
+    if env_value is None:
+        if fallback_name is not None:
+            return _get_int_or_env_var(None, fallback_name)
+        if default is not None:
+            return default
+
+        msg = f"Environment variable {env_var} is not set"
+        raise ValueError(msg)
+
+    try:
+        return int(env_value)
+    except ValueError as e:
+        msg = f"Environment variable {env_var} must contain an integer, got {env_value!r}"
+        raise ValueError(msg) from e
+
+
+@dataclass
+class SlurmArrayConfig:
+    """Configuration for assigning source tasks to one Slurm array task."""
+
+    shard_index: int | str | None = None
+    total_shards: int | str | None = None
+    minimum_shard_index: int | str = 0
+
+    def resolve(self) -> "SlurmArrayConfig":
+        """Resolve integer values from explicit integers or environment variables."""
+        return SlurmArrayConfig(
+            shard_index=_get_int_or_env_var(self.shard_index, "SLURM_ARRAY_TASK_ID"),
+            total_shards=_get_int_or_env_var(self.total_shards, "SLURM_ARRAY_TASK_COUNT"),
+            minimum_shard_index=_get_int_or_env_var(self.minimum_shard_index),
+        )
+
+    @classmethod
+    def from_env(cls) -> "SlurmArrayConfig | None":
+        """Return Slurm array config when source-task filtering is enabled."""
+        enabled = os.environ.get(SLURM_ARRAY_ENABLED_ENV_VAR, "")
+        if enabled.strip().lower() not in _TRUE_ENV_VALUES:
+            return None
+
+        return cls(
+            shard_index=_get_int_env_var(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, "SLURM_ARRAY_TASK_ID"),
+            total_shards=_get_int_env_var(SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR, "SLURM_ARRAY_TASK_COUNT"),
+            minimum_shard_index=_get_int_env_var(SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR, default=0),
+        )
 
 
 def _safe_filename_token(value: object) -> str:
@@ -159,6 +241,8 @@ class BaseStageAdapter:
         # Sentinels never propagate to the next stage.
         results = [r for r in results if not isinstance(r, (NoneTask, FailedTask))]
 
+        results = self._filter_slurm_array_source_tasks(results)
+
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
         # Consume and attach any custom metrics recorded by the stage during this call
@@ -181,6 +265,66 @@ class BaseStageAdapter:
                 _write_failed_task_marker(marker_path, self.stage.name, task)
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"Failed to write FailedTask marker to {marker_path}: {e}")
+
+    def _filter_slurm_array_source_tasks(self, tasks: list[Task]) -> list[Task]:
+        """Keep only source tasks assigned to this Slurm array shard."""
+        slurm_array = self._resolve_slurm_array_config()
+        if slurm_array is None:
+            return tasks
+
+        nondeterministic_task_ids = [task.task_id for task in tasks if task.task_id.startswith("r")]
+        if nondeterministic_task_ids:
+            msg = (
+                "Slurm array source filtering requires deterministic task IDs, but stage "
+                f"{self.stage.name} emitted ambiguous source task IDs: {nondeterministic_task_ids[:5]}"
+            )
+            raise ValueError(msg)
+
+        assigned_tasks = [
+            task
+            for task in tasks
+            if self._slurm_array_shard_for_task(task, slurm_array) == slurm_array.shard_index
+        ]
+
+        msg = (
+            f"Slurm array shard {slurm_array.shard_index}/{slurm_array.total_shards}: "
+            f"assigned {len(assigned_tasks)} of {len(tasks)} source tasks for stage {self.stage.name}"
+        )
+        if len(assigned_tasks) == 0 and len(tasks) > 0:
+            logger.warning(msg)
+        else:
+            logger.info(msg)
+
+        return assigned_tasks
+
+    def _resolve_slurm_array_config(self) -> SlurmArrayConfig | None:
+        if not getattr(self.stage, "is_source_stage", False):
+            return None
+
+        if not hasattr(self, "_resolved_slurm_array"):
+            resolved = SlurmArrayConfig.from_env()
+            if resolved is not None:
+                if resolved.total_shards <= 0:
+                    msg = f"total_shards must be greater than 0, got {resolved.total_shards}"
+                    raise ValueError(msg)
+
+                min_assignable_shard_index = resolved.minimum_shard_index
+                max_assignable_shard_index = resolved.minimum_shard_index + resolved.total_shards - 1
+                if not min_assignable_shard_index <= resolved.shard_index <= max_assignable_shard_index:
+                    logger.warning(
+                        "shard_index={} is outside the assignable shard range [{}, {}]. "
+                        "This task will not receive any source tasks.",
+                        resolved.shard_index,
+                        min_assignable_shard_index,
+                        max_assignable_shard_index,
+                    )
+            self._resolved_slurm_array = resolved
+
+        return self._resolved_slurm_array
+
+    def _slurm_array_shard_for_task(self, task: Task, slurm_array: SlurmArrayConfig) -> int:
+        digest = hashlib.sha256(task.task_id.encode("utf-8")).hexdigest()
+        return int(digest[:16], 16) % slurm_array.total_shards + slurm_array.minimum_shard_index
 
     def _post_process_task_ids(self, input_tasks: list[Task], output_tasks: list[Task | None]) -> list[Task]:
         """Assign a deterministic ``task_id`` to every emitted task.

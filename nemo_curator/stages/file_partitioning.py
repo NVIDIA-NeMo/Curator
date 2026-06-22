@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import hashlib
-import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,43 +27,6 @@ from nemo_curator.utils.file_utils import (
     infer_dataset_name_from_path,
     parse_bytes_string_to_int,
 )
-
-
-def _get_int_or_env_var(input_value: int | str | None, default_name: str | None = None) -> int:
-    if type(input_value) is int:
-        return input_value
-
-    env_var = input_value if type(input_value) is str else default_name
-    if env_var is None:
-        msg = f"Invalid input value: {input_value}, must be an integer or a string"
-        raise ValueError(msg)
-
-    env_value = os.environ.get(env_var)
-    if env_value is None:
-        msg = f"Environment variable {env_var} is not set"
-        raise ValueError(msg)
-    try:
-        return int(env_value)
-    except ValueError as e:
-        msg = f"Environment variable {env_var} must contain an integer, got {env_value!r}"
-        raise ValueError(msg) from e
-
-
-@dataclass
-class SlurmArrayConfig:
-    """Configuration for assigning file partitions to one Slurm array task."""
-
-    shard_index: int | str | None = None
-    total_shards: int | str | None = None
-    minimum_shard_index: int | str = 0
-
-    def resolve(self) -> "SlurmArrayConfig":
-        """Resolve integer values from explicit integers or environment variables."""
-        return SlurmArrayConfig(
-            shard_index=_get_int_or_env_var(self.shard_index, "SLURM_ARRAY_TASK_ID"),
-            total_shards=_get_int_or_env_var(self.total_shards, "SLURM_ARRAY_TASK_COUNT"),
-            minimum_shard_index=_get_int_or_env_var(self.minimum_shard_index),
-        )
 
 
 @dataclass
@@ -94,9 +55,6 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
         Storage options to pass to the file system.
     limit: int | None = None
         Maximum number of partitions to create.
-    slurm_array: SlurmArrayConfig | None = None
-        Slurm array configuration. If provided, this stage processes only the
-        partitions assigned to the configured array task.
     """
 
     file_paths: str | list[str]
@@ -105,7 +63,6 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     file_extensions: list[str] | None = None
     storage_options: dict[str, Any] | None = None
     limit: int | None = None
-    slurm_array: SlurmArrayConfig | None = None
     name: str = "file_partitioning"
 
     def __post_init__(self):
@@ -134,23 +91,6 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
 
         self.resources = Resources(cpus=0.5)
 
-        if self.slurm_array is not None:
-            self.slurm_array = self.slurm_array.resolve()
-            if self.slurm_array.total_shards <= 0:
-                msg = f"total_shards must be greater than 0, got {self.slurm_array.total_shards}"
-                raise ValueError(msg)
-            min_assignable_shard_index = self.slurm_array.minimum_shard_index
-            max_assignable_shard_index = self.slurm_array.minimum_shard_index + self.slurm_array.total_shards - 1
-            if not min_assignable_shard_index <= self.slurm_array.shard_index <= max_assignable_shard_index:
-                logger.warning(
-                    "shard_index={} is outside the assignable shard range [{}, {}]. "
-                    "This task will not receive any partitions.",
-                    self.slurm_array.shard_index,
-                    min_assignable_shard_index,
-                    max_assignable_shard_index,
-                )
-            self.name = "array_file_partitioning"
-
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
@@ -166,7 +106,7 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers_per_node": 1}
 
-    def _process(self, _: EmptyTask) -> list[FileGroupTask]:
+    def process(self, _: EmptyTask) -> list[FileGroupTask]:
         """Process the initial task to create file group tasks.
 
         This stage expects a simple Task with file paths information
@@ -248,41 +188,6 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
 
         logger.info(f"Created {len(tasks)} file groups from {len(files)} files")
         return tasks
-
-    def _process_array(self, task: EmptyTask) -> list[FileGroupTask]:
-        if self.slurm_array is None:
-            return self._process(task)
-
-        all_tasks = self._process(task)
-        assigned_tasks = []
-
-        for ft in all_tasks:
-            source_files = list(ft._metadata.get("source_files") or ft.data)
-            # Hash the source files to get a unique identifier for the partition
-            digest = hashlib.sha256("|".join(sorted(source_files)).encode("utf-8")).hexdigest()
-            # Assign the partition to the shard
-            assigned = int(digest[:16], 16) % self.slurm_array.total_shards
-            # Add the minimum shard index to the assigned shard index
-            assigned += self.slurm_array.minimum_shard_index
-            # Add the partition to the assigned tasks
-            if assigned == self.slurm_array.shard_index:
-                assigned_tasks.append(ft)
-
-        msg = (
-            f"Shard {self.slurm_array.shard_index}/{self.slurm_array.total_shards}: "
-            f"assigned {len(assigned_tasks)} of {len(all_tasks)} partitions"
-        )
-        if len(assigned_tasks) == 0 and len(all_tasks) > 0:
-            logger.warning(msg)
-        else:
-            logger.info(msg)
-        return assigned_tasks
-
-    def process(self, task: EmptyTask) -> list[FileGroupTask]:
-        if self.slurm_array is not None:
-            return self._process_array(task)
-        else:
-            return self._process(task)
 
     def _get_file_list_with_sizes(self, sort_by_size: bool = True) -> list[tuple[str, int]]:
         """
