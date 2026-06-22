@@ -82,8 +82,14 @@ class XennaExecutor(BaseExecutor):
                 msg = f"Stage {stage.name} sets num_workers in xenna_stage_spec(). Use num_workers() instead."
                 raise ValueError(msg)
 
+            num_workers = stage.num_workers()
             num_workers_per_node = stage_config.get("num_workers_per_node")
-            num_workers = None if "num_workers_per_node" in stage_config else stage.num_workers()
+            if num_workers is not None and num_workers_per_node is not None:
+                msg = (
+                    f"Stage {stage.name} sets both num_workers() and "
+                    "xenna_stage_spec()['num_workers_per_node']. Use only one worker sizing option."
+                )
+                raise ValueError(msg)
 
             # Create Xenna stage adapter with the original stage's name
             xenna_stage = create_named_xenna_stage_adapter(

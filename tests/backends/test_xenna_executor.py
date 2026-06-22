@@ -55,13 +55,22 @@ def test_xenna_executor_uses_stage_num_workers_when_xenna_spec_has_no_worker_siz
     assert captured["ignore_failures"] is True
 
 
-def test_xenna_executor_keeps_xenna_worker_sizing_authoritative(monkeypatch: pytest.MonkeyPatch) -> None:
-    stage = ConfigurableStage(num_workers=3, xenna_stage_spec={"num_workers_per_node": 0.5})
+def test_xenna_executor_accepts_num_workers_per_node_when_stage_num_workers_is_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stage = ConfigurableStage(xenna_stage_spec={"num_workers_per_node": 0.5})
 
     captured = _execute_and_capture_stage_spec(monkeypatch, stage)
 
     assert captured["num_workers"] is None
     assert captured["num_workers_per_node"] == 0.5
+
+
+def test_xenna_executor_rejects_num_workers_with_num_workers_per_node(monkeypatch: pytest.MonkeyPatch) -> None:
+    stage = ConfigurableStage(num_workers=3, xenna_stage_spec={"num_workers_per_node": 0.5})
+
+    with pytest.raises(ValueError, match=r"num_workers\(\).*num_workers_per_node"):
+        _execute_and_capture_stage_spec(monkeypatch, stage)
 
 
 def test_xenna_executor_rejects_num_workers_in_xenna_stage_spec(monkeypatch: pytest.MonkeyPatch) -> None:
