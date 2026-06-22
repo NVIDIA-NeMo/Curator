@@ -27,7 +27,7 @@ The relevant attributes for this tutorial are as follows:
 
 - `input`: the prompt(s) to the model in the multi-turn chat completions message format. It always contains a message with the role `user`, followed by zero or more turns.
 - `output`: the expected response from the model (ground truth).
-- `reasoning`: whether the sample is for reasoning "on" mode or not
+- `reasoning`: whether the sample is for reasoning "on" mode or not.
     - If the value is "on", then the output contains a detailed CoT trace encoded inside think HTML tags followed by the output.
     - If the value is "off", then the output doesn't contain any reasoning traces and contains a direct response.
 - `system_prompt`: the (suggested) system prompt to control the reasoning mode of the system. For Llama Nemotron training, the system prompt is always either "detailed thinking on" or "detailed thinking off". This field is tied to the value in the `reasoning` field.
@@ -39,8 +39,8 @@ This tutorial demonstrates how a user can process a subset of the Llama Nemotron
 
 Setup requirements:
 
-- Hardware: This tutorial can be run entirely on CPU workers
-- Recommended environment: This tutorial was developed and tested with a Conda environment
+- Hardware: This tutorial can be run entirely on CPU workers. At least 12.5 CPUs are needed to run the pipeline; since `--num-cpus` must be a whole number, `--num-cpus 13` is the minimum requirement.
+- Recommended environment: This tutorial was developed and tested with a Conda environment.
 
 Refer to the NeMo Curator [documentation](https://docs.nvidia.com/nemo/curator/latest/) for instructions on how to download NeMo Curator through PyPI, source, or Docker.
 
@@ -139,7 +139,7 @@ After filtering, it sorts all samples by completion (output response) length, th
 ## System Requirements
 
 - **Memory**: This tutorial can be CPU-only but is memory-intensive. For smaller memory systems, use `--filename-filter` to select a subset of the data.
-- **CPU allocation**: The `--num-cpus` parameter controls parallelism. Each CPU worker processes data in parallel, so more CPUs means more memory usage. Start with a conservative value and increase gradually.
+- **CPU allocation**: The `--num-cpus` parameter controls parallelism. Each CPU worker processes data in parallel, so more CPUs means more memory usage. Start with a conservative value and increase gradually to improve performance. At least 12.5 CPUs are needed to run the pipeline; since `--num-cpus` must be a whole number, `--num-cpus 13` is the minimum requirement.
 
 ## Debugging Out-of-Memory Errors
 

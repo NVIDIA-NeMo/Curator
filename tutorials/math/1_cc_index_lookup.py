@@ -121,7 +121,6 @@ class CCIndexLookupStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         logger.debug(f"Processed {len(task.data)} files: {total_input:,} -> {total_matched:,} rows")
 
         return FileGroupTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=output_files,
             _metadata={

@@ -120,7 +120,6 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             df[self.column_name] = df["text"].apply(len)
             results.append(
                 DocumentBatch(
-                    task_id=input_data.task_id,
                     dataset_name=input_data.dataset_name,
                     data=df,
                     _metadata=input_data._metadata,
@@ -180,7 +179,6 @@ class SplitIntoRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             row_df = pd.DataFrame([row.to_dict()])
             tasks.append(
                 DocumentBatch(
-                    task_id=f"{input_data.task_id}_row_{row['id']}",
                     dataset_name=input_data.dataset_name,
                     data=row_df,
                     _metadata=input_metadata_without_source_files,
@@ -232,7 +230,6 @@ class StageWithSetup(ProcessingStage[DocumentBatch, DocumentBatch]):
         df["node_id"] = self.node_id
         df["random_string"] = self.random_str
         return DocumentBatch(
-            task_id=input_data.task_id,
             dataset_name=input_data.dataset_name,
             data=df,
             _metadata=input_data._metadata,

@@ -158,7 +158,11 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             metrics["tokenization_time"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        vllm_output = self.model.embed(input_data, truncate_prompt_tokens=-1, use_tqdm=self.verbose)
+        vllm_output = self.model.embed(
+            input_data,
+            tokenization_kwargs={"truncate_prompt_tokens": -1},
+            use_tqdm=self.verbose,
+        )
         metrics["vllm_embedding_time"] = time.perf_counter() - t0
 
         df[self.embedding_field] = [e.outputs.embedding for e in vllm_output]
@@ -166,7 +170,6 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self._log_metrics(metrics)
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,

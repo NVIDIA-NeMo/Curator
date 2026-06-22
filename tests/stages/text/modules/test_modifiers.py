@@ -31,7 +31,7 @@ from nemo_curator.tasks import DocumentBatch
 
 def list_to_doc_batch(documents: list[str], col_name: str = "text") -> DocumentBatch:
     df = pd.DataFrame({col_name: documents})
-    return DocumentBatch(data=df, task_id="test_id", dataset_name="test_ds")
+    return DocumentBatch(data=df, dataset_name="test_ds")
 
 
 def run_modify(modifier: DocumentModifier, doc_batch: DocumentBatch) -> DocumentBatch:
@@ -564,7 +564,7 @@ class TestModifyIOAndMultiInput:
             return f"{a}-{b}"
 
         df = pd.DataFrame({"a": ["x", "hello"], "b": ["y", "world"]})
-        batch = DocumentBatch(task_id="t", dataset_name="ds", data=df)
+        batch = DocumentBatch(dataset_name="ds", data=df)
 
         m = Modify(join, input_fields=[["a", "b"]], output_fields="joined")
         m.setup()
@@ -591,7 +591,7 @@ class TestModifyIOAndMultiInput:
             return a + b
 
         df = pd.DataFrame({"a": [" a ", "b "], "b": ["x", "y"]})
-        batch = DocumentBatch(task_id="t", dataset_name="ds", data=df)
+        batch = DocumentBatch(dataset_name="ds", data=df)
 
         m = Modify(
             [strip_a, concat],

@@ -26,7 +26,7 @@ from loguru import logger
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.file_utils import check_disallowed_kwargs
 
 from .pairwise_io import ClusterWiseFilePartitioningStage
@@ -158,7 +158,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         if not dfs:
             logger.warning(f"No data found for cluster {cluster_id}")
             return FileGroupTask(
-                task_id=task.task_id,
                 dataset_name=task.dataset_name,
                 _metadata=task._metadata,
                 _stage_perf=task._stage_perf,
@@ -180,7 +179,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 result_df, output_path, storage_options=self.output_storage_options, index=False, **self.write_kwargs
             )
             return FileGroupTask(
-                task_id=task.task_id,
                 dataset_name=task.dataset_name,
                 _metadata={
                     **task._metadata,
@@ -245,7 +243,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
             )
 
         return FileGroupTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             _metadata={**task._metadata, "centroid_id": cluster_id},
             _stage_perf=task._stage_perf,
@@ -254,7 +251,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
 
 
 @dataclass
-class PairwiseStage(CompositeStage[_EmptyTask, FileGroupTask]):
+class PairwiseStage(CompositeStage[EmptyTask, FileGroupTask]):
     """Pairwise similarity stage for semantic deduplication."""
 
     # Required parameters

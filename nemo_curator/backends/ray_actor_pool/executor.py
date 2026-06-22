@@ -104,7 +104,7 @@ class RayActorPoolExecutor(BaseExecutor):
                 f"Setup on node complete for all stages. Starting Ray Actor Pool pipeline with {len(stages)} stages"
             )
             # Initialize with initial tasks
-            current_tasks = initial_tasks or [EmptyTask]
+            current_tasks = initial_tasks or [EmptyTask()]
             # Process through each stage with ActorPool
             for i, stage in enumerate(stages):
                 logger.info(f"\nProcessing stage {i + 1}/{len(stages)}: {stage}")
@@ -371,7 +371,7 @@ class RayActorPoolExecutor(BaseExecutor):
             try:
                 ray.get(actor.teardown.remote())
                 ray.kill(actor)
-            except (ray.exceptions.RayActorError, ray.exceptions.RaySystemError) as e:  # noqa: PERF203
+            except (ray.exceptions.RayActorError, ray.exceptions.RaySystemError) as e:
                 logger.warning(f"      Warning: Error cleaning up actor {i}: {e}")
 
     def _cleanup_actor_pool(self, actor_pool: ActorPool) -> None:

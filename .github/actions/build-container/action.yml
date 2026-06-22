@@ -15,22 +15,12 @@
 name: Build container
 
 inputs:
-  azure-client-id:
-    description: "Azure Client ID"
-    required: true
-  azure-tenant-id:
-    description: "Azure Tenant ID"
-    required: true
-  azure-subscription-id:
-    description: "Azure Subscription ID"
+  container-registry:
+    description: "Container registry to push/pull images"
     required: true
   dockerfile-path:
     description: "Path to dockerfile to build"
     required: true
-  has-azure-credentials:
-    description: "Has Azure credentials"
-    required: false
-    default: "false"
   PAT:
     description: "GitHub Personal Access Token"
     required: true
@@ -38,9 +28,6 @@ inputs:
     description: "The name of the repo to build container"
     required: true
     type: string
-
-env:
-  container-registry: nemoci.azurecr.io
 
 runs:
   using: "composite"
@@ -51,45 +38,30 @@ runs:
     - name: Setup python
       uses: actions/setup-python@v5
       with:
-        python-version: 3.12
+        python-version: 3.13
 
     - name: Get PR info
       id: get-pr-info
       if: startsWith(github.ref, 'refs/heads/pull-request/')
       uses: nv-gha-runners/get-pr-info@main
 
-    - name: Install Azure CLI
-      shell: bash
-      run: |
-        echo "::group::Install Azure CLI"
-        # Create systemd override for proper dependencies
-        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-        echo "::endgroup::"
-
-    - name: Azure Login
-      uses: azure/login@v2
-      with:
-        client-id: ${{ inputs.azure-client-id }}
-        tenant-id: ${{ inputs.azure-tenant-id }}
-        subscription-id: ${{ inputs.azure-subscription-id }}
-
-    - name: Azure ACR Login
-      shell: bash
-      run: |
-        az acr login --name nemoci
-
     - name: Install GH CLI
       shell: bash
       run: |
-        apt-get update
-        apt-get install -y gh
+        for i in 1 2 3; do
+          apt-get update && apt-get install -y gh && break
+          echo "Attempt $i failed, retrying in 10s..."
+          sleep 10
+        done
 
     - name: Normalize repo name to lowercase
       shell: bash
       env:
         REPO: ${{ inputs.repo-name }}
+        REGISTRY: ${{ inputs.container-registry }}
       run: |
         echo "REPO_LOWER=${REPO,,}" >> "$GITHUB_ENV"
+        echo "container-registry=${REGISTRY}" >> "$GITHUB_ENV"
 
     - name: Get last merged PR
       shell: bash

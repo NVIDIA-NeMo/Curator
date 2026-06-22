@@ -456,7 +456,7 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
         splits = split_table_by_group_max_bytes(table, "sample_id", self.max_batch_bytes)
         batches: list[InterleavedBatch] = []
         for idx, split in enumerate(splits):
-            task_id = f"{task.task_id}_processed" if len(splits) == 1 else f"{task.task_id}_processed_{idx:05d}"
+            f"{task.task_id}_processed" if len(splits) == 1 else f"{task.task_id}_processed_{idx:05d}"
             metadata = dict(task._metadata)
             if len(splits) == 1:
                 metadata["source_files"] = list(task.data)
@@ -466,7 +466,6 @@ class InterleavedWebdatasetReaderStage(BaseInterleavedReader):
                 metadata["source_storage_options"] = self._storage_options
             batches.append(
                 InterleavedBatch(
-                    task_id=task_id,
                     dataset_name=task.dataset_name,
                     data=split,
                     _metadata=metadata,

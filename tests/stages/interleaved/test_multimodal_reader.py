@@ -144,7 +144,7 @@ def test_reader_supports_custom_field_mapping(tmp_path: Path) -> None:
         image_name="custom-image.jpg",
         image_bytes=image_bytes,
     )
-    task = task_for_tar(str(tar_path), "file_group_custom")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="doc_id",
         texts_field="captions",
@@ -180,7 +180,7 @@ def test_reader_reads_all_fields_by_default(tmp_path: Path) -> None:
         "aux": {"page": 3},
     }
     _write_tar_sample(tar_path, payload, json_name="sample.meta.json")
-    task = task_for_tar(str(tar_path), "all_fields")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="doc_id",
         texts_field="captions",
@@ -220,7 +220,7 @@ def test_reader_uses_resolved_content_key_for_content_type(tmp_path: Path) -> No
         jpg_info.size = 3
         tf.addfile(jpg_info, BytesIO(b"jpg"))
 
-    task = task_for_tar(str(tar_path), "content_type_resolve")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="doc_id",
         texts_field="captions",
@@ -242,7 +242,7 @@ def test_reader_image_tokens_with_frame_index(tmp_path: Path) -> None:
         "images": [None, "page_0_image_15", "page_1_image_22"],
     }
     _write_tar_sample(tar_path, payload, json_name="sample.json", image_name="doc.pdf.tiff", image_bytes=b"TIFF_DATA")
-    task = task_for_tar(str(tar_path), "sub_image_test")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="pdf_name",
         image_extensions=(".tiff",),
@@ -277,7 +277,7 @@ def test_reader_interleaved_positions_do_not_overlap(tmp_path: Path) -> None:
         "images": [None, "page_img", None, "chart_img", None],
     }
     _write_tar_sample(tar_path, payload, image_name="interleaved.pdf.jpg", image_bytes=b"\xff\xd8\xff")
-    task = task_for_tar(str(tar_path), "interleaved_test")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(sample_id_field="pdf_name")
     df = _as_df(reader.process(task))
 
@@ -304,7 +304,7 @@ def test_reader_empty_output_schema_includes_requested_passthrough_fields(tmp_pa
         img_info.size = 3
         tf.addfile(img_info, BytesIO(b"abc"))
 
-    task = task_for_tar(str(tar_path), "empty_schema")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(fields=("p_hash",))
     df = _as_df(reader.process(task))
     assert "p_hash" in df.columns
@@ -314,7 +314,7 @@ def test_reader_fields_reserved_key_raises(tmp_path: Path) -> None:
     tar_path = tmp_path / "reserved_key.tar"
     payload = {"pdf_name": "doc.pdf", "texts": ["t"], "images": []}
     _write_tar_sample(tar_path, payload)
-    task = task_for_tar(str(tar_path), "reserved_key")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(fields=("sample_id",))
     with pytest.raises(ValueError, match="fields contains reserved keys"):
         _ = reader.process(task)
@@ -324,7 +324,7 @@ def test_reader_fields_missing_key_warns_and_fills_none(tmp_path: Path, caplog: 
     tar_path = tmp_path / "missing_key.tar"
     payload = {"pdf_name": "doc.pdf", "texts": ["t"], "images": []}
     _write_tar_sample(tar_path, payload)
-    task = task_for_tar(str(tar_path), "missing_key")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(fields=("p_hash",))
     with caplog.at_level("WARNING"):
         result = reader.process(task)
@@ -345,7 +345,7 @@ def test_reader_per_image_fields_distributed_to_image_rows(tmp_path: Path) -> No
         "image_metadata": [{"height": 100, "width": 200}],
     }
     _write_tar_sample(tar_path, payload)
-    task = task_for_tar(str(tar_path), "per_image")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
     )
@@ -374,7 +374,7 @@ def test_reader_per_text_fields_distributed_to_text_rows(tmp_path: Path) -> None
         "text_scores": [0.95, 0.42],
     }
     _write_tar_sample(tar_path, payload)
-    task = task_for_tar(str(tar_path), "per_text")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(
         per_text_fields=("text_scores",),
     )
@@ -406,7 +406,7 @@ def test_reader_per_image_and_per_text_fields_together(tmp_path: Path) -> None:
         "url": "https://example.com",
     }
     _write_tar_sample(tar_path, payload)
-    task = task_for_tar(str(tar_path), "both_per_modality")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
         per_text_fields=("text_lang",),
@@ -440,7 +440,7 @@ def test_reader_per_modality_fields_excluded_from_sample_passthrough(tmp_path: P
         "url": "https://example.com",
     }
     _write_tar_sample(tar_path, payload)
-    task = task_for_tar(str(tar_path), "exclude_pt")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
         per_text_fields=("text_scores",),
@@ -462,7 +462,7 @@ def test_reader_per_modality_field_missing_warns(tmp_path: Path, caplog: pytest.
         "images": [],
     }
     _write_tar_sample(tar_path, payload)
-    task = task_for_tar(str(tar_path), "missing_per_field")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
     )
@@ -483,7 +483,7 @@ def test_reader_raises_on_non_list_per_modality_field(tmp_path: Path) -> None:
         "image_metadata": "not-a-list",
     }
     _write_tar_sample(tar_path, payload)
-    task = task_for_tar(str(tar_path), "non_list_field")
+    task = task_for_tar(str(tar_path))
     reader = InterleavedWebdatasetReaderStage(
         per_image_fields=("image_metadata",),
     )
@@ -512,7 +512,7 @@ def test_reader_materialize_on_read_extracts_individual_tiff_frames(tmp_path: Pa
         tmp_path / "tiff-frames.tar",
         {"sample.json": json.dumps(payload).encode(), "doc.pdf.tiff": tiff_bytes},
     )
-    task = task_for_tar(tar_path, "tiff_frame_test")
+    task = task_for_tar(tar_path)
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="pdf_name",
         image_extensions=(".tiff",),
@@ -559,7 +559,7 @@ def test_reader_materialize_on_read_records_error_for_missing_member(tmp_path: P
         tmp_path / "corrupt-member.tar",
         {"sample.json": json.dumps(payload).encode(), "doc.pdf.tiff": tiff_bytes},
     )
-    task = task_for_tar(tar_path, "corrupt_member_test")
+    task = task_for_tar(tar_path)
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="pdf_name",
         image_extensions=(".tiff",),
@@ -589,7 +589,7 @@ def test_reader_frame_counter_resets_per_content_key(tmp_path: Path) -> None:
         tmp_path / "multi-tiff.tar",
         {"sample.json": json.dumps(payload).encode(), "a.tiff": tiff_a, "b.tiff": tiff_b},
     )
-    task = task_for_tar(tar_path, "multi_tiff_test")
+    task = task_for_tar(tar_path)
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="pdf_name",
         image_extensions=(".tiff",),
@@ -622,7 +622,7 @@ def test_reader_materialize_preserves_raw_bytes_on_frame_extraction_failure(tmp_
         tmp_path / "oob-frame.tar",
         {"sample.json": json.dumps(payload).encode(), "doc.pdf.tiff": tiff_bytes},
     )
-    task = task_for_tar(tar_path, "oob_frame_test")
+    task = task_for_tar(tar_path)
     reader = InterleavedWebdatasetReaderStage(
         sample_id_field="pdf_name",
         image_extensions=(".tiff",),
@@ -688,7 +688,7 @@ def test_reader_materialize_on_read_jpeg_png_bytes_preserved(
             image_member: image_bytes,
         },
     )
-    task = task_for_tar(tar_path, f"{fmt.lower()}_test")
+    task = task_for_tar(tar_path)
     reader = InterleavedWebdatasetReaderStage(materialize_on_read=True)
     df = _as_df(reader.process(task))
 
@@ -728,7 +728,6 @@ def test_reader_empty_tar(tmp_path: Path) -> None:
         img_info.size = 3
         tf.addfile(img_info, BytesIO(b"abc"))
     task = FileGroupTask(
-        task_id="empty",
         dataset_name="d",
         data=[str(tar_path)],
         _metadata={"source_files": [str(tar_path)]},
@@ -749,7 +748,6 @@ def test_reader_multi_tar(tmp_path: Path) -> None:
             {f"{sample_id}.json": json.dumps(payload).encode(), f"{sample_id}.jpg": b"img"},
         )
     task = FileGroupTask(
-        task_id="multi",
         dataset_name="d",
         data=[str(tmp_path / "shard1.tar"), str(tmp_path / "shard2.tar")],
         _metadata={"source_files": ["shard1.tar", "shard2.tar"]},
@@ -773,7 +771,6 @@ def test_reader_max_batch_bytes_splits(tmp_path: Path) -> None:
             {f"{sample_id}.json": json.dumps(payload).encode()},
         )
     task = FileGroupTask(
-        task_id="split",
         dataset_name="d",
         data=[str(tmp_path / "doc1.tar"), str(tmp_path / "doc2.tar")],
         _metadata={"source_files": ["doc1.tar", "doc2.tar"]},
@@ -782,8 +779,6 @@ def test_reader_max_batch_bytes_splits(tmp_path: Path) -> None:
     result = reader.process(task)
     assert isinstance(result, list)
     assert len(result) >= 2
-    for batch in result:
-        assert "_processed_" in batch.task_id
 
 
 def test_reader_source_files_per_split_only_contributing_tars(tmp_path: Path) -> None:
@@ -797,7 +792,6 @@ def test_reader_source_files_per_split_only_contributing_tars(tmp_path: Path) ->
         write_tar(Path(tar_path), {f"{sample_id}.json": json.dumps(payload).encode()})
 
     task = FileGroupTask(
-        task_id="sf_split",
         dataset_name="d",
         data=[tar1, tar2],
         _metadata={"source_files": [tar1, tar2]},
@@ -908,7 +902,7 @@ def test_parquet_reader_roundtrip(tmp_path: Path) -> None:
     batch = make_interleaved_batch(num_samples=2, include_images=False)
     pq_path = _write_parquet_task(batch, tmp_path / "out")
 
-    task = FileGroupTask(task_id="pq_rt", dataset_name="d", data=[pq_path])
+    task = FileGroupTask(dataset_name="d", data=[pq_path])
     reader = InterleavedParquetReaderStage()
     result = reader.process(task)
     assert isinstance(result, InterleavedBatch)
@@ -935,7 +929,7 @@ def test_parquet_reader_missing_columns_filled_with_null(tmp_path: Path) -> None
     pq_path = tmp_path / "minimal.parquet"
     pq.write_table(minimal, pq_path)
 
-    task = FileGroupTask(task_id="minimal", dataset_name="d", data=[str(pq_path)])
+    task = FileGroupTask(dataset_name="d", data=[str(pq_path)])
     result = InterleavedParquetReaderStage().process(task)
     assert isinstance(result, InterleavedBatch)
     df = result.to_pandas()
@@ -949,7 +943,7 @@ def test_parquet_reader_fields_subset(tmp_path: Path) -> None:
     batch = make_interleaved_batch(num_samples=1, include_images=False)
     pq_path = _write_parquet_task(batch, tmp_path / "out")
 
-    task = FileGroupTask(task_id="fields_sub", dataset_name="d", data=[pq_path])
+    task = FileGroupTask(dataset_name="d", data=[pq_path])
     result = InterleavedParquetReaderStage(fields=("text_content",)).process(task)
     assert isinstance(result, InterleavedBatch)
     df = result.to_pandas()
@@ -962,7 +956,7 @@ def test_parquet_reader_fields_null_fill_missing(tmp_path: Path) -> None:
     batch = make_interleaved_batch(num_samples=1, include_images=False)
     pq_path = _write_parquet_task(batch, tmp_path / "out")
 
-    task = FileGroupTask(task_id="null_fill", dataset_name="d", data=[pq_path])
+    task = FileGroupTask(dataset_name="d", data=[pq_path])
     result = InterleavedParquetReaderStage(fields=("nonexistent_field",)).process(task)
     assert isinstance(result, InterleavedBatch)
     df = result.to_pandas()
@@ -977,9 +971,7 @@ def test_parquet_reader_extra_column_passthrough_by_default(tmp_path: Path) -> N
     pq_path = str(tmp_path / "extra.parquet")
     pq.write_table(pa.Table.from_pylist(_make_aligned_rows(fake_jpg)), pq_path)
 
-    result = InterleavedParquetReaderStage().process(
-        FileGroupTask(task_id="extra_col", dataset_name="d", data=[pq_path])
-    )
+    result = InterleavedParquetReaderStage().process(FileGroupTask(dataset_name="d", data=[pq_path]))
     assert isinstance(result, InterleavedBatch)
     _assert_field_alignment(
         result.to_pandas(),
@@ -997,7 +989,7 @@ def test_parquet_reader_extra_column_excluded_when_fields_set(tmp_path: Path) ->
 
     # fields=("text_metadata",) → only text_metadata + reserved cols; others are NOT read
     result = InterleavedParquetReaderStage(fields=("text_metadata",)).process(
-        FileGroupTask(task_id="fields_excl", dataset_name="d", data=[pq_path])
+        FileGroupTask(dataset_name="d", data=[pq_path])
     )
     assert isinstance(result, InterleavedBatch)
     df = result.to_pandas()
@@ -1045,9 +1037,7 @@ def test_parquet_reader_wds_to_pq_to_wds_roundtrip(tmp_path: Path) -> None:
         path=str(tmp_path / "pq_out"), materialize_on_write=False, mode="overwrite"
     ).process(batch_wds)
 
-    batch_pq = InterleavedParquetReaderStage().process(
-        FileGroupTask(task_id="pq_rt", dataset_name="d", data=[pq_task.data[0]])
-    )
+    batch_pq = InterleavedParquetReaderStage().process(FileGroupTask(dataset_name="d", data=[pq_task.data[0]]))
     assert isinstance(batch_pq, InterleavedBatch)
     df_pq = batch_pq.to_pandas()
     for col in ("sample_metadata", "text_metadata", "image_metadata"):
@@ -1059,7 +1049,7 @@ def test_parquet_reader_wds_to_pq_to_wds_roundtrip(tmp_path: Path) -> None:
     wds2_task = InterleavedWebdatasetWriterStage(
         path=str(tmp_path / "wds_out"), materialize_on_write=False, mode="overwrite"
     ).process(batch_pq)
-    batch_final = wds_reader.process(FileGroupTask(task_id="final", dataset_name="d", data=wds2_task.data))
+    batch_final = wds_reader.process(FileGroupTask(dataset_name="d", data=wds2_task.data))
     assert isinstance(batch_final, InterleavedBatch)
     _assert_field_alignment(
         batch_final.to_pandas(),
@@ -1073,7 +1063,6 @@ def test_parquet_reader_pq_to_wds_to_pq_roundtrip(tmp_path: Path) -> None:
     """PQ→WDS→PQ: sample/text/image extra columns survive a full write-to-WDS and back."""
     fake_jpg = b"\xff\xd8\xff\xe0fake"
     batch0 = InterleavedBatch(
-        task_id="pq0",
         dataset_name="d",
         data=pa.Table.from_pylist(_make_aligned_rows(fake_jpg)),
         _metadata={"source_files": ["source.parquet"]},
@@ -1085,7 +1074,7 @@ def test_parquet_reader_pq_to_wds_to_pq_roundtrip(tmp_path: Path) -> None:
         .data[0]
     )
 
-    batch1 = InterleavedParquetReaderStage().process(FileGroupTask(task_id="pq1", dataset_name="d", data=[pq_path0]))
+    batch1 = InterleavedParquetReaderStage().process(FileGroupTask(dataset_name="d", data=[pq_path0]))
     assert isinstance(batch1, InterleavedBatch)
     _assert_field_alignment(
         batch1.to_pandas(),
@@ -1103,7 +1092,7 @@ def test_parquet_reader_pq_to_wds_to_pq_roundtrip(tmp_path: Path) -> None:
         per_image_fields=("image_metadata",),
         per_text_fields=("text_metadata",),
     )
-    batch2 = wds_reader.process(FileGroupTask(task_id="wds1", dataset_name="d", data=wds_task.data))
+    batch2 = wds_reader.process(FileGroupTask(dataset_name="d", data=wds_task.data))
     assert isinstance(batch2, InterleavedBatch)
     _assert_field_alignment(
         batch2.to_pandas(),
@@ -1117,9 +1106,7 @@ def test_parquet_reader_pq_to_wds_to_pq_roundtrip(tmp_path: Path) -> None:
         .process(batch2)
         .data[0]
     )
-    batch_final = InterleavedParquetReaderStage().process(
-        FileGroupTask(task_id="pq_final", dataset_name="d", data=[pq_path1])
-    )
+    batch_final = InterleavedParquetReaderStage().process(FileGroupTask(dataset_name="d", data=[pq_path1]))
     assert isinstance(batch_final, InterleavedBatch)
     _assert_field_alignment(
         batch_final.to_pandas(),
@@ -1132,8 +1119,8 @@ def test_parquet_reader_pq_to_wds_to_pq_roundtrip(tmp_path: Path) -> None:
 def test_parquet_reader_max_batch_bytes_splits(tmp_path: Path) -> None:
     """Two parquet files, one sample each; max_batch_bytes=1 → 2 splits,
     each split's source_files lists only its contributing file."""
-    batch_a = make_interleaved_batch(num_samples=1, task_id="a", include_images=False)
-    batch_b = make_interleaved_batch(num_samples=1, task_id="b", include_images=False)
+    batch_a = make_interleaved_batch(num_samples=1, include_images=False)
+    batch_b = make_interleaved_batch(num_samples=1, include_images=False)
     # Give distinct sample_ids
     rows_a = batch_a.to_pandas().copy()
     rows_a["sample_id"] = "doc_a"
@@ -1143,11 +1130,11 @@ def test_parquet_reader_max_batch_bytes_splits(tmp_path: Path) -> None:
     out_a = tmp_path / "a"
     out_b = tmp_path / "b"
     writer = InterleavedParquetWriterStage(path=str(out_a), materialize_on_write=False, mode="overwrite")
-    pq_a = writer.process(InterleavedBatch(task_id="a", dataset_name="d", data=rows_a)).data[0]
+    pq_a = writer.process(InterleavedBatch(dataset_name="d", data=rows_a)).data[0]
     writer2 = InterleavedParquetWriterStage(path=str(out_b), materialize_on_write=False, mode="overwrite")
-    pq_b = writer2.process(InterleavedBatch(task_id="b", dataset_name="d", data=rows_b)).data[0]
+    pq_b = writer2.process(InterleavedBatch(dataset_name="d", data=rows_b)).data[0]
 
-    task = FileGroupTask(task_id="split_test", dataset_name="d", data=[pq_a, pq_b])
+    task = FileGroupTask(dataset_name="d", data=[pq_a, pq_b])
     result = InterleavedParquetReaderStage(max_batch_bytes=1).process(task)
 
     assert isinstance(result, list)
@@ -1168,7 +1155,7 @@ def test_parquet_reader_empty_file(tmp_path: Path) -> None:
     pq_path = tmp_path / "empty.parquet"
     pq.write_table(empty, pq_path)
 
-    task = FileGroupTask(task_id="empty", dataset_name="d", data=[str(pq_path)])
+    task = FileGroupTask(dataset_name="d", data=[str(pq_path)])
     result = InterleavedParquetReaderStage().process(task)
     assert isinstance(result, InterleavedBatch)
     assert len(result.to_pandas()) == 0
@@ -1184,7 +1171,7 @@ def test_parquet_reader_composite_decompose(tmp_path: Path) -> None:
 
 
 def test_parquet_reader_empty_file_list_returns_empty_batch() -> None:
-    result = InterleavedParquetReaderStage().process(FileGroupTask(task_id="t", dataset_name="d", data=[]))
+    result = InterleavedParquetReaderStage().process(FileGroupTask(dataset_name="d", data=[]))
     assert isinstance(result, InterleavedBatch)
     df = result.to_pandas()
     assert len(df) == 0

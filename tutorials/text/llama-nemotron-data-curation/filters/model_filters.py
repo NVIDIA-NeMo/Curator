@@ -97,7 +97,6 @@ class NonEnglishFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         df_filtered = df[mask]
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df_filtered,
             _metadata=batch._metadata,
@@ -179,7 +178,6 @@ class TokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         df_filtered = df[mask]
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df_filtered,
             _metadata=batch._metadata,
@@ -256,7 +254,6 @@ class CompletionTokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         df_filtered = df[mask]
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df_filtered,
             _metadata=batch._metadata,
@@ -350,7 +347,6 @@ class ApplyChatTemplate(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,

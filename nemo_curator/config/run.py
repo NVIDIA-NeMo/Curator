@@ -20,6 +20,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.resources import Resources
 
 
 def create_ray_client_from_yaml(cfg: DictConfig) -> RayClient:
@@ -31,8 +32,36 @@ def create_ray_client_from_yaml(cfg: DictConfig) -> RayClient:
         return RayClient()
 
 
-def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline | Any:  # noqa: ANN401
-    logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
+def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
+    """Instantiate a single stage from its Hydra config.
+
+    Extracts ``resources`` before calling ``hydra.utils.instantiate``
+    (it is applied via ``.with_()``, not as a constructor argument) and
+    re-applies it after construction. ``batch_size`` is left in the config
+    dict so that stages declaring it as a dataclass field receive it
+    during construction.
+    """
+    cfg_dict = OmegaConf.to_container(stage_cfg, resolve=True)
+
+    stage_resources = cfg_dict.pop("resources", None)
+
+    stage = hydra.utils.instantiate(cfg_dict)
+
+    if stage_resources:
+        if isinstance(stage_resources, dict) and "_target_" in stage_resources:
+            resources_obj = hydra.utils.instantiate(stage_resources)
+        else:
+            resources_obj = Resources(**stage_resources)
+        with_kwargs: dict[str, Any] = {"resources": resources_obj}
+        stage = stage.with_(**with_kwargs)
+        logger.info(f"Applied .with_() to '{stage.name}': {with_kwargs}")
+
+    return stage
+
+
+def create_pipeline_from_yaml(cfg: DictConfig, *, log_config: bool = True) -> Pipeline | Any:  # noqa: ANN401
+    if log_config:
+        logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
 
     if "stages" in cfg and "workflow" in cfg:
         msg = "Both stages and workflow are defined in the configuration. Please define either stages or workflow, not both."
@@ -41,9 +70,8 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline | Any:  # noqa: ANN40
     if "stages" in cfg:
         pipeline = Pipeline(name="yaml_pipeline", description="Create and execute a pipeline from a YAML file")
 
-        # Add stages to the pipeline
-        for p in cfg.stages:
-            stage = hydra.utils.instantiate(p)
+        for stage_cfg in cfg.stages:
+            stage = _instantiate_stage(stage_cfg)
             pipeline.add_stage(stage)
 
         return pipeline

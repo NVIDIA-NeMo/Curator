@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import shutil
 import socket
 import subprocess
 import time
@@ -28,11 +29,22 @@ from nemo_curator.core.constants import (
     DEFAULT_RAY_DASHBOARD_METRIC_PORT,
     DEFAULT_RAY_MAX_WORKER_PORT,
     DEFAULT_RAY_MIN_WORKER_PORT,
+    DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT,
     RAY_CLUSTER_START_VERIFICATION_TIMEOUT,
 )
 
 if TYPE_CHECKING:
     import loguru
+
+
+def ignore_ray_head_node() -> bool:
+    """Return True if ``CURATOR_IGNORE_RAY_HEAD_NODE`` is set to a truthy value.
+
+    Used by both the pipeline executors (to skip the head node when scheduling
+    stage actors) and the inference-server backends (to emit a worker-only
+    bundle-label selector on placement groups).
+    """
+    return os.environ.get("CURATOR_IGNORE_RAY_HEAD_NODE", "").strip().lower() in ("1", "true", "yes")
 
 
 def check_ray_responsive(timeout_s: int = RAY_CLUSTER_START_VERIFICATION_TIMEOUT) -> bool:
@@ -88,7 +100,7 @@ def get_free_port(start_port: int, get_next_free_port: bool = True) -> int:
     If not, it will get the next free port starting from start_port if get_next_free_port is True.
     Else, it will raise an error if the free port is not equal to start_port.
     """
-    for port in range(start_port, 65535):
+    for port in range(start_port, 65536):
         if port >= DEFAULT_RAY_MIN_WORKER_PORT and port <= DEFAULT_RAY_MAX_WORKER_PORT:
             continue
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -175,6 +187,21 @@ def init_cluster(  # noqa: PLR0913
 
     # We set some env vars for Xenna here. This is only used for Xenna clusters.
     os.environ["XENNA_RAY_METRICS_PORT"] = str(ray_metrics_port)
+
+    # Opt into Ray Serve's HAProxy ingress when both binaries resolve. Ray Serve
+    # uses socat to drive HAProxy's admin socket — without it, the controller's
+    # healthcheck silently returns False and trips a 5s timeout. Must precede
+    # Popen so Ray sees the env var at module-import on the raylet/worker.
+    # TODO(https://github.com/ray-project/ray/issues/62976): also set
+    # RAY_SERVE_HAPROXY_STATS_PORT once that lands so multi-cluster hosts
+    # don't collide on HAProxy's stats bind.
+    if shutil.which("haproxy") is not None and shutil.which("socat") is not None:
+        haproxy_metrics_port = get_free_port(DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT)
+        os.environ["RAY_SERVE_ENABLE_HA_PROXY"] = "1"
+        os.environ["RAY_SERVE_HAPROXY_METRICS_PORT"] = str(haproxy_metrics_port)
+        logger.info(f"Ray Serve HAProxy ingress enabled (metrics port {haproxy_metrics_port}).")
+    else:
+        logger.debug("haproxy and/or socat not found on PATH; Ray Serve will use the default Python proxy.")
     if stdouterr_capture_file:
         with open(stdouterr_capture_file, "w") as f:
             proc = subprocess.Popen(  # noqa: S603

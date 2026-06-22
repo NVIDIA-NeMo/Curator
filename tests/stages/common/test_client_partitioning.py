@@ -18,17 +18,16 @@ import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.client_partitioning import ClientPartitioningStage, _read_list_json_rel
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
 class TestClientPartitioningStage:
     """Test suite for ClientPartitioningStage."""
 
     @pytest.fixture
-    def empty_task(self) -> _EmptyTask:
+    def empty_task(self) -> EmptyTask:
         """Create an empty task for testing."""
-        return _EmptyTask(
-            task_id="test_task",
+        return EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={"source": "test"},
@@ -91,7 +90,7 @@ class TestClientPartitioningStage:
     @patch("nemo_curator.stages.client_partitioning.ClientPartitioningStage._list_relative")
     @patch("nemo_curator.stages.client_partitioning.url_to_fs")
     def test_process_basic_functionality(
-        self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: _EmptyTask
+        self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: EmptyTask
     ) -> None:
         """Test basic process functionality including file filtering."""
         mock_fs = Mock()
@@ -109,7 +108,6 @@ class TestClientPartitioningStage:
         assert len(result) == 3
         assert isinstance(result[0], FileGroupTask)
         assert str(result[0].data[0]).endswith("file1.jsonl")
-        assert result[0].task_id == "file_group_0"
         assert result[0]._metadata["partition_index"] == 0
         assert result[0]._metadata["total_partitions"] == 3
 
@@ -127,7 +125,7 @@ class TestClientPartitioningStage:
     @patch("nemo_curator.stages.client_partitioning.ClientPartitioningStage._list_relative")
     @patch("nemo_curator.stages.client_partitioning.url_to_fs")
     def test_process_partitioning_and_limits(
-        self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: _EmptyTask
+        self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: EmptyTask
     ) -> None:
         """Test files_per_partition and limit functionality."""
         mock_fs = Mock()
@@ -159,7 +157,7 @@ class TestClientPartitioningStage:
 
     @patch("nemo_curator.stages.client_partitioning.ClientPartitioningStage._list_relative")
     @patch("nemo_curator.stages.client_partitioning.url_to_fs")
-    def test_process_edge_cases(self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: _EmptyTask) -> None:
+    def test_process_edge_cases(self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: EmptyTask) -> None:
         """Test edge cases like empty file list and combined filters."""
         mock_fs = Mock()
         mock_root = "/test/path"
@@ -185,7 +183,7 @@ class TestClientPartitioningStage:
         assert len(result[0].data) == 2
         assert len(result[1].data) == 1
 
-    def test_process_without_setup(self, empty_task: _EmptyTask) -> None:
+    def test_process_without_setup(self, empty_task: EmptyTask) -> None:
         """Test process method when setup() hasn't been called."""
         stage = ClientPartitioningStage(file_paths=None)
         with pytest.raises(RuntimeError, match="Stage not initialized"):

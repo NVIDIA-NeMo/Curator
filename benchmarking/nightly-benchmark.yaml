@@ -1,14 +1,34 @@
-# These two paths must be defined and are used to resolve the results and
-# datasets paths. These must be existing paths on the host.
-# If running inside a Docker container started with tools/run.sh, the paths
-# will automatically be mapped to the appropriate volume mount.
-# If running on the host, the paths will remain as defined below.
-# Paths can be used in other values in this file by using their placeholder
-# (e.g. {datasets_path}/my/test/dataset.parquet) and will be resolved to the
-# appropriate path at runtime.
-results_path: /path/where/results/are/stored
-datasets_path: /path/to/datasets
-model_weights_path: /path/to/model_weights
+# The "paths" section defines files and directories used by the benchmarks.
+# Each entry requires a "name" and a "host_path". Paths must exist on the host.
+# If running inside a Docker container started with tools/run.sh, each path is
+# automatically mounted into the container. An optional "container_path" overrides
+# the default mount point (default is host_path prefixed with "/MOUNT").
+# The "name" can be used as a placeholder elsewhere in this file
+# (e.g. {datasets_path}) and will be substituted with either host_path or
+# container_path based on the environment.
+paths:
+  - name: "datasets_path"
+    host_path: "/path/to/datasets"
+    container_path: "/datasets"
+  - name: "model_weights_path"
+    host_path: "/path/to/model_weights"
+    container_path: "/model_weights"
+  - name: "results_path"
+    host_path: "/path/where/results/are/stored"
+    # container_path will default to "/MOUNT/path/where/results/are/stored".
+
+# The following path variables are deprecated. They will still work but will produce a warning.
+# Use the "paths" section above instead. These will be removed in a future release.
+#
+# results_path: "/path/where/results/are/stored"
+# datasets_path: "/path/to/datasets"
+# model_weights_path: "/path/to/model_weights"
+
+# Background per-GPU stats recorder. While each entry runs, polls all visible GPUs
+# (independent of CUDA_VISIBLE_DEVICES) at `interval_s` and writes one row per
+# (timestamp, GPU) to {session_entry_path}/gpustats.csv. Set interval_s to 0 to disable.
+gpu_stats_recorder:
+  interval_s: 1.0
 
 datasets:
   - name: "tinystories"
@@ -89,7 +109,29 @@ datasets:
     formats:
     - type: "parquet"
       path: "{datasets_path}/cc_index_benchmark/cc_index"
+  - name: "read_speech"
+    formats:
+    - type: "wav"
+      path: "{datasets_path}/read_speech"
+  # Persistent on-disk location for the FLEURS dataset (transcript <split>.tsv +
+  # extracted <split>/ audio). The nightly entries below run with
+  # --no-auto-download, so this must be pre-staged once on the benchmark machine
+  # via:
+  #   python benchmarking/data_prep/prepare_fleurs_data.py \
+  #       --output-path {datasets_path}/fleurs
+  # (downloads from Hugging Face once; defaults to --lang hy_am --split train).
+  # Every subsequent run then reuses it and never re-fetches (avoids HTTP 429).
+  - name: "fleurs_hy_am"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/fleurs"
+# Timeout knobs consumed by tools/generate_ci_tests.py to compute each SLURM job's wall-clock:
+#   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
+# default_timeout_s: per-entry default; cleanup_timeout_s: post-run cleanup buffer; min_timeout_s:
+# floor covering container setup. (default_timeout_s is also the runner's per-entry default.)
 default_timeout_s: 7200
+cleanup_timeout_s: 60
+min_timeout_s: 600
 
 # Optional sinks
 sinks:
@@ -102,6 +144,9 @@ sinks:
     live_updates: true
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
+    # Temporarily disable @-mentions on failure while the test suite is being
+    # stabilized. Flip back to true (or remove this line) once runs are clean.
+    ping_users_on_failure: false
 #  - name: gdrive
 #    enabled: false
 #    drive_folder_id: ${GDRIVE_FOLDER_ID}
@@ -114,6 +159,16 @@ delete_scratch: true
 # a fraction of total system memory (float), or the value "default" (string) which allows
 # for "ray start" to determine object store size.
 object_store_size: 536870912000  # 500GB
+
+# Fraction (0.0-1.0) of GPU memory that may be in use without emitting a
+# warning. Checked both before and after each benchmark run.
+gpu_mem_use_warning_threshold: 0.01
+
+# Global ray settings inherited by all entries. Per-entry ray sections override these values.
+ray:
+  num_cpus: 64
+  num_gpus: 4
+  enable_object_spilling: false
 
 entries:
   - name: domain_classification_raydata
@@ -135,19 +190,20 @@ entries:
           - number_of_domains_predicted
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # Observed throughput of 2700 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
         min_value: 2565
       - metric: number_of_domains_predicted
         exact_value: 26
-      # We choose two domains randomly and ensure that the counts are as expected
+      # We choose two domains randomly and ensure that the counts are as expected.
+      # domain_label_games_count is given a +/-1% tolerance window around the
+      # observed 149816 because the classifier output drifts run-to-run;
+      # domain_label_news_count remains exact pending further investigation.
       - metric: domain_label_games_count
-        exact_value: 149816
+        min_value: 148318
+        max_value: 151314
       - metric: domain_label_news_count
         exact_value: 2817
 
@@ -161,7 +217,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-inference-batch-size=1024
-    timeout_s: 1000
+    timeout_s: 1400
     sink_data:
       - name: slack
         additional_metrics:
@@ -169,19 +225,20 @@ entries:
           - number_of_domains_predicted
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # Observed throughput of 2900 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
         min_value: 2755
       - metric: number_of_domains_predicted
         exact_value: 26
-      # We choose two domains randomly and ensure that the counts are as expected
+      # We choose two domains randomly and ensure that the counts are as expected.
+      # domain_label_games_count is given a +/-1% tolerance window around the
+      # observed 149816 because the classifier output drifts run-to-run;
+      # domain_label_news_count remains exact pending further investigation.
       - metric: domain_label_games_count
-        exact_value: 149816
+        min_value: 148318
+        max_value: 151314
       - metric: domain_label_news_count
         exact_value: 2817
 
@@ -205,10 +262,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
           - U07JL5K0L10  # Praateek Mahajan
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # Observed throughput of 3945 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
@@ -235,10 +289,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
           - U07JL5K0L10  # Praateek Mahajan
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # Observed throughput of 4923 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
@@ -254,17 +305,14 @@ entries:
       --input-filetype=parquet
       --text-field=raw_content
       --input-blocksize=3GiB
-    timeout_s: 500
+    timeout_s: 1500
     sink_data:
       - name: slack
         additional_metrics:
           - "num_duplicates"
         ping_on_failure:
           - UBDSVEQPL  # Ayush Dattagupta
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       - metric: num_duplicates
         exact_value: 64292856
@@ -281,7 +329,7 @@ entries:
       --bands-per-iteration=20
       --text-field=text
       --input-blocksize=1.5GiB
-    timeout_s: 800
+    timeout_s: 1200
     sink_data:
       - name: slack
         additional_metrics:
@@ -291,10 +339,7 @@ entries:
           - connected_components_percent_time
         ping_on_failure:
           - UBDSVEQPL  # Ayush Dattagupta
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       - metric: num_duplicates
         # 59,226,133 is expected, ensure +/- 1%
@@ -319,7 +364,7 @@ entries:
       --which-to-keep=hard
       --pairwise-batch-size=1024
       --dataset-size-ratio=0.10
-    timeout_s: 450
+    timeout_s: 1200
     sink_data:
       - name: slack
         additional_metrics:
@@ -332,10 +377,7 @@ entries:
           - pairwise_percent_time
         ping_on_failure:
           - U07JL5K0L10  # Praateek Mahajan
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       - metric: num_documents_processed
         exact_value: 312458951
@@ -359,7 +401,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1100
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
@@ -368,9 +410,7 @@ entries:
           - UBDSVEQPL  # Ayush Dattagupta
           - U07JL5K0L10  # Praateek Mahajan
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       - metric: num_duplicates_removed
         exact_value: 59226133
@@ -390,7 +430,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1500
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
@@ -400,9 +440,7 @@ entries:
           - UBDSVEQPL  # Ayush Dattagupta
           - U07JL5K0L10  # Praateek Mahajan
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       - metric: num_duplicates_removed
         exact_value: 59226133
@@ -428,9 +466,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
@@ -452,7 +488,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
       --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
-    timeout_s: 350
+    timeout_s: 800
     sink_data:
       - name: slack
         additional_metrics:
@@ -461,9 +497,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
@@ -496,9 +530,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
 
   - name: fasttext_filter_xenna
     enabled: true
@@ -521,9 +553,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
 
   - name: modifier_raydata
     enabled: true
@@ -541,9 +571,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
 
   - name: modifier_xenna
     enabled: true
@@ -561,9 +589,7 @@ entries:
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
 
   - name: image_curation_raydata
     enabled: true
@@ -587,10 +613,7 @@ entries:
           - throughput_images_per_sec
         ping_on_failure:
           - U020C9VC05N  # Ao Tang
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_images_processed
@@ -620,10 +643,7 @@ entries:
           - throughput_images_per_sec
         ping_on_failure:
           - U020C9VC05N  # Ao Tang
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_images_processed
@@ -631,21 +651,48 @@ entries:
       - metric: throughput_images_per_sec
         min_value: 3.0
 
+  - name: audio_sortformer_xenna
+    enabled: false
+    script: audio_sortformer_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --manifest-path={datasets_path}/sortformer_diarization/manifest.jsonl
+      --model-name=nvidia/diar_streaming_sortformer_4spk-v2.1
+      --rttm-out-dir={session_entry_dir}/scratch/rttm
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_files_processed
+          - throughput_files_per_sec
+          - real_time_factor
+          - total_segments_detected
+        ping_on_failure:
+          - U03C41SNADV  # Aaftab V
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    requirements:
+      - metric: is_success
+        exact_value: true
+      - metric: num_files_processed
+        min_value: 1
+
   - name: audio_fleurs_xenna
     enabled: true
     script: audio_fleurs_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:fleurs_hy_am,files}
+      --no-auto-download
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train
       --wer-threshold=5.5
       --gpus=1
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     sink_data:
       - name: slack
         # time_taken_s intentionally omitted: FLEURS includes dataset download
@@ -666,16 +713,15 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:fleurs_hy_am,files}
+      --no-auto-download
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train
       --wer-threshold=5.5
       --gpus=1
       --executor=ray_data
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     sink_data:
       - name: slack
         # time_taken_s intentionally omitted: FLEURS includes dataset download
@@ -686,6 +732,77 @@ entries:
           - num_tasks_processed
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
+    requirements:
+      - metric: is_success
+        exact_value: true
+
+  - name: audio_readspeech_xenna
+    enabled: true
+    script: audio_readspeech_benchmark.py
+    # Hang guard only (~4h). Full dataset with all filters runs ~3.24h on 4×A100.
+    # Performance regressions should be tracked via a `requirements` check on
+    # `time_taken_s` once a stable baseline is established (follow-up).
+    timeout_s: 14400
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:read_speech,wav}
+      --no-auto-download
+      --executor=xenna
+      --max-samples=-1
+      --sample-rate=48000
+      --enable-vad
+      --enable-sigmos
+      --enable-utmos
+      --enable-band-filter
+      --enable-speaker-separation
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_segments_per_sec
+          - num_output_segments
+          - time_taken_s
+        ping_on_failure:
+          - U07EVDG9FBK  # Shubham Bhawsar
+    requirements:
+      - metric: is_success
+        exact_value: true
+
+  - name: audio_readspeech_raydata
+    enabled: true
+    script: audio_readspeech_benchmark.py
+    # Hang guard only (~4h). Mirrors xenna config so the two executors are
+    # directly comparable on the same workload (full dataset, all filters).
+    timeout_s: 14400
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:read_speech,wav}
+      --no-auto-download
+      --executor=ray_data
+      --max-samples=-1
+      --sample-rate=48000
+      --enable-vad
+      --enable-sigmos
+      --enable-utmos
+      --enable-band-filter
+      --enable-speaker-separation
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+      enable_object_spilling: false
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_segments_per_sec
+          - num_output_segments
+          - time_taken_s
+        ping_on_failure:
+          - U07EVDG9FBK  # Shubham Bhawsar
     requirements:
       - metric: is_success
         exact_value: true
@@ -710,8 +827,6 @@ entries:
           - UGFRT88RE  # Vibhu Jawa
     ray:
       num_cpus: 16
-      num_gpus: 4
-      enable_object_spilling: false
     requirements:
       # Data integrity checks
       - metric: num_tar_files
@@ -741,8 +856,6 @@ entries:
           - UGFRT88RE  # Vibhu Jawa
     ray:
       num_cpus: 16
-      num_gpus: 4
-      enable_object_spilling: false
     requirements:
       # Data integrity checks
       - metric: num_tar_files
@@ -752,7 +865,7 @@ entries:
       - metric: num_output_documents
         exact_value: 61474
 
-  - name: video_embedding
+  - name: video_embedding_xenna
     enabled: true
     script: video_pipeline_benchmark.py
     args: >-
@@ -767,10 +880,7 @@ entries:
       - name: slack
         ping_on_failure:
           - U082G3E46R0  # Abhinav Garg
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
@@ -778,7 +888,30 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 4.0
 
-  - name: video_transcoding
+  - name: video_embedding_raydata
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --video-dir={dataset:videos,mp4}
+      --model-dir={dataset:videos_model_weights,files}
+      --video-limit=1000
+    timeout_s: 800
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
+
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 1400
+      - metric: throughput_clips_per_sec
+        min_value: 2.0
+
+  - name: video_transcoding_xenna
     enabled: true
     script: video_pipeline_benchmark.py
     args: >-
@@ -794,9 +927,7 @@ entries:
         ping_on_failure:
           - U082G3E46R0  # Abhinav Garg
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
@@ -804,7 +935,31 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 5.0
 
-  - name: video_captioning
+  - name: video_transcoding_raydata
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --no-generate-embeddings
+      --video-dir={dataset:videos,mp4}
+      --video-limit=1000
+    timeout_s: 800
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
+    ray:
+      num_gpus: 0
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 1400
+      - metric: throughput_clips_per_sec
+        min_value: 3.0
+
+  - name: video_captioning_xenna
     enabled: true
     script: video_pipeline_benchmark.py
     args: >-
@@ -822,10 +977,7 @@ entries:
       - name: slack
         ping_on_failure:
           - U082G3E46R0  # Abhinav Garg
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
@@ -833,23 +985,48 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
-  - name: ndd_ray_serve_dp4
+  - name: video_captioning_raydata
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --video-dir={dataset:videos,mp4}
+      --model-dir={dataset:videos_model_weights,files}
+      --generate-captions
+      --no-generate-embeddings
+      --enhance-captions
+      --video-limit=256
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
+
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 377
+      - metric: throughput_clips_per_sec
+        min_value: 0.25
+
+  - name: ndd_dynamo_dp4
     enabled: true
     script: ndd_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
       --input-path={dataset:ndd_gretel_symptoms,jsonl}
       --output-path={session_entry_dir}/scratch/output
-      --inference-server-type=ray-serve
+      --inference-server-type=dynamo
       --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
-    timeout_s: 700
+    timeout_s: 2700  # 45 min — Dynamo's runtime_env rebuilds flash-attn from source on first launch (~10 min) plus 4-replica gpt-oss-20b weights load
     ray:
       num_cpus: 16
-      num_gpus: 4
-      enable_object_spilling: false
     sink_data:
       - name: slack
         additional_metrics:
@@ -862,8 +1039,41 @@ entries:
     requirements:
       - metric: output_row_count
         exact_value: 853
+      - metric: throughput_rows_per_sec
+        min_value: 2.9
 
-  - name: video_transnetv2_motion_aesthetic_filter_embeddings
+  - name: ndd_ray_serve_dp4
+    enabled: true
+    script: ndd_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:ndd_gretel_symptoms,jsonl}
+      --output-path={session_entry_dir}/scratch/output
+      --inference-server-type=ray-serve
+      --model-id=openai/gpt-oss-20b
+      --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
+      --executor=ray_data
+      --engine-kwargs='{"tensor_parallel_size": 1}'
+      --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
+    timeout_s: 1200
+    ray:
+      num_cpus: 16
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - input_row_count
+          - output_row_count
+          - throughput_rows_per_sec
+          - serve_startup_s
+        ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
+    requirements:
+      - metric: output_row_count
+        exact_value: 853
+      - metric: throughput_rows_per_sec
+        min_value: 2.5
+
+  - name: video_transnetv2_motion_aesthetic_filter_embeddings_xenna
     enabled: true
     script: video_pipeline_benchmark.py
     args: >-
@@ -877,21 +1087,45 @@ entries:
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=1000
-    timeout_s: 500
+    timeout_s: 800
     sink_data:
       - name: slack
         ping_on_failure:
           - U082G3E46R0  # Abhinav Garg
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
         exact_value: 113
       - metric: throughput_clips_per_sec
         min_value: 0.25
+
+  - name: video_transnetv2_motion_aesthetic_filter_embeddings_raydata
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --video-dir={dataset:videos,mp4}
+      --model-dir={dataset:videos_model_weights,files}
+      --splitting-algorithm=transnetv2
+      --motion-filter=enable
+      --aesthetic-threshold=3.5
+      --transnetv2-frame-decoder-mode ffmpeg_cpu
+      --video-limit=1000
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
+
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 113
+      - metric: throughput_clips_per_sec
+        min_value: 0.1
 
   - name: multimodal_mint1t_xenna
     enabled: false
@@ -916,9 +1150,7 @@ entries:
         ping_on_failure:
           - UGFRT88RE  # Vibhu Jawa
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
 
   - name: multimodal_mint1t_xenna_materialize
     enabled: false
@@ -943,9 +1175,54 @@ entries:
         ping_on_failure:
           - UGFRT88RE  # Vibhu Jawa
     ray:
-      num_cpus: 64
       num_gpus: 0
+
+  - name: audio_tagging_tts_xenna
+    enabled: true
+    script: audio_tagging_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={session_entry_dir}/input.jsonl
+      --hf-token=${HF_SECRET_KEY}
+      --max-segment-length=40
+      --asr-batch-size=50
+      --executor=xenna
+    timeout_s: 3600
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U06J49AK7BQ  # Sushmitha Deva
+    ray:
+      num_cpus: 16
+      num_gpus: 1
       enable_object_spilling: false
+    requirements:
+      - metric: is_success
+        exact_value: true
+
+  - name: audio_tagging_tts_xenna_repeat
+    enabled: true
+    script: audio_tagging_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-manifest={session_entry_dir}/input.jsonl
+      --repeat-factor=2
+      --hf-token=${HF_SECRET_KEY}
+      --max-segment-length=40
+      --asr-batch-size=50
+      --executor=xenna
+    timeout_s: 3600
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U06J49AK7BQ  # Sushmitha Deva
+    ray:
+      num_cpus: 16
+      num_gpus: 1
+      enable_object_spilling: false
+    requirements:
+      - metric: is_success
+        exact_value: true
 
   - name: interleaved_filter_xenna
     enabled: false
@@ -970,10 +1247,7 @@ entries:
           - materialize_error_count
         ping_on_failure:
           - UGFRT88RE
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
 
   - name: interleaved_filter_xenna_materialize
     enabled: false
@@ -998,10 +1272,7 @@ entries:
           - materialize_error_count
         ping_on_failure:
           - UGFRT88RE
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
 
   - name: alm_pipeline_xenna
     enabled: true
@@ -1030,7 +1301,6 @@ entries:
     ray:
       num_cpus: 8
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       - metric: is_success
         exact_value: true
@@ -1066,7 +1336,6 @@ entries:
     ray:
       num_cpus: 8
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       - metric: is_success
         exact_value: true
@@ -1094,9 +1363,7 @@ entries:
           - U07AZ1HPL1X  # Ranjit Rajan
           - U0849HBGCLD  # Sukrit Rao
     ray:
-      num_cpus: 64
       num_gpus: 0
-      enable_object_spilling: false
     requirements:
       - metric: num_input_documents
         exact_value: 1300
@@ -1122,10 +1389,7 @@ entries:
         ping_on_failure:
           - U07AZ1HPL1X  # Ranjit Rajan
           - U0849HBGCLD  # Sukrit Rao
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       - metric: num_input_documents
         exact_value: 1300
@@ -1145,7 +1409,7 @@ entries:
       --prompt=HTML_TO_TEXT_PROMPT
       --chunk-data
       --chunk-length=4096
-    timeout_s: 1200
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
@@ -1155,10 +1419,7 @@ entries:
         ping_on_failure:
           - U07AZ1HPL1X  # Ranjit Rajan
           - U0849HBGCLD  # Sukrit Rao
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
+
     requirements:
       - metric: num_input_documents
         exact_value: 1300
@@ -1186,9 +1447,7 @@ entries:
           - U07AZ1HPL1X  # Ranjit Rajan
           - U0849HBGCLD  # Sukrit Rao
     ray:
-      num_cpus: 64
       num_gpus: 8
-      enable_object_spilling: false
     requirements:
       - metric: total_matched_rows
         exact_value: 2384

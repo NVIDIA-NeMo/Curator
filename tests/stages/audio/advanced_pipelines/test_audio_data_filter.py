@@ -27,6 +27,7 @@ from nemo_curator.stages.audio.advanced_pipelines.audio_data_filter.config impor
     load_config,
 )
 from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterStage, UTMOSFilterStage
+from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
 from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
 from nemo_curator.stages.audio.segmentation import SpeakerSeparationStage, VADSegmentationStage
 
@@ -195,21 +196,26 @@ class TestDecomposeStageCount:
         assert len(stages) == 12
 
     def test_decompose_all_disabled_except_mono(self) -> None:
-        stage = AudioDataFilterStage(config={
-            "vad": {"enable": False},
-            "band_filter": {"enable": False},
-            "utmos": {"enable": False},
-            "sigmos": {"enable": False},
-            "speaker_separation": {"enable": False},
-        })
+        stage = AudioDataFilterStage(
+            config={
+                "vad": {"enable": False},
+                "band_filter": {"enable": False},
+                "utmos": {"enable": False},
+                "sigmos": {"enable": False},
+                "speaker_separation": {"enable": False},
+            }
+        )
         stages = stage.decompose()
-        assert len(stages) == 1
+        assert len(stages) == 2
         assert isinstance(stages[0], MonoConversionStage)
+        assert isinstance(stages[1], TimestampMapperStage)
 
     def test_decompose_no_speaker_no_second_pass(self) -> None:
-        stage = AudioDataFilterStage(config={
-            "speaker_separation": {"enable": False},
-        })
+        stage = AudioDataFilterStage(
+            config={
+                "speaker_separation": {"enable": False},
+            }
+        )
         stages = stage.decompose()
         assert len(stages) == 6
         stage_types = [type(s) for s in stages]
@@ -257,10 +263,12 @@ class TestDecomposeConfig:
 
 class TestDecomposeEdgeCases:
     def test_decompose_speaker_without_vad_no_concat(self) -> None:
-        stage = AudioDataFilterStage(config={
-            "vad": {"enable": False},
-            "speaker_separation": {"enable": True},
-        })
+        stage = AudioDataFilterStage(
+            config={
+                "vad": {"enable": False},
+                "speaker_separation": {"enable": True},
+            }
+        )
         stages = stage.decompose()
         stage_types = [type(s) for s in stages]
         assert SegmentConcatenationStage not in stage_types
@@ -297,8 +305,14 @@ class TestDefaultYAMLConsistency:
     def test_default_yaml_all_stages_have_resources(self) -> None:
         cfg = load_config(None)
         stages_with_cpus = [
-            "mono_conversion", "vad", "band_filter", "utmos",
-            "sigmos", "concatenation", "speaker_separation", "timestamp_mapper",
+            "mono_conversion",
+            "vad",
+            "band_filter",
+            "utmos",
+            "sigmos",
+            "concatenation",
+            "speaker_separation",
+            "timestamp_mapper",
         ]
         for stage_name in stages_with_cpus:
             assert "cpus" in cfg[stage_name], f"{stage_name} missing 'cpus' in config"
@@ -306,4 +320,3 @@ class TestDefaultYAMLConsistency:
         stages_with_gpus = ["vad", "band_filter", "utmos", "sigmos", "speaker_separation"]
         for stage_name in stages_with_gpus:
             assert "gpus" in cfg[stage_name], f"{stage_name} missing 'gpus' in config"
-

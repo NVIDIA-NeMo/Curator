@@ -31,7 +31,7 @@ permissions:
   actions: write  # Required for gh run cancel
 
 env:
-  container-registry: nemoci.azurecr.io
+  container-registry: ${{ vars.DEFAULT_CONTAINER_REGISTRY }}
   UV_HTTP_TIMEOUT: 60
 
 jobs:
@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-interleaved", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "tasks", "utils"]
+        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-interleaved", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "eval", "tasks", "utils"]
     needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ubuntu-latest
     name: Unit_Test_${{ matrix.folder }}_CPU
@@ -86,16 +86,21 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+      - name: Install system dependencies for audio tests
+        if: matrix.folder == 'stages-audio'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: false
-      - name: Run CPU tests (Python 3.10)
+      - name: Run CPU tests (Python 3.11)
         timeout-minutes: 40
-        run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.10
-      - name: Run CPU tests (Python 3.12)
+        run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.11
+      - name: Run CPU tests (Python 3.13)
         timeout-minutes: 40
-        run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.12
+        run: bash tests/L0_Unit_Test_CPU.sh "${{ matrix.folder }}" 3.13
 
       - name: Generate report
         id: check
@@ -125,7 +130,7 @@ jobs:
         || needs.pre-flight.outputs.force_run_all == 'true'
       )
       && !cancelled()
-    runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
+    runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}
     environment: nemo-ci
     steps:
       - name: Checkout
@@ -133,11 +138,8 @@ jobs:
       - name: main
         uses: ./.github/actions/build-container
         with:
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          container-registry: ${{ env.container-registry }}
           dockerfile-path: "./docker/Dockerfile"
-          has-azure-credentials: "true"
           PAT: ${{ secrets.PAT }}
           repo-name: "Curator"
 
@@ -173,7 +175,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.cicd-gpu-test-matrix.outputs.matrix) }}
     needs: [pre-flight, cicd-wait-in-queue, cicd-container-build, cicd-gpu-test-matrix]
-    runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
+    runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}
     name: L0_Unit_Test_GPU-${{ matrix.gpu-test-group }}
     environment: nemo-ci
     if: |
@@ -193,15 +195,11 @@ jobs:
         with:
           script: L0_Unit_Test_GPU
           is_unit_test: "false"
-          has-azure-credentials: "true"
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           PAT: ${{ secrets.PAT }}
           timeout: 40
           test-data-path: ${{ needs.pre-flight.outputs.test_data_path }}
-          runner: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
+          runner: ${{ needs.pre-flight.outputs.runner_prefix }}
           container-image: ${{ env.container-registry }}/curator:${{ github.sha }}
           gpu-test-extras: ${{ matrix.extras }}
           gpu-test-paths: ${{ matrix.test-paths }}
@@ -315,6 +313,11 @@ jobs:
       matrix:
         flag: [unit-test, e2e]
     steps:
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@main
+
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -348,6 +351,7 @@ jobs:
           verbose: true
           flags: ${{ matrix.flag }}
           fail_ci_if_error: true
+          base_sha: ${{ fromJSON(steps.get-pr-info.outputs.pr-info || '{}').base.sha }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v6

@@ -40,7 +40,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, sr * 10)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": sr},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -56,7 +55,7 @@ class TestVADSegmentationStage:
             assert "start_ms" in seg.data
             assert "end_ms" in seg.data
             assert "segment_num" in seg.data
-            assert "duration_sec" in seg.data
+            assert "duration" in seg.data
 
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.load_silero_vad")
@@ -69,7 +68,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, sr * 10)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": sr},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -79,7 +77,7 @@ class TestVADSegmentationStage:
 
         assert result[0].data["start_ms"] == 0
         assert result[0].data["segment_num"] == 0
-        assert result[0].data["duration_sec"] > 0
+        assert result[0].data["duration"] > 0
         assert result[0].data["sample_rate"] == sr
 
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
@@ -91,7 +89,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, 48000 * 5)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": 48000},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -117,7 +114,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, sr * 10)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": sr},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -136,7 +132,6 @@ class TestVADSegmentationStage:
 
         task = AudioTask(
             data={"some_key": "value"},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -161,7 +156,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, sr * 10)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": sr},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -177,7 +171,7 @@ class TestVADSegmentationStage:
             assert "start_ms" in seg
             assert "end_ms" in seg
             assert "segment_num" in seg
-            assert "duration_sec" in seg
+            assert "duration" in seg
             assert "original_file" in seg
 
     @patch("nemo_curator.stages.audio.segmentation.vad_segmentation.get_speech_timestamps")
@@ -191,7 +185,6 @@ class TestVADSegmentationStage:
         waveform = torch.randn(1, 48000 * 5)
         task = AudioTask(
             data={"waveform": waveform, "sample_rate": 48000},
-            task_id="test",
             dataset_name="test",
         )
 

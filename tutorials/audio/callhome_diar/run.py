@@ -34,15 +34,16 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.inference.sortformer import InferenceSortformerStage
+from nemo_curator.stages.audio.inference.speaker_diarization.sortformer import InferenceSortformerStage
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioTask, _EmptyTask
+from nemo_curator.tasks import AudioTask, EmptyTask
 
 COLLAR = 0.25
 CKPT_HASH_KEY = "_ckpt_hash"
@@ -88,7 +89,6 @@ def _load_task(path: Path) -> AudioTask:
     """Reconstruct a single AudioTask from a checkpoint file."""
     payload = json.loads(path.read_text())
     return AudioTask(
-        task_id=payload["task_id"],
         dataset_name=payload["dataset_name"],
         data=payload["data"],
         _metadata=payload.get("_metadata", {}),
@@ -106,7 +106,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Sortformer diarization on CallHome English + DER evaluation.")
     p.add_argument("--data-dir", type=Path, required=True, help="CallHome-eng0 dataset root.")
     p.add_argument("--output-dir", type=Path, default=Path("output"), help="Root directory for all outputs.")
-    p.add_argument("--model", default="nvidia/diar_streaming_sortformer_4spk-v2", help="HF Sortformer model id.")
+    p.add_argument("--model", default="nvidia/diar_streaming_sortformer_4spk-v2.1", help="HF Sortformer model id.")
     p.add_argument("--collar", type=float, default=COLLAR, help="Collar tolerance (seconds).")
     p.add_argument("--clean", action="store_true", help="Remove entire output directory before running.")
     p.add_argument("--chunk-len", type=int, default=340, help="Streaming chunk size in 80ms frames.")
@@ -129,7 +129,7 @@ def parse_args() -> argparse.Namespace:
 
 
 @dataclass
-class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioTask]):
+class CallHomeReaderStage(ProcessingStage[EmptyTask, AudioTask]):
     """Discover CallHome WAV files with matching .cha annotations, skipping already-processed."""
 
     data_dir: str = ""
@@ -144,7 +144,10 @@ class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.filepath_key]
 
-    def process(self, task: _EmptyTask) -> list[AudioTask]:  # noqa: ARG002
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {"num_workers_per_node": 1}
+
+    def process(self, task: EmptyTask) -> list[AudioTask]:  # noqa: ARG002
         cha_path = Path(self.cha_dir)
         done = {p.stem for p in Path(self.rttm_out_dir).glob("*.rttm")} if self.rttm_out_dir else set()
         tasks: list[AudioTask] = []
@@ -155,7 +158,6 @@ class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioTask]):
             tasks.append(
                 AudioTask(
                     data={self.filepath_key: str(wav), "session_name": fid},
-                    task_id=f"callhome_{fid}",
                     dataset_name="callhome_eng0",
                 )
             )
@@ -164,7 +166,7 @@ class CallHomeReaderStage(ProcessingStage[_EmptyTask, AudioTask]):
 
 @dataclass
 class EnsureMonoStage(ProcessingStage[AudioTask, AudioTask]):
-    """Downmix stereo WAVs to mono 16 kHz via sox."""
+    """Downmix stereo WAVs to mono 16 kHz via ffmpeg."""
 
     mono_dir: str = "mono"
     filepath_key: str = "audio_filepath"
@@ -182,7 +184,7 @@ class EnsureMonoStage(ProcessingStage[AudioTask, AudioTask]):
             return mono_path
         os.makedirs(self.mono_dir, exist_ok=True)
         subprocess.run(  # noqa: S603
-            ["sox", wav_path, "-c", "1", "-r", "16000", mono_path],  # noqa: S607
+            ["ffmpeg", "-i", wav_path, "-ac", "1", "-ar", "16000", "-y", mono_path],  # noqa: S607
             check=True,
             capture_output=True,
         )
@@ -192,7 +194,6 @@ class EnsureMonoStage(ProcessingStage[AudioTask, AudioTask]):
         output_data = dict(task.data)
         output_data[self.filepath_key] = self._ensure_mono(task.data[self.filepath_key])
         return AudioTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=output_data,
             _metadata=task._metadata,
@@ -233,7 +234,6 @@ class DERComputationStage(ProcessingStage[AudioTask, AudioTask]):
                 metrics = self._compute_der(gt, output_data[self.diar_segments_key], uem_start, uem_end)
         output_data[self.der_metrics_key] = metrics
         return AudioTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=output_data,
             _metadata=task._metadata,
