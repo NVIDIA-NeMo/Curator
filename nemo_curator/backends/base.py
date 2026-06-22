@@ -157,8 +157,10 @@ class BaseStageAdapter:
         Note: a stage that BOTH filters and fans out within a single batch
         (returning a flat list rather than a per-input slot) cannot be mapped
         positionally; if its length happens to equal the input length the 1:1
-        assumption may misattribute parents. That combination is unsupported
-        until per-slot sentinels (NoneTask/FailedTask) land in a later PR.
+        assumption may misattribute parents. Such a stage falls through to the
+        ambiguous-cardinality branch above (random ``r``-prefixed ids), so its
+        outputs are not ancestry-tracked. To stay positional, a filtering stage
+        should return one value (or ``None``) per input rather than a flat list.
         """
         is_source = getattr(self.stage, "is_source_stage", False)
 

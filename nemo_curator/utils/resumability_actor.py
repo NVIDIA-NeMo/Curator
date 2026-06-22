@@ -38,13 +38,14 @@ shard-per-task model); two writers completing the *same* source id is harmless
 Workers fire ``apply_deltas`` fire-and-forget. The actor:
 
 - Maintains ``_pending: dict[source_id, int]`` (counter per in-flight source)
-- Maintains ``_applied: dict[task_hash, delta]`` (Ray-retry dedup; on a retry
-  firing a *different* delta, rewrites the pending counter to reflect the
-  newest observation rather than raising)
+- Maintains ``_applied: dict[task_id, delta]`` — ``task_id`` is the output task
+  id used as the dedup key (Ray-retry dedup; on a retry firing a *different*
+  delta, rewrites the pending counter to reflect the newest observation rather
+  than raising)
 - Writes a single LMDB row to its own file per source when its counter hits zero
 
 By design, ``apply_deltas`` **never raises**. The two anomaly cases we detect —
-same task hash producing a different delta on retry, and a delta arriving for a
+same task id producing a different delta on retry, and a delta arriving for a
 source that is already completed — are handled in-place: the first by
 rewriting, the second by logging a warning and skipping. Resumability is never
 the cause of a pipeline failure.
@@ -115,7 +116,7 @@ class ResumabilityActor:
         self._pending: dict[str, int] = {}
         # Union of completed sources across ALL writer files in the dir.
         self._completed: set[str] = self._load_completed()
-        # task_hash -> delta we previously applied for this task.
+        # task_id -> delta we previously applied for this task.
         # Dual-purpose:
         #   1. Dedup: a Ray retry firing the same delta is a silent skip.
         #   2. Rewrite-on-conflict: a retry firing a *different* delta
@@ -170,15 +171,15 @@ class ResumabilityActor:
         """Apply per-task counter deltas. Workers call this fire-and-forget
         (no ``ray.get`` on the returned ref).
 
-        Each tuple is ``(task_hash, source_id, delta)``. Behavior:
+        Each tuple is ``(task_id, source_id, delta)``. Behavior:
 
-        - ``task_hash`` already in ``_applied`` with the same delta →
+        - ``task_id`` already in ``_applied`` with the same delta →
           silent skip (Ray retry idempotency).
-        - ``task_hash`` already in ``_applied`` with a different delta and
+        - ``task_id`` already in ``_applied`` with a different delta and
           ``source_id`` NOT in ``_completed`` → rewrite: adjust
           ``_pending[source_id]`` by ``(-old + new)`` and update the
           recorded delta. Reflects the latest observation.
-        - ``task_hash`` not in ``_applied`` and ``source_id`` already in
+        - ``task_id`` not in ``_applied`` and ``source_id`` already in
           ``_completed`` → log a loud warning **and remove the source
           from the completed set (in-memory + LMDB)** so it will be
           reprocessed on the next run. Same treatment when a different
@@ -190,8 +191,8 @@ class ResumabilityActor:
         Never raises.
         """
         newly_done: list[str] = []
-        for task_hash, sid, d in per_task:
-            existing = self._applied.get(task_hash)
+        for task_id, sid, d in per_task:
+            existing = self._applied.get(task_id)
             if existing is not None:
                 if existing == d:
                     continue  # idempotent re-fire
@@ -200,7 +201,7 @@ class ResumabilityActor:
                     # delta for one of its tasks — the source wasn't actually
                     # done. Un-complete it so it reruns next launch.
                     logger.warning(
-                        f"resumability: task {task_hash} delta changed from "
+                        f"resumability: task {task_id} delta changed from "
                         f"{existing} to {d} but source {sid!r} is already "
                         f"completed. Removing {sid!r} from the completed set "
                         f"so it will be reprocessed on the next run. Please "
@@ -211,21 +212,21 @@ class ResumabilityActor:
                     self._remove_from_completed(sid)
                     continue
                 # Rewrite-on-conflict: the newest delta wins.
-                self._applied[task_hash] = d
+                self._applied[task_id] = d
                 self._pending[sid] = self._pending.get(sid, 0) + (-existing) + d
             else:
-                # New task hash.
+                # New task id.
                 if sid in self._completed:
                     logger.warning(
                         f"resumability: source {sid!r} got update for new "  # noqa: S608
-                        f"task {task_hash} (delta={d}) after being completed. "
+                        f"task {task_id} (delta={d}) after being completed. "
                         f"Removing {sid!r} from the completed set so it will "
                         f"be reprocessed on the next run. Please file an "
                         f"issue at https://github.com/NVIDIA-NeMo/Curator."
                     )
                     self._remove_from_completed(sid)
                     continue
-                self._applied[task_hash] = d
+                self._applied[task_id] = d
                 self._pending[sid] = self._pending.get(sid, 0) + d
             if self._pending[sid] == 0:
                 newly_done.append(sid)

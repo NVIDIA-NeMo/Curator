@@ -47,10 +47,11 @@ def _is_active() -> bool:
 def _flush_deltas(per_task: list[tuple[str, str, int]]) -> None:
     """Fire-and-forget per-task counter deltas to the actor.
 
-    Each entry is ``(task_hash, source_id, delta)``. Workers do NOT
-    ``ray.get`` the returned ref — errors surface to the executor via the
-    actor's watchdog poll, not synchronously on this call. Backpressure
-    is handled by Ray's ``_max_pending_calls`` cap on the actor.
+    Each entry is ``(task_id, source_id, delta)`` — ``task_id`` is the output
+    task's id, used as the dedup key. Workers do NOT ``ray.get`` the returned
+    ref; the actor is designed never to raise (anomalies are logged and handled
+    in place), so there is no synchronous error path here. Backpressure is
+    bounded by the actor's ``max_pending_calls`` cap.
     """
     a = _actor()
     if a is not None and per_task:

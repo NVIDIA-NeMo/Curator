@@ -108,8 +108,9 @@ class Pipeline:
         # 3. Source / sink defaults: at most one stage may be explicitly
         # marked; if none, the first stage is the source and the last is
         # the sink. The source flag activates content-based ids in the
-        # default ``process_batch``; the sink flag is used by the
-        # resumability layer in a follow-up PR.
+        # default ``process_batch``; the sink flag tells the resumability
+        # counters that a sink consumes its outputs (see
+        # ``BaseStageAdapter._apply_resumability_counters``).
         self._assign_source_sink_roles()
 
     def _assign_source_sink_roles(self) -> None:
