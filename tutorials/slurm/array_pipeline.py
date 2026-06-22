@@ -91,6 +91,18 @@ def _safe_token(value: object) -> str:
     return "".join(char if char.isalnum() or char in "._-" else "_" for char in str(value))
 
 
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+
+    dir_fd = os.open(path, flags)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
 def _parse_int_or_env_name(value: str) -> int | str:
     """Parse an integer value or keep an environment variable name."""
     try:
@@ -230,6 +242,7 @@ def write_retry_manifest(  # noqa: PLR0913
             tmp_file.flush()
             os.fsync(tmp_file.fileno())
         os.replace(tmp_path, manifest_file)
+        _fsync_directory(retry_dir)
     except Exception:
         if tmp_path is not None:
             with contextlib.suppress(FileNotFoundError):
