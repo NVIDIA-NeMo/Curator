@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -84,6 +85,9 @@ class BaseStageAdapter:
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
 
+        # Guarantee every emitted task has a task_id (derived id, or uuid fallback).
+        results = self._post_process_task_ids(tasks, results)
+
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
         # Consume and attach any custom metrics recorded by the stage during this call
@@ -94,6 +98,75 @@ class BaseStageAdapter:
             task.add_stage_perf(stage_perf_stats)
 
         return results
+
+    def _post_process_task_ids(self, input_tasks: list[Task], output_tasks: list[Task | None]) -> list[Task]:
+        """Assign a deterministic ``task_id`` to every emitted task.
+
+        This is the single place task ids are assigned — it runs for every
+        stage on every backend (all backend adapters subclass this), so it
+        makes no difference whether a stage defines ``process`` or overrides
+        ``process_batch``. ``task_id`` is the task's id path (parents + own segment); ids are
+        re-derived at each stage boundary so the same object passing through
+        N stages gets N ids.
+
+        The input→output mapping decides each output's PARENT; whether the
+        stage is a source decides each output's SEGMENT (content id vs index)
+        — the two are independent. ``None`` outputs (Curator's "return None to
+        filter") are NOT removed before the length check — keeping them in
+        place preserves positional alignment for filter stages — and are then
+        dropped from the returned list.
+
+        - single input → every output is its child (fan-out): ``parent_<seg>``
+        - ``len(output) == len(input)`` → positional 1:1: each ``parent_i_<seg>``;
+          a ``None`` slot just means input ``i`` was filtered.
+        - any other (ambiguous) cardinality across a batch → a random ``uuid``
+          prefixed with ``"r"`` (e.g. ``"r3f9a…"``), so ``task_id`` is never
+          empty even when a derived id is not possible. The ``"r"`` prefix flags
+          the id as non-deterministic / ancestry-not-tracked (see
+          ``Task.task_id`` docstring).
+
+        ``seg`` is the output's content id (``Task.get_deterministic_id()``)
+        for a source stage when available, else the positional index — so a
+        source partition keeps a stable id across reorderings regardless of
+        whether the source is 1→N or N→N.
+
+        Note: a stage that BOTH filters and fans out within a single batch
+        (returning a flat list rather than a per-input slot) cannot be mapped
+        positionally; if its length happens to equal the input length the 1:1
+        assumption may misattribute parents. That combination is unsupported
+        until per-slot sentinels (NoneTask/FailedTask) land in a later PR.
+        """
+        is_source = getattr(self.stage, "is_source_stage", False)
+
+        if len(input_tasks) == 1:
+            # Fan-out (incl. a source reading from EmptyTask): every non-None
+            # output is a child of the single input.
+            parent_id = input_tasks[0].task_id
+            out: list[Task] = [t for t in output_tasks if t is not None]
+            for i, task in enumerate(out):
+                suffix = (task.get_deterministic_id() or i) if is_source else i
+                task._set_task_id(parent_id, suffix)
+            return out
+
+        if len(output_tasks) == len(input_tasks):
+            # Positional 1:1. None is kept above so a filtered slot still lines
+            # up with its own parent; drop the None slots from the result.
+            out = []
+            for parent, task in zip(input_tasks, output_tasks, strict=True):
+                if task is None:
+                    continue
+                suffix = (task.get_deterministic_id() or 0) if is_source else 0
+                task._set_task_id(parent.task_id, suffix)
+                out.append(task)
+            return out
+
+        # Ambiguous cardinality across a batch: a derived id is not possible. Use a
+        # random "r"-prefixed uuid so task_id is non-empty but clearly flagged
+        # non-deterministic.
+        out = [t for t in output_tasks if t is not None]
+        for task in out:
+            task.task_id = "r" + uuid.uuid4().hex
+        return out
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup the stage on a node.

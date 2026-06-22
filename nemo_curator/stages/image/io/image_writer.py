@@ -227,7 +227,6 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
         # Return FileGroupTask with produced files
         return FileGroupTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=[*tar_paths, *parquet_paths],
             _metadata={

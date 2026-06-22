@@ -57,7 +57,7 @@ from nemo_curator.stages.audio.alm.pretrain import (
     finalize_audio_pretrain_outputs,
     prepare_audio_pretrain_outputs,
 )
-from nemo_curator.tasks import _EmptyTask
+from nemo_curator.tasks import EmptyTask
 
 _LOCAL_MANIFEST = Path(__file__).resolve().parent / "sample_long_form_manifest.jsonl"
 _NUM_ROWS = 10
@@ -163,7 +163,7 @@ def _run_pipeline_inline(  # noqa: PLR0913
     aggregator.setup_on_node()
     aggregator.setup()
 
-    for input_task in reader.process(_EmptyTask(task_id="e", dataset_name="e", data=None)):
+    for input_task in reader.process(EmptyTask(dataset_name="e", data=None)):
         filtered = overlap.process(input_task)
         planned = planner.process(filtered)
         rep_filtered = rep_filter.process(planned)

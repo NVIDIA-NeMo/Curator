@@ -94,16 +94,20 @@ class TestNemotronCCNDDStages:
         stage = _make_stage(stage_cls)
         stage.setup()
 
-        output_df = pd.DataFrame([{
-            "text": "doc",
-            _FORMATTED_PROMPT_COL: "prompt",
-            output_field: "generated",
-        }])
+        output_df = pd.DataFrame(
+            [
+                {
+                    "text": "doc",
+                    _FORMATTED_PROMPT_COL: "prompt",
+                    output_field: "generated",
+                }
+            ]
+        )
         stage.data_designer.preview = MagicMock(
             return_value=PreviewResults(config_builder=stage.config_builder, dataset=output_df)
         )
 
-        batch = DocumentBatch(data=pd.DataFrame([{"text": "doc"}]), dataset_name="ds", task_id="t1")
+        batch = DocumentBatch(data=pd.DataFrame([{"text": "doc"}]), dataset_name="ds")
         out = stage.process(batch)
 
         assert isinstance(out, DocumentBatch)
@@ -137,7 +141,7 @@ class TestNemotronCCNDDStages:
         )
         stage.setup()
 
-        batch = DocumentBatch(data=pd.DataFrame([{"text": "hello"}]), dataset_name="ds", task_id="t1")
+        batch = DocumentBatch(data=pd.DataFrame([{"text": "hello"}]), dataset_name="ds")
         out = stage.process(batch)
 
         assert isinstance(out, DocumentBatch)
@@ -192,9 +196,7 @@ class TestNemotronCCNDDPipelineIntegration:
             description=f"{stage_cls.__name__} via pipeline.run()",
             stages=[stage],
         )
-        initial_tasks = [
-            DocumentBatch(data=pd.DataFrame([{"text": "hello"}]), dataset_name="integration", task_id="e2e-1")
-        ]
+        initial_tasks = [DocumentBatch(data=pd.DataFrame([{"text": "hello"}]), dataset_name="integration")]
         result_tasks = pipeline.run(XennaExecutor(config={"execution_mode": "streaming"}), initial_tasks=initial_tasks)
 
         assert len(result_tasks) == 1
@@ -205,9 +207,7 @@ class TestNemotronCCNDDPipelineIntegration:
         assert _FORMATTED_PROMPT_COL not in out.data.columns
         assert len(out.data) == 1
 
-    def test_pipeline_e2e_reader_ndd_writer(
-        self, httpserver: pytest_httpserver.HTTPServer, tmp_path: Path
-    ) -> None:
+    def test_pipeline_e2e_reader_ndd_writer(self, httpserver: pytest_httpserver.HTTPServer, tmp_path: Path) -> None:
         """JsonlReader -> WikipediaParaphrasingStage -> JsonlWriter. Verifies files, _metadata, _stage_perf."""
         from nemo_curator.backends.xenna import XennaExecutor
 

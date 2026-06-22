@@ -41,8 +41,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _make_audio_task(data: dict | None = None, *, task_id: str = "t1") -> AudioTask:
-    return AudioTask(task_id=task_id, dataset_name="ds", data=data or {})
+def _make_audio_task(data: dict | None = None) -> AudioTask:
+    return AudioTask(dataset_name="ds", data=data or {})
 
 
 def _ts(start: float, end: float, text: str = "x", text_itn: str | None = None) -> dict:
@@ -153,7 +153,7 @@ class TestSnippetRepetitionFilterStage:
         )
 
     def _make_task_with_plan(self, plan: list[dict]) -> AudioTask:
-        task = AudioTask(task_id="t1", dataset_name="ds", data={_PLAN_DATA_KEY: plan})
+        task = AudioTask(dataset_name="ds", data={_PLAN_DATA_KEY: plan})
         task._metadata = {}
         return task
 
@@ -246,12 +246,8 @@ class TestSnippetRepetitionFilterStage:
 
         repeat = "thank you for watching " * 10
         # Build TWO tasks with the same plan; process() runs once per task.
-        task1 = self._make_task_with_plan(
-            [{"start": 0.0, "end": 30.0, "segments": [_ts(0.0, 30.0, repeat)]}]
-        )
-        task2 = self._make_task_with_plan(
-            [{"start": 0.0, "end": 30.0, "segments": [_ts(0.0, 30.0, repeat)]}]
-        )
+        task1 = self._make_task_with_plan([{"start": 0.0, "end": 30.0, "segments": [_ts(0.0, 30.0, repeat)]}])
+        task2 = self._make_task_with_plan([{"start": 0.0, "end": 30.0, "segments": [_ts(0.0, 30.0, repeat)]}])
         # First-pass result.
         out1 = stage.process(task1)
         meta1 = out1._metadata[_PRETRAIN_META_KEY]

@@ -251,7 +251,6 @@ class FormatAegisPromptStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         df = self._wrap_in_prompt(df)
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,
@@ -360,7 +359,6 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
         df = self._postprocess_responses(df)
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,

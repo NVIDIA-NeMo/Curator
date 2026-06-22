@@ -46,7 +46,7 @@ from nemo_curator.stages.audio.alm.pretrain.utils import (
 )
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioTask, _EmptyTask
+from nemo_curator.tasks import AudioTask, EmptyTask
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -57,9 +57,7 @@ if TYPE_CHECKING:
 # ----------------------------------------------------------------------
 
 
-def _read_manifest_row_id(
-    stage_name: str, lineno: int, entry: dict[str, Any], seen_ids: set[str]
-) -> str | None:
+def _read_manifest_row_id(stage_name: str, lineno: int, entry: dict[str, Any], seen_ids: set[str]) -> str | None:
     # `id` is required by the pipeline contract: downstream snippet ids
     # embed it, the metrics aggregator keys per-source records on it, and
     # tar members are named with it. A row without a usable id can't be
@@ -102,7 +100,7 @@ def _check_duplicate_audio_basename(
 
 
 @dataclass
-class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
+class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
     """Read a JSONL manifest of long-form audios; emit one AudioTask per row.
 
     Each line in ``input_manifest`` is parsed as JSON and re-emitted as
@@ -118,7 +116,7 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
     fallback collapsed per-source metrics and could collide tar member
     names when source times matched).
 
-    This is the entry-point ``_EmptyTask -> list[AudioTask]`` fan-out
+    This is the entry-point ``EmptyTask -> list[AudioTask]`` fan-out
     stage following the same pattern as
     ``CreateInitialManifestReadSpeechStage``.
 
@@ -163,7 +161,7 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
     def xenna_stage_spec(self) -> dict[str, Any]:
         return {"num_workers": 1}
 
-    def process(self, _: _EmptyTask) -> list[AudioTask]:
+    def process(self, _: EmptyTask) -> list[AudioTask]:
         t0 = time.perf_counter()
         if self.audio_path_resolution not in _AUDIO_PATH_RESOLUTION_MODES:
             msg = (
@@ -202,16 +200,13 @@ class ReadLongFormManifestStage(ProcessingStage[_EmptyTask, AudioTask]):
                     logger.warning(f"[{self.name}] line {lineno}: missing {self.audio_filepath_key!r}; skipping")
                     continue
                 if self.audio_path_resolution == AUDIO_PATH_RESOLUTION_BASENAME:
-                    _check_duplicate_audio_basename(
-                        self.name, lineno, original_path, row_id, seen_basenames
-                    )
+                    _check_duplicate_audio_basename(self.name, lineno, original_path, row_id, seen_basenames)
                 entry[self.audio_filepath_key] = _resolve_audio_path(
                     self.audio_dir, original_path, self.audio_path_resolution
                 )
 
                 tasks.append(
                     AudioTask(
-                        task_id=row_id,
                         dataset_name=self.dataset_name,
                         data=entry,
                         filepath_key=self.audio_filepath_key,

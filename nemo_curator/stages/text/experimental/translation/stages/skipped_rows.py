@@ -55,7 +55,6 @@ class SkipExistingTranslationsStage(ProcessingStage[DocumentBatch, DocumentBatch
                 len(df),
             )
             return DocumentBatch(
-                task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
                 data=df,
                 _metadata=metadata,
@@ -89,7 +88,6 @@ class SkipExistingTranslationsStage(ProcessingStage[DocumentBatch, DocumentBatch
         )
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=remaining_df,
             _metadata=metadata,
@@ -136,7 +134,6 @@ class RestoreSkippedRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             if order_col in df.columns:
                 df = df.drop(columns=[order_col])
             return DocumentBatch(
-                task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
                 data=df,
                 _metadata=metadata,
@@ -168,7 +165,6 @@ class RestoreSkippedRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=merged,
             _metadata=metadata,

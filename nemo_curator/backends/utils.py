@@ -130,6 +130,9 @@ class RayStageSpecKeys(str, Enum):
     IS_LSH_STAGE = "is_lsh_stage"
     IS_SHUFFLE_STAGE = "is_shuffle_stage"
     MAX_CALLS_PER_WORKER = "max_calls_per_worker"
+    MIN_WORKERS = "min_workers"
+    MAX_WORKERS = "max_workers"
+    INITIAL_WORKERS = "initial_workers"
     RAY_REMOTE_ARGS = "ray_remote_args"
 
 

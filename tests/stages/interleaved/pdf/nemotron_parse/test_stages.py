@@ -34,11 +34,11 @@ from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
-from nemo_curator.tasks import _EmptyTask
+from nemo_curator.tasks import EmptyTask
 
 
-def _empty_task() -> _EmptyTask:
-    return _EmptyTask(task_id="empty", dataset_name="test", data=None)
+def _empty_task() -> EmptyTask:
+    return EmptyTask(dataset_name="test", data=None)
 
 
 class TestPDFPartitioningStage:
@@ -182,7 +182,6 @@ class TestPDFPreprocessStage:
         from nemo_curator.tasks import FileGroupTask
 
         task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test",
             data=[entry],
         )
@@ -204,7 +203,6 @@ class TestPDFPreprocessStage:
         from nemo_curator.tasks import FileGroupTask
 
         task = FileGroupTask(
-            task_id="test_task",
             dataset_name="test",
             data=[entry],
         )
@@ -224,7 +222,7 @@ class TestPDFPreprocessStage:
         entry = json.dumps({"file_name": "0001234.pdf", "url": "http://test"})
         from nemo_curator.tasks import FileGroupTask
 
-        task = FileGroupTask(task_id="test_task", dataset_name="test", data=[entry])
+        task = FileGroupTask(dataset_name="test", data=[entry])
         stage = PDFPreprocessStage(zip_base_dir=str(tmp_path))
         result = stage.process(task)
         assert result is not None
@@ -245,7 +243,7 @@ class TestPDFPreprocessStage:
         )
         from nemo_curator.tasks import FileGroupTask
 
-        task = FileGroupTask(task_id="test_task", dataset_name="test", data=[entry])
+        task = FileGroupTask(dataset_name="test", data=[entry])
         stage = PDFPreprocessStage(jsonl_base_dir=str(jsonl_dir))
         result = stage.process(task)
         assert result is not None
@@ -267,7 +265,7 @@ class TestPDFPreprocessStage:
         entry = json.dumps({"file_name": "test.pdf", "url": "http://test", "jsonl_file": "data.jsonl", "line_idx": 1})
         from nemo_curator.tasks import FileGroupTask
 
-        task = FileGroupTask(task_id="test_task", dataset_name="test", data=[entry])
+        task = FileGroupTask(dataset_name="test", data=[entry])
         stage = PDFPreprocessStage(jsonl_base_dir=str(jsonl_dir))
         result = stage.process(task)
         assert result is not None
@@ -277,7 +275,7 @@ class TestPDFPreprocessStage:
         entry = json.dumps({"file_name": "test.pdf"})
         from nemo_curator.tasks import FileGroupTask
 
-        task = FileGroupTask(task_id="t", dataset_name="test", data=[entry])
+        task = FileGroupTask(dataset_name="test", data=[entry])
         stage = PDFPreprocessStage()
         with pytest.raises(ValueError, match="One of"):
             stage.process(task)
@@ -311,7 +309,6 @@ class TestNemotronParsePostprocessStage:
         )
 
         task = InterleavedBatch(
-            task_id="test",
             dataset_name="test",
             data=pa.Table.from_pandas(result_df),
             _metadata={"proc_size": [100, 100], "model_path": "v1.2"},
@@ -355,7 +352,6 @@ class TestNemotronParsePostprocessStage:
         )
 
         task = InterleavedBatch(
-            task_id="test",
             dataset_name="test",
             data=pa.Table.from_pandas(result_df),
             _metadata={"proc_size": [100, 100], "model_path": "v1.2"},
@@ -430,7 +426,7 @@ class TestNemotronParseInferenceStageMetrics:
                 }
             ]
         )
-        task = InterleavedBatch(task_id="test", dataset_name="test", data=pa.Table.from_pandas(task_df))
+        task = InterleavedBatch(dataset_name="test", data=pa.Table.from_pandas(task_df))
 
         stage = NemotronParseInferenceStage(backend="vllm")
         stage._proc_size = (100, 100)

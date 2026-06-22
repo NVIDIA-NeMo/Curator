@@ -259,7 +259,14 @@ class TestRayStageSpecKeys:
     def test_enum_membership_compatibility(self):
         """Test that the fixed pattern works across Python versions."""
         # Test data
-        valid_keys = ["is_actor_stage", "is_fanout_stage", "is_lsh_stage"]
+        valid_keys = [
+            "is_actor_stage",
+            "is_fanout_stage",
+            "is_lsh_stage",
+            "min_workers",
+            "max_workers",
+            "initial_workers",
+        ]
         invalid_keys = ["invalid_key", "another_bad_key"]
 
         # Test the fixed pattern - this is what's now used in the adapter

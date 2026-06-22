@@ -500,4 +500,5 @@ ignore = [
   "**/test_*.py",
   "**/*.bat",
   "**/.gitkeep",
+  "eval/**",
 ]

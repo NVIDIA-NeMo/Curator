@@ -23,7 +23,7 @@ import pytest
 # Suppress GPU-related import errors when running pytest -m "not gpu"
 with suppress(ImportError):
     from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
-    from nemo_curator.tasks import FileGroupTask, _EmptyTask
+    from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
 @pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU
@@ -80,7 +80,7 @@ class TestClusterWiseFilePartitioningStage:
         mock_path_normalizer = Mock(side_effect=lambda x: x)
         stage.path_normalizer = mock_path_normalizer
 
-        empty_task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+        empty_task = EmptyTask(dataset_name="test", data=None)
         result = stage.process(empty_task)
 
         # Verify path_normalizer was called exactly 3 times (once per centroid directory)
@@ -99,14 +99,11 @@ class TestClusterWiseFilePartitioningStage:
         result.sort(key=lambda x: x._metadata["centroid_id"])
 
         # Check each task
-        assert result[0].task_id == "pairwise_centroid_0"
         assert result[0]._metadata == {"centroid_id": 0, "filetype": "parquet"}
         assert result[0].data == [str(centroid_0_dir / "file1.parquet"), str(centroid_0_dir / "file2.parquet")]
 
-        assert result[1].task_id == "pairwise_centroid_1"
         assert result[1]._metadata == {"centroid_id": 1, "filetype": "parquet"}
         assert result[1].data == [str(centroid_1_dir / "file3.parquet")]
 
-        assert result[2].task_id == "pairwise_centroid_2"
         assert result[2]._metadata == {"centroid_id": 2, "filetype": "parquet"}
         assert result[2].data == [str(centroid_2_dir / "file4.parquet"), str(centroid_2_dir / "file5.parquet")]

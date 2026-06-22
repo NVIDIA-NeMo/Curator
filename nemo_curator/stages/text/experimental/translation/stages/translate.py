@@ -185,7 +185,6 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             df["_translation_time"] = [0.0] * len(segments)
             df["_translation_error"] = [""] * len(segments)
             return DocumentBatch(
-                task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
                 data=df,
                 _metadata=batch._metadata,
@@ -202,7 +201,6 @@ class SegmentTranslationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         df["_translation_error"] = errors
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,

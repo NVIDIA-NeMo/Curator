@@ -105,7 +105,6 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 if col not in out_df.columns:
                     out_df[col] = pd.Series(dtype=_OUTPUT_COLUMN_DTYPES.get(col, "object"))
             return DocumentBatch(
-                task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
                 data=out_df,
                 _metadata=batch._metadata,
@@ -122,7 +121,6 @@ class ReassemblyStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         out_df = out_df.reset_index(drop=True)
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=out_df,
             _metadata=batch._metadata,
