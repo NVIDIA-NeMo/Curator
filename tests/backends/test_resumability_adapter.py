@@ -123,7 +123,8 @@ class TestNoneNormalization:
         parent = _task("s_0", source_id="s")
         out, captured = _process(_DropStage(), [parent])
         assert out == []  # the NoneTask sentinel is stripped from the output
-        assert captured == [("s_0", "s", -1)]  # the filtered slot is consumed
+        # Keyed on the NoneTask's assigned OUTPUT id ("s_0_0"), not the parent.
+        assert captured == [("s_0_0", "s", -1)]  # the filtered slot is consumed
 
 
 class TestSourceStage:
@@ -164,7 +165,8 @@ class TestNonSourceStage:
         parent = _task("s_0", source_id="s")
         child = _task("s_0_0")
         _out, captured = _counters(stage, [parent], [child])
-        assert captured == [("s_0", "s", 0)]
+        # Keyed on the OUTPUT id (child), not the parent.
+        assert captured == [("s_0_0", "s", 0)]
         assert child._source_id == "s"  # inherited
 
     def test_one_to_one_sink_minus_one(self) -> None:
@@ -172,19 +174,25 @@ class TestNonSourceStage:
         stage.is_sink_stage = True
         parent = _task("s_0", source_id="s")
         _out, captured = _counters(stage, [parent], [_task("s_0_0")])
-        assert captured == [("s_0", "s", -1)]
+        assert captured == [("s_0_0", "s", -1)]
 
     def test_nonetask_slot_decrements(self) -> None:
-        # The counter keys on the PARENT's identity, so the NoneTask itself is
-        # bare (no id / source_id) — it just marks "this slot was filtered".
+        # NoneTask keys on its own assigned OUTPUT id (here "s_0_0"), so it can't
+        # collide with the source's +1 for the same partition ("s_0").
         parent = _task("s_0", source_id="s")
-        _out, captured = _counters(_NoopStage(), [parent], [NoneTask()])
-        assert captured == [("s_0", "s", -1)]
+        nt = NoneTask()
+        nt.task_id = "s_0_0"
+        _out, captured = _counters(_NoopStage(), [parent], [nt])
+        assert captured == [("s_0_0", "s", -1)]
 
-    def test_failedtask_slot_no_delta(self) -> None:
+    def test_failedtask_slot_zero_delta(self) -> None:
+        # Failed fires delta 0 (keyed on its output id): the source's +1 stays,
+        # so the source never completes and reruns. No sink test for Failed.
         parent = _task("s_0", source_id="s")
-        _out, captured = _counters(_NoopStage(), [parent], [FailedTask()])
-        assert captured == []
+        ft = FailedTask()
+        ft.task_id = "s_0_0"
+        _out, captured = _counters(_NoopStage(), [parent], [ft])
+        assert captured == [("s_0_0", "s", 0)]
 
     def test_fanout_grows_counter(self) -> None:
         stage = _NoopStage()
@@ -192,9 +200,42 @@ class TestNonSourceStage:
         parent = _task("s_0", source_id="s")
         c0, c1, c2 = _task("s_0_0"), _task("s_0_1"), _task("s_0_2")
         _out, captured = _counters(stage, [parent], [c0, c1, c2])
-        # 1 input -> 3 children: net +2 for the source.
-        assert captured == [("s_0", "s", 2)]
+        # 1 input -> 3 real children: net +2, keyed on output[0] ("s_0_0").
+        assert captured == [("s_0_0", "s", 2)]
         assert all(c._source_id == "s" for c in (c0, c1, c2))
+
+    def test_fanout_nonsink_mixed_real_none_failed(self) -> None:
+        # 1 -> [real, None, Failed], non-sink: real continues (+1), Failed keeps
+        # the source open (+1), None contributes 0, parent consumed (-1).
+        stage = _NoopStage()
+        stage.is_sink_stage = False
+        parent = _task("s_0", source_id="s")
+        real = _task("s_0_0")
+        nt, ft = NoneTask(), FailedTask()
+        nt.task_id, ft.task_id = "s_0_1", "s_0_2"
+        _out, captured = _counters(stage, [parent], [real, nt, ft])
+        # net = continuing(1) + failed(1) - 1 = 1, keyed on output[0].
+        assert captured == [("s_0_0", "s", 1)]
+
+    def test_fanout_sink_real_outputs_leave(self) -> None:
+        # 1 -> [real, real, Failed] at a SINK: real outputs leave (0), Failed
+        # stays (+1), parent consumed (-1) -> net 0, source stays open.
+        stage = _NoopStage()
+        stage.is_sink_stage = True
+        parent = _task("s_0", source_id="s")
+        r0, r1 = _task("s_0_0"), _task("s_0_1")
+        ft = FailedTask()
+        ft.task_id = "s_0_2"
+        _out, captured = _counters(stage, [parent], [r0, r1, ft])
+        assert captured == [("s_0_0", "s", 0)]
+
+    def test_empty_output_skips(self) -> None:
+        # A stage that emits nothing (not even a NoneTask) is degenerate: there
+        # is no output to key a delta on, so nothing is fired.
+        parent = _task("s_0", source_id="s")
+        out, captured = _counters(_NoopStage(), [parent], [])
+        assert captured == []
+        assert out == []
 
     def test_ambiguous_batch_skips_counters(self) -> None:
         # 2 inputs -> 3 outputs: can't attribute, so no deltas are fired.

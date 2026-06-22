@@ -193,9 +193,22 @@ class BaseStageAdapter:
     # drops already-completed sources. Sentinels are stripped by the caller.
     # ------------------------------------------------------------------ #
     def _apply_resumability_counters(self, input_tasks: list[Task], output_tasks: list[Task]) -> list[Task]:  # noqa: C901
+        # Every delta's dedup key is an OUTPUT task_id, never an input's
+        # (``parent.task_id``). The source fires ``+1`` keyed on its output
+        # partition's id; that id is the *input* id of the next stage, so keying
+        # a downstream delta on the input would reuse the source's key and the
+        # actor would treat the two as one conflicting event. An output id is
+        # always one level deeper, so it's unique to the (task, stage) that
+        # produced it.
         stage = self.stage
         if getattr(stage, "is_source_stage", False):
             return self._source_counters(output_tasks)
+
+        # No outputs at all. Filtering is expressed as None -> NoneTask (a kept
+        # slot), so a stage that emits nothing is degenerate; there is no output
+        # to key a delta on, so skip (like the ambiguous-cardinality case).
+        if not output_tasks:
+            return output_tasks
 
         # Pre-source stages: inputs carry no _source_id, so there's nothing to
         # track yet. Leave outputs untouched.
@@ -207,26 +220,39 @@ class BaseStageAdapter:
         real = [t for t in output_tasks if not isinstance(t, (NoneTask, FailedTask))]
 
         if len(input_tasks) == 1 and len(output_tasks) != 1:
-            # Genuine fan-out (1 -> N, N != 1): every real output descends from
-            # the single input. (The 1 -> 1 case falls through to the positional
-            # branch so a lone FailedTask is handled as "no delta".)
+            # Genuine fan-out (1 -> N, N != 1). One net delta for the parent it
+            # is consumed (-1); each real child continues (+1) unless this is a
+            # sink, where children leave the pipeline (0); each FailedTask keeps
+            # the source open (+1); NoneTask contributes nothing. sink and
+            # fan-out are independent, so the sink test applies here too.
             parent = input_tasks[0]
-            delta = -1 if is_sink else (len(real) - 1)
-            per_task.append((parent.task_id, parent._source_id, delta))
+            n_failed = sum(1 for t in output_tasks if isinstance(t, FailedTask))
+            continuing = 0 if is_sink else len(real)
+            delta = continuing + n_failed - 1
+            # Key on output_tasks[0].task_id (NOT parent.task_id, which collides
+            # with the source's +1). It always ends in "_0": get_deterministic_id()
+            # is consulted only for source stages (which return via
+            # _source_counters and never reach here), so non-source children are
+            # indexed positionally (suffix 0, 1, ...) -> output[0] is "<parent>_0".
+            per_task.append((output_tasks[0].task_id, parent._source_id, delta))
             for c in real:
                 if not c._source_id:
                     c._source_id = parent._source_id
         elif len(output_tasks) == len(input_tasks):
-            # Positional 1:1, including filtered (NoneTask) / failed slots.
+            # Positional 1:1, including filtered (NoneTask) / failed slots. Each
+            # delta keys on the OUTPUT id (r.task_id).
             for parent, r in zip(input_tasks, output_tasks, strict=True):
                 sid = parent._source_id
-                if isinstance(r, FailedTask):
-                    # No delta: the input stays pending so its source reruns.
-                    continue
                 if isinstance(r, NoneTask):
-                    per_task.append((parent.task_id, sid, -1))
+                    # Filtered: this slot is consumed.
+                    per_task.append((r.task_id, sid, -1))
                     continue
-                per_task.append((parent.task_id, sid, -1 if is_sink else 0))
+                if isinstance(r, FailedTask):
+                    # Failed: leave the source open so it reruns (no sink test).
+                    per_task.append((r.task_id, sid, 0))
+                    continue
+                # Real: a sink consumes it (-1); otherwise it passes through (0).
+                per_task.append((r.task_id, sid, -1 if is_sink else 0))
                 if not r._source_id:
                     r._source_id = sid
         else:
