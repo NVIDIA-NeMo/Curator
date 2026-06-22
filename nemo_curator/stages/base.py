@@ -19,7 +19,7 @@ import copy
 import time
 from abc import ABC, ABCMeta, abstractmethod
 from inspect import isabstract
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, final, get_origin, get_type_hints
 
 from loguru import logger
 
@@ -328,7 +328,27 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         Returns (dict[str, Any]):
             Dictionary containing Ray-specific configuration
         """
+        if self._process_returns_list():
+            return {"is_fanout_stage": True}
         return {}
+
+    @classmethod
+    def _process_returns_list(cls) -> bool:
+        """Return whether the stage's process annotation can return a list."""
+        try:
+            return_annotation = get_type_hints(cls.process).get("return")
+        except (NameError, TypeError, AttributeError):
+            return_annotation = cls.process.__annotations__.get("return")
+
+        return cls._annotation_includes_list(return_annotation)
+
+    @staticmethod
+    def _annotation_includes_list(annotation: object) -> bool:
+        """Return whether an annotation is or includes a list type."""
+        if isinstance(annotation, str):
+            return annotation.strip().startswith(("list[", "List[", "typing.List["))
+
+        return get_origin(annotation) is list
 
     # --- Custom per-stage metrics helpers ---
     def _log_metrics(self, metrics: dict[str, float]) -> None:

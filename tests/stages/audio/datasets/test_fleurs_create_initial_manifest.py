@@ -244,6 +244,13 @@ def test_prepare_fleurs_stage_dataset_does_not_recopy(tmp_path: Path) -> None:
     assert (output_path / "hy_am" / "train.tsv").is_file()
 
 
+def test_create_initial_manifest_stage_is_ray_fanout_stage(tmp_path: Path) -> None:
+    stage_cls, _ = _import_stage_module()
+    stage = stage_cls(lang="hy_am", split="dev", raw_data_dir=tmp_path.as_posix())
+
+    assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+
+
 def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
     stage_cls, _ = _import_stage_module()
     lang = "hy_am"

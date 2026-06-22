@@ -17,12 +17,10 @@ import pathlib
 import subprocess
 import uuid
 from dataclasses import dataclass
-from typing import Any
 
 from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import Clip, Video, VideoTask
@@ -90,19 +88,13 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def ray_stage_spec(self) -> dict[str, Any]:
-        """Ray stage specification for this stage."""
-        return {
-            RayStageSpecKeys.IS_FANOUT_STAGE: True,
-        }
-
-    def process(self, task: VideoTask) -> VideoTask:
+    def process(self, task: VideoTask) -> list[VideoTask]:
         video = task.data
 
         if not video.clips:
             logger.warning(f"No clips to transcode for {video.input_video}. Skipping...")
             video.source_bytes = None
-            return task
+            return [task]
 
         with make_pipeline_temporary_dir(sub_dir="transcode") as tmp_dir:
             # write video to file

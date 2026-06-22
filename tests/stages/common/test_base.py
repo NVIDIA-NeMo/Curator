@@ -51,6 +51,60 @@ class ConcreteProcessingStage(ProcessingStage[MockTask, MockTask]):
         return [], []
 
 
+class FanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
+    """ProcessingStage that returns multiple tasks."""
+
+    name = "FanoutProcessingStage"
+
+    def process(self, task: MockTask) -> list[MockTask]:
+        return [task]
+
+
+class MaybeFanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
+    """ProcessingStage that may return multiple tasks."""
+
+    name = "MaybeFanoutProcessingStage"
+
+    def process(self, task: MockTask) -> MockTask | list[MockTask]:
+        return task
+
+
+class ExplicitMaybeFanoutProcessingStage(MaybeFanoutProcessingStage):
+    """Maybe-fanout stage that opts into Ray fanout explicitly."""
+
+    name = "ExplicitMaybeFanoutProcessingStage"
+
+    def ray_stage_spec(self) -> dict[str, bool]:
+        return {"is_fanout_stage": True}
+
+
+class StringAnnotatedFanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
+    """ProcessingStage with a string return annotation."""
+
+    name = "StringAnnotatedFanoutProcessingStage"
+
+    def process(self, task: MockTask) -> list[MockTask]:
+        return [task]
+
+
+StringAnnotatedFanoutProcessingStage.process.__annotations__["return"] = "list[MissingTask]"
+
+
+class AttributeErrorAnnotatedFanoutProcessingStage(ProcessingStage[MockTask, MockTask]):
+    """ProcessingStage with a string annotation that raises AttributeError in get_type_hints."""
+
+    name = "AttributeErrorAnnotatedFanoutProcessingStage"
+
+    def process(self, task: MockTask) -> list[MockTask]:
+        return [task]
+
+
+missing_annotation_namespace = object()
+AttributeErrorAnnotatedFanoutProcessingStage.process.__annotations__["return"] = (
+    "list[missing_annotation_namespace.MissingTask]"
+)
+
+
 class TestProcessingStageWith:
     """Test the with_ method for ProcessingStage."""
 
@@ -266,6 +320,40 @@ class TestProcessingStageWith:
         # But the instances created with with_ should still have their custom values
         assert stage_with_custom.resources == Resources(cpus=5.0)
         assert stage_with_custom2.resources == Resources(cpus=7.0)
+
+
+class TestProcessingStageRaySpec:
+    """Test Ray stage spec defaults."""
+
+    def test_default_ray_stage_spec_empty_for_single_task_stage(self):
+        stage = ConcreteProcessingStage()
+
+        assert stage.ray_stage_spec() == {}
+
+    def test_ray_stage_spec_detects_fanout_stage(self):
+        stage = FanoutProcessingStage()
+
+        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+
+    def test_ray_stage_spec_does_not_infer_optional_fanout_stage(self):
+        stage = MaybeFanoutProcessingStage()
+
+        assert stage.ray_stage_spec() == {}
+
+    def test_ray_stage_spec_allows_optional_fanout_stage_to_opt_in(self):
+        stage = ExplicitMaybeFanoutProcessingStage()
+
+        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+
+    def test_ray_stage_spec_detects_string_annotated_fanout_stage(self):
+        stage = StringAnnotatedFanoutProcessingStage()
+
+        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
+
+    def test_ray_stage_spec_falls_back_after_attribute_error(self):
+        stage = AttributeErrorAnnotatedFanoutProcessingStage()
+
+        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
 
 
 class TestProcessingStageOverriddenProperties:
