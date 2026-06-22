@@ -183,6 +183,12 @@ libraries:
     output:
       path: ./product-docs/nemo-curator/Full-Library-Reference
     lang: python
+  nemo-curator-local:
+    input:
+      path: ../nemo_curator
+    output:
+      path: ./product-docs/nemo-curator/Full-Library-Reference
+    lang: python
 
 experimental:
   mdx-components:

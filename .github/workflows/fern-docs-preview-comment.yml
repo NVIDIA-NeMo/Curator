@@ -64,7 +64,7 @@ jobs:
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         working-directory: ./fern
-        run: fern docs md generate
+        run: fern docs md generate --library nemo-curator
 
       - name: Generate preview URL
         id: generate-docs
