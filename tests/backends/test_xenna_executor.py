@@ -64,6 +64,13 @@ def test_xenna_executor_keeps_xenna_worker_sizing_authoritative(monkeypatch: pyt
     assert captured["num_workers_per_node"] == 0.5
 
 
+def test_xenna_executor_rejects_num_workers_in_xenna_stage_spec(monkeypatch: pytest.MonkeyPatch) -> None:
+    stage = ConfigurableStage(xenna_stage_spec={"num_workers": 3})
+
+    with pytest.raises(ValueError, match="Use num_workers\\(\\) instead"):
+        _execute_and_capture_stage_spec(monkeypatch, stage)
+
+
 def _execute_and_capture_stage_spec(
     monkeypatch: pytest.MonkeyPatch,
     stage: ProcessingStage,

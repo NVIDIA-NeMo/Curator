@@ -296,6 +296,13 @@ class TestProcessingStageWith:
         assert stage_new.ray_stage_spec() == {"base_only": "ray", "shared": "override", "ray_only": True}
         assert stage_new.xenna_stage_spec() == {"base_only": "xenna", "shared": "override", "xenna_only": True}
 
+    def test_xenna_stage_spec_override_rejects_num_workers(self):
+        """Test with_ rejects Xenna num_workers overrides in favor of the generic num_workers hook."""
+        stage = BackendConfiguredStage()
+
+        with pytest.raises(ValueError, match="with_\\(num_workers="):
+            stage.with_(xenna_stage_spec={"num_workers": 4})
+
     def test_backend_stage_spec_overrides_chain_as_shallow_merges(self):
         """Test later with_ stage spec overrides win while preserving previous override keys."""
         stage = BackendConfiguredStage()

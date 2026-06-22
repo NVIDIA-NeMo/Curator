@@ -316,6 +316,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             runtime_env: Override the runtime_env (Ray runtime environment dict)
             ray_stage_spec: Merge overrides into the Ray stage spec. User-provided keys win.
             xenna_stage_spec: Merge overrides into the Xenna stage spec. User-provided keys win.
+                Use num_workers instead of setting num_workers in xenna_stage_spec.
             num_workers: Override the num_workers() result. Passing None explicitly resets to executor default behavior.
         """
         new_instance = copy.deepcopy(self)
@@ -339,10 +340,14 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             )
 
         if xenna_stage_spec is not None:
+            xenna_stage_spec = dict(xenna_stage_spec)
+            if "num_workers" in xenna_stage_spec:
+                msg = "Use with_(num_workers=...) instead of setting num_workers in xenna_stage_spec."
+                raise ValueError(msg)
             new_instance.xenna_stage_spec = _stage_spec_method(
                 {
                     **new_instance.xenna_stage_spec(),
-                    **dict(xenna_stage_spec),
+                    **xenna_stage_spec,
                 }
             )
 
