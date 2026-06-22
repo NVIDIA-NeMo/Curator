@@ -4,7 +4,7 @@ Hands-on tutorials for curating data across all modalities with NeMo Curator. Co
 
 ## Quick Start
 
-**New to NeMo Curator?** Start with the [Getting Started Guide](https://docs.nvidia.com/nemo/curator/latest/get-started/index.html) or try the [`quickstart.py`](quickstart.py) example to understand core concepts.
+**New to NeMo Curator?** Start with the [`quickstart.py`](quickstart.py) example to understand core concepts.
 
 ## Tutorials by Modality
 
