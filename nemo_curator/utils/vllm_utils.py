@@ -30,21 +30,44 @@ from __future__ import annotations
 
 from loguru import logger
 
+# Errors that should not be retried. Add entries here when vLLM exposes
+# other fatal startup errors through generic EngineCore wrapper messages.
+_NON_RETRYABLE_MARKERS = (
+    "out of memory",
+    "cudaerrormemoryallocation",
+    "device-side assert",
+    "invalid config",
+    "invalid model config",
+)
+
 # Substrings that indicate a (usually transient) vLLM engine-startup failure
 # caused by a MASTER_PORT collision. In vLLM v1 the bind happens in the
 # EngineCore subprocess, so the parent often only sees the wrapped messages
 # below rather than the raw "EADDRINUSE".
 _ENGINE_STARTUP_FAILURE_MARKERS = (
-    "EADDRINUSE",
+    "eaddrinuse",
     "address already in use",
-    "Engine core initialization failed",
-    "EngineCore failed to start",
+    "engine core initialization failed",
+    "enginecore failed to start",
 )
+
+
+def _exception_chain_text(exc: BaseException) -> str:
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        parts.append(str(current))
+        current = current.__cause__ or current.__context__
+    return " ".join(parts).lower()
 
 
 def _is_engine_startup_failure(exc: BaseException) -> bool:
     """Return True if ``exc`` looks like a retryable vLLM engine-startup failure."""
-    message = str(exc)
+    message = _exception_chain_text(exc)
+    if any(marker in message for marker in _NON_RETRYABLE_MARKERS):
+        return False
     return any(marker in message for marker in _ENGINE_STARTUP_FAILURE_MARKERS)
 
 

@@ -451,6 +451,53 @@ class TestNemotronParseInferenceStageMetrics:
         assert stage._custom_metrics["total_output_chars"] == 6.0
         assert "vllm_inference_time" in stage._custom_metrics
 
+    def test_setup_vllm_engine_kwargs_override_stage_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+        import types
+
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+        from nemo_curator.utils import vllm_utils
+
+        fake_vllm = types.ModuleType("vllm")
+
+        class FakeSamplingParams:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        fake_vllm.SamplingParams = FakeSamplingParams
+        monkeypatch.setitem(sys.modules, "vllm", fake_vllm)
+
+        captured_kwargs: dict = {}
+
+        def fake_create_vllm_llm(model_path: str, **kwargs) -> object:
+            captured_kwargs["model_path"] = model_path
+            captured_kwargs.update(kwargs)
+            return object()
+
+        fake_processor = SimpleNamespace(image_processor=SimpleNamespace(final_size=(100, 100)))
+        monkeypatch.setattr(vllm_utils, "resolve_local_model_path", lambda _path: "/models/nemotron")
+        monkeypatch.setattr(vllm_utils, "create_vllm_llm", fake_create_vllm_llm)
+        monkeypatch.setattr("transformers.AutoProcessor.from_pretrained", lambda *_args, **_kwargs: fake_processor)
+
+        stage = NemotronParseInferenceStage(
+            backend="vllm",
+            max_num_seqs=64,
+            enforce_eager=False,
+            engine_kwargs={
+                "max_num_seqs": 8,
+                "enforce_eager": True,
+                "gpu_memory_utilization": 0.9,
+            },
+        )
+
+        stage._setup_vllm()
+
+        assert captured_kwargs["model_path"] == "/models/nemotron"
+        assert captured_kwargs["max_num_seqs"] == 8
+        assert captured_kwargs["enforce_eager"] is True
+        assert captured_kwargs["gpu_memory_utilization"] == 0.9
+        assert stage._proc_size == (100, 100)
+
     def test_infer_vllm_empty_outputs_produces_empty_string(self) -> None:
         """RequestOutput with no completions should yield '' rather than IndexError."""
         from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
@@ -466,3 +513,14 @@ class TestNemotronParseInferenceStageMetrics:
         assert texts == [""]
         assert raw == [empty_req_output]
         assert retries == 0
+
+    def test_infer_vllm_unreachable_loop_path_raises(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        stage = NemotronParseInferenceStage(backend="vllm")
+        stage._sampling_params = SimpleNamespace()
+        stage._llm = SimpleNamespace(generate=lambda _p, _s: [])
+        image = Image.new("RGB", (10, 10))
+
+        with patch("builtins.range", return_value=()), pytest.raises(RuntimeError, match="unreachable"):
+            stage._infer_vllm([image])

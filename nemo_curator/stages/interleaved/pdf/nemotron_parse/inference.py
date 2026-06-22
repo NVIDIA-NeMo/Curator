@@ -140,12 +140,12 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         from nemo_curator.utils.vllm_utils import create_vllm_llm, resolve_local_model_path
 
         resolved_path = resolve_local_model_path(self.model_path)
-        self._llm = create_vllm_llm(
-            resolved_path,
-            max_num_seqs=self.max_num_seqs,
-            enforce_eager=self.enforce_eager,
+        engine_kwargs = {
+            "max_num_seqs": self.max_num_seqs,
+            "enforce_eager": self.enforce_eager,
             **(self.engine_kwargs or {}),
-        )
+        }
+        self._llm = create_vllm_llm(resolved_path, **engine_kwargs)
         self._sampling_params = SamplingParams(
             temperature=0,
             top_k=1,
@@ -267,7 +267,8 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
             else:
                 texts = [output.outputs[0].text if output.outputs else "" for output in outputs]
                 return texts, outputs, vllm_retries
-        return [], [], vllm_retries
+        msg = "unreachable"
+        raise RuntimeError(msg)
 
     def _infer_hf(self, images: list[Image.Image]) -> list[str]:
         all_outputs: list[str] = []

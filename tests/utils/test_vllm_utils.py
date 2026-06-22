@@ -136,6 +136,27 @@ class TestCreateVllmLlm:
         assert isinstance(result, FakeLLM)
         assert call_count == 3
 
+    def test_wrapped_non_retryable_startup_failure_raises_without_retry(self, monkeypatch: pytest.MonkeyPatch):
+        """Fatal EngineCore failures should fail fast when the exception chain exposes the cause."""
+        call_count = 0
+
+        class FakeLLM:
+            def __init__(self, **_kw):
+                nonlocal call_count
+                call_count += 1
+                outer_msg = "Engine core initialization failed"
+                cause_msg = "CUDA out of memory"
+                raise RuntimeError(outer_msg) from RuntimeError(cause_msg)
+
+        self._inject_fake_vllm(monkeypatch, FakeLLM)
+        monkeypatch.setattr(_vllm_utils, "pick_free_port", lambda: 12345)
+        monkeypatch.setattr("time.sleep", lambda _: None)
+
+        with pytest.raises(RuntimeError, match="Engine core initialization failed"):
+            _vllm_utils.create_vllm_llm("fake/model", max_port_retries=3)
+
+        assert call_count == 1
+
     def test_extra_engine_kwargs_forwarded(self, monkeypatch: pytest.MonkeyPatch):
         """Extra engine kwargs (e.g. gpu_memory_utilization) reach vllm.LLM."""
         captured_kwargs: dict = {}
