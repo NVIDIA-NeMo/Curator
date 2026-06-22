@@ -29,6 +29,12 @@ if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
 
 
+def _is_sentinel(task: Task) -> bool:
+    """A payload-less marker (NoneTask/FailedTask) that is stripped before the
+    next stage rather than propagated."""
+    return isinstance(task, (NoneTask, FailedTask))
+
+
 @dataclass
 class NodeInfo:
     """Generic node information for setup_on_node calls across backends.
@@ -104,7 +110,7 @@ class BaseStageAdapter:
             results = self._apply_resumability_counters(tasks, results)
 
         # Sentinels never propagate to the next stage.
-        results = [r for r in results if not isinstance(r, (NoneTask, FailedTask))]
+        results = [r for r in results if not _is_sentinel(r)]
 
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
@@ -217,7 +223,7 @@ class BaseStageAdapter:
 
         is_sink = stage.is_sink_stage
         per_task: list[tuple[str, str, int]] = []
-        real = [t for t in output_tasks if not isinstance(t, (NoneTask, FailedTask))]
+        real = [t for t in output_tasks if not _is_sentinel(t)]
 
         if len(input_tasks) == 1 and len(output_tasks) != 1:
             # Genuine fan-out (1 -> N, N != 1). One net delta for the parent it
@@ -274,7 +280,7 @@ class BaseStageAdapter:
         is its own (last) id segment — the content id or index assigned by
         ``_post_process_task_ids``. Already-completed sources are dropped; each
         surviving source fires a ``+1``."""
-        sources = [t for t in output_tasks if not isinstance(t, (NoneTask, FailedTask))]
+        sources = [t for t in output_tasks if not _is_sentinel(t)]
         for t in sources:
             t._source_id = t.task_id.rsplit("_", 1)[-1]
         completed = _skip_completed_sources([t._source_id for t in sources])
