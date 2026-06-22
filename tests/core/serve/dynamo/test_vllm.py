@@ -94,6 +94,18 @@ class TestLaunchReplicas:
         assert "--headless" not in python_args
         assert "--nnodes" not in python_args
 
+    def test_explicit_hma_omits_disabled_kv_events_config(self, captured_spawn: list[dict[str, Any]]) -> None:
+        mc = DynamoVLLMModelConfig(
+            model_identifier="Qwen/Qwen3-0.6B",
+            engine_kwargs={"disable_hybrid_kv_cache_manager": False},
+            num_replicas=1,
+        )
+        self._launch(mc, topology=_SINGLE_NODE_1GPU)
+
+        python_args = captured_spawn[0]["python_args"]
+        assert "--no-disable-hybrid-kv-cache-manager" in python_args
+        assert "--kv-events-config" not in python_args
+
     def test_kv_router_enables_exact_kv_events(self, captured_spawn: list[dict[str, Any]]) -> None:
         mc = DynamoVLLMModelConfig(model_identifier="Qwen/Qwen3-0.6B", num_replicas=1)
         self._launch(mc, topology=_SINGLE_NODE_1GPU, router_mode="kv", router_kv_events=True)
@@ -251,10 +263,8 @@ class TestLaunchDisaggReplicas:
             assert "VLLM_NIXL_SIDE_CHANNEL_PORT" in call["subprocess_env"]
             assert call["subprocess_env"]["PYTHONHASHSEED"] == "0"
 
-        # Every disagg worker always receives ``--kv-events-config`` — even
-        # decode, which sets ``enable_kv_cache_events=False`` — so Dynamo's
-        # args.py does not auto-bind port 20080 and cause per-node
-        # collisions between decode workers.
+        # Every disagg worker receives ``--kv-events-config``: prefill publishes
+        # events, while decode explicitly stays non-publishing.
         decode_args = captured_spawn[0]["python_args"]
         prefill_args = captured_spawn[1]["python_args"]
 

@@ -273,6 +273,23 @@ class TestDynamoBackendLaunchFrontend:
         ]
         assert captured_spawn[0]["subprocess_env"] == {}
 
+    def test_tcp_request_plane_and_timeout_env_passthrough(self, captured_spawn: list[dict[str, Any]]) -> None:
+        backend_cfg = DynamoServerConfig(request_plane="tcp")
+        backend = self._make_backend(backend_cfg)
+
+        backend._launch_frontend(
+            port=9999,
+            base_env={"ETCD_ENDPOINTS": "e", "DYN_TCP_REQUEST_TIMEOUT": "180"},
+            backend_cfg=backend_cfg,
+        )
+
+        python_args = captured_spawn[0]["python_args"]
+        assert python_args[python_args.index("--request-plane") + 1] == "tcp"
+        assert captured_spawn[0]["subprocess_env"] == {
+            "ETCD_ENDPOINTS": "e",
+            "DYN_TCP_REQUEST_TIMEOUT": "180",
+        }
+
     def test_kv_mode_without_events_emits_no_router_kv_events(self, captured_spawn: list[dict[str, Any]]) -> None:
         backend_cfg = DynamoServerConfig(router=DynamoRouterConfig(mode="kv", kv_events=False))
         backend = self._make_backend(backend_cfg)

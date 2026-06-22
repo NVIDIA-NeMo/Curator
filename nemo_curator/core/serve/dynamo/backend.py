@@ -208,7 +208,11 @@ class DynamoBackend(InferenceBackend):
             self._nats_actor = self._start_nats(nats_port)
             nats_url = f"nats://{self._infra_ip}:{nats_port}"
 
-        base_env = {"ETCD_ENDPOINTS": etcd_endpoint, "NATS_SERVER": nats_url}
+        base_env = {
+            **backend_cfg.subprocess_env,
+            "ETCD_ENDPOINTS": etcd_endpoint,
+            "NATS_SERVER": nats_url,
+        }
 
         effective_router_mode, effective_router_kv_events = self._resolve_effective_router(
             self._models, backend_cfg.router
