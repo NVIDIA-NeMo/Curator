@@ -58,7 +58,7 @@ class _SourceFanoutStage(ProcessingStage[Task, FileGroupTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
-    def process(self, task: Task) -> list[FileGroupTask]:  # noqa: ARG002
+    def process(self, task: Task) -> list[FileGroupTask]:
         return [FileGroupTask(dataset_name="d", data=list(partition)) for partition in self.partitions]
 
 
