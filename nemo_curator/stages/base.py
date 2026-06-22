@@ -35,7 +35,13 @@ X = TypeVar("X", bound=Task)  # Input task type
 Y = TypeVar("Y", bound=Task)  # Output task type
 
 _STAGE_REGISTRY: dict[str, type[ProcessingStage]] = {}
-_UNSET = object()
+
+
+class _UnsetType:
+    __slots__ = ()
+
+
+_UNSET = _UnsetType()
 
 
 def _stage_spec_method(stage_spec: dict[str, Any]) -> Callable[[], dict[str, Any]]:
@@ -297,7 +303,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         runtime_env: dict[str, Any] | None = None,
         ray_stage_spec: dict[str, Any] | None = None,
         xenna_stage_spec: dict[str, Any] | None = None,
-        num_workers: int | None | object = _UNSET,
+        num_workers: int | None | _UnsetType = _UNSET,
     ) -> ProcessingStage:
         """Apply configuration changes to this stage with overridden properties.
 
