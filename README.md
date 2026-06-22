@@ -85,6 +85,16 @@ Video and audio pipelines depend on system codec libraries; the published contai
 
 ## Why NeMo Curator
 
+Model quality depends on data quality. Raw web-scale corpora contain duplicate content, low-quality text, unsafe material, and modality-specific noise. Without systematic curation, teams waste compute on redundant or harmful data and see weaker downstream performance.
+
+NeMo Curator helps mitigate these common challenges:
+
+- **Scale** — process terabyte-to-petabyte datasets across laptops or multi-node GPU clusters
+- **Quality** — filter, classify, and score content with GPU-accelerated pipeline stages
+- **Deduplication** — remove exact, fuzzy, and semantic duplicates that inflate token counts
+- **Throughput** — streaming execution and auto-balanced stages keep GPUs utilized end-to-end
+- **Repeatability** — modular stages you can compose, version, and rerun in production
+
 ### Proven at scale: Nemotron
 
 NeMo Curator powers the data pipelines behind [NVIDIA Nemotron](https://developer.nvidia.com/nemotron) models. The [Nemotron-4 pre-training dataset](https://arxiv.org/abs/2402.16819) was curated using NeMo Curator's text pipeline across 8+ trillion tokens of multilingual web data — quality filtering, deduplication, and domain classification at scale.
