@@ -185,7 +185,9 @@ class SpeakerEmbeddingRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]
             audio, sr = sf.read(str(path), dtype="float32")
 
         if audio.ndim > 1:
-            audio = audio[:, 0]
+            # soundfile returns channels-last (T, C); mono mixdown by averaging
+            # channels — consistent with feature.py / utmosv2_score.py.
+            audio = audio.mean(axis=1)
 
         if sr != self.target_sample_rate:
             import librosa
@@ -245,7 +247,9 @@ class SpeakerEmbeddingRequestStage(ProcessingStage[DocumentBatch, DocumentBatch]
                     sr = int(row["sample_rate"]) if has_sr_col else self.target_sample_rate
                     audio = np.asarray(wav, dtype=np.float32)
                     if audio.ndim > 1:
-                        audio = audio[:, 0] if audio.shape[1] < audio.shape[0] else audio[0]
+                        # Mono mixdown by averaging the channel axis (the smaller
+                        # dim), regardless of channels-first/last layout.
+                        audio = audio.mean(axis=1) if audio.shape[1] < audio.shape[0] else audio.mean(axis=0)
                     if sr != self.target_sample_rate:
                         import librosa
 

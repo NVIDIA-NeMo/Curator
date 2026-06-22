@@ -222,9 +222,11 @@ class SpeakerEmbeddingLhotseStage(ProcessingStage[_EmptyTask, _EmptyTask]):
         """Load mono float32 audio at ``target_sample_rate`` from a cut."""
         if cut.sampling_rate != self.target_sample_rate:
             cut = cut.resample(self.target_sample_rate)
-        audio = cut.load_audio()
+        audio = cut.load_audio()  # lhotse returns channels-first (C, T)
         if audio.ndim > 1:
-            audio = audio[0]
+            # Mono mixdown by averaging channels — consistent with the other
+            # embedding/scoring backends (feature.py, utmosv2_score.py).
+            audio = audio.mean(axis=0)
         return audio.astype(np.float32)
 
     @torch.no_grad()
