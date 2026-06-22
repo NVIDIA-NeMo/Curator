@@ -67,6 +67,9 @@ _ACTOR_VENV_OVERRIDES_PATH = Path(tempfile.gettempdir()) / "nemo_curator_dynamo_
 _ACTOR_VENV_NIXL_CU13_EXCLUSION = "nixl-cu13 ; sys_platform == 'never'"
 # The CUDA build the actor venv must match (torch ecosystem + vllm wheel variant).
 _ACTOR_VENV_CUDA_TAG = "cu129"
+# Latest known nightly that includes ai-dynamo/dynamo#10380 while ai-dynamo[vllm]
+# still pins vLLM 0.22.x. Newer 1.3.0 nightlies moved to vLLM 0.23.0.
+_DYNAMO_NIGHTLY_VERSION = "1.3.0.dev20260615"
 
 
 def _vllm_cu129_index_url() -> str | None:
@@ -129,7 +132,10 @@ _ACTOR_VENV_UV_OPTIONS = [
 
 DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
     "uv": {
-        "packages": ["ai-dynamo[vllm]"],
+        "packages": [
+            f"ai-dynamo[vllm]=={_DYNAMO_NIGHTLY_VERSION}",
+            f"ai-dynamo-runtime=={_DYNAMO_NIGHTLY_VERSION}",
+        ],
         "uv_pip_install_options": _ACTOR_VENV_UV_OPTIONS,
     },
     "config": {"setup_timeout_seconds": 600},

@@ -82,15 +82,17 @@ vllm = ["vllm[flashinfer,runai,otel]==0.22.0+cu129; (platform_machine == 'x86_64
 inference_server = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
-    "ai-dynamo>=1.3.0.dev0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    # First-party + explicit .dev0 marker so prerelease="if-necessary-or-explicit" enables
-    # nightlies for ai-dynamo-runtime too. ai-dynamo pins it (==<its dev>), but it's a
-    # transitive with stable releases, so without this the newest dynamo nightly can't
-    # resolve (its runtime pin is a disallowed prerelease) and uv falls back to an older dev.
-    "ai-dynamo-runtime>=1.3.0.dev0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    # Latest known Dynamo nightly that both includes ai-dynamo/dynamo#10380 and keeps
+    # ai-dynamo[vllm] on vLLM 0.22.x. Newer nightlies pin vLLM 0.23.0.
+    "ai-dynamo==1.3.0.dev20260615; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    # Keep the first-party runtime package exact too. ai-dynamo pins this transitively,
+    # but listing it explicitly lets prerelease="if-necessary-or-explicit" accept the
+    # matching nightly instead of rejecting the transitive prerelease.
+    "ai-dynamo-runtime==1.3.0.dev20260615; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "ray[serve,llm]>=2.55.1",
+    "ray-haproxy==2.8.20; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
 ]
 
 # Installs CPU + GPU text curation modules
@@ -322,7 +324,7 @@ managed = true
 default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
 # Default mode: only pick a prerelease when a requirement carries an explicit
-# prerelease marker (ai-dynamo>=1.3.0.dev0) or when every version in range is a
+# prerelease marker (ai-dynamo==1.3.0.dev20260615) or when every version in range is a
 # prerelease (ray nightly's otel transitives). Avoids blanket prereleases elsewhere.
 prerelease = "if-necessary-or-explicit"
 no-build-isolation-package = ["flash-attn"]
@@ -397,14 +399,13 @@ torchcodec = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
-# Ray 3.0 nightly on x86_64 (the CUDA-12.9 stack's only arch): one rolling /latest/ wheel
-# per python tag — a direct URL can't be templated by markers, and Ray ships no nightly index.
-# Re-pinned by re-locking, not frozen. aarch64/other resolve ray from PyPI via the >= floor
-# (avoids dragging ray[llm]'s default cu130 vllm onto aarch64).
+# Ray 2.56 release-bucket wheels on x86_64 (the CUDA-12.9 stack's only arch):
+# one immutable wheel per python tag. aarch64/other resolve ray from PyPI via
+# the >= floor (avoids dragging ray[llm]'s default cu130 vllm onto aarch64).
 ray = [
-    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-3.0.0.dev0-cp311-cp311-manylinux2014_x86_64.whl", marker = "python_version == '3.11' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-3.0.0.dev0-cp312-cp312-manylinux2014_x86_64.whl", marker = "python_version == '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/latest/ray-3.0.0.dev0-cp313-cp313-manylinux2014_x86_64.whl", marker = "python_version == '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/releases/2.56.0/45194d5f4b2afdfead53dc4e1a7dba2f2205d50f/ray-2.56.0-cp311-cp311-manylinux2014_x86_64.whl", marker = "python_version == '3.11' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/releases/2.56.0/45194d5f4b2afdfead53dc4e1a7dba2f2205d50f/ray-2.56.0-cp312-cp312-manylinux2014_x86_64.whl", marker = "python_version == '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/releases/2.56.0/45194d5f4b2afdfead53dc4e1a7dba2f2205d50f/ray-2.56.0-cp313-cp313-manylinux2014_x86_64.whl", marker = "python_version == '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 ai-dynamo = { index = "nvidia" }
 ai-dynamo-runtime = { index = "nvidia" }

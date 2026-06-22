@@ -26,7 +26,6 @@ FROM cuda AS build
 
 ARG CURATOR_ENV=ci
 ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
-ENV VLLM_USE_RAY_V2_EXECUTOR_BACKEND=1
 
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 
@@ -73,11 +72,9 @@ COPY docker/common/install_etcd_nats.sh .
 RUN bash install_etcd_nats.sh && \
     rm install_etcd_nats.sh
 
-# Install HAProxy so Ray Serve's HAProxy ingress mode (RAY_SERVE_ENABLE_HA_PROXY=1) has the binary on PATH
-COPY docker/common/install_haproxy.sh .
-RUN bash install_haproxy.sh && \
-    rm install_haproxy.sh
-ENV RAY_SERVE_HAPROXY_BINARY_PATH=/usr/local/bin/haproxy
+# Use the ray-haproxy wheel so Ray Serve's HAProxy ingress mode can discover
+# the packaged binary without compiling HAProxy in the image.
+ENV RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY=1
 
 
 FROM nemo_curator_dep AS nemo_curator
