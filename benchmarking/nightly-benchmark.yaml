@@ -875,7 +875,7 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
-    timeout_s: 400
+    timeout_s: 900
     sink_data:
       - name: slack
         ping_on_failure:
