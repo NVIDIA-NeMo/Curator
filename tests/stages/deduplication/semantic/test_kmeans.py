@@ -144,7 +144,7 @@ def run_single_gpu_baseline(
     return df.sort_values("id", ignore_index=True)["centroid"].to_numpy()
 
 
-@pytest.mark.skipif("KMeansStage" not in globals(), reason="KMeansStage requires GPU dependencies")
+@pytest.mark.gpu
 class TestKMeansStage:
     """Unit tests for KMeansStage decomposition."""
 
