@@ -31,7 +31,7 @@ from nemo_curator.stages.audio.alm.pretrain import (
     SnippetManifestWriterStage,
 )
 from nemo_curator.stages.audio.alm.pretrain.utils import _PRETRAIN_META_KEY
-from nemo_curator.tasks import AudioTask, _EmptyTask
+from nemo_curator.tasks import AudioTask, EmptyTask
 
 
 def _make_audio_task(data: dict | None = None) -> AudioTask:
@@ -71,19 +71,19 @@ def manifest_path(tmp_path: Path) -> Path:
 class TestReadLongFormManifestStage:
     def test_emits_one_task_per_valid_row(self, tmp_path: Path, manifest_path: Path) -> None:
         stage = ReadLongFormManifestStage(input_manifest=str(manifest_path), audio_dir=str(tmp_path))
-        out = stage.process(_EmptyTask(dataset_name="empty", data=None))
+        out = stage.process(EmptyTask(dataset_name="empty", data=None))
         assert len(out) == 1
         assert out[0].data["id"] == "A"
 
     def test_resolves_audio_path_against_audio_dir(self, tmp_path: Path, manifest_path: Path) -> None:
         stage = ReadLongFormManifestStage(input_manifest=str(manifest_path), audio_dir="/data")
-        out = stage.process(_EmptyTask(dataset_name="empty", data=None))
+        out = stage.process(EmptyTask(dataset_name="empty", data=None))
         assert out[0].data["audio_filepath"] == "/data/a.wav"
 
     def test_missing_manifest_raises(self, tmp_path: Path) -> None:
         stage = ReadLongFormManifestStage(input_manifest=str(tmp_path / "nope.jsonl"), audio_dir=str(tmp_path))
         with pytest.raises(FileNotFoundError):
-            stage.process(_EmptyTask(dataset_name="empty", data=None))
+            stage.process(EmptyTask(dataset_name="empty", data=None))
 
     def test_skips_rows_missing_id(self, tmp_path: Path) -> None:
         # `id` is required: the metrics aggregator keys per-source records on
@@ -100,7 +100,7 @@ class TestReadLongFormManifestStage:
             for r in rows:
                 f.write(json.dumps(r) + "\n")
         stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
-        out = stage.process(_EmptyTask(dataset_name="empty", data=None))
+        out = stage.process(EmptyTask(dataset_name="empty", data=None))
         assert [t.data["id"] for t in out] == ["OK"]
 
     def test_skips_duplicate_ids(self, tmp_path: Path) -> None:
@@ -117,7 +117,7 @@ class TestReadLongFormManifestStage:
             for r in rows:
                 f.write(json.dumps(r) + "\n")
         stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
-        out = stage.process(_EmptyTask(dataset_name="empty", data=None))
+        out = stage.process(EmptyTask(dataset_name="empty", data=None))
         assert [t.data["id"] for t in out] == ["A", "B"]
         # The kept "A" row is the first one, not the duplicate.
         assert out[0].data["audio_filepath"] == "/data/a.wav"
@@ -136,7 +136,7 @@ class TestReadLongFormManifestStage:
                 f.write(json.dumps(r) + "\n")
         stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data")
         with pytest.raises(ValueError, match="duplicate audio basename"):
-            stage.process(_EmptyTask(dataset_name="empty", data=None))
+            stage.process(EmptyTask(dataset_name="empty", data=None))
 
     def test_relative_mode_preserves_subdirectories(self, tmp_path: Path) -> None:
         # 'relative' joins audio_dir / audio_filepath verbatim and so does
@@ -150,7 +150,7 @@ class TestReadLongFormManifestStage:
             for r in rows:
                 f.write(json.dumps(r) + "\n")
         stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data", audio_path_resolution="relative")
-        out = stage.process(_EmptyTask(dataset_name="empty", data=None))
+        out = stage.process(EmptyTask(dataset_name="empty", data=None))
         assert [t.data["audio_filepath"] for t in out] == [
             "/data/shard1/foo.wav",
             "/data/shard2/foo.wav",
@@ -166,7 +166,7 @@ class TestReadLongFormManifestStage:
             for r in rows:
                 f.write(json.dumps(r) + "\n")
         stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/ignored", audio_path_resolution="as_is")
-        out = stage.process(_EmptyTask(dataset_name="empty", data=None))
+        out = stage.process(EmptyTask(dataset_name="empty", data=None))
         assert [t.data["audio_filepath"] for t in out] == [
             "/absolute/a.wav",
             "relative/b.wav",
@@ -178,7 +178,7 @@ class TestReadLongFormManifestStage:
             f.write(json.dumps({"id": "A", "audio_filepath": "./a.wav", "segments": []}) + "\n")
         stage = ReadLongFormManifestStage(input_manifest=str(p), audio_dir="/data", audio_path_resolution="not_a_mode")
         with pytest.raises(ValueError, match="unknown audio_path_resolution"):
-            stage.process(_EmptyTask(dataset_name="empty", data=None))
+            stage.process(EmptyTask(dataset_name="empty", data=None))
 
 
 # ----------------------------------------------------------------------

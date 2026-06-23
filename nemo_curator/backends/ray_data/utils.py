@@ -12,45 +12,54 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.backends.utils import get_available_cpu_gpu_resources
+from collections.abc import Mapping
+
+from loguru import logger
+from ray.data import ActorPoolStrategy
+
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 
+ACTOR_POOL_SIZING_KEYS = (
+    RayStageSpecKeys.MIN_WORKERS,
+    RayStageSpecKeys.MAX_WORKERS,
+    RayStageSpecKeys.INITIAL_WORKERS,
+)
 
-def calculate_concurrency_for_actors_for_stage(
-    stage: ProcessingStage, ignore_head_node: bool = False
-) -> tuple[int, int] | int:
-    """
-    Calculate concurrency if we want to spin up actors based on available resources and stage requirements.
 
-    Returns:
-        int | tuple[int, int]: Number of actors to use
-            int: Number of workers to use
-            tuple[int, int]: tuple of min / max actors to use and number of workers to use
+def get_configured_actor_pool_sizing_keys(ray_stage_spec: Mapping[str, object]) -> list[str]:
+    """Return actor-pool sizing keys configured in a ray stage spec."""
+    stage_spec_keys = {key.value if isinstance(key, RayStageSpecKeys) else key for key in ray_stage_spec}
+    return [key.value for key in ACTOR_POOL_SIZING_KEYS if key.value in stage_spec_keys]
+
+
+def get_actor_compute_strategy_for_stage(stage: ProcessingStage) -> ActorPoolStrategy:
+    """Get the Ray Data actor-pool compute strategy for a processing stage.
+
+    Explicit stage ``num_workers`` requests a fixed-size actor pool. Otherwise,
+    actor stages use Ray Data's autoscaling pool and can optionally override
+    min/max/initial workers through ``ray_stage_spec``.
     """
-    # If explicitly set, use the specified number of workers
     num_workers = stage.num_workers()
     if num_workers is not None and num_workers > 0:
-        return max(1, num_workers)
+        actor_pool_sizing_keys = get_configured_actor_pool_sizing_keys(stage.ray_stage_spec())
+        if actor_pool_sizing_keys:
+            logger.warning(
+                f"Stage {stage.name} uses num_workers={num_workers}; ignoring ray_stage_spec "
+                f"actor-pool sizing keys {actor_pool_sizing_keys}."
+            )
+        return ActorPoolStrategy(size=num_workers)
 
-    # Get available resources from Ray
-    available_cpus, available_gpus = get_available_cpu_gpu_resources(
-        init_and_shutdown=False, ignore_head_node=ignore_head_node
-    )
-    # Calculate based on CPU and GPU requirements
-    max_cpu_actors = float("inf")
-    max_gpu_actors = float("inf")
+    ray_stage_spec = stage.ray_stage_spec()
+    min_size = ray_stage_spec.get(RayStageSpecKeys.MIN_WORKERS, 1)
+    max_size = ray_stage_spec.get(RayStageSpecKeys.MAX_WORKERS)
+    initial_size = ray_stage_spec.get(RayStageSpecKeys.INITIAL_WORKERS)
 
-    # CPU constraint
-    if stage.resources.cpus > 0:
-        max_cpu_actors = available_cpus // stage.resources.cpus
-
-    # GPU constraint
-    if stage.resources.gpus > 0:
-        max_gpu_actors = available_gpus // stage.resources.gpus
-
-    # Take the minimum of CPU and GPU constraints
-    max_actors = min(max_cpu_actors, max_gpu_actors)
-    return (1, int(max_actors))
+    try:
+        return ActorPoolStrategy(min_size=min_size, max_size=max_size, initial_size=initial_size)
+    except ValueError as e:
+        msg = f"Invalid Ray Data actor pool sizing for stage {stage.name}: {e}"
+        raise ValueError(msg) from e
 
 
 def is_actor_stage(stage: ProcessingStage) -> bool:

@@ -15,7 +15,7 @@
 from dataclasses import dataclass
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.tasks import DocumentBatch, _EmptyTask
+from nemo_curator.tasks import DocumentBatch, EmptyTask
 
 from .download import DocumentDownloader, DocumentDownloadStage
 from .extract import DocumentExtractor
@@ -24,7 +24,7 @@ from .url_generation import URLGenerationStage, URLGenerator
 
 
 @dataclass
-class DocumentDownloadExtractStage(CompositeStage[_EmptyTask, DocumentBatch]):
+class DocumentDownloadExtractStage(CompositeStage[EmptyTask, DocumentBatch]):
     """Composite stage that combines URL generation, download, and iterate-extract stages.
 
     This supports the full 3-step pipeline pattern like Common Crawl:

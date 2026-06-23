@@ -15,14 +15,14 @@
 import numpy as np
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
-from nemo_curator.tasks import _EmptyTask
+from nemo_curator.tasks import EmptyTask
 from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.performance_utils import StagePerfStats
 
 
-def make_dummy_task(stage_name: str, process_time: float, custom: float = 0.0) -> _EmptyTask:
+def make_dummy_task(stage_name: str, process_time: float, custom: float = 0.0) -> EmptyTask:
     perf = StagePerfStats(stage_name=stage_name, process_time=process_time, custom_metrics={"io": custom})
-    return _EmptyTask(dataset_name="test", data=None, _stage_perf=[perf])
+    return EmptyTask(dataset_name="test", data=None, _stage_perf=[perf])
 
 
 class TestTaskPerfUtils:

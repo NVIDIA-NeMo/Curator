@@ -25,7 +25,7 @@ from dataclasses import dataclass
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import FileGroupTask, Task, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask, Task
 
 
 @dataclass
@@ -102,7 +102,7 @@ class TestSourceStage:
     def test_uses_content_id_rooted_at_input(self) -> None:
         # FileGroupTask.get_deterministic_id() hashes its files; the source
         # output is rooted at the EmptyTask input id "0" → "0_<content_id>".
-        empty = _EmptyTask(dataset_name="empty", data=None)
+        empty = EmptyTask(dataset_name="empty", data=None)
         a = FileGroupTask(dataset_name="d", data=["a.parquet"])
         b = FileGroupTask(dataset_name="d", data=["b.parquet"])
         _assign([empty], [a, b], is_source=True)
