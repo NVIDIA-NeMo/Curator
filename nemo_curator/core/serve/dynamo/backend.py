@@ -52,6 +52,7 @@ from nemo_curator.core.serve.dynamo.constants import (
 from nemo_curator.core.serve.dynamo.infra import build_infra_pg, engine_kwargs_to_cli_flags
 from nemo_curator.core.serve.dynamo.vllm import (
     ensure_actor_overrides_on_all_nodes,
+    explicit_hybrid_kv_cache_manager_enabled,
     launch_disagg_replicas,
     launch_replicas,
     merge_model_runtime_envs,
@@ -295,15 +296,39 @@ class DynamoBackend(InferenceBackend):
         - ``mode``: honor ``router.mode`` if set; otherwise auto-pick ``"kv"``
           when any model uses ``mode="disagg"``, else leave unset so the
           Dynamo frontend falls back to its own ``round_robin`` default.
-        - ``kv_events``: when we auto-pick ``mode="kv"`` we also auto-enable
-          ``kv_events`` so the router consumes what prefill workers publish
-          unconditionally in disagg. If the user set ``router.mode`` explicitly
-          (to any value) we honor their ``router.kv_events`` as-is.
+        - ``kv_events``: only effective when ``mode == "kv"``. When we
+          auto-pick ``"kv"`` for disagg we also auto-enable events so the
+          router consumes what prefill workers publish, unless the publishing
+          role has explicitly enabled vLLM's hybrid KV cache manager. If the
+          user explicitly requests event-backed KV routing with such a model,
+          raise before launching a worker vLLM will reject.
         """
         mode = router.mode if router.mode is not None else ("kv" if any(m.mode == "disagg" for m in models) else None)
         mode_was_auto_picked = router.mode is None and mode == "kv"
-        kv_events = True if mode_was_auto_picked else router.kv_events
+        kv_events = mode == "kv" and (mode_was_auto_picked or router.kv_events)
+        has_hma_publisher = any(DynamoBackend._kv_event_publisher_has_explicit_hma(m) for m in models)
+
+        if kv_events and has_hma_publisher:
+            if mode_was_auto_picked and not router.kv_events:
+                return mode, False
+            msg = (
+                "Hybrid KV cache manager was explicitly enabled via "
+                "disable_hybrid_kv_cache_manager=False, but event-backed KV routing "
+                "requires workers to pass --kv-events-config, which vLLM rejects with "
+                "explicit HMA. Use router.kv_events=False or omit "
+                "disable_hybrid_kv_cache_manager=False."
+            )
+            raise ValueError(msg)
         return mode, kv_events
+
+    @staticmethod
+    def _kv_event_publisher_has_explicit_hma(model: DynamoVLLMModelConfig) -> bool:
+        """True when the role that would publish KV events explicitly enables HMA."""
+        if model.mode == "disagg":
+            _, engine_kwargs = resolve_disagg_role_config(model, "prefill")
+        else:
+            engine_kwargs = model.engine_kwargs
+        return explicit_hybrid_kv_cache_manager_enabled(engine_kwargs)
 
     @staticmethod
     def _validate_unique_model_names(models: list[DynamoVLLMModelConfig]) -> None:
