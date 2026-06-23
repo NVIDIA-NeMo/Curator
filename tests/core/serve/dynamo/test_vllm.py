@@ -427,6 +427,19 @@ def test_vllm_cu129_index_url_derives_from_dynamo_pin() -> None:
         meta, "requires", return_value=["bad req!!!", "vllm[flashinfer]==0.22.1 ; extra == 'vllm'"]
     ):
         assert dynamo_vllm._vllm_cu129_index_url() == expected
+    # A vllm pin for a different extra must not win over the [vllm] extra pin.
+    with mock.patch.object(
+        meta,
+        "requires",
+        return_value=[
+            "vllm==0.99.0 ; extra == 'sglang'",
+            "vllm[flashinfer]==0.22.1 ; extra == 'vllm'",
+        ],
+    ):
+        assert dynamo_vllm._vllm_cu129_index_url() == expected
+    # No vllm requirement -> None.
+    with mock.patch.object(meta, "requires", return_value=["ray>=2.55.0 ; extra == 'vllm'"]):
+        assert dynamo_vllm._vllm_cu129_index_url() is None
     # No exact `==` pin -> None rather than guessing an index.
     with mock.patch.object(meta, "requires", return_value=["vllm>=0.20 ; extra == 'vllm'"]):
         assert dynamo_vllm._vllm_cu129_index_url() is None
