@@ -56,5 +56,5 @@ python benchmarking/run.py \
   --config /opt/Curator/benchmarking/test-paths.yaml \
   --session-name "${SESSION_NAME}" \
   ${VIEWER_URL:+--viewer-url "${VIEWER_URL}"} \
-  ${NEMO_CI_RUN_REASON:+--run-reason "${NEMO_CI_RUN_REASON}"} \
+  ${NEMO_CI_RUN_REASON:+--reason "${NEMO_CI_RUN_REASON}"} \
   --entries-exact "${ENTRY_NAME}"
