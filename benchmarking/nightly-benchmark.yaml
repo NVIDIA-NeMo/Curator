@@ -252,7 +252,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-identifier=google/embeddinggemma-300m
-      --model-variation=vllm_text
+      --model-variation=vllm_text_pretokenized
       --cache-dir={dataset:text_models_hf_cache,files}
     timeout_s: 800
     sink_data:
@@ -278,7 +278,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-identifier=google/embeddinggemma-300m
-      --model-variation=vllm_text
+      --model-variation=vllm_text_pretokenized
       --cache-dir={dataset:text_models_hf_cache,files}
     timeout_s: 800
     sink_data:
