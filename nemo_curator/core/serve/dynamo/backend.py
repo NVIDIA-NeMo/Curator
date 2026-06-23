@@ -472,10 +472,8 @@ class DynamoBackend(InferenceBackend):
     def _frontend_router_kwargs(self, router_kwargs: dict[str, Any]) -> dict[str, Any]:
         """Pass ``router_kwargs`` through verbatim as frontend CLI flags.
 
-        Callers must set ``dyn_chat_processor`` explicitly when needed — for
-        example, Nemotron-Parse requires ``dyn_chat_processor="vllm"`` because
-        the native-Rust processor serializes multimodal content arrays instead
-        of flattening them, corrupting pass-through chat templates.
+        For example, ``{"dyn_chat_processor": "vllm"}`` becomes
+        ``--dyn-chat-processor vllm``.
         """
         return dict(router_kwargs)
 
