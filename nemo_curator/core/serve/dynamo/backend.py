@@ -290,7 +290,7 @@ class DynamoBackend(InferenceBackend):
 
         - ``mode``: honor ``router.mode`` if set; otherwise auto-pick ``"kv"``
           when any model uses ``mode="disagg"``, else leave unset so the
-          Dynamo frontend falls back to its own ``round_robin`` default.
+          Dynamo frontend falls back to its own ``round-robin`` default.
         - ``kv_events``: when we auto-pick ``mode="kv"`` we also auto-enable
           ``kv_events`` so the router consumes what prefill workers publish
           unconditionally in disagg. If the user set ``router.mode`` explicitly

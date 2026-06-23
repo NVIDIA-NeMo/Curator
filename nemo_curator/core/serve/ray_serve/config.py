@@ -31,3 +31,4 @@ class RayServeServerConfig(BaseServerConfig):
     """Server-level Ray Serve config."""
 
     model_configs: ClassVar[tuple[type[BaseModelConfig], ...]] = (RayServeModelConfig,)
+    ingress_deployment_config: dict[str, Any] = field(default_factory=dict)

@@ -60,6 +60,8 @@ class RayClient:
     Args:
         ray_port: The port number of the Ray GCS.
         ray_dashboard_port: The port number of the Ray dashboard.
+        ray_min_worker_port: The first worker port Ray may bind.
+        ray_max_worker_port: The last worker port Ray may bind.
         ray_temp_dir: The temporary directory to use for Ray.
         include_dashboard: Whether to include dashboard integration. If true, adds Ray metrics service discovery.
         ray_metrics_port: The port number of the Ray metrics.
@@ -79,6 +81,8 @@ class RayClient:
     ray_port: int = DEFAULT_RAY_PORT
     ray_dashboard_port: int = DEFAULT_RAY_DASHBOARD_PORT
     ray_client_server_port: int = DEFAULT_RAY_CLIENT_SERVER_PORT
+    ray_min_worker_port: int | None = None
+    ray_max_worker_port: int | None = None
     ray_temp_dir: str = DEFAULT_RAY_TEMP_DIR
     include_dashboard: bool = True
     ray_metrics_port: int = DEFAULT_RAY_METRICS_PORT
@@ -155,6 +159,8 @@ class RayClient:
                 ray_metrics_port=self.ray_metrics_port,
                 ray_client_server_port=self.ray_client_server_port,
                 ray_dashboard_host=self.ray_dashboard_host,
+                ray_min_worker_port=self.ray_min_worker_port,
+                ray_max_worker_port=self.ray_max_worker_port,
                 num_gpus=self.num_gpus,
                 num_cpus=self.num_cpus,
                 object_store_memory=self.object_store_memory,

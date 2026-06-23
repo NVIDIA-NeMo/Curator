@@ -14,11 +14,23 @@
 
 import warnings
 from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Any
 
 from loguru import logger
 from openai import AsyncOpenAI, OpenAI
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, ConversationFormatter, GenerationConfig, LLMClient
+
+
+@dataclass(frozen=True)
+class OpenAIChatCompletionResult:
+    """OpenAI-compatible chat completion content and aggregate usage."""
+
+    contents: list[str]
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class OpenAIClient(LLMClient):
@@ -45,6 +57,21 @@ class OpenAIClient(LLMClient):
         conversation_formatter: ConversationFormatter | None = None,
         generation_config: GenerationConfig | dict | None = None,
     ) -> list[str]:
+        return self.query_model_with_usage(
+            messages=messages,
+            model=model,
+            conversation_formatter=conversation_formatter,
+            generation_config=generation_config,
+        ).contents
+
+    def query_model_with_usage(
+        self,
+        *,
+        messages: Iterable,
+        model: str,
+        conversation_formatter: ConversationFormatter | None = None,
+        generation_config: GenerationConfig | dict | None = None,
+    ) -> OpenAIChatCompletionResult:
         if conversation_formatter is not None:
             warnings.warn("conversation_formatter is not used in an OpenAIClient", stacklevel=2)
 
@@ -80,7 +107,7 @@ class OpenAIClient(LLMClient):
 
         response = self.client.chat.completions.create(**create_kwargs)
 
-        return [choice.message.content for choice in response.choices]
+        return _completion_result_from_response(response)
 
 
 class AsyncOpenAIClient(AsyncLLMClient):
@@ -122,6 +149,25 @@ class AsyncOpenAIClient(AsyncLLMClient):
         """
         Internal implementation of query_model without retry/concurrency logic.
         """
+        result = await self._query_model_with_usage_impl(
+            messages=messages,
+            model=model,
+            conversation_formatter=conversation_formatter,
+            generation_config=generation_config,
+        )
+        return result.contents
+
+    async def _query_model_with_usage_impl(
+        self,
+        *,
+        messages: Iterable,
+        model: str,
+        conversation_formatter: ConversationFormatter | None = None,
+        generation_config: GenerationConfig | dict | None = None,
+    ) -> OpenAIChatCompletionResult:
+        """
+        Internal implementation of query_model_with_usage without retry/concurrency logic.
+        """
         if conversation_formatter is not None:
             warnings.warn("conversation_formatter is not used in an AsyncOpenAIClient", stacklevel=2)
 
@@ -157,4 +203,50 @@ class AsyncOpenAIClient(AsyncLLMClient):
 
         response = await self.client.chat.completions.create(**create_kwargs)
 
-        return [choice.message.content for choice in response.choices]
+        return _completion_result_from_response(response)
+
+    async def query_model_with_usage(
+        self,
+        *,
+        messages: Iterable,
+        model: str,
+        conversation_formatter: ConversationFormatter | None = None,
+        generation_config: GenerationConfig | dict | None = None,
+    ) -> OpenAIChatCompletionResult:
+        """
+        Query the model and keep OpenAI-compatible usage counters when the server returns them.
+        """
+        generation_config = self._coerce_generation_config(generation_config)
+        return await self._run_with_retry_and_concurrency(
+            lambda: self._query_model_with_usage_impl(
+                messages=messages,
+                model=model,
+                conversation_formatter=conversation_formatter,
+                generation_config=generation_config,
+            )
+        )
+
+
+def _completion_result_from_response(response: Any) -> OpenAIChatCompletionResult:  # noqa: ANN401
+    usage = getattr(response, "usage", None)
+    return OpenAIChatCompletionResult(
+        contents=[choice.message.content for choice in response.choices],
+        prompt_tokens=_usage_int(usage, "prompt_tokens"),
+        completion_tokens=_usage_int(usage, "completion_tokens"),
+        total_tokens=_usage_int(usage, "total_tokens"),
+    )
+
+
+def _usage_int(usage: Any, field: str) -> int | None:  # noqa: ANN401
+    if usage is None:
+        return None
+    value = usage.get(field) if isinstance(usage, dict) else getattr(usage, field, None)
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None

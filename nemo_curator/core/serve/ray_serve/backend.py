@@ -70,11 +70,17 @@ class RayServeBackend(InferenceBackend):
         llm_configs = [self._to_llm_config(model, quiet_runtime_env=quiet_env) for model in server.models]
 
         build_args: dict[str, Any] = {"llm_configs": llm_configs}
+        ingress_deployment_config = dict(server.backend.ingress_deployment_config)
         if quiet_env:
             # Suppress access logs on the OpenAI ingress deployment too.
-            build_args["ingress_deployment_config"] = {
-                "ray_actor_options": {"runtime_env": quiet_env},
-            }
+            ray_actor_options = dict(ingress_deployment_config.get("ray_actor_options", {}))
+            ray_actor_options["runtime_env"] = BaseModelConfig.merge_runtime_envs(
+                ray_actor_options.get("runtime_env", {}),
+                quiet_env,
+            )
+            ingress_deployment_config["ray_actor_options"] = ray_actor_options
+        if ingress_deployment_config:
+            build_args["ingress_deployment_config"] = ingress_deployment_config
 
         from ray import serve
         from ray.serve.llm import build_openai_app

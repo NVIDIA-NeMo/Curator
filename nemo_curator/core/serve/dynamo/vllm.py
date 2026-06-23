@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from functools import reduce
 from pathlib import Path
@@ -67,10 +68,17 @@ DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
     "config": {"setup_timeout_seconds": 600},
 }
 
+_USE_DRIVER_ENV_VAR = "NEMO_CURATOR_DYNAMO_USE_DRIVER_ENV"
+
 
 @ray.remote
 def _write_actor_overrides_file(path: str, body: str) -> None:
     Path(path).write_text(body)
+
+
+def _use_driver_env_for_dynamo() -> bool:
+    """Return true when Dynamo actors should use the driver's Python env."""
+    return os.environ.get(_USE_DRIVER_ENV_VAR, "0").lower() in {"1", "true", "yes", "on"}
 
 
 def ensure_actor_overrides_on_all_nodes(*, ignore_head_node: bool = False) -> None:
@@ -109,6 +117,8 @@ _DISAGG_NIXL_PORT_SEED = 20097
 
 def dynamo_runtime_env(model_config: DynamoVLLMModelConfig) -> dict[str, Any]:
     """Merge the user's ``runtime_env`` with the Dynamo-vLLM package pin."""
+    if _use_driver_env_for_dynamo():
+        return model_config.runtime_env or {}
     return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, model_config.runtime_env or None)
 
 
@@ -116,6 +126,8 @@ def merge_model_runtime_envs(models: list[DynamoVLLMModelConfig]) -> dict[str, A
     """Merge every model's ``runtime_env`` onto the Dynamo-vLLM pin for the shared frontend actor."""
     envs = [m.runtime_env for m in models if m.runtime_env]
     user_merged = reduce(BaseModelConfig.merge_runtime_envs, envs) if envs else None
+    if _use_driver_env_for_dynamo():
+        return user_merged or {}
     return BaseModelConfig.merge_runtime_envs(DYNAMO_VLLM_RUNTIME_ENV, user_merged)
 
 

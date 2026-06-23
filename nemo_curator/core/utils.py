@@ -139,6 +139,8 @@ def init_cluster(  # noqa: PLR0913
     ray_metrics_port: int,
     ray_client_server_port: int,
     ray_dashboard_host: str,
+    ray_min_worker_port: int | None = None,
+    ray_max_worker_port: int | None = None,
     num_gpus: int | None = None,
     num_cpus: int | None = None,
     object_store_memory: int | None = None,
@@ -164,6 +166,10 @@ def init_cluster(  # noqa: PLR0913
     ray_command.extend(["--dashboard-port", str(ray_dashboard_port)])
     ray_command.extend(["--ray-client-server-port", str(ray_client_server_port)])
     ray_command.extend(["--temp-dir", ray_temp_dir])
+    if ray_min_worker_port is not None:
+        ray_command.extend(["--min-worker-port", str(ray_min_worker_port)])
+    if ray_max_worker_port is not None:
+        ray_command.extend(["--max-worker-port", str(ray_max_worker_port)])
     if object_store_memory is not None:
         ray_command.extend(["--object-store-memory", str(object_store_memory)])
     ray_command.extend(["--disable-usage-stats"])

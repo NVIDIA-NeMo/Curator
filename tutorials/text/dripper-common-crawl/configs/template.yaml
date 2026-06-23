@@ -1,0 +1,107 @@
+# ============================================================
+#  Dripper CC Clustering Pipeline — Config Template
+#  Usage: python run_pipeline.py --config configs/my_run.yaml
+# ============================================================
+
+cluster:
+  login_node: "vjawa@nb-hel-cs-001-vscode-01.nvidia.com"
+  dc_node:    "vjawa@nb-hel-cs-001-dc-01.nvidia.com"   # fast transfer node
+  account:    "nemotron_n4_pre"
+  venv:       "/lustre/fsw/portfolios/llmservice/users/vjawa/dripper_cc_main_2025_26_smoke/.venv"
+  cached_venv: "/lustre/fsw/portfolios/llmservice/users/vjawa/dripper_cached_venv"
+  hf_cache:   "/lustre/fsw/portfolios/llmservice/users/vjawa/hf_cache"
+  # repo root on cluster — must contain tutorials/text/dripper-common-crawl/
+  remote_repo: "/lustre/fsw/portfolios/llmservice/projects/llmservice_fm_text/users/vjawa/nemo_curator_dripper_layout_clustering_20260611_194849/curator"
+
+# Output base — {snapshot} and {ts} (YYYYMMDD_HHMMSS) are expanded at runtime.
+output_base: "/lustre/fsw/portfolios/llmservice/users/vjawa/cc_pipeline_{snapshot}_{ts}"
+
+# ── Snapshots to process ──────────────────────────────────────
+snapshots:
+  - name: "CC-MAIN-2025-26"
+    manifest: "/lustre/fsw/portfolios/llmservice/users/vjawa/nemo_curator_dripper_sorted_host_buckets_20260611"
+    # Set to a pre-existing standalone output for validation (optional).
+    # Leave empty ("") to skip F1 validation for this snapshot.
+    validation_baseline: ""
+
+  # Uncomment to add another snapshot:
+  # - name: "CC-MAIN-2024-51"
+  #   manifest: "/lustre/.../cc_main_2024_51_manifest.parquet"
+  #   validation_baseline: ""
+
+# ── Sharding ──────────────────────────────────────────────────
+# All array stages must have the same shard count so aftercorr works.
+sharding:
+  num_shards: 80           # total shards for stage1a, stage1b, stage3
+  gpu_pipeline_shards: 80  # shards for stage 1c+2+2b GPU array
+
+# ── Validation ────────────────────────────────────────────────
+validation:
+  enabled: true
+  f1_threshold: 0.85       # warn/halt if mean F1 falls below this
+  halt_on_failure: false   # if true, cancel stage3b downstream on F1 failure
+  sample_size: 10000       # sample N URLs for fast validation (full run is slow)
+
+# ── Resources per stage ───────────────────────────────────────
+resources:
+  stage1a:
+    partition: "cpu_short"
+    cpus: 64
+    mem: "230G"
+    time: "04:00:00"
+    cpus_per_actor: 1      # 64 actors with 1 CPU each
+
+  stage1b:
+    partition: "batch"
+    gpus_per_node: 1
+    cpus: 4
+    mem: "32G"
+    time: "12:00:00"
+    batch_size: 16         # hosts per actor call
+    gpu_min_size: 5        # min cluster size for GPU path
+
+  gpu_pipeline:
+    partition: "batch"
+    gpus_per_node: 8
+    cpus: 64
+    mem: "240G"
+    time: "08:00:00"
+    model: "opendatalab/MinerU-HTML-v1.1-hunyuan0.5B-compact"
+    max_tokens: 2048
+    gpu_mem_util: 0.90
+    max_model_len: 32768
+    max_num_seqs: 512
+    max_num_batched_tokens: 16384
+    kv_cache_dtype: "fp8"
+
+  stage3:
+    partition: "cpu_short"
+    cpus: 64
+    mem: "230G"
+    time: "01:00:00"
+    num_workers: 64
+
+  stage3b_build:
+    partition: "cpu_short"
+    cpus: 8
+    mem: "64G"
+    time: "00:15:00"
+
+  stage3b_gpu:
+    partition: "batch"
+    gpus_per_node: 8
+    cpus: 64
+    mem: "240G"
+    time: "01:00:00"
+
+  stage3b_merge:
+    partition: "cpu_short"
+    cpus: 4
+    mem: "32G"
+    time: "00:15:00"
+
+  validation:
+    partition: "cpu_short"
+    cpus: 4
+    mem: "16G"
+    time: "00:30:00"

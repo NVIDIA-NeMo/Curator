@@ -36,26 +36,41 @@ class DynamoRoleConfig:
             raise ValueError(msg)
 
 
+DynamoRouterMode = Literal[
+    "round-robin",
+    "round_robin",
+    "random",
+    "power-of-two",
+    "kv",
+    "direct",
+    "least-loaded",
+    "device-aware-weighted",
+]
+
+
 @dataclass
 class DynamoRouterConfig:
     """Frontend router config for Dynamo.
 
     ``mode=None`` means "auto": Curator picks ``"kv"`` if any model uses
     ``mode="disagg"``, else leaves ``--router-mode`` unset so the Dynamo
-    frontend falls back to its own ``round_robin`` default. ``kv_events``
+    frontend falls back to its own ``round-robin`` default. ``kv_events``
     only applies when ``mode == "kv"``: pass ``kv_events=True`` to opt into
     exact ZMQ KV-cache event publishing; the default uses the router's
     approximate tree-based tracking. Anything else is forwarded to the
     Dynamo frontend as CLI args via ``router_kwargs``.
     """
 
-    mode: Literal["round_robin", "random", "kv", "direct"] | None = None
+    mode: DynamoRouterMode | None = None
     kv_events: bool = False
     router_kwargs: dict[str, Any] = field(default_factory=dict)
 
     _RESERVED_ROUTER_KWARGS: ClassVar[frozenset[str]] = frozenset({"router_mode", "router_kv_events"})
+    _MODE_ALIASES: ClassVar[dict[str, str]] = {"round_robin": "round-robin"}
 
     def __post_init__(self) -> None:
+        if self.mode is not None:
+            self.mode = self._MODE_ALIASES.get(self.mode, self.mode)  # type: ignore[assignment]
         if self.mode is not None and self.mode != "kv" and self.kv_events:
             msg = f"kv_events=True is only meaningful when mode='kv'; got mode={self.mode!r}."
             raise ValueError(msg)

@@ -15,10 +15,13 @@
 import asyncio
 import secrets
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
+from typing import TypeVar
 
 from loguru import logger
+
+T = TypeVar("T")
 
 
 class ConversationFormatter(ABC):
@@ -116,23 +119,15 @@ class AsyncLLMClient(ABC):
         msg = "Subclass of AsyncLLMClient must implement '_query_model_impl'"
         raise NotImplementedError(msg)
 
-    async def query_model(  # noqa: C901, PLR0912
-        self,
-        *,
-        messages: Iterable,
-        model: str,
-        conversation_formatter: ConversationFormatter | None = None,
-        generation_config: GenerationConfig | dict | None = None,
-    ) -> list[str]:
-        """
-        Query the model with automatic retry and concurrency control.
-        """
-        # Use default config if none provided
+    @staticmethod
+    def _coerce_generation_config(generation_config: GenerationConfig | dict | None) -> GenerationConfig:
         if generation_config is None:
-            generation_config = GenerationConfig()
-        elif isinstance(generation_config, dict):
-            generation_config = GenerationConfig(**generation_config)
+            return GenerationConfig()
+        if isinstance(generation_config, dict):
+            return GenerationConfig(**generation_config)
+        return generation_config
 
+    async def _run_with_retry_and_concurrency(self, operation: Callable[[], Awaitable[T]]) -> T:  # noqa: C901, PLR0912
         # Initialize semaphore if not already done or if we're in a different event loop
         current_loop = asyncio.get_running_loop()
         if self._semaphore is None or self._semaphore_loop != current_loop:
@@ -179,12 +174,7 @@ class AsyncLLMClient(ABC):
 
                 # Attempt the query
                 try:
-                    return await self._query_model_impl(
-                        messages=messages,
-                        model=model,
-                        conversation_formatter=conversation_formatter,
-                        generation_config=generation_config,
-                    )
+                    return await operation()
                 except Exception as e:
                     last_exception = e
                     # If this is the last attempt, provide helpful error message
@@ -208,7 +198,27 @@ class AsyncLLMClient(ABC):
                 raise last_exception
 
             # This should never be reached, but add explicit return for linter
-            logger.warning(
-                "Unexpected code path: AsyncLLMClient.query_model completed without returning a result or raising an exception"
+            msg = "Unexpected code path: AsyncLLMClient operation completed without returning a result or raising"
+            raise RuntimeError(msg)
+
+    async def query_model(
+        self,
+        *,
+        messages: Iterable,
+        model: str,
+        conversation_formatter: ConversationFormatter | None = None,
+        generation_config: GenerationConfig | dict | None = None,
+    ) -> list[str]:
+        """
+        Query the model with automatic retry and concurrency control.
+        """
+        # Use default config if none provided
+        generation_config = self._coerce_generation_config(generation_config)
+        return await self._run_with_retry_and_concurrency(
+            lambda: self._query_model_impl(
+                messages=messages,
+                model=model,
+                conversation_formatter=conversation_formatter,
+                generation_config=generation_config,
             )
-            return []
+        )
