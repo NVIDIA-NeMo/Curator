@@ -30,6 +30,46 @@ from __future__ import annotations
 
 from loguru import logger
 
+# Errors that should not be retried. Add entries here when vLLM exposes
+# other fatal startup errors through generic EngineCore wrapper messages.
+_NON_RETRYABLE_MARKERS = (
+    "out of memory",
+    "cudaerrormemoryallocation",
+    "device-side assert",
+    "invalid config",
+    "invalid model config",
+)
+
+# Substrings that indicate a (usually transient) vLLM engine-startup failure
+# caused by a MASTER_PORT collision. In vLLM v1 the bind happens in the
+# EngineCore subprocess, so the parent often only sees the wrapped messages
+# below rather than the raw "EADDRINUSE".
+_ENGINE_STARTUP_FAILURE_MARKERS = (
+    "eaddrinuse",
+    "address already in use",
+    "engine core initialization failed",
+    "enginecore failed to start",
+)
+
+
+def _exception_chain_text(exc: BaseException) -> str:
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        parts.append(str(current))
+        current = current.__cause__ or current.__context__
+    return " ".join(parts).lower()
+
+
+def _is_engine_startup_failure(exc: BaseException) -> bool:
+    """Return True if ``exc`` looks like a retryable vLLM engine-startup failure."""
+    message = _exception_chain_text(exc)
+    if any(marker in message for marker in _NON_RETRYABLE_MARKERS):
+        return False
+    return any(marker in message for marker in _ENGINE_STARTUP_FAILURE_MARKERS)
+
 
 def pick_free_port() -> int:
     """Return a free TCP port on the local machine."""
@@ -49,6 +89,7 @@ def create_vllm_llm(  # noqa: PLR0913
     trust_remote_code: bool = True,
     limit_mm_per_prompt: dict | None = None,
     max_port_retries: int = 3,
+    **extra_engine_kwargs: object,
 ) -> "vllm.LLM":  # noqa: F821,UP037
     """Create a :class:`vllm.LLM` instance with automatic port-collision retry.
 
@@ -74,8 +115,13 @@ def create_vllm_llm(  # noqa: PLR0913
         Defaults to ``{"image": 1}`` when ``None``.
     max_port_retries:
         Number of port-pick attempts before re-raising the error.
+    extra_engine_kwargs:
+        Additional keyword arguments forwarded verbatim to :class:`vllm.LLM`
+        (e.g. ``gpu_memory_utilization``, ``max_num_batched_tokens``). Keys here
+        override the explicit defaults above when they collide.
     """
     import os
+    import random
     import time
 
     from vllm import LLM
@@ -83,26 +129,40 @@ def create_vllm_llm(  # noqa: PLR0913
     if limit_mm_per_prompt is None:
         limit_mm_per_prompt = {"image": 1}
 
+    engine_kwargs: dict = {
+        "model": model_path,
+        "max_num_seqs": max_num_seqs,
+        "limit_mm_per_prompt": limit_mm_per_prompt,
+        "dtype": dtype,
+        "trust_remote_code": trust_remote_code,
+        "enforce_eager": enforce_eager,
+        **extra_engine_kwargs,
+    }
+
     for attempt in range(1, max_port_retries + 1):
         free_port = pick_free_port()
         os.environ["MASTER_PORT"] = str(free_port)
         try:
-            return LLM(
-                model=model_path,
-                max_num_seqs=max_num_seqs,
-                limit_mm_per_prompt=limit_mm_per_prompt,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-                enforce_eager=enforce_eager,
-            )
+            return LLM(**engine_kwargs)
         except RuntimeError as e:
-            if "EADDRINUSE" in str(e) or "address already in use" in str(e):
-                logger.warning(f"[vLLM] Port {free_port} collision on attempt {attempt}, retrying...")
-                time.sleep(2)
-                if attempt == max_port_retries:
-                    raise
-            else:
+            # MASTER_PORT collisions happen when many engines start concurrently
+            # on one node (e.g. 8 single-GPU replicas under xenna). In vLLM v1 the
+            # distributed-store bind runs inside the EngineCore subprocess, so the
+            # original "EADDRINUSE" text does not reach this parent process: the
+            # caller only sees a generic "Engine core initialization failed". We
+            # therefore retry on both the direct bind error and that wrapped
+            # startup failure, picking a fresh port and adding jitter so racing
+            # workers de-stagger instead of re-colliding on the same retry.
+            if not _is_engine_startup_failure(e):
                 raise
+            if attempt == max_port_retries:
+                logger.error(f"[vLLM] Engine startup failed after {max_port_retries} attempt(s): {e}")
+                raise
+            logger.warning(
+                f"[vLLM] Engine startup failed on attempt {attempt}/{max_port_retries} "
+                f"(port {free_port}, likely a MASTER_PORT collision), retrying: {e}"
+            )
+            time.sleep(2 + random.uniform(0, 3))  # noqa: S311 - jitter only, not security-sensitive
 
     msg = "unreachable"
     raise RuntimeError(msg)  # pragma: no cover

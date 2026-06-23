@@ -58,8 +58,12 @@ def test_dynamo_endpoint(namespace: str, component: str, role: str | None, expec
     ("engine_kwargs", "expected"),
     [
         ({}, []),
-        ({"enforce_eager": False}, []),
+        ({"enforce_eager": False}, ["--no-enforce-eager"]),
         ({"enforce_eager": True}, ["--enforce-eager"]),
+        (
+            {"disable_hybrid_kv_cache_manager": False},
+            ["--no-disable-hybrid-kv-cache-manager"],
+        ),
         (
             {"tensor_parallel_size": 4, "max_model_len": 8192},
             ["--tensor-parallel-size", "4", "--max-model-len", "8192"],
