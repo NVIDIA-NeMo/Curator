@@ -33,6 +33,48 @@ python tutorials/interleaved/nemotron_parse_pdf/main.py \
     --enforce-eager
 ```
 
+## Dynamo serving example
+
+When serving Nemotron-Parse through `InferenceServer` with the Dynamo backend,
+set the vLLM chat processor explicitly so multimodal OpenAI content arrays are
+flattened correctly, enable multimodal handling on the worker, and pass any
+runtime-specific Dynamo environment variables through `subprocess_env`:
+
+```python
+from nemo_curator.core.serve import (
+    DynamoRouterConfig,
+    DynamoServerConfig,
+    DynamoVLLMModelConfig,
+    InferenceServer,
+)
+
+server = InferenceServer(
+    models=[
+        DynamoVLLMModelConfig(
+            model_identifier="/path/to/NVIDIA-Nemotron-Parse-v1.2",
+            engine_kwargs={
+                "trust_remote_code": True,
+                "dtype": "bfloat16",
+                "limit_mm_per_prompt": {"image": 1},
+                "enable_prefix_caching": False,
+                "disable_hybrid_kv_cache_manager": False,
+            },
+            dynamo_kwargs={"enable_multimodal": True},
+        )
+    ],
+    backend=DynamoServerConfig(
+        request_plane="tcp",
+        router=DynamoRouterConfig(
+            router_kwargs={
+                "dyn_chat_processor": "vllm",
+            }
+        ),
+        subprocess_env={"DYN_TCP_REQUEST_TIMEOUT": "180"},
+    ),
+)
+server.start()
+```
+
 ## Input formats
 
 The pipeline supports three input formats selected by a mutually exclusive flag:
