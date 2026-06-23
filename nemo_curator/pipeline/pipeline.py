@@ -235,14 +235,11 @@ class Pipeline:
         Args:
             executor (BaseExecutor): Executor to use
             initial_tasks (list[Task], optional): Initial tasks to start the pipeline with. Defaults to None.
-            checkpoint_path (str | Path, optional): Directory used for
-                resumability. When set, completed source partitions are tracked
-                across runs and skipped on rerun; the tracking state lives in a
-                ``.nemo_curator_metadata`` subdirectory. Multiple independent
-                runs (e.g. the tasks of a SLURM array) may point at the same
-                directory — each writes its own LMDB file, so there is no
-                shared-file contention. The actor lifecycle is owned by this
-                method; executors are not modified.
+            checkpoint_path (str | Path, optional): Resumability directory. When
+                set, completed source partitions are tracked (in a
+                ``.nemo_curator_metadata`` subdir) and skipped on rerun. Multiple
+                runs (e.g. a SLURM array) may share the directory — each writes
+                its own LMDB file, so there is no contention.
 
         Returns:
             list[Task] | None: List of tasks
@@ -292,14 +289,9 @@ class Pipeline:
         initial_tasks: list[Task] | None,
         checkpoint_path: Path,
     ) -> list[Task] | None:
-        """Owns the full resumability-actor lifecycle. Per-backend executors
-        are not modified — the actor is spawned ``lifetime="detached"`` so
-        it survives executor-local ``ray.shutdown()`` calls.
-
-        The actor never raises (see ``ResumabilityActor.apply_deltas``), so
-        there's no watchdog and no error propagation path here — just spawn,
-        run, close.
-        """
+        """Own the resumability-actor lifecycle (executors unmodified): spawn it
+        ``lifetime="detached"`` so it survives executor-local ``ray.shutdown()``,
+        run, then close. The actor never raises, so there's no error path here."""
         import ray
 
         from nemo_curator.utils.resumability_actor import ResumabilityActor

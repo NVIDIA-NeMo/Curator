@@ -11,12 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for the resumability counter step in ``BaseStageAdapter``.
-
-task_id assignment is PR-A's job (``_post_process_task_ids``) and is covered
-in ``tests/backends/test_task_id_postprocess.py``. Here we test only the
-opt-in counter layer (``_apply_resumability_counters``) and the
-``None``->``NoneTask`` normalization, with the actor RPCs mocked out.
+"""Unit tests for the resumability counter step (``_apply_resumability_counters``)
+and the ``None``->``NoneTask`` normalization in ``BaseStageAdapter``, with the
+actor RPCs mocked out.
 """
 
 from __future__ import annotations

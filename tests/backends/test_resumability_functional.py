@@ -11,22 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""End-to-end resume loop, without a Ray cluster or an executor.
-
-Drives the *real* ``BaseStageAdapter`` counter logic against a *real*,
-LMDB-backed ``ResumabilityActor`` (its undecorated class) over two runs that
-share a checkpoint directory — the same source→sink flow an executor performs:
-
-1. source stage fires +1 per partition (skipping any already completed),
-2. sink stage fires the consume delta per output,
-3. the actor persists a source to its per-writer LMDB file when its counter
-   hits zero,
-4. a fresh actor on the next run reads the union of completed sources and the
-   source stage skips them.
-
-This exercises the full counter → client → actor → LMDB → skip loop and would
-fail under the parent-id keying bug (the source's +1 and the sink's delta would
-collide, so completed sources would never persist and would re-run forever).
+"""End-to-end resume loop without a Ray cluster: drives the real
+``BaseStageAdapter`` against a real LMDB-backed ``ResumabilityActor`` over two
+runs sharing a checkpoint dir. Exercises the full counter → actor → LMDB → skip
+loop (and would fail under the old parent-id keying bug, where completed sources
+never persisted).
 """
 
 from __future__ import annotations

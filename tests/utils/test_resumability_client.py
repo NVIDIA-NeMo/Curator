@@ -11,11 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for the worker-side resumability client helpers.
-
-These talk to the detached resumability actor over Ray. ``ray`` is mocked so
-the helpers' control flow (actor lookup, no-op when inactive, delta fire,
-completed-source lookup) is exercised without a live cluster.
+"""Unit tests for the worker-side resumability client helpers (actor lookup,
+no-op when inactive, delta fire, completed-source lookup). ``ray`` is mocked,
+so no live cluster is needed.
 """
 
 from __future__ import annotations

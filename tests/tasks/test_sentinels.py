@@ -11,12 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for the payload-less sentinel tasks.
-
-``SentinelTask`` is the shared base; ``EmptyTask`` seeds a pipeline while
-``NoneTask`` / ``FailedTask`` are the resumability markers. They carry no
-payload and their ``task_id`` is framework-assigned (``EmptyTask`` is fixed
-to the root ``"0"``; the others default empty until the adapter sets them).
+"""Unit tests for the payload-less sentinel tasks: the ``SentinelTask`` base,
+``EmptyTask`` (pipeline seed, ``task_id="0"``), and the ``NoneTask`` /
+``FailedTask`` resumability markers (framework-assigned ``task_id``).
 """
 
 from __future__ import annotations

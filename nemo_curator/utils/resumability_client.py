@@ -11,26 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Module-level helpers that workers use to talk to the resumability
-actor. All helpers are no-ops when the actor isn't registered, so
-unchecked pipelines pay nothing.
+"""Worker-side helpers to talk to the resumability actor; all no-ops when no
+actor is registered, so unchecked pipelines pay nothing.
 """
 
 from __future__ import annotations
 
 import ray
 
-# Name of the detached resumability actor. Defined here — NOT imported from
-# resumability_actor — so the always-imported worker path
-# (BaseStageAdapter -> this module) never pulls in resumability_actor, which
-# imports lmdb. lmdb is only needed once resumability is actually used (the
-# actor process and Pipeline._run_with_resumability).
+# Defined here (not imported from resumability_actor) so the always-imported
+# worker path doesn't pull in lmdb until resumability is actually used.
 ACTOR_NAME = "nemo_curator_resumability"
 
 
 def _actor() -> ray.actor.ActorHandle | None:
-    """Return the resumability actor handle, or None if Ray is not
-    initialized or no such actor is registered."""
+    """The resumability actor handle, or None if Ray is down / no actor registered."""
     if not ray.is_initialized():
         return None
     try:
@@ -45,23 +40,16 @@ def _is_active() -> bool:
 
 
 def _flush_deltas(per_task: list[tuple[str, str, int]]) -> None:
-    """Fire-and-forget per-task counter deltas to the actor.
-
-    Each entry is ``(task_id, source_id, delta)`` — ``task_id`` is the output
-    task's id, used as the dedup key. Workers do NOT ``ray.get`` the returned
-    ref; the actor is designed never to raise (anomalies are logged and handled
-    in place), so there is no synchronous error path here. Backpressure is
-    bounded by the actor's ``max_pending_calls`` cap.
-    """
+    """Fire-and-forget per-task deltas ``(task_id, source_id, delta)``. No
+    ``ray.get`` — the actor never raises, so there's no error path; backpressure
+    is the actor's ``max_pending_calls`` cap."""
     a = _actor()
     if a is not None and per_task:
         a.apply_deltas.remote(per_task)  # type: ignore[attr-defined]
 
 
 def _skip_completed_sources(source_ids: list[str]) -> set[str]:
-    """Synchronous lookup of which source_ids are already marked complete
-    in LMDB. Used by the source-stage adapter to drop already-done
-    sources from its output before downstream stages see them."""
+    """Set of ``source_ids`` already marked complete; the source stage uses it to skip them."""
     a = _actor()
     if a is None or not source_ids:
         return set()

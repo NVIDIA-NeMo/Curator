@@ -46,10 +46,9 @@ class Task(ABC, Generic[T]):
             NON-deterministic (differ across runs).
         dataset_name: Name of the dataset this task belongs to.
         _stage_perf: List of stages perfs this task has passed through.
-        _source_id: Identifier of the source (input partition) this task
-            descends from. Stamped at the source stage and inherited
-            downstream; used only by the (opt-in) resumability layer to
-            track which sources have completed. Empty for pre-source tasks.
+        _source_id: Source (input partition) this task descends from. Stamped at
+            the source stage, inherited downstream; used only by the opt-in
+            resumability layer. Empty for pre-source tasks.
     """
 
     dataset_name: str

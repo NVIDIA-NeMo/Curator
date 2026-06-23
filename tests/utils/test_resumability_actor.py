@@ -12,10 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Unit tests for :class:`ResumabilityActor` (counter math, dedup,
-rewrite-on-conflict, LMDB persistence).
-
-These tests instantiate the actor class directly (without going through
-``@ray.remote``) so they're fast and don't require a live Ray cluster.
+rewrite-on-conflict, LMDB persistence). Instantiates the actor class directly
+(no ``@ray.remote``), so no live Ray cluster is needed.
 """
 
 from __future__ import annotations

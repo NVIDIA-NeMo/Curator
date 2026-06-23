@@ -11,44 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Per-writer LMDB owner that tracks per-source pending counters for
-resumability.
+"""Per-writer LMDB owner tracking per-source completion for resumability.
 
-Resumability state lives in a shared ``.nemo_curator_metadata`` directory so
-that independent runs pointed at the same checkpoint location can record
-completed sources without corrupting a shared file. The motivating case is a
-SLURM array: each array task is its own job → its own Ray cluster → its own
-actor, often on a different node.
+LMDB can't be safely shared by writers across hosts (its lock lives in an
+mmap'd file not shared on a networked FS), so each actor writes ONLY its own
+``<dir>/<host>-<pid>.mdb`` and on startup reads the UNION of completed sources
+across every ``*.mdb`` in the dir. A rerun thus skips everything any prior
+writer finished — letting the tasks of a SLURM array share one checkpoint dir.
 
-LMDB cannot be safely written by multiple processes on different hosts against
-a single file — its inter-process lock lives in a memory-mapped lock file that
-is not shared across nodes on a networked filesystem (e.g. Lustre). So instead
-of one shared file:
-
-- each actor WRITES ONLY to its own file ``<dir>/<host>-<pid>.mdb`` (it is the
-  sole writer of that file, so no cross-process locking is needed), and
-- on startup it READS THE UNION of completed sources across every ``*.mdb``
-  file in the directory.
-
-A rerun therefore sees everything every prior writer finished and skips it.
-This assumes each writer owns a disjoint set of sources (the usual
-shard-per-task model); two writers completing the *same* source id is harmless
-(idempotent — the source is simply marked done).
-
-Workers fire ``apply_deltas`` fire-and-forget. The actor:
-
-- Maintains ``_pending: dict[source_id, int]`` (counter per in-flight source)
-- Maintains ``_applied: dict[task_id, delta]`` — ``task_id`` is the output task
-  id used as the dedup key (Ray-retry dedup; on a retry firing a *different*
-  delta, rewrites the pending counter to reflect the newest observation rather
-  than raising)
-- Writes a single LMDB row to its own file per source when its counter hits zero
-
-By design, ``apply_deltas`` **never raises**. The two anomaly cases we detect —
-same task id producing a different delta on retry, and a delta arriving for a
-source that is already completed — are handled in-place: the first by
-rewriting, the second by logging a warning and skipping. Resumability is never
-the cause of a pipeline failure.
+``apply_deltas`` is fire-and-forget and never raises; see its docstring for the
+dedup/rewrite/anomaly rules.
 """
 
 from __future__ import annotations
@@ -75,31 +47,16 @@ METADATA_DIRNAME = ".nemo_curator_metadata"
 
 @ray.remote(num_cpus=0, max_concurrency=1)
 class ResumabilityActor:
-    """Per-writer counter + LMDB owner.
-
-    Workers fire ``apply_deltas`` via ``.remote()`` and do NOT ``ray.get`` the
-    returned ref. The actor never raises; anomalies are logged and handled
-    inline (see ``apply_deltas`` docstring).
-
-    Spawned by ``Pipeline.run`` with ``lifetime="detached"`` so it survives
-    executor-local ``ray.shutdown`` calls. ``Pipeline.run`` closes it
-    explicitly at end-of-run.
-
-    Writes go only to this actor's own file in the shared metadata directory;
-    reads (``are_completed``) reflect the union of all writers' files as of
-    this actor's startup, plus this actor's own progress.
-    """
+    """Per-writer counter + LMDB owner. Spawned by ``Pipeline.run`` with
+    ``lifetime="detached"`` and closed at end-of-run; ``apply_deltas`` is
+    fire-and-forget and never raises."""
 
     def __init__(self, base_dir: str, map_size: int = _DEFAULT_MAP_SIZE, writer_id: str | None = None):
-        # base_dir is the user-provided checkpoint directory; the per-writer
-        # LMDB files live in <base_dir>/.nemo_curator_metadata/.
+        # Per-writer LMDB files live under <base_dir>/.nemo_curator_metadata/.
         self._dir = Path(base_dir).absolute() / METADATA_DIRNAME
         self._dir.mkdir(parents=True, exist_ok=True)
-        # This actor's own file — the ONLY file it ever writes to. Keyed by
-        # this writer's identity (default host+pid, unique among concurrently
-        # running writers: distinct hosts, or distinct pids on one host). A
-        # rerun whose pid recycles simply reopens and appends to its old file,
-        # which is safe (sequential in time).
+        # The ONLY file this actor writes, keyed by writer id (default host-pid,
+        # unique across concurrent writers; a pid-recycled rerun safely reuses it).
         wid = writer_id or f"{socket.gethostname()}-{os.getpid()}"
         self._path = str(self._dir / f"{wid}.mdb")
         self._env = lmdb.open(
@@ -116,18 +73,11 @@ class ResumabilityActor:
         self._pending: dict[str, int] = {}
         # Union of completed sources across ALL writer files in the dir.
         self._completed: set[str] = self._load_completed()
-        # task_id -> delta we previously applied for this task.
-        # Dual-purpose:
-        #   1. Dedup: a Ray retry firing the same delta is a silent skip.
-        #   2. Rewrite-on-conflict: a retry firing a *different* delta
-        #      replaces the old delta. The pending counter is adjusted by
-        #      `(-old_delta + new_delta)` so the latest observation wins.
+        # task_id -> last delta applied: same delta = dedup skip; different = rewrite.
         self._applied: dict[str, int] = {}
 
     def _read_completed_from(self, env: lmdb.Environment) -> set[str]:
-        """Read the completed-source ids from an already-open LMDB env. Returns
-        an empty set if this env has no completed-sources sub-db yet (a writer
-        that has only recorded in-flight, not-yet-finished sources)."""
+        """Completed-source ids from an open LMDB env (empty if it has no completed-sources db yet)."""
         try:
             db = env.open_db(_COMPLETED_DB)
         except lmdb.Error:
@@ -136,11 +86,8 @@ class ResumabilityActor:
             return {k.decode() for k, _ in cur}
 
     def _load_completed(self) -> set[str]:
-        """Union of completed source ids across every writer's LMDB file in the
-        metadata dir (other writers' files read read-only; our own via the open
-        write handle). A file that cannot be opened — e.g. it is mid-write by a
-        live writer, or already open in THIS process during tests — is skipped
-        with a warning rather than failing the run."""
+        """Union of completed sources across all writer files; unreadable files
+        (mid-write, or open in-process during tests) are skipped with a warning."""
         done = self._read_completed_from(self._env)  # our own (possibly reused) file
         for mdb in sorted(self._dir.glob("*.mdb")):
             if str(mdb) == self._path:
@@ -159,34 +106,20 @@ class ResumabilityActor:
     # ------------------------------------------------------------ read
 
     def are_completed(self, source_ids: list[str]) -> list[bool]:
-        """Returns a parallel bool list indicating which source_ids are
-        already marked complete (and thus should be skipped on rerun). Reflects
-        the union of all writers' files as of startup, plus this actor's own
-        completions since."""
+        """Parallel bool list: which source_ids are complete (skip on rerun)."""
         return [sid in self._completed for sid in source_ids]
 
     # ------------------------------------------------------------ write
 
     def apply_deltas(self, per_task: list[tuple[str, str, int]]) -> None:
-        """Apply per-task counter deltas. Workers call this fire-and-forget
-        (no ``ray.get`` on the returned ref).
+        """Apply per-task counter deltas (fire-and-forget; no ``ray.get``).
 
-        Each tuple is ``(task_id, source_id, delta)``. Behavior:
-
-        - ``task_id`` already in ``_applied`` with the same delta →
-          silent skip (Ray retry idempotency).
-        - ``task_id`` already in ``_applied`` with a different delta and
-          ``source_id`` NOT in ``_completed`` → rewrite: adjust
-          ``_pending[source_id]`` by ``(-old + new)`` and update the
-          recorded delta. Reflects the latest observation.
-        - ``task_id`` not in ``_applied`` and ``source_id`` already in
-          ``_completed`` → log a loud warning **and remove the source
-          from the completed set (in-memory + LMDB)** so it will be
-          reprocessed on the next run. Same treatment when a different
-          delta arrives for a task whose source is already completed.
-          These two cases indicate a bug — the cleanest recovery is to
-          un-complete the source rather than silently drop the update.
-        - Otherwise → normal apply.
+        Each tuple is ``(task_id, source_id, delta)``:
+        - seen ``task_id``, same delta → skip (Ray-retry idempotency).
+        - seen ``task_id``, different delta → rewrite ``_pending`` by ``-old+new``.
+        - any delta for an already-completed source → warn and un-complete it
+          (in-memory + LMDB) so it reprocesses next run (indicates a bug).
+        - else → apply; persist the source when its counter hits 0.
 
         Never raises.
         """
@@ -242,13 +175,9 @@ class ResumabilityActor:
                 txn.put(sid.encode(), b"1", db=self._db, overwrite=True)
 
     def _remove_from_completed(self, sid: str) -> None:
-        """Remove ``sid`` from the in-memory completed set and from our own
-        LMDB file. Used when we detect that a source was prematurely marked
-        complete (a late delta arrives after completion); the safest recovery
-        is to un-complete so it reruns on next launch. Note: if ``sid`` was
-        completed by a *different* writer's file we can't delete it there (we
-        only ever write our own file), so it may reappear from the union on the
-        next startup — acceptable for this rare anomaly path."""
+        """Un-complete ``sid`` (in-memory + our LMDB file) so it reruns. If a
+        *different* writer completed it, that entry can't be removed and may
+        reappear from the union next startup — acceptable for this rare path."""
         self._completed.discard(sid)
         with self._env.begin(write=True) as txn:
             txn.delete(sid.encode(), db=self._db)
