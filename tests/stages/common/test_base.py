@@ -443,6 +443,18 @@ class TestProcessingStageOverriddenProperties:
                 def process(self, task: MockTask) -> MockTask:
                     return task
 
+    def test_num_workers_attribute(self):
+        """Test that ProcessingStage raises an error if a derived class defines 'num_workers' as an attribute."""
+        with pytest.raises(TypeError, match="must not define 'num_workers' as a stage attribute"):
+
+            class MockStageNumWorkersAttribute(ProcessingStage[MockTask, MockTask]):
+                name = "MockStageNumWorkersAttribute"
+                resources = Resources(cpus=1.0)
+                num_workers: int = 1
+
+                def process(self, task: MockTask) -> MockTask:
+                    return task
+
     def test_nested_class_inheritance(self):
         """Test that nested class inheritance raises an error if a derived class overrides the _name, _resources, or _batch_size property."""
         with pytest.raises(TypeError, match="MockStageNestedOverriddenName must not override '_name'"):

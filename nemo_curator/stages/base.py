@@ -143,6 +143,17 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
                 msg = f"{cls.__name__} must not override '{attr}'"
                 raise TypeError(msg)
 
+        num_workers = cls.__dict__.get("num_workers")
+        if (num_workers is not None and not callable(num_workers)) or (
+            num_workers is None and "num_workers" in cls.__dict__.get("__annotations__", {})
+        ):
+            msg = (
+                f"{cls.__name__} must not define 'num_workers' as a stage attribute. "
+                "Override num_workers() for backend worker sizing, or use a different field name "
+                "for stage-specific worker counts."
+            )
+            raise TypeError(msg)
+
         for attr in ("name", "resources", "batch_size", "runtime_env"):
             if isinstance(cls.__dict__.get(attr), property):
                 msg = (
