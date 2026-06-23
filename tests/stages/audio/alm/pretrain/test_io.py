@@ -69,6 +69,11 @@ def manifest_path(tmp_path: Path) -> Path:
 
 
 class TestReadLongFormManifestStage:
+    def test_worker_defaults(self, tmp_path: Path, manifest_path: Path) -> None:
+        stage = ReadLongFormManifestStage(input_manifest=str(manifest_path), audio_dir=str(tmp_path))
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
+
     def test_emits_one_task_per_valid_row(self, tmp_path: Path, manifest_path: Path) -> None:
         stage = ReadLongFormManifestStage(input_manifest=str(manifest_path), audio_dir=str(tmp_path))
         out = stage.process(EmptyTask(dataset_name="empty", data=None))

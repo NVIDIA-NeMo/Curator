@@ -25,9 +25,6 @@ from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 from PIL import Image
 
 from nemo_curator.backends.utils import RayStageSpecKeys
@@ -36,19 +33,24 @@ from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import Nemot
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
 from nemo_curator.tasks import EmptyTask
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 def _empty_task() -> EmptyTask:
     return EmptyTask(dataset_name="test", data=None)
 
 
 class TestPDFPartitioningStage:
-    def test_ray_stage_spec_has_fanout(self, tmp_path: Path):
+    def test_worker_defaults(self, tmp_path: Path):
         manifest = tmp_path / "manifest.jsonl"
         manifest.write_text(json.dumps({"file_name": "a.pdf"}) + "\n")
 
         stage = PDFPartitioningStage(manifest_path=str(manifest))
 
         assert stage.ray_stage_spec()[RayStageSpecKeys.IS_FANOUT_STAGE] is True
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
 
     def test_simple_manifest(self, tmp_path: Path):
         manifest = tmp_path / "manifest.jsonl"
