@@ -85,7 +85,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         embedding_batch_size: Batch size for speaker embeddings
         min_length: Minimum segment length in seconds
         max_length: Maximum segment length in seconds
-        xenna_num_workers: If set, passes ``num_workers`` to Xenna (cluster-wide cap). Unset uses Xenna autoscaling.
+        xenna_num_workers: If set, caps workers cluster-wide. Prefer ``with_(num_workers=...)`` for new code.
     """
 
     hf_token: str
@@ -123,11 +123,8 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, self.segments_key, self.overlap_segments_key]
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        spec: dict[str, Any] = {}
-        if self.xenna_num_workers is not None:
-            spec["num_workers"] = self.xenna_num_workers
-        return spec
+    def num_workers(self) -> int | None:
+        return self.xenna_num_workers
 
     @property
     def _device(self) -> str:
