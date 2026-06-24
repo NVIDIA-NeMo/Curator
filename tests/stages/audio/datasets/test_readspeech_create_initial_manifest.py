@@ -18,7 +18,7 @@ from unittest.mock import patch
 from nemo_curator.stages.audio.datasets.readspeech.create_initial_manifest import (
     CreateInitialManifestReadSpeechStage,
 )
-from nemo_curator.tasks import AudioTask, _EmptyTask
+from nemo_curator.tasks import AudioTask, EmptyTask
 
 
 def test_ray_stage_spec(tmp_path: Path) -> None:
@@ -80,12 +80,13 @@ def test_process_end_to_end(tmp_path: Path) -> None:
     (wav_dir / "book_00001_chp_0002_reader_00200_0_seg_1_seg1.wav").write_bytes(b"\x00")
 
     stage = CreateInitialManifestReadSpeechStage(
-        raw_data_dir=str(tmp_path / "dns_data"), max_samples=-1, auto_download=False,
+        raw_data_dir=str(tmp_path / "dns_data"),
+        max_samples=-1,
+        auto_download=False,
     )
-    results = stage.process(_EmptyTask(task_id="empty", dataset_name="test", data=None))
+    results = stage.process(EmptyTask(dataset_name="test", data=None))
     assert len(results) == 2
     assert all(isinstance(r, AudioTask) for r in results)
-    assert results[0].task_id == "readspeech_0"
     assert results[0].dataset_name == "DNS-ReadSpeech"
 
 
@@ -93,7 +94,7 @@ def test_process_empty_dir(tmp_path: Path) -> None:
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
     stage = CreateInitialManifestReadSpeechStage(raw_data_dir=str(empty_dir), auto_download=False)
-    results = stage.process(_EmptyTask(task_id="e", dataset_name="t", data=None))
+    results = stage.process(EmptyTask(dataset_name="t", data=None))
     assert results == []
 
 
@@ -104,6 +105,6 @@ def test_auto_download_calls_download(tmp_path: Path) -> None:
     (wav_dir / "book_00000_chp_0001_reader_00100_0_seg_1_seg1.wav").write_bytes(b"\x00")
 
     with patch.object(stage, "download_and_extract", return_value=str(wav_dir)) as mock_dl:
-        results = stage.process(_EmptyTask(task_id="e", dataset_name="t", data=None))
+        results = stage.process(EmptyTask(dataset_name="t", data=None))
         mock_dl.assert_called_once()
         assert len(results) == 1

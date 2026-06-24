@@ -91,10 +91,9 @@ def write_tar(tar_path: Path, members: dict[str, bytes]) -> str:
     return str(tar_path)
 
 
-def task_for_tar(tar_path: str, task_id: str = "file_group_0", dataset_name: str = "mint_test") -> FileGroupTask:
+def task_for_tar(tar_path: str, dataset_name: str = "mint_test") -> FileGroupTask:
     """Build a ``FileGroupTask`` wrapping a single tar path."""
     return FileGroupTask(
-        task_id=task_id,
         dataset_name=dataset_name,
         data=[tar_path],
         _metadata={"source_files": [tar_path]},
@@ -224,12 +223,11 @@ def make_image_task(rows: list[dict], metadata: dict | None = None) -> Interleav
     Primarily used by materialization and classify-rows tests.
     """
     table = pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA)
-    return InterleavedBatch(task_id="test", dataset_name="d", data=table, _metadata=metadata or {})
+    return InterleavedBatch(dataset_name="d", data=table, _metadata=metadata or {})
 
 
 def make_interleaved_batch(
     num_samples: int = 2,
-    task_id: str = "test_batch",
     include_images: bool = True,
     schema: pa.Schema = INTERLEAVED_SCHEMA,
 ) -> InterleavedBatch:
@@ -257,7 +255,6 @@ def make_interleaved_batch(
             rows.append(make_row(sid, 1, "image", binary_content=b"fake-jpeg-bytes"))
     table = pa.Table.from_pylist(rows, schema=schema)
     return InterleavedBatch(
-        task_id=task_id,
         dataset_name="test",
         data=table,
         _metadata={"source_files": ["test.tar"]},
@@ -326,4 +323,4 @@ def single_row_table() -> pa.Table:
 @pytest.fixture
 def single_row_task(single_row_table: pa.Table) -> InterleavedBatch:
     """``InterleavedBatch`` wrapping the ``single_row_table`` fixture."""
-    return InterleavedBatch(task_id="t1", dataset_name="d1", data=single_row_table)
+    return InterleavedBatch(dataset_name="d1", data=single_row_table)

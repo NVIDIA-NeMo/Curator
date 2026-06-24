@@ -158,7 +158,7 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
         if "segments" in task.data:
             survivors = []
             for seg in task.data["segments"]:
-                temp = AudioTask(data=seg, task_id=task.task_id)
+                temp = AudioTask(data=seg)
                 result = self._process_single(temp)
                 if result is not None:
                     survivors.append(temp.data)
@@ -189,9 +189,7 @@ class BandFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
         actual = task.data.get("band_prediction", "unknown")
         if actual != self.band_value:
-            logger.info(
-                f"[{task.task_id}] BAND FILTER FAILED: prediction '{actual}' != target '{self.band_value}'"
-            )
+            logger.info(f"[{task.task_id}] BAND FILTER FAILED: prediction '{actual}' != target '{self.band_value}'")
             return None
 
         return task

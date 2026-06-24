@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 from contextlib import suppress
 from pathlib import Path
 from typing import Literal
@@ -241,39 +242,38 @@ class TestKMeansStageIntegration:
         assert cosine_dtype == np.float32, f"Cosine distance should be float, got {cosine_dtype}"
 
     def test_output_filenames_and_structure(self) -> None:
-        """Test that the output files are created with exact expected filenames and partitioning.
+        """Output files are written with deterministic, input-derived names and
+        partitioned by centroid.
 
-        Each actor (we should have two GPU actors) writes files with predictable names: {tasks[0]._uuid}_{subgroup_index}.parquet
-        Since our test data is small, each actor creates 1 subgroup, so files are named {uuid}_0.parquet
+        Each GPU actor writes ``{input_task_id}_{subgroup}.parquet`` where the
+        input task id is the FilePartitioning id (``0_<file_hash>``).
+        We assert the names match that deterministic pattern (never a random
+        ``r<uuid>`` fallback) and that the centroid partitioning is correct.
+
+        Note: the pipeline's result tasks are terminal ``EmptyTask`` signals
+        whose ids are framework-assigned (and, for this aggregating stage, the
+        non-deterministic ``r<uuid>`` fallback) — they are intentionally NOT
+        tied to the output filenames, which are derived from the input ids.
         """
-        # Get the expected filenames from pipeline results
-        # The pipeline returns EmptyTasks with task_id = output_filename = f"{tasks[0]._uuid}_{i}"
-        expected_filenames = set()
-        for result_task in self.pipeline_results:
-            expected_filename = f"{result_task.task_id}.parquet"
-            expected_filenames.add(expected_filename)
+        # One terminal result task per actor.
+        assert len(self.pipeline_results) == 2, f"Expected 2 result tasks, got {len(self.pipeline_results)}"
 
-        # Should have exactly 2 result tasks (one per actor)
-        assert len(expected_filenames) == 2, f"Expected 2 result tasks/filenames, got {len(expected_filenames)}"
-
-        # Collect all actual filenames across all partitions
-        actual_filenames = set()
+        # Collect all output filenames across centroid partitions. (The same
+        # file name appears under each centroid=* dir, so dedupe into a set.)
         centroid_dirs = list(self.output_dir.glob("centroid=*"))
+        actual_filenames = {f.name for d in centroid_dirs for f in d.glob("*.parquet")}
 
-        # Collect filenames from all centroid partitions
-        for centroid_dir in centroid_dirs:
-            partition_files = list(centroid_dir.glob("*.parquet"))
-            for file in partition_files:
-                actual_filenames.add(file.name)
+        # Two distinct output files (one per actor), each deterministically
+        # named from its input partition's id: "0_<file_hash>_<subgroup>".
+        assert len(actual_filenames) == 2, f"Expected 2 distinct output files, got {actual_filenames}"
+        deterministic_name = re.compile(r"^0_[0-9a-f]+_\d+\.parquet$")
+        for name in actual_filenames:
+            assert deterministic_name.match(name), (
+                f"Output filename {name!r} is not deterministic/input-derived "
+                f"(an 'r<uuid>' name would mean ancestry was lost)"
+            )
 
-        # Verify that all expected filenames are present
-        assert actual_filenames == expected_filenames, (
-            f"Expected filenames {expected_filenames}, but found {actual_filenames}. "
-            f"Missing: {expected_filenames - actual_filenames}, "
-            f"Extra: {actual_filenames - expected_filenames}"
-        )
-
-        # Verify we have the expected number of centroid partitions (should be exactly N_CLUSTERS)
+        # Exactly N_CLUSTERS centroid partitions.
         assert len(centroid_dirs) == N_CLUSTERS, (
             f"Expected exactly {N_CLUSTERS} centroid partitions, got {len(centroid_dirs)}"
         )
@@ -382,7 +382,6 @@ class TestKMeansReadFitWriteStage:
             all_files = [str(input_dir / f"file_{i}.parquet") for i in range(4)]
             all_tasks = [
                 FileGroupTask(
-                    task_id=f"test_task_{i}",
                     dataset_name="test_dataset",
                     data=[file],
                 )
@@ -401,7 +400,6 @@ class TestKMeansReadFitWriteStage:
             all_files = [str(input_file)]
             all_tasks = [
                 FileGroupTask(
-                    task_id="test_task_jsonl",
                     dataset_name="test_dataset",
                     data=[str(input_file)],
                 )
@@ -538,7 +536,7 @@ class TestKMeansReadFitWriteStage:
     def test_process_batch_routes_by_fit_data_fraction(self, make_stage: "KMeansReadFitWriteStage") -> None:
         """fit_data_fraction=None -> single-pass; fraction set -> two-pass."""
         # Use jsonl so process_batch skips break_parquet_partition_into_groups (which reads metadata).
-        task = FileGroupTask(task_id="t", dataset_name="d", data=["x.jsonl"])
+        task = FileGroupTask(dataset_name="d", data=["x.jsonl"])
 
         for fraction, expect_single in [(None, True), (0.5, False)]:
             stage = make_stage(fit_data_fraction=fraction, filetype="jsonl")
@@ -628,7 +626,7 @@ class TestKMeansReadFitWriteStage:
         ]
         df = cudf.DataFrame({"id": [0, 1], "embeddings": [[1.0, 0.0], [0.0, 1.0]]})
         stage.kmeans.predict = Mock(return_value=cp.zeros(len(df), dtype=cp.int32))
-        tasks = [FileGroupTask(task_id="t0", dataset_name="d", data=["any.parquet"])]
+        tasks = [FileGroupTask(dataset_name="d", data=["any.parquet"])]
         with (
             patch.object(stage, "_read_group", return_value=df) as mock_read,
             patch.object(stage, "write_parquet"),
@@ -687,7 +685,7 @@ class TestKMeansReadFitWriteStage:
         stage = make_stage(fit_data_fraction=None, cache_path=str(cache_path))
         df = cudf.DataFrame({"id": [0, 1], "embeddings": [[1.0, 0.0], [0.0, 1.0]]})
         stage.kmeans.predict = Mock(return_value=cp.zeros(len(df), dtype=cp.int32))
-        tasks = [FileGroupTask(task_id="t", dataset_name="d", data=["any.parquet"])]
+        tasks = [FileGroupTask(dataset_name="d", data=["any.parquet"])]
         with (
             patch.object(stage, "_read_group", return_value=df),
             patch.object(stage, "write_parquet"),

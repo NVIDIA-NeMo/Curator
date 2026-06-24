@@ -70,7 +70,7 @@ class TestMotionVectorDecodeStage:
             ],
         )
 
-        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
+        self.mock_task = VideoTask(dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test the name property."""
@@ -250,7 +250,7 @@ class TestMotionFilterStage:
             clip_stats=ClipStats(),
         )
 
-        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
+        self.mock_task = VideoTask(dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test the name property."""
@@ -493,7 +493,6 @@ class TestMotionFilterStage:
 
             # Check that the task structure is maintained
             assert isinstance(result, VideoTask)
-            assert result.task_id == "test_task"
             assert result.dataset_name == "test_dataset"
             assert isinstance(result.data, Video)
             assert result.data.input_video == pathlib.Path("test_video.mp4")

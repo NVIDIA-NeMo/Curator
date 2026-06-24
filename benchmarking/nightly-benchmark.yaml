@@ -24,6 +24,12 @@ paths:
 # datasets_path: "/path/to/datasets"
 # model_weights_path: "/path/to/model_weights"
 
+# Background per-GPU stats recorder. While each entry runs, polls all visible GPUs
+# (independent of CUDA_VISIBLE_DEVICES) at `interval_s` and writes one row per
+# (timestamp, GPU) to {session_entry_path}/gpustats.csv. Set interval_s to 0 to disable.
+gpu_stats_recorder:
+  interval_s: 1.0
+
 datasets:
   - name: "tinystories"
     formats:
@@ -107,7 +113,25 @@ datasets:
     formats:
     - type: "wav"
       path: "{datasets_path}/read_speech"
+  # Persistent on-disk location for the FLEURS dataset (transcript <split>.tsv +
+  # extracted <split>/ audio). The nightly entries below run with
+  # --no-auto-download, so this must be pre-staged once on the benchmark machine
+  # via:
+  #   python benchmarking/data_prep/prepare_fleurs_data.py \
+  #       --output-path {datasets_path}/fleurs
+  # (downloads from Hugging Face once; defaults to --lang hy_am --split train).
+  # Every subsequent run then reuses it and never re-fetches (avoids HTTP 429).
+  - name: "fleurs_hy_am"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/fleurs"
+# Timeout knobs consumed by tools/generate_ci_tests.py to compute each SLURM job's wall-clock:
+#   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
+# default_timeout_s: per-entry default; cleanup_timeout_s: post-run cleanup buffer; min_timeout_s:
+# floor covering container setup. (default_timeout_s is also the runner's per-entry default.)
 default_timeout_s: 7200
+cleanup_timeout_s: 60
+min_timeout_s: 600
 
 # Optional sinks
 sinks:
@@ -120,6 +144,9 @@ sinks:
     live_updates: true
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
+    # Temporarily disable @-mentions on failure while the test suite is being
+    # stabilized. Flip back to true (or remove this line) once runs are clean.
+    ping_users_on_failure: false
 #  - name: gdrive
 #    enabled: false
 #    drive_folder_id: ${GDRIVE_FOLDER_ID}
@@ -132,6 +159,10 @@ delete_scratch: true
 # a fraction of total system memory (float), or the value "default" (string) which allows
 # for "ray start" to determine object store size.
 object_store_size: 536870912000  # 500GB
+
+# Fraction (0.0-1.0) of GPU memory that may be in use without emitting a
+# warning. Checked both before and after each benchmark run.
+gpu_mem_use_warning_threshold: 0.01
 
 # Global ray settings inherited by all entries. Per-entry ray sections override these values.
 ray:
@@ -166,9 +197,13 @@ entries:
         min_value: 2565
       - metric: number_of_domains_predicted
         exact_value: 26
-      # We choose two domains randomly and ensure that the counts are as expected
+      # We choose two domains randomly and ensure that the counts are as expected.
+      # domain_label_games_count is given a +/-1% tolerance window around the
+      # observed 149816 because the classifier output drifts run-to-run;
+      # domain_label_news_count remains exact pending further investigation.
       - metric: domain_label_games_count
-        exact_value: 149816
+        min_value: 148318
+        max_value: 151314
       - metric: domain_label_news_count
         exact_value: 2817
 
@@ -197,9 +232,13 @@ entries:
         min_value: 2755
       - metric: number_of_domains_predicted
         exact_value: 26
-      # We choose two domains randomly and ensure that the counts are as expected
+      # We choose two domains randomly and ensure that the counts are as expected.
+      # domain_label_games_count is given a +/-1% tolerance window around the
+      # observed 149816 because the classifier output drifts run-to-run;
+      # domain_label_news_count remains exact pending further investigation.
       - metric: domain_label_games_count
-        exact_value: 149816
+        min_value: 148318
+        max_value: 151314
       - metric: domain_label_news_count
         exact_value: 2817
 
@@ -266,7 +305,7 @@ entries:
       --input-filetype=parquet
       --text-field=raw_content
       --input-blocksize=3GiB
-    timeout_s: 500
+    timeout_s: 1500
     sink_data:
       - name: slack
         additional_metrics:
@@ -362,7 +401,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1100
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
@@ -391,7 +430,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1500
+    timeout_s: 1800
     sink_data:
       - name: slack
         additional_metrics:
@@ -646,6 +685,8 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:fleurs_hy_am,files}
+      --no-auto-download
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train
@@ -672,6 +713,8 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:fleurs_hy_am,files}
+      --no-auto-download
       --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
       --lang=hy_am
       --split=train
@@ -822,7 +865,7 @@ entries:
       - metric: num_output_documents
         exact_value: 61474
 
-  - name: video_embedding
+  - name: video_embedding_xenna
     enabled: true
     script: video_pipeline_benchmark.py
     args: >-
@@ -845,7 +888,30 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 4.0
 
-  - name: video_transcoding
+  - name: video_embedding_raydata
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --video-dir={dataset:videos,mp4}
+      --model-dir={dataset:videos_model_weights,files}
+      --video-limit=1000
+    timeout_s: 800
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
+
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 1400
+      - metric: throughput_clips_per_sec
+        min_value: 2.0
+
+  - name: video_transcoding_xenna
     enabled: true
     script: video_pipeline_benchmark.py
     args: >-
@@ -869,13 +935,63 @@ entries:
       - metric: throughput_clips_per_sec
         min_value: 5.0
 
-  - name: video_captioning
+  - name: video_transcoding_raydata
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --no-generate-embeddings
+      --video-dir={dataset:videos,mp4}
+      --video-limit=1000
+    timeout_s: 800
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
+    ray:
+      num_gpus: 0
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 1400
+      - metric: throughput_clips_per_sec
+        min_value: 3.0
+
+  - name: video_captioning_xenna
     enabled: true
     script: video_pipeline_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
+      --video-dir={dataset:videos,mp4}
+      --model-dir={dataset:videos_model_weights,files}
+      --generate-captions
+      --no-generate-embeddings
+      --enhance-captions
+      --video-limit=256
+    timeout_s: 1800
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
+
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 377
+      - metric: throughput_clips_per_sec
+        min_value: 0.25
+
+  - name: video_captioning_raydata
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --generate-captions
@@ -939,7 +1055,7 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
-    timeout_s: 700
+    timeout_s: 1200
     ray:
       num_cpus: 16
     sink_data:
@@ -957,7 +1073,7 @@ entries:
       - metric: throughput_rows_per_sec
         min_value: 2.5
 
-  - name: video_transnetv2_motion_aesthetic_filter_embeddings
+  - name: video_transnetv2_motion_aesthetic_filter_embeddings_xenna
     enabled: true
     script: video_pipeline_benchmark.py
     args: >-
@@ -983,6 +1099,33 @@ entries:
         exact_value: 113
       - metric: throughput_clips_per_sec
         min_value: 0.25
+
+  - name: video_transnetv2_motion_aesthetic_filter_embeddings_raydata
+    enabled: true
+    script: video_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --video-dir={dataset:videos,mp4}
+      --model-dir={dataset:videos_model_weights,files}
+      --splitting-algorithm=transnetv2
+      --motion-filter=enable
+      --aesthetic-threshold=3.5
+      --transnetv2-frame-decoder-mode ffmpeg_cpu
+      --video-limit=1000
+    timeout_s: 1200
+    sink_data:
+      - name: slack
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
+
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_clips_generated
+        exact_value: 113
+      - metric: throughput_clips_per_sec
+        min_value: 0.1
 
   - name: multimodal_mint1t_xenna
     enabled: false

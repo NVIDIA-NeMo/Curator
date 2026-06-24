@@ -21,10 +21,10 @@ import numpy as np
 from loguru import logger
 from transformers import AutoTokenizer
 
-import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 from .base import BaseWriter
 from .utils import batched
@@ -71,10 +71,7 @@ class MegatronTokenizerWriter(BaseWriter):
         try:
             # download the relevant tokenizer files once
             _ = AutoTokenizer.from_pretrained(
-                self.model_identifier,
-                cache_dir=self.cache_dir,
-                token=self.hf_token,
-                **self.transformers_init_kwargs
+                self.model_identifier, cache_dir=self.cache_dir, token=self.hf_token, **self.transformers_init_kwargs
             )
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
@@ -84,10 +81,7 @@ class MegatronTokenizerWriter(BaseWriter):
         # Load the tokenizer
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_identifier,
-                cache_dir=self.cache_dir,
-                local_files_only=True,
-                **self.transformers_init_kwargs
+                self.model_identifier, cache_dir=self.cache_dir, local_files_only=True, **self.transformers_init_kwargs
             )
         except Exception as e:  # noqa: BLE001
             # Allow this fallback since loading a tokenizer is lightweight
@@ -95,17 +89,14 @@ class MegatronTokenizerWriter(BaseWriter):
             logger.warning(msg)
 
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_identifier,
-                cache_dir=self.cache_dir,
-                token=self.hf_token,
-                **self.transformers_init_kwargs
+                self.model_identifier, cache_dir=self.cache_dir, token=self.hf_token, **self.transformers_init_kwargs
             )
 
     def process(self, task: DocumentBatch) -> FileGroupTask:
         sequence_lengths: list[int] = []
         # Get source files from metadata for deterministic naming
         if source_files := task._metadata.get("source_files"):
-            filename = writer_utils.get_deterministic_hash(source_files, task.task_id)
+            filename = get_deterministic_hash(source_files, task.task_id)
         else:
             logger.warning("The task does not have source_files in metadata, using UUID for base filename")
             filename = uuid.uuid4().hex
@@ -161,7 +152,6 @@ class MegatronTokenizerWriter(BaseWriter):
         logger.debug(f"Written batch to {file_prefix} with {num_docs} documents ({sum(sequence_lengths)} tokens)")
 
         return FileGroupTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=[file_prefix + file_extension for file_extension in self.file_extension],
             _metadata={

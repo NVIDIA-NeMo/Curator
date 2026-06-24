@@ -127,7 +127,6 @@ class TestClipWriterStage:
 
         # Create mock task
         self.mock_task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=self.mock_video,
         )
@@ -760,7 +759,6 @@ class TestClipWriterStage:
             clip_chunk_index=0,
         )
         empty_task = VideoTask(
-            task_id="empty_task",
             dataset_name="test_dataset",
             data=empty_video,
         )

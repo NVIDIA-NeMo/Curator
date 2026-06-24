@@ -38,7 +38,9 @@ class TestArxivDownloader:
     @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
     @mock.patch("subprocess.run", return_value=mock.Mock(returncode=0))
     @pytest.mark.parametrize("verbose", [True, False])
-    def test_download_to_path(self, mock_run: mock.Mock, mock_s5cmd_check: mock.Mock, tmp_path: Path, verbose: bool) -> None:
+    def test_download_to_path(
+        self, mock_run: mock.Mock, mock_s5cmd_check: mock.Mock, tmp_path: Path, verbose: bool
+    ) -> None:
         """Test _download_to_path with s5cmd."""
         downloader = ArxivDownloader(str(tmp_path), verbose=verbose)
 

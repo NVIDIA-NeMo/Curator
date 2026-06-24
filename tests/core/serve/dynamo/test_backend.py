@@ -124,11 +124,55 @@ class TestResolveEffectiveRouter:
     def test_auto_picks_kv_and_auto_enables_kv_events_for_disagg(self) -> None:
         # router.mode=None + any disagg model → auto-pick "kv" AND
         # auto-enable kv_events so the frontend consumes what prefill
-        # workers publish unconditionally.
+        # workers publish.
         router = DynamoRouterConfig()  # mode=None, kv_events=False defaults
         mode, kv_events = DynamoBackend._resolve_effective_router(self._disagg_models(), router)
         assert mode == "kv"
         assert kv_events is True
+
+    def test_auto_disagg_uses_approximate_kv_routing_when_hma_is_explicit(self) -> None:
+        models = [
+            DynamoVLLMModelConfig(
+                model_identifier="m",
+                mode="disagg",
+                engine_kwargs={"disable_hybrid_kv_cache_manager": False},
+                prefill=DynamoRoleConfig(num_replicas=1),
+                decode=DynamoRoleConfig(num_replicas=1),
+            ),
+        ]
+        router = DynamoRouterConfig()
+
+        mode, kv_events = DynamoBackend._resolve_effective_router(models, router)
+
+        assert mode == "kv"
+        assert kv_events is False
+
+    def test_auto_disagg_with_explicit_kv_events_rejects_hma_publishers(self) -> None:
+        models = [
+            DynamoVLLMModelConfig(
+                model_identifier="m",
+                mode="disagg",
+                engine_kwargs={"disable_hybrid_kv_cache_manager": False},
+                prefill=DynamoRoleConfig(num_replicas=1),
+                decode=DynamoRoleConfig(num_replicas=1),
+            ),
+        ]
+        router = DynamoRouterConfig(kv_events=True)
+
+        with pytest.raises(ValueError, match="Hybrid KV cache manager"):
+            DynamoBackend._resolve_effective_router(models, router)
+
+    def test_explicit_event_backed_kv_routing_rejects_hma_publishers(self) -> None:
+        models = [
+            DynamoVLLMModelConfig(
+                model_identifier="m",
+                engine_kwargs={"disable_hybrid_kv_cache_manager": False},
+            ),
+        ]
+        router = DynamoRouterConfig(mode="kv", kv_events=True)
+
+        with pytest.raises(ValueError, match="Hybrid KV cache manager"):
+            DynamoBackend._resolve_effective_router(models, router)
 
     def test_explicit_kv_with_kv_events_false_is_honored(self) -> None:
         # User set mode="kv" themselves and left kv_events=False (approx
@@ -142,6 +186,18 @@ class TestResolveEffectiveRouter:
     def test_aggregated_only_leaves_mode_unset(self) -> None:
         models = [DynamoVLLMModelConfig(model_identifier="m")]
         router = DynamoRouterConfig()
+        mode, kv_events = DynamoBackend._resolve_effective_router(models, router)
+        assert mode is None
+        assert kv_events is False
+
+    def test_aggregated_without_kv_mode_ignores_kv_events_for_hma_guard(self) -> None:
+        models = [
+            DynamoVLLMModelConfig(
+                model_identifier="m",
+                engine_kwargs={"disable_hybrid_kv_cache_manager": False},
+            )
+        ]
+        router = DynamoRouterConfig(kv_events=True)
         mode, kv_events = DynamoBackend._resolve_effective_router(models, router)
         assert mode is None
         assert kv_events is False
@@ -197,6 +253,77 @@ class TestDynamoBackendStart:
         assert order == ["overrides", "actors", "pgs", "deploy"]
 
 
+class TestDynamoBackendDeploy:
+    def test_subprocess_env_is_merged_into_deploy_base_env(self) -> None:
+        backend_cfg = DynamoServerConfig(
+            etcd_endpoint="http://system-etcd:2379",
+            nats_url="nats://system-nats:4222",
+            subprocess_env={
+                "DYN_TCP_REQUEST_TIMEOUT": "180",
+                "ETCD_ENDPOINTS": "user-etcd-should-not-win",
+                "NATS_SERVER": "user-nats-should-not-win",
+            },
+        )
+        server = InferenceServer(
+            models=[DynamoVLLMModelConfig(model_identifier="Qwen/Qwen3-0.6B")],
+            backend=backend_cfg,
+        )
+        backend = DynamoBackend(server)
+        backend._runtime_dir = "/tmp/rt"  # noqa: S108
+        backend._actor_name_prefix = "prefix"
+
+        captured: dict[str, dict[str, str]] = {}
+
+        def fake_launch_replicas(  # noqa: PLR0913
+            _model_config: DynamoVLLMModelConfig,
+            *,
+            base_env: dict[str, str],
+            namespace: str,  # noqa: ARG001
+            request_plane: str,  # noqa: ARG001
+            event_plane: str,  # noqa: ARG001
+            runtime_dir: str,  # noqa: ARG001
+            actor_name_prefix: str,  # noqa: ARG001
+            router_mode: str | None,  # noqa: ARG001
+            router_kv_events: bool,  # noqa: ARG001
+            topology: list[dict[str, object]],  # noqa: ARG001
+        ) -> tuple[list[object], list[object], list[dict[str, object]]]:
+            captured["worker"] = base_env
+            return [], [], []
+
+        def fake_launch_frontend(
+            _port: int,
+            base_env: dict[str, str],
+            *,
+            backend_cfg: DynamoServerConfig,  # noqa: ARG001
+            effective_router_mode: str | None = None,  # noqa: ARG001
+            effective_router_kv_events: bool = False,  # noqa: ARG001
+            runtime_env: dict[str, object] | None = None,  # noqa: ARG001
+        ) -> object:
+            captured["frontend"] = base_env
+            return object()
+
+        with (
+            mock.patch.object(backend, "_validate_unique_model_names"),
+            mock.patch.object(backend, "_validate_gpu_requirements"),
+            mock.patch.object(dynamo_backend, "_get_gpu_topology", return_value=[{"num_gpus": 1}]),
+            mock.patch.object(dynamo_backend, "build_infra_pg", return_value=object()),
+            mock.patch.object(dynamo_backend, "get_bundle_node_ip", return_value="10.0.0.5"),
+            mock.patch.object(dynamo_backend, "get_free_port_in_bundle", return_value=9999),
+            mock.patch.object(dynamo_backend, "launch_replicas", side_effect=fake_launch_replicas),
+            mock.patch.object(backend, "_launch_frontend", side_effect=fake_launch_frontend),
+            mock.patch.object(backend, "_wait_for_models"),
+            mock.patch.object(backend, "_write_manifest"),
+        ):
+            backend._deploy_and_healthcheck(server, backend_cfg)
+
+        expected = {
+            "DYN_TCP_REQUEST_TIMEOUT": "180",
+            "ETCD_ENDPOINTS": "http://system-etcd:2379",
+            "NATS_SERVER": "nats://system-nats:4222",
+        }
+        assert captured == {"worker": expected, "frontend": expected}
+
+
 # ---------------------------------------------------------------------------
 # Frontend CLI-arg wiring (router mode + router_kwargs translation)
 # ---------------------------------------------------------------------------
@@ -214,6 +341,67 @@ class TestDynamoBackendLaunchFrontend:
         backend._actor_name_prefix = "prefix"
         backend._infra_pg = object()
         return backend
+
+    @staticmethod
+    def _make_multimodal_backend(backend_cfg: DynamoServerConfig) -> DynamoBackend:
+        server = InferenceServer(
+            models=[
+                DynamoVLLMModelConfig(
+                    model_identifier="nvidia/NVIDIA-Nemotron-Parse-v1.2",
+                    dynamo_kwargs={"enable_multimodal": True},
+                )
+            ],
+            backend=backend_cfg,
+        )
+        backend = DynamoBackend(server)
+        backend._runtime_dir = "/tmp/rt"  # noqa: S108
+        backend._actor_name_prefix = "prefix"
+        backend._infra_pg = object()
+        return backend
+
+    def test_multimodal_without_explicit_processor_uses_native(self, captured_spawn: list[dict[str, Any]]) -> None:
+        """router_kwargs are passed through verbatim — no auto-injection for multimodal models."""
+        backend_cfg = DynamoServerConfig()
+        backend = self._make_multimodal_backend(backend_cfg)
+
+        backend._launch_frontend(port=9999, base_env={}, backend_cfg=backend_cfg)
+
+        assert "--dyn-chat-processor" not in captured_spawn[0]["python_args"]
+
+    def test_explicit_vllm_chat_processor_is_forwarded(self, captured_spawn: list[dict[str, Any]]) -> None:
+        """When dyn_chat_processor is set explicitly it flows through as a CLI flag."""
+        backend_cfg = DynamoServerConfig(
+            router=DynamoRouterConfig(
+                router_kwargs={
+                    "dyn_chat_processor": "vllm",
+                }
+            ),
+        )
+        backend = self._make_multimodal_backend(backend_cfg)
+
+        backend._launch_frontend(port=9999, base_env={}, backend_cfg=backend_cfg)
+
+        python_args = captured_spawn[0]["python_args"]
+        assert python_args[python_args.index("--dyn-chat-processor") + 1] == "vllm"
+
+    def test_supported_false_router_kwargs_emit_no_flags(self, captured_spawn: list[dict[str, Any]]) -> None:
+        backend_cfg = DynamoServerConfig(
+            router=DynamoRouterConfig(router_kwargs={"exclude_tools_when_tool_choice_none": False}),
+        )
+        backend = self._make_backend(backend_cfg)
+
+        backend._launch_frontend(port=9999, base_env={}, backend_cfg=backend_cfg)
+
+        python_args = captured_spawn[0]["python_args"]
+        assert "--no-exclude-tools-when-tool-choice-none" in python_args
+
+    def test_text_only_model_keeps_native_chat_processor(self, captured_spawn: list[dict[str, Any]]) -> None:
+        backend_cfg = DynamoServerConfig()
+        backend = self._make_backend(backend_cfg)
+
+        backend._launch_frontend(port=9999, base_env={}, backend_cfg=backend_cfg)
+
+        assert "--dyn-chat-processor" not in captured_spawn[0]["python_args"]
 
     def test_router_flags_and_router_kwargs_passthrough(self, captured_spawn: list[dict[str, Any]]) -> None:
         """``PYTHONHASHSEED=0`` is pinned when ``router-mode`` is set: Dynamo KV
@@ -272,6 +460,23 @@ class TestDynamoBackendLaunchFrontend:
             "nats",
         ]
         assert captured_spawn[0]["subprocess_env"] == {}
+
+    def test_tcp_request_plane_and_timeout_env_passthrough(self, captured_spawn: list[dict[str, Any]]) -> None:
+        backend_cfg = DynamoServerConfig(request_plane="tcp")
+        backend = self._make_backend(backend_cfg)
+
+        backend._launch_frontend(
+            port=9999,
+            base_env={"ETCD_ENDPOINTS": "e", "DYN_TCP_REQUEST_TIMEOUT": "180"},
+            backend_cfg=backend_cfg,
+        )
+
+        python_args = captured_spawn[0]["python_args"]
+        assert python_args[python_args.index("--request-plane") + 1] == "tcp"
+        assert captured_spawn[0]["subprocess_env"] == {
+            "ETCD_ENDPOINTS": "e",
+            "DYN_TCP_REQUEST_TIMEOUT": "180",
+        }
 
     def test_kv_mode_without_events_emits_no_router_kv_events(self, captured_spawn: list[dict[str, Any]]) -> None:
         backend_cfg = DynamoServerConfig(router=DynamoRouterConfig(mode="kv", kv_events=False))

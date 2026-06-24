@@ -537,12 +537,10 @@ class TestVideoTask:
         """Test VideoTask initialization."""
         video_data = Video(input_video=pathlib.Path("test.mp4"))
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=video_data,
         )
 
-        assert task.task_id == "test_task"
         assert task.dataset_name == "test_dataset"
         assert isinstance(task.data, Video)
 
@@ -550,7 +548,6 @@ class TestVideoTask:
         """Test VideoTask initialization with video data."""
         video_data = Video(input_video=pathlib.Path("test.mp4"))
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=video_data,
         )
@@ -565,7 +562,6 @@ class TestVideoTask:
             try:
                 video_data = Video(input_video=tmp_path)
                 task = VideoTask(
-                    task_id="test_task",
                     dataset_name="test_dataset",
                     data=video_data,
                 )
@@ -578,7 +574,6 @@ class TestVideoTask:
         """Test validate method with non-existing file."""
         video_data = Video(input_video=pathlib.Path("non_existing_file.mp4"))
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=video_data,
         )
@@ -590,7 +585,6 @@ class TestVideoTask:
         """Test num_items property."""
         video_data = Video(input_video=pathlib.Path("test.mp4"))
         task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=video_data,
         )

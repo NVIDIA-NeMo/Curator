@@ -36,15 +36,24 @@ _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor, "ray_actor
 
 
 def setup_executor(
-    executor_name: str, config: dict[str, Any] | None = None
+    executor_name: str,
+    config: dict[str, Any] | None = None,
 ) -> RayDataExecutor | XennaExecutor | RayActorPoolExecutor:
-    """Setup the executor for the given name."""
+    """Setup the executor for the given name.
+
+    Args:
+        executor_name: One of 'xenna', 'ray_data', 'ray_actors'.
+        config: Optional config dict forwarded to XennaExecutor only
+            (e.g. ``{"execution_mode": "batch"}``).
+    """
     try:
-        executor = _executor_map[executor_name](config=config)
+        cls = _executor_map[executor_name]
     except KeyError:
         msg = f"Executor {executor_name} not supported"
         raise ValueError(msg) from None
-    return executor
+    if config and executor_name == "xenna":
+        return cls(config=config)
+    return cls()
 
 
 def load_dataset_files(

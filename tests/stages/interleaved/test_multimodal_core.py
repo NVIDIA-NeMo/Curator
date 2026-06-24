@@ -237,7 +237,6 @@ def test_materialize_mixed_strategies(tmp_path: Path) -> None:
 
 def test_materialize_empty_task() -> None:
     task = InterleavedBatch(
-        task_id="empty",
         dataset_name="d",
         data=pa.table(
             {
@@ -272,7 +271,7 @@ def test_materialize_no_image_rows() -> None:
         ],
         schema=INTERLEAVED_SCHEMA,
     )
-    task = InterleavedBatch(task_id="no_img", dataset_name="d", data=table)
+    task = InterleavedBatch(dataset_name="d", data=table)
     result = materialize_task_binary_content(task)
     assert result.num_items == 1
 
@@ -313,7 +312,7 @@ def test_aspect_ratio_filter_handles_non_default_dataframe_index() -> None:
         ]
     )
     df.index = pd.Index([10, 42])
-    task = InterleavedBatch(task_id="non_default_index", dataset_name="d1", data=df)
+    task = InterleavedBatch(dataset_name="d1", data=df)
     stage = InterleavedAspectRatioFilterStage(drop_invalid_rows=False)
     out = stage.process(task).to_pandas()
     assert len(out) == 1
@@ -366,7 +365,7 @@ def test_aspect_ratio_filter_works_on_png_images() -> None:
             },
         ]
     )
-    task = InterleavedBatch(task_id="png_test", dataset_name="d1", data=df)
+    task = InterleavedBatch(dataset_name="d1", data=df)
     stage = InterleavedAspectRatioFilterStage(min_aspect_ratio=0.2, max_aspect_ratio=5.0, drop_invalid_rows=False)
     out = stage.process(task).to_pandas()
     assert len(out) == 2
@@ -480,7 +479,6 @@ def test_filter_recomputes_positions_after_drop() -> None:
         },
     ]
     task = InterleavedBatch(
-        task_id="pos_test",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
@@ -536,7 +534,6 @@ def test_filter_preserves_interleaved_ordering_across_modalities() -> None:
         _row("s1", 4, "text", "end"),
     ]
     task = InterleavedBatch(
-        task_id="interleave_test",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
@@ -591,7 +588,6 @@ def test_filter_preserves_interleaved_ordering_with_noninterleaved_row_order() -
         _row("s1", 3, "image"),
     ]
     task = InterleavedBatch(
-        task_id="noninterleaved_row_order",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
@@ -635,7 +631,6 @@ def test_filter_drops_orphaned_metadata_rows() -> None:
         _row("s2", 1, "text", "dropped2"),
     ]
     task = InterleavedBatch(
-        task_id="orphan_test",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
@@ -688,7 +683,7 @@ def test_count_and_num_items() -> None:
         ],
         schema=INTERLEAVED_SCHEMA,
     )
-    task = InterleavedBatch(task_id="cnt", dataset_name="d", data=table)
+    task = InterleavedBatch(dataset_name="d", data=table)
     assert task.num_items == 2
     assert task.count() == 3
     assert task.count(modality="text") == 2
@@ -722,7 +717,7 @@ def test_count_with_pandas_data() -> None:
         ],
         schema=INTERLEAVED_SCHEMA,
     )
-    task = InterleavedBatch(task_id="pd_cnt", dataset_name="d", data=table.to_pandas())
+    task = InterleavedBatch(dataset_name="d", data=table.to_pandas())
     assert task.num_items == 1
     assert task.count() == 2
     assert task.count(modality="image") == 1
@@ -821,7 +816,6 @@ def test_iter_materialized_bytes_only_yields_masked_rows(tmp_path: Path) -> None
         },
     ]
     task = InterleavedBatch(
-        task_id="iter_test",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
@@ -861,7 +855,7 @@ def test_iter_materialized_bytes_preserves_original_indices(tmp_path: Path) -> N
     ]
     df = pd.DataFrame(rows)
     df.index = pd.Index([99])
-    task = InterleavedBatch(task_id="idx_test", dataset_name="d", data=df)
+    task = InterleavedBatch(dataset_name="d", data=df)
 
     stage = InterleavedAspectRatioFilterStage()
     mask = pd.Series([True], index=df.index)
@@ -901,7 +895,6 @@ def test_materialize_extracts_individual_tiff_frames(tmp_path: Path) -> None:
             }
         )
     task = InterleavedBatch(
-        task_id="tiff_mat",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
@@ -931,7 +924,7 @@ def test_annotator_process_empty_batch() -> None:
             return df
 
     empty_table = pa.Table.from_pylist([], schema=INTERLEAVED_SCHEMA)
-    task = InterleavedBatch(task_id="empty", dataset_name="d", data=empty_table)
+    task = InterleavedBatch(dataset_name="d", data=empty_table)
     result = _Passthrough().process(task)
     assert result is task
 
@@ -988,7 +981,6 @@ def test_filter_drop_invalid_rows_true() -> None:
         },
     ]
     task = InterleavedBatch(
-        task_id="drop_test",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
@@ -1013,7 +1005,6 @@ def test_iter_materialized_bytes_empty_mask() -> None:
         },
     ]
     task = InterleavedBatch(
-        task_id="empty_mask",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
@@ -1055,7 +1046,6 @@ def test_annotate_metadata_only_rows() -> None:
         },
     ]
     task = InterleavedBatch(
-        task_id="meta_only",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
@@ -1089,7 +1079,6 @@ def test_aspect_ratio_filter_no_image_rows() -> None:
         },
     ]
     task = InterleavedBatch(
-        task_id="no_img",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
@@ -1138,7 +1127,7 @@ def _materialized_bytes(binary_content: object) -> list[tuple[int, bytes | None]
     else:
         df_mat = df.copy()
         df_mat["binary_content"] = binary_content
-    fake = InterleavedBatch(task_id="t", dataset_name="d", data=df_mat, _metadata=task._metadata)
+    fake = InterleavedBatch(dataset_name="d", data=df_mat, _metadata=task._metadata)
     with patch("nemo_curator.stages.interleaved.stages.materialize_task_binary_content", return_value=fake):
         return list(_PassthroughFilter().iter_materialized_bytes(task, df, df["modality"] == "image"))
 

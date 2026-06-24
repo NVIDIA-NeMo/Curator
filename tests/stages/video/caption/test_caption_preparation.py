@@ -146,7 +146,7 @@ class TestCaptionPreparationStage:
 
         video.clips = [clip1, clip2]
 
-        return VideoTask(task_id="test", dataset_name="test", data=video)
+        return VideoTask(dataset_name="test", data=video)
 
     @patch("nemo_curator.stages.video.caption.caption_preparation.windowing_utils.split_video_into_windows")
     @patch("nemo_curator.stages.video.caption.caption_preparation._get_prompt")
@@ -237,7 +237,7 @@ class TestCaptionPreparationStage:
         # Mock the id attribute since original code uses clip.id but Clip only has uuid
         clip.id = clip.uuid
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         # Setup formatter
         self.stage.prompt_formatter = Mock()
@@ -346,7 +346,7 @@ class TestCaptionPreparationStage:
             # Mock attributes for original code bugs/quirks
             clip.id = clip.uuid
             video.clips = [clip]
-            task = VideoTask(task_id="test", dataset_name="test", data=video)
+            task = VideoTask(dataset_name="test", data=video)
 
             result = self.stage.process(task)
 

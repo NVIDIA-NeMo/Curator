@@ -272,7 +272,6 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
                 seg_data = self._build_segment_item(task.data, waveform, sample_rate, segment, i)
                 seg_task = AudioTask(
                     data=seg_data,
-                    task_id=f"{task.task_id}_seg_{i}",
                     dataset_name=task.dataset_name,
                 )
                 if task._metadata:

@@ -194,7 +194,6 @@ class TestDynamoSingleGpuServer:
 
         initial_tasks = [
             DocumentBatch(
-                task_id=f"gpu-sep-{i}",
                 dataset_name="dynamo-coexistence",
                 data=pd.DataFrame({"text": [f"hello {i}"]}),
             )

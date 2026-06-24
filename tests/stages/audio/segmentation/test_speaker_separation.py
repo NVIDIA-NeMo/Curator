@@ -34,7 +34,6 @@ def _make_task(duration_sec: float = 10.0, sample_rate: int = 48000) -> AudioTas
     num_samples = int(duration_sec * sample_rate)
     return AudioTask(
         data={"waveform": torch.randn(1, num_samples), "sample_rate": sample_rate},
-        task_id="test",
         dataset_name="test",
     )
 
@@ -119,7 +118,6 @@ class TestSpeakerSeparationStage:
 
         task = AudioTask(
             data={"some_key": "value"},
-            task_id="test",
             dataset_name="test",
         )
         result = stage.process(task)

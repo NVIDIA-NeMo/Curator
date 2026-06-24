@@ -72,7 +72,6 @@ def exact_dedup_data_parquet(tmp_path: Path) -> list[FileGroupTask]:
 
     return [
         FileGroupTask(
-            task_id="exact_dedup_0",
             dataset_name="exact_dedup_dataset",
             data=[str(file1)],
             _metadata={
@@ -82,7 +81,6 @@ def exact_dedup_data_parquet(tmp_path: Path) -> list[FileGroupTask]:
             },
         ),
         FileGroupTask(
-            task_id="exact_dedup_1",
             dataset_name="exact_dedup_dataset",
             data=[str(file2)],
             _metadata={
@@ -103,7 +101,6 @@ def exact_no_dedup_data_jsonl(tmp_path: Path) -> list[FileGroupTask]:
 
     return [
         FileGroupTask(
-            task_id="no_dedup_0",
             dataset_name="no_dedup_dataset",
             data=[str(file1)],
             _metadata={

@@ -92,7 +92,7 @@ def test_process_writes_tars_and_parquet_paths(monkeypatch: pytest.MonkeyPatch, 
         for i in range(5)
     ]
 
-    batch = ImageBatch(task_id="t1", dataset_name="ds", data=images)
+    batch = ImageBatch(dataset_name="ds", data=images)
     out = stage.process(batch)
 
     # Validate output task
@@ -137,7 +137,6 @@ def test_process_raises_on_missing_image_data(tmp_path: pathlib.Path) -> None:
     stage.setup()
 
     bad = ImageBatch(
-        task_id="bad",
         dataset_name="ds",
         data=[ImageObject(image_id="x", image_path="/p/x.jpg", image_data=None)],
     )
@@ -151,7 +150,7 @@ def test_process_handles_empty_batch(tmp_path: pathlib.Path) -> None:
     stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=3)
     stage.setup()
 
-    empty = ImageBatch(task_id="e", dataset_name="ds", data=[])
+    empty = ImageBatch(dataset_name="ds", data=[])
     out = stage.process(empty)
 
     assert out.data == []
@@ -169,8 +168,8 @@ def test_construct_base_name_deterministic_and_random(monkeypatch: pytest.Monkey
         ImageObject(image_path="/p/a.jpg"),
     ]
     imgs2 = list(reversed(imgs1))
-    b1 = stage_det.construct_base_name(ImageBatch(task_id="T", dataset_name="ds", data=imgs1))
-    b2 = stage_det.construct_base_name(ImageBatch(task_id="T", dataset_name="ds", data=imgs2))
+    b1 = stage_det.construct_base_name(ImageBatch(dataset_name="ds", data=imgs1))
+    b2 = stage_det.construct_base_name(ImageBatch(dataset_name="ds", data=imgs2))
     assert b1 == b2
     assert b1.startswith("images-")
 
@@ -181,7 +180,7 @@ def test_construct_base_name_deterministic_and_random(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr(module.uuid, "uuid4", lambda: _FakeUUID("deadbeefcafebabe0123456789abcdef"))
     stage_rand = image_writer_stage_cls(output_dir=str(tmp_path), deterministic_name=False)
-    b3 = stage_rand.construct_base_name(ImageBatch(task_id="T2", dataset_name="ds", data=imgs1))
+    b3 = stage_rand.construct_base_name(ImageBatch(dataset_name="ds", data=imgs1))
     assert b3 == "images-deadbeefcafebabe"
 
 
@@ -329,7 +328,7 @@ def test_process_respects_remove_image_data_flag(
         for i in range(4)
     ]
 
-    batch = ImageBatch(task_id="t1", dataset_name="ds", data=images)
+    batch = ImageBatch(dataset_name="ds", data=images)
     _out = stage.process(batch)
 
     # Image data should be removed only when the flag is True

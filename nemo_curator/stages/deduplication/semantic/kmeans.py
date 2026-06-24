@@ -24,7 +24,7 @@ from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, check_disallowed_kwargs
 
 from .utils import break_parquet_partition_into_groups, get_array_from_df
@@ -45,7 +45,7 @@ L2_DIST_TO_CENT_COL = "l2_dist_to_cent"
 COSINE_DIST_TO_CENT_COL = "cosine_dist_to_cent"
 
 
-class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], DeduplicationIO):
+class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, EmptyTask], DeduplicationIO):
     """KMeans clustering stage that requires RAFT for distributed processing."""
 
     def __init__(  # noqa: PLR0913
@@ -127,11 +127,11 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         self.name = "KMeansStage"
         self.resources = Resources(cpus=1.0, gpus=1.0)
 
-    def process(self, task: FileGroupTask) -> _EmptyTask:
+    def process(self, task: FileGroupTask) -> EmptyTask:
         msg = "KMeansReadFitWriteStage does not support single-task processing"
         raise NotImplementedError(msg)
 
-    def process_batch(self, tasks: list[FileGroupTask]) -> list[_EmptyTask]:
+    def process_batch(self, tasks: list[FileGroupTask]) -> list[EmptyTask]:
         """Process a batch of FileGroupTasks using distributed RAFT KMeans.
 
         In RAFT mode, each actor processes its assigned tasks, but the KMeans model
@@ -184,7 +184,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         msg = f"Unsupported data type: {self.filetype}"
         raise ValueError(msg)
 
-    def _process_batch_single_pass(self, tasks: list[FileGroupTask], groups: list[list[str]]) -> list["_EmptyTask"]:
+    def _process_batch_single_pass(self, tasks: list[FileGroupTask], groups: list[list[str]]) -> list["EmptyTask"]:
         """Single-pass approach: loads all groups simultaneously.
 
         Requires peak GPU memory = sum(all groups' data). Only suitable when the
@@ -232,7 +232,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             # Assign distances using the fitted cluster centers
             df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)  # noqa: PLW2901
 
-            output_filename = f"{tasks[0]._uuid}_{i}"
+            output_filename = f"{tasks[0].task_id}_{i}"
             # Write results for this subgroup
             self.write_parquet(
                 df,
@@ -246,8 +246,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
 
             # Create result task for this subgroup
             results.append(
-                _EmptyTask(
-                    task_id=output_filename,
+                EmptyTask(
                     dataset_name=f"kmeans_group_{i}",
                     _metadata=None,
                     _stage_perf=[],
@@ -261,7 +260,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
 
         return results
 
-    def _process_batch_two_pass(self, tasks: list[FileGroupTask], groups: list[list[str]]) -> list["_EmptyTask"]:
+    def _process_batch_two_pass(self, tasks: list[FileGroupTask], groups: list[list[str]]) -> list["EmptyTask"]:
         """Memory-efficient two-pass approach for large datasets.
 
         Pass 1 (_fit_pass): samples fit_data_fraction of the actor's files (across
@@ -278,10 +277,12 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         """
         pass1_read_time = self._fit_pass(groups)
         results, pass2_read_time, total_rows = self._predict_write_pass(tasks, groups)
-        self._log_metrics({
-            "kmeans_read_time": pass1_read_time + pass2_read_time,
-            "num_rows": total_rows,
-        })
+        self._log_metrics(
+            {
+                "kmeans_read_time": pass1_read_time + pass2_read_time,
+                "num_rows": total_rows,
+            }
+        )
         return results
 
     def _fit_pass(self, groups: list[list[str]]) -> float:
@@ -367,7 +368,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
 
     def _predict_write_pass(
         self, tasks: list[FileGroupTask], groups: list[list[str]]
-    ) -> tuple[list["_EmptyTask"], float, int]:
+    ) -> tuple[list["EmptyTask"], float, int]:
         """Pass 2: load each full group, predict labels, write results.
 
         Returns:
@@ -376,7 +377,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             reports total_rows as num_rows.
         """
         t_start = time.perf_counter()
-        results: list[_EmptyTask] = []
+        results: list[EmptyTask] = []
         pass2_read_time = 0.0
         total_rows = 0
 
@@ -392,7 +393,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             df["centroid"] = labels
             df = self._assign_distances(df, self.embedding_field, self.kmeans.cluster_centers_)
 
-            output_filename = f"{tasks[0]._uuid}_{i}"
+            output_filename = f"{tasks[0].task_id}_{i}"
             self.write_parquet(
                 df,
                 self.output_path,
@@ -403,8 +404,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
                 **self.write_kwargs,
             )
             results.append(
-                _EmptyTask(
-                    task_id=output_filename,
+                EmptyTask(
                     dataset_name=f"kmeans_group_{i}",
                     _metadata=None,
                     _stage_perf=[],
@@ -480,7 +480,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
 
 
 @dataclass
-class KMeansStage(CompositeStage[_EmptyTask, _EmptyTask]):
+class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
     """KMeans clustering stage that requires RAFT for distributed processing."""
 
     n_clusters: int

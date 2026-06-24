@@ -228,7 +228,7 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         initial_tasks = []
         for i in range(0, len(test_config.input_file_paths), 5):
             task_files = test_config.input_file_paths[i : i + 5]
-            initial_tasks.append(FileGroupTask(task_id=f"file_group_{i // 5}", dataset_name="input", data=task_files))
+            initial_tasks.append(FileGroupTask(dataset_name="input", data=task_files))
 
         assert len(initial_tasks) == 20  # 100 files / 5 per group = 20 tasks
 

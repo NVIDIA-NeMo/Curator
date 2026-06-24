@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
@@ -41,6 +42,9 @@ from nemo_curator.stages.text.experimental.translation.stages.translate import (
     SegmentTranslationStage,
 )
 from nemo_curator.tasks import DocumentBatch
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from .conftest import MockAsyncLLMClient
 
@@ -86,6 +90,27 @@ class TestTranslationStageDecompose:
         stages = pipeline.decompose()
         faith_stage = _only_stage_of_type(stages, FaithEvalFilter)
         assert faith_stage.model_name == "translate-model"
+
+    def test_decompose_faith_eval_inherits_control_knobs(self, mock_client: MockAsyncLLMClient) -> None:
+        """FaithEvalFilter receives model, prompt, generation, and concurrency config."""
+        gen_cfg = GenerationConfig(temperature=0.0, max_tokens=128)
+        pipeline = TranslationStage(
+            source_lang="en",
+            target_lang="de",
+            client=mock_client,
+            model_name="translate-model",
+            enable_faith_eval=True,
+            faith_model_name="faith-model",
+            faith_generation_config=gen_cfg,
+            faith_prompt_path="/opt/prompts/custom_faith.yaml",
+            faith_max_concurrent_requests=3,
+        )
+        stages = pipeline.decompose()
+        faith_stage = _only_stage_of_type(stages, FaithEvalFilter)
+        assert faith_stage.model_name == "faith-model"
+        assert faith_stage.generation_config is gen_cfg
+        assert faith_stage.prompt_path == "/opt/prompts/custom_faith.yaml"
+        assert faith_stage.max_concurrent_requests == 3
 
     def test_llm_backend_requires_model_name(self, mock_client: MockAsyncLLMClient) -> None:
         """LLM translation should fail fast when model_name is unset."""
@@ -197,6 +222,11 @@ class TestTranslationStageDecompose:
             client=mock_client,
             model_name="m",
             generation_config=gen_cfg,
+            translation_prompt_path="/opt/prompts/custom_translate.yaml",
+            max_concurrent_requests=7,
+            health_check=False,
+            dry_run=True,
+            dry_run_log_count=2,
             backend_type="llm",
         )
         tr = pipeline.decompose()[1]
@@ -205,6 +235,11 @@ class TestTranslationStageDecompose:
         assert tr.target_lang == "ja"
         assert tr.model_name == "m"
         assert tr.generation_config is gen_cfg
+        assert tr.prompt_path == "/opt/prompts/custom_translate.yaml"
+        assert tr.max_concurrent_requests == 7
+        assert tr.health_check is False
+        assert tr.dry_run is True
+        assert tr.dry_run_log_count == 2
 
     def test_reassembly_stage_inherits_config(self, mock_client: MockAsyncLLMClient) -> None:
         """ReassemblyStage receives text_field and output_field from the pipeline."""
@@ -232,7 +267,7 @@ class TestTranslationStageDecompose:
             model_name="m",
         )
         df = pd.DataFrame({"text": ["hello"]})
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         with pytest.raises(RuntimeError, match="should not be executed directly"):
             pipeline.process(batch)
 
@@ -259,6 +294,26 @@ class TestTranslationStageDecompose:
 
 class TestFaithEvalFilter:
     """Tests for FaithEvalFilter score parsing and filtering."""
+
+    def test_setup_loads_custom_prompt_path(self, mock_client: MockAsyncLLMClient, tmp_path: Path) -> None:
+        """Verify setup() can load a caller-provided absolute FAITH prompt path."""
+        prompt_path = tmp_path / "custom_faith.yaml"
+        prompt_path.write_text(
+            "system: custom faith {source_language} {target_language}\nuser: custom {source_text} {translated_text}\n",
+            encoding="utf-8",
+        )
+        stage = FaithEvalFilter(
+            source_lang="en",
+            target_lang="de",
+            client=mock_client,
+            model_name="faith-model",
+            prompt_path=str(prompt_path),
+        )
+
+        stage.setup(worker_metadata=None)
+
+        assert stage._system_prompt == "custom faith {source_language} {target_language}"
+        assert stage._user_template == "custom {source_text} {translated_text}"
 
     def test_extract_scores_valid_json(self) -> None:
         """Valid JSON with all 5 keys is parsed correctly."""
@@ -353,7 +408,7 @@ class TestFaithEvalFilter:
                 "translated_text": ["Hallo Welt."],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -377,7 +432,7 @@ class TestFaithEvalFilter:
                 "translated_text": ["Hallo Welt.", "Zweites Dok."],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -398,7 +453,7 @@ class TestFaithEvalFilter:
             target_lang="de",
         )
         df = pd.DataFrame({"text": pd.Series(dtype="str"), "translated_text": pd.Series(dtype="str")})
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         assert result.to_pandas().empty
 
@@ -468,7 +523,7 @@ class TestEndToEndMock:
                 "id": [1, 2],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="e2e-test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="e2e-test")
 
         pipeline = TranslationStage(
             source_lang="en",
@@ -511,7 +566,7 @@ class TestEndToEndMock:
                 "id": [10, 20],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="e2e-empty-test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="e2e-empty-test")
 
         pipeline = TranslationStage(
             source_lang="en",
@@ -543,7 +598,7 @@ class TestEndToEndMock:
             },
             index=[5, 10, 15],  # Non-contiguous index
         )
-        batch = DocumentBatch(data=df, dataset_name="e2e-index-test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="e2e-index-test")
 
         pipeline = TranslationStage(
             source_lang="en",
@@ -592,7 +647,7 @@ class TestFaithEvalFilterEnabled:
                 "translated_text": ["Hallo Welt.", "Zweites Dok."],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -622,7 +677,7 @@ class TestFaithEvalFilterEnabled:
                 "translated_text": ["Hallo."],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -682,7 +737,7 @@ class TestDryRunMode:
                 "id": [1, 2, 3],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -706,7 +761,7 @@ class TestDryRunMode:
         stage._initialized = True
 
         df = pd.DataFrame({"_seg_segments": ["Hello"], "id": [1]})
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -775,6 +830,35 @@ class TestSkipTranslated:
         assert len(result_df) == 3
         assert all(len(t) > 0 for t in result_df["translated_text"])
 
+    def test_skip_translated_all_rows_already_translated(self, mock_client: MockAsyncLLMClient) -> None:
+        """An all-skipped batch should pass through and restore rows without missing-column errors."""
+        df = pd.DataFrame(
+            {
+                "id": [100, 200],
+                "text": ["Already translated", "Already translated too"],
+                "translated_text": ["Bereits uebersetzt", "Auch bereits uebersetzt"],
+            }
+        )
+        batch = DocumentBatch(data=df, dataset_name="resume-test")
+        pipeline = TranslationStage(
+            source_lang="en",
+            target_lang="de",
+            client=mock_client,
+            model_name="test-model",
+            skip_translated=True,
+            health_check=False,
+        )
+
+        result = batch
+        for stage in pipeline.decompose():
+            stage.setup()
+            result = stage.process(result)
+
+        result_df = result.to_pandas()
+        assert list(result_df["id"]) == [100, 200]
+        assert list(result_df["translated_text"]) == ["Bereits uebersetzt", "Auch bereits uebersetzt"]
+        assert "_skipped_rows_state" not in result._metadata
+
     def test_merge_skipped_reads_batch_metadata(self) -> None:
         """Skipped-row state should travel with the batch, not the stage instance."""
         df = pd.DataFrame(
@@ -784,7 +868,7 @@ class TestSkipTranslated:
                 "translated_text": ["Bereits uebersetzt", "", ""],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         skip_stage = SkipExistingTranslationsStage()
         skipped_batch = skip_stage.process(batch)
@@ -794,7 +878,6 @@ class TestSkipTranslated:
         translated_batch = DocumentBatch(
             data=remaining_df,
             dataset_name=skipped_batch.dataset_name,
-            task_id=skipped_batch.task_id,
             _metadata=skipped_batch._metadata,
         )
 
@@ -823,7 +906,7 @@ class TestOutputMode:
             output_mode="both",
         )
         df = pd.DataFrame({"text": ["Hello world."], "id": [1]})
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         stages = pipeline.decompose()
         result = batch
@@ -866,7 +949,7 @@ class TestPartialTranslationRecovery:
                 "id": [1, 2, 3],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -892,7 +975,7 @@ class TestFaithThresholdFilterStage:
                 "faith_parse_failed": [False, False],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -926,7 +1009,7 @@ class TestReassemblyFaithAggregation:
                 "faith_parse_failed": [False, True],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         stage = ReassemblyStage(aggregate_faith_scores=True)
 
         result = stage.process(batch).to_pandas()
@@ -952,7 +1035,7 @@ class TestReassemblyFaithAggregation:
                 "faith_parse_failed": [True, False],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -970,7 +1053,7 @@ class TestReassemblyFaithAggregation:
                 "faith_segment_scores": ["[]", '[{"Fluency": 3.0}]'],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -1001,7 +1084,7 @@ class TestFormatTranslationOutputStage:
                 "id": [1],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -1027,7 +1110,7 @@ class TestFormatTranslationOutputStage:
                 "id": [1],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -1049,7 +1132,7 @@ class TestFormatTranslationOutputStage:
                 "_segmented_translation_map": [json.dumps({"question": [{"src": "Hello", "tgt": "Hallo"}]})],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -1074,7 +1157,7 @@ class TestFormatTranslationOutputStage:
                 "id": [1],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -1106,7 +1189,7 @@ class TestMergeFaithScoresStage:
                 "faith_avg": [4.2],
             }
         )
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         result_df = result.to_pandas()
 
@@ -1121,7 +1204,7 @@ class TestMergeFaithScoresStage:
 
         metadata = json.dumps({"target_lang": "de"})
         df = pd.DataFrame({"translation_metadata": [metadata], "text": ["Hello"]})
-        batch = DocumentBatch(data=df, dataset_name="test", task_id="1")
+        batch = DocumentBatch(data=df, dataset_name="test")
         result = stage.process(batch)
         # Should return the batch unmodified
         assert result.to_pandas()["translation_metadata"].iloc[0] == metadata

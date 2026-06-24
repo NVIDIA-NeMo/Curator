@@ -330,7 +330,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -355,7 +355,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         with pytest.raises(ValueError, match="Video source bytes are not available"):
             stage.process(task)
@@ -371,7 +371,7 @@ class TestVideoFrameExtractionStage:
             source_bytes=b"fake_video_data",
             metadata=VideoMetadata(framerate=30, width=640, height=480),  # Missing required fields
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -408,7 +408,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -449,7 +449,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -497,7 +497,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -544,7 +544,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -592,7 +592,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -629,7 +629,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 

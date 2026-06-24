@@ -197,7 +197,6 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             df_cpu = df_cpu.sort_values(by=SEQ_ORDER_FIELD, ignore_index=True).drop(columns=[SEQ_ORDER_FIELD])
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df_cpu,
             _metadata=batch._metadata,

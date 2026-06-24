@@ -409,7 +409,6 @@ def test_materialize_with_only_missing_binary_false(tmp_path: Path) -> None:
         }
     ]
     task = InterleavedBatch(
-        task_id="re_mat",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA),
     )
@@ -445,7 +444,6 @@ def test_materialize_preserves_passthrough_columns_with_src_prefix(tmp_path: Pat
         pa.field("_src_metadata", pa.string())
     )
     task = InterleavedBatch(
-        task_id="passthrough_test",
         dataset_name="d",
         data=pa.Table.from_pylist(rows, schema=schema_with_passthrough),
     )

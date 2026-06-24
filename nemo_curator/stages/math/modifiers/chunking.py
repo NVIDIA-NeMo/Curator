@@ -45,7 +45,9 @@ class TokenSplitterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self._tokenizer = None
         self.name = format_name_with_suffix(self.model_name, suffix="_token_splitter")
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         """Download model weights to local cache once per physical node."""
         from huggingface_hub import snapshot_download
 
@@ -124,7 +126,6 @@ class TokenSplitterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             output_df = pd.DataFrame(columns=output_cols)
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=output_df,
             _metadata=batch._metadata,

@@ -176,7 +176,7 @@ class TestCaptionGenerationStage:
 
         video.clips = [clip1, clip2]
 
-        return VideoTask(task_id="test", dataset_name="test", data=video)
+        return VideoTask(dataset_name="test", data=video)
 
     def test_process_successful_generation(self):
         """Test successful caption generation process."""
@@ -228,7 +228,7 @@ class TestCaptionGenerationStage:
         )
         clip.windows = [window]
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -245,7 +245,7 @@ class TestCaptionGenerationStage:
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 5.0), buffer=b"test_buffer")
         # No windows added
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -271,7 +271,7 @@ class TestCaptionGenerationStage:
         window = _Window(start_frame=0, end_frame=5)
         clip.windows = [window]
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -347,7 +347,7 @@ class TestCaptionGenerationStage:
         )
         clip.windows = [window]
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         self.stage.process(task)
 
@@ -437,7 +437,7 @@ class TestCaptionGenerationStage:
 
         clip.windows = [window1, window2]
         video.clips = [clip]
-        task = VideoTask(task_id="test", dataset_name="test", data=video)
+        task = VideoTask(dataset_name="test", data=video)
 
         result = stage.process(task)
 
@@ -465,7 +465,7 @@ def _make_task(video_bytes: bytes, task_id: str = "integration-test") -> VideoTa
     )
     video = Video(input_video=Path(task_id + ".mp4"))
     video.clips = [clip]
-    return VideoTask(task_id=task_id, dataset_name="integration", data=video)
+    return VideoTask(dataset_name="integration", data=video)
 
 
 @pytest.fixture(scope="module")
@@ -538,7 +538,7 @@ class TestQwenCaptionPipelineIntegration:
     ) -> None:
         """Run prep→generation once and store state on the class for all tests."""
         video_bytes = video_fixture_path.read_bytes()
-        task = _make_task(video_bytes, task_id="pipeline-test")
+        task = _make_task(video_bytes)
 
         # --- preparation stage ---
         task = preparation_stage.process(task)

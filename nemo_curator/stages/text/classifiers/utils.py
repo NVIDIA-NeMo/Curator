@@ -49,7 +49,6 @@ class SortByLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=output,
             _metadata=batch._metadata,

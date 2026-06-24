@@ -28,6 +28,7 @@ class ConvertImageBatchToDocumentBatchStage(ProcessingStage[ImageBatch, Document
     Args:
         fields: list of fields of ImageObject to convert to DocumentBatch
     """
+
     fields: list[str] = field(default_factory=list)
     name: str = "convert_image_batch_to_document_batch"
 
@@ -45,7 +46,6 @@ class ConvertImageBatchToDocumentBatchStage(ProcessingStage[ImageBatch, Document
         df = pd.DataFrame(data)
 
         return DocumentBatch(
-            task_id=f"{task.task_id}_{self.name}",
             dataset_name=task.dataset_name,
             data=df,
             _metadata=task._metadata,

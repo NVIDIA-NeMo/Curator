@@ -117,12 +117,11 @@ def test_process_sync_single_row_no_system_prompt() -> None:
         model_name="test-model",
     )
     df = pd.DataFrame([{"text": "hello"}])
-    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t1")
+    batch = DocumentBatch(data=df, dataset_name="ds")
 
     out_batch = stage.process(batch)
     assert isinstance(out_batch, DocumentBatch)
     assert out_batch.dataset_name == "ds"
-    assert out_batch.task_id.endswith(stage.name)
     assert "out" in out_batch.data.columns
     assert out_batch.data["out"].iloc[0] == "resp-1"
     # Ensure user-only message when no system prompt
@@ -144,7 +143,7 @@ def test_process_sync_with_system_prompt() -> None:
         model_name="test-model",
     )
     df = pd.DataFrame([{"text": "abc"}])
-    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t2")
+    batch = DocumentBatch(data=df, dataset_name="ds")
 
     out_batch = stage.process(batch)
     assert out_batch.data["out"].iloc[0] == "ok"
@@ -169,7 +168,7 @@ def test_process_async_multiple_rows() -> None:
         model_name="test-model",
     )
     df = pd.DataFrame([{"text": "x"}, {"text": "y"}, {"text": "z"}])
-    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t3")
+    batch = DocumentBatch(data=df, dataset_name="ds")
 
     out_batch = stage.process(batch)
     assert len(out_batch.data) == 3

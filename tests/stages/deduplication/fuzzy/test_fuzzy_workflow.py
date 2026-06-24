@@ -106,11 +106,7 @@ def fuzzy_dedup_data_jsonl(tmp_path: Path) -> list[FileGroupTask]:
     df.iloc[3:].to_json(file2, orient="records", lines=True)
 
     files = [str(file1), str(file2)]
-    return [
-        FileGroupTask(
-            task_id="file_group_0", dataset_name="test_dataset", data=files, _metadata={"source_files": files}
-        )
-    ]
+    return [FileGroupTask(dataset_name="test_dataset", data=files, _metadata={"source_files": files})]
 
 
 @pytest.fixture
@@ -125,11 +121,7 @@ def fuzzy_dedup_data_parquet(tmp_path: Path) -> list[FileGroupTask]:
     df.iloc[3:].to_parquet(file2)
 
     files = [str(file1), str(file2)]
-    return [
-        FileGroupTask(
-            task_id="file_group_0", dataset_name="test_dataset", data=files, _metadata={"source_files": files}
-        )
-    ]
+    return [FileGroupTask(dataset_name="test_dataset", data=files, _metadata={"source_files": files})]
 
 
 @pytest.fixture
@@ -154,11 +146,7 @@ def no_duplicates_fuzzy_dedup_data(tmp_path: Path) -> list[FileGroupTask]:
     df.iloc[2:].to_parquet(file2)
 
     files = [str(file1), str(file2)]
-    return [
-        FileGroupTask(
-            task_id="file_group_0", dataset_name="test_dataset", data=files, _metadata={"source_files": files}
-        )
-    ]
+    return [FileGroupTask(dataset_name="test_dataset", data=files, _metadata={"source_files": files})]
 
 
 @pytest.mark.gpu

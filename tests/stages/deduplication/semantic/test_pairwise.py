@@ -120,7 +120,6 @@ class TestPairwiseCosineSimilarityStage:
 
         # Create task
         task = FileGroupTask(
-            task_id="test_single",
             dataset_name="test",
             data=[str(input_file)],
             _metadata={"centroid_id": 0, "filetype": "parquet"},
@@ -188,7 +187,6 @@ class TestPairwiseCosineSimilarityStage:
 
         # Create task
         task = FileGroupTask(
-            task_id="test_multi",
             dataset_name="test",
             data=[str(input_file)],
             _metadata={"centroid_id": 1, "filetype": "parquet"},
@@ -265,7 +263,6 @@ class TestPairwiseCosineSimilarityStage:
 
         # Create task
         task = FileGroupTask(
-            task_id="test_custom_ranked",
             dataset_name="test",
             data=[str(input_file)],
             _metadata={"centroid_id": 1, "filetype": "parquet"},
@@ -327,7 +324,6 @@ class TestPairwiseCosineSimilarityStage:
 
         # Create task
         task = FileGroupTask(
-            task_id="test_fail_missing_cols",
             dataset_name="test",
             data=[str(input_file)],
             _metadata={"centroid_id": 2, "filetype": "parquet"},
@@ -506,7 +502,6 @@ class TestPairwiseStage:
 
             # Create task
             task = FileGroupTask(
-                task_id="test_workflow",
                 dataset_name="test",
                 data=[str(input_file) for input_file in input_files],
                 _metadata={"centroid_id": 0, "filetype": "parquet"},

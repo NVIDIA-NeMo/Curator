@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import hashlib
 from collections.abc import Iterable, Iterator
 from itertools import islice
 from typing import Any
@@ -35,9 +34,3 @@ def batched(iterable: Iterable[Any], n: int) -> Iterator[tuple[Any, ...]]:
     it = iter(iterable)
     while batch := tuple(islice(it, n)):
         yield batch
-
-
-def get_deterministic_hash(inputs: list[str], seed: str = "") -> str:
-    """Create a deterministic hash from inputs."""
-    combined = "|".join(sorted(inputs)) + "|" + seed
-    return hashlib.sha256(combined.encode()).hexdigest()[:12]

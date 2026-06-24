@@ -29,6 +29,7 @@ class BaseFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
 
     This class provides a base class for image filtering stages.
     """
+
     model_dir: str = None
     num_gpus_per_worker: float = 0.25
     model_inference_batch_size: int = 32  # Number of images to process through model at once

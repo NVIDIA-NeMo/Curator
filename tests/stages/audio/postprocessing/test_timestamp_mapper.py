@@ -24,8 +24,8 @@ from nemo_curator.stages.audio.postprocessing.timestamp_mapper import (
 from nemo_curator.tasks import AudioTask
 
 
-def _make_task(data: dict, task_id: str = "test", metadata: dict | None = None) -> AudioTask:
-    t = AudioTask(data=data, task_id=task_id, dataset_name="test_ds")
+def _make_task(data: dict, metadata: dict | None = None) -> AudioTask:
+    t = AudioTask(data=data, dataset_name="test_ds")
     if metadata:
         t._metadata = metadata
     return t
@@ -35,9 +35,27 @@ class TestTranslateToOriginal:
     """Unit tests for the pure _translate_to_original() function."""
 
     MAPPINGS: ClassVar[list[dict]] = [
-        {"concat_start_ms": 0, "concat_end_ms": 2000, "original_file": "a.wav", "original_start_ms": 5000, "original_end_ms": 7000},
-        {"concat_start_ms": 2000, "concat_end_ms": 5000, "original_file": "b.wav", "original_start_ms": 0, "original_end_ms": 3000},
-        {"concat_start_ms": 5000, "concat_end_ms": 8000, "original_file": "c.wav", "original_start_ms": 10000, "original_end_ms": 13000},
+        {
+            "concat_start_ms": 0,
+            "concat_end_ms": 2000,
+            "original_file": "a.wav",
+            "original_start_ms": 5000,
+            "original_end_ms": 7000,
+        },
+        {
+            "concat_start_ms": 2000,
+            "concat_end_ms": 5000,
+            "original_file": "b.wav",
+            "original_start_ms": 0,
+            "original_end_ms": 3000,
+        },
+        {
+            "concat_start_ms": 5000,
+            "concat_end_ms": 8000,
+            "original_file": "c.wav",
+            "original_start_ms": 10000,
+            "original_end_ms": 13000,
+        },
     ]
 
     def test_single_mapping_exact_match(self) -> None:
@@ -74,8 +92,20 @@ class TestTranslateToOriginal:
     def test_silence_gap_no_overlap(self) -> None:
         """Segment falls entirely in a gap between mappings."""
         mappings = [
-            {"concat_start_ms": 0, "concat_end_ms": 1000, "original_file": "a.wav", "original_start_ms": 0, "original_end_ms": 1000},
-            {"concat_start_ms": 3000, "concat_end_ms": 5000, "original_file": "b.wav", "original_start_ms": 0, "original_end_ms": 2000},
+            {
+                "concat_start_ms": 0,
+                "concat_end_ms": 1000,
+                "original_file": "a.wav",
+                "original_start_ms": 0,
+                "original_end_ms": 1000,
+            },
+            {
+                "concat_start_ms": 3000,
+                "concat_end_ms": 5000,
+                "original_file": "b.wav",
+                "original_start_ms": 0,
+                "original_end_ms": 2000,
+            },
         ]
         results = _translate_to_original(mappings, 1000, 3000)
         assert len(results) == 0
@@ -84,7 +114,13 @@ class TestTranslateToOriginal:
         """Malformed mapping (missing key) is skipped gracefully."""
         mappings = [
             {"concat_start_ms": 0, "concat_end_ms": 2000},
-            {"concat_start_ms": 2000, "concat_end_ms": 4000, "original_file": "b.wav", "original_start_ms": 0, "original_end_ms": 2000},
+            {
+                "concat_start_ms": 2000,
+                "concat_end_ms": 4000,
+                "original_file": "b.wav",
+                "original_start_ms": 0,
+                "original_end_ms": 2000,
+            },
         ]
         results = _translate_to_original(mappings, 0, 4000)
         assert len(results) == 1
@@ -98,7 +134,13 @@ class TestTranslateToOriginal:
     def test_no_overlap_before_all_mappings(self) -> None:
         """Segment ends before any mapping starts."""
         mappings = [
-            {"concat_start_ms": 5000, "concat_end_ms": 8000, "original_file": "a.wav", "original_start_ms": 0, "original_end_ms": 3000},
+            {
+                "concat_start_ms": 5000,
+                "concat_end_ms": 8000,
+                "original_file": "a.wav",
+                "original_start_ms": 0,
+                "original_end_ms": 3000,
+            },
         ]
         results = _translate_to_original(mappings, 0, 1000)
         assert results == []

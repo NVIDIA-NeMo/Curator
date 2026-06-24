@@ -70,7 +70,6 @@ class ChunkMergeStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         if df.empty:
             return DocumentBatch(
-                task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
                 data=df,
                 _metadata=batch._metadata,
@@ -91,7 +90,6 @@ class ChunkMergeStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         if df.empty:
             logger.info(f"All {rows_before} rows filtered out during chunk merge")
             return DocumentBatch(
-                task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
                 data=pd.DataFrame(columns=df.columns),
                 _metadata=batch._metadata,
@@ -133,7 +131,6 @@ class ChunkMergeStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         logger.info(f"Chunk merge: {rows_before} rows -> {len(merged)} documents")
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=merged.reset_index(drop=True),
             _metadata=batch._metadata,

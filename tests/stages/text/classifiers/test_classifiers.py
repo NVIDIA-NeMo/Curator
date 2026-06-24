@@ -47,7 +47,6 @@ def domain_dataset() -> DocumentBatch:
     df = pd.DataFrame({"text": text})
     return DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -132,7 +131,6 @@ def test_quality_classifier() -> None:
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -173,7 +171,6 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -324,7 +321,6 @@ def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -366,7 +362,6 @@ def test_multilingual_domain_classifier() -> None:
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -389,7 +384,6 @@ def test_content_type_classifier() -> None:
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -413,7 +407,6 @@ def test_prompt_task_complexity_classifier(filter_by: list[str] | None) -> None:
     df = pd.DataFrame({"text": text})
     input_dataset = DocumentBatch(
         data=df,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 

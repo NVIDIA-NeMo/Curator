@@ -143,7 +143,6 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             df = df[df[self.n_tokens_field] < threshold].copy()
             if len(df) == 0:
                 return DocumentBatch(
-                    task_id=batch.task_id,
                     dataset_name=batch.dataset_name,
                     data=pd.DataFrame(columns=df.columns),
                     _metadata=batch._metadata,
@@ -200,7 +199,6 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             output_df[self.output_field] = generated_texts
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=output_df,
             _metadata=batch._metadata,

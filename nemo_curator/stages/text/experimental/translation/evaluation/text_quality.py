@@ -81,7 +81,6 @@ class TextQualityMetricStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         if not self.metrics:
             df[self.pass_column] = True
             return DocumentBatch(
-                task_id=batch.task_id,
                 dataset_name=batch.dataset_name,
                 data=df,
                 _metadata=batch._metadata,
@@ -116,7 +115,6 @@ class TextQualityMetricStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             df = df[df[self.pass_column]].reset_index(drop=True)
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,

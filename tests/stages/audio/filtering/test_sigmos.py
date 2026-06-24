@@ -44,7 +44,6 @@ def _make_task(duration_s: float = 1.0, sample_rate: int = 48000) -> AudioTask:
     num_samples = int(duration_s * sample_rate)
     return AudioTask(
         data={"waveform": torch.randn(1, num_samples), "sample_rate": sample_rate},
-        task_id="test",
         dataset_name="test",
     )
 
@@ -96,15 +95,17 @@ class TestSIGMOSFilterStage:
     @patch.object(SIGMOSFilterStage, "_initialize_model")
     def test_partial_threshold_fail(self, mock_init: MagicMock) -> None:
         stage = SIGMOSFilterStage(noise_threshold=4.0, ovrl_threshold=None)
-        stage._model = _make_mock_model({
-            "MOS_NOISE": 3.0,
-            "MOS_OVRL": 5.0,
-            "MOS_SIG": 5.0,
-            "MOS_COL": 5.0,
-            "MOS_DISC": 5.0,
-            "MOS_LOUD": 5.0,
-            "MOS_REVERB": 5.0,
-        })
+        stage._model = _make_mock_model(
+            {
+                "MOS_NOISE": 3.0,
+                "MOS_OVRL": 5.0,
+                "MOS_SIG": 5.0,
+                "MOS_COL": 5.0,
+                "MOS_DISC": 5.0,
+                "MOS_LOUD": 5.0,
+                "MOS_REVERB": 5.0,
+            }
+        )
 
         result = stage.process(_make_task())
 
@@ -134,7 +135,7 @@ class TestSIGMOSFilterStage:
         stage = SIGMOSFilterStage()
         stage._model = _make_mock_model(_GOOD_SCORES)
 
-        task = AudioTask(data={"some_key": "value"}, task_id="test", dataset_name="test")
+        task = AudioTask(data={"some_key": "value"}, dataset_name="test")
         result = stage.process(task)
 
         assert result == []
@@ -168,7 +169,6 @@ class TestSIGMOSFilterStage:
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(4)]
         task = AudioTask(
             data={"segments": segments, "original_file": "test.wav"},
-            task_id="test",
             dataset_name="test",
         )
 
@@ -189,7 +189,6 @@ class TestSIGMOSFilterStage:
         segments = [{"waveform": torch.randn(1, sr), "sample_rate": sr, "segment_num": i} for i in range(3)]
         task = AudioTask(
             data={"segments": segments},
-            task_id="test",
             dataset_name="test",
         )
 

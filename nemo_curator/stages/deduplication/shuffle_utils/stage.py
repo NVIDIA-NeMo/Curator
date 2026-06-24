@@ -130,7 +130,6 @@ class ShuffleStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         partition_paths = self._actor_obj.extract_and_write(column_names=self.output_columns)
         return [
             FileGroupTask(
-                task_id=partition_id,
                 dataset_name=self.dataset_name + f"{self.name}",
                 data=[path],
                 _metadata={
