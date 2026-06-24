@@ -95,10 +95,11 @@ def check_ray_responsive(timeout_s: int = RAY_CLUSTER_START_VERIFICATION_TIMEOUT
     return responsive
 
 
-def get_free_port(start_port: int, get_next_free_port: bool = True) -> int:
+def get_free_port(start_port: int, get_next_free_port: bool = True, bind_host: str = "localhost") -> int:
     """Checks if start_port is free.
     If not, it will get the next free port starting from start_port if get_next_free_port is True.
     Else, it will raise an error if the free port is not equal to start_port.
+    bind_host controls the interface used for the probe.
     """
     for port in range(start_port, 65536):
         if port >= DEFAULT_RAY_MIN_WORKER_PORT and port <= DEFAULT_RAY_MAX_WORKER_PORT:
@@ -107,7 +108,7 @@ def get_free_port(start_port: int, get_next_free_port: bool = True) -> int:
             # SO_REUSEADDR to avoid TIME_WAIT issues on some OSes
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
-                s.bind(("localhost", port))
+                s.bind((bind_host, port))
                 # If bind succeeds, port is free
                 return port  # noqa: TRY300
             except OSError:
@@ -190,7 +191,10 @@ def init_cluster(  # noqa: PLR0913
 
     haproxy_binary, haproxy_source = _resolve_ray_serve_haproxy_binary()
     if haproxy_binary is not None:
-        haproxy_metrics_port = _get_free_port_on_all_interfaces()
+        haproxy_metrics_port = get_free_port(
+            DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT,
+            bind_host="0.0.0.0",  # noqa: S104
+        )
         os.environ["RAY_SERVE_ENABLE_HA_PROXY"] = "1"
         os.environ["RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY"] = "1"
         os.environ["RAY_SERVE_HAPROXY_BINARY_PATH"] = haproxy_binary
@@ -237,30 +241,6 @@ def _resolve_ray_serve_haproxy_binary() -> tuple[str | None, str | None]:
         return system_binary, "system PATH"
 
     return None, None
-
-
-def _get_free_port_on_all_interfaces() -> int:
-    """Return a currently free TCP port for listeners that bind 0.0.0.0."""
-    for _ in range(100):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("0.0.0.0", 0))  # noqa: S104
-            port = int(s.getsockname()[1])
-        if port < DEFAULT_RAY_MIN_WORKER_PORT or port > DEFAULT_RAY_MAX_WORKER_PORT:
-            return port
-
-    for port in range(DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT, 65536):
-        if DEFAULT_RAY_MIN_WORKER_PORT <= port <= DEFAULT_RAY_MAX_WORKER_PORT:
-            continue
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                s.bind(("0.0.0.0", port))  # noqa: S104
-                return port  # noqa: TRY300
-            except OSError:
-                continue
-
-    msg = "No free HAProxy metrics port found"
-    raise RuntimeError(msg)
 
 
 def split_table_by_group_max_bytes(
