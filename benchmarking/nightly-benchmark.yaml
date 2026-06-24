@@ -257,7 +257,6 @@ entries:
       --model-variation=vllm_text_pretokenized
       --model-inference-batch-size=32
       --model-num-workers=4
-      --max-chars=1500
       --cache-dir={dataset:text_models_hf_cache,files}
     ray:
       num_cpus: 64
@@ -289,7 +288,6 @@ entries:
       --model-variation=vllm_text_pretokenized
       --model-inference-batch-size=32
       --model-num-workers=4
-      --max-chars=1500
       --cache-dir={dataset:text_models_hf_cache,files}
     timeout_s: 800
     sink_data:
@@ -321,11 +319,9 @@ entries:
       --server-replicas=4
       --client-num-workers=16
       --endpoint-max-concurrent-requests=64
-      --endpoint-truncate-prompt-tokens=0
       --endpoint-input-format=text
       --endpoint-request-batch-size=8
       --endpoint-encoding-format=float
-      --endpoint-max-chars=1500
       --endpoint-client-mode=tasks
       --endpoint-request-timeout-s=900
       --endpoint-pooler-config={}
@@ -366,11 +362,9 @@ entries:
       --server-replicas=4
       --client-num-workers=16
       --endpoint-max-concurrent-requests=64
-      --endpoint-truncate-prompt-tokens=0
       --endpoint-input-format=text
       --endpoint-request-batch-size=8
       --endpoint-encoding-format=float
-      --endpoint-max-chars=1500
       --endpoint-client-mode=tasks
       --endpoint-request-timeout-s=900
       --endpoint-pooler-config={}

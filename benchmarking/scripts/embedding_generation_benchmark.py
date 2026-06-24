@@ -33,7 +33,7 @@ import secrets
 import time
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 import pyarrow as pa
@@ -47,6 +47,17 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 from nemo_curator.tasks import DocumentBatch
+
+_MATRIX_NDIM = 2
+
+
+class _EmbeddingData(Protocol):
+    index: int
+    embedding: object
+
+
+class _EmbeddingResponse(Protocol):
+    data: list[_EmbeddingData]
 
 
 class EmbeddingModelVariation(Enum):
@@ -168,10 +179,21 @@ class OpenAIEmbeddingClientStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def _request_batches(self, request_inputs: list[str] | list[list[int]]) -> list[list[Any]]:
         batch_size = max(1, self.endpoint_request_batch_size)
-        return [
-            request_inputs[start : start + batch_size]
-            for start in range(0, len(request_inputs), batch_size)
-        ]
+        return [request_inputs[start : start + batch_size] for start in range(0, len(request_inputs), batch_size)]
+
+    def _response_embeddings(self, response: _EmbeddingResponse, request_input: list[Any]) -> list[Any]:
+        response_data = sorted(response.data, key=lambda item: item.index)
+        if len(response_data) != len(request_input):
+            msg = f"Endpoint returned {len(response_data)} embeddings for {len(request_input)} inputs"
+            raise RuntimeError(msg)
+        response_indexes = [int(item.index) for item in response_data]
+        expected_indexes = list(range(len(request_input)))
+        if response_indexes != expected_indexes:
+            msg = (
+                f"Endpoint returned non-contiguous embedding indexes: {response_indexes}, expected {expected_indexes}"
+            )
+            raise RuntimeError(msg)
+        return [item.embedding for item in response_data]
 
     async def _embed_batch(self, semaphore: asyncio.Semaphore, request_input: list[Any]) -> list[Any]:
         async with semaphore:
@@ -190,10 +212,7 @@ class OpenAIEmbeddingClientStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                         "encoding_format": self.endpoint_encoding_format,
                         "timeout": self.timeout,
                     }
-                    if (
-                        self.endpoint_truncate_prompt_tokens is not None
-                        and self.endpoint_truncate_prompt_tokens > 0
-                    ):
+                    if self.endpoint_truncate_prompt_tokens is not None and self.endpoint_truncate_prompt_tokens > 0:
                         request_kwargs["extra_body"] = {
                             "truncate_prompt_tokens": self.endpoint_truncate_prompt_tokens,
                         }
@@ -201,22 +220,7 @@ class OpenAIEmbeddingClientStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                         request_kwargs.setdefault("extra_body", {})
                         request_kwargs["extra_body"]["add_special_tokens"] = False
                     response = await self.client.embeddings.create(**request_kwargs)  # type: ignore[union-attr]
-                    response_data = sorted(response.data, key=lambda item: item.index)
-                    if len(response_data) != len(request_input):
-                        msg = (
-                            f"Endpoint returned {len(response_data)} embeddings for "
-                            f"{len(request_input)} inputs"
-                        )
-                        raise RuntimeError(msg)
-                    response_indexes = [int(item.index) for item in response_data]
-                    expected_indexes = list(range(len(request_input)))
-                    if response_indexes != expected_indexes:
-                        msg = (
-                            "Endpoint returned non-contiguous embedding indexes: "
-                            f"{response_indexes}, expected {expected_indexes}"
-                        )
-                        raise RuntimeError(msg)
-                    return [item.embedding for item in response_data]
+                    return self._response_embeddings(response, request_input)
                 except Exception as exc:
                     last_exception = exc
                     if attempt == self.max_retries:
@@ -248,7 +252,7 @@ class OpenAIEmbeddingClientStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 row = self._base64_embedding_to_array(embedding, row_index)
             else:
                 row = np.asarray(embedding, dtype=np.float32)
-            if row.ndim == 2 and row.shape[0] == 1:
+            if row.ndim == _MATRIX_NDIM and row.shape[0] == 1:
                 row = row[0]
             if row.ndim != 1:
                 bad_shapes.append(f"row={row_index}, shape={tuple(row.shape)}")
@@ -441,7 +445,9 @@ def _endpoint_engine_kwargs(
     return engine_kwargs
 
 
-def _resolve_endpoint_model_path(model_identifier: str, cache_dir: str | None, explicit_model_path: str | None) -> str | None:
+def _resolve_endpoint_model_path(
+    model_identifier: str, cache_dir: str | None, explicit_model_path: str | None
+) -> str | None:
     if explicit_model_path:
         return explicit_model_path
     if cache_dir is None:
@@ -690,6 +696,7 @@ def run_embedding_generation_benchmark(  # noqa: PLR0915
     endpoint_dtype: str = "auto",
     endpoint_pooler_config: str = '{"task":"embed"}',
     endpoint_model_path: str | None = None,
+    allow_raw_inprocess_vllm: bool = False,
     benchmark_results_path: str | None = None,
     **kwargs: Any,  # noqa: ANN401, ARG001
 ) -> dict[str, Any]:
@@ -699,6 +706,13 @@ def run_embedding_generation_benchmark(  # noqa: PLR0915
         variation in {EmbeddingModelVariation.RAY_SERVE_ENDPOINT, EmbeddingModelVariation.DYNAMO_ENDPOINT}
         and endpoint_input_format == "token_ids"
     )
+    if variation == EmbeddingModelVariation.VLLM_TEXT and not allow_raw_inprocess_vllm:
+        msg = (
+            "Raw in-process vLLM text benchmarking is disabled by default because tokenizer work "
+            "can dominate throughput. Use --model-variation=vllm_text_pretokenized for SOTA "
+            "comparisons, or pass --allow-raw-inprocess-vllm for an intentional raw-text experiment."
+        )
+        raise ValueError(msg)
     max_seq_length = _resolve_max_seq_length(model_identifier, cache_dir=cache_dir)
     input_path = Path(input_path)
     output_path = Path(output_path).absolute()
@@ -746,9 +760,7 @@ def run_embedding_generation_benchmark(  # noqa: PLR0915
             input_file_count=len(input_files),
             benchmark_results_path=benchmark_results_path,
         )
-        endpoint_total_max_concurrent_requests = (
-            endpoint_effective_client_workers * endpoint_max_concurrent_requests
-        )
+        endpoint_total_max_concurrent_requests = endpoint_effective_client_workers * endpoint_max_concurrent_requests
         logger.info(f"Endpoint server replicas: {server_replicas}")
         logger.info(f"Endpoint client workers: {client_num_workers}")
         logger.info(f"Endpoint effective client workers estimate: {endpoint_effective_client_workers}")
@@ -929,9 +941,17 @@ def main() -> int:
     )
     parser.add_argument(
         "--model-variation",
-        default="vllm_text",
+        default="vllm_text_pretokenized",
         choices=[v.value for v in EmbeddingModelVariation],
-        help="Embedding model backend (default: vllm_text)",
+        help="Embedding model backend (default: vllm_text_pretokenized)",
+    )
+    parser.add_argument(
+        "--allow-raw-inprocess-vllm",
+        action="store_true",
+        help=(
+            "Allow --model-variation=vllm_text. Keep this off for SOTA comparisons; raw text "
+            "in-process vLLM can benchmark tokenizer overhead instead of embedding throughput."
+        ),
     )
     parser.add_argument(
         "--embedding-pooling",
@@ -1058,10 +1078,13 @@ def main() -> int:
 
     success_code = 1
     result_dict: dict[str, Any] = {"params": vars(args), "metrics": {"is_success": False}, "tasks": []}
-    result_dict["params"]["pretokenized"] = args.model_variation == EmbeddingModelVariation.VLLM_TEXT_PRETOKENIZED.value or (
-        args.model_variation
-        in {EmbeddingModelVariation.RAY_SERVE_ENDPOINT.value, EmbeddingModelVariation.DYNAMO_ENDPOINT.value}
-        and args.endpoint_input_format == "token_ids"
+    result_dict["params"]["pretokenized"] = (
+        args.model_variation == EmbeddingModelVariation.VLLM_TEXT_PRETOKENIZED.value
+        or (
+            args.model_variation
+            in {EmbeddingModelVariation.RAY_SERVE_ENDPOINT.value, EmbeddingModelVariation.DYNAMO_ENDPOINT.value}
+            and args.endpoint_input_format == "token_ids"
+        )
     )
     result_dict["params"]["endpoint_pretokenized"] = args.endpoint_input_format == "token_ids"
     try:
