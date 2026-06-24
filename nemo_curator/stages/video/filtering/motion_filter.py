@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import io
+import time
 from dataclasses import dataclass
 
 from loguru import logger
@@ -48,6 +49,9 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
 
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data
+        decode_start_s = time.perf_counter()
+        clip_decode_times_s = []
+        decoded_motion_frames = 0
 
         for clip in video.clips:
             if not clip.buffer:
@@ -55,6 +59,7 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
                 clip.errors["buffer"] = "empty"
                 continue
 
+            clip_decode_start_s = time.perf_counter()
             with io.BytesIO(clip.buffer) as fp:
                 try:
                     clip.decoded_motion_data = motion_backend.decode_for_motion(
@@ -78,10 +83,18 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
                         logger.error(f"Clip {clip.uuid} has no motion frames.")
                         clip.decoded_motion_data = None
                         clip.errors["motion_decode"] = "no_motion_frames"
+                    else:
+                        decoded_motion_frames += len(clip.decoded_motion_data.frames)
+            clip_decode_times_s.append(time.perf_counter() - clip_decode_start_s)
 
         failed_cnt = sum(1 for clip in video.clips if clip.decoded_motion_data is None)
+        decode_elapsed_s = time.perf_counter() - decode_start_s
+        avg_clip_decode_s = sum(clip_decode_times_s) / len(clip_decode_times_s) if clip_decode_times_s else 0.0
+        max_clip_decode_s = max(clip_decode_times_s, default=0.0)
         logger.info(
-            f"MotionVectorDecodeStage: Processed {len(video.clips)} clips for {task.task_id}, {failed_cnt} failed."
+            f"MotionVectorDecodeStage: Processed {len(video.clips)} clips for {task.task_id}, {failed_cnt} failed, "
+            f"decode_s={decode_elapsed_s:.3f}, avg_clip_decode_s={avg_clip_decode_s:.3f}, "
+            f"max_clip_decode_s={max_clip_decode_s:.3f}, motion_frames={decoded_motion_frames}."
         )
 
         return task

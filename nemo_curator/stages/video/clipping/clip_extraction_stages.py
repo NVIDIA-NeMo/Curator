@@ -15,6 +15,7 @@
 import copy
 import pathlib
 import subprocess
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -104,6 +105,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             video.source_bytes = None
             return task
 
+        transcode_start_s = time.perf_counter()
         with make_pipeline_temporary_dir(sub_dir="transcode") as tmp_dir:
             # write video to file
             video_file = tmp_dir / "input.mp4"
@@ -125,6 +127,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                     use_bit_rate=use_bit_rate,
                     clips=batch,
                 )
+        transcode_elapsed_s = time.perf_counter() - transcode_start_s
 
         # we are done with source_bytes
         video.source_bytes = None
@@ -137,7 +140,8 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                 f"video {video.input_video} has {len(video.clips)} "
                 f"clips and weight={video.weight:.2f}; "
                 f"min-clip={min(clip_durations):.2f}s, "
-                f"max-clip={max(clip_durations):.1f}s.",
+                f"max-clip={max(clip_durations):.1f}s, "
+                f"transcode_s={transcode_elapsed_s:.3f}.",
             )
         clip_chunks = list(
             grouping.split_by_chunk_size(
@@ -306,6 +310,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
     def _run_ffmpeg_command(self, command: list[str], working_dir: pathlib.Path, clips: list[Clip]) -> None:
         """Run the FFmpeg command and handle errors."""
+        ffmpeg_start_s = time.perf_counter()
         try:
             if self.verbose:
                 logger.info(f"Executing FFmpeg command: {' '.join(command)}")
@@ -315,7 +320,18 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             if output and self.ffmpeg_verbose:
                 logger.warning(f"FFmpeg output: {output.decode('utf-8')}")
         except subprocess.CalledProcessError as e:
+            logger.error(
+                "ClipTranscodingStage FFmpeg command failed: clips={} elapsed_s={:.3f}",
+                len(clips),
+                time.perf_counter() - ffmpeg_start_s,
+            )
             self._handle_ffmpeg_error(e, command, clips)
+        else:
+            logger.info(
+                "ClipTranscodingStage FFmpeg command finished: clips={} elapsed_s={:.3f}",
+                len(clips),
+                time.perf_counter() - ffmpeg_start_s,
+            )
 
     def _handle_ffmpeg_error(
         self, error: subprocess.CalledProcessError, command: list[str], clips: list[Clip]
