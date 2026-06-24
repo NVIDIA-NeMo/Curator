@@ -737,7 +737,12 @@ def run_embedding_generation_benchmark(  # noqa: PLR0915
     logger.info(f"Model: {model_identifier}")
     logger.info(f"Model variation: {variation.name}")
     logger.info(f"Pretokenized: {pretokenized}")
-    logger.info(f"Batch size: {model_inference_batch_size}")
+    logger.info(f"Model inference batch size: {model_inference_batch_size}")
+    if variation in {EmbeddingModelVariation.VLLM_TEXT, EmbeddingModelVariation.VLLM_TEXT_PRETOKENIZED}:
+        logger.info(
+            "Model inference batch size is ignored for VLLMEmbeddingModelStage; "
+            "vLLM batches internally over each DocumentBatch."
+        )
     logger.info(f"Model workers: {model_num_workers}")
     logger.info(f"Embedding pooling: {embedding_pooling}")
     logger.info(f"Input format: {input_format}")
@@ -950,7 +955,15 @@ def main() -> int:
         required=True,
         help="Model identifier (e.g., sentence-transformers/all-MiniLM-L6-v2)",
     )
-    parser.add_argument("--model-inference-batch-size", type=int, default=1024, help="Batch size for model inference")
+    parser.add_argument(
+        "--model-inference-batch-size",
+        type=int,
+        default=1024,
+        help=(
+            "Batch size for EmbeddingCreatorStage model inference; ignored by "
+            "vllm_text and vllm_text_pretokenized, where vLLM batches internally over each DocumentBatch"
+        ),
+    )
     parser.add_argument(
         "--model-num-workers",
         type=optional_int_arg,
