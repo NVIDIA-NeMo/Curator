@@ -15,7 +15,7 @@
 from unittest import mock
 
 import pytest
-from ray.data import ActorPoolStrategy
+from ray.data import ActorPoolStrategy, TaskPoolStrategy
 
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter
 from nemo_curator.backends.utils import RayStageSpecKeys
@@ -33,6 +33,9 @@ class RecordingDataset:
     def map_batches(self, _fn: object, *, batch_size: int | None = None, **kwargs: object):
         self.batch_size = batch_size
         self.map_batches_kwargs = kwargs
+        return self
+
+    def repartition(self, **_: object):
         return self
 
 
@@ -87,7 +90,7 @@ class TestRayDataStageAdapter:
         for kwargs in (fixed_actor_kwargs, autoscaling_actor_kwargs, task_kwargs):
             assert "concurrency" not in kwargs
 
-    def test_task_stage_warns_when_worker_sizing_is_ignored(self):
+    def test_task_stage_uses_task_pool_strategy_for_num_workers(self):
         stage = ConfigurableTaskStage(
             ray_stage_spec={
                 RayStageSpecKeys.MIN_WORKERS: 2,
@@ -100,11 +103,22 @@ class TestRayDataStageAdapter:
         with mock.patch("nemo_curator.backends.ray_data.adapter.logger.warning") as mock_warning:
             task_kwargs = _map_batches_kwargs(stage)
 
-        assert "compute" not in task_kwargs
-        assert mock_warning.call_count == 2
+        assert task_kwargs["compute"] == TaskPoolStrategy(size=3)
+        assert mock_warning.call_count == 1
         warning_messages = [call.args[0] for call in mock_warning.call_args_list]
         assert "Ignoring ray_stage_spec worker sizing keys" in warning_messages[0]
-        assert "Ignoring num_workers=3" in warning_messages[1]
+
+    def test_source_fanout_task_stage_uses_task_pool_strategy_for_single_worker_default(self):
+        stage = ConfigurableTaskStage(
+            ray_stage_spec={RayStageSpecKeys.IS_FANOUT_STAGE: True},
+            num_workers=1,
+        )
+
+        with mock.patch("nemo_curator.backends.ray_data.adapter.logger.warning") as mock_warning:
+            task_kwargs = _map_batches_kwargs(stage)
+
+        assert task_kwargs["compute"] == TaskPoolStrategy(size=1)
+        mock_warning.assert_not_called()
 
     def test_process_dataset_rejects_managed_ray_remote_args(self):
         stage = ConfigurableActorStage(

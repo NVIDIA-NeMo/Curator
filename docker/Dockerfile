@@ -44,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.13-dev \
     python3.13-venv \
     python-is-python3 && \
-    apt-get install -y --only-upgrade gnupg && \
+    apt-get install -y --only-upgrade gnupg libunbound8 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -104,28 +104,6 @@ RUN export MAX_JOBS=$(( $(nproc) > 16 ? 16 : $(nproc) )) && \
     find /opt/venv -name "ray_dist.jar" -delete && \
     if find /opt/venv -name "ray_dist.jar" | grep -q .; then \
         echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
-    fi
-
-# Patch wandb-core: bump google.golang.org/grpc from 1.79.2 to 1.79.3 (CVE fix)
-ARG TARGETARCH
-RUN if python3 -c "import wandb" 2>/dev/null; then \
-        GRPC_VERSION=1.79.3 && \
-        GO_VERSION=1.26.1 && \
-        WANDB_VERSION=$(python3 -c "import wandb; print(wandb.__version__)") && \
-        WANDB_CORE_BIN=/opt/venv/lib/python3.13/site-packages/wandb/bin/wandb-core && \
-        curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /tmp -xz && \
-        export PATH="/tmp/go/bin:$PATH" && \
-        export GOPATH=/tmp/gopath && \
-        git clone --depth 1 --branch "v${WANDB_VERSION}" https://github.com/wandb/wandb.git /tmp/wandb-src && \
-        cd /tmp/wandb-src/core && \
-        go get google.golang.org/grpc@v${GRPC_VERSION} && \
-        go mod tidy && \
-        go mod vendor && \
-        CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" \
-            -o "${WANDB_CORE_BIN}" ./cmd/wandb-core/ && \
-        rm -rf /tmp/wandb-src /tmp/go /tmp/gopath; \
-    else \
-        echo "wandb not installed, skipping CVE patch"; \
     fi
 
 # Install nemotron-ocr (C++/CUDA extension — requires no-build-isolation)
