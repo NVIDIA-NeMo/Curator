@@ -47,6 +47,9 @@ from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicat
 ray_client = RayClient()
 ray_client.start()
 
+# Keep this value identical for identification and removal when using auto-generated IDs.
+input_blocksize = "1GiB"
+
 # Step 1: Identify duplicates
 fuzzy_workflow = FuzzyDeduplicationWorkflow(
     input_path="input_data/",
@@ -55,6 +58,7 @@ fuzzy_workflow = FuzzyDeduplicationWorkflow(
     text_field="text",
     perform_removal=False,
     input_filetype="parquet",
+    input_blocksize=input_blocksize,
     char_ngrams=24,
     num_bands=20,
     minhashes_per_band=13
@@ -68,6 +72,7 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_path="./results/FuzzyDuplicateIds",
     output_path="./deduplicated",
     input_filetype="parquet",
+    input_blocksize=input_blocksize,
     input_id_field="_curator_dedup_id",
     ids_to_remove_duplicate_id_field="_curator_dedup_id",
     id_generator_path="./results/fuzzy_id_generator.json"
@@ -98,6 +103,10 @@ Configure fuzzy deduplication using these key parameters:
 | `lsh_rmm_pool_size` | int \| "auto" \| None | "auto" | Size of the RMM GPU memory pool in bytes for the LSH stage. `"auto"` sets the pool to 90% of free GPU memory. `None` sets the pool to 50% of free GPU memory and allows expansion. |
 | `lsh_spill_memory_limit` | int \| "auto" \| None | "auto" | Device memory limit in bytes for spilling to host during the LSH stage. `"auto"` sets the limit to 80% of the RMM pool size. `None` disables spilling. |
 | `perform_removal` | bool | False | Reserved; must remain `False`. Fuzzy removal is performed with `TextDuplicatesRemovalWorkflow`. |
+
+<Note>
+When fuzzy duplicate IDs are auto-generated, use the same `input_blocksize` value for both `FuzzyDeduplicationWorkflow` and `TextDuplicatesRemovalWorkflow`. Different block sizes can change partition-to-ID mappings and cause removal to fail when resolving generated IDs.
+</Note>
 
 ### Similarity Threshold
 
@@ -137,6 +146,7 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_path="/path/to/output/FuzzyDuplicateIds",
     output_path="/path/to/deduplicated",
     input_filetype="parquet",
+    input_blocksize="1GiB",  # Must match the identification workflow when IDs were auto-assigned
     input_id_field="_curator_dedup_id",
     ids_to_remove_duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/output/fuzzy_id_generator.json"  # Required if IDs were auto-assigned
