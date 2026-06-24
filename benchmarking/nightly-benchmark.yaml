@@ -1225,7 +1225,7 @@ entries:
         exact_value: true
 
   - name: interleaved_filter_xenna
-    enabled: false
+    enabled: true
     script: interleaved_filter_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
@@ -1250,7 +1250,7 @@ entries:
 
 
   - name: interleaved_filter_xenna_materialize
-    enabled: false
+    enabled: true
     script: interleaved_filter_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
