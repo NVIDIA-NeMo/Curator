@@ -12,38 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import pytest
 from pytest import MonkeyPatch
 
-from nemo_curator.backends.base import (
-    FAILED_TASKS_DIR_ENV_VAR,
-    SLURM_ARRAY_ENABLED_ENV_VAR,
-    SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR,
-    SLURM_ARRAY_SHARD_INDEX_ENV_VAR,
-    SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR,
-    BaseStageAdapter,
-)
+import nemo_curator.backends.base as base_module
+from nemo_curator.backends.slurm_array import SlurmArrayConfig
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, FileGroupTask, Task
 from nemo_curator.tasks.sentinels import FailedTask
-
-
-@dataclass
-class _FailedStage(ProcessingStage[Task, Task]):
-    name: str = "failed"
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return [], []
-
-    def process(self, task: Task) -> Task:
-        return FailedTask()
 
 
 @dataclass
@@ -63,193 +41,118 @@ class _SourceFanoutStage(ProcessingStage[Task, FileGroupTask]):
 
 
 @dataclass
-class _SimpleTask(Task[list[int]]):
-    @property
-    def num_items(self) -> int:
-        return 0
+class _FailedSourceStage(ProcessingStage[Task, Task]):
+    name: str = "source"
+    is_source_stage: bool = True
 
-    def validate(self) -> bool:
-        return True
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
 
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
 
-def _task(task_id: str = "") -> _SimpleTask:
-    task = _SimpleTask(dataset_name="d", data=[])
-    task.task_id = task_id
-    return task
-
-
-def _enable_slurm_array(
-    monkeypatch: MonkeyPatch,
-    shard_index: int | str | None,
-    total_shards: int | str | None,
-    minimum_shard_index: int | str | None = 0,
-) -> None:
-    monkeypatch.setenv(SLURM_ARRAY_ENABLED_ENV_VAR, "1")
-    if shard_index is None:
-        monkeypatch.delenv(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, raising=False)
-    else:
-        monkeypatch.setenv(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, str(shard_index))
-
-    if total_shards is None:
-        monkeypatch.delenv(SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR, raising=False)
-    else:
-        monkeypatch.setenv(SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR, str(total_shards))
-
-    if minimum_shard_index is None:
-        monkeypatch.delenv(SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR, raising=False)
-    else:
-        monkeypatch.setenv(SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR, str(minimum_shard_index))
+    def process(self, task: Task) -> Task:
+        return FailedTask()
 
 
 class TestBaseStageAdapter:
-    def test_process_batch_writes_failed_task_marker_when_enabled(
-        self, tmp_path: Path, monkeypatch: MonkeyPatch
-    ) -> None:
-        marker_dir = tmp_path / "failed-tasks"
-        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(marker_dir))
+    def test_process_batch_delegates_slurm_array_filtering(self, monkeypatch: MonkeyPatch) -> None:
+        calls = {}
+        slurm_array = SlurmArrayConfig(shard_index=0, total_shards=1)
 
-        output = BaseStageAdapter(_FailedStage()).process_batch([_task("0_7")])
+        def resolve_config(is_source_stage: bool) -> SlurmArrayConfig:
+            calls["is_source_stage"] = is_source_stage
+            return slurm_array
 
-        assert output == []
-        marker_files = list(marker_dir.glob("failed_task_*.json"))
-        assert len(marker_files) == 1
+        def raise_for_failed_source_tasks(
+            stage_name: str,
+            failed_tasks: list[FailedTask],
+            resolved_slurm_array: SlurmArrayConfig,
+        ) -> None:
+            calls["guard_stage_name"] = stage_name
+            calls["failed_task_count"] = len(failed_tasks)
+            calls["guard_slurm_array"] = resolved_slurm_array
 
-        payload = json.loads(marker_files[0].read_text())
-        assert payload["stage_name"] == "failed"
-        assert payload["task_id"] == "0_7_0"
-        assert payload["dataset_name"] == "failed"
-        assert payload["task_type"] == "FailedTask"
-        assert isinstance(payload["hostname"], str)
-        assert isinstance(payload["pid"], int)
-        assert isinstance(payload["created_at"], str)
+        def filter_tasks(
+            tasks: list[Task],
+            resolved_slurm_array: SlurmArrayConfig,
+            stage_name: str,
+        ) -> list[Task]:
+            calls["task_count"] = len(tasks)
+            calls["filter_stage_name"] = stage_name
+            calls["filter_slurm_array"] = resolved_slurm_array
+            return tasks[:1]
 
-    def test_process_batch_does_not_write_failed_task_marker_by_default(
-        self, tmp_path: Path, monkeypatch: MonkeyPatch
-    ) -> None:
-        marker_dir = tmp_path / "failed-tasks"
-        monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
-
-        output = BaseStageAdapter(_FailedStage()).process_batch([_task("0_7")])
-
-        assert output == []
-        assert not marker_dir.exists()
-
-    def test_source_filtering_is_disabled_by_default(self) -> None:
-        partitions = [[f"file{i}.parquet"] for i in range(3)]
-        stage = _SourceFanoutStage(partitions=partitions)
-
-        output = BaseStageAdapter(stage).process_batch([EmptyTask()])
-
-        assert [task.data for task in output] == partitions
-
-    def test_assigns_each_source_task_to_one_shard(self, monkeypatch: MonkeyPatch) -> None:
-        partitions = [[f"file{i}.parquet"] for i in range(8)]
-        expected_partitions = {tuple(partition) for partition in partitions}
-        assigned_partitions = []
-
-        for shard_index in range(3):
-            _enable_slurm_array(monkeypatch, shard_index=shard_index, total_shards=3)
-            stage = _SourceFanoutStage(partitions=partitions)
-
-            output = BaseStageAdapter(stage).process_batch([EmptyTask()])
-            assigned_partitions.extend(tuple(task.data) for task in output)
-
-        assert set(assigned_partitions) == expected_partitions
-        assert len(assigned_partitions) == len(expected_partitions)
-
-    def test_supports_minimum_shard_index(self, monkeypatch: MonkeyPatch) -> None:
-        partitions = [[f"file{i}.parquet"] for i in range(8)]
-        zero_indexed_stage = _SourceFanoutStage(partitions=partitions)
-        _enable_slurm_array(monkeypatch, shard_index=0, total_shards=3)
-
-        zero_indexed_result = [task.data for task in BaseStageAdapter(zero_indexed_stage).process_batch([EmptyTask()])]
-
-        one_indexed_stage = _SourceFanoutStage(partitions=partitions)
-        _enable_slurm_array(monkeypatch, shard_index=1, total_shards=3, minimum_shard_index=1)
-
-        one_indexed_result = [task.data for task in BaseStageAdapter(one_indexed_stage).process_batch([EmptyTask()])]
-
-        assert one_indexed_result == zero_indexed_result
-
-    def test_reads_slurm_env_vars(self, monkeypatch: MonkeyPatch) -> None:
-        monkeypatch.setenv(SLURM_ARRAY_ENABLED_ENV_VAR, "1")
-        monkeypatch.delenv(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, raising=False)
-        monkeypatch.delenv(SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR, raising=False)
-        monkeypatch.delenv(SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR, raising=False)
-        monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "7")
-        monkeypatch.setenv("SLURM_ARRAY_TASK_COUNT", "11")
-
-        adapter = BaseStageAdapter(_SourceFanoutStage(partitions=[["file.parquet"]]))
-
-        adapter.process_batch([EmptyTask()])
-
-        assert adapter._resolved_slurm_array.shard_index == 7
-        assert adapter._resolved_slurm_array.total_shards == 11
-        assert adapter._resolved_slurm_array.minimum_shard_index == 0
-
-    def test_supports_curator_env_vars(self, monkeypatch: MonkeyPatch) -> None:
-        _enable_slurm_array(monkeypatch, shard_index=3, total_shards=8, minimum_shard_index=1)
-        adapter = BaseStageAdapter(_SourceFanoutStage(partitions=[["file.parquet"]]))
-
-        adapter.process_batch([EmptyTask()])
-
-        assert adapter._resolved_slurm_array.shard_index == 3
-        assert adapter._resolved_slurm_array.total_shards == 8
-        assert adapter._resolved_slurm_array.minimum_shard_index == 1
-
-    def test_requires_slurm_env_vars_by_default(self, monkeypatch: MonkeyPatch) -> None:
-        monkeypatch.setenv(SLURM_ARRAY_ENABLED_ENV_VAR, "1")
-        monkeypatch.delenv(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, raising=False)
-        monkeypatch.delenv(SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR, raising=False)
-        monkeypatch.delenv(SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR, raising=False)
-        monkeypatch.delenv("SLURM_ARRAY_TASK_ID", raising=False)
-        monkeypatch.delenv("SLURM_ARRAY_TASK_COUNT", raising=False)
-        stage = _SourceFanoutStage(partitions=[["file.parquet"]])
-
-        with pytest.raises(ValueError, match="SLURM_ARRAY_TASK_ID"):
-            BaseStageAdapter(stage).process_batch([EmptyTask()])
-
-    def test_rejects_non_integer_env_var(self, monkeypatch: MonkeyPatch) -> None:
-        _enable_slurm_array(monkeypatch, shard_index="not-an-int", total_shards=4)
-        stage = _SourceFanoutStage(partitions=[["file.parquet"]])
-
-        with pytest.raises(ValueError, match=rf"{SLURM_ARRAY_SHARD_INDEX_ENV_VAR}.*not-an-int"):
-            BaseStageAdapter(stage).process_batch([EmptyTask()])
-
-    def test_requires_positive_total_shards(self, monkeypatch: MonkeyPatch) -> None:
-        _enable_slurm_array(monkeypatch, shard_index=0, total_shards=0)
-        stage = _SourceFanoutStage(partitions=[["file.parquet"]])
-
-        with pytest.raises(ValueError, match="total_shards must be greater than 0"):
-            BaseStageAdapter(stage).process_batch([EmptyTask()])
-
-    def test_warns_for_out_of_range_shard(
-        self, monkeypatch: MonkeyPatch, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        _enable_slurm_array(monkeypatch, shard_index=0, total_shards=10, minimum_shard_index=1)
-        stage = _SourceFanoutStage(partitions=[["file.parquet"]])
-
-        with caplog.at_level("WARNING"):
-            output = BaseStageAdapter(stage).process_batch([EmptyTask()])
-
-        assert output == []
-        assert "outside the assignable shard range [1, 10]" in caplog.text
-
-    def test_non_source_stage_ignores_slurm_array(self, monkeypatch: MonkeyPatch) -> None:
-        _enable_slurm_array(monkeypatch, shard_index=0, total_shards=100)
-        partitions = [[f"file{i}.parquet"] for i in range(3)]
-        stage = _SourceFanoutStage(
-            is_source_stage=False,
-            partitions=partitions,
+        monkeypatch.setattr(base_module, "resolve_slurm_array_config", resolve_config)
+        monkeypatch.setattr(
+            base_module,
+            "raise_for_failed_source_tasks_with_slurm_array",
+            raise_for_failed_source_tasks,
         )
+        monkeypatch.setattr(base_module, "filter_slurm_array_source_tasks", filter_tasks)
 
-        output = BaseStageAdapter(stage).process_batch([EmptyTask()])
+        output = base_module.BaseStageAdapter(_SourceFanoutStage(partitions=[["a.parquet"], ["b.parquet"]]))
+        results = output.process_batch([EmptyTask()])
 
-        assert [task.data for task in output] == partitions
+        assert calls == {
+            "is_source_stage": True,
+            "guard_stage_name": "source",
+            "failed_task_count": 0,
+            "guard_slurm_array": slurm_array,
+            "task_count": 2,
+            "filter_stage_name": "source",
+            "filter_slurm_array": slurm_array,
+        }
+        assert [task.data for task in results] == [["a.parquet"]]
 
-    def test_rejects_nondeterministic_source_task_ids(self, monkeypatch: MonkeyPatch) -> None:
-        _enable_slurm_array(monkeypatch, shard_index=0, total_shards=3)
-        stage = _SourceFanoutStage(partitions=[["a.parquet"], ["b.parquet"], ["c.parquet"]])
+    def test_source_stage_failed_task_raises_with_slurm_array_filtering(
+        self, monkeypatch: MonkeyPatch
+    ) -> None:
+        calls = {"record_failed_tasks": 0, "filter_tasks": 0}
+        slurm_array = SlurmArrayConfig(shard_index=0, total_shards=1)
 
-        with pytest.raises(ValueError, match="requires deterministic task IDs"):
-            BaseStageAdapter(stage).process_batch([_task("0_0"), _task("0_1")])
+        def resolve_config(is_source_stage: bool) -> SlurmArrayConfig:
+            calls["is_source_stage"] = is_source_stage
+            return slurm_array
+
+        def raise_for_failed_source_tasks(
+            stage_name: str,
+            failed_tasks: list[FailedTask],
+            resolved_slurm_array: SlurmArrayConfig,
+        ) -> None:
+            calls["stage_name"] = stage_name
+            calls["failed_task_count"] = len(failed_tasks)
+            calls["slurm_array"] = resolved_slurm_array
+            raise ValueError("Source stage source emitted FailedTask")
+
+        def filter_tasks(
+            tasks: list[Task],
+            resolved_slurm_array: SlurmArrayConfig,
+            stage_name: str,
+        ) -> list[Task]:
+            calls["filter_tasks"] += 1
+            return tasks
+
+        def record_failed_tasks(stage_name: str, failed_tasks: list[FailedTask]) -> None:
+            calls["record_failed_tasks"] += 1
+
+        monkeypatch.setattr(base_module, "resolve_slurm_array_config", resolve_config)
+        monkeypatch.setattr(
+            base_module,
+            "raise_for_failed_source_tasks_with_slurm_array",
+            raise_for_failed_source_tasks,
+        )
+        monkeypatch.setattr(base_module, "filter_slurm_array_source_tasks", filter_tasks)
+        monkeypatch.setattr(base_module, "record_failed_tasks", record_failed_tasks)
+
+        with pytest.raises(ValueError, match="Source stage source emitted FailedTask"):
+            base_module.BaseStageAdapter(_FailedSourceStage()).process_batch([EmptyTask()])
+
+        assert calls == {
+            "stage_name": "source",
+            "is_source_stage": True,
+            "failed_task_count": 1,
+            "slurm_array": slurm_array,
+            "record_failed_tasks": 0,
+            "filter_tasks": 0,
+        }

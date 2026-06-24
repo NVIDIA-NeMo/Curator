@@ -218,7 +218,7 @@ export OUTPUT_DIR=/shared/output/my-jsonl-dataset
 sbatch --array=0-19 tutorials/slurm/submit_array.sh
 ```
 
-For example, if the input directory contains 2000 files and `FILES_PER_PARTITION=1`, each of the 20 array tasks receives roughly 100 source tasks. `submit_array.sh` enables adapter-level filtering with `NEMO_CURATOR_SLURM_ARRAY_ENABLED=1` and exports the shard index, total shard count, and minimum shard index. Assignment is hash-based rather than contiguous, so work remains stable if Slurm retries a task.
+For example, if the input directory contains 2000 files and `FILES_PER_PARTITION=1`, each of the 20 array tasks receives roughly 100 source tasks. `submit_array.sh` computes the shard index and total shard count from Slurm and exports the `NEMO_CURATOR_SLURM_ARRAY_*` env vars consumed by `array_pipeline.py` and the backend. Assignment is deterministic SHA-256-based rather than contiguous, so work remains stable if Slurm retries a task.
 
 Single-node array tasks use `RayClient`. If you override the allocation to use more than one node per array task, `submit_array.sh` automatically passes `--slurm` to `array_pipeline.py`, which switches that task to `SlurmRayClient` so the nodes form one Ray cluster:
 
@@ -259,7 +259,7 @@ sbatch --array=2000-2999 tutorials/slurm/submit_array.sh
 sbatch --array=9000-9999 tutorials/slurm/submit_array.sh
 ```
 
-In this mode, keep `MINIMUM_SHARD_INDEX=0` because the Slurm array task IDs are already the global shard IDs. Each source task is assigned by `hash(task_id) % TOTAL_SHARDS`, so the full set of windowed submissions covers shards `0` through `9999` exactly once. Some individual tasks may receive no files if `TOTAL_SHARDS` is larger than the number of source tasks.
+In this mode, keep `MINIMUM_SHARD_INDEX=0` because the Slurm array task IDs are already the global shard IDs. Each source task is assigned by a deterministic SHA-256 digest of `task_id` modulo `TOTAL_SHARDS`, so the full set of windowed submissions covers shards `0` through `9999` exactly once. Some individual tasks may receive no files if `TOTAL_SHARDS` is larger than the number of source tasks.
 
 Some clusters enforce the maximum array index rather than just the number of tasks per submitted array. If `--array=1000-1999` is rejected, use `SHARD_INDEX_OFFSET` instead of higher Slurm task IDs.
 
@@ -279,61 +279,34 @@ Keep `MINIMUM_SHARD_INDEX=0` for this offset mode too. `SHARD_INDEX_OFFSET` chan
 
 ### 5. Retry failed array tasks only
 
-When `submit_array.sh` launches `array_pipeline.py`, it passes `--checkpoint-path`. At startup, the driver process for each array task creates a pending retry manifest under:
+When `submit_array.sh` launches `array_pipeline.py`, each array task writes a compact retry manifest under:
 
 ```bash
 ${CHECKPOINT_PATH:-$OUTPUT_DIR}/.nemo_curator_metadata/.slurm_array_retry/
 ```
 
-In other words, retries are tracked at `checkpoint_path/.nemo_curator_metadata/.slurm_array_retry/`.
-
-`submit_array.sh` also sets `NEMO_CURATOR_FAILED_TASKS_DIR` so the backend can record `FailedTask` sentinels produced by stages. By default, each Slurm job gets its own marker directory:
-
-```bash
-${CHECKPOINT_PATH:-$OUTPUT_DIR}/.nemo_curator_metadata/.failed_tasks/slurm_job_${SLURM_JOB_ID}/array_task_${SLURM_ARRAY_TASK_ID}/shard_${SHARD_INDEX}/
-```
-
-The marker directory is per Slurm job/task. For `--nodes>1`, all workers in that one array task share the same directory, so any worker can record a `FailedTask` and the driver can inspect the directory after `pipeline.run()` returns.
-
-If the shard completes successfully and no `FailedTask` markers were written, that shard's matching retry manifests are removed. If the process fails, is preempted, or reaches the Slurm time limit before cleanup runs, the manifest remains in the retry directory. Caught Python exceptions update the manifest with `status="failed"` and the error message; hard termination may leave `status="pending"`, which should still be treated as retryable after the original Slurm array has finished.
-
-If the pipeline completes without raising but one or more `FailedTask` marker files exist, `array_pipeline.py` keeps the retry manifest and updates it with `status="failed_tasks"` plus marker metadata. The retry collection below only needs to read retry manifests; it does not need to inspect the `FailedTask` marker directories directly.
-
-Retry manifests and `FailedTask` markers are uniquely named JSON files written with an atomic rename, so multiple array tasks or workers can write without coordinating through a shared database.
-
-Each manifest records the failed `shard_index`, plus the `total_shards` and `minimum_shard_index` values used for the original run. To retry only the failed shards, rebuild a Slurm array list from those manifests and preserve the original shard settings. For example, using `jq`:
+Successful shards remove their manifest. Shards with a pipeline crash, preemption, timeout, or one or more `FailedTask` markers leave the manifest in place. After the original array has finished, retry only those shards with:
 
 ```bash
 export CHECKPOINT_PATH="${CHECKPOINT_PATH:-$OUTPUT_DIR}"
-RETRY_DIR="${CHECKPOINT_PATH}/.nemo_curator_metadata/.slurm_array_retry"
-
-shopt -s nullglob
-MANIFEST_FILES=("${RETRY_DIR}"/manifest_*.json)
-shopt -u nullglob
-
-if (( ${#MANIFEST_FILES[@]} == 0 )); then
-    echo "No failed shards found in ${RETRY_DIR}" >&2
-    exit 1
-fi
-
-FAILED_SHARDS=$(jq -r '.shard_index' "${MANIFEST_FILES[@]}" | sort -n -u | paste -sd, -)
-TOTAL_SHARDS_VALUES=$(jq -r '.total_shards' "${MANIFEST_FILES[@]}" | sort -n -u)
-MINIMUM_SHARD_INDEX_VALUES=$(jq -r '.minimum_shard_index' "${MANIFEST_FILES[@]}" | sort -n -u)
-
-if [[ "${TOTAL_SHARDS_VALUES}" == *$'\n'* || "${MINIMUM_SHARD_INDEX_VALUES}" == *$'\n'* ]]; then
-    echo "Retry manifests contain multiple shard configurations; split them by run." >&2
-    exit 1
-fi
-
-export TOTAL_SHARDS="${TOTAL_SHARDS_VALUES}"
-export MINIMUM_SHARD_INDEX="${MINIMUM_SHARD_INDEX_VALUES}"
-
-sbatch --array="${FAILED_SHARDS}" tutorials/slurm/submit_array.sh
+sbatch tutorials/slurm/submit_array.sh --retry
 ```
 
-The `TOTAL_SHARDS` override is important. On a retry array like `--array=3,17,42`, Slurm sets `SLURM_ARRAY_TASK_COUNT=3`, but the data was originally assigned using the full logical shard count. Reusing the original `TOTAL_SHARDS` keeps `hash(task_id) % total_shards` identical to the first run.
+Arguments after `--retry` are forwarded to the retry array submission:
 
-Run this retry collection after the original Slurm array has finished, otherwise still-running tasks will still have pending manifests. Use one `CHECKPOINT_PATH` per logical array run, or move old retry manifests aside after building `FAILED_SHARDS`, so later retries do not include failures that already succeeded. If you override `NEMO_CURATOR_FAILED_TASKS_DIR`, keep it unique per Slurm job or clean it before reuse; stale `FailedTask` markers make an otherwise successful shard look retryable.
+```bash
+sbatch tutorials/slurm/submit_array.sh --retry --time=02:00:00 --cpus-per-task=32
+```
+
+Do not pass `--array` with `--retry`. The script reads the original failed shard IDs from the retry manifests and builds the retry array automatically. For example, if shards `3`, `17`, and `42` need retry, the retry submission uses `--array=3,17,42` with the original `TOTAL_SHARDS` and `MINIMUM_SHARD_INDEX` values.
+
+The retry mode reads all remaining retry manifests, preserves the original `TOTAL_SHARDS` and `MINIMUM_SHARD_INDEX`, writes a one-shard-per-line retry list, and submits only those shard IDs. This handles both crash retries and `FailedTask` retries through the same path. The retry helper uses `jq` to read the manifest JSON files.
+
+`FailedTask` marker files are not deleted. They are written under an attempt-scoped directory that includes the Slurm job/task and the original shard, so later retries inspect only their own fresh marker directory. Override `FAILED_TASKS_BASE_DIR` to move this marker tree while keeping the per-attempt suffix.
+
+Run retry collection after the original Slurm array has finished, otherwise still-running tasks will still have pending manifests. Use one `CHECKPOINT_PATH` per logical array run, or move old retry manifests aside after building the retry array, so later retries do not include failures that already succeeded.
+
+Source-stage `FailedTask` sentinels are intentionally unsupported when Slurm array filtering is enabled. Source-stage `FailedTask`s do not carry enough stable source identity to guarantee a shard retry can recover the same work, so Curator raises an error instead. Source stages should raise an exception and let the shard retry manifest handle the retry.
 
 ---
 
@@ -367,8 +340,7 @@ SlurmRayClient(
 | `RAY_TMPDIR` | `/tmp/ray` | Ray temp directory. Recommend setting to `/tmp/ray_${SLURM_JOB_ID}` to avoid cross-job collisions. |
 | `SLURM_JOB_ID` | set by SLURM | Used to name the port-broadcast file. Set manually if testing outside SLURM. |
 
-> **Important**: If your cluster's `/tmp` is local to each node (the common case), set
-> `RAY_PORT_BROADCAST_DIR` to a Lustre/NFS path so all nodes can read the port file:
+> **Important**: If your cluster's `/tmp` is local to each node (the common case), set `RAY_PORT_BROADCAST_DIR` to a Lustre/NFS path so all nodes can read the port file:
 >
 > ```bash
 > export RAY_PORT_BROADCAST_DIR=/lustre/my-project/ray_ports
