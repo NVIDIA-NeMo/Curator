@@ -422,7 +422,8 @@ class RayServeHandleEmbeddingClientStage(OpenAIEmbeddingClientStage):
 
         request = self.request_cls(**self._handle_request_kwargs(request_input))  # type: ignore[misc,operator]
         response_chunks = []
-        async for chunk in self.handle.embeddings.remote(request):
+        response_stream = self.handle.options(method_name="embeddings", stream=True).remote(request)
+        async for chunk in response_stream:
             response_chunks.append(chunk)
         return self._handle_response(response_chunks)
 
