@@ -252,10 +252,16 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=ray_data
       --input-path={dataset:tinystories,parquet}
-      --dataset-size-gb=10
+      --load-dataset-ratio=0.2
       --model-identifier=google/embeddinggemma-300m
       --model-variation=vllm_text_pretokenized
+      --model-inference-batch-size=32
+      --model-num-workers=4
+      --max-chars=1500
       --cache-dir={dataset:text_models_hf_cache,files}
+    ray:
+      num_cpus: 64
+      num_gpus: 4
     timeout_s: 800
     sink_data:
       - name: slack
@@ -278,9 +284,12 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --input-path={dataset:tinystories,parquet}
-      --dataset-size-gb=10
+      --load-dataset-ratio=0.2
       --model-identifier=google/embeddinggemma-300m
       --model-variation=vllm_text_pretokenized
+      --model-inference-batch-size=32
+      --model-num-workers=4
+      --max-chars=1500
       --cache-dir={dataset:text_models_hf_cache,files}
     timeout_s: 800
     sink_data:
@@ -296,6 +305,96 @@ entries:
       # Observed throughput of 4923 docs/sec so we allow a 5% buffer to account for variability
       - metric: throughput_docs_per_sec
         min_value: 4676
+
+  - name: embedding_generation_ray_serve_endpoint
+    enabled: true
+    script: embedding_generation_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --input-path={dataset:tinystories,parquet}
+      --load-dataset-ratio=0.2
+      --model-identifier=google/embeddinggemma-300m
+      --model-variation=ray_serve_endpoint
+      --cache-dir={dataset:text_models_hf_cache,files}
+      --server-replicas=4
+      --client-num-workers=16
+      --endpoint-max-concurrent-requests=64
+      --endpoint-truncate-prompt-tokens=0
+      --endpoint-input-format=text
+      --endpoint-request-batch-size=8
+      --endpoint-encoding-format=float
+      --endpoint-max-chars=1500
+      --endpoint-client-mode=tasks
+      --endpoint-request-timeout-s=900
+      --endpoint-pooler-config={}
+    timeout_s: 3600
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - serve_startup_s
+          - num_input_files
+          - endpoint_total_max_concurrent_requests
+        ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
+
+    requirements:
+      # Fixed clients keep task count bounded while preserving the old endpoint pressure:
+      # 16 client tasks * 64 concurrent requests ~= 1024 HTTP requests in flight.
+      # With 8 documents/request, the endpoint can have up to ~8192 documents queued.
+      - metric: throughput_docs_per_sec
+        min_value: 100
+
+  - name: embedding_generation_dynamo_endpoint
+    enabled: true
+    script: embedding_generation_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --input-path={dataset:tinystories,parquet}
+      --load-dataset-ratio=0.2
+      --model-identifier=google/embeddinggemma-300m
+      --model-variation=dynamo_endpoint
+      --cache-dir={dataset:text_models_hf_cache,files}
+      --server-replicas=4
+      --client-num-workers=16
+      --endpoint-max-concurrent-requests=64
+      --endpoint-truncate-prompt-tokens=0
+      --endpoint-input-format=text
+      --endpoint-request-batch-size=8
+      --endpoint-encoding-format=float
+      --endpoint-max-chars=1500
+      --endpoint-client-mode=tasks
+      --endpoint-request-timeout-s=900
+      --endpoint-pooler-config={}
+    timeout_s: 3600
+    ray:
+      num_cpus: 64
+      num_gpus: 4
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - serve_startup_s
+          - num_input_files
+          - endpoint_total_max_concurrent_requests
+        ping_on_failure:
+          - U07JL5K0L10  # Praateek Mahajan
+
+    requirements:
+      # Fixed clients keep task count bounded while preserving the old endpoint pressure:
+      # 16 client tasks * 64 concurrent requests ~= 1024 HTTP requests in flight.
+      # With 8 documents/request, the endpoint can have up to ~8192 documents queued.
+      - metric: throughput_docs_per_sec
+        min_value: 300
 
   - name: exact_dedup_identification
     enabled: true
