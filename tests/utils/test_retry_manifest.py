@@ -15,6 +15,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from nemo_curator.utils.retry_manifest import METADATA_DIRNAME, RetryManifest
 
 
@@ -169,6 +171,39 @@ class TestRetryManifest:
         assert other_manifest_file is not None
         assert not manifest_file.exists()
         assert other_manifest_file.exists()
+
+    def test_context_manager_removes_manifest_on_success(self, tmp_path: Path) -> None:
+        manifest = RetryManifest(
+            checkpoint_path=tmp_path,
+            namespace="example",
+            identity={"partition_id": 3},
+        )
+
+        with manifest as active_manifest:
+            manifest_file = active_manifest.manifest_file
+            assert manifest_file is not None
+            assert manifest_file.exists()
+
+        assert manifest_file is not None
+        assert not manifest_file.exists()
+
+    def test_context_manager_marks_manifest_failed_on_exception(self, tmp_path: Path) -> None:
+        manifest = RetryManifest(
+            checkpoint_path=tmp_path,
+            namespace="example",
+            identity={"partition_id": 3},
+        )
+
+        with pytest.raises(RuntimeError, match="boom"):
+            with manifest:
+                manifest_file = manifest.manifest_file
+                raise RuntimeError("boom")
+
+        assert manifest_file is not None
+        assert manifest_file.exists()
+        payload = json.loads(manifest_file.read_text())
+        assert payload["status"] == "failed"
+        assert payload["error_type"] == "RuntimeError"
 
     def test_disabled_manifest_is_noop(self, tmp_path: Path) -> None:
         manifest = RetryManifest(

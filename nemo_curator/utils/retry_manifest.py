@@ -146,4 +146,6 @@ class RetryManifest:
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, _: object) -> bool:
         if exc is not None:
             self.mark_failed(exc)
+        else:
+            self.mark_success()
         return False
