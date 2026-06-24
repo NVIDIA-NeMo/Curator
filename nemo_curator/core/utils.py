@@ -190,17 +190,15 @@ def init_cluster(  # noqa: PLR0913
 
     haproxy_binary, haproxy_source = _resolve_ray_serve_haproxy_binary()
     if haproxy_binary is not None:
-        haproxy_metrics_port = get_free_port(DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT)
-        haproxy_stats_port = get_free_port(DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT + 1)
+        haproxy_metrics_port = _get_free_port_on_all_interfaces()
         os.environ["RAY_SERVE_ENABLE_HA_PROXY"] = "1"
         os.environ["RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY"] = "1"
         os.environ["RAY_SERVE_HAPROXY_BINARY_PATH"] = haproxy_binary
         os.environ["RAY_SERVE_HAPROXY_METRICS_PORT"] = str(haproxy_metrics_port)
-        os.environ["RAY_SERVE_HAPROXY_STATS_PORT"] = str(haproxy_stats_port)
+        os.environ.pop("RAY_SERVE_HAPROXY_STATS_PORT", None)
         logger.info(
             "Ray Serve HAProxy ingress enabled via "
-            f"{haproxy_source} (binary {haproxy_binary}, metrics port {haproxy_metrics_port}, "
-            f"stats port {haproxy_stats_port})."
+            f"{haproxy_source} (binary {haproxy_binary}, metrics port {haproxy_metrics_port})."
         )
     else:
         logger.debug("HAProxy binary not found; Ray Serve will use the default Python proxy.")
@@ -239,6 +237,30 @@ def _resolve_ray_serve_haproxy_binary() -> tuple[str | None, str | None]:
         return system_binary, "system PATH"
 
     return None, None
+
+
+def _get_free_port_on_all_interfaces() -> int:
+    """Return a currently free TCP port for listeners that bind 0.0.0.0."""
+    for _ in range(100):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("0.0.0.0", 0))  # noqa: S104
+            port = int(s.getsockname()[1])
+        if port < DEFAULT_RAY_MIN_WORKER_PORT or port > DEFAULT_RAY_MAX_WORKER_PORT:
+            return port
+
+    for port in range(DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT, 65536):
+        if DEFAULT_RAY_MIN_WORKER_PORT <= port <= DEFAULT_RAY_MAX_WORKER_PORT:
+            continue
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(("0.0.0.0", port))  # noqa: S104
+                return port  # noqa: TRY300
+            except OSError:
+                continue
+
+    msg = "No free HAProxy metrics port found"
+    raise RuntimeError(msg)
 
 
 def split_table_by_group_max_bytes(
