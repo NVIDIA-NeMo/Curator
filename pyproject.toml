@@ -227,7 +227,6 @@ video_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
     "cvcuda_cu12",
-    "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.10.0",
@@ -317,7 +316,6 @@ package = true
 managed = true
 default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
-no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
