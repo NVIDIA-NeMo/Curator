@@ -320,6 +320,133 @@ class OpenAIEmbeddingClientStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
 
+class RayServeHandleEmbeddingClientStage(OpenAIEmbeddingClientStage):
+    """CPU stage that calls Ray Serve LLMServer through DeploymentHandle."""
+
+    name = "ray_serve_handle_embedding_client"
+
+    def __init__(
+        self,
+        model_identifier: str,
+        endpoint: str,
+        max_concurrent_requests: int,
+        timeout: float,
+        max_retries: int = 3,
+        retry_base_delay_s: float = 1.0,
+        endpoint_truncate_prompt_tokens: int | None = -1,
+        endpoint_input_format: str = "text",
+        endpoint_request_batch_size: int = 8,
+        endpoint_encoding_format: str = "float",
+        endpoint_max_chars: int | None = None,
+        cache_dir: str | None = None,
+        text_field: str = "text",
+        embedding_field: str = "embeddings",
+        api_key: str = "unused",  # pragma: allowlist secret
+        *,
+        ray_serve_app_name: str,
+        ray_serve_deployment_name: str,
+    ):
+        super().__init__(
+            model_identifier=model_identifier,
+            endpoint=endpoint,
+            max_concurrent_requests=max_concurrent_requests,
+            timeout=timeout,
+            max_retries=max_retries,
+            retry_base_delay_s=retry_base_delay_s,
+            endpoint_truncate_prompt_tokens=endpoint_truncate_prompt_tokens,
+            endpoint_input_format=endpoint_input_format,
+            endpoint_request_batch_size=endpoint_request_batch_size,
+            endpoint_encoding_format=endpoint_encoding_format,
+            endpoint_max_chars=endpoint_max_chars,
+            cache_dir=cache_dir,
+            text_field=text_field,
+            embedding_field=embedding_field,
+            api_key=api_key,
+        )
+        self.ray_serve_app_name = ray_serve_app_name
+        self.ray_serve_deployment_name = ray_serve_deployment_name
+        self.handle = None
+        self.request_cls = None
+
+    def setup(self, worker_metadata=None) -> None:  # noqa: ANN001, ARG002
+        from ray import serve
+        from ray.llm._internal.serve.core.configs.openai_api_models import EmbeddingCompletionRequest
+
+        if self.endpoint_input_format == "token_ids":
+            from transformers import AutoTokenizer
+
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_identifier,
+                cache_dir=self.cache_dir,
+                local_files_only=True,
+            )
+        self.handle = serve.get_deployment_handle(
+            self.ray_serve_deployment_name,
+            app_name=self.ray_serve_app_name,
+        )
+        self.client = self.handle
+        self.request_cls = EmbeddingCompletionRequest
+
+    def teardown(self) -> None:
+        self.client = None
+        self.handle = None
+        self.request_cls = None
+        self.tokenizer = None
+
+    def _handle_request_kwargs(self, request_input: list[Any]) -> dict[str, Any]:
+        request_kwargs: dict[str, Any] = {
+            "model": self.model_identifier,
+            "input": request_input,
+            "encoding_format": self.endpoint_encoding_format,
+        }
+        if self.endpoint_truncate_prompt_tokens is not None and self.endpoint_truncate_prompt_tokens > 0:
+            request_kwargs["truncate_prompt_tokens"] = self.endpoint_truncate_prompt_tokens
+        if self.endpoint_input_format == "token_ids":
+            request_kwargs["add_special_tokens"] = False
+        return request_kwargs
+
+    def _handle_response(self, response_chunks: list[_EmbeddingResponse]) -> _EmbeddingResponse:
+        if len(response_chunks) != 1:
+            msg = f"Ray Serve handle returned {len(response_chunks)} embedding response chunks"
+            raise RuntimeError(msg)
+        response = response_chunks[0]
+        error = getattr(response, "error", None)
+        if error is not None:
+            raise RuntimeError(error)
+        return response
+
+    async def _call_handle(self, request_input: list[Any]) -> _EmbeddingResponse:
+        if self.handle is None or self.request_cls is None:
+            msg = "Ray Serve handle client is not initialized"
+            raise RuntimeError(msg)
+
+        request = self.request_cls(**self._handle_request_kwargs(request_input))  # type: ignore[misc,operator]
+        response_chunks = []
+        async for chunk in self.handle.embeddings.remote(request):
+            response_chunks.append(chunk)
+        return self._handle_response(response_chunks)
+
+    async def _embed_batch(self, semaphore: asyncio.Semaphore, request_input: list[Any]) -> list[Any]:
+        async with semaphore:
+            last_exception = None
+            for attempt in range(self.max_retries + 1):
+                if attempt > 0 and last_exception is not None:
+                    if not _is_retryable_endpoint_error(last_exception):
+                        raise last_exception
+                    delay = self.retry_base_delay_s * (2 ** (attempt - 1)) + secrets.randbelow(100) / 100.0
+                    await asyncio.sleep(delay)
+
+                try:
+                    response = await self._call_handle(request_input)
+                    return self._response_embeddings(response, request_input)
+                except Exception as exc:
+                    last_exception = exc
+                    if attempt == self.max_retries:
+                        raise
+            msg = "Ray Serve handle embedding retry loop exited without a result"
+            raise RuntimeError(msg)
+
+
 def _is_retryable_endpoint_error(exc: Exception) -> bool:
     text = str(exc).lower()
     return any(
@@ -435,6 +562,7 @@ def _endpoint_engine_kwargs(
     cache_dir: str | None,
     dtype: str,
     pooler_config: dict[str, Any],
+    distributed_executor_backend: str | None = None,
 ) -> dict[str, Any]:
     engine_kwargs: dict[str, Any] = {
         "runner": "pooling",
@@ -446,6 +574,8 @@ def _endpoint_engine_kwargs(
         "enable_prefix_caching": False,
         "trust_remote_code": False,
     }
+    if distributed_executor_backend is not None:
+        engine_kwargs["distributed_executor_backend"] = distributed_executor_backend
     if cache_dir is not None:
         engine_kwargs["download_dir"] = cache_dir
     return engine_kwargs
@@ -468,15 +598,18 @@ def _resolve_endpoint_model_path(
 
 
 def _endpoint_runtime_env(cache_dir: str | None) -> dict[str, Any]:
+    env_vars = {
+        "VLLM_USE_RAY_V2_EXECUTOR_BACKEND": "1",
+    }
     if cache_dir is None:
-        return {}
+        return {"env_vars": env_vars}
 
     cache_root = Path(cache_dir)
     home = cache_root / "curator_endpoint_home"
     xdg_cache = home / ".cache"
     hub_cache = cache_root / "hub"
-    return {
-        "env_vars": {
+    env_vars.update(
+        {
             "HOME": str(home),
             "XDG_CACHE_HOME": str(xdg_cache),
             "TORCH_HOME": str(xdg_cache / "torch"),
@@ -485,6 +618,9 @@ def _endpoint_runtime_env(cache_dir: str | None) -> dict[str, Any]:
             "TRANSFORMERS_CACHE": str(hub_cache),
             "UV_CACHE_DIR": str(cache_root / "uv_cache"),
         }
+    )
+    return {
+        "env_vars": env_vars,
     }
 
 
@@ -539,7 +675,13 @@ def _start_ray_serve_embedding_server(
 ) -> object:
     from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
 
-    engine_kwargs = _endpoint_engine_kwargs(max_seq_length, cache_dir, endpoint_dtype, endpoint_pooler_config)
+    engine_kwargs = _endpoint_engine_kwargs(
+        max_seq_length,
+        cache_dir,
+        endpoint_dtype,
+        endpoint_pooler_config,
+        distributed_executor_backend="ray",
+    )
     model_config = RayServeModelConfig(
         model_identifier=endpoint_model_path or model_identifier,
         model_name=model_identifier if endpoint_model_path else None,
@@ -606,8 +748,24 @@ def _create_endpoint_embedding_stage(
     endpoint_max_chars: int | None,
     endpoint_client_mode: str,
     cache_dir: str | None,
+    ray_serve_app_name: str | None = None,
+    ray_serve_deployment_name: str | None = None,
 ) -> OpenAIEmbeddingClientStage:
-    stage = OpenAIEmbeddingClientStage(
+    stage_cls = OpenAIEmbeddingClientStage
+    stage_kwargs: dict[str, Any] = {}
+    if endpoint_client_mode == "ray_handle":
+        if ray_serve_app_name is None or ray_serve_deployment_name is None:
+            msg = "ray_handle endpoint client mode requires Ray Serve app and deployment names"
+            raise ValueError(msg)
+        stage_cls = RayServeHandleEmbeddingClientStage
+        stage_kwargs.update(
+            {
+                "ray_serve_app_name": ray_serve_app_name,
+                "ray_serve_deployment_name": ray_serve_deployment_name,
+            }
+        )
+
+    stage = stage_cls(
         model_identifier=model_identifier,
         endpoint=endpoint,
         max_concurrent_requests=endpoint_max_concurrent_requests,
@@ -620,7 +778,17 @@ def _create_endpoint_embedding_stage(
         endpoint_encoding_format=endpoint_encoding_format,
         endpoint_max_chars=endpoint_max_chars,
         cache_dir=cache_dir,
+        **stage_kwargs,
     )
+
+    if endpoint_client_mode == "ray_handle":
+        if client_num_workers < 1:
+            msg = "client_num_workers must be >= 1 when endpoint_client_mode='ray_handle'"
+            raise ValueError(msg)
+        return stage.with_(
+            num_workers=client_num_workers,
+            ray_stage_spec={"is_actor_stage": True},
+        )
 
     if endpoint_client_mode == "tasks":
         task_pool_size = client_num_workers if client_num_workers > 0 else None
@@ -640,6 +808,10 @@ def _create_endpoint_embedding_stage(
         num_workers=client_num_workers,
         ray_stage_spec={"is_actor_stage": True},
     )
+
+
+def _ray_serve_llm_deployment_name(model_identifier: str) -> str:
+    return f"LLMServer:{model_identifier.replace('/', '--').replace('.', '_')}"
 
 
 def _effective_endpoint_truncate_prompt_tokens(
@@ -804,6 +976,9 @@ def run_embedding_generation_benchmark(  # noqa: PLR0915
         logger.info(f"Endpoint max chars: {effective_endpoint_max_chars}")
         logger.info(f"Endpoint client mode: {endpoint_client_mode}")
         logger.info(f"Endpoint model path: {resolved_endpoint_model_path}")
+        if variation == EmbeddingModelVariation.RAY_SERVE_ENDPOINT:
+            logger.info("Endpoint vLLM distributed executor backend: ray")
+            logger.info("Endpoint vLLM RayExecutorV2 env: VLLM_USE_RAY_V2_EXECUTOR_BACKEND=1")
 
         serve_start = time.perf_counter()
         starter = (
@@ -838,6 +1013,12 @@ def run_embedding_generation_benchmark(  # noqa: PLR0915
                 endpoint_max_chars=effective_endpoint_max_chars,
                 endpoint_client_mode=endpoint_client_mode,
                 cache_dir=cache_dir,
+                ray_serve_app_name=inference_server.name
+                if variation == EmbeddingModelVariation.RAY_SERVE_ENDPOINT
+                else None,
+                ray_serve_deployment_name=_ray_serve_llm_deployment_name(model_identifier)
+                if variation == EmbeddingModelVariation.RAY_SERVE_ENDPOINT
+                else None,
             )
         ]
     else:
@@ -1111,10 +1292,11 @@ def main() -> int:
     parser.add_argument(
         "--endpoint-client-mode",
         default="actor_pool",
-        choices=["actor_pool", "tasks"],
+        choices=["actor_pool", "tasks", "ray_handle"],
         help=(
             "How endpoint client work is scheduled. actor_pool uses client-num-workers actors; "
-            "tasks uses Ray task scheduling and treats client-num-workers=0 as executor default."
+            "tasks uses Ray task scheduling and treats client-num-workers=0 as executor default; "
+            "ray_handle uses Ray Serve DeploymentHandle actors and bypasses HTTP."
         ),
     )
     parser.add_argument(
