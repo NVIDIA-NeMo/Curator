@@ -39,9 +39,7 @@ class TestRetryManifest:
         assert manifest_file.parent == tmp_path / METADATA_DIRNAME / ".slurm_array_retry"
         marker_text = manifest_file.read_text()
         payload = json.loads(marker_text)
-        assert marker_text == (
-            '{"minimum_shard_index":0,"shard_index":7,"status":"pending","total_shards":11}\n'
-        )
+        assert marker_text == ('{"minimum_shard_index":0,"shard_index":7,"status":"pending","total_shards":11}\n')
         assert payload["status"] == "pending"
         assert payload["minimum_shard_index"] == 0
         assert payload["shard_index"] == 7
@@ -193,11 +191,17 @@ class TestRetryManifest:
             namespace="example",
             identity={"partition_id": 3},
         )
+        manifest_file: Path | None = None
 
-        with pytest.raises(RuntimeError, match="boom"):
+        def run_with_error() -> None:
+            nonlocal manifest_file
             with manifest:
                 manifest_file = manifest.manifest_file
-                raise RuntimeError("boom")
+                msg = "boom"
+                raise RuntimeError(msg)
+
+        with pytest.raises(RuntimeError, match="boom"):
+            run_with_error()
 
         assert manifest_file is not None
         assert manifest_file.exists()
