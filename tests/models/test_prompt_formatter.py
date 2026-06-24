@@ -383,6 +383,17 @@ class TestPromptFormatterFormatRawVideoFrames:
             formatter._format_raw_video_frames(arr)
 
     @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_rejects_video_with_wrong_dimensions(self, mock_processor_class: Mock) -> None:
+        """Test rejecting raw video inputs without the expected 4D layout."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+        formatter = PromptFormatter(prompt_variant="nemotron")
+
+        arr = np.zeros((10, 224, 224), dtype=np.uint8)
+
+        with pytest.raises(ValueError, match="4 dimensions"):
+            formatter._format_raw_video_frames(arr)
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
     def test_rejects_normalized_tensor(self, mock_processor_class: Mock) -> None:
         """Test rejecting normalized tensors with negative values."""
         mock_processor_class.from_pretrained.return_value = Mock()
@@ -392,6 +403,17 @@ class TestPromptFormatterFormatRawVideoFrames:
 
         with pytest.raises(ValueError, match="expects raw video frames"):
             formatter._format_raw_video_frames(tensor)
+
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
+    def test_rejects_raw_values_above_uint8_range(self, mock_processor_class: Mock) -> None:
+        """Test rejecting raw frame values outside the uint8 range."""
+        mock_processor_class.from_pretrained.return_value = Mock()
+        formatter = PromptFormatter(prompt_variant="nemotron")
+
+        arr = np.array([[[[256.0]]]], dtype=np.float32)
+
+        with pytest.raises(ValueError, match="exceed uint8 range"):
+            formatter._format_raw_video_frames(arr)
 
     @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
     def test_format_bfloat16_tensor(self, mock_processor_class: Mock) -> None:

@@ -84,6 +84,16 @@ class TestQwenVL:
         expected_weight_file = str(pathlib.Path(self.model_dir) / _QWEN_VARIANTS_INFO[self.model_variant])
         assert qwen_vl.weight_file == expected_weight_file
 
+    def test_initialization_rejects_removed_model_does_preprocess_arg(self) -> None:
+        """Test that the removed preprocessing flag fails with a clear error."""
+        with pytest.raises(TypeError, match="model_does_preprocess is no longer supported"):
+            QwenVL(
+                model_dir=self.model_dir,
+                model_variant=self.model_variant,
+                caption_batch_size=self.caption_batch_size,
+                model_does_preprocess=True,
+            )
+
     def test_initialization_custom_parameters(self) -> None:
         """Test initialization with custom parameters."""
         assert self.qwen_vl.model_dir == self.model_dir
