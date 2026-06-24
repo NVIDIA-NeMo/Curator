@@ -171,7 +171,6 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 window_size=args.captioning_window_size,
                 remainder_threshold=args.captioning_remainder_threshold,
                 preprocess_dtype=args.captioning_preprocess_dtype,
-                model_does_preprocess=args.captioning_model_does_preprocess,
                 generate_previews=args.generate_previews,
                 verbose=args.verbose,
             )
@@ -193,7 +192,6 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 caption_batch_size=args.captioning_batch_size,
                 fp8=args.captioning_use_fp8_weights,
                 max_output_tokens=args.captioning_max_output_tokens,
-                model_does_preprocess=args.captioning_model_does_preprocess,
                 generate_stage2_caption=args.captioning_stage2_caption,
                 stage2_prompt_text=args.captioning_stage2_prompt_text,
                 disable_mmcache=not args.captioning_use_vllm_mmcache,
@@ -624,14 +622,7 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
             "bfloat16",
             "uint8",
         ],
-        help="Precision for tensor preprocess operations in QwenInputPreparationStage.",
-    )
-    parser.add_argument(
-        "--captioning-model-does-preprocess",
-        dest="captioning_model_does_preprocess",
-        action="store_true",
-        default=False,
-        help="If set, captioning model will handle preprocessing (resize, rescale, normalize) instead of our code.",
+        help="Raw frame dtype used before passing video frames to the vLLM multimodal processor.",
     )
     parser.add_argument(
         "--captioning-stage2-caption",
