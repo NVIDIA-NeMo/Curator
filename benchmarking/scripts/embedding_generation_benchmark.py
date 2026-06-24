@@ -369,6 +369,8 @@ def _create_embedding_stages(
     model_variation: EmbeddingModelVariation,
     model_inference_batch_size: int,
     model_num_workers: int | None,
+    model_worker_gpus: float | None,
+    model_gpu_memory_utilization: float | None,
     max_seq_length: int,
     embedding_pooling: str,
     max_chars: int | None = None,
@@ -401,6 +403,8 @@ def _create_embedding_stages(
         # through so vLLM knows the intended limit and won't error on inputs
         # that exceed the model's default max_position_embeddings.
         vllm_init_kwargs: dict[str, Any] = {"max_model_len": max_seq_length}
+        if model_gpu_memory_utilization is not None:
+            vllm_init_kwargs["gpu_memory_utilization"] = model_gpu_memory_utilization
 
         stage = VLLMEmbeddingModelStage(
             model_identifier=model_identifier,
@@ -414,6 +418,8 @@ def _create_embedding_stages(
         stage_overrides: dict[str, Any] = {}
         if cache_dir is not None:
             stage_overrides["runtime_env"] = _endpoint_runtime_env(cache_dir)
+        if model_worker_gpus is not None:
+            stage_overrides["resources"] = Resources(cpus=1.0, gpus=model_worker_gpus)
         if model_num_workers is not None:
             stage_overrides["num_workers"] = model_num_workers
         if stage_overrides:
@@ -687,6 +693,8 @@ def run_embedding_generation_benchmark(  # noqa: PLR0915
     model_identifier: str,
     model_inference_batch_size: int,
     model_num_workers: int | None,
+    model_worker_gpus: float | None,
+    model_gpu_memory_utilization: float | None,
     model_variation: str,
     embedding_pooling: str,
     input_format: str = "parquet",
@@ -744,6 +752,8 @@ def run_embedding_generation_benchmark(  # noqa: PLR0915
             "vLLM batches internally over each DocumentBatch."
         )
     logger.info(f"Model workers: {model_num_workers}")
+    logger.info(f"Model worker GPUs: {model_worker_gpus}")
+    logger.info(f"Model GPU memory utilization: {model_gpu_memory_utilization}")
     logger.info(f"Embedding pooling: {embedding_pooling}")
     logger.info(f"Input format: {input_format}")
     logger.info(f"Max chars: {max_chars}")
@@ -836,6 +846,8 @@ def run_embedding_generation_benchmark(  # noqa: PLR0915
             model_variation=variation,
             model_inference_batch_size=model_inference_batch_size,
             model_num_workers=model_num_workers,
+            model_worker_gpus=model_worker_gpus,
+            model_gpu_memory_utilization=model_gpu_memory_utilization,
             max_seq_length=max_seq_length,
             embedding_pooling=embedding_pooling,
             max_chars=max_chars,
@@ -889,6 +901,8 @@ def run_embedding_generation_benchmark(  # noqa: PLR0915
             "load_dataset_ratio": load_dataset_ratio,
             "pretokenized": pretokenized,
             "model_num_workers": model_num_workers,
+            "model_worker_gpus": model_worker_gpus,
+            "model_gpu_memory_utilization": model_gpu_memory_utilization,
         },
         "metrics": {
             "is_success": True,
@@ -914,6 +928,8 @@ def run_embedding_generation_benchmark(  # noqa: PLR0915
             "load_dataset_ratio": load_dataset_ratio,
             "pretokenized": pretokenized,
             "model_num_workers": model_num_workers,
+            "model_worker_gpus": model_worker_gpus,
+            "model_gpu_memory_utilization": model_gpu_memory_utilization,
         },
         "tasks": output_tasks,
     }
@@ -969,6 +985,24 @@ def main() -> int:
         type=optional_int_arg,
         default=None,
         help="Fixed worker count for in-process model stages; use 'none' for executor default scaling",
+    )
+    parser.add_argument(
+        "--model-worker-gpus",
+        type=float,
+        default=None,
+        help=(
+            "GPU resources per in-process model worker. Use fractional values such as 0.249 to run "
+            "multiple VLLMEmbeddingModelStage workers per physical GPU."
+        ),
+    )
+    parser.add_argument(
+        "--model-gpu-memory-utilization",
+        type=float,
+        default=None,
+        help=(
+            "Optional gpu_memory_utilization passed to vLLM for vllm_text and "
+            "vllm_text_pretokenized. Useful when multiple fractional-GPU vLLM workers share one GPU."
+        ),
     )
     parser.add_argument(
         "--model-variation",
