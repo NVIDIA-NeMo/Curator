@@ -22,7 +22,6 @@ from nemo_curator.tasks import Task
 from nemo_curator.tasks.sentinels import FailedTask
 from nemo_curator.utils.retry_manifest import RetryManifest
 
-
 SLURM_ARRAY_ENABLED_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_ENABLED"
 SLURM_ARRAY_SHARD_INDEX_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX"
 SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_TOTAL_SHARDS"

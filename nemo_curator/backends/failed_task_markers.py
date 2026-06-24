@@ -21,7 +21,6 @@ from loguru import logger
 from nemo_curator.tasks.sentinels import FailedTask
 from nemo_curator.utils.atomic_io import write_json_atomically
 
-
 FAILED_TASKS_DIR_ENV_VAR = "NEMO_CURATOR_FAILED_TASKS_DIR"
 FAILED_TASK_MARKER_PATTERN = "failed_task_*.json"
 
@@ -33,7 +32,7 @@ def _write_failed_task_marker(marker_dir: Path, stage_name: str, task: FailedTas
         "task_id": task.task_id,
     }
 
-    marker_identity = f"{stage_name}\0{task.task_id}".encode("utf-8")
+    marker_identity = f"{stage_name}\0{task.task_id}".encode()
     marker_digest = hashlib.sha256(marker_identity).hexdigest()[:16]
     filename = f"failed_task_{marker_digest}.json"
     final_path = marker_dir / filename

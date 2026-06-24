@@ -34,7 +34,7 @@ def fsync_directory(path: Path) -> None:
 
 def write_json_atomically(
     path: Path,
-    payload: Any,
+    payload: Any,  # noqa: ANN401
     *,
     indent: int | None = None,
     separators: tuple[str, str] | None = None,

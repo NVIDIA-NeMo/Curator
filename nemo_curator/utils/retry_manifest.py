@@ -19,7 +19,6 @@ from pathlib import Path
 
 from nemo_curator.utils.atomic_io import fsync_directory, write_json_atomically
 
-
 METADATA_DIRNAME = ".nemo_curator_metadata"
 
 

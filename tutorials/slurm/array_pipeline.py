@@ -78,7 +78,7 @@ def build_pipeline(
     return pipeline
 
 
-def main() -> None:  # noqa: PLR0915
+def main() -> None:  # noqa: C901
     parser = argparse.ArgumentParser(description="Slurm array file-partitioning demo")
     parser.add_argument("--input-dir", required=True, help="Directory containing input files")
     parser.add_argument(
@@ -160,8 +160,7 @@ def main() -> None:  # noqa: PLR0915
                 )
             else:
                 logger.warning(
-                    "Pipeline completed without raising, but found "
-                    f"{failed_task_marker_count} FailedTask marker(s)."
+                    f"Pipeline completed without raising, but found {failed_task_marker_count} FailedTask marker(s)."
                 )
             return
 

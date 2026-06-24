@@ -123,17 +123,18 @@ class TestBaseStageAdapter:
             calls["stage_name"] = stage_name
             calls["failed_task_count"] = len(failed_tasks)
             calls["slurm_array"] = resolved_slurm_array
-            raise ValueError("Source stage source emitted FailedTask")
+            msg = "Source stage source emitted FailedTask"
+            raise ValueError(msg)
 
         def filter_tasks(
             tasks: list[Task],
-            resolved_slurm_array: SlurmArrayConfig,
-            stage_name: str,
+            _resolved_slurm_array: SlurmArrayConfig,
+            _stage_name: str,
         ) -> list[Task]:
             calls["filter_tasks"] += 1
             return tasks
 
-        def record_failed_tasks(stage_name: str, failed_tasks: list[FailedTask]) -> None:
+        def record_failed_tasks(_stage_name: str, _failed_tasks: list[FailedTask]) -> None:
             calls["record_failed_tasks"] += 1
 
         monkeypatch.setattr(base_module, "resolve_slurm_array_config", resolve_config)
