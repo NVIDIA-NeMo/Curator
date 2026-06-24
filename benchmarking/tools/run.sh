@@ -66,6 +66,7 @@ docker run \
   --net=host \
   --interactive \
   --tty \
+  --ulimit nofile=1048576:1048576 \
   \
   ${GPUS_FLAG} \
   --memory=${CONTAINER_MEMORY_BYTES} \
