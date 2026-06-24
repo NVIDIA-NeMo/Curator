@@ -94,11 +94,6 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
-    def __post_init__(self) -> None:
-        # All supported captioning models use the vLLM/HF multimodal processor for
-        # model-specific resize, rescale, and normalization.
-        self._skip_intermediate_resize = True
-
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         # Pre-warm the AutoProcessor trust_remote_code module cache once (sequentially)
         # before parallel workers start. Without this, concurrent workers race to write
@@ -125,7 +120,6 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     remainder_threshold=self.remainder_threshold,
                     sampling_fps=self.sampling_fps,
                     preprocess_dtype=self.preprocess_dtype,
-                    skip_resize=self._skip_intermediate_resize,
                     return_bytes=self.generate_previews,
                     num_threads=max(int(self.resources.cpus), 1),
                 ),
