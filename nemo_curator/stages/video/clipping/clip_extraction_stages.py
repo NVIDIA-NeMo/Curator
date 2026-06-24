@@ -82,7 +82,12 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             else:
                 self.resources = Resources(gpus=1)
         else:
-            self.resources = Resources(cpus=self.num_cpus_per_worker)
+            # Use cpus=1.0 as the Ray scheduler reservation (independent of
+            # num_cpus_per_worker which controls internal encoder threads).
+            # This allows Ray Data to fuse this stage with upstream task stages
+            # (e.g. VideoReaderStage, FixedStrideExtractorStage) that also
+            # declare cpus=1.0, eliminating inter-stage serialisation overhead.
+            self.resources = Resources(cpus=1.0)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["source_bytes"]

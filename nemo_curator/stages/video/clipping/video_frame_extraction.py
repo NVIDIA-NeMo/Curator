@@ -129,7 +129,10 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         if self.decoder_mode == "pynvc":
             self.resources = Resources(gpu_memory_gb=10)
         else:
-            self.resources = Resources(cpus=4.0)
+            # Use cpus=1.0 as the Ray scheduler reservation so this stage
+            # can fuse with VideoReaderStage (cpus=1.0) into a single actor pool,
+            # eliminating inter-stage serialisation overhead.
+            self.resources = Resources(cpus=1.0)
 
     def process(self, task: VideoTask) -> VideoTask:
         width, height = self.output_hw
