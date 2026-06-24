@@ -41,7 +41,6 @@ class TestCaptionGenerationStage:
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
-            model_does_preprocess=True,
             disable_mmcache=True,
             verbose=True,
             generate_stage2_caption=False,
@@ -54,7 +53,6 @@ class TestCaptionGenerationStage:
         assert stage.caption_batch_size == 16
         assert stage.fp8 is False
         assert stage.max_output_tokens == 512
-        assert stage.model_does_preprocess is False
         assert stage.disable_mmcache is False
         assert stage.verbose is False
         assert stage.generate_stage2_caption is False
@@ -85,7 +83,6 @@ class TestCaptionGenerationStage:
             caption_batch_size=2,
             fp8=False,
             max_output_tokens=256,
-            model_does_preprocess=True,
             disable_mmcache=True,
         )
         mock_model.setup.assert_called_once()
@@ -479,7 +476,6 @@ def preparation_stage() -> CaptionPreparationStage:
         sampling_fps=2.0,
         window_size=256,
         remainder_threshold=4,
-        model_does_preprocess=False,
         generate_previews=False,
         verbose=False,
     )
@@ -497,7 +493,6 @@ def generation_stage():
         caption_batch_size=1,
         fp8=False,
         max_output_tokens=64,
-        model_does_preprocess=False,
         disable_mmcache=True,
         vllm_kwargs={"enforce_eager": True},
         verbose=False,

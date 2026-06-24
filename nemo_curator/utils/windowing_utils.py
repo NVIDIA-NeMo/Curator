@@ -82,7 +82,6 @@ def split_video_into_windows(  # noqa: PLR0913
     remainder_threshold: int = 128,
     sampling_fps: float = 2.0,
     *,
-    model_does_preprocess: bool = False,
     preprocess_dtype: str = "uint8",
     skip_resize: bool = False,
     flip_input: bool = False,
@@ -103,7 +102,6 @@ def split_video_into_windows(  # noqa: PLR0913
         num_frames_to_use: Number of frames to extract from the video. If 0, uses all frames.
         flip_input: Whether to flip the input video/image horizontally.
         return_bytes: Whether to extract mp4 bytes for each window for use by PreviewStage
-        model_does_preprocess: if the model does preprocessing
         num_threads: number of threads
         remainder_threshold: threshold for remainder
         return_video_frames: whether to return video frames
@@ -132,7 +130,7 @@ def split_video_into_windows(  # noqa: PLR0913
                 str(input_file),
                 sampling_fps=sampling_fps,
                 window_range=windows,
-                do_preprocess=not model_does_preprocess,
+                do_preprocess=False,
                 preprocess_dtype=preprocess_dtype,
                 num_frames_to_use=num_frames_to_use,
                 flip_input=flip_input,
@@ -141,8 +139,8 @@ def split_video_into_windows(  # noqa: PLR0913
 
             index = 0
             for count in frame_counts:
-                video_frames.append(video[index : index + count - 1])
-                index = count
+                video_frames.append(video[index : index + count])
+                index += count
 
         if return_bytes:
             if len(windows) == 1:
@@ -279,14 +277,14 @@ def read_video_cpu(
     idx_list = []
     frame_counts = []
     for window_frame_info in window_range:
-        total_frames = window_frame_info.end - window_frame_info.start
+        total_frames = window_frame_info.end - window_frame_info.start + 1
         if num_frames_to_use > 0 and num_frames_to_use < total_frames:
             total_frames = num_frames_to_use
-            end_frame_idx = window_frame_info.start + num_frames_to_use
+            end_frame_idx_exclusive = window_frame_info.start + num_frames_to_use
         else:
-            end_frame_idx = window_frame_info.end
+            end_frame_idx_exclusive = window_frame_info.end + 1
         nframes = smart_nframes(fps, total_frames=total_frames, video_fps=video_fps)
-        idx = torch.linspace(window_frame_info.start, end_frame_idx - 1, nframes).round().long().tolist()
+        idx = torch.linspace(window_frame_info.start, end_frame_idx_exclusive - 1, nframes).round().long().tolist()
         idx_list.extend(idx)
         frame_counts.append(nframes)
 

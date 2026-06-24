@@ -84,7 +84,6 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     sampling_fps: float = 2.0
     window_size: int = 256
     remainder_threshold: int = 128
-    model_does_preprocess: bool = False
     preprocess_dtype: str = "float32"
     generate_previews: bool = True
     name: str = "caption_preparation"
@@ -96,15 +95,9 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
         return [], []
 
     def __post_init__(self) -> None:
-        self._skip_intermediate_resize = False
-        if self.model_variant.startswith("nemotron"):
-            if not self.model_does_preprocess:
-                logger.warning(
-                    f"model_variant={self.model_variant!r}: overriding model_does_preprocess=True. "
-                    "Nemotron uses vLLM's internal preprocessing; CLIP normalization must not be applied beforehand."
-                )
-                self.model_does_preprocess = True
-            self._skip_intermediate_resize = True
+        # All supported captioning models use the vLLM/HF multimodal processor for
+        # model-specific resize, rescale, and normalization.
+        self._skip_intermediate_resize = True
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         # Pre-warm the AutoProcessor trust_remote_code module cache once (sequentially)
@@ -131,7 +124,6 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     window_size=self.window_size,
                     remainder_threshold=self.remainder_threshold,
                     sampling_fps=self.sampling_fps,
-                    model_does_preprocess=self.model_does_preprocess,
                     preprocess_dtype=self.preprocess_dtype,
                     skip_resize=self._skip_intermediate_resize,
                     return_bytes=self.generate_previews,
