@@ -106,6 +106,10 @@ RUN export MAX_JOBS=$(( $(nproc) > 16 ? 16 : $(nproc) )) && \
         echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
     fi
 
+COPY docker/common/rebuild_video_python_deps.sh /opt/Curator/
+RUN bash rebuild_video_python_deps.sh && \
+    rm rebuild_video_python_deps.sh
+
 # Patch wandb-core: bump google.golang.org/grpc from 1.79.2 to 1.79.3 (CVE fix)
 ARG TARGETARCH
 RUN if python3 -c "import wandb" 2>/dev/null; then \

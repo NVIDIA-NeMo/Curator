@@ -15,7 +15,7 @@
 #!/bin/bash
 set -xeuo pipefail # Exit immediately if a command exits with a non-zero status
 
-FFMPEG_VERSION=8.0.1
+FFMPEG_VERSION=8.1.2
 NVCODEC_VERSION=12.1.14.0
 
 for i in "$@"; do

@@ -14,7 +14,7 @@
 
 import io
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 import av
 import cv2
@@ -26,6 +26,24 @@ from torch import Tensor
 # We error on any video with a width or height less than this.
 # The motion detection algorithm can't handle any resolutions less than this.
 _MIN_SIDE_RESOLUTION = 256
+
+
+def _get_av_enum_member(enum_cls: Any, *names: str) -> Any:  # noqa: ANN401
+    """Return a PyAV enum member across old and new naming schemes."""
+    for name in names:
+        try:
+            return getattr(enum_cls, name)
+        except AttributeError:
+            continue
+    msg = f"None of {names} exist on {enum_cls}"
+    raise AttributeError(msg)
+
+
+def _get_thread_type_auto() -> Any:  # noqa: ANN401
+    try:
+        return av.codec.context.ThreadType.AUTO
+    except AttributeError:
+        return av.codec.context.ThreadType.FRAME | av.codec.context.ThreadType.SLICE
 
 
 class VideoResolutionTooSmallError(Exception):
@@ -185,8 +203,8 @@ def decode_for_motion(  # noqa: C901
         stream = input_container.streams.video[0]
         ctx = stream.codec_context
         # Set this flag to return motion vectors
-        ctx.flags2 |= av.codec.context.Flags2.EXPORT_MVS
-        ctx.thread_type = av.codec.context.ThreadType.AUTO
+        ctx.flags2 |= _get_av_enum_member(av.codec.context.Flags2, "EXPORT_MVS", "export_mvs")
+        ctx.thread_type = _get_thread_type_auto()
         ctx.thread_count = thread_count
         mv_data = []
         shape = torch.Size([1, 1])

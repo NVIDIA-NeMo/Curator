@@ -215,8 +215,8 @@ text_cuda12 = [
 
 # Video Curation Dependencies
 video_cpu = [
-    "av==13.1.0",
-    "opencv-python",
+    "av==17.1.0",
+    "opencv-python-headless",
     "torchvision",
     "einops",
     "easydict",
@@ -252,7 +252,7 @@ interleaved_cpu = [
     "albumentations",
     "matplotlib",
     "open_clip_torch",
-    "opencv-python",
+    "opencv-python-headless",
     "Pillow",
     "pypdfium2",
     "s3fs>=2024.12.0",
