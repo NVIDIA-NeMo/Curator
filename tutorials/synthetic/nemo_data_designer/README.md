@@ -12,7 +12,7 @@ When using the local server, the tutorial detects the number of Ray-visible GPUs
 
 On some PCIe-only multi-GPU systems, NCCL peer-to-peer initialization can hang during vLLM startup. This is most likely to appear when `tensor_parallel_size > 1`.
 
-If the notebook hangs while starting the local inference server, try one of the following:
+If the tutorial hangs while starting the local inference server, try one of the following:
 
 ```bash
 export NCCL_P2P_DISABLE=1
@@ -32,4 +32,4 @@ engine_kwargs={
 }
 ```
 
-`NCCL_P2P_DISABLE=1` allows multi-GPU serving to continue but may reduce communication performance. Setting `tensor_parallel_size=1` avoids cross-GPU NCCL collectives for vLLM while leaving the remaining GPUs visible to Ray and the notebook. Restart Ray or the notebook kernel after changing NCCL environment variables.
+`NCCL_P2P_DISABLE=1` allows multi-GPU serving to continue but may reduce communication performance. Setting `tensor_parallel_size=1` avoids cross-GPU NCCL collectives for vLLM while leaving the remaining GPUs visible to Ray and the tutorial. Restart Ray or the tutorial kernel after changing NCCL environment variables.
