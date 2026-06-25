@@ -4,7 +4,7 @@
 #
 # Usage:
 #   sbatch --array=0-19 tutorials/slurm/submit_array.sh
-#   sbatch tutorials/slurm/submit_array.sh --retry
+#   bash tutorials/slurm/submit_array.sh --retry
 #   MINIMUM_SHARD_INDEX=1 sbatch --array=1-20 tutorials/slurm/submit_array.sh
 
 #SBATCH --job-name=curator-array

@@ -285,17 +285,19 @@ When `submit_array.sh` launches `array_pipeline.py`, each array task writes a co
 ${CHECKPOINT_PATH:-$OUTPUT_DIR}/.nemo_curator_metadata/.slurm_array_retry/
 ```
 
-Successful shards remove their manifest. Shards with a pipeline crash, preemption, timeout, or one or more `FailedTask` markers leave the manifest in place. After the original array has finished, retry only those shards with:
+Successful shards remove their manifest. Shards with a pipeline crash, preemption, timeout, or one or more `FailedTask` markers leave the manifest in place. After the original array has finished, retry only those shards from the login node with:
 
 ```bash
 export CHECKPOINT_PATH="${CHECKPOINT_PATH:-$OUTPUT_DIR}"
-sbatch tutorials/slurm/submit_array.sh --retry
+bash tutorials/slurm/submit_array.sh --retry
 ```
+
+where `CHECKPOINT_PATH` is the same path used by the original array job.
 
 Arguments after `--retry` are forwarded to the retry array submission:
 
 ```bash
-sbatch tutorials/slurm/submit_array.sh --retry --time=02:00:00 --cpus-per-task=32
+bash tutorials/slurm/submit_array.sh --retry --time=02:00:00 --cpus-per-task=32
 ```
 
 Do not pass `--array` with `--retry`. The script reads the original failed shard IDs from the retry manifests and builds the retry array automatically. For example, if shards `3`, `17`, and `42` need retry, the retry submission uses `--array=3,17,42` with the original `TOTAL_SHARDS` and `MINIMUM_SHARD_INDEX` values.
