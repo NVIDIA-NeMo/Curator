@@ -53,13 +53,20 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
         clip_decode_times_s = []
         decoded_motion_frames = 0
 
-        for clip in video.clips:
+        for clip_idx, clip in enumerate(video.clips):
             if not clip.buffer:
                 logger.warning(f"Clip {clip.uuid} has no buffer. Skipping...")
                 clip.errors["buffer"] = "empty"
                 continue
 
             clip_decode_start_s = time.perf_counter()
+            logger.info(
+                "MotionVectorDecodeStage: starting decode "
+                f"task_id={task.task_id}, video={video.input_video}, "
+                f"chunk={video.clip_chunk_index}/{video.num_clip_chunks}, "
+                f"clip_index={clip_idx}/{len(video.clips)}, clip_uuid={clip.uuid}, "
+                f"span={clip.span}, duration_s={clip.duration:.3f}, bytes={len(clip.buffer)}."
+            )
             with io.BytesIO(clip.buffer) as fp:
                 try:
                     clip.decoded_motion_data = motion_backend.decode_for_motion(
@@ -86,6 +93,14 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
                     else:
                         decoded_motion_frames += len(clip.decoded_motion_data.frames)
             clip_decode_times_s.append(time.perf_counter() - clip_decode_start_s)
+            logger.info(
+                "MotionVectorDecodeStage: finished decode "
+                f"task_id={task.task_id}, video={video.input_video}, "
+                f"chunk={video.clip_chunk_index}/{video.num_clip_chunks}, "
+                f"clip_index={clip_idx}/{len(video.clips)}, clip_uuid={clip.uuid}, "
+                f"elapsed_s={clip_decode_times_s[-1]:.3f}, "
+                f"motion_frames={0 if clip.decoded_motion_data is None else len(clip.decoded_motion_data.frames)}."
+            )
 
         failed_cnt = sum(1 for clip in video.clips if clip.decoded_motion_data is None)
         decode_elapsed_s = time.perf_counter() - decode_start_s
