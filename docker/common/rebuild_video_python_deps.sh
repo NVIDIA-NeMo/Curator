@@ -17,8 +17,8 @@ AV_VERSION="$(python3 -c 'import importlib.metadata as m; print(m.version("av"))
 OPENCV_VERSION="$(python3 -c 'import importlib.metadata as m; print(m.version("opencv-python-headless"))')"
 OPENCV_PYTHON_TAG="${OPENCV_PYTHON_TAG:-92}"
 
-# The PyPI wheels vendor FFmpeg. Rebuild against the fixed FFmpeg installed in /usr/local.
-uv pip install --reinstall --no-binary av "av==${AV_VERSION}"
+# Diagnostic build: keep PyAV's PyPI wheel so it uses its bundled FFmpeg.
+uv pip install --reinstall --only-binary av "av==${AV_VERSION}"
 
 # Avoid cv2 namespace conflicts and rebuild headless OpenCV without FFmpeg support.
 uv pip uninstall opencv-python || true
@@ -39,8 +39,8 @@ site_packages = Path("/opt/venv/lib/python3.13/site-packages")
 print(f"av {metadata.version('av')} linked libraries: {av.library_versions}")
 print(f"opencv-python-headless {metadata.version('opencv-python-headless')}")
 
-if (site_packages / "av.libs").exists():
-    raise SystemExit("av.libs still exists; PyAV is still using a vendored FFmpeg wheel")
+if not (site_packages / "av.libs").exists():
+    raise SystemExit("av.libs is missing; PyAV is not using the vendored FFmpeg wheel")
 
 opencv_libs = site_packages / "opencv_python_headless.libs"
 vendored_ffmpeg = []
