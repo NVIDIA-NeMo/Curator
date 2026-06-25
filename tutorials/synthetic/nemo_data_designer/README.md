@@ -32,4 +32,4 @@ engine_kwargs={
 }
 ```
 
-`NCCL_P2P_DISABLE=1` allows multi-GPU serving to continue but may reduce communication performance. Setting `tensor_parallel_size=1` avoids cross-GPU NCCL collectives for vLLM while leaving the remaining GPUs visible to Ray and the notebook.
+`NCCL_P2P_DISABLE=1` allows multi-GPU serving to continue but may reduce communication performance. Setting `tensor_parallel_size=1` avoids cross-GPU NCCL collectives for vLLM while leaving the remaining GPUs visible to Ray and the notebook. Restart Ray or the notebook kernel after changing NCCL environment variables.
