@@ -25,7 +25,7 @@ from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
 from nemo_curator.tasks import EmptyTask, FileGroupTask
-from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, check_disallowed_kwargs
+from nemo_curator.utils.file_utils import check_disallowed_kwargs, get_default_file_extensions
 
 from .utils import break_parquet_partition_into_groups, get_array_from_df
 
@@ -542,10 +542,7 @@ class KMeansStage(CompositeStage[EmptyTask, EmptyTask]):
 
     def decompose(self) -> list[ProcessingStage]:
         # Set default file extensions based on input_filetype if not provided
-        file_extensions = self.input_file_extensions or FILETYPE_TO_DEFAULT_EXTENSIONS.get(self.input_filetype, [])
-        if not file_extensions:
-            msg = f"Unsupported filetype: {self.input_filetype}"
-            raise ValueError(msg)
+        file_extensions = self.input_file_extensions or get_default_file_extensions(self.input_filetype)
 
         return [
             FilePartitioningStage(

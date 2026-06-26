@@ -45,7 +45,7 @@ from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.tasks import Task
-from nemo_curator.utils.file_utils import create_or_overwrite_dir
+from nemo_curator.utils.file_utils import create_or_overwrite_dir, get_default_file_extensions
 
 
 @dataclass
@@ -249,7 +249,7 @@ class TextSemanticDeduplicationWorkflow:
                     + [self.text_field]
                     + (self.metadata_fields or [])
                 ),
-                file_extensions=self.input_file_extensions,
+                file_extensions=self.input_file_extensions or get_default_file_extensions(self.input_filetype),
                 _generate_ids=self.use_id_generator,
                 read_kwargs=self.read_kwargs,
             )
@@ -263,7 +263,7 @@ class TextSemanticDeduplicationWorkflow:
                     + [self.text_field]
                     + (self.metadata_fields or [])
                 ),
-                file_extensions=self.input_file_extensions,
+                file_extensions=self.input_file_extensions or get_default_file_extensions(self.input_filetype),
                 read_kwargs=self.read_kwargs,
                 _generate_ids=self.use_id_generator,
             )
