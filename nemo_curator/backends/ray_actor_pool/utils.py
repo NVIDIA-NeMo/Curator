@@ -54,12 +54,21 @@ def calculate_optimal_actors_for_stage(
     # Take the minimum constraint
     max_actors_resources = min(max_actors_cpu, max_actors_gpu)
 
-    # Ensure we don't create more actors than configured maximum
-    max_actors_resources = min(max_actors_resources, stage.num_workers() or _LARGE_INT)
-
     if max_actors_resources == 0:
         msg = f"No resources available for stage {stage.name}."
         raise ValueError(msg)
+
+    num_workers = stage.num_workers()
+    if num_workers is not None and num_workers > 0:
+        if num_workers > max_actors_resources:
+            msg = (
+                f"Stage {stage.name} requires {num_workers} actors from num_workers(), "
+                f"but only {max_actors_resources} fit with available resources. "
+                f"Capping actor count to {max_actors_resources}."
+            )
+            logger.warning(msg)
+            return max_actors_resources
+        return num_workers
 
     number_of_batches = (
         math.ceil(num_tasks / stage.batch_size) if stage.batch_size is not None and stage.batch_size > 0 else num_tasks

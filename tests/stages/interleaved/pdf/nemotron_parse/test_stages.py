@@ -20,18 +20,21 @@ import base64
 import io
 import json
 import zipfile
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 from PIL import Image
 
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.partitioning import PDFPartitioningStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.postprocess import NemotronParsePostprocessStage
 from nemo_curator.stages.interleaved.pdf.nemotron_parse.preprocess import PDFPreprocessStage
 from nemo_curator.tasks import EmptyTask
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _empty_task() -> EmptyTask:
@@ -39,6 +42,16 @@ def _empty_task() -> EmptyTask:
 
 
 class TestPDFPartitioningStage:
+    def test_worker_defaults(self, tmp_path: Path):
+        manifest = tmp_path / "manifest.jsonl"
+        manifest.write_text(json.dumps({"file_name": "a.pdf"}) + "\n")
+
+        stage = PDFPartitioningStage(manifest_path=str(manifest))
+
+        assert stage.ray_stage_spec()[RayStageSpecKeys.IS_FANOUT_STAGE] is True
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
+
     def test_simple_manifest(self, tmp_path: Path):
         manifest = tmp_path / "manifest.jsonl"
         manifest.write_text(
@@ -352,3 +365,160 @@ class TestNemotronParsePostprocessStage:
         assert result is not None
         out_df = result.to_pandas()
         assert out_df.iloc[0]["modality"] == "metadata"
+
+
+class TestNemotronParseInferenceStageMetrics:
+    def test_vllm_metrics_from_outputs(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        outputs = [
+            SimpleNamespace(
+                prompt_token_ids=[1, 2, 3],
+                outputs=[SimpleNamespace(text="hello", token_ids=[4, 5, 6], finish_reason="stop")],
+            ),
+            SimpleNamespace(
+                prompt_token_ids=[7, 8],
+                outputs=[SimpleNamespace(text="", token_ids=[], finish_reason="length")],
+            ),
+        ]
+
+        metrics = NemotronParseInferenceStage._vllm_metrics_from_outputs(
+            outputs,
+            inference_time_s=1.5,
+            num_input_pages=3,
+            num_valid_pages=2,
+            num_skipped_pages=1,
+            vllm_retries=1,
+        )
+
+        assert metrics["vllm_inference_time"] == 1.5
+        assert metrics["num_input_pages"] == 3.0
+        assert metrics["num_valid_pages"] == 2.0
+        assert metrics["num_skipped_pages"] == 1.0
+        assert metrics["total_prompt_tokens"] == 5.0
+        assert metrics["total_output_tokens"] == 3.0
+        assert metrics["total_output_chars"] == 5.0
+        assert metrics["num_output_length_truncated"] == 1.0
+        assert metrics["num_empty_outputs"] == 1.0
+        assert metrics["vllm_retries"] == 1.0
+        assert "avg_output_tokens_per_page" not in metrics
+        assert "avg_output_chars_per_page" not in metrics
+
+    def test_process_logs_vllm_metrics(self) -> None:
+        import pandas as pd
+        import pyarrow as pa
+
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+        from nemo_curator.tasks import InterleavedBatch
+
+        img = Image.new("RGB", (10, 10), color="white")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+
+        task_df = pd.DataFrame(
+            [
+                {
+                    "sample_id": "s1",
+                    "position": 0,
+                    "modality": "page_image",
+                    "content_type": "image/png",
+                    "text_content": None,
+                    "binary_content": buf.getvalue(),
+                    "source_ref": None,
+                }
+            ]
+        )
+        task = InterleavedBatch(dataset_name="test", data=pa.Table.from_pandas(task_df))
+
+        stage = NemotronParseInferenceStage(backend="vllm")
+        stage._proc_size = (100, 100)
+
+        raw_outputs = [
+            SimpleNamespace(
+                prompt_token_ids=[1, 2],
+                outputs=[SimpleNamespace(text="parsed", token_ids=[3, 4, 5], finish_reason="stop")],
+            )
+        ]
+
+        with patch.object(stage, "_infer_vllm", return_value=(["parsed"], raw_outputs, 0)):
+            stage.process(task)
+
+        assert hasattr(stage, "_custom_metrics")
+        assert stage._custom_metrics["num_valid_pages"] == 1.0
+        assert stage._custom_metrics["total_output_tokens"] == 3.0
+        assert stage._custom_metrics["total_output_chars"] == 6.0
+        assert "vllm_inference_time" in stage._custom_metrics
+
+    def test_setup_vllm_engine_kwargs_override_stage_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+        import types
+
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+        from nemo_curator.utils import vllm_utils
+
+        fake_vllm = types.ModuleType("vllm")
+
+        class FakeSamplingParams:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        fake_vllm.SamplingParams = FakeSamplingParams
+        monkeypatch.setitem(sys.modules, "vllm", fake_vllm)
+
+        captured_kwargs: dict = {}
+
+        def fake_create_vllm_llm(model_path: str, **kwargs) -> object:
+            captured_kwargs["model_path"] = model_path
+            captured_kwargs.update(kwargs)
+            return object()
+
+        fake_processor = SimpleNamespace(image_processor=SimpleNamespace(final_size=(100, 100)))
+        monkeypatch.setattr(vllm_utils, "resolve_local_model_path", lambda _path: "/models/nemotron")
+        monkeypatch.setattr(vllm_utils, "create_vllm_llm", fake_create_vllm_llm)
+        monkeypatch.setattr("transformers.AutoProcessor.from_pretrained", lambda *_args, **_kwargs: fake_processor)
+
+        stage = NemotronParseInferenceStage(
+            backend="vllm",
+            max_num_seqs=64,
+            enforce_eager=False,
+            engine_kwargs={
+                "max_num_seqs": 8,
+                "enforce_eager": True,
+                "gpu_memory_utilization": 0.9,
+            },
+        )
+
+        stage._setup_vllm()
+
+        assert captured_kwargs["model_path"] == "/models/nemotron"
+        assert captured_kwargs["max_num_seqs"] == 8
+        assert captured_kwargs["enforce_eager"] is True
+        assert captured_kwargs["gpu_memory_utilization"] == 0.9
+        assert stage._proc_size == (100, 100)
+
+    def test_infer_vllm_empty_outputs_produces_empty_string(self) -> None:
+        """RequestOutput with no completions should yield '' rather than IndexError."""
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        stage = NemotronParseInferenceStage(backend="vllm")
+        stage._sampling_params = SimpleNamespace()
+        # Simulate a RequestOutput where the model returned no completions.
+        empty_req_output = SimpleNamespace(prompt_token_ids=[1, 2], outputs=[])
+        stage._llm = SimpleNamespace(generate=lambda _p, _s: [empty_req_output])
+
+        texts, raw, retries = stage._infer_vllm([Image.new("RGB", (10, 10))])
+
+        assert texts == [""]
+        assert raw == [empty_req_output]
+        assert retries == 0
+
+    def test_infer_vllm_unreachable_loop_path_raises(self) -> None:
+        from nemo_curator.stages.interleaved.pdf.nemotron_parse.inference import NemotronParseInferenceStage
+
+        stage = NemotronParseInferenceStage(backend="vllm")
+        stage._sampling_params = SimpleNamespace()
+        stage._llm = SimpleNamespace(generate=lambda _p, _s: [])
+        image = Image.new("RGB", (10, 10))
+
+        with patch("builtins.range", return_value=()), pytest.raises(RuntimeError, match="unreachable"):
+            stage._infer_vllm([image])

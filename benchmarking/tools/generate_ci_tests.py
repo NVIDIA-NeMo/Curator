@@ -13,6 +13,9 @@
 # limitations under the License.
 
 import argparse
+import datetime as dt
+import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from ruamel.yaml import YAML
@@ -44,10 +47,30 @@ def seconds_to_time(seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def _pipeline_timestamp(created_at: str | None) -> str:
+    """Return a path-safe UTC timestamp for generated nightly session names."""
+    if created_at:
+        try:
+            parsed = dt.datetime.fromisoformat(created_at)
+            return parsed.astimezone(dt.UTC).strftime("%Y_%m_%d__%H_%M_%S_UTC")
+        except ValueError:
+            pass
+    return dt.datetime.now(dt.UTC).strftime("%Y_%m_%d__%H_%M_%S_UTC")
 
-def generate_job(
-    entry: dict, scope: str, default_timeout_s: int, cleanup_timeout_s: int, min_timeout_s: int
-) -> dict:
+
+def session_name_from_env(env: Mapping[str, str] = os.environ) -> str | None:
+    """Return the generated-pipeline session name, if this run should define one."""
+    explicit = env.get("NEMO_CI_SESSION_NAME", "").strip()
+    if explicit:
+        return explicit
+
+    if env.get("CI_PIPELINE_SOURCE") == "schedule" or env.get("PARENT_PIPELINE_SOURCE") == "schedule":
+        return f"nightly-{_pipeline_timestamp(env.get('CI_PIPELINE_CREATED_AT'))}"
+
+    return None
+
+
+def generate_job(entry: dict, scope: str, default_timeout_s: int, cleanup_timeout_s: int, min_timeout_s: int) -> dict:
     """
     Generate a GitLab CI job for a single benchmark entry.
 
@@ -79,13 +102,14 @@ def generate_job(
     }
 
 
-def generate_pipeline(curator_dir: str, scope: str) -> dict:
+def generate_pipeline(curator_dir: str, scope: str, session_name: str | None = None) -> dict:
     """
     Generate a GitLab CI pipeline from Curator benchmark entries.
 
     Args:
         curator_dir: Path to the Curator repository
         scope: Scope of the testing (nightly, release, test)
+        session_name: Optional session name to set for all generated benchmark jobs
 
     Returns:
         pipeline: Dictionary defining the GitLab CI pipeline
@@ -104,6 +128,8 @@ def generate_pipeline(curator_dir: str, scope: str) -> dict:
     pipeline = {
         "include": ["curator/curator_ci_template.yml"],
     }
+    if session_name:
+        pipeline["variables"] = {"NEMO_CI_SESSION_NAME": session_name}
 
     entries = config.get("entries", [])
     job_count = 0
@@ -122,9 +148,7 @@ def generate_pipeline(curator_dir: str, scope: str) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Generate GitLab CI jobs for Curator benchmarks"
-    )
+    parser = argparse.ArgumentParser(description="Generate GitLab CI jobs for Curator benchmarks")
     parser.add_argument(
         "--curator-dir",
         type=str,
@@ -140,14 +164,17 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    pipeline = generate_pipeline(args.curator_dir, args.scope)
+    session_name = session_name_from_env()
+    pipeline = generate_pipeline(args.curator_dir, args.scope, session_name=session_name)
 
     output_file = "generated_curator_benchmark_tests.yml"
     with open(output_file, "w") as f:
         yaml.dump(pipeline, f)
 
-    job_count = len([k for k in pipeline if k != "include"])
+    job_count = len([k for k in pipeline if k not in {"include", "variables"}])
     print(f"Generated pipeline with {job_count} jobs -> {output_file}")
+    if session_name:
+        print(f"Using benchmark session name: {session_name}")
 
 
 if __name__ == "__main__":

@@ -30,6 +30,12 @@ with suppress(ImportError):
 class TestClusterWiseFilePartitioningStage:
     """Test cases for ClusterWiseFilePartitioningStage."""
 
+    def test_worker_defaults(self):
+        stage = ClusterWiseFilePartitioningStage("/test/path")
+
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
+
     def test_setup(self):
         # Test fs and path_normalizer are set correctly
         stage = ClusterWiseFilePartitioningStage("s3://test-bucket/test-path")

@@ -14,7 +14,9 @@
 
 import io
 import tarfile
+import tempfile
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -51,7 +53,13 @@ class TestArxivIterator:
             outer_tar.add(inner_tar_path, arcname="2103.00001.tar")
 
         iterator = ArxivIterator(log_frequency=1)
-        results = list(iterator.iterate(str(outer_tar_path)))
+        with mock.patch(
+            "nemo_curator.stages.text.download.arxiv.iterator.tempfile.TemporaryDirectory",
+            wraps=tempfile.TemporaryDirectory,
+        ) as tmpdir_mock:
+            results = list(iterator.iterate(str(outer_tar_path)))
+
+        tmpdir_mock.assert_called_once_with()
         # Expect one paper extracted.
         assert len(results) == 1
         tex_files = results[0]
@@ -62,6 +70,24 @@ class TestArxivIterator:
         # Verify that the tex extraction returns the dummy content.
         assert isinstance(tex_files["content"], list)
         assert dummy_tex_content in tex_files["content"]
+
+    def test_arxiv_iterator_custom_extract_tmp_dir(self, tmp_path: Path) -> None:
+        outer_tar_path = tmp_path / "dummy_main.tar"
+        with tarfile.open(outer_tar_path, "w"):
+            pass
+
+        extract_tmp_dir = tmp_path / "extract_tmp"
+        extract_tmp_dir.mkdir()
+
+        iterator = ArxivIterator(extract_tmp_dir=str(extract_tmp_dir))
+        with mock.patch(
+            "nemo_curator.stages.text.download.arxiv.iterator.tempfile.TemporaryDirectory",
+            wraps=tempfile.TemporaryDirectory,
+        ) as tmpdir_mock:
+            results = list(iterator.iterate(str(outer_tar_path)))
+
+        tmpdir_mock.assert_called_once_with(dir=str(extract_tmp_dir))
+        assert results == []
 
 
 class TestSafeExtract:
