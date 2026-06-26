@@ -130,6 +130,16 @@ class TestRayDataStageAdapter:
         with pytest.raises(ValueError, match="must not override Curator-managed map_batches arguments"):
             _map_batches_kwargs(stage)
 
+    def test_build_resource_kwargs_uses_ray_num_cpus_from_spec_over_resources_cpus(self):
+        stage = ConfigurableActorStage(ray_stage_spec={RayStageSpecKeys.RAY_NUM_CPUS: 1.0})
+        kwargs = _map_batches_kwargs(stage)
+        assert kwargs["num_cpus"] == 1.0
+
+    def test_build_resource_kwargs_falls_back_to_resources_cpus_when_ray_num_cpus_absent(self):
+        stage = ConfigurableActorStage()
+        kwargs = _map_batches_kwargs(stage)
+        assert kwargs["num_cpus"] == stage.resources.cpus
+
 
 def _map_batches_kwargs(stage: ProcessingStage) -> dict[str, object]:
     dataset = RecordingDataset()

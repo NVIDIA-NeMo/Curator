@@ -38,7 +38,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     software (libx264, libopenh264) and hardware (NVENC) encoding with configurable parameters.
 
     Args:
-        num_cpus_per_worker: Number of CPUs per worker.
+        num_cpus_per_worker: Number of CPUs per worker for Xenna scheduling. Does not affect Ray Data CPU scheduling; use ray_data_num_cpus for that.
         encoder: Video encoder to use.
         encoder_threads: Number of threads per encoder.
         encode_batch_size: Number of clips to encode in parallel.
@@ -48,6 +48,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         num_clips_per_chunk: Number of clips per chunk. If the number of clips is larger than this, the clips will be split into chunks, and created VideoTasks for each chunk.
         verbose: Whether to print verbose logs.
         ffmpeg_verbose: Whether to print FFmpeg verbose logs.
+        ray_data_num_cpus: CPU cores reserved per Ray Data actor for this stage. Defaults to 1.0 on the CPU encoder path to enable stage fusion with upstream stages. Set to None to fall back to resources.cpus. Does not affect Xenna scheduling.
     """
 
     num_cpus_per_worker: float = 6.0
