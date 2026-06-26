@@ -61,6 +61,9 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     ffmpeg_verbose: bool = False
     verbose: bool = False
     name: str = "clip_transcoding"
+    ray_data_num_cpus: float | None = (
+        None  # CPU reservation for Ray Data scheduler; set to 1.0 on CPU path to enable stage fusion
+    )
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Setup method called once before processing begins.
@@ -82,12 +85,12 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             else:
                 self.resources = Resources(gpus=1)
         else:
-            # Use cpus=1.0 as the Ray scheduler reservation (independent of
-            # num_cpus_per_worker which controls internal encoder threads).
-            # This allows Ray Data to fuse this stage with upstream task stages
-            # (e.g. VideoReaderStage, FixedStrideExtractorStage) that also
-            # declare cpus=1.0, eliminating inter-stage serialisation overhead.
-            self.resources = Resources(cpus=1.0)
+            self.resources = Resources(cpus=self.num_cpus_per_worker)
+            if self.ray_data_num_cpus is None:
+                # Default to 1.0 so Ray Data fuses this stage with VideoReaderStage
+                # and FixedStrideExtractorStage. Kept separate from resources.cpus
+                # so Xenna scheduling is unaffected.
+                self.ray_data_num_cpus = 1.0
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["source_bytes"]
@@ -97,9 +100,10 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""
-        return {
-            RayStageSpecKeys.IS_FANOUT_STAGE: True,
-        }
+        spec: dict[str, Any] = {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+        if self.ray_data_num_cpus is not None:
+            spec[RayStageSpecKeys.RAY_NUM_CPUS] = self.ray_data_num_cpus
+        return spec
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
