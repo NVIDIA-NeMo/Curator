@@ -17,7 +17,7 @@ from collections.abc import Callable
 from typing import Any
 
 from loguru import logger
-from ray.data import Dataset
+from ray.data import Dataset, TaskPoolStrategy
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
@@ -101,10 +101,7 @@ class RayDataStageAdapter(BaseStageAdapter):
 
             num_workers = self.stage.num_workers()
             if num_workers is not None and num_workers > 0:
-                logger.warning(
-                    f"Ignoring num_workers={num_workers} for Ray Data task stage {self.stage.name}; "
-                    "num_workers requires an actor stage to represent a fixed worker pool."
-                )
+                map_batches_kwargs["compute"] = TaskPoolStrategy(size=num_workers)
 
             max_calls = ray_stage_spec.get(RayStageSpecKeys.MAX_CALLS_PER_WORKER)
             if max_calls is not None:
