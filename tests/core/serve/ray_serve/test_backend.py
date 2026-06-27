@@ -14,7 +14,7 @@
 
 import pytest
 
-from nemo_curator.core.serve import RayServeModelConfig
+from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
 from nemo_curator.core.serve.ray_serve.backend import RayServeBackend
 
 LLMConfig = pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed").LLMConfig
@@ -45,3 +45,34 @@ class TestRayServeBackend:
         assert result.runtime_env["env_vars"]["MY_VAR"] == "1"
         assert result.runtime_env["env_vars"]["VLLM_LOGGING_LEVEL"] == "WARNING"
         assert result.runtime_env["env_vars"]["RAY_SERVE_LOG_TO_STDERR"] == "0"
+
+    def test_build_openai_app_args_forwards_server_kwargs(self) -> None:
+        server = InferenceServer(
+            models=[RayServeModelConfig(model_identifier="some-model")],
+            server_kwargs={
+                "ingress_deployment_config": {
+                    "autoscaling_config": {"min_replicas": 4, "max_replicas": 4},
+                    "ray_actor_options": {"runtime_env": {"env_vars": {"USER_VAR": "1"}}},
+                },
+            },
+        )
+
+        result = RayServeBackend(server)._build_openai_app_args([], RayServeBackend._quiet_runtime_env())
+
+        ingress_config = result["ingress_deployment_config"]
+        assert result["llm_configs"] == []
+        assert ingress_config["autoscaling_config"] == {"min_replicas": 4, "max_replicas": 4}
+        assert ingress_config["ray_actor_options"]["runtime_env"]["env_vars"] == {
+            "USER_VAR": "1",
+            "VLLM_LOGGING_LEVEL": "WARNING",
+            "RAY_SERVE_LOG_TO_STDERR": "0",
+        }
+
+    def test_build_openai_app_args_rejects_llm_configs_server_kwarg(self) -> None:
+        server = InferenceServer(
+            models=[RayServeModelConfig(model_identifier="some-model")],
+            server_kwargs={"llm_configs": []},
+        )
+
+        with pytest.raises(ValueError, match="server_kwargs must not include 'llm_configs'"):
+            RayServeBackend(server)._build_openai_app_args([], None)

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -69,12 +70,7 @@ class RayServeBackend(InferenceBackend):
         quiet_env = self._quiet_runtime_env() if not server.verbose else None
         llm_configs = [self._to_llm_config(model, quiet_runtime_env=quiet_env) for model in server.models]
 
-        build_args: dict[str, Any] = {"llm_configs": llm_configs}
-        if quiet_env:
-            # Suppress access logs on the OpenAI ingress deployment too.
-            build_args["ingress_deployment_config"] = {
-                "ray_actor_options": {"runtime_env": quiet_env},
-            }
+        build_args = self._build_openai_app_args(llm_configs, quiet_env)
 
         from ray import serve
         from ray.serve.llm import build_openai_app
@@ -98,6 +94,32 @@ class RayServeBackend(InferenceBackend):
         except Exception:
             self._cleanup_failed_deploy()
             raise
+
+    def _build_openai_app_args(
+        self,
+        llm_configs: list["LLMConfig"],
+        quiet_runtime_env: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Build arguments for Ray Serve's OpenAI app factory."""
+        if "llm_configs" in self._server.server_kwargs:
+            msg = "server_kwargs must not include 'llm_configs'; it is generated from the server models"
+            raise ValueError(msg)
+
+        build_args = deepcopy(self._server.server_kwargs)
+        build_args["llm_configs"] = llm_configs
+
+        if quiet_runtime_env:
+            # Suppress access logs on the OpenAI ingress deployment too.
+            ingress_config = build_args.get("ingress_deployment_config", {})
+            actor_options = ingress_config.get("ray_actor_options", {})
+            actor_options["runtime_env"] = BaseModelConfig.merge_runtime_envs(
+                actor_options.get("runtime_env", {}),
+                quiet_runtime_env,
+            )
+            ingress_config["ray_actor_options"] = actor_options
+            build_args["ingress_deployment_config"] = ingress_config
+
+        return build_args
 
     @staticmethod
     def _reset_serve_client_cache() -> None:
