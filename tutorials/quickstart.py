@@ -217,7 +217,7 @@ class SentimentStage(ProcessingStage[SampleTask, SampleTask]):
 def main() -> None:
     """Main function to run the pipeline."""
     # Create pipeline
-    ray_client = SlurmRayClient()
+    ray_client = RayClient()
     ray_client.start()
     pipeline = Pipeline(name="sentiment_analysis", description="Analyze sentiment of sample sentences")
 
