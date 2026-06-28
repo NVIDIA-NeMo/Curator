@@ -119,6 +119,9 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     # resumability layer to mark the counter-decrement boundary.
     is_source_stage: bool = False
     is_sink_stage: bool = False
+    # Opt-in diagnostics used by benchmark pipelines. Existing stages retain
+    # main's performance record shape and avoid background GPU sampling.
+    extended_performance_metrics: bool = False
 
     @property
     @final
@@ -252,6 +255,19 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             node_info (NodeInfo, optional): Information about the node (provided by some backends)
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
+
+    def setup_on_node_resources(self) -> Resources:
+        """Resources needed by the per-node setup task.
+
+        Most stages need the same placement resources for setup as for steady
+        state processing. Stages that only prefetch/download per-node assets can
+        override this to avoid reserving GPUs during setup.
+        """
+        if isinstance(self.resources, Resources):
+            return self.resources
+        if isinstance(self.resources, dict):
+            return Resources(**self.resources)
+        return Resources()
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup method called once before processing begins.

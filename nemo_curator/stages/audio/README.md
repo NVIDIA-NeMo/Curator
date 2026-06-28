@@ -129,8 +129,9 @@ Key differences from a CPU stage:
   dicts into a single multi-row `pd.DataFrame` in one `DocumentBatch`,
   avoiding N single-row DataFrame allocations.  Not a GPU stage, but
   benefits from batched processing.
-- `ManifestWriterStage` (`common.py`) — writes
-  entries to JSONL, returns `AudioTask`.
+- `ManifestWriterStage` (`common.py`) — batch-writes entries to JSONL,
+  drops waveform/array-like values from serialized rows, optionally writes
+  `perf_summary.json`, and returns `AudioTask`.
 
 ### Setting `batch_size` for GPU inference
 
@@ -196,6 +197,407 @@ Backend reads stage.batch_size
 - **Sweet spot** — depends on model size, audio length, and GPU VRAM.
   Start with `16` and increase until you see OOM or throughput plateaus.
   For NeMo ASR FastConformer models, `16–64` is typical on a single GPU.
+
+## Pluggable ASR adapters, payload lifecycle, and duration-aware batching
+
+Long-form ASR pipelines need three separate controls that should not be
+confused:
+
+1. **Backend scheduling** decides how many parent `AudioTask` rows are delivered
+   to one worker `process_batch()` call. This remains owned by the backend
+   (Xenna streaming, Xenna batch, Ray Data) and the stage `batch_size` /
+   worker-resource settings.
+2. **Payload lifecycle** decides how much decoded waveform memory can be live.
+   It is not a model batch policy and it does not wrap compute stages. A
+   materializer stage reserves byte tokens before decode, decodes a staged local
+   file, stores the decoded waveform in a Ray-backed payload store, and passes
+   only a lightweight `PayloadRef` through normal `Task.data`.
+3. **Model-call batching** decides how many bounded model-input segments go
+   into one adapter call after long audio has been segmented and optionally
+   duration bucketed inside `ASRStage.process_batch()`.
+
+The raw in-memory Qwen-style ASR shape is expressed in config as logical
+stages plus a `payload_lifecycle` rule. The rule inserts materialization after
+the configured reader/producer, keeps any listed consumer stages
+backend-visible, and inserts release after the final configured consumer:
+
+```text
+ManifestReader
+  -> AudioPayloadMaterializeStage
+  -> ASRStage(...) or any payload-aware CPU/GPU consumer stage
+  -> ... additional payload-aware consumers ...
+  -> PayloadReleaseStage
+  -> ManifestWriterStage
+```
+
+For a heterogeneous pipeline such as four GPU stages with different
+`Resources(gpus=...)`, do not fuse them into one payload manager. Declare the
+four stages normally, set `payload_lifecycle.consumers` to their stage ids, and
+set `payload_lifecycle.release_after` to the last consumer. Ray Data and Xenna
+then still see four independent processing stages and can schedule each one
+with its own CPU/GPU contract.
+
+Payload lifecycle is intentionally a mechanical expansion rule, not a second
+pipeline scheduler. It is applied by `Pipeline.build()` before composite-stage
+decomposition and executor planning. Simple pipelines can use
+`payload_keys: [audio_filepath]`; multi-source pipelines should use
+`payloads:` entries with explicit `source_key`, `ref_key`, `waveform_key`,
+`sample_rate_key`, `num_samples_key`, and optional `duration_key`. Any number
+of downstream payload-aware consumers can share those refs. A consumer must
+implement `PayloadAwareStageMixin` or an equivalent
+`resolve_payload_refs_for_batch()` plus `payload_bindings()` contract so it can
+resolve and drop every declared `PayloadRef` handle inside its own
+`process_batch()` call. This local/windowed branch does not perform
+full-manifest global planning; duration-aware bucketing stays inside each
+backend-visible consumer's `process_batch()` call.
+
+To add another CPU or GPU stage that needs decoded audio, list the new logical
+stage after the reader and before the writer, add its stage id to
+`payload_lifecycle.consumers`, and move `payload_lifecycle.release_after` to
+that final audio consumer. The stage receives ordinary `AudioTask` rows in the
+same backend-scheduled batches as any other visible stage. It should resolve
+`waveform_ref` to `waveform` only inside `process_batch()` and drop the
+temporary tensor before returning. Metadata-only stages do not need to be
+listed as payload consumers; they only need to run before `PayloadReleaseStage`
+if they depend on payload-ref metadata that release will strip.
+
+The payload lifecycle planner is still generic in this branch: it can
+materialize one or more configured payload sources once, keep any number of
+payload-aware CPU/GPU stages backend-visible, and release refs after the final
+consumer. It does not decide global segment ownership and does not change how
+Xenna streaming, Xenna batch, or Ray Data split work across visible stages.
+
+The important invariant is **one audio-byte decode per row**. Remote object
+storage is staged outside Curator. `AudioFileReaderStage` accepts local paths
+only and is used by `AudioPayloadMaterializeStage` as the only code path that
+opens `audio_filepath`, decodes, resamples, and creates the in-memory
+`waveform` payload. After materialization, normal task rows carry `waveform_ref`
+rather than the tensor itself. `ASRStage` resolves that ref only inside its own
+`process_batch()` call, drops the temporary waveform before returning, and
+`PayloadReleaseStage` releases the payload store entry before the writer runs.
+`ManifestWriterStage` also omits waveform/array-like values from JSON output by
+default.
+
+Reusable pieces live alongside the audio inference stages:
+
+| Component | Location | Role |
+|---|---|---|
+| `AudioPayloadMaterializeStage` | `stages/payload_lifecycle.py` | Uses `AudioFileReaderStage` to decode one staged local audio row, reserves positive duration-derived byte tokens from a Ray-backed admission actor before decode, stores the waveform in a node-local payload store actor, and emits a `PayloadRef` instead of raw waveform bytes. Admission tracks per-node usage and can also enforce an explicit cluster-wide payload cap. The reservation uses `lease_ttl_s` during decode, switches to the longer finite `materialized_lease_ttl_s` after publication, and fails with an admission snapshot if `admission_wait_timeout_s` elapses. Explicit release is the normal path; finite expiry reclaims orphaned published rows. |
+| `PayloadReleaseStage` | `stages/payload_lifecycle.py` | Releases payload-store entries and admission reservations once downstream stages no longer need the waveform. |
+| `PayloadRef` | `stages/payload_lifecycle.py` | Lightweight serializable handle carried through `Task.data`; compute stages resolve it only when they need the waveform. |
+| `PayloadAwareStageMixin` | `stages/payload_lifecycle.py` | Reusable helper for CPU/GPU stages that need payload bytes. It resolves `PayloadRef` values with actor-grouped, byte-bounded RPCs at `process_batch()` time and drops temporary waveform tensors before returning. |
+| `BoundedOneAheadPrefetchIterator` | `pipeline/prefetch.py` | Backend-neutral opt-in helper that overlaps one next work-item load while bounding estimated current-plus-next bytes. The Qwen ASR config uses it per adapter call; existing consumers keep eager resolution by default. |
+| `AudioFileReaderStage` | `stages/audio/io/audio_file_reader.py` | Opens a local audio file and decodes/resamples it into an in-memory waveform. In handle-based pipelines it is used by `AudioPayloadMaterializeStage`, not placed before every GPU stage. |
+| `BatchPolicy` | `stages/audio/inference/batch_policy.py` | Duration/cost bucket config (`buckets_sec`, `max_items_per_batch_by_bucket`, `bucketed_inference_batch_size`, `max_audio_sec_per_batch`). |
+| `run_bucketed` | `stages/audio/inference/batch_policy.py` | Helper that dispatches cost-bucketed sub-batches and realigns results to original order. |
+| `BucketedInferenceStage` | `stages/audio/inference/bucketed_stage.py` | Abstract inference-stage base for item expansion, bucketed model dispatch, and parent reassembly. |
+
+Import these from `nemo_curator.stages.audio.io`,
+`nemo_curator.stages.payload_lifecycle`, and
+`nemo_curator.stages.audio.inference`.
+
+### Reviewer code chain for the raw in-memory Qwen path
+
+Line numbers below describe the current branch and are meant as a quick code
+tour for reviewers.
+
+1. `Pipeline` separates logical stages from execution stages, then applies
+   graph expansion before composite decomposition:
+   `pipeline/pipeline.py:70`, `pipeline/pipeline.py:102`,
+   `pipeline/pipeline.py:139`.
+2. `expand_payload_lifecycle_stages()` reads the lifecycle config, validates
+   `materialize_after` / `consumers` / `release_after`, asks the reader for
+   materializers, and inserts release:
+   `pipeline/payload_lifecycle.py:39`,
+   `pipeline/payload_lifecycle.py:64`,
+   `pipeline/payload_lifecycle.py:377`,
+   `pipeline/payload_lifecycle.py:106`.
+3. `ManifestReader` stays ordinary in this branch: it decomposes to
+   `FilePartitioningStage -> ManifestReaderStage` and also provides the audio
+   materializer hook used by the generic lifecycle expander:
+   `stages/audio/common.py:201`,
+   `stages/audio/common.py:229`,
+   `stages/audio/common.py:249`.
+4. `AudioPayloadMaterializeStage` estimates bytes, reserves memory, decodes one
+   local row, stores the waveform in the payload store, and emits `PayloadRef`:
+   `stages/payload_lifecycle.py:641`,
+   `stages/payload_lifecycle.py:708`.
+5. `AudioFileReaderStage` is the only audio-byte I/O path in the raw pipeline.
+   It rejects remote paths and decodes local files with ffmpeg:
+   `stages/audio/io/audio_file_reader.py:43`,
+   `stages/audio/io/audio_file_reader.py:154`,
+   `stages/audio/io/audio_file_reader.py:161`.
+6. `ASRStage.process_batch()` either bulk-resolves refs eagerly or, when
+   explicitly configured, plans calls from ref metadata and resolves only the
+   current plus one byte-bounded prefetched call. It then applies the
+   local/windowed `BatchPolicy`, caps adapter calls, and stitches results:
+   `stages/audio/inference/asr/stage.py:508`,
+   `stages/audio/inference/asr/stage.py:531`,
+   `stages/audio/inference/asr/stage.py:582`.
+7. `QwenOmniASRAdapter` owns Qwen/vLLM prompt construction and inference only:
+   `models/asr/qwen_omni.py:84`,
+   `models/asr/qwen_omni.py:250`,
+   `models/asr/qwen_omni.py:330`.
+8. `PayloadReleaseStage` releases refs before writing, while `BaseStageAdapter`
+   handles exception cleanup, dropped-row ref cleanup, terminal tombstones, and
+   task-id preservation:
+   `stages/payload_lifecycle.py:918`,
+   `backends/base.py:408`,
+   `backends/base.py:425`,
+   `backends/base.py:503`.
+
+### Local/windowed bucketing mode
+
+This branch keeps `ManifestReader` ordinary: it reads manifest rows in manifest
+order and emits one `AudioTask` per row. There is no full-manifest planning pass
+and no backend-specific window object.
+
+Duration-aware bucketing happens only after a backend has scheduled rows to an
+`ASRStage.process_batch()` call. In other words, Xenna streaming, Xenna batch,
+and Ray Data still decide how many parent rows reach a worker exactly as they do
+for normal stages. The local branch only improves the work *inside* that one
+call: it segments long parents, buckets model items by duration, caps final
+adapter-call sizes per bucket, and stitches outputs back to the same parent
+rows.
+
+### ASR duration-aware dispatch inside `process_batch`
+
+`ASRStage` is the concrete long-form ASR stage. It owns Curator-side glue:
+input validation, language resolution, required model-input segmentation,
+duration-aware model-item bucketing, adapter-call counting, stitch-back, and
+metrics. Model logic lives behind the adapter.
+
+Backend executors call `ASRStage.process_batch(tasks)` with the parent rows they
+scheduled. Inside that call:
+
+1. Each parent row is validated and sliced into contiguous model-input segments
+   no longer than `max_inference_duration_s`. Rows already below the ceiling
+   become one segment.
+2. The flat segment/item list is bucketed by `BatchPolicy` when
+   `batch_policy.enabled=True`.
+3. `max_items_per_batch_by_bucket` and `max_audio_sec_per_batch` determine which
+   same-bucket segments are considered together.
+4. `bucketed_inference_batch_size` determines the final adapter-call item cap
+   per duration bucket. This is the knob for "short segments can run more
+   samples per model call; long segments stay single-item."
+5. Results are realigned to original item order and stitched back to one output
+   row per input parent.
+
+When `batch_policy.enabled=False`, model-input segmentation still happens as
+OOM/model-limit protection, but segments are split only by `adapter_batch_size`
+when set, otherwise by the stage's `batch_size`. Backend parallelism and work
+stealing remain exactly the normal backend behavior.
+
+There are three distinct batch-size knobs:
+
+- `batch_size` is the backend-visible candidate window: Ray Data and Xenna use
+  it to decide how many parent rows reach one `process_batch()` call.
+- `adapter_batch_size` is the fallback cap for one adapter/model call when no
+  enabled `BatchPolicy` supplies a bucket-specific cap.
+- `bucketed_inference_batch_size` is the per-duration-bucket adapter/model-call
+  cap used when `batch_policy.enabled=True`.
+
+The core `BucketedInferenceStage` hook contract is:
+
+```text
+build_items(tasks)   -> (items, parent_of)   expand parent tasks into model items
+item_cost(item)      -> float                duration/cost used for bucketing
+run_inference(items) -> results              one adapter call; results are 1:1
+assemble(tasks, items, parent_of, results) -> out_tasks
+```
+
+Some stages may expose optional scheduler hooks, but the Qwen raw in-memory
+pipeline does not rely on reader or payload prebatching. Keep batching decisions
+at the backend stage level and at the ASR model-call level.
+
+### The ASR adapter split (Tier-1 / Tier-2)
+
+For audio speech recognition the concrete stage is `ASRStage`
+(`stages/audio/inference/asr/stage.py`), a `BucketedInferenceStage`
+subclass that owns only Curator-side glue — input validation, ISO-code ->
+language-name resolution, model-input segmentation for clips longer than
+`max_inference_duration_s`, stitch-back, and metrics. The *model-specific* logic
+(vLLM setup, prompt formatting, two-turn generation) lives behind a swappable
+**adapter**:
+
+| Layer | Location | Responsibility |
+|---|---|---|
+| `ASRStage` | `stages/audio/inference/asr/stage.py` | Generic, model-independent stage glue. |
+| `ASRAdapter` (Protocol) + `ASRResult` | `models/asr/base.py` | The contract a model adapter must satisfy (`setup`, `teardown`, `transcribe_batch`, `prefetch_weights`, `last_metrics`). |
+| `QwenOmniASRAdapter` | `models/asr/qwen_omni.py` | Qwen3-Omni implementation (built on the shared `VLLMBase` in `models/vllm_model.py`). |
+
+The split is **Tier-1 / Tier-2**:
+
+Install the Qwen implementation with `uv sync --extra audio_qwen`. This
+Qwen-only extra composes the unchanged `audio_cuda12` stack with vLLM and
+`qwen-omni-utils`; existing non-Qwen audio environments are unaffected.
+
+- **Tier-1** fields are universal stage knobs set in YAML (`adapter_target`,
+  `model_id`, I/O keys, `max_inference_duration_s`, `keep_waveform`, `batch_size`,
+  `adapter_batch_size`, `batch_policy`, ...).
+- **Tier-2** is the opaque `adapter_kwargs` dict forwarded verbatim to the
+  adapter constructor; the stage never reads inside it.
+
+`ASRStage` also builds the per-item adapter payload. Every adapter call receives
+the waveform, sample rate, resolved language name, original language code,
+task id, estimated audio seconds, and chunk position metadata. If
+`reference_text_key` is configured, the stage forwards that row value as
+`reference_text` so prompt-driven adapters can use transcript/reference context.
+Adapters can ignore fields they do not need, but they should not require
+Curator-specific `AudioTask` objects.
+
+Swapping the model is a one-line `adapter_target:` change in YAML; the
+adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
+`tutorials/audio/qwen_omni_inprocess/` for the end-to-end config.
+
+> **Per-call accumulator note (multi-worker safety):** `ASRStage` keeps a
+> couple of per-`process_batch` accumulators on `self` (model-metric sums,
+> inference wall time), reset in `build_items` and consumed in `assemble`.
+> This is safe because each worker runs one `process_batch` at a time
+> (Ray Actor Pool / Ray Data / single-slot Xenna). Do not enable an
+> executor that overlaps invocations on one stage instance without making
+> those accumulators call-local.
+
+### When to use which base
+
+| Pattern | Base | Override |
+|---|---|---|
+| CPU, one task at a time | `ProcessingStage[AudioTask, AudioTask]` | `process` |
+| GPU/IO, one batched call, no bucketing | `ProcessingStage` | `process_batch` (e.g. `InferenceAsrNemoStage`) |
+| GPU inference needing cost/duration bucketing + a swappable model | `BucketedInferenceStage` + an adapter | the four hooks (e.g. `ASRStage` + `ASRAdapter`) |
+
+## Performance metrics (`perf_summary.json`)
+
+Audio manifest writer stages aggregate per-stage stats into `perf_summary.json`
+(all math stays in Curator; downstream tooling should transport the file as-is).
+
+### Design principle: collect everywhere, write once
+
+| Layer | Who | What |
+|-------|-----|------|
+| **Collection** | Every stage, CPU and GPU | Backend adapter times each `process_batch` and appends `StagePerfStats` to `task._stage_perf` |
+| **Serialization** | Single CPU writer (`num_workers=1`) | Maintains output JSONL and the aggregate `perf_summary.json` |
+| **Upload** | External orchestrator (optional) | Verbatim copy/transport of one `perf_summary.json` |
+
+Do **not** add per-GPU file writers or a second metrics actor. Multiple
+`perf_summary.json` writers produce incompatible summaries and require explicit
+multi-writer handling downstream.
+
+Toggle perf file output with `write_perf_stats: false` on either
+`ManifestWriterStage` or `ShardedManifestWriterStage` (manifest output still
+written; sharded `.done` markers still written for the sharded writer).
+
+### Collection flow
+
+1. **Every backend adapter** (Xenna, Ray Data, Ray Actor Pool) subclasses
+   `BaseStageAdapter`. Its `process_batch` times the call, pulls
+   `stage._consume_custom_metrics()` (from `_log_metrics` / `_log_metric` /
+   `_time_metric` during the stage body), stamps identity, and calls
+   `task.add_stage_perf(stage_perf_stats)` on **each output task**. This applies
+   equally to CPU stages (tar reader, discovery, filters) and GPU stages
+   (inference): CPU stages get full `process_time` / `custom_metrics`; they
+   simply leave `gpu_id` empty.
+2. **Stage identity** — `WorkerPerfIdentity` is resolved once per worker in
+   `build_xenna_perf_identity()` / `build_ray_perf_identity()`
+   (`backends/perf_identity.py`, stamped on `WorkerMetadata` at setup):
+   - **Scheduling:** `actor_id`, `node_id`, `gpu_id`. Under Xenna, `gpu_id` uses
+     `WorkerMetadata.allocation.gpus[0].index` only. Under Ray Data / Actor Pool:
+     `ray.get_gpu_ids()[0]` only. These strings are stripped from
+     `StagePerfStats.items()` so framework metric collectors never `float()` them.
+   - **Cluster location (additive):** `physical_address`
+     (`<host>:<comma-separated gpu_indices>`, the canonical backend-independent
+     GPU identifier), `pod_ip` (K8s `POD_IP` when set), `hostname`, `gpu_indices`
+     (full allocation, e.g. `[0, 1]` for `tp=2`), optional `gpu_uuids` from CUDA
+     device properties.
+3. **Per-actor scheduling breakdown** — the writer’s `AudioPerformanceSummary`
+   builds per-stage `actor_count` and `per_actor` (keyed by `actor_id`: items
+   processed, audio hours, batch-size / queue-wait percentiles) for **every
+   actor-backed stage, GPU or CPU**. GPU actors additionally carry their
+   `physical_address` + `gpu_indices` / `gpu_uuids` and the NVML
+   `gpu_util_pct_p*` / `gpu_mem_used_pct_p*` percentiles inside their `per_actor`
+   block, and the stage gets `gpu_addresses` (per-actor physical addresses) +
+   `gpu_count` (true device count). Top-level `pipeline_throughput` rolls up the
+   GPU-stage `gpu_addresses` / `gpu_count`.
+4. **Dedup** — `AudioPerformanceSummary.record_stage_perf` fingerprints each
+   `StagePerfStats` (including identity) so fan-out stages do not multiply-count
+   upstream invocations.
+
+### File writes (`ManifestWriterStage` / `ShardedManifestWriterStage`)
+
+When `write_perf_stats=true` (default):
+
+- **`perf_summary.json`** — aggregate summary from `AudioPerformanceSummary.build_summary()`.
+  `ManifestWriterStage` refreshes it next to the output manifest after each
+  successful batch write, with `teardown()` as a final backstop. This keeps the
+  summary available even when a backend runs the writer as an actor whose
+  teardown is not called on the driver. `ShardedManifestWriterStage` refreshes
+  it when a shard hits its `_shard_total` (`.done` written) and again in
+  `teardown()`. Includes writer’s own I/O timings under
+  `stages[manifest_writer]` or `stages[sharded_manifest_writer]`.
+  Per-task `StagePerfStats` are aggregated in memory only (no per-shard sidecar file).
+- **Manifest rows** — both writers omit `waveform` by default and also skip
+  accidental array-like values (`shape` + `dtype`) so in-memory tensors are not
+  serialized to JSONL.
+
+`main.py` (tutorial entry points) may add `pipeline_duration_s` after
+`pipeline.run()` returns.
+
+### Adding custom metrics (stage authors)
+
+Inside `process` or `process_batch`:
+
+```python
+self._log_metrics({"bytes_loaded": float(n_bytes), "audio_duration_s": dur})
+```
+
+Optional timing helper:
+
+```python
+with self._time_metric("decode_wall_s"):
+    ...
+```
+
+Metrics roll up to `stages[<stage_name>].custom_metrics_sum` in
+`perf_summary.json`. For a new cross-stage scalar in the
+published summary schema, add a field to `AudioStageMetrics` in
+`metrics/performance.py` and emit it from the producing stage.
+
+### CPU vs GPU in published JSON
+
+| Field | CPU stage | GPU stage |
+|-------|-----------|-----------|
+| `process_time`, idle, invocations | yes | yes |
+| `custom_metrics_sum` | yes, if stage calls `_log_metrics` | yes |
+| `actor_id`, `node_id` | best-effort | best-effort |
+| `actor_count`, `per_actor` | present (keyed by `actor_id`) | present (keyed by `actor_id`) |
+| `gpu_id` | empty | legacy node label (e.g. `node-0:0`), additive |
+| `gpu_addresses`, `gpu_count` | absent | present |
+| `physical_address`, `gpu_indices` | absent | in each GPU actor's `per_actor` block |
+| `pod_ip`, `hostname` | in `per_actor` when resolved | in `per_actor` when resolved |
+| `gpu_util_pct_p*`, `gpu_mem_used_pct_p*`, `gpu_uuids` | absent | in `per_actor` when CUDA/NVML up |
+
+**Throughput denominator (`writer_wall_time_s`)**
+
+The writer is a single CPU actor (`num_workers=1`). Its timer starts at the end
+of its own `setup_on_node` and runs until summary serialization. Under **Xenna
+streaming** or **Ray Data** (pipelined execution), that interval spans the
+end-to-end processing window (the writer blocks on upstream GPU stages). Under
+**Xenna batch** (sequential stage materialization), the timer covers only the
+writer phase — use whole-run pipeline wall clock from the entry point for throughput there.
+
+**Validation (recommended for pipeline changes)**
+
+- **Perf** — compare `perf_summary.json` across runs on shared throughput fields;
+  work-done identical (`total_utterances`, shard counts).
+- **Output** — compare `manifest_*.jsonl` rows keyed on `audio_filepath`; gate
+  on key alignment and prediction-field stability (vLLM nondeterminism expected
+  on a small fraction of rows).
+
+Hardware telemetry is sampled opportunistically with NVML on GPU workers.
+Sampler failures are fail-open so inference is not interrupted; use
+`gpu_sampler_active` / `gpu_sampler_error_count` in perf summaries to tell
+whether missing GPU util or VRAM fields mean "not sampled" rather than
+"hardware was idle."
 
 ## What you must always declare
 
@@ -363,6 +765,26 @@ under the hood).
   with its own model copy.
 - **Autoscaling**: Xenna can adjust worker counts based on measured
   throughput (`autoscale_interval_s` in executor config).
+- **Pin expensive GPU stages; autoscale only cheap stages**: autoscale
+  optimizes *steady-state throughput, not cold-start latency*. An
+  unpinned stage starts at **1 worker** and only scales out after it has
+  produced enough speed measurements to be judged the bottleneck. That
+  ramp is instant for cheap CPU stages but expensive for GPU stages — they
+  idle most GPUs during warm-up and then pay a model-load tax on every
+  late-spawned worker. **Pin the worker count of any expensive GPU stage**
+  with the stage's `num_workers()` method for a cluster-wide cap, or with
+  `xenna_stage_spec()["num_workers_per_node"]` for a per-node cap. Stage
+  fields such as `ASRStage.xenna_num_workers` and
+  `ASRStage.xenna_num_workers_per_node` feed those two contracts. Do not
+  put cluster-wide `num_workers` in `xenna_stage_spec`; Xenna rejects it so
+  worker sizing stays aligned with the rest of Curator. A manual pin is a
+  *hard* constraint — Xenna panics if the cluster cannot satisfy it, so keep it within capacity. The pin is
+  model-dependent: `workers_per_node = floor(gpus_per_node /
+  resources.gpus)`, and `resources.gpus` is the per-actor GPU footprint set
+  by the model/adapter you run. Swapping to a **smaller model needs fewer
+  GPUs per actor**, which lets *more* actors fit per node (raise the pin); a
+  larger / higher-tensor-parallel model needs more GPUs per actor (lower the
+  pin). Re-tune the pin whenever you change the model.
 - **Call chain**:
   `Xenna scheduler → XennaStageAdapter.process_data(tasks)`
   `→ BaseStageAdapter.process_batch(tasks)` (timing + metrics)
@@ -978,8 +1400,10 @@ The two surviving windows:
 
 ### Stage 3: `ManifestWriterStage`
 
-Appends the entry as a single JSON line to
-`./alm_output/alm_output.jsonl` (351 KB for this entry).
+Appends the entry as a JSON line to `./alm_output/alm_output.jsonl` (351 KB for
+this entry). The writer omits waveform/array-like values from serialized JSONL
+and can refresh `perf_summary.json` during batch writes when
+`write_perf_stats=true`.
 
 ### ALM summary table
 

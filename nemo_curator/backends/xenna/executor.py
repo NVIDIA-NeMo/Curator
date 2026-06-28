@@ -19,9 +19,13 @@ from cosmos_xenna.pipelines import v1 as pipelines_v1
 from cosmos_xenna.utils.verbosity import VerbosityLevel
 from loguru import logger
 
-from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.base import (
+    BaseExecutor,
+)
 from nemo_curator.backends.utils import register_loguru_serializer
-from nemo_curator.backends.xenna.adapter import create_named_xenna_stage_adapter
+from nemo_curator.backends.xenna.adapter import (
+    create_named_xenna_stage_adapter,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -57,6 +61,11 @@ class XennaExecutor(BaseExecutor):
             "execution_mode": "streaming",
             "cpu_allocation_percentage": 0.95,
             "autoscale_interval_s": 180,
+            "actor_pool_verbosity_level": "INFO",
+            "monitoring_verbosity_level": "INFO",
+            "autoscaler_verbosity_level": "INFO",
+            "executor_verbosity_level": "INFO",
+            "log_worker_allocation_layout": True,
         }
 
     def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
@@ -69,49 +78,22 @@ class XennaExecutor(BaseExecutor):
         Returns:
             list[Task]: List of output tasks from the pipeline
         """
+        initial_tasks = initial_tasks if initial_tasks else [EmptyTask()]
+        return self._run_xenna_pipeline(stages, initial_tasks)
+
+    def _run_xenna_pipeline(
+        self,
+        stages: list[ProcessingStage],
+        initial_tasks: list[Any],
+    ) -> list[Any]:
+        if not stages:
+            return initial_tasks
+
         # Convert stages to Xenna stage specs
         stage_specs = []
 
-        # Initialize with initial tasks if provided, otherwise start with EmptyTask
-        initial_tasks = initial_tasks if initial_tasks else [EmptyTask()]
-
         for stage in stages:
-            # Get stage configuration
-            stage_config = stage.xenna_stage_spec()
-            if "num_workers" in stage_config:
-                msg = f"Stage {stage.name} sets num_workers in xenna_stage_spec(). Use num_workers() instead."
-                raise ValueError(msg)
-
-            num_workers = stage.num_workers()
-            num_workers_per_node = stage_config.get("num_workers_per_node")
-            if num_workers is not None and num_workers_per_node is not None:
-                msg = (
-                    f"Stage {stage.name} sets both num_workers() and "
-                    "xenna_stage_spec()['num_workers_per_node']. Use only one worker sizing option."
-                )
-                raise ValueError(msg)
-
-            # Create Xenna stage adapter with the original stage's name
-            xenna_stage = create_named_xenna_stage_adapter(
-                stage=stage,
-            )
-
-            # Create stage spec with configuration from stage
-            stage_spec = pipelines_v1.StageSpec(
-                stage=xenna_stage,
-                num_workers=num_workers,
-                num_workers_per_node=num_workers_per_node,
-                num_setup_attempts_python=stage_config.get("num_setup_attempts_python"),
-                num_run_attempts_python=stage_config.get("num_run_attempts_python"),
-                ignore_failures=stage_config.get("ignore_failures"),
-                reset_workers_on_failure=stage_config.get("reset_workers_on_failure"),
-                slots_per_actor=stage_config.get("slots_per_actor"),
-                worker_max_lifetime_m=stage_config.get("worker_max_lifetime_m"),
-                worker_restart_interval_m=stage_config.get("worker_restart_interval_m"),
-                max_setup_failure_percentage=stage_config.get("max_setup_failure_percentage"),
-            )
-
-            stage_specs.append(stage_spec)
+            stage_specs.append(self._build_stage_spec(stage))
 
         # Determine execution mode
         exec_mode = pipelines_v1.ExecutionMode.STREAMING
@@ -123,21 +105,21 @@ class XennaExecutor(BaseExecutor):
         if exec_mode == pipelines_v1.ExecutionMode.STREAMING:
             streaming_config = pipelines_v1.StreamingSpecificSpec(
                 autoscale_interval_s=self._get_pipeline_config("autoscale_interval_s"),
-                autoscaler_verbosity_level=VerbosityLevel.INFO,  # TODO: Move this to pipeline config
-                executor_verbosity_level=VerbosityLevel.INFO,
+                autoscaler_verbosity_level=self._get_verbosity_config("autoscaler_verbosity_level"),
+                executor_verbosity_level=self._get_verbosity_config("executor_verbosity_level"),
             )
 
         # Create pipeline configuration
         pipeline_config = pipelines_v1.PipelineConfig(
             execution_mode=exec_mode,
             logging_interval_s=self._get_pipeline_config("logging_interval"),
-            log_worker_allocation_layout=True,
+            log_worker_allocation_layout=bool(self._get_pipeline_config("log_worker_allocation_layout")),
             return_last_stage_outputs=True,
             ignore_failures=self._get_pipeline_config("ignore_failures"),
             cpu_allocation_percentage=self._get_pipeline_config("cpu_allocation_percentage"),
             mode_specific=streaming_config,
-            actor_pool_verbosity_level=VerbosityLevel.INFO,  # TODO: Move this to pipeline config
-            monitoring_verbosity_level=VerbosityLevel.INFO,
+            actor_pool_verbosity_level=self._get_verbosity_config("actor_pool_verbosity_level"),
+            monitoring_verbosity_level=self._get_verbosity_config("monitoring_verbosity_level"),
         )
 
         # Create pipeline specification
@@ -146,6 +128,7 @@ class XennaExecutor(BaseExecutor):
         # Log pipeline configuration
         logger.info(f"Execution mode: {exec_mode.name}")
 
+        hardware_sampler: list[Any] = []
         try:
             register_loguru_serializer()
             # Prevent Ray from overriding accelerator env vars when num_gpus=0, letting Xenna manage them instead.
@@ -158,17 +141,87 @@ class XennaExecutor(BaseExecutor):
                     }
                 },
             )
+            hardware_sampler = self._start_pipeline_hardware_sampler()
             # Run the pipeline (this will re-initialize ray but that'll be a no-op and the ray.init above will take precedence)
             results = pipelines_v1.run_pipeline(pipeline_spec)
+            hardware_perf = self._stop_pipeline_hardware_sampler(hardware_sampler)
+            hardware_sampler = []
+            if results:
+                self._attach_pipeline_hardware_perf(results, hardware_perf)
+            self._publish_external_perf(stages, hardware_perf)
             logger.info(f"Pipeline completed successfully with {len(results) if results else 0} output tasks")
         except Exception as e:
             logger.error(f"Pipeline execution failed: {e}")
             raise
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
-            ray.shutdown()
+            try:
+                if hardware_sampler:
+                    self._stop_pipeline_hardware_sampler(hardware_sampler)
+                self._cleanup_stage_run_resources(stages)
+            finally:
+                ray.shutdown()
         return results if results else []
+
+    def _build_stage_spec(self, stage: ProcessingStage) -> pipelines_v1.StageSpec:
+        """Create a Xenna StageSpec from a Curator stage."""
+        stage_config = stage.xenna_stage_spec()
+        num_workers, num_workers_per_node = self._resolve_stage_worker_sizing(stage, stage_config)
+        xenna_stage = create_named_xenna_stage_adapter(stage=stage)
+
+        return pipelines_v1.StageSpec(
+            stage=xenna_stage,
+            num_workers=num_workers,
+            num_workers_per_node=num_workers_per_node,
+            num_setup_attempts_python=stage_config.get("num_setup_attempts_python"),
+            num_run_attempts_python=stage_config.get("num_run_attempts_python"),
+            ignore_failures=stage_config.get("ignore_failures"),
+            reset_workers_on_failure=stage_config.get("reset_workers_on_failure"),
+            slots_per_actor=stage_config.get("slots_per_actor"),
+            worker_max_lifetime_m=stage_config.get("worker_max_lifetime_m"),
+            worker_restart_interval_m=stage_config.get("worker_restart_interval_m"),
+            max_setup_failure_percentage=stage_config.get("max_setup_failure_percentage"),
+        )
+
+    @staticmethod
+    def _resolve_stage_worker_sizing(
+        stage: ProcessingStage, stage_config: dict[str, Any]
+    ) -> tuple[int | None, int | None]:
+        """Resolve Xenna worker sizing with the main-branch contract."""
+        if "num_workers" in stage_config:
+            msg = f"Stage {stage.name} sets num_workers in xenna_stage_spec(). Use num_workers() instead."
+            raise ValueError(msg)
+        num_workers = stage.num_workers()
+        num_workers_per_node = stage_config.get("num_workers_per_node")
+        if num_workers is not None and num_workers_per_node is not None:
+            msg = (
+                f"Stage {stage.name} sets both num_workers() and "
+                "xenna_stage_spec()['num_workers_per_node']. Use only one worker sizing option."
+            )
+            raise ValueError(msg)
+        return num_workers, num_workers_per_node
 
     def _get_pipeline_config(self, key: str) -> Any:  # noqa: ANN401
         """Get configuration value with fallback to defaults."""
         return self.config.get(key, self._default_pipeline_config.get(key))
+
+    def _get_verbosity_config(self, key: str) -> VerbosityLevel:
+        """Get Xenna verbosity level from enum, integer, or string config."""
+        value = self._get_pipeline_config(key)
+        if value is None:
+            value = self._default_pipeline_config.get(key, "INFO")
+        if isinstance(value, VerbosityLevel):
+            return value
+        if isinstance(value, str):
+            try:
+                return VerbosityLevel[value.upper()]
+            except KeyError as exc:
+                valid = ", ".join(level.name for level in VerbosityLevel)
+                msg = f"Invalid Xenna verbosity config {key}={value!r}; expected one of: {valid}"
+                raise ValueError(msg) from exc
+        try:
+            return VerbosityLevel(value)
+        except ValueError as exc:
+            valid = ", ".join(level.name for level in VerbosityLevel)
+            msg = f"Invalid Xenna verbosity config {key}={value!r}; expected one of: {valid}"
+            raise ValueError(msg) from exc

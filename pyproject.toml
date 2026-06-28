@@ -131,6 +131,14 @@ audio_cuda12 = [
     "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 
+# Qwen-Omni/Qwen-ASR is an opt-in CUDA stack. Keeping it separate preserves
+# the existing audio_cuda12 environment for every other audio pipeline.
+audio_qwen = [
+    "nemo_curator[audio_cuda12]",
+    "nemo_curator[vllm]",
+    "qwen-omni-utils",
+]
+
 image_cpu = [
     "Pillow",
     "torchvision"

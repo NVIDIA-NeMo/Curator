@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import uuid
 from typing import Any
 
 from loguru import logger
@@ -24,11 +25,7 @@ from nemo_curator.tasks import EmptyTask, Task
 def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
     """Assign root ``task_id``s to user-provided initial tasks.
 
-    Every task in a run descends from the implicit root ``"0"`` (the id of
-    :class:`EmptyTask`). User-provided initial tasks are its direct
-    children, so they get ``"0_0"``, ``"0_1"``, … ``EmptyTask`` instances
-    are skipped (already ``"0"``). All downstream ``task_id`` assignment
-    happens in ``BaseStageAdapter``.
+    Every non-sentinel task is rooted under ``"0"`` exactly as on main.
 
     NOTE: we deliberately use the positional index here, NOT
     ``get_deterministic_id()``, even for content-bearing tasks like
@@ -65,8 +62,16 @@ class Pipeline:
         """
         self.name = name
         self.description = description
-        self.stages: list[ProcessingStage] = stages or []
+        self._logical_stages: list[ProcessingStage] = stages or []
+        self.stages: list[ProcessingStage] = self._logical_stages
+        # Preserve main's public config identity and never inject framework
+        # state into the caller's mapping. Expansion receives an ephemeral copy.
         self.config = config or {}
+        self._built = False
+        self._default_source_stage: ProcessingStage | None = None
+        self._default_sink_stage: ProcessingStage | None = None
+        self._planned_stage_snapshot: list[ProcessingStage] = []
+        self._curator_pipeline_run_id = uuid.uuid4().hex
 
     def add_stage(self, stage: ProcessingStage) -> "Pipeline":
         """Add a stage to the pipeline.
@@ -81,7 +86,12 @@ class Pipeline:
             msg = f"Stage must be a ProcessingStage, got {type(stage)}"
             raise TypeError(msg)
 
-        self.stages.append(stage)
+        self._sync_public_stage_mutations()
+        self._clear_default_source_sink_roles()
+        self._logical_stages.append(stage)
+        self.stages = self._logical_stages
+        self._built = False
+        self._planned_stage_snapshot = []
         logger.info(f"Added stage '{stage.name}' to pipeline '{self.name}'")
         return self
 
@@ -91,27 +101,102 @@ class Pipeline:
         Raises:
             ValueError: If the pipeline has no stages
         """
+        self._sync_public_stage_mutations()
+        if self._built:
+            logger.info(f"Pipeline '{self.name}' is already planned; reusing execution graph")
+            return
+
         logger.info(f"Planning pipeline: {self.name}")
+        self._clear_default_source_sink_roles()
 
         # 1. Validate pipeline has stages
-        if not self.stages:
+        if not self._logical_stages:
             msg = f"Pipeline '{self.name}' has no stages"
             raise ValueError(msg)
 
-        # 2. Decompose composite stages into execution stages
-        execution_stages, decomposition_info = self._decompose_stages(self.stages)
+        # 2. Expand pipeline-level graph rules before composite decomposition.
+        planned_stages = self._expand_pipeline_graph(list(self._logical_stages))
+
+        # 3. Decompose composite stages into execution stages
+        execution_stages, decomposition_info = self._decompose_stages(planned_stages)
 
         self.stages = execution_stages
         self.decomposition_info = decomposition_info
 
-        # 3. Source / sink defaults: at most one stage may be explicitly
+        # 4. Source / sink defaults: at most one stage may be explicitly
         # marked; if none, the first stage is the source and the last is
         # the sink. The source flag activates content-based ids in the
         # default ``process_batch``; the sink flag is used by the
         # resumability layer in a follow-up PR.
         self._assign_source_sink_roles()
+        self._built = True
+        self._planned_stage_snapshot = list(self.stages)
+
+    def _expand_pipeline_graph(self, stages: list[ProcessingStage]) -> list[ProcessingStage]:
+        """Apply generic pipeline-level graph expansion rules."""
+        for stage in stages:
+            stage_state = getattr(stage, "__dict__", None)
+            if stage_state is not None:
+                stage_state.pop("_curator_tracks_payload_refs", None)
+                stage_state.pop("_curator_preserves_terminal_tasks", None)
+        payload_cfg = self.config.get("payload_lifecycle")
+        payload_cfg_get = getattr(payload_cfg, "get", None)
+        if not callable(payload_cfg_get) or not bool(payload_cfg_get("enabled", False)):
+            return stages
+        from nemo_curator.pipeline.payload_lifecycle import expand_payload_lifecycle_stages
+
+        expansion_config = dict(self.config)
+        expansion_config["_curator_pipeline_run_id"] = self._curator_pipeline_run_id
+        return expand_payload_lifecycle_stages(stages, expansion_config)
+
+    def _sync_public_stage_mutations(self) -> None:
+        """Preserve the historical public ``stages`` list mutation behavior.
+
+        ``_logical_stages`` is the canonical source for graph expansion, but
+        existing user code may still mutate ``pipeline.stages`` directly. Treat
+        those mutations as logical graph edits before planning instead of
+        silently ignoring them.
+        """
+        if self._built:
+            if self.stages == self._planned_stage_snapshot:
+                return
+            logger.warning(
+                "Pipeline.stages was mutated after build(); treating the current public stages list "
+                "as the new logical graph. Prefer Pipeline.add_stage() for future code."
+            )
+            self._clear_default_source_sink_roles()
+            self._logical_stages = list(self.stages)
+            self._built = False
+            self._planned_stage_snapshot = []
+            return
+
+        if self.stages != self._logical_stages:
+            logger.warning(
+                "Pipeline.stages was mutated directly; syncing it into the logical graph. "
+                "Prefer Pipeline.add_stage() for future code."
+            )
+            self._clear_default_source_sink_roles()
+            self._logical_stages = list(self.stages)
+            self._planned_stage_snapshot = []
+
+    def _clear_default_source_sink_roles(self) -> None:
+        """Clear source/sink roles that were assigned by a previous build.
+
+        Stage instances are reused when a pipeline is replanned. Without
+        clearing defaults, a role assigned to the previous execution graph can
+        look like an explicit user mark on the next build.
+        """
+        if self._default_source_stage is not None:
+            self._default_source_stage.is_source_stage = False
+            self._default_source_stage = None
+        if self._default_sink_stage is not None:
+            self._default_sink_stage.is_sink_stage = False
+            self._default_sink_stage = None
 
     def _assign_source_sink_roles(self) -> None:
+        self._default_source_stage = None
+        self._default_sink_stage = None
+
         explicit_sources = [s for s in self.stages if s.is_source_stage]
         if len(explicit_sources) > 1:
             names = [s.name for s in explicit_sources]
@@ -119,6 +204,7 @@ class Pipeline:
             raise ValueError(msg)
         if not explicit_sources:
             self.stages[0].is_source_stage = True
+            self._default_source_stage = self.stages[0]
 
         explicit_sinks = [s for s in self.stages if s.is_sink_stage]
         if len(explicit_sinks) > 1:
@@ -127,6 +213,7 @@ class Pipeline:
             raise ValueError(msg)
         if not explicit_sinks:
             self.stages[-1].is_sink_stage = True
+            self._default_sink_stage = self.stages[-1]
 
     def _decompose_stages(
         self, stages: list[ProcessingStage | CompositeStage]
@@ -150,10 +237,8 @@ class Pipeline:
             sub_stages = stage.decompose_and_apply_with() if isinstance(stage, CompositeStage) else [stage]
 
             if len(sub_stages) > 1:
-                # This was a composite stage
                 logger.info(f"Decomposing composite stage: {stage.name}")
 
-                # Validate that decomposed stages are not composite
                 for sub_stage in sub_stages:
                     if isinstance(sub_stage, CompositeStage) and len(sub_stage.decompose()) > 1:
                         msg = (
