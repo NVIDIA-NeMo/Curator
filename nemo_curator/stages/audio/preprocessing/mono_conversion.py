@@ -60,9 +60,6 @@ class MonoConversionStage(ProcessingStage[AudioTask, AudioTask]):
     batch_size: int = 1
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
-    def __post_init__(self):
-        super().__init__()
-
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
@@ -103,11 +100,12 @@ class MonoConversionStage(ProcessingStage[AudioTask, AudioTask]):
             else:
                 mono_waveform = waveform
 
+            num_samples = int(mono_waveform.shape[-1])
             task.data["waveform"] = mono_waveform
             task.data["sample_rate"] = sample_rate
             task.data["is_mono"] = True
-            task.data["duration"] = mono_waveform.shape[1] / sample_rate
-            task.data["num_samples"] = mono_waveform.shape[1]
+            task.data["duration"] = num_samples / sample_rate
+            task.data["num_samples"] = num_samples
 
         except (OSError, RuntimeError) as e:
             logger.error(f"Error processing {audio_filepath}: {e}")

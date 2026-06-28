@@ -11,8 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ruff: noqa: ANN401
 
 from collections.abc import Mapping
+from typing import Any
 
 from loguru import logger
 from ray.data import ActorPoolStrategy
@@ -27,6 +29,22 @@ ACTOR_POOL_SIZING_KEYS = (
 )
 
 
+def coerce_batch_tasks(batch_items: Any) -> list[Any]:
+    """Normalize a Ray Data ``map_batches`` column to a Python ``list``.
+
+    Ray Data delivers batches as column arrays; coercing to ``list[Task]`` keeps
+    stage code backend-agnostic.
+    """
+    if batch_items is None:
+        return []
+    if isinstance(batch_items, list):
+        return batch_items
+    try:
+        return list(batch_items)
+    except TypeError:
+        return [batch_items]
+
+
 def get_configured_actor_pool_sizing_keys(ray_stage_spec: Mapping[str, object]) -> list[str]:
     """Return actor-pool sizing keys configured in a ray stage spec."""
     stage_spec_keys = {key.value if isinstance(key, RayStageSpecKeys) else key for key in ray_stage_spec}
@@ -34,12 +52,7 @@ def get_configured_actor_pool_sizing_keys(ray_stage_spec: Mapping[str, object]) 
 
 
 def get_actor_compute_strategy_for_stage(stage: ProcessingStage) -> ActorPoolStrategy:
-    """Get the Ray Data actor-pool compute strategy for a processing stage.
-
-    Explicit stage ``num_workers`` requests a fixed-size actor pool. Otherwise,
-    actor stages use Ray Data's autoscaling pool and can optionally override
-    min/max/initial workers through ``ray_stage_spec``.
-    """
+    """Get the Ray Data actor-pool compute strategy for a processing stage."""
     num_workers = stage.num_workers()
     if num_workers is not None and num_workers > 0:
         actor_pool_sizing_keys = get_configured_actor_pool_sizing_keys(stage.ray_stage_spec())

@@ -22,6 +22,7 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.perf_identity import build_ray_perf_identity, stamp_worker_metadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.utils.ray_utils import get_head_node_id, submit_on_each_node
 
@@ -38,13 +39,11 @@ def _logger_custom_serializer(
 def _logger_custom_deserializer(
     _: None,
 ) -> "loguru.Logger":
-    # Initialize a default logger
     return logger
 
 
 def register_loguru_serializer() -> None:
-    """Initialize a new local Ray cluster or connects to an existing one."""
-    # Turn off serization for loguru. This is needed as loguru is not serializable in general.
+    """Register a no-op (de)serializer for loguru (not serializable in general)."""
     ray.util.register_serializer(
         logger.__class__,
         serializer=_logger_custom_serializer,
@@ -53,29 +52,15 @@ def register_loguru_serializer() -> None:
 
 
 def merge_executor_configs(base_config: dict | None, override_config: dict | None) -> dict:
-    """
-    Recursively merge two executor configs with deep merging of nested dicts.
+    """Recursively deep-merge two executor configs (override wins, inputs untouched).
 
     Args:
         base_config: Base configuration dictionary
-        override_config: Configuration to merge on top of base_config
+        override_config: Configuration merged on top of base_config
 
     Returns:
-        Merged configuration dictionary with all nested dicts recursively merged
-
-    Notes:
-        - Recursively merges all nested dictionaries
-        - Non-dict values in override_config will overwrite base_config
-        - Handles None values gracefully
-        - Does not modify original inputs (uses deep copy)
-
-    Examples:
-        >>> base = {"runtime_env": {"env_vars": {"A": "1", "B": "2"}}}
-        >>> override = {"runtime_env": {"env_vars": {"B": "3", "C": "4"}}}
-        >>> merge_executor_configs(base, override)
-        {"runtime_env": {"env_vars": {"A": "1", "B": "3", "C": "4"}}}
+        Merged config with nested dicts merged recursively
     """
-    # Handle None cases
     if base_config is None and override_config is None:
         return {}
     if base_config is None:
@@ -83,20 +68,15 @@ def merge_executor_configs(base_config: dict | None, override_config: dict | Non
     if override_config is None:
         return deepcopy(base_config)
 
-    # Deep copy to avoid modifying originals
     merged_config = deepcopy(base_config)
 
-    # Recursively merge each key from override_config
     for key, value in override_config.items():
         if isinstance(value, dict):
             if key not in merged_config or not isinstance(merged_config[key], dict):
-                # If key doesn't exist or isn't a dict, just use the override value
                 merged_config[key] = deepcopy(value)
             else:
-                # Recursively merge nested dicts
                 merged_config[key] = merge_executor_configs(merged_config[key], value)
         else:
-            # For non-dict values, overwrite
             merged_config[key] = value
 
     return merged_config
@@ -143,16 +123,27 @@ def get_worker_metadata_and_node_id() -> tuple[NodeInfo, WorkerMetadata]:
     return NodeInfo(node_id=ray_context.get_node_id()), WorkerMetadata(worker_id=ray_context.get_worker_id())
 
 
+def get_worker_metadata_and_node_id_with_perf(
+    stage_name: str,
+    *,
+    requires_gpu: bool = False,
+) -> tuple[NodeInfo, WorkerMetadata]:
+    """Get worker metadata with opt-in Ray-resolved performance identity."""
+    node_info, worker_metadata = get_worker_metadata_and_node_id()
+    identity = build_ray_perf_identity(stage_name, requires_gpu=requires_gpu)
+    stamp_worker_metadata(worker_metadata, identity)
+    return node_info, worker_metadata
+
+
 def get_available_cpu_gpu_resources(
     init_and_shutdown: bool = False, ignore_head_node: bool = False
 ) -> tuple[int, int]:
     """Get available CPU and GPU resources from Ray."""
     if init_and_shutdown:
         ray.init(ignore_reinit_error=True)
-    time.sleep(0.2)  # ray.available_resources() returns might have a lag
-    # available resources can be different from total resources, however curator assumes
-    # entire cluster is available for use and only one pipeline is being run at a time.
-    # therefore available resources should match total resources.
+    time.sleep(0.2)  # ray.available_resources() can lag
+    # Curator assumes the whole cluster is free (one pipeline at a time), so
+    # available resources should match total resources.
     available_resources = ray.available_resources()
     available_cpus = available_resources.get("CPU", 0)
     available_gpus = available_resources.get("GPU", 0)
@@ -175,12 +166,10 @@ def get_available_cpu_gpu_resources(
 
 
 def check_total_gpu_capacity(gpus_needed: int, *, ignore_head_node: bool = False) -> None:
-    """Raise if the cluster doesn't have enough GPUs to satisfy aggregate demand.
+    """Raise if the cluster lacks enough GPUs for aggregate demand.
 
-    Intended as a coarse pre-check before submitting placement groups: Ray's
-    PG scheduler can hang indefinitely on ``pg.ready()`` when demand exceeds
-    capacity, so a fast, explicit error with the actual numbers is friendlier
-    than waiting on a timeout.
+    Coarse pre-check: Ray's placement-group scheduler can hang on ``pg.ready()``
+    when demand exceeds capacity, so fail fast with the actual numbers.
     """
     _, available_gpus = get_available_cpu_gpu_resources(ignore_head_node=ignore_head_node)
     available = int(available_gpus)
@@ -191,13 +180,11 @@ def check_total_gpu_capacity(gpus_needed: int, *, ignore_head_node: bool = False
 
 @ray.remote
 def _setup_stage_on_node(stage: ProcessingStage) -> None:
-    """Ray remote function to execute setup_on_node for a stage.
+    """Run ``setup_on_node`` for a stage as a Ray task.
 
-    This runs as a Ray remote task (not an actor).
-    vLLM's auto-detection only forces the spawn multiprocessing method inside Ray actors,
-    not in Ray tasks. Without this override, vLLM defaults to fork in tasks and hits
-    RuntimeError: Cannot re-initialize CUDA in forked subprocess.
-    We explicitly set the environment variable to spawn to prevent this.
+    Force vLLM's spawn method: it auto-sets spawn only inside Ray actors, not
+    tasks, so without this fork would hit "Cannot re-initialize CUDA in forked
+    subprocess".
     """
     os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
     node_id = ray.get_runtime_context().get_node_id()
@@ -207,10 +194,9 @@ def _setup_stage_on_node(stage: ProcessingStage) -> None:
 def execute_setup_on_node(stages: list[ProcessingStage], ignore_head_node: bool = False) -> None:
     """Execute ``setup_on_node`` for every stage on every alive Ray node.
 
-    All ``(stage, node)`` setup tasks are submitted up front and awaited with a single
-    ``ray.get``, so total wall-clock time is bounded by the slowest stage rather than
-    the sum of per-stage times — important when setup is heavy (model downloads, weight
-    loads) and stages don't contend for the same resources.
+    All ``(stage, node)`` tasks are submitted up front and awaited with one
+    ``ray.get``, so wall-clock time is bounded by the slowest stage (matters when
+    setup is heavy: model downloads, weight loads).
     """
     head_node_id = get_head_node_id() if ignore_head_node else None
     for node in ray.nodes():
@@ -223,13 +209,14 @@ def execute_setup_on_node(stages: list[ProcessingStage], ignore_head_node: bool 
 
     refs: list = []
     for stage in stages:
+        setup_resources = stage.setup_on_node_resources()
         refs.extend(
             submit_on_each_node(
                 _setup_stage_on_node,
                 stage,
                 ignore_head_node=ignore_head_node,
-                num_cpus=stage.resources.cpus if stage.resources is not None else 1,
-                num_gpus=stage.resources.gpus if stage.resources is not None else 0,
+                num_cpus=setup_resources.cpus,
+                num_gpus=setup_resources.gpus,
             )
         )
     ray.get(refs)

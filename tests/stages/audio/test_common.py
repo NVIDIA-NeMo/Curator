@@ -11,11 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ruff: noqa: ANN001, ANN202, C901
 
 """Tests for common audio stages: GetAudioDurationStage, PreserveByValueStage,
 ManifestReaderStage, ManifestReader, and ManifestWriterStage."""
 
 import json
+import sys
 from pathlib import Path
 from unittest import mock
 
@@ -38,7 +40,7 @@ from nemo_curator.stages.audio.common import (
     resolve_model_path,
     resolve_waveform_from_item,
 )
-from nemo_curator.tasks import AudioTask, FileGroupTask
+from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
 from tests import FIXTURES_DIR
 
 ALM_FIXTURES_DIR = FIXTURES_DIR / "audio" / "alm"
@@ -46,6 +48,12 @@ ALM_FIXTURES_DIR = FIXTURES_DIR / "audio" / "alm"
 
 def _make_file_group_task(paths: list[str]) -> FileGroupTask:
     return FileGroupTask(dataset_name="test", data=paths)
+
+
+def _audio_task_with_id(task_id: str, **kwargs) -> AudioTask:
+    task = AudioTask(**kwargs)
+    task.task_id = task_id
+    return task
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +180,29 @@ class TestManifestReaderStage:
         assert all(isinstance(r, AudioTask) for r in result)
         assert result[0].data["audio_filepath"] == "a.wav"
         assert result[1].data["audio_filepath"] == "b.wav"
+        assert "_shard_total" not in result[0]._metadata
+        assert "_shard_key" not in result[0]._metadata
+
+    def test_uses_storage_options_when_opening_manifest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        manifest = tmp_path / "input.jsonl"
+        manifest.write_text(json.dumps({"audio_filepath": "a.wav", "segments": []}))
+        seen_kwargs: list[dict] = []
+
+        class _LocalFS:
+            def open(self, path: str, mode: str, encoding: str | None = None):
+                return open(path, mode, encoding=encoding)
+
+        def fake_url_to_fs(path: str, **kwargs):
+            seen_kwargs.append(kwargs)
+            return _LocalFS(), path
+
+        monkeypatch.setattr("nemo_curator.stages.audio.common.url_to_fs", fake_url_to_fs)
+
+        stage = ManifestReaderStage(storage_options={"profile": "private"})
+        result = stage.process(_make_file_group_task([str(manifest)]))
+
+        assert len(result) == 1
+        assert seen_kwargs == [{"profile": "private"}]
 
     def test_worker_defaults(self) -> None:
         stage = ManifestReaderStage()
@@ -190,6 +221,8 @@ class TestManifestReaderStage:
         assert len(result) == 2
         paths = [r.data["audio_filepath"] for r in result]
         assert paths == ["a.wav", "b.wav"]
+        assert all("_shard_total" not in r._metadata for r in result)
+        assert all("_shard_key" not in r._metadata for r in result)
 
     def test_one_audio_entry_per_line(self, tmp_path: Path) -> None:
         entries = [{"audio_filepath": f"{i}.wav", "segments": []} for i in range(5)]
@@ -259,6 +292,229 @@ class TestManifestReaderStage:
 
         assert len(result) == 3
         assert all(r.data["audio_filepath"] == "a.wav" for r in result)
+        assert all("_shard_total" not in r._metadata for r in result)
+        assert all("_shard_key" not in r._metadata for r in result)
+
+
+class TestManifestReaderGlobalBucketing:
+    """Unit tests for the metadata-global segment manifest planner."""
+
+    @pytest.fixture(autouse=True)
+    def _fake_parent_store_ray(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _RemoteMethod:
+            def __init__(self, fn):
+                self._fn = fn
+
+            def remote(self, *args, **kwargs):
+                return self._fn(*args, **kwargs)
+
+        class _Actor:
+            def __init__(self):
+                self._parents = {}
+                self.put_many = _RemoteMethod(self._put_many)
+
+            def _put_many(self, items):
+                self._parents.update(items)
+                return len(items)
+
+        class _RemoteFactory:
+            def __init__(self, ray_module):
+                self._ray_module = ray_module
+
+            def options(self, **_kwargs):
+                return self
+
+            def remote(self):
+                self._ray_module.actor = _Actor()
+                return self._ray_module.actor
+
+        class _RayModule:
+            def __init__(self):
+                self.actor = None
+
+            @staticmethod
+            def is_initialized():  # noqa: ANN205
+                return True
+
+            def get_actor(self, *_args, **_kwargs):
+                if self.actor is None:
+                    raise ValueError
+                return self.actor
+
+            def remote(self, _cls):
+                return _RemoteFactory(self)
+
+            @staticmethod
+            def get(value):  # noqa: ANN205
+                return value
+
+        monkeypatch.setitem(sys.modules, "ray", _RayModule())
+
+    @staticmethod
+    def _write_manifest(tmp_path: Path, entries: list[dict]) -> Path:
+        manifest = tmp_path / "input.jsonl"
+        manifest.write_text("\n".join(json.dumps(entry) for entry in entries))
+        return manifest
+
+    def test_disabled_uses_regular_streaming_reader_decomposition(self, tmp_path: Path) -> None:
+        manifest = self._write_manifest(
+            tmp_path,
+            [
+                {"audio_filepath": "a.wav", "duration": 10.0},
+                {"audio_filepath": "b.wav", "duration": 130.0},
+                {"audio_filepath": "c.wav", "duration": 40.0},
+            ],
+        )
+        reader = ManifestReader(
+            manifest_path=str(manifest),
+            enable_global_bucketing=False,
+            max_inference_duration_s=60.0,
+            buckets_sec=[0.0, 30.0, 60.0],
+            max_items_per_batch_by_bucket=[4, 4, 4],
+        )
+
+        stages = reader.decompose()
+        partitioned = stages[0].process(EmptyTask())
+        result = stages[1].process(partitioned[0])
+
+        assert len(stages) == 2
+        assert isinstance(stages[1], ManifestReaderStage)
+        assert [task.data["audio_filepath"] for task in result] == ["a.wav", "b.wav", "c.wav"]
+        assert all("_curator_global_plan_order" not in task._metadata for task in result)
+        assert "_curator_global_plan_order" not in result[0].data
+
+    def test_enabled_uses_full_manifest_segment_plan(self, tmp_path: Path) -> None:
+        manifest = self._write_manifest(
+            tmp_path,
+            [
+                {"audio_filepath": "short.wav", "duration": 10.0},
+                {"audio_filepath": "long_a.wav", "duration": 70.0},
+                {"audio_filepath": "long_b.wav", "duration": 130.0},
+                {"audio_filepath": "mid.wav", "duration": 40.0},
+            ],
+        )
+        reader = ManifestReader(
+            manifest_path=str(manifest),
+            enable_global_bucketing=True,
+            owner_stage="qwen_omni",
+            max_inference_duration_s=60.0,
+            buckets_sec=[0.0, 30.0, 60.0],
+            max_items_per_batch_by_bucket=[4, 4, 4],
+            annotate_segment_plan=True,
+        )
+
+        [stage] = reader.decompose()
+        result = stage.process(EmptyTask())
+
+        assert all(isinstance(task, AudioTask) for task in result)
+        assert len(result) == 7
+        assert [task._metadata["_curator_global_plan_order"] for task in result] == list(range(7))
+        assert result[0]._metadata["_curator_global_owner_stage"] == "qwen_omni"
+        long_b_segments = [task for task in result if task.data["audio_filepath"] == "long_b.wav"]
+        assert len(long_b_segments) == 3
+        assert [
+            task.data["_curator_segment_idx"]
+            for task in sorted(long_b_segments, key=lambda t: t.data["_curator_segment_idx"])
+        ] == [0, 1, 2]
+        assert [
+            task.data["segment_duration_s"]
+            for task in sorted(long_b_segments, key=lambda t: t.data["_curator_segment_idx"])
+        ] == [60.0, 60.0, 10.0]
+        assert [
+            task.data["segment_start_s"]
+            for task in sorted(long_b_segments, key=lambda t: t.data["_curator_segment_idx"])
+        ] == [0.0, 60.0, 120.0]
+        assert all(task.data["duration"] == task.data["segment_duration_s"] for task in result)
+        assert all("_curator_segment_parent_id" in task.data for task in result)
+        segment_plan = long_b_segments[0]._metadata["_curator_global_plan_segment_boundaries"]
+        assert [segment["duration_s"] for segment in segment_plan] == [60.0, 60.0, 10.0]
+        assert [segment["bucket_id"] for segment in segment_plan] == [2, 2, 0]
+
+    def test_enabled_emits_slim_segment_rows_with_configured_inputs(self, tmp_path: Path) -> None:
+        manifest = self._write_manifest(
+            tmp_path,
+            [
+                {
+                    "audio_filepath": "long.wav",
+                    "duration": 70.0,
+                    "source_lang": "en",
+                    "text_prompt": "transcribe this",
+                    "speaker_id": "speaker-a",
+                },
+            ],
+        )
+        reader = ManifestReader(
+            manifest_path=str(manifest),
+            enable_global_bucketing=True,
+            owner_stage="qwen_omni",
+            max_inference_duration_s=60.0,
+            buckets_sec=[0.0, 30.0, 60.0],
+            max_items_per_batch_by_bucket=[4, 4, 4],
+            segment_input_keys=["audio_filepath", "text_prompt"],
+        )
+
+        [stage] = reader.decompose()
+        result = stage.process(EmptyTask())
+
+        assert len(result) == 2
+        for task in result:
+            assert task.data["audio_filepath"] == "long.wav"
+            assert task.data["text_prompt"] == "transcribe this"
+            assert task.data["_curator_segment_input_keys"] == ("audio_filepath", "text_prompt")
+            assert "source_lang" not in task.data
+            assert "speaker_id" not in task.data
+            assert task.data["duration"] == task.data["segment_duration_s"]
+        assert stage._parent_store_actor._parents["0:0:0"]["speaker_id"] == "speaker-a"
+
+    def test_enabled_propagates_storage_options_to_global_manifest_open(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manifest = self._write_manifest(tmp_path, [{"audio_filepath": "a.wav", "duration": 10.0}])
+        seen_kwargs: list[dict] = []
+
+        class _LocalFS:
+            def open(self, path: str, mode: str, encoding: str | None = None):
+                return open(path, mode, encoding=encoding)
+
+        def fake_url_to_fs(path: str, **kwargs):
+            seen_kwargs.append(kwargs)
+            return _LocalFS(), path
+
+        monkeypatch.setattr("nemo_curator.stages.audio.common.url_to_fs", fake_url_to_fs)
+        reader = ManifestReader(
+            manifest_path=str(manifest),
+            storage_options={"profile": "private"},
+            enable_global_bucketing=True,
+            owner_stage="qwen_omni",
+            buckets_sec=[0.0, 30.0],
+            max_items_per_batch_by_bucket=[1, 1],
+        )
+
+        [stage] = reader.decompose()
+        result = stage.process(EmptyTask())
+
+        assert len(result) == 1
+        assert isinstance(result[0], AudioTask)
+        assert seen_kwargs == [{"profile": "private"}]
+
+    def test_enabled_rejects_non_positive_ready_batch_count(self, tmp_path: Path) -> None:
+        manifest = self._write_manifest(
+            tmp_path,
+            [{"audio_filepath": "a.wav", "duration": 60.0}],
+        )
+        reader = ManifestReader(
+            manifest_path=str(manifest),
+            enable_global_bucketing=True,
+            owner_stage="qwen_omni",
+            buckets_sec=[0.0, 30.0],
+            max_items_per_batch_by_bucket=[1, 1],
+            target_ready_batches_per_bucket=0,
+        )
+
+        with pytest.raises(ValueError, match="target_ready_batches_per_bucket must be > 0"):
+            reader.decompose()
 
 
 class TestManifestReaderDirectory:
@@ -370,7 +626,7 @@ class TestManifestWriterStage:
 
     def test_writes_entry_to_jsonl(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
-        writer = ManifestWriterStage(output_path=str(out))
+        writer = ManifestWriterStage(output_path=str(out), write_perf_stats=False)
         writer.setup_on_node()
         writer.setup()
 
@@ -399,7 +655,7 @@ class TestManifestWriterStage:
 
     def test_propagates_metadata_and_stage_perf(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
-        writer = ManifestWriterStage(output_path=str(out))
+        writer = ManifestWriterStage(output_path=str(out), write_perf_stats=False)
         writer.setup_on_node()
         writer.setup()
 
@@ -429,6 +685,61 @@ class TestManifestWriterStage:
         lines = out.read_text().strip().split("\n")
         assert len(lines) == 3
         assert [json.loads(line)["entry"] for line in lines] == [1, 2, 3]
+
+    def test_process_batch_drops_waveform_and_array_like_keys(self, tmp_path: Path) -> None:
+        out = tmp_path / "output.jsonl"
+        writer = ManifestWriterStage(
+            output_path=str(out),
+            write_perf_stats=False,
+            drop_manifest_keys=("waveform",),
+            drop_array_like_values=True,
+        )
+        writer.setup_on_node()
+        writer.setup()
+
+        returned = writer.process_batch(
+            [
+                _audio_task_with_id(
+                    "t1",
+                    data={
+                        "audio_filepath": "a.wav",
+                        "duration": 1.0,
+                        "waveform": torch.zeros(1, 16000),
+                        "embedding": np.zeros(4, dtype=np.float32),
+                        "text": "hello",
+                    },
+                ),
+                _audio_task_with_id("t2", data={"audio_filepath": "b.wav", "duration": 2.0}),
+            ]
+        )
+
+        rows = [json.loads(line) for line in out.read_text().splitlines()]
+        assert [row["audio_filepath"] for row in rows] == ["a.wav", "b.wav"]
+        assert "waveform" not in rows[0]
+        assert "embedding" not in rows[0]
+        assert rows[0]["text"] == "hello"
+        assert [task.task_id for task in returned] == ["", ""]
+
+    def test_writes_perf_summary_during_process_batch(self, tmp_path: Path) -> None:
+        out = tmp_path / "output.jsonl"
+        writer = ManifestWriterStage(output_path=str(out), write_perf_stats=True)
+        writer.setup_on_node()
+        writer.setup()
+
+        writer.process_batch(
+            [
+                _audio_task_with_id("t1", data={"audio_filepath": "a.wav", "duration": 1.0}),
+                _audio_task_with_id("t2", data={"audio_filepath": "b.wav", "duration": 2.0}),
+            ]
+        )
+
+        summary = json.loads((tmp_path / "perf_summary.json").read_text(encoding="utf-8"))
+        assert summary["total_utterances"] == 2
+        assert summary["total_audio_seconds"] == 3.0
+        writer_summary = summary["stages"]["manifest_writer"]
+        assert writer_summary["total_items_processed"] == 2.0
+        assert writer_summary["invocation_count"] == 1.0
+        assert writer_summary["custom_metrics_sum"]["writer_items_processed"] == 2.0
 
     def test_setup_truncates_existing_file(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"

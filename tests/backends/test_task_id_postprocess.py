@@ -18,14 +18,21 @@ The happy-path flow (fan-out, 1:1, source content ids) is exercised
 end-to-end against real backends in tests/backends/test_integration.py
 (``test_task_ids``). This file keeps only the cases that are awkward or
 impossible to trigger through a real pipeline: filter-``None`` positional
-alignment, the ambiguous-cardinality ``"r"``-uuid fallback, in-place
-re-derivation, and source content-id vs. positional-index selection."""
+alignment, the ambiguous-cardinality ``"r"``-uuid fallback, preservation of
+    framework overwrite semantics, and source content-id selection."""
 
 from dataclasses import dataclass
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.pipeline.payload_refs import PayloadRef
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import EmptyTask, FileGroupTask, Task
+from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask, Task
+from nemo_curator.tasks.task_terminals import (
+    TERMINAL_COUNT_KEY,
+    TERMINAL_DROPPED_KEY,
+    TERMINAL_GROUP_ID_KEY,
+    TERMINAL_INDEX_KEY,
+)
 
 
 @dataclass
@@ -39,6 +46,27 @@ class _NoopStage(ProcessingStage[Task, Task]):
         return [], []
 
     def process(self, task: Task) -> Task:
+        return task
+
+
+@dataclass
+class _DropSegmentRowStage(ProcessingStage[AudioTask, AudioTask]):
+    name: str = "drop_segment_row"
+    skip_me_key: str = "_skip_me"
+    _curator_preserves_terminal_tasks: bool = True
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def terminal_tombstone_drop_data_keys(self) -> tuple[str, ...]:
+        return ("large_payload",)
+
+    def process(self, task: AudioTask) -> AudioTask | None:
+        if task.data.get("drop"):
+            return None
         return task
 
 
@@ -77,8 +105,6 @@ class TestPostProcessTaskIds:
         assert c2.task_id == "0_2_0"  # child of p2, not p1
 
     def test_in_place_return_is_reassigned(self) -> None:
-        # A 1:1 stage that returns its input unchanged still gets a fresh
-        # segment appended (ids are re-derived at each stage boundary).
         t = _task("0_5")
         out = _assign([t], [t])
         assert out == [t]
@@ -97,11 +123,86 @@ class TestPostProcessTaskIds:
         assert all(t.task_id.startswith("r") for t in out)
         assert all("_" not in t.task_id for t in out)
 
+    def test_dropped_segment_row_is_preserved_as_tombstone(self) -> None:
+        keep = AudioTask(
+            dataset_name="d",
+            data={
+                "_curator_segment_parent_id": "manifest:0:0",
+                "_curator_segment_idx": 0,
+                "_curator_segment_count": 2,
+            },
+        )
+        drop = AudioTask(
+            dataset_name="d",
+            data={
+                "drop": True,
+                "large_payload": object(),
+                "payload_ref": PayloadRef(
+                    payload_id="p",
+                    owner_node_id="node",
+                    store_actor_name="store",
+                    admission_actor_name="admission",
+                    amount_bytes=1,
+                    sample_rate=16000,
+                    num_samples=1,
+                ),
+                "_curator_segment_parent_id": "manifest:0:0",
+                "_curator_segment_idx": 1,
+                "_curator_segment_count": 2,
+            },
+        )
+        keep.task_id = "0_0"
+        drop.task_id = "0_1"
+
+        out = BaseStageAdapter(_DropSegmentRowStage()).process_batch([keep, drop])
+
+        assert len(out) == 2
+        assert out[0] is keep
+        tombstone = out[1]
+        assert tombstone.data["_skip_me"] == "dropped_segment_row"
+        assert tombstone.data["_curator_segment_dropped"] is True
+        assert tombstone.data["_curator_segment_idx"] == 1
+        assert "large_payload" not in tombstone.data
+        assert "payload_ref" not in tombstone.data
+        assert tombstone.task_id == "0_1_0"
+
+    def test_dropped_generic_terminal_row_is_preserved_as_tombstone(self) -> None:
+        keep = AudioTask(
+            dataset_name="d",
+            data={
+                TERMINAL_GROUP_ID_KEY: "parent-0",
+                TERMINAL_INDEX_KEY: 0,
+                TERMINAL_COUNT_KEY: 2,
+            },
+        )
+        drop = AudioTask(
+            dataset_name="d",
+            data={
+                "drop": True,
+                "large_payload": object(),
+                TERMINAL_GROUP_ID_KEY: "parent-0",
+                TERMINAL_INDEX_KEY: 1,
+                TERMINAL_COUNT_KEY: 2,
+            },
+        )
+        keep.task_id = "0_0"
+        drop.task_id = "0_1"
+
+        out = BaseStageAdapter(_DropSegmentRowStage()).process_batch([keep, drop])
+
+        assert len(out) == 2
+        tombstone = out[1]
+        assert tombstone.data["_skip_me"] == "dropped_segment_row"
+        assert tombstone.data[TERMINAL_DROPPED_KEY] is True
+        assert "_curator_segment_dropped" not in tombstone.data
+        assert "large_payload" not in tombstone.data
+        assert tombstone.task_id == "0_1_0"
+
 
 class TestSourceStage:
     def test_uses_content_id_rooted_at_input(self) -> None:
-        # FileGroupTask.get_deterministic_id() hashes its files; the source
-        # output is rooted at the EmptyTask input id "0" → "0_<content_id>".
+        # FileGroupTask.get_deterministic_id() hashes its files; output with no
+        # content ids are rooted at the framework EmptyTask id.
         empty = EmptyTask(dataset_name="empty", data=None)
         a = FileGroupTask(dataset_name="d", data=["a.parquet"])
         b = FileGroupTask(dataset_name="d", data=["b.parquet"])
