@@ -28,6 +28,8 @@ yaml.preserve_quotes = True
 # Fallbacks used only when nightly-benchmark.yaml omits the corresponding key; the YAML config
 # is the source of truth for these timeout knobs.
 DEFAULT_TIMEOUT_S = 7200  # mirrors Session.default_timeout_s in runner/session.py
+# Slurm caps CI jobs at 4h, so this default leaves room for the 60s cleanup buffer.
+DEFAULT_MAX_TIMEOUT_S = 14340  # mirrors Session.max_timeout_s in runner/session.py
 DEFAULT_CLEANUP_TIMEOUT_S = 60
 DEFAULT_MIN_TIMEOUT_S = 600
 
@@ -70,7 +72,14 @@ def session_name_from_env(env: Mapping[str, str] = os.environ) -> str | None:
     return None
 
 
-def generate_job(entry: dict, scope: str, default_timeout_s: int, cleanup_timeout_s: int, min_timeout_s: int) -> dict:
+def generate_job(  # noqa: PLR0913
+    entry: dict,
+    scope: str,
+    default_timeout_s: int,
+    cleanup_timeout_s: int,
+    min_timeout_s: int,
+    max_timeout_s: int,
+) -> dict:
     """
     Generate a GitLab CI job for a single benchmark entry.
 
@@ -80,14 +89,20 @@ def generate_job(entry: dict, scope: str, default_timeout_s: int, cleanup_timeou
         default_timeout_s: Timeout used for entries that omit "timeout_s"
         cleanup_timeout_s: Buffer added on top of every entry's timeout for post-run cleanup
         min_timeout_s: Floor on the generated job time to cover container setup overhead
+        max_timeout_s: Maximum allowed effective entry timeout before cleanup time is added
 
     Returns:
         job: Dictionary defining the GitLab CI job
     """
     ray = entry.get("ray", {})
+    entry_timeout_s = entry.get("timeout_s", default_timeout_s)
+    if entry_timeout_s > max_timeout_s:
+        msg = f"Entry '{entry['name']}' has timeout_s={entry_timeout_s}, which exceeds max_timeout_s={max_timeout_s}"
+        raise ValueError(msg)
+
     # SLURM wall-clock = entry's effective timeout + a fixed cleanup buffer, floored at
     # min_timeout_s so short entries get enough time for container setup before their run starts.
-    timeout_s = max(entry.get("timeout_s", default_timeout_s) + cleanup_timeout_s, min_timeout_s)
+    timeout_s = max(entry_timeout_s + cleanup_timeout_s, min_timeout_s)
     time_str = seconds_to_time(timeout_s)
 
     return {
@@ -124,6 +139,7 @@ def generate_pipeline(curator_dir: str, scope: str, session_name: str | None = N
     default_timeout_s = config.get("default_timeout_s", DEFAULT_TIMEOUT_S)
     cleanup_timeout_s = config.get("cleanup_timeout_s", DEFAULT_CLEANUP_TIMEOUT_S)
     min_timeout_s = config.get("min_timeout_s", DEFAULT_MIN_TIMEOUT_S)
+    max_timeout_s = config.get("max_timeout_s", DEFAULT_MAX_TIMEOUT_S)
 
     pipeline = {
         "include": ["curator/curator_ci_template.yml"],
@@ -137,7 +153,9 @@ def generate_pipeline(curator_dir: str, scope: str, session_name: str | None = N
         if not entry.get("enabled", True):
             continue
 
-        pipeline[entry["name"]] = generate_job(entry, scope, default_timeout_s, cleanup_timeout_s, min_timeout_s)
+        pipeline[entry["name"]] = generate_job(
+            entry, scope, default_timeout_s, cleanup_timeout_s, min_timeout_s, max_timeout_s
+        )
         job_count += 1
 
     if job_count == 0:

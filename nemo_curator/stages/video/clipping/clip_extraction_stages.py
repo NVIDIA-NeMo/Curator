@@ -38,7 +38,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     software (libx264, libopenh264) and hardware (NVENC) encoding with configurable parameters.
 
     Args:
-        num_cpus_per_worker: Number of CPUs per worker.
+        num_cpus_per_worker: Number of CPUs per worker for Xenna scheduling. Does not affect Ray Data CPU scheduling; use ray_data_num_cpus for that.
         encoder: Video encoder to use.
         encoder_threads: Number of threads per encoder.
         encode_batch_size: Number of clips to encode in parallel.
@@ -48,6 +48,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         num_clips_per_chunk: Number of clips per chunk. If the number of clips is larger than this, the clips will be split into chunks, and created VideoTasks for each chunk.
         verbose: Whether to print verbose logs.
         ffmpeg_verbose: Whether to print FFmpeg verbose logs.
+        ray_data_num_cpus: CPU cores reserved per Ray Data actor for this stage. Defaults to 1.0 on the CPU encoder path to enable stage fusion with upstream stages. Set to None to fall back to resources.cpus. Does not affect Xenna scheduling.
     """
 
     num_cpus_per_worker: float = 6.0
@@ -61,6 +62,9 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     ffmpeg_verbose: bool = False
     verbose: bool = False
     name: str = "clip_transcoding"
+    ray_data_num_cpus: float | None = (
+        None  # CPU reservation for Ray Data scheduler; set to 1.0 on CPU path to enable stage fusion
+    )
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Setup method called once before processing begins.
@@ -83,6 +87,11 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                 self.resources = Resources(gpus=1)
         else:
             self.resources = Resources(cpus=self.num_cpus_per_worker)
+            if self.ray_data_num_cpus is None:
+                # Default to 1.0 so Ray Data fuses this stage with VideoReaderStage
+                # and FixedStrideExtractorStage. Kept separate from resources.cpus
+                # so Xenna scheduling is unaffected.
+                self.ray_data_num_cpus = 1.0
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["source_bytes"]
@@ -92,9 +101,10 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""
-        return {
-            RayStageSpecKeys.IS_FANOUT_STAGE: True,
-        }
+        spec: dict[str, Any] = {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+        if self.ray_data_num_cpus is not None:
+            spec[RayStageSpecKeys.RAY_NUM_CPUS] = self.ray_data_num_cpus
+        return spec
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
