@@ -61,8 +61,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_path="./results/ExactDuplicateIds",
     output_path="./deduplicated",
     input_filetype="parquet",
-    input_id_field="_curator_dedup_id",
-    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    id_field="_curator_dedup_id",
+    duplicate_id_field="_curator_dedup_id",
     id_generator_path="./results/exact_id_generator.json"
 )
 result = removal_workflow.run()
@@ -81,12 +81,15 @@ Configure exact deduplication using these key parameters:
 | `assign_id` | bool | True | Whether to automatically assign unique IDs |
 | `id_field` | str \| None | None | Existing ID field name (if assign_id=False) |
 | `input_filetype` | str | "parquet" | Input file format ("parquet" or "jsonl") |
+| `input_file_extensions` | list[str] \| None | None | Extensions to discover. `None` or `[]` uses `[".parquet"]` for Parquet and `[".jsonl", ".json"]` for JSONL. A non-empty list replaces those defaults. |
 | `input_blocksize` | str \| int | "2GiB" | Size of input blocks for processing |
 | `identification_batchsize` | int | 1 | Number of input blocks to concatenate and insert into the shuffler per call. Higher values increase GPU throughput at the cost of memory. For example, `input_blocksize="256MiB"` with `identification_batchsize=4` processes ~1 GB per call. |
 | `perform_removal` | bool | False | Reserved; must remain `False`. Exact removal is performed with `TextDuplicatesRemovalWorkflow`. |
 | `total_nparts` | int \| None | None | Total number of output partitions. If `None`, defaults to one-third of the number of input tasks. |
 | `rmm_pool_size` | int \| "auto" \| None | "auto" | RMM GPU memory pool size in bytes. `"auto"` uses 90% of free GPU memory; `None` uses 50% with dynamic expansion. |
 | `spill_memory_limit` | int \| "auto" \| None | "auto" | Device memory spill-to-host limit in bytes. `"auto"` sets the limit to 80% of the RMM pool size; `None` disables spilling. When `rmm_pool_size` is `None`, `"auto"` also resolves to no spilling. |
+
+For recursive discovery behavior, custom suffix examples, and supported formats, see [Input File Discovery](/curate-text/process-data/deduplication#input-file-discovery).
 
 ## Removing Duplicates
 
@@ -104,8 +107,9 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_path="/path/to/output/ExactDuplicateIds",
     output_path="/path/to/deduplicated",
     input_filetype="parquet",
-    input_id_field="_curator_dedup_id",
-    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    # Set input_file_extensions here too if identification used a custom suffix.
+    id_field="_curator_dedup_id",
+    duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/output/exact_id_generator.json"  # Required if assign_id=True
 )
 result = removal_workflow.run()
@@ -116,13 +120,13 @@ result = removal_workflow.run()
 **When `assign_id=True`**:
 
 - Duplicate IDs file contains `_curator_dedup_id` column
-- Set `ids_to_remove_duplicate_id_field="_curator_dedup_id"`
+- Set `duplicate_id_field="_curator_dedup_id"`
 - `id_generator_path` is required
 
 **When `assign_id=False`**:
 
 - Duplicate IDs file contains the column specified by `id_field` (e.g., `"id"`)
-- Set `ids_to_remove_duplicate_id_field` to match your `id_field` value
+- Set `duplicate_id_field` to match the ID column written by the identification workflow
 - `id_generator_path` not required
 </Accordion>
 

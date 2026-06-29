@@ -204,6 +204,63 @@ advanced
 
 ## Common Operations
 
+### Input File Discovery
+
+The exact, fuzzy, semantic, and duplicate-removal workflows use `input_filetype` to select both the reader and the default file extensions. When `input_file_extensions` is omitted, the workflows discover these files:
+
+| `input_filetype` | Default `input_file_extensions` | Files discovered |
+| --- | --- | --- |
+| `"parquet"` | `[".parquet"]` | Parquet files only |
+| `"jsonl"` | `[".jsonl", ".json"]` | JSON Lines files that use either suffix |
+
+Only `"parquet"` and `"jsonl"` are supported by these deduplication workflows. Other file types are rejected rather than falling back to the generic file partitioner defaults.
+
+`input_file_extensions` follows these rules:
+
+- `None` uses the defaults for `input_filetype`.
+- A non-empty list replaces the defaults. Extensions can include or omit the leading dot and matching is case-insensitive.
+- An empty list behaves like `None`; it does not disable file discovery.
+- The extension selects files, but `input_filetype` still selects the reader. For example, `input_file_extensions=[".pq"]` with `input_filetype="parquet"` reads `.pq` files as Parquet.
+
+For a single directory string, file discovery includes all nested subdirectories. For workflows that accept a list of input paths, each listed directory is scanned only at its top level; list individual files or directories when you do not want recursive discovery. Extension filtering also applies when an input path names a file directly.
+
+<Tabs>
+<Tab title="JSONL defaults">
+
+```python
+from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
+
+workflow = ExactDeduplicationWorkflow(
+    input_path="input_data/",
+    output_path="results/",
+    input_filetype="jsonl",
+)
+# Discovers input_data/**/*.jsonl and input_data/**/*.json.
+```
+
+</Tab>
+<Tab title="Custom Parquet suffix">
+
+```python
+from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
+
+workflow = FuzzyDeduplicationWorkflow(
+    input_path="input_data/",
+    cache_path="cache/",
+    output_path="results/",
+    input_filetype="parquet",
+    input_file_extensions=[".pq"],
+)
+# Discovers input_data/**/*.pq and reads each file as Parquet.
+```
+
+</Tab>
+</Tabs>
+
+Use the same `input_filetype`, `input_file_extensions`, input paths, and partitioning settings for identification and `TextDuplicatesRemovalWorkflow` when IDs are generated from input partitions. Changing file discovery or partition boundaries can change generated IDs and prevent removal from resolving them.
+
+When you supply prebuilt `initial_tasks`, the workflow skips file discovery. In that mode, input-path, extension, and partitioning options do not change the supplied tasks.
+
 ### Document IDs
 
 Duplicate removal workflows require stable document identifiers. Choose one approach:
@@ -226,8 +283,8 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
     ids_to_remove_path="/path/to/duplicates",  # ExactDuplicateIds/, FuzzyDuplicateIds/, or duplicates/
     output_path="/path/to/clean",
     input_filetype="parquet",
-    input_id_field="_curator_dedup_id",
-    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    id_field="_curator_dedup_id",
+    duplicate_id_field="_curator_dedup_id",
     id_generator_path="/path/to/id_generator.json"  # Required when IDs were auto-assigned
 )
 result = removal_workflow.run()
@@ -236,16 +293,28 @@ result = removal_workflow.run()
 
 <Accordion title="ID Field Configuration">
 
+The removal workflow uses the same file-discovery rules as identification. If identification used a custom suffix, pass the same override when removing duplicates:
+
+```python
+removal_workflow = TextDuplicatesRemovalWorkflow(
+    input_path="/path/to/input",
+    ids_to_remove_path="/path/to/duplicates",
+    output_path="/path/to/clean",
+    input_filetype="parquet",
+    input_file_extensions=[".pq"],
+)
+```
+
 **When `assign_id=True`** (IDs auto-assigned):
 
 - Duplicate IDs file contains `_curator_dedup_id` column
-- Set `ids_to_remove_duplicate_id_field="_curator_dedup_id"`
+- Set `duplicate_id_field="_curator_dedup_id"`
 - `id_generator_path` is required
 
 **When `assign_id=False`** (using existing IDs):
 
 - Duplicate IDs file contains the column specified by `id_field` (e.g., `"id"`)
-- Set `ids_to_remove_duplicate_id_field` to match your `id_field` value
+- Set `duplicate_id_field` to match the ID column written by the identification workflow
 - `id_generator_path` not required
 </Accordion>
 
