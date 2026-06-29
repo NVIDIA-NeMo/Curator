@@ -46,36 +46,11 @@ def _get_named_actor(name: str, namespace: str | None = None) -> Any:
     return ray.get_actor(name)
 
 
-def resolve_payload_ref(payload_ref: PayloadRef) -> Any:
-    heartbeat_payload_ref(payload_ref)
-    store = _get_named_actor(payload_ref.store_actor_name, payload_ref.actor_namespace)
-    return _ray_get(store.get.remote(payload_ref.payload_id, payload_ref.lease_ttl_s))
-
-
-def heartbeat_payload_ref(payload_ref: PayloadRef) -> None:
-    admission = _get_named_actor(payload_ref.admission_actor_name, payload_ref.actor_namespace)
-    if not _ray_get(
-        admission.heartbeat.remote(
-            payload_ref.owner_node_id,
-            payload_ref.payload_id,
-            payload_ref.lease_ttl_s,
-        )
-    ):
-        raise KeyError(
-            f"Payload admission lease {payload_ref.payload_id} is no longer present in "
-            f"{payload_ref.admission_actor_name}"
-        )
-    store = _get_named_actor(payload_ref.store_actor_name, payload_ref.actor_namespace)
-    if not _ray_get(store.pin.remote(payload_ref.payload_id, payload_ref.lease_ttl_s)):
-        raise KeyError(f"Payload {payload_ref.payload_id} is no longer present in {payload_ref.store_actor_name}")
-
-
 def heartbeat_payload_refs_batched(payload_refs: Sequence[PayloadRef]) -> None:
     """Refresh payload leases with one RPC per admission/store actor.
 
-    The singular :func:`heartbeat_payload_ref` contract remains unchanged for
-    existing callers. This opt-in batched path is used by payload-aware stages
-    that know their actors provide ``heartbeat_many`` and ``pin_many``.
+    Payload-aware stages use this path when their actors provide
+    ``heartbeat_many`` and ``pin_many``.
     """
     refs = _unique_payload_refs(payload_refs)
     if not refs:

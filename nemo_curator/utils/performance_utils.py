@@ -17,7 +17,7 @@ from __future__ import annotations
 import contextlib
 import statistics
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import attrs
 from loguru import logger
@@ -26,23 +26,6 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from nemo_curator.stages.base import ProcessingStage
-
-
-#: Identity fields on ``StagePerfStats``: best-effort string labels for the
-#: actor/node/GPU that produced the record. They are metadata, not numeric
-#: metrics, so they MUST be excluded from ``items()`` -- downstream collection
-#: calls ``float()`` on every yielded value and would crash on a string.
-_IDENTITY_FIELDS = (
-    "invocation_id",
-    "actor_id",
-    "node_id",
-    "gpu_id",
-    "physical_address",
-    "pod_ip",
-    "hostname",
-    "gpu_indices",
-    "gpu_uuids",
-)
 
 
 @attrs.define
@@ -72,7 +55,7 @@ class StagePerfStats:
     input_data_size_mb: float = 0.0
     num_items_processed: int = 0
     custom_metrics: dict[str, float] = attrs.field(factory=dict)
-    # identity (metadata, never a numeric metric -- see _IDENTITY_FIELDS)
+    # identity metadata
     invocation_id: str = ""
     actor_id: str = ""
     node_id: str = ""
@@ -153,20 +136,13 @@ class StagePerfStats:
             "custom_metrics": dict(self.custom_metrics),
         }
 
-    def to_extended_dict(self) -> dict[str, Any]:
-        """Convert to the complete observability schema, including identity."""
-        return attrs.asdict(self)
-
     def items(self) -> list[tuple[str, float | int]]:
         """Returns (metric_name, metric_value) pairs
         custom_metrics are flattened into the format (custom.<metric_name>, metric_value)
         """
         res = self.to_dict()
         res.pop("stage_name", None)
-        # Identity fields are string metadata; downstream collectors call float()
-        # on every yielded value, so they MUST be dropped here.
-        for identity_field in _IDENTITY_FIELDS:
-            res.pop(identity_field, None)
+        # Extract and drop the raw custom_metrics dict from the flattened output
         custom_metrics = res.pop("custom_metrics", {})
         # Flatten custom_metrics with a stable prefix
         for key, value in custom_metrics.items():
@@ -175,7 +151,9 @@ class StagePerfStats:
 
 
 class StageTimer:
-    """Tracks processing time and other metrics per process_data call."""
+    """Tracker for stage performance stats.
+    Tracks processing time and other metrics at a per process_data call level.
+    """
 
     def __init__(self, stage: ProcessingStage) -> None:
         """Initialize the stage timer.
@@ -199,6 +177,7 @@ class StageTimer:
     def reinit(self, stage_input_size: int = 1) -> None:
         """Reinitialize the stage timer.
         Args:
+            stage: The stage to reinitialize the timer for.
             stage_input_size: The size of the stage input.
         """
         self._reset()

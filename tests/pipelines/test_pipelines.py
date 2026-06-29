@@ -183,7 +183,8 @@ class TestPipelineBuild:
 
 
 class TestRootTaskIds:
-    """``assign_root_task_ids`` follows the framework-owned main contract."""
+    """``assign_root_task_ids`` roots user-provided initial tasks under the
+    implicit ``EmptyTask`` root id ``"0"``."""
 
     def test_empty_task_id_is_zero(self) -> None:
         assert EmptyTask().task_id == "0"
@@ -199,11 +200,13 @@ class TestRootTaskIds:
     def test_roots_user_tasks_at_zero(self) -> None:
         tasks = [_SimpleTask(dataset_name="d", data=[1]) for _ in range(3)]
         assign_root_task_ids(tasks)
+        # User-provided initial tasks are children of root "0", by position.
         assert [t.task_id for t in tasks] == ["0_0", "0_1", "0_2"]
 
     def test_skips_empty_tasks(self) -> None:
         et = EmptyTask(dataset_name="d", data=None)
         real = _SimpleTask(dataset_name="d", data=[1])
         assign_root_task_ids([et, real])
+        # EmptyTask stays "0"; the real task is rooted by its position.
         assert et.task_id == "0"
         assert real.task_id == "0_1"

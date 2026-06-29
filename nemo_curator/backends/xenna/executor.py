@@ -19,13 +19,9 @@ from cosmos_xenna.pipelines import v1 as pipelines_v1
 from cosmos_xenna.utils.verbosity import VerbosityLevel
 from loguru import logger
 
-from nemo_curator.backends.base import (
-    BaseExecutor,
-)
+from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.utils import register_loguru_serializer
-from nemo_curator.backends.xenna.adapter import (
-    create_named_xenna_stage_adapter,
-)
+from nemo_curator.backends.xenna.adapter import create_named_xenna_stage_adapter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -78,22 +74,49 @@ class XennaExecutor(BaseExecutor):
         Returns:
             list[Task]: List of output tasks from the pipeline
         """
-        initial_tasks = initial_tasks if initial_tasks else [EmptyTask()]
-        return self._run_xenna_pipeline(stages, initial_tasks)
-
-    def _run_xenna_pipeline(
-        self,
-        stages: list[ProcessingStage],
-        initial_tasks: list[Any],
-    ) -> list[Any]:
-        if not stages:
-            return initial_tasks
-
         # Convert stages to Xenna stage specs
         stage_specs = []
 
+        # Initialize with initial tasks if provided, otherwise start with EmptyTask
+        initial_tasks = initial_tasks if initial_tasks else [EmptyTask()]
+
         for stage in stages:
-            stage_specs.append(self._build_stage_spec(stage))
+            # Get stage configuration
+            stage_config = stage.xenna_stage_spec()
+            if "num_workers" in stage_config:
+                msg = f"Stage {stage.name} sets num_workers in xenna_stage_spec(). Use num_workers() instead."
+                raise ValueError(msg)
+
+            num_workers = stage.num_workers()
+            num_workers_per_node = stage_config.get("num_workers_per_node")
+            if num_workers is not None and num_workers_per_node is not None:
+                msg = (
+                    f"Stage {stage.name} sets both num_workers() and "
+                    "xenna_stage_spec()['num_workers_per_node']. Use only one worker sizing option."
+                )
+                raise ValueError(msg)
+
+            # Create Xenna stage adapter with the original stage's name
+            xenna_stage = create_named_xenna_stage_adapter(
+                stage=stage,
+            )
+
+            # Create stage spec with configuration from stage
+            stage_spec = pipelines_v1.StageSpec(
+                stage=xenna_stage,
+                num_workers=num_workers,
+                num_workers_per_node=num_workers_per_node,
+                num_setup_attempts_python=stage_config.get("num_setup_attempts_python"),
+                num_run_attempts_python=stage_config.get("num_run_attempts_python"),
+                ignore_failures=stage_config.get("ignore_failures"),
+                reset_workers_on_failure=stage_config.get("reset_workers_on_failure"),
+                slots_per_actor=stage_config.get("slots_per_actor"),
+                worker_max_lifetime_m=stage_config.get("worker_max_lifetime_m"),
+                worker_restart_interval_m=stage_config.get("worker_restart_interval_m"),
+                max_setup_failure_percentage=stage_config.get("max_setup_failure_percentage"),
+            )
+
+            stage_specs.append(stage_spec)
 
         # Determine execution mode
         exec_mode = pipelines_v1.ExecutionMode.STREAMING
@@ -162,44 +185,6 @@ class XennaExecutor(BaseExecutor):
             finally:
                 ray.shutdown()
         return results if results else []
-
-    def _build_stage_spec(self, stage: ProcessingStage) -> pipelines_v1.StageSpec:
-        """Create a Xenna StageSpec from a Curator stage."""
-        stage_config = stage.xenna_stage_spec()
-        num_workers, num_workers_per_node = self._resolve_stage_worker_sizing(stage, stage_config)
-        xenna_stage = create_named_xenna_stage_adapter(stage=stage)
-
-        return pipelines_v1.StageSpec(
-            stage=xenna_stage,
-            num_workers=num_workers,
-            num_workers_per_node=num_workers_per_node,
-            num_setup_attempts_python=stage_config.get("num_setup_attempts_python"),
-            num_run_attempts_python=stage_config.get("num_run_attempts_python"),
-            ignore_failures=stage_config.get("ignore_failures"),
-            reset_workers_on_failure=stage_config.get("reset_workers_on_failure"),
-            slots_per_actor=stage_config.get("slots_per_actor"),
-            worker_max_lifetime_m=stage_config.get("worker_max_lifetime_m"),
-            worker_restart_interval_m=stage_config.get("worker_restart_interval_m"),
-            max_setup_failure_percentage=stage_config.get("max_setup_failure_percentage"),
-        )
-
-    @staticmethod
-    def _resolve_stage_worker_sizing(
-        stage: ProcessingStage, stage_config: dict[str, Any]
-    ) -> tuple[int | None, int | None]:
-        """Resolve Xenna worker sizing with the main-branch contract."""
-        if "num_workers" in stage_config:
-            msg = f"Stage {stage.name} sets num_workers in xenna_stage_spec(). Use num_workers() instead."
-            raise ValueError(msg)
-        num_workers = stage.num_workers()
-        num_workers_per_node = stage_config.get("num_workers_per_node")
-        if num_workers is not None and num_workers_per_node is not None:
-            msg = (
-                f"Stage {stage.name} sets both num_workers() and "
-                "xenna_stage_spec()['num_workers_per_node']. Use only one worker sizing option."
-            )
-            raise ValueError(msg)
-        return num_workers, num_workers_per_node
 
     def _get_pipeline_config(self, key: str) -> Any:  # noqa: ANN401
         """Get configuration value with fallback to defaults."""

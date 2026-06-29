@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -24,17 +22,19 @@ from loguru import logger
 
 from nemo_curator.backends.perf_identity import apply_worker_perf_identity, read_worker_metadata_identity
 from nemo_curator.core.utils import ignore_ray_head_node
+from nemo_curator.tasks import Task
 from nemo_curator.tasks.task_terminals import preserve_dropped_terminal_tasks
 from nemo_curator.utils.performance_utils import StagePerfStats, StageTimer
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
-    from nemo_curator.tasks import Task
 
 
 @dataclass
 class NodeInfo:
-    """Generic node information for setup_on_node calls across backends."""
+    """Generic node information for setup_on_node calls across backends.
+    Simplified to match Xenna's structure.
+    """
 
     node_id: str = ""
 
@@ -42,13 +42,13 @@ class NodeInfo:
 @dataclass
 class WorkerMetadata:
     """Generic worker metadata for setup_on_node calls across backends.
-
-    Backends stamp ``actor_id``/``node_id``/``gpu_id`` at setup; perf records
-    copy them verbatim (see ``backends/perf_identity.py``).
+    Simplified to match Xenna's structure. The allocation field can contain
+    backend-specific allocation information. Backends may also stamp performance
+    identity fields at worker setup.
     """
 
     worker_id: str = ""
-    allocation: Any = None  # Backend-specific allocation info (Xenna)
+    allocation: Any = None  # Backend-specific allocation info
     actor_id: str = ""
     node_id: str = ""
     gpu_id: str = ""
@@ -67,10 +67,10 @@ class BaseExecutor(ABC):
         self.ignore_head_node = ignore_head_node or ignore_ray_head_node()
 
     @abstractmethod
-    def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> None:
+    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
         """Execute the pipeline."""
 
-    def _cleanup_stage_run_resources(self, stages: list[ProcessingStage]) -> None:
+    def _cleanup_stage_run_resources(self, stages: list["ProcessingStage"]) -> None:
         """Release run-scoped resources created by pipeline helper stages.
 
         Some helpers intentionally create named Ray actors so payload handles can
@@ -127,7 +127,7 @@ class BaseExecutor(ABC):
         for task in tasks:
             task.add_stage_perf(perf_stats)
 
-    def _publish_external_perf(self, stages: list[ProcessingStage], perf_stats: StagePerfStats | None) -> None:
+    def _publish_external_perf(self, stages: list["ProcessingStage"], perf_stats: StagePerfStats | None) -> None:
         """Publish a run-level perf record to the terminal artifact writer when one exists."""
         if perf_stats is None:
             return
@@ -145,11 +145,11 @@ class BaseExecutor(ABC):
 class BaseStageAdapter:
     """Adapts ProcessingStage to an execution backend, if needed."""
 
-    def __init__(self, stage: ProcessingStage):
+    def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
 
     @staticmethod
-    def _stage_resource_expectation_metrics(stage: ProcessingStage) -> dict[str, float]:
+    def _stage_resource_expectation_metrics(stage: "ProcessingStage") -> dict[str, float]:
         """Return non-summing resource expectations attached by wrapper stages."""
         metrics: dict[str, float] = {}
         for attr_name, metric_name in (
@@ -174,11 +174,21 @@ class BaseStageAdapter:
         self._perf_identity = read_worker_metadata_identity(str(self.stage.name), worker_metadata)
 
     def process_batch(self, tasks: list[Task]) -> list[Task]:
-        """Process a batch of tasks, timing and stamping perf stats on outputs."""
+        """Process a batch of tasks.
+
+        Args:
+            tasks (list[Task]): List of tasks to process
+
+        Returns:
+            list[Task]: List of processed tasks
+        """
+        # Lazy initialize timer if needed
         if not hasattr(self, "_timer") or self._timer is None:
             self._timer = StageTimer(self.stage)
 
+        # Calculate input data size for timer
         input_size = sum(task.num_items for task in tasks)
+        # Initialize performance timer for this batch
         self._timer.reinit(input_size)
         tracks_payload_refs = bool(getattr(self.stage, "_curator_tracks_payload_refs", False))
         input_payload_refs = self._collect_payload_refs(tasks) if tracks_payload_refs else {}
@@ -187,6 +197,7 @@ class BaseStageAdapter:
         window_start = time.time() if extended_metrics else 0.0
         try:
             with self._timer.time_process(input_size):
+                # Use the batch processing logic
                 results = self.stage.process_batch(tasks)
         except Exception:
             self._release_payload_refs(input_payload_refs.values())
@@ -294,10 +305,47 @@ class BaseStageAdapter:
                 release_payload_ref(payload_ref)
 
     def _post_process_task_ids(self, input_tasks: list[Task], output_tasks: list[Task | None]) -> list[Task]:
-        """Assign a deterministic ``task_id`` to every emitted task."""
+        """Assign a deterministic ``task_id`` to every emitted task.
+
+        This is the single place task ids are assigned — it runs for every
+        stage on every backend (all backend adapters subclass this), so it
+        makes no difference whether a stage defines ``process`` or overrides
+        ``process_batch``. ``task_id`` is the task's id path (parents + own segment); ids are
+        re-derived at each stage boundary so the same object passing through
+        N stages gets N ids.
+
+        The input→output mapping decides each output's PARENT; whether the
+        stage is a source decides each output's SEGMENT (content id vs index)
+        — the two are independent. ``None`` outputs (Curator's "return None to
+        filter") are NOT removed before the length check — keeping them in
+        place preserves positional alignment for filter stages — and are then
+        dropped from the returned list.
+
+        - single input → every output is its child (fan-out): ``parent_<seg>``
+        - ``len(output) == len(input)`` → positional 1:1: each ``parent_i_<seg>``;
+          a ``None`` slot just means input ``i`` was filtered.
+        - any other (ambiguous) cardinality across a batch → a random ``uuid``
+          prefixed with ``"r"`` (e.g. ``"r3f9a…"``), so ``task_id`` is never
+          empty even when a derived id is not possible. The ``"r"`` prefix flags
+          the id as non-deterministic / ancestry-not-tracked (see
+          ``Task.task_id`` docstring).
+
+        ``seg`` is the output's content id (``Task.get_deterministic_id()``)
+        for a source stage when available, else the positional index — so a
+        source partition keeps a stable id across reorderings regardless of
+        whether the source is 1→N or N→N.
+
+        Note: a stage that BOTH filters and fans out within a single batch
+        (returning a flat list rather than a per-input slot) cannot be mapped
+        positionally; if its length happens to equal the input length the 1:1
+        assumption may misattribute parents. That combination is unsupported
+        until per-slot sentinels (NoneTask/FailedTask) land in a later PR.
+        """
         is_source = getattr(self.stage, "is_source_stage", False)
 
         if len(input_tasks) == 1:
+            # Fan-out (incl. a source reading from EmptyTask): every non-None
+            # output is a child of the single input.
             parent_id = input_tasks[0].task_id
             out: list[Task] = [t for t in output_tasks if t is not None]
             for i, task in enumerate(out):
@@ -306,6 +354,8 @@ class BaseStageAdapter:
             return out
 
         if len(output_tasks) == len(input_tasks):
+            # Positional 1:1. None is kept above so a filtered slot still lines
+            # up with its own parent; drop the None slots from the result.
             out = []
             for parent, task in zip(input_tasks, output_tasks, strict=True):
                 if task is None:
@@ -315,17 +365,31 @@ class BaseStageAdapter:
                 out.append(task)
             return out
 
+        # Ambiguous cardinality across a batch: a derived id is not possible. Use a
+        # random "r"-prefixed uuid so task_id is non-empty but clearly flagged
+        # non-deterministic.
         out = [t for t in output_tasks if t is not None]
         for task in out:
             task.task_id = "r" + uuid.uuid4().hex
         return out
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
-        """Setup the stage on a node (node/worker info may be absent on some backends)."""
+        """Setup the stage on a node.
+
+        Args:
+            node_info (NodeInfo, optional): Information about the node
+            worker_metadata (WorkerMetadata, optional): Information about the worker
+        """
+        # Call the underlying stage's setup_on_node method
+        # Some backends may provide node/worker info, others may not
         self.stage.setup_on_node(node_info, worker_metadata)
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
-        """Setup the stage once per actor."""
+        """Setup the stage once per actor.
+
+        Args:
+            worker_metadata (WorkerMetadata, optional): Information about the worker
+        """
         self._worker_metadata = worker_metadata
         if bool(getattr(self.stage, "extended_performance_metrics", False)):
             self._cache_perf_identity()

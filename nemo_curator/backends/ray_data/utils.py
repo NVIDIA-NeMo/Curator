@@ -52,7 +52,12 @@ def get_configured_actor_pool_sizing_keys(ray_stage_spec: Mapping[str, object]) 
 
 
 def get_actor_compute_strategy_for_stage(stage: ProcessingStage) -> ActorPoolStrategy:
-    """Get the Ray Data actor-pool compute strategy for a processing stage."""
+    """Get the Ray Data actor-pool compute strategy for a processing stage.
+
+    Explicit stage ``num_workers`` requests a fixed-size actor pool. Otherwise,
+    actor stages use Ray Data's autoscaling pool and can optionally override
+    min/max/initial workers through ``ray_stage_spec``.
+    """
     num_workers = stage.num_workers()
     if num_workers is not None and num_workers > 0:
         actor_pool_sizing_keys = get_configured_actor_pool_sizing_keys(stage.ray_stage_spec())

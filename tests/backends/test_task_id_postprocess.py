@@ -18,8 +18,8 @@ The happy-path flow (fan-out, 1:1, source content ids) is exercised
 end-to-end against real backends in tests/backends/test_integration.py
 (``test_task_ids``). This file keeps only the cases that are awkward or
 impossible to trigger through a real pipeline: filter-``None`` positional
-alignment, the ambiguous-cardinality ``"r"``-uuid fallback, preservation of
-    framework overwrite semantics, and source content-id selection."""
+alignment, the ambiguous-cardinality ``"r"``-uuid fallback, in-place
+re-derivation, and source content-id vs. positional-index selection."""
 
 from dataclasses import dataclass
 
@@ -105,6 +105,8 @@ class TestPostProcessTaskIds:
         assert c2.task_id == "0_2_0"  # child of p2, not p1
 
     def test_in_place_return_is_reassigned(self) -> None:
+        # A 1:1 stage that returns its input unchanged still gets a fresh
+        # segment appended (ids are re-derived at each stage boundary).
         t = _task("0_5")
         out = _assign([t], [t])
         assert out == [t]
@@ -201,8 +203,8 @@ class TestPostProcessTaskIds:
 
 class TestSourceStage:
     def test_uses_content_id_rooted_at_input(self) -> None:
-        # FileGroupTask.get_deterministic_id() hashes its files; output with no
-        # content ids are rooted at the framework EmptyTask id.
+        # FileGroupTask.get_deterministic_id() hashes its files; the source
+        # output is rooted at the EmptyTask input id "0" → "0_<content_id>".
         empty = EmptyTask(dataset_name="empty", data=None)
         a = FileGroupTask(dataset_name="d", data=["a.parquet"])
         b = FileGroupTask(dataset_name="d", data=["b.parquet"])

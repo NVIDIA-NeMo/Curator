@@ -20,11 +20,7 @@ from cosmos_xenna.pipelines.private.resources import NodeInfo as XennaNodeInfo
 from cosmos_xenna.pipelines.private.resources import Resources as XennaResources
 from cosmos_xenna.pipelines.private.resources import WorkerMetadata as XennaWorkerMetadata
 
-from nemo_curator.backends.base import (
-    BaseStageAdapter,
-    NodeInfo,
-    WorkerMetadata,
-)
+from nemo_curator.backends.base import BaseStageAdapter, NodeInfo, WorkerMetadata
 from nemo_curator.backends.perf_identity import build_xenna_perf_identity, stamp_worker_metadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import Task
@@ -81,7 +77,7 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
     def stage_batch_size(self) -> int:
         """Get the batch size for this stage."""
         batch_size = self.processing_stage.batch_size
-        return 1 if batch_size is None else int(batch_size)
+        return batch_size if batch_size is not None else 1
 
     @property
     def env_info(self) -> pipelines_v1.RuntimeEnv | None:
@@ -101,6 +97,7 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
         Returns:
             List of processed tasks or None
         """
+        # Use the base stage's monitoring capability
         return self.process_batch(tasks)
 
     def setup_on_node(self, node_info: XennaNodeInfo, worker_metadata: XennaWorkerMetadata) -> None:
@@ -116,7 +113,7 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
         requires_gpu = bool(getattr(getattr(self.processing_stage, "resources", None), "requires_gpu", False))
         generic_worker_metadata = WorkerMetadata(
             worker_id=worker_metadata.worker_id,
-            allocation=worker_metadata.allocation,
+            allocation=worker_metadata.allocation,  # Keep the original allocation object
         )
         if bool(getattr(self.processing_stage, "extended_performance_metrics", False)):
             identity = build_xenna_perf_identity(
@@ -140,7 +137,7 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
         requires_gpu = bool(getattr(getattr(self.processing_stage, "resources", None), "requires_gpu", False))
         generic_worker_metadata = WorkerMetadata(
             worker_id=worker_metadata.worker_id,
-            allocation=worker_metadata.allocation,
+            allocation=worker_metadata.allocation,  # Keep the original allocation object
         )
         if bool(getattr(self.processing_stage, "extended_performance_metrics", False)):
             identity = build_xenna_perf_identity(
