@@ -286,7 +286,6 @@ def test_removal_stage_can_drop_id_field(tmp_path: Path):
     ids_to_remove_path = tmp_path / "ids_to_remove.parquet"
     pd.DataFrame({"id": [1]}).to_parquet(ids_to_remove_path, index=False)
     task = DocumentBatch(
-        task_id="task",
         dataset_name="dataset",
         data=pd.DataFrame({CURATOR_DEDUP_ID_STR: [1, 2], "text": ["drop", "keep"]}),
     )
