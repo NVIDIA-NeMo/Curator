@@ -332,17 +332,6 @@ def _ray_gpu_assignment(requires_gpu: bool) -> tuple[tuple[int, ...], tuple[str,
     return _gpu_assignment_from_tokens(env_tokens)
 
 
-def _ray_gpu_indices(requires_gpu: bool) -> tuple[int, ...]:
-    return _ray_gpu_assignment(requires_gpu)[0]
-
-
-def _ray_gpu_label(node_label: str, requires_gpu: bool) -> str:
-    gpu_indices = _ray_gpu_indices(requires_gpu)
-    if gpu_indices:
-        return _format_gpu_label(node_label, gpu_indices[0])
-    return ""
-
-
 def build_ray_perf_identity(
     stage_name: str,
     *,

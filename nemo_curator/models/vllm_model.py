@@ -12,18 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""vLLM model wrappers.
-
-- :class:`VLLMBase` - shared engine management (creation, generation, GPU
-  cleanup). ``_generate`` accepts text prompts *or* multimodal prompt dicts
-  so audio/vision adapters reuse the same plumbing.
-- :class:`VLLMModel` - generic text-generation :class:`ModelInterface`.
-"""
-
-from __future__ import annotations
-
 import gc
-import time
 from typing import Any
 
 import torch
@@ -64,9 +53,7 @@ class VLLMBase:
         Args forward to ``vllm.LLM`` / ``vllm.SamplingParams``. Constructor
         exceptions propagate unchanged, matching the public main behavior.
         """
-        start_time = time.perf_counter()
         self._llm = LLM(**model_kwargs)
-        logger.info("vLLM engine loaded in {:.3f}s", time.perf_counter() - start_time)
         self._sampling_params = SamplingParams(**sampling_kwargs)
 
     def _generate(self, prompts: list, *, use_tqdm: bool = False) -> list:
@@ -120,15 +107,23 @@ class VLLMModel(VLLMBase, ModelInterface):
         max_tokens: int | None = None,
         cache_dir: str | None = None,
     ):
-        """Initialize the vLLM model wrapper.
+        """
+        Initialize the vLLM model wrapper.
 
         Args:
-            model: Model identifier (e.g., "microsoft/phi-4").
-            max_model_len: Context length; auto-detected from HF AutoConfig
-                when ``None``.
-            tensor_parallel_size: TP GPU count; auto-detected when ``None``.
-            min_p: Min-p sampling (Qwen3 only).
-            cache_dir: Model weight cache directory.
+            model: Model identifier (e.g., "microsoft/phi-4")
+            max_model_len: Maximum model context length. If not specified,
+                will be auto-detected from HuggingFace AutoConfig.
+            tensor_parallel_size: Number of GPUs for tensor parallelism.
+                If not specified, auto-detects available GPUs.
+            max_num_batched_tokens: Maximum tokens per batch. Defaults to
+                4096.
+            temperature: Sampling temperature. Defaults to 0.7.
+            top_p: Top-p sampling parameter. Defaults to 0.8.
+            top_k: Top-k sampling parameter. Defaults to 20.
+            min_p: Min-p sampling parameter (for Qwen3). Defaults to 0.0.
+            max_tokens: Maximum tokens to generate. Defaults to None.
+            cache_dir: Cache directory for model weights. Defaults to None.
         """
         self.model = model
         self.max_model_len = max_model_len
@@ -140,6 +135,8 @@ class VLLMModel(VLLMBase, ModelInterface):
         self.min_p = min_p
         self.max_tokens = max_tokens
         self.cache_dir = cache_dir
+        self._llm: LLM | None = None
+        self._sampling_params: SamplingParams | None = None
         self._final_max_model_len: int | None = None
         self._is_qwen3: bool = False
 
@@ -154,13 +151,16 @@ class VLLMModel(VLLMBase, ModelInterface):
             msg = "vLLM is required for VLLMModel. Please install it: pip install vllm"
             raise ImportError(msg)
 
+        # Fetch max_model_len from user param or auto-detect from HuggingFace AutoConfig
         if self.max_model_len is not None:
             final_max_model_len = self.max_model_len
         else:
             final_max_model_len = get_max_model_len_from_config(self.model, cache_dir=self.cache_dir)
 
+        # Set tensor_parallel_size as user param or auto-detect from GPU count
         final_tp_size = self.tensor_parallel_size if self.tensor_parallel_size is not None else get_gpu_count()
 
+        # Set max_num_batched_tokens as user param or use default
         final_max_batched = self.max_num_batched_tokens
 
         llm_kwargs: dict[str, Any] = {
@@ -218,15 +218,33 @@ class VLLMModel(VLLMBase, ModelInterface):
         self,
         prompts: list[str],
     ) -> list[str]:
-        """Generate text from prompt strings (or chat message dicts).
+        """
+        Generate text from prompts.
 
-        Raises ``RuntimeError`` if the model is not set up or generation fails.
+        Args:
+            prompts: List of prompt strings or list of message dicts
+                (for chat template).
+
+        Returns:
+            List of generated text strings.
+
+        Raises:
+            RuntimeError: If the model is not set up or generation fails.
         """
         if self._llm is None or self._sampling_params is None:
             msg = "Model not initialized. Call setup() first."
             raise RuntimeError(msg)
-        outputs = self._generate(prompts)
-        return [out.outputs[0].text if out.outputs else "" for out in outputs]
+
+        try:
+            outputs = self._llm.generate(
+                prompts,
+                sampling_params=self._sampling_params,
+                use_tqdm=False,
+            )
+            return [out.outputs[0].text if out.outputs else "" for out in outputs]
+        except (RuntimeError, ValueError, TypeError) as e:
+            msg = f"Error generating text: {e}"
+            raise RuntimeError(msg) from e
 
     def get_tokenizer(self) -> Any:  # noqa: ANN401
         """Get the tokenizer from the LLM instance."""

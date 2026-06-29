@@ -108,34 +108,15 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dataset: Processed Ray Data dataset
         """
-        is_actor_stage_ = self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
-
-        map_batches_fn, concurrency_kwargs = self._map_batches_fn_and_kwargs(
-            is_actor_stage=is_actor_stage_,
-        )
-
-        # Calculate concurrency based on available resources
-        logger.info(f"{self.stage.__class__.__name__} {is_actor_stage_=} with {concurrency_kwargs=}")
-
-        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **concurrency_kwargs)  # type: ignore[reportArgumentType]
-
-        if self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
-            processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
-
-        return processed_dataset
-
-    def _map_batches_fn_and_kwargs(
-        self,
-        *,
-        is_actor_stage: bool,
-    ) -> tuple[Any, dict[str, Any]]:
         ray_stage_spec = self.stage.ray_stage_spec()
-        if is_actor_stage:
+        stage_is_actor = ray_stage_spec.get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
+
+        if stage_is_actor:
             map_batches_fn = create_actor_from_stage(self.stage)
-            concurrency_kwargs = {"compute": get_actor_compute_strategy_for_stage(self.stage)}
+            map_batches_kwargs = {"compute": get_actor_compute_strategy_for_stage(self.stage)}
         else:
             map_batches_fn = create_task_from_stage(self.stage)
-            concurrency_kwargs = {}
+            map_batches_kwargs = {}
 
             actor_pool_sizing_keys = get_configured_actor_pool_sizing_keys(ray_stage_spec)
             if actor_pool_sizing_keys:
@@ -146,15 +127,18 @@ class RayDataStageAdapter(BaseStageAdapter):
 
             num_workers = self.stage.num_workers()
             if num_workers is not None and num_workers > 0:
-                concurrency_kwargs["compute"] = TaskPoolStrategy(size=num_workers)
+                map_batches_kwargs["compute"] = TaskPoolStrategy(size=num_workers)
 
-            max_calls = ray_stage_spec.get(RayStageSpecKeys.MAX_CALLS_PER_WORKER, None)
+            max_calls = ray_stage_spec.get(RayStageSpecKeys.MAX_CALLS_PER_WORKER)
             if max_calls is not None:
-                concurrency_kwargs["max_calls"] = max_calls
+                map_batches_kwargs["max_calls"] = max_calls
 
-        concurrency_kwargs.update(self._build_resource_kwargs(ray_stage_spec))
+        map_batches_kwargs.update(self._build_resource_kwargs(ray_stage_spec))
 
+        # Per-stage ray_remote_args (e.g. runtime_env with different pip versions per stage).
         ray_remote_args = copy.deepcopy(ray_stage_spec.get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {})
+        # If the stage declares runtime_env, forward it directly to Ray so Ray creates and
+        # caches an isolated virtualenv for this stage's workers.
         if self.stage.runtime_env:
             ray_remote_args["runtime_env"] = self.stage.runtime_env
 
@@ -166,13 +150,20 @@ class RayDataStageAdapter(BaseStageAdapter):
             )
             raise ValueError(msg)
 
-        concurrency_kwargs.update(ray_remote_args)
-        return map_batches_fn, concurrency_kwargs
+        map_batches_kwargs.update(ray_remote_args)
+
+        # Let Ray Data apply the selected compute strategy and resource requirements.
+        logger.info(f"{self.stage.__class__.__name__} stage_is_actor={stage_is_actor} with {map_batches_kwargs=}")
+
+        processed_dataset = dataset.map_batches(map_batches_fn, batch_size=self.batch_size, **map_batches_kwargs)  # type: ignore[reportArgumentType]
+
+        if ray_stage_spec.get(RayStageSpecKeys.IS_FANOUT_STAGE, False):
+            processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
+
+        return processed_dataset
 
 
-def create_actor_from_stage(
-    stage: ProcessingStage,
-) -> type[RayDataStageAdapter]:
+def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]:
     """Create a StageProcessor class with the proper stage name for display."""
 
     class RayDataStageActorAdapter(RayDataStageAdapter):
@@ -203,9 +194,7 @@ def create_actor_from_stage(
     return RayDataStageActorAdapter
 
 
-def create_task_from_stage(
-    stage: ProcessingStage,
-) -> Callable[[dict[str, Any]], dict[str, Any]]:
+def create_task_from_stage(stage: ProcessingStage) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Create a named Ray Data stage adapter function.
 
     This creates a standalone function that wraps the stage processing logic

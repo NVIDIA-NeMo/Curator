@@ -25,7 +25,11 @@ from nemo_curator.tasks import EmptyTask, Task
 def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
     """Assign root ``task_id``s to user-provided initial tasks.
 
-    Every non-sentinel task is rooted under ``"0"`` exactly as on main.
+    Every task in a run descends from the implicit root ``"0"`` (the id of
+    :class:`EmptyTask`). User-provided initial tasks are its direct
+    children, so they get ``"0_0"``, ``"0_1"``, … ``EmptyTask`` instances
+    are skipped (already ``"0"``). All downstream ``task_id`` assignment
+    happens in ``BaseStageAdapter``.
 
     NOTE: we deliberately use the positional index here, NOT
     ``get_deterministic_id()``, even for content-bearing tasks like
@@ -237,8 +241,10 @@ class Pipeline:
             sub_stages = stage.decompose_and_apply_with() if isinstance(stage, CompositeStage) else [stage]
 
             if len(sub_stages) > 1:
+                # This was a composite stage
                 logger.info(f"Decomposing composite stage: {stage.name}")
 
+                # Validate that decomposed stages are not composite
                 for sub_stage in sub_stages:
                     if isinstance(sub_stage, CompositeStage) and len(sub_stage.decompose()) > 1:
                         msg = (

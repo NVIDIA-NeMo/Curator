@@ -18,9 +18,7 @@ import ray
 from loguru import logger
 from ray.data import DataContext, Dataset
 
-from nemo_curator.backends.base import (
-    BaseExecutor,
-)
+from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.utils import execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -34,13 +32,22 @@ class RayDataExecutor(BaseExecutor):
     """Ray Data-based executor for pipeline execution.
 
     This executor:
-    1. Executes setup on all nodes for all stages
+    1. Executes setup on Ray nodes for all stages
     2. Converts initial tasks to Ray Data dataset
     3. Applies each stage as a Ray Data transformation (as a task or actor in map_batches)
     4. Returns final results as a list of tasks
     """
 
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
+        """Initialize the executor.
+
+        Args:
+            config (dict[str, Any], optional): Configuration dictionary.
+            ignore_head_node (bool, optional): Whether to skip the Ray head node for
+                ``setup_on_node``. Ray Data controls ``map_batches`` task/actor placement
+                through Ray's scheduler; this flag does not cap actor-pool size or force
+                Ray Data workers away from the head node.
+        """
         super().__init__(config, ignore_head_node)
 
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:
@@ -87,7 +94,12 @@ class RayDataExecutor(BaseExecutor):
                 # TODO: add pipeline level config for verbosity
                 logger.info(f"Processing stage {i + 1}/{len(stages)}: {stage}")
                 logger.info(f"  CPU cores: {stage.resources.cpus}, GPU ratio: {stage.resources.gpus}")
-                current_dataset = self._process_stage_dataset(stage, current_dataset)
+
+                # Create adapter for this stage
+                adapter = RayDataStageAdapter(stage)
+
+                # Apply stage transformation
+                current_dataset = adapter.process_dataset(current_dataset)
         except Exception as e:
             logger.error(f"Error during pipeline execution: {e}")
             raise
@@ -109,11 +121,6 @@ class RayDataExecutor(BaseExecutor):
             finally:
                 ray.shutdown()
         return output_tasks
-
-    def _process_stage_dataset(self, stage: "ProcessingStage", dataset: Dataset) -> Dataset:
-        """Process one stage as a Ray Data transform."""
-        adapter = RayDataStageAdapter(stage)
-        return adapter.process_dataset(dataset)
 
     def _tasks_to_dataset(self, tasks: list[Task]) -> Dataset:
         """Convert list of tasks to Ray Data dataset.
