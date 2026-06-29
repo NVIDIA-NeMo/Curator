@@ -27,25 +27,25 @@ class TestActorLookup:
     def test_none_when_ray_not_initialized(self) -> None:
         with patch.object(rc, "ray") as ray:
             ray.is_initialized.return_value = False
-            assert rc._actor() is None
-            assert rc._is_active() is False
+            assert rc._resumability_actor() is None
+            assert rc.is_resumability_actor_active() is False
             ray.get_actor.assert_not_called()
 
     def test_none_when_no_actor_registered(self) -> None:
         with patch.object(rc, "ray") as ray:
             ray.is_initialized.return_value = True
             ray.get_actor.side_effect = ValueError("no such actor")
-            assert rc._actor() is None
-            assert rc._is_active() is False
+            assert rc._resumability_actor() is None
+            assert rc.is_resumability_actor_active() is False
 
     def test_returns_handle_when_registered(self) -> None:
         with patch.object(rc, "ray") as ray:
             ray.is_initialized.return_value = True
             handle = MagicMock()
             ray.get_actor.return_value = handle
-            assert rc._actor() is handle
-            assert rc._is_active() is True
-            ray.get_actor.assert_called_with(rc.ACTOR_NAME)
+            assert rc._resumability_actor() is handle
+            assert rc.is_resumability_actor_active() is True
+            ray.get_actor.assert_called_with(name=rc.ACTOR_NAME, namespace=rc.ACTOR_NAME)
 
 
 class TestFlushDeltas:
@@ -55,7 +55,7 @@ class TestFlushDeltas:
             handle = MagicMock()
             ray.get_actor.return_value = handle
             deltas = [("t0", "s0", 1), ("t1", "s0", -1)]
-            rc._flush_deltas(deltas)
+            rc.flush_resumability_deltas(deltas)
             handle.apply_deltas.remote.assert_called_once_with(deltas)
 
     def test_noop_when_no_deltas(self) -> None:
@@ -63,14 +63,14 @@ class TestFlushDeltas:
             ray.is_initialized.return_value = True
             handle = MagicMock()
             ray.get_actor.return_value = handle
-            rc._flush_deltas([])
+            rc.flush_resumability_deltas([])
             handle.apply_deltas.remote.assert_not_called()
 
     def test_noop_when_inactive(self) -> None:
         with patch.object(rc, "ray") as ray:
             ray.is_initialized.return_value = False
             # Must not raise even though there are deltas to send.
-            rc._flush_deltas([("t0", "s0", 1)])
+            rc.flush_resumability_deltas([("t0", "s0", 1)])
 
 
 class TestSkipCompletedSources:
@@ -80,17 +80,17 @@ class TestSkipCompletedSources:
             handle = MagicMock()
             ray.get_actor.return_value = handle
             ray.get.return_value = [True, False, True]
-            assert rc._skip_completed_sources(["a", "b", "c"]) == {"a", "c"}
+            assert rc.completed_resumability_sources(["a", "b", "c"]) == {"a", "c"}
             handle.are_completed.remote.assert_called_once_with(["a", "b", "c"])
 
     def test_empty_when_inactive(self) -> None:
         with patch.object(rc, "ray") as ray:
             ray.is_initialized.return_value = False
-            assert rc._skip_completed_sources(["a"]) == set()
+            assert rc.completed_resumability_sources(["a"]) == set()
 
     def test_empty_when_no_sources(self) -> None:
         with patch.object(rc, "ray") as ray:
             ray.is_initialized.return_value = True
             ray.get_actor.return_value = MagicMock()
-            assert rc._skip_completed_sources([]) == set()
+            assert rc.completed_resumability_sources([]) == set()
             ray.get.assert_not_called()

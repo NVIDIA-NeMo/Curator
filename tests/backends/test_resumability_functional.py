@@ -100,9 +100,9 @@ def _wired(actor) -> Iterator[None]:  # noqa: ANN001
         return {s for s, done in zip(sids, actor.are_completed(sids), strict=True) if done}
 
     with (
-        patch("nemo_curator.backends.base._is_active", return_value=True),
-        patch("nemo_curator.backends.base._flush_deltas", side_effect=actor.apply_deltas),
-        patch("nemo_curator.backends.base._skip_completed_sources", side_effect=_skip),
+        patch("nemo_curator.backends.base.is_resumability_actor_active", return_value=True),
+        patch("nemo_curator.backends.base.flush_resumability_deltas", side_effect=actor.apply_deltas),
+        patch("nemo_curator.backends.base.completed_resumability_sources", side_effect=_skip),
     ):
         yield
 

@@ -86,8 +86,8 @@ def _counters(
     captured: list[tuple[str, str, int]] = []
 
     with (
-        patch("nemo_curator.backends.base._flush_deltas", side_effect=captured.extend),
-        patch("nemo_curator.backends.base._skip_completed_sources", return_value=completed or set()),
+        patch("nemo_curator.backends.base.flush_resumability_deltas", side_effect=captured.extend),
+        patch("nemo_curator.backends.base.completed_resumability_sources", return_value=completed or set()),
     ):
         out = BaseStageAdapter(stage)._apply_resumability_counters(input_tasks, output_tasks)
     return out, captured
@@ -103,9 +103,9 @@ def _process(
     active. Returns ``(surviving_outputs, captured_deltas)``."""
     captured: list[tuple[str, str, int]] = []
     with (
-        patch("nemo_curator.backends.base._is_active", return_value=True),
-        patch("nemo_curator.backends.base._flush_deltas", side_effect=captured.extend),
-        patch("nemo_curator.backends.base._skip_completed_sources", return_value=completed or set()),
+        patch("nemo_curator.backends.base.is_resumability_actor_active", return_value=True),
+        patch("nemo_curator.backends.base.flush_resumability_deltas", side_effect=captured.extend),
+        patch("nemo_curator.backends.base.completed_resumability_sources", return_value=completed or set()),
     ):
         out = BaseStageAdapter(stage).process_batch(tasks)
     return out, captured
@@ -227,8 +227,8 @@ class TestNonSourceStage:
         assert captured == [("s_0_0", "s", 0)]
 
     def test_empty_output_skips(self) -> None:
-        # A stage that emits nothing (not even a NoneTask) is degenerate: there
-        # is no output to key a delta on, so nothing is fired.
+        # A stage that emits nothing (not even a NoneTask): no output to key a
+        # delta on, so nothing is fired.
         parent = _task("s_0", source_id="s")
         out, captured = _counters(_NoopStage(), [parent], [])
         assert captured == []

@@ -25,11 +25,8 @@ import ray
 # across the differing Ray namespaces of the creator vs. the executor workers.
 ACTOR_NAME = "nemo_curator_resumability"
 
-# TODO(praateek): give these helpers resumability-specific names
-# (is_resumability_actor_active / flush_resumability_deltas / ...).
 
-
-def _actor() -> ray.actor.ActorHandle | None:
+def _resumability_actor() -> ray.actor.ActorHandle | None:
     """The resumability actor handle, or None if Ray is down / no actor registered."""
     if not ray.is_initialized():
         return None
@@ -39,24 +36,23 @@ def _actor() -> ray.actor.ActorHandle | None:
         return None
 
 
-def _is_active() -> bool:
+def is_resumability_actor_active() -> bool:
     """True if a resumability actor is registered in this Ray cluster."""
-    return _actor() is not None
+    return _resumability_actor() is not None
 
 
-def _flush_deltas(per_task: list[tuple[str, str, int]]) -> None:
+def flush_resumability_deltas(per_task: list[tuple[str, str, int]]) -> None:
     """Fire-and-forget per-task deltas ``(task_id, source_id, delta)``. No
-    ``ray.get`` — the actor never raises, so there's no error path; backpressure
-    is the actor's ``max_pending_calls`` cap."""
-    a = _actor()
-    if a is not None and per_task:
-        a.apply_deltas.remote(per_task)  # type: ignore[attr-defined]
+    ``ray.get`` — the actor never raises, so there's no synchronous error path."""
+    actor = _resumability_actor()
+    if actor is not None and per_task:
+        actor.apply_deltas.remote(per_task)  # type: ignore[attr-defined]
 
 
-def _skip_completed_sources(source_ids: list[str]) -> set[str]:
-    """Set of ``source_ids`` already marked complete; the source stage uses it to skip them."""
-    a = _actor()
-    if a is None or not source_ids:
+def completed_resumability_sources(source_ids: list[str]) -> set[str]:
+    """Subset of ``source_ids`` already marked complete; the source stage uses it to skip them."""
+    actor = _resumability_actor()
+    if actor is None or not source_ids:
         return set()
-    flags = ray.get(a.are_completed.remote(source_ids))  # type: ignore[attr-defined]
+    flags = ray.get(actor.are_completed.remote(source_ids))  # type: ignore[attr-defined]
     return {sid for sid, done in zip(source_ids, flags, strict=True) if done}

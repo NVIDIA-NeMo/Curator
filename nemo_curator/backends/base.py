@@ -23,7 +23,11 @@ from nemo_curator.core.utils import ignore_ray_head_node
 from nemo_curator.tasks import Task
 from nemo_curator.tasks.sentinels import FailedTask, NoneTask
 from nemo_curator.utils.performance_utils import StageTimer
-from nemo_curator.utils.resumability_client import _flush_deltas, _is_active, _skip_completed_sources
+from nemo_curator.utils.resumability_client import (
+    completed_resumability_sources,
+    flush_resumability_deltas,
+    is_resumability_actor_active,
+)
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
@@ -102,7 +106,7 @@ class BaseStageAdapter:
         results = self._post_process_task_ids(tasks, results)
 
         # Opt-in resumability: fire per-source deltas (no-op when no actor registered).
-        if _is_active():
+        if is_resumability_actor_active():
             results = self._apply_resumability_counters(tasks, results)
 
         # Sentinels never propagate to the next stage.
@@ -179,7 +183,8 @@ class BaseStageAdapter:
         if getattr(stage, "is_source_stage", False):
             return self._source_counters(output_tasks)
 
-        # No outputs to key on (filtering uses None->NoneTask, so this is degenerate): skip.
+        # No outputs (e.g. a batch entirely filtered, or an end-of-pipeline
+        # no-op): nothing to attribute a delta to, so skip.
         if not output_tasks:
             return output_tasks
 
@@ -189,13 +194,13 @@ class BaseStageAdapter:
 
         is_sink = stage.is_sink_stage
         per_task: list[tuple[str, str, int]] = []
-        real = [t for t in output_tasks if not _is_sentinel(t)]
 
-        if len(input_tasks) == 1 and len(output_tasks) != 1:
+        if len(input_tasks) == 1 and len(output_tasks) > 1:
             # Fan-out (1->N): parent consumed (-1); each real child continues
             # (+1, or 0 at a sink); each FailedTask keeps the source open (+1);
             # NoneTask contributes 0.
             parent = input_tasks[0]
+            real = [t for t in output_tasks if not _is_sentinel(t)]
             n_failed = sum(1 for t in output_tasks if isinstance(t, FailedTask))
             continuing = 0 if is_sink else len(real)
             delta = continuing + n_failed - 1
@@ -228,16 +233,16 @@ class BaseStageAdapter:
             )
             return output_tasks
 
-        _flush_deltas(per_task)
+        flush_resumability_deltas(per_task)
         return output_tasks
 
     def _source_counters(self, output_tasks: list[Task]) -> list[Task]:
         """Source stage: each output is a source partition; its ``_source_id`` is
-        its own last id segment. Drop already-completed sources; each survivor fires ``+1``."""
+        ``Task.get_source_id()``. Drop already-completed sources; each survivor fires ``+1``."""
         sources = [t for t in output_tasks if not _is_sentinel(t)]
         for t in sources:
-            t._source_id = t.task_id.rsplit("_", 1)[-1]
-        completed = _skip_completed_sources([t._source_id for t in sources])
+            t._source_id = t.get_source_id()
+        completed = completed_resumability_sources([t._source_id for t in sources])
         per_task: list[tuple[str, str, int]] = []
         survivors: list[Task] = []
         for t in sources:
@@ -245,7 +250,7 @@ class BaseStageAdapter:
                 continue
             per_task.append((t.task_id, t._source_id, +1))
             survivors.append(t)
-        _flush_deltas(per_task)
+        flush_resumability_deltas(per_task)
         return survivors
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
