@@ -127,9 +127,11 @@ datasets:
       path: "{datasets_path}/fleurs"
 # Timeout knobs consumed by tools/generate_ci_tests.py to compute each SLURM job's wall-clock:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
-# default_timeout_s: per-entry default; cleanup_timeout_s: post-run cleanup buffer; min_timeout_s:
-# floor covering container setup. (default_timeout_s is also the runner's per-entry default.)
+# default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
+# cleanup_timeout_s: post-run cleanup buffer; min_timeout_s: floor covering container setup.
+# max_timeout_s is 3h59m so a max-length entry plus the 60s cleanup buffer fits in 4h.
 default_timeout_s: 7200
+max_timeout_s: 14340
 cleanup_timeout_s: 60
 min_timeout_s: 600
 
@@ -739,10 +741,10 @@ entries:
   - name: audio_readspeech_xenna
     enabled: true
     script: audio_readspeech_benchmark.py
-    # Hang guard only (~4h). Full dataset with all filters runs ~3.24h on 4×A100.
+    # Hang guard only (3h30m). Full dataset with all filters runs ~3.24h on 4×A100.
     # Performance regressions should be tracked via a `requirements` check on
     # `time_taken_s` once a stable baseline is established (follow-up).
-    timeout_s: 14400
+    timeout_s: 12600
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
@@ -775,9 +777,9 @@ entries:
   - name: audio_readspeech_raydata
     enabled: true
     script: audio_readspeech_benchmark.py
-    # Hang guard only (~4h). Mirrors xenna config so the two executors are
+    # Hang guard only (3h30m). Mirrors xenna config so the two executors are
     # directly comparable on the same workload (full dataset, all filters).
-    timeout_s: 14400
+    timeout_s: 12600
     args: >-
       --benchmark-results-path={session_entry_dir}
       --scratch-output-path={session_entry_dir}/scratch
