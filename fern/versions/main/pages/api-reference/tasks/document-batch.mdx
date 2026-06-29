@@ -23,14 +23,14 @@ class DocumentBatch(Task[pa.Table | pd.DataFrame]):
     """Task containing a batch of text documents.
 
     Attributes:
-        task_id: Unique identifier for this batch.
+        task_id: Framework-managed deterministic lineage identifier.
         dataset_name: Name of the source dataset.
         data: DataFrame or PyArrow Table containing documents.
     """
 
-    task_id: str
     dataset_name: str
     data: pa.Table | pd.DataFrame
+    # task_id is inherited from Task with init=False.
 ```
 
 ## Expected Data Schema
@@ -112,13 +112,14 @@ df = pd.DataFrame({
 })
 
 batch = DocumentBatch(
-    task_id="batch_001",
     dataset_name="my_dataset",
     data=df,
 )
 
 print(f"Batch contains {batch.num_items} documents")
 ```
+
+Do not pass `task_id` to the constructor. It remains empty until the framework assigns lineage at a stage boundary or when the task is supplied through `initial_tasks`.
 
 ## Usage in Stages
 
@@ -151,7 +152,6 @@ class TextFilterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             return None
 
         return DocumentBatch(
-            task_id=f"{task.task_id}_filtered",
             dataset_name=task.dataset_name,
             data=filtered_df,
             _metadata=task._metadata,
@@ -169,7 +169,6 @@ def process(self, task: DocumentBatch) -> DocumentBatch:
     df["word_count"] = df["text"].str.split().str.len()
 
     return DocumentBatch(
-        task_id=f"{task.task_id}_{self.name}",
         dataset_name=task.dataset_name,
         data=df,
         _metadata=task._metadata,
@@ -188,7 +187,6 @@ def process(self, task: DocumentBatch) -> DocumentBatch | None:
         return None  # Filter out entire batch
 
     return DocumentBatch(
-        task_id=f"{task.task_id}_{self.name}",
         dataset_name=task.dataset_name,
         data=filtered,
         _metadata=task._metadata,

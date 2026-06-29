@@ -82,7 +82,7 @@ class BaseExecutor(ABC):
 
         Args:
             stages: Processing stages to execute.
-            initial_tasks: Initial tasks (defaults to EmptyTask).
+            initial_tasks: Initial tasks (defaults to a fresh `EmptyTask()` instance).
 
         Returns:
             Output tasks from final stage.
