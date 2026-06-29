@@ -7,9 +7,11 @@ entire WARC (22K records × ~50 KB HTML each = 1-1.5 GB per WARC) into a
 DataFrame before extraction began; this stage never materializes that
 intermediate.
 
-Memory impact (per actor, steady-state):
-    Old:  ~10 GB peak (input DataFrame + magic-html parse + walker)
-    New:  ~5-6 GB peak (just magic-html parse + walker for current record)
+Memory impact (per actor, steady-state, measured on N=240 cap=60 cpu_dataprocessing):
+    Old (WarcDocumentToInterleavedStage):  ~10 GB peak RSS
+    New (this stage):                      ~1.6 GB peak RSS  (~6× reduction)
+Output is byte-equivalent to the old path; wall-clock ~10% slower
+(per-record dict allocation + GC overhead).
 """
 from __future__ import annotations
 

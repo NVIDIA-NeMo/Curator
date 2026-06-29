@@ -474,9 +474,11 @@ if __name__ == "__main__":
                              "from per-stage docs/rows/tokens lines in this log.")
 
     # ---- Stage 2 (extraction) ----
-    parser.add_argument("--extractor", default="naive",
-                        choices=["naive", "magic_html", "hybrid"],
-                        help="HTML → interleaved-rows extractor implementation")
+    parser.add_argument("--extractor", default="magic_traf",
+                        choices=["magic_html", "magic_traf"],
+                        help="HTML → interleaved-rows extractor implementation. "
+                             "magic_html = magic-html only; magic_traf = magic-html "
+                             "then trafilatura fallback on empty pages.")
     parser.add_argument("--min-text-chars", type=int, default=1,
                         help="Drop text rows shorter than N chars (at extraction)")
     parser.add_argument("--max-text-chars", type=int, default=50_000,

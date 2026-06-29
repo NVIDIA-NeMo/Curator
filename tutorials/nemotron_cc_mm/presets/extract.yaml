@@ -16,7 +16,7 @@ input_type: warc
 # ======================================================================
 # ① Main Body Extraction (paper §3.1)
 # ======================================================================
-extractor: hybrid
+extractor: magic_traf
 min_text_chars: 1
 max_text_chars: 50000
 resiliparse_text: true

@@ -1,5 +1,6 @@
 """Curator stages for the Nemotron-CC-MM pipeline."""
 from nemo_curator.stages.nemotron_cc_mm.extraction import WarcDocumentToInterleavedStage
+from nemo_curator.stages.nemotron_cc_mm.warc_streaming_extract import WarcStreamingExtractStage
 from nemo_curator.stages.nemotron_cc_mm.image_downloader import ParallelImageDownloader
 from nemo_curator.stages.nemotron_cc_mm.aesthetic_filter import InterleavedAestheticFilter
 from nemo_curator.stages.nemotron_cc_mm.lineage import attach_lineage, lineage_view
@@ -34,6 +35,7 @@ from nemo_curator.stages.nemotron_cc_mm.lang_id import (
 
 __all__ = [
     "WarcDocumentToInterleavedStage",
+    "WarcStreamingExtractStage",
     "BaseInterleavedSampleFilterStage",
     "InterleavedAlphabeticWordRatioFilterStage",
     "InterleavedBadWordsFilterStage",

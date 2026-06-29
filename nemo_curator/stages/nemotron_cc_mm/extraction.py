@@ -78,11 +78,11 @@ class WarcDocumentToInterleavedStage(
     extractor:
         Which HTML → rows implementation to use.  One of:
 
-        * ``"naive"``      — bs4 DOM walker over raw HTML (default).
         * ``"magic_html"`` — magic-html main-content extraction, then walk
           the cleaned HTML.
-        * ``"hybrid"``     — magic-html first; if it yields no content rows,
-          fall back to the naive walker on the raw HTML.
+        * ``"magic_traf"`` — magic-html first; if it yields no content rows,
+          fall back to trafilatura(output_format='html') on the raw HTML
+          (default).
     min_text_chars:
         Drop text runs shorter than this many chars.
     resiliparse_text:
@@ -93,7 +93,7 @@ class WarcDocumentToInterleavedStage(
         text directly as the doc's "clean text").  Default ``True``.
     """
 
-    extractor: str = "naive"
+    extractor: str = "magic_traf"
     min_text_chars: int = 1
     log_counts: bool = True
     resiliparse_text: bool = True

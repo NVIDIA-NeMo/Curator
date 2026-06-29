@@ -99,9 +99,9 @@ content rows in DOM order.
 
 ## Common knobs
 
-- `--extractor naive | magic_html | hybrid` — HTML→rows implementation.
-  `naive` walks raw HTML; `magic_html` cleans main content first;
-  `hybrid` tries magic_html and falls back to naive on empty pages.
+- `--extractor magic_html | magic_traf` — HTML→rows implementation.
+  `magic_html` runs magic-html only; `magic_traf` (default) tries magic-html
+  first and falls back to `trafilatura(output_format='html')` on empty pages.
 - `--record-limit N` — cap records per WARC (smoke testing).
 - `--files-per-partition K` — one Ray batch per `K` WARC files.
 - `--max-text-chars N` — cap per-row text length (default 50,000); guards
@@ -242,8 +242,9 @@ WARC_DIR=$WARCS WARC_PATTERN=$WARC_PATTERN \
 OUTPUT_PATH=$ROOT/01_extract ARRAY_SIZE=50 \
 TIME_LIMIT=02:00:00 ./submit_array.sh submit
 
-# 2. extracted → text-filtered
-PRESET=text_filter INPUT_TYPE=parquet INPUT_PATH=$ROOT/01_extract \
+# 2. extracted → text-filtered (multimodal preset: word_count_min=20,
+#    lang_id off, lang_id_annotate on)
+PRESET=text_filter_multimodal INPUT_TYPE=parquet INPUT_PATH=$ROOT/01_extract \
 OUTPUT_PATH=$ROOT/02_text ARRAY_SIZE=50 \
 TIME_LIMIT=00:30:00 ./submit_array.sh submit
 
