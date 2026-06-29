@@ -1,0 +1,14 @@
+cc_index_base_uri: s3://cc-index/table/cc-main/warc
+endpoint_url: https://pdx.s8k.io
+output_name: global_unique_urls
+included_crawls:
+  - CC-MAIN-2026-17
+  - CC-MAIN-2026-12
+  - CC-MAIN-2026-08
+  - CC-MAIN-2026-04
+  - CC-MAIN-2025-51
+  - CC-MAIN-2025-47
+  - CC-MAIN-2025-43
+  - CC-MAIN-2025-38
+  - CC-MAIN-2025-33
+  - CC-MAIN-2025-30

@@ -11,6 +11,7 @@ Hands-on tutorials for curating text data with NeMo Curator. Complete working ex
 | Tutorial | Description | Files |
 |----------|-------------|-------|
 | **[Download & Extract](download-and-extract/)** | Data acquisition workflows | `download_extract_tutorial.ipynb` |
+| **[CC Index URL List](cc-index-url-list/)** | Build a global unique URL list from configured Common Crawl Index snapshots | `create_cc_index_url_list.py`, `selected_crawls.yaml` |
 | **[Deduplication](deduplication/)** | Remove duplicate content | Fuzzy and semantic deduplication notebooks |
 | **[Classification](distributed-data-classification/)** | Quality assessment and categorization | `quality-classification.ipynb`, `domain-classification.ipynb`, `fineweb-edu-classification.ipynb`, and more |
 | **[PEFT Curation](peft-curation/)** | Instruction-tuning data preparation | `main.py`, `stages.py` |
