@@ -21,7 +21,7 @@ from loguru import logger
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.client_partitioning import ClientPartitioningStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import _EmptyTask
+from nemo_curator.tasks import EmptyTask
 from nemo_curator.tasks.file_group import FileGroupTask
 from nemo_curator.tasks.video import Video, VideoTask
 from nemo_curator.utils.client_utils import FSPath, is_remote_url
@@ -89,7 +89,6 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
             raise ValueError(msg)
         video = Video(input_video=task.data[0])
         video_task = VideoTask(
-            task_id=f"{task.data[0]}_processed",
             dataset_name=task.dataset_name,
             data=video,
             _metadata=deepcopy(task._metadata),
@@ -234,7 +233,7 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
 
 
 @dataclass
-class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
+class VideoReader(CompositeStage[EmptyTask, VideoTask]):
     """Composite stage that reads video files from storage and downloads/processes them.
 
     This stage combines FilePartitioningStage and VideoReaderStage into a single
@@ -255,6 +254,20 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         """Initialize the parent CompositeStage after dataclass initialization."""
         super().__init__()
         self.name = "video_reader"
+        if not is_remote_url(self.input_video_path):
+            path = Path(self.input_video_path)
+            if not path.exists():
+                msg = f"Video directory does not exist: {self.input_video_path}"
+                raise FileNotFoundError(msg)
+            video_extensions = (".mp4", ".mov", ".avi", ".mkv", ".webm")
+            if path.is_file():
+                if path.suffix.lower() not in video_extensions:
+                    supported = ", ".join(video_extensions)
+                    msg = f"Not a supported video file: {self.input_video_path}. Supported formats: {supported}"
+                    raise FileNotFoundError(msg)
+            elif not any(next(path.rglob(f"*{ext}"), None) is not None for ext in video_extensions):
+                msg = f"No video files found in: {self.input_video_path}"
+                raise FileNotFoundError(msg)
 
     def decompose(self) -> list[ProcessingStage]:
         """Decompose into constituent execution stages.

@@ -330,7 +330,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -355,7 +355,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         with pytest.raises(ValueError, match="Video source bytes are not available"):
             stage.process(task)
@@ -371,7 +371,7 @@ class TestVideoFrameExtractionStage:
             source_bytes=b"fake_video_data",
             metadata=VideoMetadata(framerate=30, width=640, height=480),  # Missing required fields
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -408,7 +408,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -449,7 +449,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -497,7 +497,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -544,7 +544,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -592,7 +592,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -629,7 +629,7 @@ class TestVideoFrameExtractionStage:
                 framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
             ),
         )
-        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        task = VideoTask(dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -650,3 +650,28 @@ class TestVideoFrameExtractionStage:
 
         # Should not create PyNvcFrameExtractor for FFmpeg mode
         assert not hasattr(stage, "pynvc_frame_extractor") or stage.pynvc_frame_extractor is None
+
+
+class TestVideoFrameExtractionStageRayDataResources:
+    def test_ffmpeg_cpu_path_sets_ray_data_num_cpus_to_1(self):
+        stage = VideoFrameExtractionStage(decoder_mode="ffmpeg_cpu")
+        assert stage.ray_data_num_cpus == 1.0
+        assert stage.resources.cpus == 4.0
+
+    def test_ffmpeg_cpu_path_ray_stage_spec_includes_ray_num_cpus(self):
+        from nemo_curator.backends.utils import RayStageSpecKeys
+
+        stage = VideoFrameExtractionStage(decoder_mode="ffmpeg_cpu")
+        assert stage.ray_stage_spec() == {RayStageSpecKeys.RAY_NUM_CPUS: 1.0}
+
+    def test_pynvc_path_ray_data_num_cpus_is_none(self):
+        stage = VideoFrameExtractionStage(decoder_mode="pynvc")
+        assert stage.ray_data_num_cpus is None
+        assert stage.ray_stage_spec() == {}
+
+    def test_user_can_override_ray_data_num_cpus(self):
+        from nemo_curator.backends.utils import RayStageSpecKeys
+
+        stage = VideoFrameExtractionStage(decoder_mode="ffmpeg_cpu", ray_data_num_cpus=2.0)
+        assert stage.ray_data_num_cpus == 2.0
+        assert stage.ray_stage_spec()[RayStageSpecKeys.RAY_NUM_CPUS] == 2.0

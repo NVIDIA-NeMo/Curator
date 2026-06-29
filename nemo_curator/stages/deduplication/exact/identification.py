@@ -256,7 +256,6 @@ class ExactDuplicateIdentification(DeduplicationIO, ShuffleStage):
             removal_ids.to_parquet(output_file, **write_kwargs)
             result_tasks.append(
                 FileGroupTask(
-                    task_id=partition_id,
                     dataset_name=f"{self.dataset_name}_{self.name}",
                     data=[output_file],
                     _metadata={

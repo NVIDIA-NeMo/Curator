@@ -156,6 +156,13 @@ def main() -> int:
     logger.info("=== ScoreFilter Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
+    results = {
+        "params": vars(args),
+        "metrics": {
+            "is_success": False,
+        },
+        "tasks": [],
+    }
     try:
         results = run_score_filter_benchmark(
             input_path=args.input_path,
@@ -165,18 +172,6 @@ def main() -> int:
             yaml_config=args.yaml_config,
             overrides=args.overrides,
         )
-
-    except Exception as e:
-        error_traceback = traceback.format_exc()
-        print(f"Benchmark failed: {e}")
-        logger.debug(f"Full traceback:\n{error_traceback}")
-        results = {
-            "params": vars(args),
-            "metrics": {
-                "is_success": False,
-            },
-            "tasks": [],
-        }
     finally:
         write_benchmark_results(results, args.benchmark_results_path)
 

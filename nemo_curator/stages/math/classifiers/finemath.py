@@ -20,7 +20,7 @@ import torch
 from transformers import AutoModelForSequenceClassification
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.text.classifiers.constants import (
+from nemo_curator.stages.text.classifiers.utils import (
     DEBERTA_TOKENIZER_PADDING_SIDE,
 )
 from nemo_curator.stages.text.models.model import ModelStage
@@ -67,7 +67,6 @@ class CenterCropTextStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             )
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,

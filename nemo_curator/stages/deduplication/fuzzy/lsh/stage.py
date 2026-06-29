@@ -16,7 +16,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.fuzzy.lsh.lsh import LSHActor
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_DEFAULT_MINHASH_FIELD
@@ -155,11 +155,10 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
     def extract_and_write(self) -> list[FileGroupTask]:
         self._check_actor_obj()
-        current_band_min, current_band_max = self._current_band_range
+        _current_band_min, _current_band_max = self._current_band_range
         partition_dicts = self._actor_obj.extract_and_write()
         return [
             FileGroupTask(
-                task_id=f"b{current_band_min}_b{current_band_max}_{partition_info['partition_id']}",
                 dataset_name=self.dataset_name + f"{self.name}",
                 data=[partition_info["path"]],
                 _metadata={

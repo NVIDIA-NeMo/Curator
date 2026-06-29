@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,25 +13,75 @@
 # limitations under the License.
 
 import pandas as pd
+from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch, DocumentBatch
+from nemo_curator.tasks import AudioTask, DocumentBatch
+
+_NON_SERIALIZABLE_KEYS = frozenset(
+    {
+        "waveform",
+        "audio",
+        "audio_data",
+        "audio_array",
+        "segments",
+    }
+)
 
 
-class AudioToDocumentStage(ProcessingStage[AudioBatch, DocumentBatch]):
-    """
-    Stage to conver DocumentObject to DocumentBatch
+def _is_tensor(v: object) -> bool:
+    """Check if a value is a torch.Tensor without importing torch at module level."""
+    return type(v).__name__ == "Tensor" and type(v).__module__.startswith("torch")
 
+
+class AudioToDocumentStage(ProcessingStage[AudioTask, DocumentBatch]):
+    """Convert AudioTask entries into DocumentBatch DataFrames.
+
+    Overrides ``process_batch`` to aggregate an entire batch of
+    ``AudioTask`` objects into a single multi-row ``DocumentBatch``,
+    avoiding the overhead of many single-row DataFrames.  Set
+    ``batch_size`` to control how many audio entries land in each
+    DataFrame (default 64).
+
+    Non-serializable keys (torch tensors, raw audio arrays) are
+    stripped before building the DataFrame as a safety net, even if
+    upstream stages failed to clean them up.
     """
 
     name = "AudioToDocumentStage"
+    batch_size: int = 64
 
-    def process(self, task: AudioBatch) -> list[DocumentBatch]:
+    def process(self, task: AudioTask) -> DocumentBatch:
+        msg = "AudioToDocumentStage only supports process_batch"
+        raise NotImplementedError(msg)
+
+    @staticmethod
+    def _sanitize(data: dict) -> dict:
+        """Remove non-serializable keys and any remaining tensor values."""
+        cleaned = {}
+        for k, v in data.items():
+            if k in _NON_SERIALIZABLE_KEYS:
+                continue
+            if _is_tensor(v):
+                logger.warning(
+                    f"[AudioToDocumentStage] Dropping non-serializable "
+                    f"key {k!r} (torch.Tensor) before DataFrame conversion"
+                )
+                continue
+            cleaned[k] = v
+        return cleaned
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[DocumentBatch]:
+        if len(tasks) == 0:
+            return []
+        df = pd.DataFrame([self._sanitize(t.data) for t in tasks])
+        perf = []
+        for t in tasks:
+            perf.extend(t._stage_perf)
         return [
             DocumentBatch(
-                data=pd.DataFrame(task.data),
-                task_id=task.task_id,
-                dataset_name=task.dataset_name,
-                _stage_perf=task._stage_perf,
+                data=df,
+                dataset_name=",".join(dict.fromkeys(t.dataset_name for t in tasks)),
+                _stage_perf=perf,
             )
         ]

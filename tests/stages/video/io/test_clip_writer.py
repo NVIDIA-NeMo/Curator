@@ -127,7 +127,6 @@ class TestClipWriterStage:
 
         # Create mock task
         self.mock_task = VideoTask(
-            task_id="test_task",
             dataset_name="test_dataset",
             data=self.mock_video,
         )
@@ -696,7 +695,7 @@ class TestClipWriterStage:
                 assert clip.cosmos_embed1_embedding is None
                 for window in clip.windows:
                     assert window.mp4_bytes is None
-                    assert window.qwen_llm_input is None
+                    assert window.llm_inputs == {}
                     assert window.caption == {}
                     assert window.enhanced_caption == {}
                     assert window.webp_bytes is None
@@ -760,7 +759,6 @@ class TestClipWriterStage:
             clip_chunk_index=0,
         )
         empty_task = VideoTask(
-            task_id="empty_task",
             dataset_name="test_dataset",
             data=empty_video,
         )

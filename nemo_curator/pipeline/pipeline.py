@@ -18,7 +18,31 @@ from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.tasks import Task
+from nemo_curator.tasks import EmptyTask, Task
+
+
+def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
+    """Assign root ``task_id``s to user-provided initial tasks.
+
+    Every task in a run descends from the implicit root ``"0"`` (the id of
+    :class:`EmptyTask`). User-provided initial tasks are its direct
+    children, so they get ``"0_0"``, ``"0_1"``, … ``EmptyTask`` instances
+    are skipped (already ``"0"``). All downstream ``task_id`` assignment
+    happens in ``BaseStageAdapter``.
+
+    NOTE: we deliberately use the positional index here, NOT
+    ``get_deterministic_id()``, even for content-bearing tasks like
+    ``FileGroupTask``. The source stage is the single place content-based
+    ids are assigned (to its outputs); hashing here too would put the
+    content hash at two levels of the id path (``"0_<hashA>_<hashB>"``).
+    Passing initial tasks directly is rare; if you need reorder-stable
+    source ids, let a source stage emit them.
+    """
+    for i, task in enumerate(initial_tasks):
+        if isinstance(task, EmptyTask):
+            continue
+        task._set_task_id("0", i)
+    return initial_tasks
 
 
 class Pipeline:
@@ -80,6 +104,30 @@ class Pipeline:
         self.stages = execution_stages
         self.decomposition_info = decomposition_info
 
+        # 3. Source / sink defaults: at most one stage may be explicitly
+        # marked; if none, the first stage is the source and the last is
+        # the sink. The source flag activates content-based ids in the
+        # default ``process_batch``; the sink flag is used by the
+        # resumability layer in a follow-up PR.
+        self._assign_source_sink_roles()
+
+    def _assign_source_sink_roles(self) -> None:
+        explicit_sources = [s for s in self.stages if s.is_source_stage]
+        if len(explicit_sources) > 1:
+            names = [s.name for s in explicit_sources]
+            msg = f"Pipeline has multiple source stages marked: {names}. At most one is supported."
+            raise ValueError(msg)
+        if not explicit_sources:
+            self.stages[0].is_source_stage = True
+
+        explicit_sinks = [s for s in self.stages if s.is_sink_stage]
+        if len(explicit_sinks) > 1:
+            names = [s.name for s in explicit_sinks]
+            msg = f"Pipeline has multiple sink stages marked: {names}. At most one is supported."
+            raise ValueError(msg)
+        if not explicit_sinks:
+            self.stages[-1].is_sink_stage = True
+
     def _decompose_stages(
         self, stages: list[ProcessingStage | CompositeStage]
     ) -> tuple[list[ProcessingStage], dict[str, list[str]]]:
@@ -129,7 +177,7 @@ class Pipeline:
         stage_info = ", ".join([f"{s.name}({s.__class__.__name__})" for s in self.stages])
         return f"Pipeline(name='{self.name}', stages=[{stage_info}])"
 
-    def describe(self) -> str:  # noqa: C901
+    def describe(self) -> str:
         """Get a detailed description of the pipeline stages and their requirements."""
         lines = [
             f"Pipeline: {self.name}",
@@ -148,10 +196,6 @@ class Pipeline:
                 lines.append(f"  Resources: {stage.resources.cpus} CPUs")
                 if stage.resources.requires_gpu:
                     lines.append(f"    GPU Memory: {stage.resources.gpu_memory_gb} GB ({stage.resources.gpus} GPUs)")
-                if stage.resources.nvdecs > 0:
-                    lines.append(f"    NVDEC: {stage.resources.nvdecs}")
-                if stage.resources.nvencs > 0:
-                    lines.append(f"    NVENC: {stage.resources.nvencs}")
 
                 lines.append(f"  Batch size: {stage.batch_size}")
 
@@ -189,9 +233,34 @@ class Pipeline:
             list[Task] | None: List of tasks
         """
         self.build()
+
         if executor is None:
             from nemo_curator.backends.xenna import XennaExecutor
 
             executor = XennaExecutor()
+
+        from nemo_curator.core.serve import is_inference_server_active
+
+        if is_inference_server_active():
+            gpu_stages = [s for s in self.stages if s.resources.requires_gpu]
+            if gpu_stages:
+                names = ", ".join(s.name for s in gpu_stages)
+                from nemo_curator.backends.xenna import XennaExecutor
+
+                if isinstance(executor, XennaExecutor):
+                    msg = (
+                        f"Cannot run XennaExecutor with GPU stages [{names}] while Ray Serve is active. "
+                        "Xenna manages GPU assignment independently of Ray's resource scheduler, "
+                        "which causes GPU contention with served models. "
+                        "Use RayDataExecutor instead."
+                    )
+                    raise RuntimeError(msg)
+                logger.info(
+                    f"Ray Serve is active and pipeline has GPU stages: [{names}]. "
+                    "The executor will schedule GPU stages on GPUs not held by Serve."
+                )
+
+        if initial_tasks:
+            assign_root_task_ids(initial_tasks)
 
         return executor.execute(self.stages, initial_tasks)

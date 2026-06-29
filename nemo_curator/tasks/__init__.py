@@ -12,21 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .audio_batch import AudioBatch
+from .audio_task import AudioTask
 from .document import DocumentBatch
 from .file_group import FileGroupTask
 from .image import ImageBatch, ImageObject
 from .interleaved import InterleavedBatch
-from .tasks import EmptyTask, Task, _EmptyTask
+from .sentinels import EmptyTask, SentinelTask
+from .tasks import Task
 
 __all__ = [
-    "AudioBatch",
+    "AudioTask",
     "DocumentBatch",
     "EmptyTask",
     "FileGroupTask",
     "ImageBatch",
     "ImageObject",
     "InterleavedBatch",
+    "SentinelTask",
     "Task",
-    "_EmptyTask",
 ]

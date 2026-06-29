@@ -159,7 +159,6 @@ class TestBaseDataDesignerStage:
             batch = DocumentBatch(
                 data=input_df,
                 dataset_name="ds1",
-                task_id="task-1",
                 _metadata=original_metadata,
                 _stage_perf=original_stage_perf,
             )
@@ -174,7 +173,6 @@ class TestBaseDataDesignerStage:
 
             stage.data_designer.preview.assert_called_once_with(real_builder, num_records=1)
             assert isinstance(out_batch, DocumentBatch)
-            assert out_batch.task_id == "task-1"
             assert out_batch.dataset_name == "ds1"
             assert out_batch.data is output_df
             # Preserve metadata and stage_perf (same assertion style as video reader, URL generation, image convert)
@@ -200,7 +198,6 @@ class TestBaseDataDesignerStage:
         batch = DocumentBatch(
             data=pd.DataFrame([{"text": "hello"}]),
             dataset_name="ds1",
-            task_id="task-1",
             _metadata=original_metadata,
             _stage_perf=original_stage_perf,
         )
@@ -220,12 +217,11 @@ class TestBaseDataDesignerStage:
             return_value=PreviewResults(config_builder=real_builder, dataset=output_df)
         )
 
-        batch = DocumentBatch(data=pd.DataFrame(), dataset_name="ds", task_id="t1")
+        batch = DocumentBatch(data=pd.DataFrame(), dataset_name="ds")
         out_batch = stage.process(batch)
 
         stage.data_designer.preview.assert_called_once_with(real_builder, num_records=0)
         assert len(out_batch.data) == 0
-        assert out_batch.task_id == "t1"
 
     def test_process_logs_metrics(self) -> None:
         """process logs ndd_running_time, num_input_records, num_output_records."""
@@ -239,7 +235,7 @@ class TestBaseDataDesignerStage:
             return_value=PreviewResults(config_builder=real_builder, dataset=output_df)
         )
 
-        batch = DocumentBatch(data=input_df, dataset_name="ds", task_id="t1")
+        batch = DocumentBatch(data=input_df, dataset_name="ds")
         stage.process(batch)
 
         assert hasattr(stage, "_custom_metrics")
@@ -285,12 +281,10 @@ class TestBaseDataDesignerStage:
         batch = DocumentBatch(
             data=pd.DataFrame([{"x": 1}]),
             dataset_name="ds",
-            task_id="t1",
         )
         out_batch = stage.process(batch)
 
         assert isinstance(out_batch, DocumentBatch)
-        assert out_batch.task_id == "t1"
         assert out_batch.data is not None
         assert hasattr(stage, "_custom_metrics")
         assert "ndd_running_time" in stage._custom_metrics
@@ -340,7 +334,6 @@ class TestDataDesignerStagePipelineIntegration:
             DocumentBatch(
                 data=pd.DataFrame([{"x": 1}]),
                 dataset_name="integration",
-                task_id="e2e-1",
             )
         ]
         executor = XennaExecutor(config={"execution_mode": "streaming"})
@@ -350,7 +343,6 @@ class TestDataDesignerStagePipelineIntegration:
         assert len(result_tasks) == 1
         out = result_tasks[0]
         assert isinstance(out, DocumentBatch)
-        assert out.task_id == "e2e-1"
         assert out.dataset_name == "integration"
         assert out.data is not None
         expected_rows = len(initial_tasks[0].data)

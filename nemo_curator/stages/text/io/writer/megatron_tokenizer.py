@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,16 +15,16 @@
 import struct
 import uuid
 from dataclasses import dataclass, field
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 import numpy as np
 from loguru import logger
 from transformers import AutoTokenizer
 
-import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 from .base import BaseWriter
 from .utils import batched
@@ -42,6 +42,7 @@ class MegatronTokenizerWriter(BaseWriter):
     text_field: str = "text"
     tokenization_batch_size: int = 1000  # Renamed from batch_size to avoid shadowing ProcessingStage.batch_size
     append_eod: bool = False
+    transformers_init_kwargs: dict[str, Any] = field(default_factory=dict)
 
     # Disable the inherited fields attribute
     fields: list[str] | None = field(default=None, init=False, repr=False)
@@ -53,15 +54,24 @@ class MegatronTokenizerWriter(BaseWriter):
         if self.model_identifier is None:
             msg = "model_identifier is required and must be provided"
             raise ValueError(msg)
+
+        if "cache_dir" in self.transformers_init_kwargs:
+            msg = "Pass the cache_dir parameter directly to the stage instead of using the transformers_init_kwargs dictionary"
+            raise ValueError(msg)
+        if "token" in self.transformers_init_kwargs:
+            msg = "Pass the hf_token parameter to the stage instead of using token in the transformers_init_kwargs dictionary"
+            raise ValueError(msg)
+        if "local_files_only" in self.transformers_init_kwargs:
+            msg = "Passing the local_files_only parameter is not allowed"
+            raise ValueError(msg)
+
         super().__post_init__()
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
             # download the relevant tokenizer files once
             _ = AutoTokenizer.from_pretrained(
-                self.model_identifier,
-                cache_dir=self.cache_dir,
-                token=self.hf_token
+                self.model_identifier, cache_dir=self.cache_dir, token=self.hf_token, **self.transformers_init_kwargs
             )
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
@@ -69,17 +79,24 @@ class MegatronTokenizerWriter(BaseWriter):
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         # Load the tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_identifier,
-            cache_dir=self.cache_dir,
-            local_files_only=True,
-        )
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_identifier, cache_dir=self.cache_dir, local_files_only=True, **self.transformers_init_kwargs
+            )
+        except Exception as e:  # noqa: BLE001
+            # Allow this fallback since loading a tokenizer is lightweight
+            msg = f"Failed to load {self.model_identifier} from local files, loading from Hugging Face: {e}"
+            logger.warning(msg)
+
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_identifier, cache_dir=self.cache_dir, token=self.hf_token, **self.transformers_init_kwargs
+            )
 
     def process(self, task: DocumentBatch) -> FileGroupTask:
         sequence_lengths: list[int] = []
         # Get source files from metadata for deterministic naming
         if source_files := task._metadata.get("source_files"):
-            filename = writer_utils.get_deterministic_hash(source_files, task.task_id)
+            filename = get_deterministic_hash(source_files, task.task_id)
         else:
             logger.warning("The task does not have source_files in metadata, using UUID for base filename")
             filename = uuid.uuid4().hex
@@ -135,7 +152,6 @@ class MegatronTokenizerWriter(BaseWriter):
         logger.debug(f"Written batch to {file_prefix} with {num_docs} documents ({sum(sequence_lengths)} tokens)")
 
         return FileGroupTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=[file_prefix + file_extension for file_extension in self.file_extension],
             _metadata={

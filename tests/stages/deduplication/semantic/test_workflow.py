@@ -117,7 +117,7 @@ class TestSemanticDeduplicationWorkflow:
 
             executor = XennaExecutor()
         elif executor_type == "ray_data":
-            from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+            from nemo_curator.backends.ray_data import RayDataExecutor
 
             executor = RayDataExecutor()
 

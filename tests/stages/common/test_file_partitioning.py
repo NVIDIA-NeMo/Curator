@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
 def _create_test_jsonl_files(base_dir: Path | str, num_files: int, subdir: str | None = None) -> list[str]:
@@ -48,10 +48,9 @@ class TestFilePartitioningStage:
         return files
 
     @pytest.fixture
-    def empty_task(self) -> _EmptyTask:
+    def empty_task(self) -> EmptyTask:
         """Create an empty task for testing."""
-        return _EmptyTask(
-            task_id="test_task",
+        return EmptyTask(
             dataset_name="test_dataset",
             data=None,
             _metadata={"source": "test"},
@@ -123,7 +122,14 @@ class TestFilePartitioningStage:
         spec = stage.ray_stage_spec()
         assert spec["is_fanout_stage"] is True
 
-    def test_process_with_file_list(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_worker_defaults(self):
+        """Test worker defaults for source partitioning."""
+        stage = FilePartitioningStage(file_paths="/test/path")
+
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
+
+    def test_process_with_file_list(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with a list of files."""
         # Create these files in the tmp_path:
         test_files = _create_test_jsonl_files(tmp_path, num_files=3, subdir="path")
@@ -135,9 +141,8 @@ class TestFilePartitioningStage:
         assert isinstance(result[0], FileGroupTask)
         assert result[0].data == [test_files[0]]
         assert result[0].dataset_name == "path"
-        assert result[0].task_id == "file_group_0"
 
-    def test_process_with_files_per_partition(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_process_with_files_per_partition(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with files_per_partition setting."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=4, subdir="path")
         stage = FilePartitioningStage(file_paths=test_files, files_per_partition=2)
@@ -148,7 +153,7 @@ class TestFilePartitioningStage:
         assert result[0].data == test_files[:2]
         assert result[1].data == test_files[2:]
 
-    def test_process_with_limit(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_process_with_limit(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with limit parameter - this is the main test for the limit functionality."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=10, subdir="path")
         stage = FilePartitioningStage(
@@ -167,11 +172,10 @@ class TestFilePartitioningStage:
 
         # Verify metadata
         for i, task in enumerate(result):
-            assert task.task_id == f"file_group_{i}"
             assert task._metadata["partition_index"] == i
             assert task._metadata["total_partitions"] == 5  # Total partitions before limit
 
-    def test_process_with_limit_single_partition(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_process_with_limit_single_partition(self, empty_task: EmptyTask, tmp_path: Path):
         """Test limit when all files would be in a single partition."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=5, subdir="path")
         stage = FilePartitioningStage(
@@ -183,7 +187,7 @@ class TestFilePartitioningStage:
         assert len(result) == 1
         assert result[0].data == [test_files[0]]
 
-    def test_process_with_limit_zero(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_process_with_limit_zero(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with limit set to 0."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=5, subdir="path")
         stage = FilePartitioningStage(
@@ -196,10 +200,11 @@ class TestFilePartitioningStage:
 
         assert len(result) == 0
 
-    def test_process_with_blocksize(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_process_with_blocksize(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with blocksize setting."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=6)
-        stage = FilePartitioningStage(file_paths=test_files, blocksize="1B")
+        # Test files are 3 bytes each, so blocksize of 3B should create 6 partitions
+        stage = FilePartitioningStage(file_paths=test_files, blocksize="3B")
 
         result = stage.process(empty_task)
 
@@ -210,20 +215,22 @@ class TestFilePartitioningStage:
             assert len(task.data) == 1
             assert task.data[0] == test_files[i]
 
-    def test_both_blocksize_and_files_per_partition_warns(self, caplog: pytest.LogCaptureFixture):
-        """Test that specifying both blocksize and files_per_partition logs a warning and ignores blocksize."""
+    def test_large_blocksize_warning(self, caplog: pytest.LogCaptureFixture):
+        """Test that a warning is raised if the blocksize is greater than 512 MB."""
         with caplog.at_level("WARNING"):
-            stage = FilePartitioningStage(
+            FilePartitioningStage(file_paths="/test/path", blocksize="1GiB")
+        assert "Blocksize is greater than 512 MB" in caplog.text
+
+    def test_both_blocksize_and_files_per_partition_errors(self):
+        """Test that specifying both blocksize and files_per_partition errors."""
+        with pytest.raises(ValueError, match="only one is allowed"):
+            FilePartitioningStage(
                 file_paths="/test/path",
                 files_per_partition=2,
                 blocksize="128MB",
             )
-        assert stage.files_per_partition == 2
-        assert stage.blocksize is None
-        assert "files_per_partition" in caplog.text
-        assert "blocksize" in caplog.text
 
-    def test_process_empty_file_list(self, empty_task: _EmptyTask):
+    def test_process_empty_file_list(self, empty_task: EmptyTask):
         """Test processing with empty file list."""
         stage = FilePartitioningStage(file_paths=[])
 
@@ -256,22 +263,7 @@ class TestFilePartitioningStage:
         assert partitions[1] == ["file3", "file4"]
         assert partitions[2] == ["file5"]
 
-    def test_parse_size(self):
-        """Test _parse_size method."""
-        stage = FilePartitioningStage(file_paths=[])
-
-        assert stage._parse_size("100B") == 100
-        assert stage._parse_size("1KB") == 1000
-        assert stage._parse_size("1KiB") == 1024
-        assert stage._parse_size("1MB") == 1000 * 1000
-        assert stage._parse_size("1MiB") == 1024 * 1024
-        assert stage._parse_size("1GB") == 1000 * 1000 * 1000
-        assert stage._parse_size("1GiB") == 1024 * 1024 * 1024
-        assert stage._parse_size("2TB") == 2 * 1000 * 1000 * 1000 * 1000
-        assert stage._parse_size("2TiB") == 2 * 1024 * 1024 * 1024 * 1024
-        assert stage._parse_size("100") == 100  # No unit defaults to bytes
-
-    def test_task_metadata(self, empty_task: _EmptyTask, tmp_path: Path):
+    def test_task_metadata(self, empty_task: EmptyTask, tmp_path: Path):
         """Test that created tasks have proper metadata."""
         test_files = _create_test_jsonl_files(tmp_path, num_files=2, subdir="path")
         storage_options = {"option1": "value1"}

@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
@@ -228,7 +228,7 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         initial_tasks = []
         for i in range(0, len(test_config.input_file_paths), 5):
             task_files = test_config.input_file_paths[i : i + 5]
-            initial_tasks.append(FileGroupTask(task_id=f"file_group_{i // 5}", dataset_name="input", data=task_files))
+            initial_tasks.append(FileGroupTask(dataset_name="input", data=task_files))
 
         assert len(initial_tasks) == 20  # 100 files / 5 per group = 20 tasks
 
@@ -335,9 +335,17 @@ class TestTextDuplicatesRemovalWorkflowGenerateStages:
         with pytest.raises(ValueError, match="Invalid output filetype: invalid"):
             write_invalid_file_type_workflow._generate_stages(initial_tasks=None)
 
-    @pytest.mark.parametrize("input_filetype", ["parquet", "jsonl"])
+    @pytest.mark.parametrize(
+        ("input_filetype", "expected_file_extensions"),
+        [("parquet", [".parquet"]), ("jsonl", [".jsonl", ".json"])],
+    )
     @pytest.mark.parametrize("id_generator_path", [None, "id_generator_path"])
-    def test_reader_stage(self, input_filetype: str, id_generator_path: str | None):
+    def test_reader_stage(
+        self,
+        input_filetype: str,
+        expected_file_extensions: list[str],
+        id_generator_path: str | None,
+    ):
         workflow = TextDuplicatesRemovalWorkflow(
             input_path="input_path",
             ids_to_remove_path="ids_to_remove_path",
@@ -354,8 +362,7 @@ class TestTextDuplicatesRemovalWorkflowGenerateStages:
         assert stages[0].file_paths == "input_path"
         assert stages[0].files_per_partition is None
         assert stages[0].blocksize is None
-        # post init of FilePartitioningStage sets this
-        assert stages[0].file_extensions == [".jsonl", ".json", ".parquet"]
+        assert stages[0].file_extensions == expected_file_extensions
         assert stages[0].storage_options == {}
 
         # test for reader stage (stages[1])
@@ -376,6 +383,20 @@ class TestTextDuplicatesRemovalWorkflowGenerateStages:
 
         # test for writer stage (stages[3]) - default output_filetype is parquet
         assert isinstance(stages[3], ParquetWriter)
+
+    def test_reader_stage_with_custom_input_file_extensions(self):
+        workflow = TextDuplicatesRemovalWorkflow(
+            input_path="input_path",
+            ids_to_remove_path="ids_to_remove_path",
+            output_path="output_path",
+            input_filetype="parquet",
+            input_file_extensions=[".pq"],
+            id_generator_path=None,
+        )
+
+        stages = workflow._generate_stages(initial_tasks=None)
+
+        assert stages[0].file_extensions == [".pq"]
 
     @pytest.mark.parametrize("output_filetype", ["parquet", "jsonl"])
     def test_writer_stage(self, output_filetype: str):

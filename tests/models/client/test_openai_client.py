@@ -102,6 +102,29 @@ class TestOpenAIClient:
         assert result == ["Response 1", "Response 2"]
 
     @patch("nemo_curator.models.client.openai_client.OpenAI")
+    def test_query_model_with_extra_kwargs(self, mock_openai: Mock) -> None:
+        """Test that extra_kwargs are passed through to chat.completions.create."""
+        mock_choice = Mock()
+        mock_choice.message.content = '{"decision": "keep"}'
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai.return_value = mock_client
+
+        client = OpenAIClient()
+        client.setup()
+
+        response_format = {"type": "json_schema", "json_schema": {"name": "test", "strict": True, "schema": {}}}
+        config = GenerationConfig(max_tokens=128, extra_kwargs={"response_format": response_format})
+        client.query_model(messages=[{"role": "user", "content": "test"}], model="gpt-4", generation_config=config)
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["response_format"] == response_format
+        assert call_kwargs["max_tokens"] == 128
+
+    @patch("nemo_curator.models.client.openai_client.OpenAI")
     def test_query_model_with_conversation_formatter_warning(self, mock_openai: Mock) -> None:
         """Test query_model warns when conversation_formatter is provided."""
         # Setup proper mock response
@@ -151,6 +174,50 @@ class TestOpenAIClient:
 
             assert len(w) == 1
             assert "top_k is not used in an OpenAIClient" in str(w[0].message)
+
+    @patch("nemo_curator.models.client.openai_client.OpenAI")
+    def test_query_model_lazy_init_calls_setup_when_client_missing(self, mock_openai: Mock) -> None:
+        """Test that query_model calls setup() automatically when client is not initialized."""
+        mock_choice = Mock()
+        mock_choice.message.content = "Test response"
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai.return_value = mock_client
+
+        client = OpenAIClient()
+        assert not hasattr(client, "client")
+
+        with patch.object(client, "setup", wraps=client.setup) as mock_setup:
+            client.query_model(messages=[{"role": "user", "content": "test"}], model="gpt-4")
+            mock_setup.assert_called_once()
+
+        assert hasattr(client, "client")
+        assert client.client == mock_client
+
+    @patch("nemo_curator.models.client.openai_client.OpenAI")
+    def test_query_model_lazy_init_skips_setup_when_client_exists(self, mock_openai: Mock) -> None:
+        """Test that query_model does not call setup() again when client is already initialized."""
+        mock_choice = Mock()
+        mock_choice.message.content = "Test response"
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_openai.return_value = mock_client
+
+        client = OpenAIClient()
+        client.setup()
+        existing_client = client.client
+
+        with patch.object(client, "setup") as mock_setup:
+            client.query_model(messages=[{"role": "user", "content": "test"}], model="gpt-4")
+            mock_setup.assert_not_called()
+
+        assert client.client is existing_client
 
 
 class TestAsyncOpenAIClient:
@@ -232,6 +299,32 @@ class TestAsyncOpenAIClient:
 
     @pytest.mark.asyncio
     @patch("nemo_curator.models.client.openai_client.AsyncOpenAI")
+    async def test_query_model_impl_with_extra_kwargs(self, mock_async_openai: Mock) -> None:
+        """Test that extra_kwargs are passed through to chat.completions.create."""
+        mock_choice = Mock()
+        mock_choice.message.content = '{"decision": "keep"}'
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_async_openai.return_value = mock_client
+
+        client = AsyncOpenAIClient()
+        client.setup()
+
+        response_format = {"type": "json_schema", "json_schema": {"name": "test", "strict": True, "schema": {}}}
+        config = GenerationConfig(max_tokens=128, extra_kwargs={"response_format": response_format})
+        await client._query_model_impl(
+            messages=[{"role": "user", "content": "test"}], model="gpt-4", generation_config=config
+        )
+
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["response_format"] == response_format
+        assert call_kwargs["max_tokens"] == 128
+
+    @pytest.mark.asyncio
+    @patch("nemo_curator.models.client.openai_client.AsyncOpenAI")
     async def test_query_model_impl_with_conversation_formatter_warning(self, mock_async_openai: Mock) -> None:
         """Test _query_model_impl warns when conversation_formatter is provided."""
         # Setup proper mock response
@@ -284,6 +377,52 @@ class TestAsyncOpenAIClient:
 
             assert len(w) == 1
             assert "top_k is not used in an AsyncOpenAIClient" in str(w[0].message)
+
+    @pytest.mark.asyncio
+    @patch("nemo_curator.models.client.openai_client.AsyncOpenAI")
+    async def test_query_model_impl_lazy_init_calls_setup_when_client_missing(self, mock_async_openai: Mock) -> None:
+        """Test that _query_model_impl calls setup() automatically when client is not initialized."""
+        mock_choice = Mock()
+        mock_choice.message.content = "Test response"
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_async_openai.return_value = mock_client
+
+        client = AsyncOpenAIClient()
+        assert not hasattr(client, "client")
+
+        with patch.object(client, "setup", wraps=client.setup) as mock_setup:
+            await client._query_model_impl(messages=[{"role": "user", "content": "test"}], model="gpt-4")
+            mock_setup.assert_called_once()
+
+        assert hasattr(client, "client")
+        assert client.client == mock_client
+
+    @pytest.mark.asyncio
+    @patch("nemo_curator.models.client.openai_client.AsyncOpenAI")
+    async def test_query_model_impl_lazy_init_skips_setup_when_client_exists(self, mock_async_openai: Mock) -> None:
+        """Test that _query_model_impl does not call setup() again when client is already initialized."""
+        mock_choice = Mock()
+        mock_choice.message.content = "Test response"
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = mock_response
+        mock_async_openai.return_value = mock_client
+
+        client = AsyncOpenAIClient()
+        client.setup()
+        existing_client = client.client
+
+        with patch.object(client, "setup") as mock_setup:
+            await client._query_model_impl(messages=[{"role": "user", "content": "test"}], model="gpt-4")
+            mock_setup.assert_not_called()
+
+        assert client.client is existing_client
 
     @pytest.mark.asyncio
     @patch("nemo_curator.models.client.openai_client.AsyncOpenAI")

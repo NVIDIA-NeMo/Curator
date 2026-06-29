@@ -56,6 +56,11 @@ if [ "${GPUS}" != "none" ]; then
   GPUS_FLAG="--gpus=\"${GPUS}\""
 fi
 
+# --net=host allows the container to use the host's network stack, which Ray requires to
+# communicate between the container and the host. When running multiple benchmarks in parallel,
+# remove this flag so each container uses its own network namespace — this ensures each Ray
+# cluster is confined to its own container and can use the same default ports without
+# conflicting with other containers.
 docker run \
   --rm \
   --net=host \
@@ -68,6 +73,7 @@ docker run \
   \
   ${VOLUME_MOUNTS} \
   \
+  --env=NVIDIA_DRIVER_CAPABILITIES=compute,utility,video \
   --env=IMAGE_DIGEST=${IMAGE_DIGEST} \
   --env=MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
   --env=SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN} \

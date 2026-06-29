@@ -15,33 +15,36 @@
 import os
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import pytest
 from huggingface_hub import snapshot_download
 
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline.workflow import WorkflowRunResult
 
 # Suppress GPU-related import errors when running pytest -m "not gpu"
 with suppress(ImportError):
+    from nemo_curator.stages.text.deduplication import semantic
     from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
 
+MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
 
-@pytest.fixture(scope="session", autouse=True)
+
+@pytest.fixture(scope="session")
 def ensure_semantic_model_downloaded() -> None:
     """Pre-download the model once per session to avoid rate limiting in CI."""
     try:
         snapshot_download(
-            repo_id="sentence-transformers/all-MiniLM-L6-v2",
+            repo_id=MODEL_ID,
             cache_dir=None,
             token=None,
             local_files_only=False,
         )
     except Exception as e:  # noqa: BLE001
-        msg = f"Failed to download sentence-transformers/all-MiniLM-L6-v2 due to {e}"
+        msg = f"Failed to download {MODEL_ID} due to {e}"
         pytest.skip(msg)
 
 
@@ -71,6 +74,81 @@ def create_data_with_duplicates(input_dir: Path) -> pd.DataFrame:
 
 @pytest.mark.gpu
 @pytest.mark.parametrize(
+    ("input_filetype", "expected_extensions"),
+    [
+        ("jsonl", [".jsonl", ".json"]),
+        ("parquet", [".parquet"]),
+    ],
+)
+def test_embedding_reader_extensions_default_to_input_filetype(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    input_filetype: Literal["jsonl", "parquet"],
+    expected_extensions: list[str],
+) -> None:
+    captured_stages = []
+
+    def capture_pipeline_run(self, executor) -> list[object]:  # noqa: ANN001, ARG001
+        captured_stages.extend(self.stages)
+        return []
+
+    monkeypatch.setattr(semantic.Pipeline, "run", capture_pipeline_run)
+
+    workflow = TextSemanticDeduplicationWorkflow(
+        input_path="/dummy",
+        output_path=str(tmp_path / "output"),
+        cache_path=str(tmp_path / "cache"),
+        input_filetype=input_filetype,
+    )
+
+    workflow._run_embedding_generation(executor=object())
+
+    assert captured_stages[0].file_extensions == expected_extensions
+
+
+@pytest.mark.gpu
+def test_embedding_reader_extensions_override_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    captured_stages = []
+
+    def capture_pipeline_run(self, executor) -> list[object]:  # noqa: ANN001, ARG001
+        captured_stages.extend(self.stages)
+        return []
+
+    monkeypatch.setattr(semantic.Pipeline, "run", capture_pipeline_run)
+
+    workflow = TextSemanticDeduplicationWorkflow(
+        input_path="/dummy",
+        output_path=str(tmp_path / "output"),
+        cache_path=str(tmp_path / "cache"),
+        input_filetype="parquet",
+        input_file_extensions=[".pq"],
+    )
+
+    workflow._run_embedding_generation(executor=object())
+
+    assert captured_stages[0].file_extensions == [".pq"]
+
+
+@pytest.mark.gpu
+def test_embedding_reader_unsupported_filetype_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def fail_pipeline_run(self, executor) -> None:  # noqa: ANN001, ARG001
+        pytest.fail("Pipeline should not run when input_filetype is unsupported")
+
+    monkeypatch.setattr(semantic.Pipeline, "run", fail_pipeline_run)
+
+    workflow = TextSemanticDeduplicationWorkflow(
+        input_path="/dummy",
+        output_path=str(tmp_path / "output"),
+        cache_path=str(tmp_path / "cache"),
+        input_filetype="csv",  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(NotImplementedError, match="Input filetype csv not supported yet"):
+        workflow._run_embedding_generation(executor=object())
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize(
     "test_config",
     [
         # trying both executors with and without id generator to have more coverage
@@ -95,7 +173,10 @@ class TestTextSemanticDeduplicationWorkflow:
 
     @pytest.fixture(scope="class", autouse=True)
     def test_config(
-        self, request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+        self,
+        request: pytest.FixtureRequest,
+        tmp_path_factory: pytest.TempPathFactory,
+        ensure_semantic_model_downloaded: None,
     ) -> "TestTextSemanticDeduplicationWorkflow":
         """Set up test environment and execute workflow."""
         executor_cls, config, use_id_generator = request.param
@@ -118,7 +199,8 @@ class TestTextSemanticDeduplicationWorkflow:
             output_path=str(request.cls.output_dir),
             cache_path=str(request.cls.cache_dir),
             perform_removal=True,
-            model_identifier="sentence-transformers/all-MiniLM-L6-v2",
+            model_identifier=MODEL_ID,
+            embedding_vllm_init_kwargs={"enforce_eager": True},
             n_clusters=3,  # Use fewer clusters to group similar documents
             eps=0.1,  # Set epsilon to identify duplicates
             which_to_keep="hard",  # Keep harder examples (less similar to others)

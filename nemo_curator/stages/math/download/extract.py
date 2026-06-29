@@ -105,6 +105,19 @@ class MathContentExtractor(DocumentExtractor):
         self._magic = None
         self._lock = threading.Lock()
 
+    def __getstate__(self) -> dict[str, Any]:
+        state = self.__dict__.copy()
+        state["_lynx"] = None
+        state["_magic"] = None
+        state["_lock"] = None
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._lynx = None
+        self._magic = None
+        self._lock = threading.Lock()
+
     def input_columns(self) -> list[str]:
         return [self.binary_column, self.url_column, self.mime_type_column]
 
@@ -250,7 +263,6 @@ class MathExtractStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             output_cols = [*output_cols, self.filename_col]
 
         return DocumentBatch(
-            task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=pd.DataFrame(records) if records else pd.DataFrame(columns=output_cols),
             _metadata=batch._metadata,

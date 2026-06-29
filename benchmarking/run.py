@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 import argparse
 import json
 import os
@@ -21,10 +22,10 @@ import sys
 import time
 import traceback
 from collections.abc import Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
-import yaml
 from loguru import logger
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult
@@ -42,6 +43,7 @@ sys.path.insert(0, _this_script_dir)
 from runner.datasets import DatasetResolver
 from runner.entry import Entry
 from runner.env_capture import dump_env
+from runner.gpu_stats_recorder import GPUStatsRecorder
 from runner.path_resolver import PathResolver
 from runner.process import run_command_with_timeout
 from runner.ray_cluster import (
@@ -50,7 +52,16 @@ from runner.ray_cluster import (
     teardown_ray_cluster_and_env,
 )
 from runner.session import Session
-from runner.utils import find_result, get_obj_for_json, remove_disabled_blocks, resolve_env_vars
+from runner.utils import (
+    assert_valid_config_dict,
+    find_result,
+    get_gpu_stats,
+    get_obj_for_json,
+    log_gpu_stats,
+    merge_config_files,
+    remove_disabled_blocks,
+    resolve_env_vars,
+)
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -139,15 +150,14 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
     return meets_requirements
 
 
-def run_entry(
+def run_entry(  # noqa: PLR0913
     entry: Entry,
     path_resolver: PathResolver,
     dataset_resolver: DatasetResolver,
-    session_path: Path,
+    session_entry_path: Path,
     result_data: dict[str, Any],
+    gpu_stats_recorder_interval_s: float = 1.0,
 ) -> bool:
-    session_entry_path = session_path / entry.name
-
     # session_entry_path : This is the directory where benchmark results are stored
     # scratch_path : This is the directory provided to users for saving scratch/temp data; it'll be cleaned up after the entry is done if delete_scratch is True
     # ray_cluster_path : This is the directory where Ray debug/log files are saved
@@ -164,9 +174,11 @@ def run_entry(
     ray_enable_object_spilling = bool(entry.ray.get("enable_object_spilling", False))
 
     try:
-        # Create subdirs individually
-        for directory in [scratch_path, ray_cluster_path, logs_path]:
+        # Create subdirs individually. logs_path uses ensure_dir (not create_or_overwrite_dir)
+        # to preserve any log output already written before run_entry() was called.
+        for directory in [scratch_path, ray_cluster_path]:
             create_or_overwrite_dir(directory)
+        ensure_dir(logs_path)
 
         ray_client, ray_temp_dir = setup_ray_cluster_and_env(
             num_cpus=ray_num_cpus,
@@ -192,18 +204,44 @@ def run_entry(
             )
         )
 
-        # Execute command with timeout
-        logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
-        started_exec = time.time()
+        # Execute command with timeout, capturing GPU stats before and after
         ray_cluster_data = get_ray_cluster_data()
-        run_data = run_command_with_timeout(
-            command=cmd,
-            timeout=entry.timeout_s,
-            stdouterr_path=stdouterr_path,
-            run_id=run_id,
-            fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
+        gpu_stats_before = get_gpu_stats()
+        logger.info("\tGPU stats (before):")
+        warnings = log_gpu_stats(
+            gpu_stats_before,
+            warn_if_in_use=True,
+            warning_threshold=entry.gpu_mem_use_warning_threshold,
+            warning_threshold_msg="used before benchmark started",
         )
+        logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+        # Background poller writes per-GPU stats (utilization, memory, temperature, processes) to
+        # gpustats.csv every gpu_stats_recorder_interval_s seconds. Set to 0 in YAML to disable.
+        gpu_stats_recorder_ctx = (
+            GPUStatsRecorder(
+                output_path=session_entry_path / "gpustats.csv",
+                interval_s=gpu_stats_recorder_interval_s,
+            )
+            if gpu_stats_recorder_interval_s > 0
+            else nullcontext()
+        )
+        started_exec = time.time()
+        with gpu_stats_recorder_ctx:
+            run_data = run_command_with_timeout(
+                command=cmd,
+                timeout=entry.timeout_s,
+                stdouterr_path=stdouterr_path,
+                run_id=run_id,
+                fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
+            )
         ended_exec = time.time()
+        logger.info("\tGPU stats (after):")
+        warnings += log_gpu_stats(
+            get_gpu_stats(),
+            warn_if_in_use=True,
+            warning_threshold=entry.gpu_mem_use_warning_threshold,
+            warning_threshold_msg="left in use after benchmark ended",
+        )
         duration = ended_exec - started_exec
 
         # Update result_data
@@ -215,6 +253,9 @@ def run_entry(
                 "exit_code": run_data["returncode"],
                 "timed_out": run_data["timed_out"],
                 "logs_dir": logs_path,
+                "ray_cluster_data": ray_cluster_data,
+                "gpu_stats": gpu_stats_before,
+                "warnings": warnings,
             }
         )
         # script_persisted_data is a dictionary with keys "params" and "metrics"
@@ -224,7 +265,6 @@ def run_entry(
         script_persisted_data = get_entry_script_persisted_data(session_entry_path)
         result_data.update(
             {
-                "ray_cluster_data": ray_cluster_data,
                 "metrics": script_persisted_data["metrics"],
                 "params": script_persisted_data["params"],
             }
@@ -255,7 +295,7 @@ def run_entry(
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:  # noqa: C901, PLR0912
+def main() -> int:  # noqa: C901, PLR0912, PLR0915
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
@@ -282,30 +322,88 @@ def main() -> int:  # noqa: C901, PLR0912
         ),
     )
     parser.add_argument(
+        "--entries-exact",
+        default=None,
+        help=(
+            "Comma-separated list of exact entry names to run. Unlike --entries (a pytest "
+            "'-k' style substring expression), names here must match entry names exactly. "
+            "Every supplied name must correspond to a configured (enabled) entry; otherwise "
+            "the run fails with an error listing the unknown names. Useful for both "
+            "automated callers (e.g. CI per-job invocations) and users targeting a specific "
+            "set of entries by exact name. Mutually exclusive with --entries."
+        ),
+    )
+    parser.add_argument(
         "--list",
         default=False,
         action="store_true",
         help="List entries to run and exit.",
     )
+    parser.add_argument(
+        "--strict-config-check",
+        default=False,
+        action="store_true",
+        help=(
+            "If set, fail with an error when an environment variable referenced in the "
+            "config is undefined or empty. By default, undefined env var references are "
+            "replaced with an empty string and a warning is logged."
+        ),
+    )
+    parser.add_argument(
+        "--viewer-url",
+        default=None,
+        help=(
+            "Run-viewer URL to surface in sinks (e.g. Slack parent message footer). "
+            "When set, the Slack sink renders a 'Results viewer' section linking to this URL."
+        ),
+    )
+    parser.add_argument(
+        "--reason",
+        default=None,
+        help=(
+            "Free-text reason for this run, recorded in env.json and surfaced in the Slack "
+            "environment block. Useful for audit trails on ad-hoc runs."
+        ),
+    )
     args = parser.parse_args()
 
     # Consolidate the configuration from all YAML files into a single dict
-    config_dict = {}
-    for yml_file in args.config:
-        with open(yml_file) as f:
-            config_dicts = yaml.full_load_all(f)
-            for d in config_dicts:
-                config_dict.update(d)
+    config_dict = merge_config_files(args.config)
+
     # Preprocess the config dict prior to creating objects from it
     try:
-        Session.assert_valid_config_dict(config_dict)
+        assert_valid_config_dict(config_dict)
         config_dict = remove_disabled_blocks(config_dict)
-        config_dict = resolve_env_vars(config_dict)
+        config_dict = resolve_env_vars(config_dict, strict=args.strict_config_check)
     except ValueError as e:
         logger.error(f"Invalid configuration: {e}")
         return 1
 
-    session = Session.from_dict(config_dict, args.entries)
+    if args.entries is not None and args.entries_exact is not None:
+        logger.error("--entries and --entries-exact are mutually exclusive")
+        return 1
+
+    entries_exact_list: list[str] | None = None
+    if args.entries_exact is not None:
+        entries_exact_list = [name.strip() for name in args.entries_exact.split(",") if name.strip()]
+        if not entries_exact_list:
+            logger.error("--entries-exact must contain at least one non-empty name")
+            return 1
+
+    # Now that all YAML config files have been read, merged, and processed, create the Session object.
+    try:
+        session = Session.from_dict(
+            config_dict,
+            entry_filter_expr=args.entries,
+            entries_exact=entries_exact_list,
+        )
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
+
+    # GPU stats recorder config: polls every interval_s seconds while each entry runs.
+    # Default 1.0 (1 Hz). Set to 0 to disable.
+    gpu_stats_recorder_interval_s = float(config_dict.get("gpu_stats_recorder", {}).get("interval_s", 1.0))
 
     if args.list:
         for entry in session.entries:
@@ -320,6 +418,18 @@ def main() -> int:  # noqa: C901, PLR0912
     session_overall_success = True
     logger.info(f"Started session {session_name}...")
     env_dict = dump_env(session_obj=session, output_path=session_path)
+
+    # Record an optional free-text reason for the run (e.g. "regression check after MR !2442").
+    # Appears in env.json and the Slack environment block. No-op when unset.
+    if args.reason:
+        env_dict["run_reason"] = args.reason
+
+    # Surface an optional run-viewer URL in the Slack sink. Patch sink_config in-process
+    # so we don't have to teach the YAML config loader about a per-launch viewer URL.
+    if args.viewer_url:
+        for sink in session.sinks:
+            if getattr(sink, "name", None) == "slack":
+                sink.sink_config["viewer_url"] = args.viewer_url
 
     for sink in session.sinks:
         sink.initialize(session_name=session_name, session=session, env_dict=env_dict)
@@ -338,6 +448,13 @@ def main() -> int:  # noqa: C901, PLR0912
             "run_id": run_id,
             "success": run_success,
         }
+        # Derive the stdouterr log path and add it as a loguru sink so all log
+        # output for this entry (including pre-subprocess errors) is captured.
+        session_entry_path = (session_path / entry.name).absolute()
+        entry_logs_path = session_entry_path / "logs"
+        entry_stdouterr_path = entry_logs_path / "stdouterr.log"
+        entry_logs_path.mkdir(parents=True, exist_ok=True)
+        entry_log_id = logger.add(entry_stdouterr_path, mode="a", colorize=False)
         logger.info(f"🚀 Running {entry.name} (run ID: {run_id})")
 
         for sink in session.sinks:
@@ -348,8 +465,9 @@ def main() -> int:  # noqa: C901, PLR0912
                 entry=entry,
                 path_resolver=session.path_resolver,
                 dataset_resolver=session.dataset_resolver,
-                session_path=session_path,
+                session_entry_path=session_entry_path,
                 result_data=result_data,
+                gpu_stats_recorder_interval_s=gpu_stats_recorder_interval_s,
             )
 
         except Exception as e:
@@ -366,6 +484,7 @@ def main() -> int:  # noqa: C901, PLR0912
             )
 
         finally:
+            logger.remove(entry_log_id)
             session_overall_success &= run_success
             for sink in session.sinks:
                 sink.register_benchmark_entry_finished(result_dict=result_data, benchmark_entry=entry)

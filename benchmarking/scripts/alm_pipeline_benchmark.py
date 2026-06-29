@@ -32,38 +32,14 @@ from typing import Any
 
 import yaml
 from loguru import logger
-from utils import setup_executor, write_benchmark_results
+from utils import RepeatEntriesStage, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio import ManifestReader
 from nemo_curator.stages.audio.alm import (
     ALMDataBuilderStage,
     ALMDataOverlapStage,
-    ALMManifestReader,
 )
-from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioBatch
-
-
-class _RepeatEntriesStage(ProcessingStage[AudioBatch, AudioBatch]):
-    """Multiply each AudioBatch entry N times for scale testing.
-
-    Duplicates entries in-memory after reading so the file is only read once.
-    """
-
-    name = "repeat_entries"
-
-    def __init__(self, repeat_factor: int = 1) -> None:
-        self._repeat_factor = repeat_factor
-
-    def process(self, task: AudioBatch) -> list[AudioBatch]:
-        return [
-            AudioBatch(
-                data=task.data,
-                _metadata=task._metadata,
-                _stage_perf=list(task._stage_perf),
-            )
-            for _ in range(self._repeat_factor)
-        ]
 
 
 def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
@@ -78,6 +54,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
     max_speakers: int,
     overlap_percentage: int,
     repeat_factor: int,
+    execution_mode: str | None = None,
 ) -> dict[str, Any]:
     """Run the ALM pipeline benchmark and collect comprehensive metrics."""
     benchmark_results_path = Path(benchmark_results_path)
@@ -87,15 +64,17 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
     logger.info(f"Input manifest: {input_manifest}")
     logger.info(f"Executor: {executor}")
     logger.info(f"Repeat factor: {repeat_factor}")
+    if execution_mode:
+        logger.info(f"Execution mode: {execution_mode}")
     logger.info(f"Window duration: {target_window_duration}s (tolerance: {tolerance})")
     logger.info(f"Sample rate >= {min_sample_rate}, Bandwidth >= {min_bandwidth}")
     logger.info(f"Speakers: {min_speakers}-{max_speakers}")
     logger.info(f"Overlap percentage: {overlap_percentage}")
 
     pipeline = Pipeline(name="alm_benchmark", description="ALM Reader + Builder + Overlap benchmark pipeline")
-    pipeline.add_stage(ALMManifestReader(manifest_path=input_manifest))
+    pipeline.add_stage(ManifestReader(manifest_path=input_manifest))
     if repeat_factor > 1:
-        pipeline.add_stage(_RepeatEntriesStage(repeat_factor=repeat_factor))
+        pipeline.add_stage(RepeatEntriesStage(repeat_factor=repeat_factor))
         logger.info(f"Repeat factor: {repeat_factor}x (entries multiplied after reading)")
     pipeline.add_stage(
         ALMDataBuilderStage(
@@ -114,7 +93,8 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
         )
     )
 
-    exc = setup_executor(executor)
+    executor_config = {"execution_mode": execution_mode} if execution_mode else None
+    exc = setup_executor(executor, config=executor_config)
 
     run_start_time = time.perf_counter()
 
@@ -127,7 +107,7 @@ def run_alm_pipeline_benchmark(  # noqa: PLR0913, PLR0915
 
         output_entries = []
         for task in output_tasks or []:
-            output_entries.extend(task.data)
+            output_entries.append(task.data)
 
         num_output_entries = len(output_entries)
         num_input_entries = num_output_entries
@@ -222,6 +202,13 @@ def main() -> int:
     parser.add_argument(
         "--repeat-factor", type=int, default=1, help="Multiply manifest entries by this factor for scale testing"
     )
+    parser.add_argument(
+        "--execution-mode",
+        type=str,
+        default=None,
+        choices=["streaming", "batch"],
+        help="Xenna execution mode (streaming or batch). Only applies to xenna executor. Default: streaming.",
+    )
 
     pre_args, remaining = parser.parse_known_args()
 
@@ -246,6 +233,7 @@ def main() -> int:
         "metrics": {"is_success": False},
         "tasks": [],
     }
+
     try:
         result_dict.update(run_alm_pipeline_benchmark(**run_args))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
