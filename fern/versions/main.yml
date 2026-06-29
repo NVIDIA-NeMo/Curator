@@ -465,6 +465,9 @@ navigation:
               - page: ReadSpeech Tutorial
                 path: ./main/pages/curate-audio/tutorials/readspeech.mdx
                 slug: readspeech
+              - page: Audio Tagging Pipeline
+                path: ./main/pages/curate-audio/tutorials/audio-tagging.mdx
+                slug: audio-tagging
           - section: Load Data
             slug: load-data
             contents:
