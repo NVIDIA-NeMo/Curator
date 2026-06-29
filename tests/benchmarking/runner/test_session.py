@@ -41,6 +41,28 @@ def test_session_rejects_timeout_above_max_timeout_s() -> None:
         )
 
 
+def test_session_accepts_timeout_equal_to_max_timeout_s() -> None:
+    session = Session.from_dict(
+        _config(
+            [{"name": "entry_a", "script": "benchmark.py", "timeout_s": 100}],
+            max_timeout_s=100,
+        )
+    )
+
+    assert session.entries[0].timeout_s == 100
+
+
+@pytest.mark.parametrize("bad_max_timeout_s", [0, -1, True, 1.5])
+def test_session_rejects_invalid_max_timeout_s(bad_max_timeout_s: object) -> None:
+    with pytest.raises(ValueError, match="Invalid max_timeout_s"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py"}],
+                max_timeout_s=bad_max_timeout_s,
+            )
+        )
+
+
 def test_session_applies_max_timeout_s_after_default_timeout_s() -> None:
     with pytest.raises(ValueError, match=r"entry_a.*timeout_s=120.*max_timeout_s=100"):
         Session.from_dict(
@@ -71,6 +93,22 @@ def test_generate_job_rejects_timeout_above_max_timeout_s() -> None:
             min_timeout_s=600,
             max_timeout_s=100,
         )
+
+
+def test_generate_job_accepts_timeout_equal_to_max_timeout_s() -> None:
+    generate_job = _generate_job()
+
+    job = generate_job(
+        {"name": "entry_a", "timeout_s": 100},
+        "nightly",
+        default_timeout_s=120,
+        cleanup_timeout_s=60,
+        min_timeout_s=0,
+        max_timeout_s=100,
+    )
+
+    assert job["variables"]["ENTRY_NAME"] == "entry_a"
+    assert job["variables"]["TIME"] == "00:02:40"
 
 
 def test_generate_job_applies_max_timeout_s_after_default_timeout_s() -> None:
