@@ -235,11 +235,12 @@ class Pipeline:
         Args:
             executor (BaseExecutor): Executor to use
             initial_tasks (list[Task], optional): Initial tasks to start the pipeline with. Defaults to None.
-            checkpoint_path (str | Path, optional): Resumability directory. When
-                set, completed source partitions are tracked (in a
-                ``.nemo_curator_metadata`` subdir) and skipped on rerun. Multiple
-                runs (e.g. a SLURM array) may share the directory — each writes
-                its own LMDB file, so there is no contention.
+            checkpoint_path (str | Path, optional): Resumability directory. Must
+                be a LOCAL filesystem path (the LMDB state is written locally),
+                not a remote/cloud URI. When set, completed source partitions are
+                tracked (in a ``.nemo_curator_metadata`` subdir) and skipped on
+                rerun. Multiple runs (e.g. a SLURM array) may share the directory
+                — each writes its own LMDB file, so there is no contention.
 
         Returns:
             list[Task] | None: List of tasks
@@ -247,6 +248,14 @@ class Pipeline:
         self.build()
 
         if checkpoint_path is not None:
+            non_resumable = [s.name for s in self.stages if not s.is_resumable]
+            if non_resumable:
+                msg = (
+                    f"checkpoint_path was set, but these stages are not marked resumable: "
+                    f"{non_resumable}. Set is_resumable=True on a stage only once you've "
+                    f"confirmed its input→output mapping is resumability-safe."
+                )
+                raise ValueError(msg)
             checkpoint_path = Path(checkpoint_path).absolute()
             checkpoint_path.mkdir(parents=True, exist_ok=True)
 
@@ -289,31 +298,15 @@ class Pipeline:
         initial_tasks: list[Task] | None,
         checkpoint_path: Path,
     ) -> list[Task] | None:
-        """Own the resumability-actor lifecycle (executors unmodified): spawn it
-        ``lifetime="detached"`` so it survives executor-local ``ray.shutdown()``,
-        run, then close. The actor never raises, so there's no error path here."""
-        import ray
+        """Run with resumability. The detached actor's lifecycle is managed by
+        ``create_resumability_actor`` / ``shutdown_resumability_actor``; neither
+        calls ``ray.init`` — a running Ray cluster (e.g. ``RayClient``) must
+        already exist, and the executor owns the ``ray.init`` that wraps
+        execution."""
+        from nemo_curator.utils.resumability_actor import create_resumability_actor, shutdown_resumability_actor
 
-        from nemo_curator.utils.resumability_actor import ResumabilityActor
-        from nemo_curator.utils.resumability_client import ACTOR_NAME
-
-        ray.init(ignore_reinit_error=True)
-        ResumabilityActor.options(  # type: ignore[attr-defined]
-            name=ACTOR_NAME,
-            lifetime="detached",
-            get_if_exists=True,
-            max_pending_calls=100,
-        ).remote(str(checkpoint_path))
-
+        create_resumability_actor(str(checkpoint_path))
         try:
             return executor.execute(self.stages, initial_tasks)
         finally:
-            # The executor's ray.shutdown() may have run in its own
-            # finally:; reconnect to clean up the detached actor.
-            try:
-                ray.init(ignore_reinit_error=True)
-                actor_handle = ray.get_actor(ACTOR_NAME)
-                ray.get(actor_handle.close.remote(), timeout=10)  # type: ignore[attr-defined]
-                ray.kill(actor_handle)
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"resumability actor cleanup failed: {e}")
+            shutdown_resumability_actor()

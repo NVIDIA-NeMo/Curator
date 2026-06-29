@@ -20,8 +20,13 @@ from __future__ import annotations
 import ray
 
 # Defined here (not imported from resumability_actor) so the always-imported
-# worker path doesn't pull in lmdb until resumability is actually used.
+# worker path doesn't pull in lmdb until resumability is actually used. The
+# actor is namespaced (namespace == name, like id_generator) so it's found
+# across the differing Ray namespaces of the creator vs. the executor workers.
 ACTOR_NAME = "nemo_curator_resumability"
+
+# TODO(praateek): give these helpers resumability-specific names
+# (is_resumability_actor_active / flush_resumability_deltas / ...).
 
 
 def _actor() -> ray.actor.ActorHandle | None:
@@ -29,7 +34,7 @@ def _actor() -> ray.actor.ActorHandle | None:
     if not ray.is_initialized():
         return None
     try:
-        return ray.get_actor(ACTOR_NAME)
+        return ray.get_actor(name=ACTOR_NAME, namespace=ACTOR_NAME)
     except ValueError:
         return None
 

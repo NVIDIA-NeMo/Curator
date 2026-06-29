@@ -109,6 +109,11 @@ class ResumabilityActor:
         """Parallel bool list: which source_ids are complete (skip on rerun)."""
         return [sid in self._completed for sid in source_ids]
 
+    def wait(self) -> None:
+        """No-op the caller ``ray.get``s after spawning the actor: it blocks until
+        ``__init__`` (the checkpoint scan) has finished and surfaces any startup
+        error (e.g. an LMDB open failure) before the pipeline begins."""
+
     # ------------------------------------------------------------ write
 
     def apply_deltas(self, per_task: list[tuple[str, str, int]]) -> None:
@@ -123,6 +128,8 @@ class ResumabilityActor:
 
         Never raises.
         """
+        if self._env is None:
+            return  # closing/closed: drop late fire-and-forget deltas (durable rows already on disk)
         newly_done: list[str] = []
         for task_id, sid, d in per_task:
             existing = self._applied.get(task_id)
@@ -189,3 +196,49 @@ class ResumabilityActor:
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"failed to close LMDB env: {e}")
             self._env = None  # type: ignore[assignment]
+
+
+# --- actor lifecycle ---------------------------------------------------------
+# These deliberately do NOT call ray.init/ray.shutdown: a running Ray cluster
+# (e.g. RayClient) must already exist, and the executor owns the ray.init that
+# wraps execution. The actor is detached + namespaced (namespace == name, like
+# id_generator) so it outlives any executor-local ray.shutdown and workers find
+# it by (name, namespace).
+
+
+def create_resumability_actor(checkpoint_path: str) -> None:
+    """Spawn the detached resumability actor and block until it has scanned the
+    checkpoint dir (so the first ``apply_deltas``/``are_completed`` works, and any
+    LMDB startup error surfaces here). Requires a running Ray cluster."""
+    from nemo_curator.utils.resumability_client import ACTOR_NAME
+
+    if not ray.is_initialized():
+        msg = (
+            "Resumability (checkpoint_path) requires a running Ray cluster. Start one with "
+            "RayClient().start() (or the SLURM Ray client) before calling pipeline.run()."
+        )
+        raise RuntimeError(msg)
+    actor = ResumabilityActor.options(  # type: ignore[attr-defined]
+        name=ACTOR_NAME, namespace=ACTOR_NAME, lifetime="detached", get_if_exists=True
+    ).remote(checkpoint_path)
+    ray.get(actor.wait.remote())
+
+
+def shutdown_resumability_actor() -> None:
+    """Flush and kill the detached actor. ``ray.kill`` always runs even if
+    ``close`` fails/times out, so a stale actor can't leak into the next run.
+    A no-op if Ray is already down (the actor then dies with the cluster; its
+    LMDB rows are durable, written sync per delta)."""
+    from nemo_curator.utils.resumability_client import ACTOR_NAME
+
+    if not ray.is_initialized():
+        return
+    try:
+        actor = ray.get_actor(name=ACTOR_NAME, namespace=ACTOR_NAME)
+    except ValueError:
+        return
+    try:
+        ray.get(actor.close.remote(), timeout=30)  # type: ignore[attr-defined]
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"resumability actor close failed: {e}")
+    ray.kill(actor)
