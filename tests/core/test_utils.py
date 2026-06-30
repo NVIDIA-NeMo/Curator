@@ -91,9 +91,10 @@ def test_init_cluster_enables_ray_serve_pip_haproxy_without_system_binary_checks
     )
 
     assert popen_calls
-    assert free_port_calls[-1] == (core_utils.DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT, True, _ALL_INTERFACES)
+    assert (core_utils.DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT, True, _ALL_INTERFACES) in free_port_calls
+    assert (core_utils.DEFAULT_RAY_SERVE_HAPROXY_STATS_PORT, True, _ALL_INTERFACES) in free_port_calls
     assert env["RAY_SERVE_ENABLE_HA_PROXY"] == "1"
     assert env["RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY"] == "1"
     assert env["RAY_SERVE_HAPROXY_METRICS_PORT"] == "9111"
+    assert env["RAY_SERVE_HAPROXY_STATS_PORT"] == "8414"
     assert "RAY_SERVE_HAPROXY_BINARY_PATH" not in env
-    assert "RAY_SERVE_HAPROXY_STATS_PORT" not in env

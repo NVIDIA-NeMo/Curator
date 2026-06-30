@@ -30,6 +30,7 @@ from nemo_curator.core.constants import (
     DEFAULT_RAY_MAX_WORKER_PORT,
     DEFAULT_RAY_MIN_WORKER_PORT,
     DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT,
+    DEFAULT_RAY_SERVE_HAPROXY_STATS_PORT,
     RAY_CLUSTER_START_VERIFICATION_TIMEOUT,
 )
 
@@ -195,11 +196,18 @@ def init_cluster(  # noqa: PLR0913
             DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT,
             bind_host="0.0.0.0",  # noqa: S104
         )
+        haproxy_stats_port = get_free_port(
+            DEFAULT_RAY_SERVE_HAPROXY_STATS_PORT,
+            bind_host="0.0.0.0",  # noqa: S104
+        )
         os.environ["RAY_SERVE_ENABLE_HA_PROXY"] = "1"
         os.environ["RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY"] = "1"
         os.environ["RAY_SERVE_HAPROXY_METRICS_PORT"] = str(haproxy_metrics_port)
-        os.environ.pop("RAY_SERVE_HAPROXY_STATS_PORT", None)
-        logger.info(f"Ray Serve HAProxy ingress enabled via {haproxy_source} (metrics port {haproxy_metrics_port}).")
+        os.environ["RAY_SERVE_HAPROXY_STATS_PORT"] = str(haproxy_stats_port)
+        logger.info(
+            f"Ray Serve HAProxy ingress enabled via {haproxy_source} "
+            f"(metrics port {haproxy_metrics_port}, stats port {haproxy_stats_port})."
+        )
     else:
         logger.debug(
             "ray-haproxy package or explicit RAY_SERVE_HAPROXY_BINARY_PATH not found; "
