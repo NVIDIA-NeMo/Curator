@@ -83,7 +83,7 @@ class RayServeBackend(InferenceBackend):
         logging_config = None
         if not server.verbose:
             logging_config = LoggingConfig(
-                log_level="INFO",
+                log_level="WARNING",
                 enable_access_log=False,
             )
 
@@ -117,6 +117,7 @@ class RayServeBackend(InferenceBackend):
         """Return a ``runtime_env`` dict that suppresses per-request logs."""
         return {
             "env_vars": {
+                "VLLM_LOGGING_LEVEL": "WARNING",
                 "RAY_SERVE_LOG_TO_STDERR": "0",
             },
         }
