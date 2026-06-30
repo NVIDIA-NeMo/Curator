@@ -39,23 +39,26 @@ _FALSE_ENV_VALUES = {"0", "false", "no", "off"}
 
 def _get_int_env_var(env_var: str, fallback_name: str | None = None, default: int | None = None) -> int:
     """Read an integer env var, with optional fallback/default."""
+    resolved_var = env_var
     env_value = os.environ.get(env_var)
+    if env_value is None and fallback_name is not None:
+        resolved_var = fallback_name
+        env_value = os.environ.get(fallback_name)
+
     if env_value is None:
+        if default is not None:
+            return default
+
         if fallback_name is not None:
-            env_var = fallback_name
-            env_value = os.environ.get(env_var)
-
-        if env_value is None:
-            if default is not None:
-                return default
-
+            msg = f"Environment variable {env_var} (or {fallback_name}) is not set"
+        else:
             msg = f"Environment variable {env_var} is not set"
-            raise ValueError(msg)
+        raise ValueError(msg)
 
     try:
         return int(env_value)
     except ValueError as e:
-        msg = f"Environment variable {env_var} must contain an integer, got {env_value!r}"
+        msg = f"Environment variable {resolved_var} must contain an integer, got {env_value!r}"
         raise ValueError(msg) from e
 
 
@@ -195,7 +198,13 @@ def filter_slurm_array_source_tasks(
 
 
 def is_slurm_array_driver_process(use_slurm: bool) -> bool:
-    """Return true for the process that owns retry metadata."""
+    """Return true for the process that owns retry metadata.
+
+    When ``use_slurm`` is False (local or single-node) every process is the
+    driver. When ``use_slurm`` is True, only the Slurm head node
+    (``SLURM_NODEID == 0``) is the driver; if the variable is absent (e.g.
+    bare ``srun`` without an array) the process is treated as the head.
+    """
     return not use_slurm or os.environ.get("SLURM_NODEID", "0") == "0"
 
 

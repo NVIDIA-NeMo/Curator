@@ -21,6 +21,7 @@ from pytest import MonkeyPatch
 
 import nemo_curator.backends.slurm_array as slurm_array_module
 from nemo_curator.backends.slurm_array import (
+    SLURM_ARRAY_COMPLETION_MANIFEST_NAMESPACE,
     SLURM_ARRAY_ENABLED_ENV_VAR,
     SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR,
     SLURM_ARRAY_SHARD_INDEX_ENV_VAR,
@@ -205,6 +206,11 @@ class TestSlurmArray:
 
         assert filter_slurm_array_source_tasks(tasks, None, "source") == tasks
 
+    def test_filtering_returns_empty_for_empty_input(self) -> None:
+        slurm_array = SlurmArrayConfig(shard_index=0, total_shards=3)
+
+        assert filter_slurm_array_source_tasks([], slurm_array, "source") == []
+
     def test_assigns_each_source_task_to_one_shard(self) -> None:
         tasks = [_task(f"0_{i}") for i in range(8)]
         assigned_task_ids = []
@@ -256,6 +262,7 @@ class TestSlurmArray:
         monkeypatch.setenv("SLURM_NODEID", "1")
 
         assert is_slurm_array_driver_process(use_slurm=True) is False
+        assert is_slurm_array_driver_process(use_slurm=False) is True
 
     def test_build_completion_manifest_writes_run_config_and_shard_identity(self, tmp_path: Path) -> None:
         manifest = build_slurm_array_completion_manifest(
@@ -334,6 +341,27 @@ class TestSlurmArray:
 
     def test_find_retries_returns_none_without_run_config(self, tmp_path: Path) -> None:
         assert find_slurm_array_retries(tmp_path) is None
+
+    def test_find_retries_rejects_zero_total_shards_in_run_config(self, tmp_path: Path) -> None:
+        manifest_dir = tmp_path / METADATA_DIRNAME / ".slurm_array_completion"
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "run.json").write_text('{"minimum_shard_index":0,"total_shards":0}\n')
+
+        with pytest.raises(ValueError, match="total_shards greater than 0"):
+            find_slurm_array_retries(tmp_path)
+
+    def test_find_retries_rejects_out_of_range_completed_shard(self, tmp_path: Path) -> None:
+        manifest_dir = tmp_path / METADATA_DIRNAME / ".slurm_array_completion"
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "run.json").write_text('{"minimum_shard_index":1,"total_shards":3}\n')
+        # shard_index=5 is outside the valid range [1, 3]
+        filename = f"completed_{SLURM_ARRAY_COMPLETION_MANIFEST_NAMESPACE}_bad.json"
+        (manifest_dir / filename).write_text(
+            '{"minimum_shard_index":1,"shard_index":5,"status":"completed","total_shards":3}'
+        )
+
+        with pytest.raises(ValueError, match="outside the original shard range"):
+            find_slurm_array_retries(tmp_path)
 
     def test_find_retries_rejects_negative_minimum_in_run_config(self, tmp_path: Path) -> None:
         manifest_dir = tmp_path / METADATA_DIRNAME / ".slurm_array_completion"

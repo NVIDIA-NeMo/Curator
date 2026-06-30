@@ -83,7 +83,7 @@ class TestFailedTaskManifest:
         manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
 
-        record_failed_tasks("failed", [_failed_task("0_7_0"), _failed_task("0_8_0")])
+        record_failed_tasks([_failed_task("0_7_0"), _failed_task("0_8_0")])
 
         manifest_files = list(manifest_dir.glob("*.json"))
         assert manifest_files == [manifest_dir / FAILED_TASK_MANIFEST_FILENAME]
@@ -95,11 +95,11 @@ class TestFailedTaskManifest:
     ) -> None:
         manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
-        record_failed_tasks("stage-a", [_failed_task("0_7_0")])
+        record_failed_tasks([_failed_task("0_7_0")])
         manifest_file = manifest_dir / FAILED_TASK_MANIFEST_FILENAME
         original_manifest = manifest_file.read_text()
 
-        record_failed_tasks("stage-b", [_failed_task("0_8_0")])
+        record_failed_tasks([_failed_task("0_8_0")])
 
         assert list(manifest_dir.glob("*.json")) == [manifest_file]
         assert manifest_file.read_text() == original_manifest
@@ -110,7 +110,7 @@ class TestFailedTaskManifest:
         monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
         monkeypatch.chdir(tmp_path)
 
-        record_failed_tasks("failed", [_failed_task()])
+        record_failed_tasks([_failed_task()])
 
         assert not (tmp_path / ".nemo_curator_metadata").exists()
 
@@ -120,7 +120,7 @@ class TestFailedTaskManifest:
         manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
 
-        record_failed_tasks("failed", [])
+        record_failed_tasks([])
 
         assert not manifest_dir.exists()
         assert not failed_task_manifest_exists()
@@ -137,7 +137,7 @@ class TestFailedTaskManifest:
         monkeypatch.setattr(failed_task_markers_module, "write_json_atomically", fail_write)
 
         with pytest.raises(OSError, match="storage unavailable"):
-            record_failed_tasks("failed", [_failed_task()])
+            record_failed_tasks([_failed_task()])
 
     def test_failed_task_manifest_exists_accepts_explicit_directory(self, tmp_path: Path) -> None:
         manifest_dir = tmp_path / "failed-tasks"

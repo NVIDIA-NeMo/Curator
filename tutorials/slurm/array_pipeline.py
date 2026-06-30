@@ -157,6 +157,9 @@ def main() -> None:
 
         pipeline.run()
 
+        # Check unconditionally: the user may have set NEMO_CURATOR_FAILED_TASKS_DIR
+        # manually even without --checkpoint-path, and the function safely returns
+        # False when no directory is configured.
         if failed_task_manifest_exists():
             logger.warning(
                 "Pipeline completed without raising, but a FailedTask manifest exists. "

@@ -110,7 +110,7 @@ class BaseStageAdapter:
             raise ValueError(msg)
 
         # Record failed tasks for later inspection or retry bookkeeping.
-        record_failed_tasks(self.stage.name, failed_tasks)
+        record_failed_tasks(failed_tasks)
 
         # Sentinels never propagate to the next stage.
         results = [r for r in results if not isinstance(r, (NoneTask, FailedTask))]

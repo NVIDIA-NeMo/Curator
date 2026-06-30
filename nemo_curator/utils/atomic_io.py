@@ -32,6 +32,14 @@ def fsync_directory(path: Path) -> None:
         os.close(dir_fd)
 
 
+def _unlink_best_effort(path: Path) -> None:
+    """Remove a temporary file without masking the primary result."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def _write_json_temp_file(
     path: Path,
     payload: Any,  # noqa: ANN401
@@ -57,10 +65,10 @@ def _write_json_temp_file(
             tmp.write("\n")
             tmp.flush()
             os.fsync(tmp.fileno())
-        return Path(tmp.name)
+        return tmp_path
     except Exception:
         if tmp_path is not None:
-            tmp_path.unlink(missing_ok=True)
+            _unlink_best_effort(tmp_path)
         raise
 
 
@@ -97,7 +105,7 @@ def write_json_atomically(
         os.replace(tmp_path, path)
         _fsync_directory_best_effort(path.parent)
     except Exception:
-        tmp_path.unlink(missing_ok=True)
+        _unlink_best_effort(tmp_path)
         raise
 
 
@@ -120,9 +128,12 @@ def write_json_atomically_if_absent(
     try:
         os.link(tmp_path, path)
     except FileExistsError:
+        _unlink_best_effort(tmp_path)
         return False
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    except Exception:
+        _unlink_best_effort(tmp_path)
+        raise
 
+    _unlink_best_effort(tmp_path)
     _fsync_directory_best_effort(path.parent)
     return True

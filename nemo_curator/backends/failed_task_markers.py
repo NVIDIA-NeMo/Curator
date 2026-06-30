@@ -62,7 +62,7 @@ def configure_slurm_array_failed_task_manifest_dir(checkpoint_path: str | Path, 
     return _configure_failed_task_manifest_dir(manifest_dir)
 
 
-def record_failed_tasks(_stage_name: str, failed_tasks: list[FailedTask]) -> None:
+def record_failed_tasks(failed_tasks: list[FailedTask]) -> None:
     """Write one attempt-scoped manifest after any FailedTask is detected."""
     if not failed_tasks:
         return

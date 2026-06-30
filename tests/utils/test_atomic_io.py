@@ -61,3 +61,19 @@ class TestAtomicIo:
 
         assert json.loads(output_path.read_text()) == {"writer": 1}
         assert not list(output_path.parent.glob(f".{output_path.name}.*.tmp"))
+
+    def test_write_json_atomically_if_absent_does_not_fail_after_commit_when_cleanup_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        output_path = tmp_path / "payload.json"
+        original_unlink = Path.unlink
+
+        def fail_temp_cleanup(path: Path, *, missing_ok: bool = False) -> None:
+            if path.suffix == ".tmp":
+                raise OSError("cleanup unavailable")
+            original_unlink(path, missing_ok=missing_ok)
+
+        monkeypatch.setattr(Path, "unlink", fail_temp_cleanup)
+
+        assert write_json_atomically_if_absent(output_path, {"writer": 1}) is True
+        assert json.loads(output_path.read_text()) == {"writer": 1}

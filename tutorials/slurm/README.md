@@ -342,7 +342,7 @@ python tutorials/slurm/retry_array.py \
     --format fields
 ```
 
-For example, this output means that shards `1`, `2`, `5` through `10`, and `99` should be retried with offset `0`, using the original logical shard range of `0` through `99`:
+Without `--max-array-size`, the output is always at most one line (all missing logical shards are emitted as a single submission). For example, this output means that shards `1`, `2`, `5` through `10`, and `99` should be retried with offset `0`, using the original logical shard range of `0` through `99`:
 
 ```text
 1-2,5-10,99 0 0 100
