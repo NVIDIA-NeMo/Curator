@@ -17,10 +17,54 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.utils.retry_manifest import METADATA_DIRNAME, RetryManifest
+from nemo_curator.utils.retry_manifest import METADATA_DIRNAME, RetryManifest, read_retry_manifests
 
 
 class TestRetryManifest:
+    def test_read_retry_manifests_returns_outstanding_namespace_records(self, tmp_path: Path) -> None:
+        manifest = RetryManifest(
+            checkpoint_path=tmp_path,
+            namespace="example",
+            identity={"partition_id": 3},
+        )
+        other_namespace = RetryManifest(
+            checkpoint_path=tmp_path,
+            namespace="other",
+            identity={"partition_id": 4},
+        )
+        manifest_file = manifest.mark_failed(RuntimeError("boom"))
+        other_namespace.mark_pending()
+
+        records = read_retry_manifests(tmp_path, namespace="example")
+
+        assert len(records) == 1
+        assert records[0].path == manifest_file
+        assert records[0].status == "failed"
+        assert records[0].payload == {
+            "error_type": "RuntimeError",
+            "partition_id": 3,
+            "status": "failed",
+        }
+
+    def test_read_retry_manifests_handles_missing_directory(self, tmp_path: Path) -> None:
+        assert read_retry_manifests(tmp_path, namespace="missing") == []
+
+    def test_read_retry_manifests_rejects_malformed_manifest(self, tmp_path: Path) -> None:
+        manifest_dir = tmp_path / METADATA_DIRNAME / ".example_retry"
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "manifest_example_bad.json").write_text("not json")
+
+        with pytest.raises(ValueError, match="Failed to read retry manifest"):
+            read_retry_manifests(tmp_path, namespace="example")
+
+    def test_read_retry_manifests_requires_string_status(self, tmp_path: Path) -> None:
+        manifest_dir = tmp_path / METADATA_DIRNAME / ".example_retry"
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "manifest_example_bad.json").write_text('{"partition_id":3}')
+
+        with pytest.raises(ValueError, match="must contain a string status"):
+            read_retry_manifests(tmp_path, namespace="example")
+
     def test_mark_pending_writes_compact_manifest_with_flattened_identity(self, tmp_path: Path) -> None:
         manifest = RetryManifest(
             checkpoint_path=tmp_path,

@@ -119,7 +119,10 @@ def main() -> None:  # noqa: C901
 
     slurm_array = SlurmArrayConfig.from_env()
     if slurm_array is None:
-        parser.error("Slurm array filtering is not enabled. Set NEMO_CURATOR_SLURM_ARRAY_ENABLED=1.")
+        parser.error(
+            "Slurm array configuration was not found or filtering was explicitly disabled. "
+            "Run this tutorial inside a Slurm array job or set the NEMO_CURATOR_SLURM_ARRAY_* shard variables."
+        )
 
     ray_client = SlurmRayClient() if args.slurm else RayClient()
     is_driver_process = is_slurm_array_driver_process(args.slurm)

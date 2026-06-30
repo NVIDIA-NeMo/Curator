@@ -14,12 +14,14 @@
 
 import hashlib
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 from loguru import logger
 
 from nemo_curator.tasks import Task
-from nemo_curator.utils.retry_manifest import RetryManifest
+from nemo_curator.utils.retry_manifest import RetryManifest, RetryManifestRecord, read_retry_manifests
 
 SLURM_ARRAY_ENABLED_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_ENABLED"
 SLURM_ARRAY_SHARD_INDEX_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX"
@@ -29,6 +31,7 @@ SLURM_ARRAY_RETRY_MANIFEST_NAMESPACE = "slurm_array"
 SLURM_ARRAY_RETRY_DIRNAME = ".slurm_array_retry"
 
 _TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
+_FALSE_ENV_VALUES = {"0", "false", "no", "off"}
 
 
 def _get_int_env_var(env_var: str, fallback_name: str | None = None, default: int | None = None) -> int:
@@ -63,9 +66,24 @@ class SlurmArrayConfig:
 
     @classmethod
     def from_env(cls) -> "SlurmArrayConfig | None":
-        """Build config from Curator env vars, falling back to Slurm env vars."""
-        enabled = os.environ.get(SLURM_ARRAY_ENABLED_ENV_VAR, "")
-        if enabled.strip().lower() not in _TRUE_ENV_VALUES:
+        """Build config from Curator or Slurm env vars unless explicitly disabled."""
+        enabled = os.environ.get(SLURM_ARRAY_ENABLED_ENV_VAR, "1").strip().lower()
+        if enabled in _FALSE_ENV_VALUES:
+            return None
+        if enabled not in _TRUE_ENV_VALUES:
+            msg = (
+                f"Environment variable {SLURM_ARRAY_ENABLED_ENV_VAR} must be one of "
+                f"{sorted(_TRUE_ENV_VALUES | _FALSE_ENV_VALUES)}, got {enabled!r}"
+            )
+            raise ValueError(msg)
+
+        has_shard_index = (
+            SLURM_ARRAY_SHARD_INDEX_ENV_VAR in os.environ or "SLURM_ARRAY_TASK_ID" in os.environ
+        )
+        has_total_shards = (
+            SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR in os.environ or "SLURM_ARRAY_TASK_COUNT" in os.environ
+        )
+        if not has_shard_index and not has_total_shards:
             return None
 
         return cls(
@@ -73,6 +91,15 @@ class SlurmArrayConfig:
             total_shards=_get_int_env_var(SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR, "SLURM_ARRAY_TASK_COUNT"),
             minimum_shard_index=_get_int_env_var(SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR, default=0),
         )
+
+
+@dataclass(frozen=True)
+class SlurmArrayRetryPlan:
+    """Outstanding shard IDs and the original logical shard configuration."""
+
+    shard_indices: tuple[int, ...]
+    total_shards: int
+    minimum_shard_index: int
 
 
 def configure_slurm_array_source_filtering(
@@ -176,3 +203,84 @@ def build_slurm_array_retry_manifest(
         },
         flatten_identity=True,
     )
+
+
+def _require_manifest_int(record: RetryManifestRecord, field: str) -> int:
+    value = record.payload.get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        msg = f"Slurm array retry manifest {record.path} must contain an integer {field}"
+        raise ValueError(msg)
+    return value
+
+
+def find_slurm_array_retries(checkpoint_path: str | Path) -> SlurmArrayRetryPlan | None:
+    """Build a retry plan from all outstanding Slurm array manifests."""
+    records = read_retry_manifests(
+        checkpoint_path,
+        namespace=SLURM_ARRAY_RETRY_MANIFEST_NAMESPACE,
+        retry_dirname=SLURM_ARRAY_RETRY_DIRNAME,
+    )
+    if not records:
+        return None
+
+    shard_indices = set()
+    total_shards_values = set()
+    minimum_shard_index_values = set()
+    for record in records:
+        shard_indices.add(_require_manifest_int(record, "shard_index"))
+        total_shards_values.add(_require_manifest_int(record, "total_shards"))
+        minimum_shard_index_values.add(_require_manifest_int(record, "minimum_shard_index"))
+
+    if len(total_shards_values) != 1 or len(minimum_shard_index_values) != 1:
+        msg = "Slurm array retry manifests contain multiple shard configurations; split them by logical run"
+        raise ValueError(msg)
+
+    total_shards = next(iter(total_shards_values))
+    minimum_shard_index = next(iter(minimum_shard_index_values))
+    if total_shards <= 0:
+        msg = f"Slurm array retry manifests must have total_shards greater than 0, got {total_shards}"
+        raise ValueError(msg)
+
+    maximum_shard_index = minimum_shard_index + total_shards - 1
+    invalid_shard_indices = sorted(
+        shard_index
+        for shard_index in shard_indices
+        if not minimum_shard_index <= shard_index <= maximum_shard_index
+    )
+    if invalid_shard_indices:
+        msg = (
+            f"Slurm array retry shard indices {invalid_shard_indices} are outside the original shard range "
+            f"[{minimum_shard_index}, {maximum_shard_index}]"
+        )
+        raise ValueError(msg)
+
+    return SlurmArrayRetryPlan(
+        shard_indices=tuple(sorted(shard_indices)),
+        total_shards=total_shards,
+        minimum_shard_index=minimum_shard_index,
+    )
+
+
+def format_slurm_array_indices(indices: Iterable[int]) -> str:
+    """Format shard indices as a compact Slurm ``--array`` expression."""
+    unique_indices = set(indices)
+    if any(isinstance(index, bool) or not isinstance(index, int) or index < 0 for index in unique_indices):
+        msg = "Slurm array indices must be non-negative integers"
+        raise ValueError(msg)
+    sorted_indices = sorted(unique_indices)
+    if not sorted_indices:
+        return ""
+
+    ranges = []
+    range_start = sorted_indices[0]
+    range_end = range_start
+    for index in sorted_indices[1:]:
+        if index == range_end + 1:
+            range_end = index
+            continue
+
+        ranges.append(str(range_start) if range_start == range_end else f"{range_start}-{range_end}")
+        range_start = range_end = index
+
+    ranges.append(str(range_start) if range_start == range_end else f"{range_start}-{range_end}")
+    return ",".join(ranges)

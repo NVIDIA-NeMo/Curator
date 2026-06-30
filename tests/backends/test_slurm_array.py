@@ -25,9 +25,12 @@ from nemo_curator.backends.slurm_array import (
     SLURM_ARRAY_SHARD_INDEX_ENV_VAR,
     SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR,
     SlurmArrayConfig,
+    SlurmArrayRetryPlan,
     build_slurm_array_retry_manifest,
     configure_slurm_array_source_filtering,
+    find_slurm_array_retries,
     filter_slurm_array_source_tasks,
+    format_slurm_array_indices,
     is_slurm_array_driver_process,
     resolve_slurm_array_config,
 )
@@ -75,13 +78,17 @@ def _enable_slurm_array(
 
 
 class TestSlurmArray:
-    def test_config_disabled_by_default(self, monkeypatch: MonkeyPatch) -> None:
+    def test_config_inactive_without_array_environment(self, monkeypatch: MonkeyPatch) -> None:
         monkeypatch.delenv(SLURM_ARRAY_ENABLED_ENV_VAR, raising=False)
+        monkeypatch.delenv(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, raising=False)
+        monkeypatch.delenv(SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR, raising=False)
+        monkeypatch.delenv("SLURM_ARRAY_TASK_ID", raising=False)
+        monkeypatch.delenv("SLURM_ARRAY_TASK_COUNT", raising=False)
 
         assert SlurmArrayConfig.from_env() is None
 
-    def test_config_reads_slurm_env_vars(self, monkeypatch: MonkeyPatch) -> None:
-        monkeypatch.setenv(SLURM_ARRAY_ENABLED_ENV_VAR, "1")
+    def test_config_enabled_by_default_with_slurm_env_vars(self, monkeypatch: MonkeyPatch) -> None:
+        monkeypatch.delenv(SLURM_ARRAY_ENABLED_ENV_VAR, raising=False)
         monkeypatch.delenv(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, raising=False)
         monkeypatch.delenv(SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR, raising=False)
         monkeypatch.delenv(SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR, raising=False)
@@ -91,6 +98,16 @@ class TestSlurmArray:
         slurm_array = SlurmArrayConfig.from_env()
 
         assert slurm_array == SlurmArrayConfig(shard_index=7, total_shards=11, minimum_shard_index=0)
+
+    @pytest.mark.parametrize("disabled_value", ["0", "false", "no", "off"])
+    def test_config_can_be_explicitly_disabled(
+        self, monkeypatch: MonkeyPatch, disabled_value: str
+    ) -> None:
+        monkeypatch.setenv(SLURM_ARRAY_ENABLED_ENV_VAR, disabled_value)
+        monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "7")
+        monkeypatch.setenv("SLURM_ARRAY_TASK_COUNT", "11")
+
+        assert SlurmArrayConfig.from_env() is None
 
     def test_config_supports_curator_env_vars(self, monkeypatch: MonkeyPatch) -> None:
         _enable_slurm_array(monkeypatch, shard_index=3, total_shards=8, minimum_shard_index=1)
@@ -117,7 +134,7 @@ class TestSlurmArray:
             minimum_shard_index=1,
         )
 
-    def test_config_requires_slurm_env_vars_by_default(self, monkeypatch: MonkeyPatch) -> None:
+    def test_explicitly_enabled_config_requires_slurm_env_vars(self, monkeypatch: MonkeyPatch) -> None:
         monkeypatch.setenv(SLURM_ARRAY_ENABLED_ENV_VAR, "1")
         monkeypatch.delenv(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, raising=False)
         monkeypatch.delenv(SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR, raising=False)
@@ -244,3 +261,48 @@ class TestSlurmArray:
             )
             is None
         )
+
+    def test_find_retries_returns_original_config_and_all_outstanding_statuses(self, tmp_path: Path) -> None:
+        pending = build_slurm_array_retry_manifest(str(tmp_path), 7, 11, 1)
+        failed = build_slurm_array_retry_manifest(str(tmp_path), 3, 11, 1)
+        failed_tasks = build_slurm_array_retry_manifest(str(tmp_path), 4, 11, 1)
+        assert pending is not None
+        assert failed is not None
+        assert failed_tasks is not None
+        pending.mark_pending()
+        failed.mark_failed(RuntimeError("boom"))
+        failed_tasks.mark_retryable("failed_tasks", {"failed_task_marker_count": 2})
+
+        retry_plan = find_slurm_array_retries(tmp_path)
+
+        assert retry_plan == SlurmArrayRetryPlan(
+            shard_indices=(3, 4, 7),
+            total_shards=11,
+            minimum_shard_index=1,
+        )
+
+    def test_find_retries_returns_none_without_manifests(self, tmp_path: Path) -> None:
+        assert find_slurm_array_retries(tmp_path) is None
+
+    def test_find_retries_rejects_mixed_logical_runs(self, tmp_path: Path) -> None:
+        first = build_slurm_array_retry_manifest(str(tmp_path), 1, 10, 0)
+        second = build_slurm_array_retry_manifest(str(tmp_path), 2, 20, 0)
+        assert first is not None
+        assert second is not None
+        first.mark_pending()
+        second.mark_pending()
+
+        with pytest.raises(ValueError, match="multiple shard configurations"):
+            find_slurm_array_retries(tmp_path)
+
+    @pytest.mark.parametrize(
+        ("indices", "expected"),
+        [
+            ([], ""),
+            ([7], "7"),
+            ([1, 2, 5, 6, 7, 99], "1-2,5-7,99"),
+            ([7, 5, 6, 5], "5-7"),
+        ],
+    )
+    def test_format_slurm_array_indices(self, indices: list[int], expected: str) -> None:
+        assert format_slurm_array_indices(indices) == expected

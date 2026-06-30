@@ -15,11 +15,21 @@
 import hashlib
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 from nemo_curator.utils.atomic_io import fsync_directory, write_json_atomically
 
 METADATA_DIRNAME = ".nemo_curator_metadata"
+
+
+@dataclass(frozen=True)
+class RetryManifestRecord:
+    """One outstanding retry manifest read from disk."""
+
+    path: Path
+    status: str
+    payload: dict[str, object]
 
 
 def _safe_token(value: object) -> str:
@@ -31,6 +41,45 @@ def _mapping_digest(mapping: Mapping[str, object]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
 
 
+def read_retry_manifests(
+    checkpoint_path: str | Path,
+    *,
+    namespace: str,
+    retry_dirname: str | None = None,
+) -> list[RetryManifestRecord]:
+    """Read outstanding manifests for one retry namespace."""
+    resolved_retry_dirname = retry_dirname or f".{_safe_token(namespace)}_retry"
+    manifest_dir = Path(checkpoint_path, METADATA_DIRNAME, resolved_retry_dirname).absolute()
+    if not manifest_dir.exists():
+        return []
+
+    records = []
+    pattern = f"manifest_{_safe_token(namespace)}_*.json"
+    for manifest_file in sorted(manifest_dir.glob(pattern)):
+        if not manifest_file.is_file():
+            continue
+
+        try:
+            payload = json.loads(manifest_file.read_text())
+        except (OSError, json.JSONDecodeError) as e:
+            msg = f"Failed to read retry manifest {manifest_file}: {e}"
+            raise ValueError(msg) from e
+
+        if not isinstance(payload, dict):
+            msg = f"Retry manifest must contain a JSON object: {manifest_file}"
+            raise ValueError(msg)
+
+        status = payload.get("status")
+        if not isinstance(status, str):
+            msg = f"Retry manifest must contain a string status: {manifest_file}"
+            raise ValueError(msg)
+
+        records.append(RetryManifestRecord(path=manifest_file, status=status, payload=payload))
+
+    return records
+
+
+# TODO: Reverse
 class RetryManifest:
     """Compact marker for retryable work, keyed by stable identity fields."""
 

@@ -15,10 +15,12 @@
 import json
 from pathlib import Path
 
+import pytest
 from pytest import MonkeyPatch
 
 from nemo_curator.backends.failed_task_markers import (
     FAILED_TASKS_DIR_ENV_VAR,
+    read_failed_task_markers,
     record_failed_tasks,
     summarize_failed_task_markers,
 )
@@ -32,6 +34,33 @@ def _failed_task(task_id: str = "0_7_0") -> FailedTask:
 
 
 class TestFailedTaskMarkers:
+    def test_read_failed_task_markers_returns_identities(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
+        marker_dir = tmp_path / "failed-tasks"
+        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(marker_dir))
+        record_failed_tasks("stage-b", [_failed_task("0_8_0")])
+        record_failed_tasks("stage-a", [_failed_task("0_7_0")])
+
+        markers = read_failed_task_markers()
+
+        assert {(marker.stage_name, marker.task_id) for marker in markers} == {
+            ("stage-a", "0_7_0"),
+            ("stage-b", "0_8_0"),
+        }
+        assert all(marker.path.parent == marker_dir for marker in markers)
+
+    def test_read_failed_task_markers_handles_missing_dir(self, tmp_path: Path) -> None:
+        assert read_failed_task_markers(tmp_path / "missing") == []
+
+    def test_read_failed_task_markers_rejects_malformed_marker(self, tmp_path: Path) -> None:
+        marker_dir = tmp_path / "failed-tasks"
+        marker_dir.mkdir()
+        (marker_dir / "failed_task_bad.json").write_text('{"task_id":"0_7_0"}')
+
+        with pytest.raises(ValueError, match="must contain string stage_name and task_id"):
+            read_failed_task_markers(marker_dir)
+
     def test_record_failed_tasks_writes_marker_when_enabled(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
     ) -> None:

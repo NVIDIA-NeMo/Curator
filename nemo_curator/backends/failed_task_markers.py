@@ -13,7 +13,9 @@
 # limitations under the License.
 
 import hashlib
+import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from loguru import logger
@@ -25,6 +27,16 @@ FAILED_TASKS_DIR_ENV_VAR = "NEMO_CURATOR_FAILED_TASKS_DIR"
 FAILED_TASK_MARKER_PATTERN = "failed_task_*.json"
 
 
+@dataclass(frozen=True)
+class FailedTaskMarker:
+    """Identity recorded for one failed stage task."""
+
+    stage_name: str
+    task_id: str
+    path: Path
+
+
+# TODO: Single marker
 def _write_failed_task_marker(marker_dir: Path, stage_name: str, task: FailedTask) -> None:
     """Write one compact marker for a failed stage/task pair."""
     payload = {
@@ -51,6 +63,44 @@ def record_failed_tasks(stage_name: str, failed_tasks: list[FailedTask]) -> None
             _write_failed_task_marker(marker_path, stage_name, task)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to write FailedTask marker to {marker_path}: {e}")
+
+
+def read_failed_task_markers(
+    marker_dir: str | Path | None = None,
+) -> list[FailedTaskMarker]:
+    """Read FailedTask identities from ``marker_dir`` or the configured env dir."""
+    resolved_marker_dir = marker_dir if marker_dir is not None else os.environ.get(FAILED_TASKS_DIR_ENV_VAR)
+    if not resolved_marker_dir:
+        return []
+
+    marker_path = Path(resolved_marker_dir).absolute()
+    if not marker_path.exists():
+        return []
+
+    markers = []
+    for path in sorted(marker_path.glob(FAILED_TASK_MARKER_PATTERN)):
+        if not path.is_file():
+            continue
+
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError) as e:
+            msg = f"Failed to read FailedTask marker {path}: {e}"
+            raise ValueError(msg) from e
+
+        if not isinstance(payload, dict):
+            msg = f"FailedTask marker must contain a JSON object: {path}"
+            raise ValueError(msg)
+
+        stage_name = payload.get("stage_name")
+        task_id = payload.get("task_id")
+        if not isinstance(stage_name, str) or not isinstance(task_id, str):
+            msg = f"FailedTask marker must contain string stage_name and task_id fields: {path}"
+            raise ValueError(msg)
+
+        markers.append(FailedTaskMarker(stage_name=stage_name, task_id=task_id, path=path))
+
+    return markers
 
 
 def summarize_failed_task_markers(
