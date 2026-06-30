@@ -120,7 +120,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    slurm_array = SlurmArrayConfig.from_env()
+    try:
+        slurm_array = SlurmArrayConfig.from_env()
+    except ValueError as e:
+        parser.error(str(e))
     if slurm_array is None:
         parser.error(
             "Slurm array configuration was not found or filtering was explicitly disabled. "
