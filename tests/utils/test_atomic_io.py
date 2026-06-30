@@ -45,7 +45,8 @@ class TestAtomicIo:
         output_path = tmp_path / "payload.json"
 
         def fail_directory_fsync(_path: Path) -> None:
-            raise OSError("directory fsync unsupported")
+            msg = "directory fsync unsupported"
+            raise OSError(msg)
 
         monkeypatch.setattr(atomic_io_module, "fsync_directory", fail_directory_fsync)
 
@@ -70,7 +71,8 @@ class TestAtomicIo:
 
         def fail_temp_cleanup(path: Path, *, missing_ok: bool = False) -> None:
             if path.suffix == ".tmp":
-                raise OSError("cleanup unavailable")
+                msg = "cleanup unavailable"
+                raise OSError(msg)
             original_unlink(path, missing_ok=missing_ok)
 
         monkeypatch.setattr(Path, "unlink", fail_temp_cleanup)

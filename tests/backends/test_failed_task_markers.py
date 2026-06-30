@@ -132,7 +132,8 @@ class TestFailedTaskManifest:
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
 
         def fail_write(*_args: object, **_kwargs: object) -> None:
-            raise OSError("storage unavailable")
+            msg = "storage unavailable"
+            raise OSError(msg)
 
         monkeypatch.setattr(failed_task_markers_module, "write_json_atomically", fail_write)
 

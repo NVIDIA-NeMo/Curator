@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import json
 import os
 import tempfile
@@ -34,10 +35,8 @@ def fsync_directory(path: Path) -> None:
 
 def _unlink_best_effort(path: Path) -> None:
     """Remove a temporary file without masking the primary result."""
-    try:
+    with contextlib.suppress(OSError):
         path.unlink(missing_ok=True)
-    except OSError:
-        pass
 
 
 def _write_json_temp_file(
@@ -65,19 +64,18 @@ def _write_json_temp_file(
             tmp.write("\n")
             tmp.flush()
             os.fsync(tmp.fileno())
-        return tmp_path
     except Exception:
         if tmp_path is not None:
             _unlink_best_effort(tmp_path)
         raise
+    else:
+        return tmp_path
 
 
 def _fsync_directory_best_effort(path: Path) -> None:
     """Flush directory metadata when supported by the filesystem."""
-    try:
+    with contextlib.suppress(OSError):
         fsync_directory(path)
-    except OSError:
-        pass
 
 
 def write_json_atomically(
