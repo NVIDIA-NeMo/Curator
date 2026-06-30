@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.util
 import os
-import shutil
 import socket
 import subprocess
 import time
@@ -189,23 +189,22 @@ def init_cluster(  # noqa: PLR0913
     # We set some env vars for Xenna here. This is only used for Xenna clusters.
     os.environ["XENNA_RAY_METRICS_PORT"] = str(ray_metrics_port)
 
-    haproxy_binary, haproxy_source = _resolve_ray_serve_haproxy_binary()
-    if haproxy_binary is not None:
+    haproxy_source = _ray_serve_haproxy_source()
+    if haproxy_source is not None:
         haproxy_metrics_port = get_free_port(
             DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT,
             bind_host="0.0.0.0",  # noqa: S104
         )
         os.environ["RAY_SERVE_ENABLE_HA_PROXY"] = "1"
         os.environ["RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY"] = "1"
-        os.environ["RAY_SERVE_HAPROXY_BINARY_PATH"] = haproxy_binary
         os.environ["RAY_SERVE_HAPROXY_METRICS_PORT"] = str(haproxy_metrics_port)
         os.environ.pop("RAY_SERVE_HAPROXY_STATS_PORT", None)
-        logger.info(
-            "Ray Serve HAProxy ingress enabled via "
-            f"{haproxy_source} (binary {haproxy_binary}, metrics port {haproxy_metrics_port})."
-        )
+        logger.info(f"Ray Serve HAProxy ingress enabled via {haproxy_source} (metrics port {haproxy_metrics_port}).")
     else:
-        logger.debug("HAProxy binary not found; Ray Serve will use the default Python proxy.")
+        logger.debug(
+            "ray-haproxy package or explicit RAY_SERVE_HAPROXY_BINARY_PATH not found; "
+            "Ray Serve will use the default Python proxy."
+        )
     if stdouterr_capture_file:
         with open(stdouterr_capture_file, "w") as f:
             proc = subprocess.Popen(  # noqa: S603
@@ -218,29 +217,13 @@ def init_cluster(  # noqa: PLR0913
     return proc
 
 
-def _resolve_ray_serve_haproxy_binary() -> tuple[str | None, str | None]:
-    """Resolve the HAProxy binary Ray Serve should use."""
-    try:
-        from ray_haproxy import get_haproxy_binary
-
-        packaged_binary = get_haproxy_binary()
-        if packaged_binary and os.path.isfile(packaged_binary) and os.access(packaged_binary, os.X_OK):
-            return packaged_binary, "ray-haproxy package"
-        logger.warning(f"ray_haproxy returned a non-executable HAProxy binary path: {packaged_binary}")
-    except ImportError:
-        logger.debug("ray_haproxy package is not importable; checking explicit/system HAProxy binary")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(f"Failed to resolve ray_haproxy packaged HAProxy binary: {exc}")
-
-    explicit_binary = os.environ.get("RAY_SERVE_HAPROXY_BINARY_PATH")
-    if explicit_binary and os.path.isfile(explicit_binary) and os.access(explicit_binary, os.X_OK):
-        return explicit_binary, "RAY_SERVE_HAPROXY_BINARY_PATH"
-
-    system_binary = shutil.which("haproxy")
-    if system_binary is not None:
-        return system_binary, "system PATH"
-
-    return None, None
+def _ray_serve_haproxy_source() -> str | None:
+    """Return the configured Ray Serve HAProxy source, if available."""
+    if importlib.util.find_spec("ray_haproxy") is not None:
+        return "ray-haproxy package"
+    if os.environ.get("RAY_SERVE_HAPROXY_BINARY_PATH"):
+        return "RAY_SERVE_HAPROXY_BINARY_PATH"
+    return None
 
 
 def split_table_by_group_max_bytes(
