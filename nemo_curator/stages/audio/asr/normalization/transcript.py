@@ -35,6 +35,19 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 _RESOURCE_ROOT = Path(__file__).parent / "langs"
+_PUNCTUATION_CHARS_BY_LANG = {
+    "bn": ",?\u0964",
+    "en": ".,?",
+    "gu": ".,?",
+    "hi": ".,?",
+    "kn": ".,?",
+    "ml": ".,?!\u0964\u0965",
+    "mr": ".,?",
+    "pa": ".,?\u0964",
+    "ta": ".,?",
+    "te": ".,?",
+    "ur": "\u060c\u061f\u06d4",
+}
 
 
 @dataclass(frozen=True)
@@ -71,7 +84,7 @@ class ResourceTranscriptNormalizer:
             lang_dir = _RESOURCE_ROOT / resource_lang
             self.alphabet.update(_load_alphabet(lang_dir / "alphabet.txt"))
             self.pretok_rules.extend(_load_jsonl(lang_dir / "pretok.jsonl"))
-            pnc_chars += _load_chars(lang_dir / "pnc_chars.txt")
+            pnc_chars += _PUNCTUATION_CHARS_BY_LANG[resource_lang]
         remove_chars = _load_chars(_RESOURCE_ROOT / "remove_chars.txt")
         pnc_chars = _ordered_unique_chars(pnc_chars)
         if remove_pnc_chars:

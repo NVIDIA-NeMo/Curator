@@ -74,9 +74,9 @@ class BaseASRDatasetHandlerStage(ProcessingStage[_EmptyTask, AudioTask], ABC):
         write_manifest: If True, write each emitted metadata record to
             ``{output_dir}/{lang}/{split_type}.jsonl`` from this source stage.
             Downstream writer stages can be used instead by leaving this False.
-        manifest_splits: Optional split names to pre-create empty manifest files
-            for in :meth:`setup_on_node`. Dataset handlers with custom split
-            logic can override :meth:`_output_splits`.
+        manifest_splits: Optional split names used by handlers with custom split
+            logic. Manifest files are opened lazily when a row is written, so
+            missing splits do not create empty JSONL files or audio directories.
     """
 
     raw_data_dir: str = ""
@@ -201,7 +201,7 @@ class BaseASRDatasetHandlerStage(ProcessingStage[_EmptyTask, AudioTask], ABC):
         return os.path.join(self.output_dir, lang, split_type, "audio")
 
     def _output_splits(self) -> list[str]:
-        """Return split names whose manifest files should be pre-created."""
+        """Return split names expected by a dataset handler."""
         return list(dict.fromkeys(self.manifest_splits or []))
 
     def manifest_path(self, lang: str, split_type: str) -> str:

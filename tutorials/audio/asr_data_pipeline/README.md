@@ -200,19 +200,18 @@ nemo_curator/stages/audio/asr/normalization/langs/
 ├── remove_chars.txt
 └── gu/
     ├── alphabet.txt
-    ├── pretok.jsonl
-    └── pnc_chars.txt
+    └── pretok.jsonl
 ```
 
 Each supported language has its own folder:
 
 - `alphabet.txt`: characters considered valid after normalization
 - `pretok.jsonl`: regex replacement rules applied before character removal
-- `pnc_chars.txt`: punctuation characters that can be removed or retained with `remove_pnc_chars`
 
 The root-level `langs/remove_chars.txt` contains characters removed for all languages during cleanup.
+Standard punctuation characters are maintained in `_PUNCTUATION_CHARS_BY_LANG` in `nemo_curator/stages/audio/asr/normalization/transcript.py`.
 
-If `remove_pnc_chars: true`, punctuation listed in `pnc_chars.txt` is removed. If `remove_pnc_chars: false`, those punctuation characters are retained during the removal step.
+If `remove_pnc_chars: true`, punctuation listed for the language in `_PUNCTUATION_CHARS_BY_LANG` is removed. If `remove_pnc_chars: false`, those punctuation characters are retained during the removal step.
 
 Set `lowercase_text: true` when you want the final normalized transcript lowercased. For code-switched data, set `code_switch_langs` to combine additional language alphabets, pretok rules, and punctuation with the task's primary `lang`; for example, `code_switch_langs: ["en"]` allows English text inside a Gujarati transcript. Use the same `code_switch_langs` on `TranscriptStatsStage` so `alpha_minus_known_chars` is computed against the combined vocabulary.
 
@@ -431,11 +430,10 @@ langs/
 ├── remove_chars.txt
 └── xx/
     ├── alphabet.txt
-    ├── pretok.jsonl
-    └── pnc_chars.txt
+    └── pretok.jsonl
 ```
 
-Then set `lang: "xx"` in the emitted `ASRMetadata`.
+Then set `lang: "xx"` in the emitted `ASRMetadata` and add the language's punctuation characters to `_PUNCTUATION_CHARS_BY_LANG` in `nemo_curator/stages/audio/asr/normalization/transcript.py`.
 
 Start with a conservative `alphabet.txt`. Unknown characters are surfaced in the stats summary, so you can inspect the first run and decide whether the character is valid, should be normalized by `pretok.jsonl`, or should be removed by `remove_chars.txt`.
 
@@ -475,7 +473,7 @@ If normalization fails with `Missing ASR normalization resource`, add the langua
 
 ### Unexpected Punctuation Removal
 
-Set `remove_pnc_chars: false` to retain punctuation listed in `pnc_chars.txt`. Characters in `remove_chars.txt` that are not punctuation will still be removed.
+Set `remove_pnc_chars: false` to retain punctuation listed in `_PUNCTUATION_CHARS_BY_LANG`. Characters in `remove_chars.txt` that are not punctuation will still be removed.
 
 ## Related Files
 

@@ -17,19 +17,31 @@ from pathlib import Path
 import pytest
 
 from nemo_curator.stages.audio.asr.normalization import TranscriptNormalizationStage
-from nemo_curator.stages.audio.asr.normalization.transcript import _RESOURCE_ROOT, _load_alphabet
+from nemo_curator.stages.audio.asr.normalization.transcript import (
+    _PUNCTUATION_CHARS_BY_LANG,
+    _RESOURCE_ROOT,
+    _load_alphabet,
+)
 from nemo_curator.tasks import AudioTask
 
 
 def test_language_resources_are_flattened_without_data_subdirectory() -> None:
     assert (_RESOURCE_ROOT / "remove_chars.txt").exists()
-    for lang in ["gu", "hi", "kn", "te", "ml", "mr", "pa", "ta", "bn", "ur"]:
+    for lang in ["gu", "hi", "kn", "te", "ml", "mr", "pa", "ta", "bn", "ur", "en"]:
         lang_dir = _RESOURCE_ROOT / lang
         assert (lang_dir / "alphabet.txt").exists()
         assert (lang_dir / "pretok.jsonl").exists()
         assert not (lang_dir / "remove_chars.txt").exists()
-        assert (lang_dir / "pnc_chars.txt").exists()
+        assert not (lang_dir / "pnc_chars.txt").exists()
         assert not (lang_dir / "data").exists()
+        assert lang in _PUNCTUATION_CHARS_BY_LANG
+
+
+def test_standard_punctuation_dictionary_preserves_language_specific_chars() -> None:
+    assert _PUNCTUATION_CHARS_BY_LANG["bn"] == ",?\u0964"
+    assert _PUNCTUATION_CHARS_BY_LANG["ml"] == ".,?!\u0964\u0965"
+    assert _PUNCTUATION_CHARS_BY_LANG["pa"] == ".,?\u0964"
+    assert _PUNCTUATION_CHARS_BY_LANG["ur"] == "\u060c\u061f\u06d4"
 
 
 @pytest.mark.parametrize(

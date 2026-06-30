@@ -33,12 +33,6 @@ from nemo_curator.stages.audio.asr.metadata import ASRMetadata
 if TYPE_CHECKING:
     from nemo_curator.tasks import AudioTask, _EmptyTask
 
-_DEFAULT_SOURCE_FIELD_MAPPING = {
-    "gender": "gender",
-    "speaker_id": "speaker_id",
-    "age": "age",
-    "text_verbatim": "text_verbatim",
-}
 _SOURCE_FIELD_MAPPING_BY_SOURCE = {
     "indicvoices": {
         "speaker_id": "speaker_id",
@@ -51,10 +45,14 @@ _SOURCE_FIELD_MAPPING_BY_SOURCE = {
         "normalized": "normalized",
     },
     "kathbath": {
+        "fname": "fname",
         "speaker_id": "speaker_id",
         "gender": "gender",
     },
     "shrutilipi": {},
+}
+_SUPPORTED_SOURCE_NAMES = {
+    source_name.lower(): source_name for source_name in ("IndicVoices", "Kathbath", "Shrutilipi")
 }
 _ASR_METADATA_FIELD_NAMES = {metadata_field.name for metadata_field in fields(ASRMetadata)} - {"extra"}
 
@@ -83,6 +81,16 @@ class HuggingFaceASRDatasetHandler(BaseASRDatasetHandlerStage):
     duration_key: str | None = "duration"
     filename_key: str | None = "fname"
     extra_keys: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.source_name.lower() not in _SUPPORTED_SOURCE_NAMES:
+            supported_sources = ", ".join(_SUPPORTED_SOURCE_NAMES.values())
+            msg = (
+                f"Unsupported source_name '{self.source_name}' for {type(self).__name__}. "
+                f"Supported source names: {supported_sources}"
+            )
+            raise ValueError(msg)
 
     def _output_splits(self) -> list[str]:
         if self.manifest_splits:
@@ -114,7 +122,7 @@ class HuggingFaceASRDatasetHandler(BaseASRDatasetHandlerStage):
     def _source_field_mapping(self) -> dict[str, str]:
         if self.extra_keys:
             return {key: key for key in self.extra_keys}
-        return _SOURCE_FIELD_MAPPING_BY_SOURCE.get(self.source_name.lower(), _DEFAULT_SOURCE_FIELD_MAPPING)
+        return _SOURCE_FIELD_MAPPING_BY_SOURCE[self.source_name.lower()]
 
     def _metadata_fields_from_row(self, row: dict) -> tuple[dict[str, object], dict[str, object]]:
         metadata_fields = {}
@@ -252,7 +260,9 @@ class HuggingFaceASRDatasetHandler(BaseASRDatasetHandlerStage):
                 for meta in metas:
                     duration_by_split[meta.split_type] = duration_by_split.get(meta.split_type, 0.0) + meta.duration
                     self.write_manifest_entry(meta)
-                all_tasks.extend(self.build_audio_task(meta) for meta in metas)
+                # multiple languages can be processed in one go if we are not storing tasks in memory.
+                if not self.write_manifest:
+                    all_tasks.extend(self.build_audio_task(meta) for meta in metas)
         total_stats["emitted_tasks"] = len(all_tasks)
         for split_type, duration_seconds in duration_by_split.items():
             total_stats[f"duration_{split_type}_seconds"] = duration_seconds

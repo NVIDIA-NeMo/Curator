@@ -148,13 +148,22 @@ def test_indicvoices_handler_writes_manifests_when_enabled(
     metrics = stage._consume_custom_metrics()
     stage.teardown()
 
-    assert len(tasks) == total_rows
-    actual_counts = Counter(task.data["split_type"] for task in tasks)
+    assert tasks == []
+    rows = []
+    for split in ["dev", "test"]:
+        manifest_path = output_dir / "gu" / f"{split}.jsonl"
+        assert manifest_path.exists()
+        with manifest_path.open(encoding="utf-8") as f:
+            rows.extend(json.loads(line) for line in f if line.strip())
+
+    assert len(rows) == total_rows
+    actual_counts = Counter(row["split_type"] for row in rows)
     expected_durations = {
         "train": 0.0,
-        "dev": sum(task.data["duration"] for task in tasks if task.data["split_type"] == "dev"),
-        "test": sum(task.data["duration"] for task in tasks if task.data["split_type"] == "test"),
+        "dev": sum(row["duration"] for row in rows if row["split_type"] == "dev"),
+        "test": sum(row["duration"] for row in rows if row["split_type"] == "test"),
     }
+    assert metrics["emitted_tasks"] == 0
     assert metrics["duration_train_seconds"] == pytest.approx(expected_durations["train"])
     assert metrics["duration_dev_seconds"] == pytest.approx(expected_durations["dev"])
     assert metrics["duration_test_seconds"] == pytest.approx(expected_durations["test"])
@@ -166,10 +175,6 @@ def test_indicvoices_handler_writes_manifests_when_enabled(
     assert (output_dir / "gu" / "test" / "audio").is_dir()
 
     for split in ["dev", "test"]:
-        manifest_path = output_dir / "gu" / f"{split}.jsonl"
-        assert manifest_path.exists()
-        with manifest_path.open(encoding="utf-8") as f:
-            rows = [json.loads(line) for line in f if line.strip()]
-        assert len(rows) == actual_counts[split]
-        assert all(row["split_type"] == split for row in rows)
-        assert all(Path(row["audio_filepath"]).parent == output_dir / "gu" / split / "audio" for row in rows)
+        split_rows = [row for row in rows if row["split_type"] == split]
+        assert len(split_rows) == actual_counts[split]
+        assert all(Path(row["audio_filepath"]).parent == output_dir / "gu" / split / "audio" for row in split_rows)
