@@ -66,7 +66,7 @@ dependencies = [
     "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]>=2.55.1",  # nightly wheel routed per (python, arch) via [tool.uv.sources]
+    "ray[default,data]>=2.56.0",  # release wheel routed per (python, arch) via [tool.uv.sources]
     "torch",
     "transformers",
 ]
@@ -91,7 +91,7 @@ inference_server = [
     "ai-dynamo-runtime==1.3.0.dev20260615; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "ray[serve,llm]>=2.55.1",
+    "ray[serve,llm]>=2.56.0",
     "ray-haproxy==2.8.20; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
 ]
 
@@ -233,7 +233,6 @@ video_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
     "cvcuda_cu12",
-    "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.11.0",
@@ -325,7 +324,7 @@ default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
 # Default mode: only pick a prerelease when a requirement carries an explicit
 # prerelease marker (ai-dynamo==1.3.0.dev20260615) or when every version in range is a
-# prerelease (ray nightly's otel transitives). Avoids blanket prereleases elsewhere.
+# prerelease. Avoids blanket prereleases elsewhere.
 prerelease = "if-necessary-or-explicit"
 no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
@@ -339,6 +338,7 @@ constraint-dependencies = [
     "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
+    "wandb>=0.28.0", # prebuilt wandb-core drops apache/thrift and ships grpc 1.81.1 (replaces docker go-rebuild patch)
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
     "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
@@ -360,6 +360,7 @@ override-dependencies = [
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
     "nixl-cu13; sys_platform == 'never'", # ray[llm]/nixl hard-pin the CUDA-13 NIXL backend. On this CUDA-12.9 image vLLM's eager `import nixl_ep` would load cu13's nixl_ep_cpp.so and dlopen the absent libcudart.so.13. Drop it; the nixl meta + nixl-cu12 backend (nixl's own default) remain.
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
+    "sqlfluff>=4.2.0", # Address CVE-2026-46373/46374 (parser DoS); overrides data-designer-engine==0.5.5 sqlfluff<4 cap
 ]
 
 

@@ -134,6 +134,7 @@ class RayStageSpecKeys(str, Enum):
     MAX_WORKERS = "max_workers"
     INITIAL_WORKERS = "initial_workers"
     RAY_REMOTE_ARGS = "ray_remote_args"
+    RAY_NUM_CPUS = "ray_num_cpus"
 
 
 def get_worker_metadata_and_node_id() -> tuple[NodeInfo, WorkerMetadata]:

@@ -28,15 +28,12 @@ cd /opt/Curator
 uv pip install GitPython pynvml pyyaml rich
 
 # Session name resolution:
-#   - If NEMO_CI_SESSION_NAME is set by the launcher (curator_benchmark_launch.py
-#     wrapper or similar), use it verbatim.
-#   - Else if this is a scheduled (cron) nightly pipeline, generate nightly-<TS>.
+#   - If NEMO_CI_SESSION_NAME is set by the generated benchmark pipeline, use it
+#     verbatim so every benchmark job writes to the same session directory.
 #   - Else fall back to the legacy benchmark_run_<pipeline-id> name so existing
 #     manual launches via launch_pipeline.py keep producing the same paths.
 if [ -n "${NEMO_CI_SESSION_NAME:-}" ]; then
     SESSION_NAME="${NEMO_CI_SESSION_NAME}"
-elif [ "${CI_PIPELINE_SOURCE:-}" = "schedule" ]; then
-    SESSION_NAME="nightly-$(date -u +%Y_%m_%d__%H_%M_%S_UTC)"
 else
     SESSION_NAME="benchmark_run_${CI_PIPELINE_ID}"
 fi

@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        folder: ["backends", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-interleaved", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "eval", "tasks", "utils"]
+        folder: ["backends", "benchmarking", "config", "core", "models", "pipelines", "stages-audio", "stages-common", "stages-deduplication", "stages-image", "stages-interleaved", "stages-math_stages", "stages-synthetic", "stages-text", "stages-video", "eval", "tasks", "utils"]
     needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ubuntu-latest
     name: Unit_Test_${{ matrix.folder }}_CPU
