@@ -67,12 +67,12 @@ def read_retry_manifests(
 
         if not isinstance(payload, dict):
             msg = f"Retry manifest must contain a JSON object: {manifest_file}"
-            raise ValueError(msg)
+            raise TypeError(msg)
 
         status = payload.get("status")
         if not isinstance(status, str):
             msg = f"Retry manifest must contain a string status: {manifest_file}"
-            raise ValueError(msg)
+            raise TypeError(msg)
 
         records.append(RetryManifestRecord(path=manifest_file, status=status, payload=payload))
 

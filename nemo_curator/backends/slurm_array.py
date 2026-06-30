@@ -209,7 +209,7 @@ def _require_manifest_int(record: RetryManifestRecord, field: str) -> int:
     value = record.payload.get(field)
     if isinstance(value, bool) or not isinstance(value, int):
         msg = f"Slurm array retry manifest {record.path} must contain an integer {field}"
-        raise ValueError(msg)
+        raise TypeError(msg)
     return value
 
 
@@ -264,7 +264,10 @@ def find_slurm_array_retries(checkpoint_path: str | Path) -> SlurmArrayRetryPlan
 def format_slurm_array_indices(indices: Iterable[int]) -> str:
     """Format shard indices as a compact Slurm ``--array`` expression."""
     unique_indices = set(indices)
-    if any(isinstance(index, bool) or not isinstance(index, int) or index < 0 for index in unique_indices):
+    if any(isinstance(index, bool) or not isinstance(index, int) for index in unique_indices):
+        msg = "Slurm array indices must be integers"
+        raise TypeError(msg)
+    if any(index < 0 for index in unique_indices):
         msg = "Slurm array indices must be non-negative integers"
         raise ValueError(msg)
     sorted_indices = sorted(unique_indices)

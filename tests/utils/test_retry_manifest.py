@@ -62,7 +62,7 @@ class TestRetryManifest:
         manifest_dir.mkdir(parents=True)
         (manifest_dir / "manifest_example_bad.json").write_text('{"partition_id":3}')
 
-        with pytest.raises(ValueError, match="must contain a string status"):
+        with pytest.raises(TypeError, match="must contain a string status"):
             read_retry_manifests(tmp_path, namespace="example")
 
     def test_mark_pending_writes_compact_manifest_with_flattened_identity(self, tmp_path: Path) -> None:
