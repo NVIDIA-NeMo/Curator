@@ -32,7 +32,6 @@ from nemo_curator.backends.slurm_array import (
     resolve_slurm_array_config,
 )
 from nemo_curator.tasks import Task
-from nemo_curator.tasks.sentinels import FailedTask
 from nemo_curator.utils.retry_manifest import METADATA_DIRNAME
 
 
