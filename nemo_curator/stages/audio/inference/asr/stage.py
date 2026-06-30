@@ -37,7 +37,6 @@ from loguru import logger
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
 from nemo_curator.pipeline.payload_refs import (
     PayloadRef,
-    release_payload_ref,
     resolve_payload_refs_batched,
 )
 from nemo_curator.pipeline.prefetch import BoundedOneAheadPrefetchIterator
@@ -144,6 +143,7 @@ _PAYLOAD_REF_ITEM_KEY = "_curator_payload_ref"
 _PAYLOAD_START_ITEM_KEY = "_curator_payload_start_sample"
 _PAYLOAD_STOP_ITEM_KEY = "_curator_payload_stop_sample"
 _WAVEFORM_BYTES_ITEM_KEY = "_curator_waveform_bytes"
+_PRE_SKIPPED_ITEM_KEY = "_curator_asr_pre_skipped_reason"
 
 
 def _payload_cache_key(payload_ref: PayloadRef) -> tuple[str | None, str, str]:
@@ -465,6 +465,8 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
         return [], keys
 
     def _validate_asr_task_input(self, task: AudioTask) -> bool:
+        if self._pre_skipped_reason(task) is not None:
+            return True
         has_waveform = self.waveform_key in task.data
         has_ref = bool(self.waveform_ref_key and self.waveform_ref_key in task.data)
         if not has_waveform and not has_ref:
@@ -479,6 +481,17 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
             logger.error("Task {} missing ASR sample-rate input '{}'", task.task_id, self.sample_rate_key)
             return False
         return True
+
+    def _pre_skipped_reason(self, task: AudioTask) -> str | None:
+        reason = task.data.get(self.skip_me_key)
+        return str(reason) if reason else None
+
+    @staticmethod
+    def _pre_skipped_item_result(item: dict[str, Any]) -> ASRResult | None:
+        reason = item.get(_PRE_SKIPPED_ITEM_KEY)
+        if not reason:
+            return None
+        return ASRResult(text="", skipped=True, extras={"skip_reason": str(reason)})
 
     def _resolve_payload_refs(self, tasks: list[AudioTask]) -> list[AudioTask]:
         return self.resolve_payload_refs_for_batch(tasks)
@@ -644,18 +657,14 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
                 raise TypeError(msg)
             dispatch_batches = [task for task in tasks if isinstance(task, DispatchBatchTask)]
             child_tasks = self._dispatch_child_tasks(dispatch_batches)
+            if self.payload_prefetch_enabled and self._has_unresolved_payload_refs(child_tasks):
+                return self._process_dispatch_batches(dispatch_batches)
+            inserted_waveforms: list[AudioTask] = []
             try:
-                if self.payload_prefetch_enabled and self._has_unresolved_payload_refs(child_tasks):
-                    return self._process_dispatch_batches(dispatch_batches)
-                inserted_waveforms: list[AudioTask] = []
-                try:
-                    inserted_waveforms = self._resolve_payload_refs(child_tasks)
-                    return self._process_dispatch_batches(dispatch_batches)
-                finally:
-                    self._drop_resolved_payload_waveforms(inserted_waveforms)
-            except Exception:
-                self._release_dispatch_payload_refs(child_tasks)
-                raise
+                inserted_waveforms = self._resolve_payload_refs(child_tasks)
+                return self._process_dispatch_batches(dispatch_batches)
+            finally:
+                self._drop_resolved_payload_waveforms(inserted_waveforms)
         if self.payload_prefetch_enabled and self._has_unresolved_payload_refs(tasks):
             return self._process_plain_batch(tasks)
         inserted_waveforms: list[AudioTask] = []
@@ -682,15 +691,6 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
             self.waveform_key not in task.data and isinstance(task.data.get(self.waveform_ref_key), PayloadRef)
             for task in tasks
         )
-
-    def _release_dispatch_payload_refs(self, tasks: list[AudioTask]) -> None:
-        """Mirror backend failure cleanup while refs are nested in an envelope."""
-        if not self.waveform_ref_key:
-            return
-        for task in tasks:
-            payload_ref = task.data.get(self.waveform_ref_key)
-            if isinstance(payload_ref, PayloadRef):
-                release_payload_ref(payload_ref)
 
     def _process_plain_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Dispatch one unbucketed backend batch.
@@ -816,6 +816,10 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
         eligible_indices: list[int] = []
         eligible_items: list[dict[str, Any]] = []
         for local_index, item in enumerate(items):
+            pre_skipped_result = self._pre_skipped_item_result(item)
+            if pre_skipped_result is not None:
+                aligned_results[local_index] = pre_skipped_result
+                continue
             if self._is_language_supported(item):
                 eligible_indices.append(item_offset + local_index)
                 eligible_items.append(item)
@@ -971,6 +975,10 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
         eligible_items: list[dict[str, Any]] = []
         eligible_indices: list[int] = []
         for idx, item in enumerate(items):
+            pre_skipped_result = self._pre_skipped_item_result(item)
+            if pre_skipped_result is not None:
+                aligned_results[idx] = pre_skipped_result
+                continue
             if self._is_language_supported(item):
                 eligible_items.append(item)
                 eligible_indices.append(idx)
@@ -1150,6 +1158,9 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
             item[_PAYLOAD_REF_ITEM_KEY] = spec.payload_ref
             item[_PAYLOAD_START_ITEM_KEY] = spec.start_sample
             item[_PAYLOAD_STOP_ITEM_KEY] = spec.stop_sample
+        skip_reason = self._pre_skipped_reason(spec.parent_task)
+        if skip_reason is not None:
+            item[_PRE_SKIPPED_ITEM_KEY] = skip_reason
         return item
 
     @classmethod

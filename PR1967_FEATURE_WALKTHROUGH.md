@@ -245,6 +245,9 @@ reservation is committed, its finite materialization lease can be reaped.
 
 When `skip_on_read_error` is enabled, a reader error yields a skipped row with
 no payload ref. The reservation and zero-length waveform are removed.
+`ASRStage` recognizes that marker before waveform validation, preserves the row
+in its original position, writes empty ASR outputs, and excludes it from adapter
+calls. Final release safely no-ops on the absent ref.
 
 Metrics include admission wait, poll count, estimated/reserved/stored bytes,
 node and cluster budgets, and materialization count.
@@ -256,8 +259,9 @@ mapping consumed by a stage.
 
 `resolve_payload_refs_for_batch()` resolves all handles required by its bounded
 stage batch with actor-grouped bulk RPCs, restores sample metadata, and records
-same-node and cross-node resolution metrics. `drop_resolved_payloads()` renews
-the handoff lease and removes temporary waveform fields.
+same-node and cross-node resolution metrics. `drop_resolved_payloads()` removes
+temporary waveform fields only. Published payloads are already non-expiring,
+so resolution and cleanup perform no heartbeat, pin, or renewal RPC.
 
 The Qwen config opts into `BoundedOneAheadPrefetchIterator` from
 `pipeline/prefetch.py`. ASR can plan exact model calls from `PayloadRef`
@@ -289,16 +293,14 @@ defensive cleanup fallback for malformed rows. It supports rows without refs
 and keeps the existing task-data mapping object intact.
 
 `BaseStageAdapter` reads only the configured top-level ref key on stages marked
-by the lifecycle expander. It releases input refs on an exception and refs that
-disappear because a stage filtered a row. Stages in ordinary pipelines pay no
-payload-tracking cost, and payload stages do not recursively scan unrelated
+by the lifecycle expander. After a successful invocation, it releases refs only
+for rows that the stage actually filtered. It deliberately leaves input refs
+owned when an invocation raises so Ray Data or Xenna can retry the same logical
+rows with the same handles. ASR removes only temporary actor-local waveforms in
+`finally`; explicit `PayloadReleaseStage` release handles successful completion,
+and executor cleanup owns terminal run failure. Stages in ordinary pipelines pay
+no payload-tracking cost, and payload stages do not recursively scan unrelated
 structured model outputs on the normal path.
-
-This exception cleanup happens before the exception is re-raised and before a
-backend-level retry policy is exhausted. A retry that reuses the same input
-tasks therefore receives handles whose store/admission state has already been
-released. The current code does not provide a same-ref retry contract for a
-payload-aware consumer attempt that raises.
 
 ## 4. Local Audio Decode
 
@@ -399,18 +401,22 @@ bytes by the materializer.
 
 `ASRStage.process_batch()`:
 
-1. uses eager bulk payload resolution unless prefetch is explicitly enabled;
-2. in prefetch mode, plans segments and exact adapter calls from payload
+1. recognizes rows already marked skipped before requiring a waveform or ref;
+2. validates waveform/ref and sample-rate inputs only for non-skipped rows;
+3. uses eager bulk payload resolution unless prefetch is explicitly enabled;
+4. in prefetch mode, plans segments and exact adapter calls from payload
    metadata before waveform resolution;
-3. resolves the current call and overlaps one bounded next call with current
+5. creates aligned skipped results for pre-skipped rows and excludes them from
+   adapter calls;
+6. applies duration-aware policy when enabled; each policy output is already
+   the final adapter call, bounded by its bucket item and aggregate-cost caps;
+7. when policy is disabled, splits eligible items only by the fallback
+   `adapter_batch_size`/stage-batch cap;
+8. resolves the current call and overlaps one bounded next call with current
    GPU inference;
-4. builds adapter items with language, reference text, task id, duration, and
-   stitch-back indices;
-5. applies duration-aware policy when enabled;
-6. splits each bucket by its adapter-call cap;
-7. invokes the adapter and realigns results;
-8. joins per-parent text in segment order;
-9. drops current-call waveform references; the payload actor retains the
+9. invokes the adapter and realigns results;
+10. joins per-parent text in segment order; and
+11. drops current-call waveform references; the payload actor retains the
    original until `PayloadReleaseStage`.
 
 The finite candidate set is the current backend-provided `process_batch()`
@@ -419,8 +425,11 @@ window. Local bucketing cannot inspect rows outside that window.
 The shared ASR implementation also accepts `DispatchBatchTask` envelopes from
 an external planner. That path verifies owner identity, policy signature,
 bucket membership, item and aggregate costs, and one-segment-per-child before
-making exactly one adapter call per envelope. It is intentionally inactive in
-this branch because local `ManifestReader` emits ordinary rows only.
+making at most one adapter call per envelope. Eligible children stay together
+without rebucketing; pre-skipped or unsupported children retain aligned skipped
+results and bypass the adapter, so an all-skipped envelope makes no call. This
+path is intentionally inactive in this branch because local `ManifestReader`
+emits ordinary rows only.
 
 The stage emits `adapter_inference_calls` and `adapter_inference_items`, plus
 input, processed, skipped, generated-segment, audio-duration, waveform-byte,
@@ -462,10 +471,15 @@ rather than globally planned segment tensors.
 defines a generic cost-bucket policy.
 
 `BatchPolicy` validates strictly increasing edges starting at zero, per-bucket
-item caps, optional adapter caps, total-cost cap, candidate window, and flush
-interval. `BucketQueueScheduler` flushes on item capacity, cost capacity, timer,
-or drain. Finite planning orders ready batches by descending total cost and
-returns original indices for result alignment.
+item caps, total-cost cap, the advisory `prebatching_window_size`, and
+`flush_interval_ms`. `BucketQueueScheduler` can flush on item capacity, cost
+capacity, timer, or drain. The finite `bucketize_with_costs()` path used by ASR
+constructs it with timers disabled, drains at the end of the supplied item
+window, orders ready batches by descending total cost, and returns original
+indices for result alignment. Therefore `flush_interval_ms` does not affect the
+current local Qwen path. `prebatching_window_size` is currently validated and
+serialized but does not resize backend batches; the actual candidate window is
+`ASRStage.batch_size`.
 
 `run_bucketed()` exposes the same bucket-dispatch-and-realign loop to other
 inference stages through caller-supplied cost and execution functions.
@@ -570,22 +584,33 @@ prefetch setup; model construction remains a GPU-worker operation.
 
 ## 10. Tasks And Terminal Rows
 
-[`nemo_curator/tasks/tasks.py`](nemo_curator/tasks/tasks.py) makes the base
-`Task.task_id` framework-owned (`init=False`). `BaseStageAdapter` overwrites it
-at every derivable stage boundary: one-to-many outputs use parent plus output
-index/content id, positional many-to-many uses each matching parent, and an
-ambiguous many-to-different-count fanout receives an `r<uuid>` fallback.
-`AudioTask` retains its audio-specific constructor field, but normal backend
-postprocessing still derives the stage-boundary id.
+[`nemo_curator/tasks/tasks.py`](nemo_curator/tasks/tasks.py) keeps
+`Task.task_id` as a public constructor field with default `""`, preserving
+existing `Task(task_id=...)` call sites. During pipeline execution the framework
+owns it: `BaseStageAdapter` overwrites it at every derivable stage boundary.
+One-to-many outputs use parent plus output index/content id, positional
+many-to-many uses each matching parent, and an ambiguous
+many-to-different-count fanout receives an `r<uuid>` fallback.
 
-`EmptyTask` is a payload-less class rooted at task id `"0"`; source execution
-constructs it with `EmptyTask()`.
+`EmptyTask` is a payload-less class rooted at task id `"0"`; its inherited
+constructor shape still accepts `task_id=`, but `__post_init__()` normalizes the
+value back to `"0"`. Source execution constructs it with `EmptyTask()`.
 
 [`nemo_curator/tasks/task_terminals.py`](nemo_curator/tasks/task_terminals.py)
 defines generic `_curator_terminal_*` ownership and tombstone fields. Normal
 local Qwen rows have no terminal ownership metadata, so ordinary filtering
 still removes them. The helper activates only for rows that explicitly carry a
-terminal contract.
+terminal contract. Tombstones shallow-copy the original task and task-data
+mapping, preserving optional subclass fields, task id, metadata, and prior
+performance records. Drop attribution prefers `_curator_stage_id`, then stage
+name, then class name.
+
+Terminal identity is `(group_id, index, count)`. A stage that constructs a
+replacement task must copy those fields. A non-terminal replacement is retained
+and a tombstone is also appended for the missing identity; an unmatched
+conflicting terminal identity can be discarded when reconstructing an
+all-terminal output list. The local Qwen path does not create terminal rows,
+but this is the exact shared contract available to another planner.
 
 ## 11. Performance And Resource Observability
 
@@ -659,7 +684,8 @@ creates the configured handle, and consumers implement
 of the payload's modality.
 
 A source with full-dataset planning may emit generic `DispatchBatchTask`
-envelopes. Its owner validates one envelope as one call, and
+envelopes. Its owner validates one envelope as at most one call, keeping all
+eligible children together while skipped children retain aligned placeholders;
 `DispatchBatchUnpackStage` restores child rows. This extension uses ordinary
 task rows and does not require a Ray Data or Xenna scheduling change.
 
@@ -704,19 +730,24 @@ duration.
 - [`tests/stages/audio/inference/test_batch_policy.py`](tests/stages/audio/inference/test_batch_policy.py):
   bucket edges, caps, cost scheduling, adapter batches, ordering, and generic
   scheduler hooks;
+- [`tests/backends/test_task_id_postprocess.py`](tests/backends/test_task_id_postprocess.py):
+  task-id derivation, shorter/reordered/replacement terminal outputs,
+  conflicting identities, stage-id drop markers, and subclass-field-preserving
+  tombstones;
 - [`tests/backends/ray_data/test_utils.py`](tests/backends/ray_data/test_utils.py):
   actor sizing and backend batch delivery;
-- [`tests/backends/xenna/test_executor.py`](tests/backends/xenna/test_executor.py):
+- [`tests/backends/test_xenna_executor.py`](tests/backends/test_xenna_executor.py):
   StageSpec construction, `num_workers()`/per-node sizing conflicts, and
   verbosity;
 - [`tests/stages/audio/metrics/test_perf_summary.py`](tests/stages/audio/metrics/test_perf_summary.py)
   and [`tests/utils/test_gpu_sampler.py`](tests/utils/test_gpu_sampler.py):
   summary and GPU metrics.
 
-These tests primarily cover successful execution and explicit cleanup. They do
-not establish same-ref consumer retry after an exception, hard driver loss
-before executor cleanup, or fail-loud behavior for a systemic Qwen preprocessing
-error. Those are separate reviewer-visible properties of the current implementation.
+The focused suite also covers same-ref retry for plain and dispatch inputs and
+reader-error pass-through without an adapter call. It does not simulate hard
+driver loss before executor cleanup or fail-loud behavior for a systemic Qwen
+preprocessing error; those remain reviewer-visible properties outside these
+focused tests.
 
 ## 15. Reviewer File Map
 
@@ -753,8 +784,11 @@ error. Those are separate reviewer-visible properties of the current implementat
 11. Output manifests contain neither waveform tensors nor `PayloadRef` objects.
 12. Performance summaries contain adapter-level calls/items and both
     invocation-window and pipeline-wide GPU/VRAM observations.
-13. A payload-aware consumer attempt that raises releases its refs before the
-    backend sees the exception, so retrying that same task/ref is not currently
-    safe.
+13. A failed payload-aware invocation leaves its input refs owned by the store,
+    so a backend retry can resolve the same handles; successful filtering and the
+    explicit release stage remain the only per-row release points.
 14. Qwen preprocessing exceptions are converted to skipped/empty item output;
     only vLLM generation failures are guaranteed to fail the batch.
+15. A row already marked skipped, including a materialization read error, keeps
+    its output position and terminal metadata, receives empty ASR output, and
+    does not enter an adapter call.

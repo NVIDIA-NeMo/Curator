@@ -15,12 +15,16 @@
 import sys
 from collections.abc import Callable
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 import torch
 
 from nemo_curator.stages import payload_lifecycle as lifecycle
+from nemo_curator.stages.audio.inference.asr import ASRStage
+from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.dispatch_batch import DispatchBatchUnpackStage
 from nemo_curator.stages.payload_lifecycle import (
     AudioPayloadMaterializeStage,
     PayloadRef,
@@ -179,6 +183,19 @@ def _stage_with_fakes(
     return stage, reader, admission, store
 
 
+def _asr_stage_for_read_error(*, batch_policy: BatchPolicy | None = None) -> ASRStage:
+    stage = ASRStage(
+        adapter_target="nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter",
+        model_id="mock/qwen-omni",
+        pred_text_key="prediction",
+        disfluency_text_key="prediction_s2",
+        batch_policy=batch_policy,
+    )
+    stage._adapter = MagicMock()
+    stage._adapter.last_metrics = {}
+    return stage
+
+
 def test_audio_payload_materialize_constructs_reader_with_configured_keys() -> None:
     stage = AudioPayloadMaterializeStage(
         waveform_key="custom_waveform",
@@ -283,6 +300,76 @@ def test_audio_payload_materialize_passes_reader_skip_without_payload_ref() -> N
     assert store.payloads == {}
     assert admission.acquire_calls
     assert admission.release_calls
+
+
+def test_reader_skip_flows_through_asr_and_release_without_inference() -> None:
+    materialize, _reader, _admission, _store = _stage_with_fakes()
+    materialize.skip_on_read_error = True
+    materialize._reader = _FakeSkipReader()
+    asr = _asr_stage_for_read_error()
+    task = AudioTask(
+        data={
+            "audio_filepath": "/local/audio.wav",
+            "duration": 0.5,
+            "_curator_terminal_group_id": "parent-0",
+            "_curator_terminal_index": 0,
+            "_curator_terminal_count": 1,
+        }
+    )
+
+    materialized = materialize.process(task)
+    [inferred] = asr.process_batch([materialized])
+    released = PayloadReleaseStage().process(inferred)
+
+    asr._adapter.transcribe_batch.assert_not_called()
+    assert released.data["_skip_me"] == "audio_read_error"
+    assert released.data["prediction"] == ""
+    assert released.data["prediction_s2"] == ""
+    assert released.data["_curator_terminal_group_id"] == "parent-0"
+    assert "waveform" not in released.data
+    assert "waveform_ref" not in released.data
+
+
+def test_dispatch_reader_skip_flows_through_asr_unpack_and_release_without_inference() -> None:
+    materialize, _reader, _admission, _store = _stage_with_fakes()
+    materialize.skip_on_read_error = True
+    materialize._reader = _FakeSkipReader()
+    policy = BatchPolicy(buckets_sec=[0], max_items_per_batch_by_bucket=[1], max_audio_sec_per_batch=2400.0)
+    asr = _asr_stage_for_read_error(batch_policy=policy)
+    child = AudioTask(
+        data={
+            "audio_filepath": "/local/audio.wav",
+            "duration": 0.5,
+            "_curator_terminal_group_id": "parent-0",
+            "_curator_terminal_index": 0,
+            "_curator_terminal_count": 1,
+        }
+    )
+    batch = DispatchBatchTask(
+        dataset_name="dataset",
+        data=[child],
+        batch_id="run:dispatch:read-error",
+        owner_stage=asr.name,
+        sequence_index=0,
+        bucket_index=policy.bucket_for(0.5),
+        total_cost=0.5,
+        item_costs=(0.5,),
+        cost_unit="audio_seconds",
+        policy_signature=policy.dispatch_signature(cost_unit="audio_seconds"),
+    )
+
+    [materialized_batch] = materialize.process_batch([batch])
+    [inferred_batch] = asr.process_batch([materialized_batch])
+    [unpacked] = DispatchBatchUnpackStage().process(inferred_batch)
+    released = PayloadReleaseStage().process(unpacked)
+
+    asr._adapter.transcribe_batch.assert_not_called()
+    assert inferred_batch.batch_id == batch.batch_id
+    assert released.data["_skip_me"] == "audio_read_error"
+    assert released.data["prediction"] == ""
+    assert released.data["_curator_terminal_group_id"] == "parent-0"
+    assert "waveform" not in released.data
+    assert "waveform_ref" not in released.data
 
 
 def test_audio_payload_ref_carries_ray_namespace() -> None:

@@ -136,6 +136,50 @@ def test_basic_inference_single_turn() -> None:
     assert "waveform" not in results[0].data  # keep_waveform=False -> dropped
 
 
+def test_pre_skipped_plain_row_bypasses_adapter_without_blocking_valid_neighbor() -> None:
+    stage = _make_stage()
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="valid transcript")]
+    skipped = AudioTask(data={"_skip_me": "audio_read_error", "audio_read_error": "decode failed"})
+    valid = _make_task()
+
+    results = stage.process_batch([skipped, valid])
+
+    [adapter_items] = [call.args[0] for call in stage._adapter.transcribe_batch.call_args_list]
+    assert len(adapter_items) == 1
+    assert results[0].data["_skip_me"] == "audio_read_error"
+    assert results[0].data["qwen3_prediction_s1"] == ""
+    assert results[1].data["qwen3_prediction_s1"] == "valid transcript"
+
+
+def test_pre_skipped_dispatch_row_bypasses_adapter_without_blocking_valid_neighbor() -> None:
+    policy = _chunking_policy()
+    stage = _make_stage(batch_policy=policy)
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="valid transcript")]
+    skipped = AudioTask(data={"_skip_me": "audio_read_error", "audio_read_error": "decode failed"})
+    valid = _make_task()
+    batch = DispatchBatchTask(
+        dataset_name="dataset",
+        data=[skipped, valid],
+        batch_id="run:dispatch:mixed-read-error",
+        owner_stage=stage.name,
+        sequence_index=0,
+        bucket_index=policy.bucket_for(1.0),
+        total_cost=2.0,
+        item_costs=(1.0, 1.0),
+        cost_unit="audio_seconds",
+        policy_signature=policy.dispatch_signature(cost_unit="audio_seconds"),
+    )
+
+    [result_batch] = stage.process_batch([batch])
+
+    assert isinstance(result_batch, DispatchBatchTask)
+    [adapter_items] = [call.args[0] for call in stage._adapter.transcribe_batch.call_args_list]
+    assert len(adapter_items) == 1
+    assert result_batch.items[0].data["_skip_me"] == "audio_read_error"
+    assert result_batch.items[0].data["qwen3_prediction_s1"] == ""
+    assert result_batch.items[1].data["qwen3_prediction_s1"] == "valid transcript"
+
+
 def test_keep_waveform_default_is_true() -> None:
     """Default ``keep_waveform`` is True so downstream stages can reuse the waveform."""
     stage = _make_stage()  # no keep_waveform override
@@ -524,6 +568,74 @@ def test_payload_prefetch_plans_from_metadata_resolves_parent_once_and_slices_pe
     ]
     assert result[0].data["qwen3_prediction_s1"] == "chunk0 chunk1 chunk2"
     assert "waveform" not in result[0].data
+
+
+def test_plain_payload_ref_survives_failed_attempt_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    waveform = np.zeros(_SR, dtype=np.float32)
+    payload_ref = PayloadRef("plain-retry", "node-a", "store", "admission", waveform.nbytes, _SR, len(waveform))
+    resolve_calls: list[str] = []
+
+    def resolve(refs: list[PayloadRef]) -> list[np.ndarray]:
+        resolve_calls.extend(ref.payload_id for ref in refs)
+        return [waveform for _ref in refs]
+
+    monkeypatch.setattr("nemo_curator.stages.payload_lifecycle.resolve_payload_refs_batched", resolve)
+    stage = _make_stage()
+    stage._adapter.transcribe_batch.side_effect = [RuntimeError("transient"), [ASRResult(text="recovered")]]
+    task = AudioTask(data={"waveform_ref": payload_ref, "sample_rate": _SR, "source_lang": "en"})
+    backend = BaseStageAdapter(stage)
+
+    with pytest.raises(RuntimeError, match="transient"):
+        backend.process_batch([task])
+
+    assert task.data["waveform_ref"] is payload_ref
+    assert "waveform" not in task.data
+    [output] = backend.process_batch([task])
+    assert output.data["qwen3_prediction_s1"] == "recovered"
+    assert resolve_calls == ["plain-retry", "plain-retry"]
+
+
+def test_dispatch_payload_ref_survives_failed_attempt_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    waveform = np.zeros(_SR, dtype=np.float32)
+    payload_ref = PayloadRef(
+        "dispatch-retry",
+        "node-a",
+        "store",
+        "admission",
+        waveform.nbytes,
+        _SR,
+        len(waveform),
+    )
+
+    def resolve(refs: list[PayloadRef]) -> list[np.ndarray]:
+        return [waveform for _ref in refs]
+
+    monkeypatch.setattr("nemo_curator.stages.payload_lifecycle.resolve_payload_refs_batched", resolve)
+    policy = _chunking_policy()
+    stage = _make_stage(batch_policy=policy)
+    stage._adapter.transcribe_batch.side_effect = [RuntimeError("transient"), [ASRResult(text="recovered")]]
+    child = AudioTask(data={"waveform_ref": payload_ref, "sample_rate": _SR, "source_lang": "en"})
+    batch = DispatchBatchTask(
+        dataset_name="dataset",
+        data=[child],
+        batch_id="run:dispatch:retry",
+        owner_stage=stage.name,
+        sequence_index=0,
+        bucket_index=policy.bucket_for(1.0),
+        total_cost=1.0,
+        item_costs=(1.0,),
+        cost_unit="audio_seconds",
+        policy_signature=policy.dispatch_signature(cost_unit="audio_seconds"),
+    )
+
+    with pytest.raises(RuntimeError, match="transient"):
+        stage.process_batch([batch])
+
+    assert child.data["waveform_ref"] is payload_ref
+    assert "waveform" not in child.data
+    [retried_batch] = stage.process_batch([batch])
+    assert isinstance(retried_batch, DispatchBatchTask)
+    assert retried_batch.items[0].data["qwen3_prediction_s1"] == "recovered"
 
 
 def test_payload_prefetch_requires_explicit_byte_budget() -> None:

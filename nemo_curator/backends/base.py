@@ -176,13 +176,10 @@ class BaseStageAdapter:
         extended_metrics = bool(getattr(self.stage, "extended_performance_metrics", False))
 
         window_start = time.time() if extended_metrics else 0.0
-        try:
-            with self._timer.time_process(input_size):
-                # Use the batch processing logic
-                results = self.stage.process_batch(tasks)
-        except Exception:
-            self._release_payload_refs(input_payload_refs.values())
-            raise
+        with self._timer.time_process(input_size):
+            # Use the batch processing logic. Input payload ownership must
+            # survive a failed attempt so the backend can retry the same rows.
+            results = self.stage.process_batch(tasks)
         window_end = time.time() if extended_metrics else 0.0
         if bool(getattr(self.stage, "_curator_preserves_terminal_tasks", False)):
             results = preserve_dropped_terminal_tasks(self.stage, tasks, results)
