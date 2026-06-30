@@ -127,9 +127,6 @@ def filter_slurm_array_source_tasks(
     stage_name: str,
 ) -> list[Task]:
     """Keep only source tasks assigned to the active Slurm array shard."""
-    if slurm_array is None:
-        return tasks
-
     nondeterministic_task_ids = [task.task_id for task in tasks if task.task_id.startswith("r")]
     if nondeterministic_task_ids:
         msg = (
@@ -152,21 +149,6 @@ def filter_slurm_array_source_tasks(
         logger.info(msg)
 
     return assigned_tasks
-
-
-def raise_for_failed_source_tasks_with_slurm_array(
-    stage_name: str,
-    failed_tasks: list[FailedTask],
-    slurm_array: SlurmArrayConfig | None,
-) -> None:
-    """Reject source-stage FailedTasks, which cannot be retried by shard."""
-    if failed_tasks and slurm_array is not None:
-        msg = (
-            f"Source stage {stage_name} emitted FailedTask while Slurm array filtering is enabled. "
-            "This is not supported because the failed source task cannot be assigned to a retry shard "
-            "reliably. Raise an exception from the source stage instead."
-        )
-        raise ValueError(msg)
 
 
 def is_slurm_array_driver_process(use_slurm: bool) -> bool:

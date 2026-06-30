@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Any
 from nemo_curator.backends.failed_task_markers import record_failed_tasks
 from nemo_curator.backends.slurm_array import (
     filter_slurm_array_source_tasks,
-    raise_for_failed_source_tasks_with_slurm_array,
     resolve_slurm_array_config,
 )
 from nemo_curator.core.utils import ignore_ray_head_node
@@ -101,10 +100,14 @@ class BaseStageAdapter:
         # Guarantee every emitted task has a task_id (derived id, or uuid fallback).
         results = self._post_process_task_ids(tasks, results)
 
-        # Failed tasks on the source stage are not supported when Slurm array filtering is enabled.
-        slurm_array = resolve_slurm_array_config(is_source_stage=getattr(self.stage, "is_source_stage", False))
+        # Failed tasks on the source stage are not supported.
+        is_source_stage = getattr(self.stage, "is_source_stage", False)
         failed_tasks = [r for r in results if isinstance(r, FailedTask)]
-        raise_for_failed_source_tasks_with_slurm_array(self.stage.name, failed_tasks, slurm_array)
+        if failed_tasks and is_source_stage:
+            msg = (
+                f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
+            )
+            raise ValueError(msg)
 
         # Record failed tasks for later inspection or retry bookkeeping.
         record_failed_tasks(self.stage.name, failed_tasks)
@@ -113,7 +116,9 @@ class BaseStageAdapter:
         results = [r for r in results if not isinstance(r, (NoneTask, FailedTask))]
 
         # Filter tasks based on the Slurm array configuration.
-        results = filter_slurm_array_source_tasks(results, slurm_array, self.stage.name)
+        slurm_array = resolve_slurm_array_config(is_source_stage=is_source_stage)
+        if slurm_array is not None:
+            results = filter_slurm_array_source_tasks(results, slurm_array, self.stage.name)
 
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
