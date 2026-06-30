@@ -32,17 +32,16 @@ def fsync_directory(path: Path) -> None:
         os.close(dir_fd)
 
 
-def write_json_atomically(
+def _write_json_temp_file(
     path: Path,
     payload: Any,  # noqa: ANN401
     *,
     indent: int | None = None,
     separators: tuple[str, str] | None = None,
     sort_keys: bool = True,
-) -> None:
-    """Write JSON through a fsynced temp file and atomic rename."""
+) -> Path:
+    """Write JSON to a fsynced temporary file beside its destination."""
     path.parent.mkdir(parents=True, exist_ok=True)
-
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -58,10 +57,72 @@ def write_json_atomically(
             tmp.write("\n")
             tmp.flush()
             os.fsync(tmp.fileno())
-
-        os.replace(tmp_path, path)
-        fsync_directory(path.parent)
+        return Path(tmp.name)
     except Exception:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
         raise
+
+
+def _fsync_directory_best_effort(path: Path) -> None:
+    """Flush directory metadata when supported by the filesystem."""
+    try:
+        fsync_directory(path)
+    except OSError:
+        pass
+
+
+def write_json_atomically(
+    path: Path,
+    payload: Any,  # noqa: ANN401
+    *,
+    indent: int | None = None,
+    separators: tuple[str, str] | None = None,
+    sort_keys: bool = True,
+) -> None:
+    """Write JSON through a fsynced temp file and atomic rename.
+
+    Directory fsync is best-effort because the destination is already visible
+    after ``os.replace`` and some shared filesystems do not support syncing a
+    directory file descriptor.
+    """
+    tmp_path = _write_json_temp_file(
+        path,
+        payload,
+        indent=indent,
+        separators=separators,
+        sort_keys=sort_keys,
+    )
+    try:
+        os.replace(tmp_path, path)
+        _fsync_directory_best_effort(path.parent)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def write_json_atomically_if_absent(
+    path: Path,
+    payload: Any,  # noqa: ANN401
+    *,
+    indent: int | None = None,
+    separators: tuple[str, str] | None = None,
+    sort_keys: bool = True,
+) -> bool:
+    """Atomically create a JSON file without replacing an existing file."""
+    tmp_path = _write_json_temp_file(
+        path,
+        payload,
+        indent=indent,
+        separators=separators,
+        sort_keys=sort_keys,
+    )
+    try:
+        os.link(tmp_path, path)
+    except FileExistsError:
+        return False
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    _fsync_directory_best_effort(path.parent)
+    return True

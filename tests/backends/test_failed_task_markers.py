@@ -15,8 +15,10 @@
 import os
 from pathlib import Path
 
+import pytest
 from pytest import MonkeyPatch
 
+import nemo_curator.backends.failed_task_markers as failed_task_markers_module
 from nemo_curator.backends.failed_task_markers import (
     FAILED_TASK_MANIFEST_FILENAME,
     FAILED_TASKS_DIR_ENV_VAR,
@@ -35,19 +37,15 @@ def _failed_task(task_id: str = "0_7_0") -> FailedTask:
 
 
 class TestFailedTaskManifest:
-    def test_configure_manifest_dir_uses_local_process_identity(
+    def test_configure_manifest_dir_uses_local_attempt_identity(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
     ) -> None:
         monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
 
         manifest_dir = configure_failed_task_manifest_dir(tmp_path)
 
-        assert manifest_dir == (
-            tmp_path
-            / ".nemo_curator_metadata"
-            / ".failed_tasks"
-            / f"local_process_{os.getpid()}"
-        )
+        assert manifest_dir.parent == tmp_path / ".nemo_curator_metadata" / ".failed_tasks"
+        assert manifest_dir.name.startswith("local_attempt_")
         assert os.environ[FAILED_TASKS_DIR_ENV_VAR] == str(manifest_dir)
 
     def test_configure_slurm_array_manifest_dir_uses_attempt_identity(
@@ -56,6 +54,7 @@ class TestFailedTaskManifest:
         monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
         monkeypatch.setenv("SLURM_JOB_ID", "123")
         monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "7")
+        monkeypatch.setenv("SLURM_RESTART_COUNT", "2")
 
         manifest_dir = configure_slurm_array_failed_task_manifest_dir(tmp_path, shard_index=9)
 
@@ -65,6 +64,7 @@ class TestFailedTaskManifest:
             / ".failed_tasks"
             / "slurm_job_123"
             / "array_task_7"
+            / "restart_2"
             / "shard_9"
         )
         assert os.environ[FAILED_TASKS_DIR_ENV_VAR] == str(manifest_dir)
@@ -104,16 +104,15 @@ class TestFailedTaskManifest:
         assert list(manifest_dir.glob("*.json")) == [manifest_file]
         assert manifest_file.read_text() == original_manifest
 
-    def test_record_failed_tasks_does_not_write_manifest_by_default(
+    def test_record_failed_tasks_without_configured_attempt_is_noop(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
     ) -> None:
-        manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
+        monkeypatch.chdir(tmp_path)
 
         record_failed_tasks("failed", [_failed_task()])
 
-        assert not manifest_dir.exists()
-        assert not failed_task_manifest_exists()
+        assert not (tmp_path / ".nemo_curator_metadata").exists()
 
     def test_record_failed_tasks_does_not_write_manifest_for_empty_list(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
@@ -125,6 +124,20 @@ class TestFailedTaskManifest:
 
         assert not manifest_dir.exists()
         assert not failed_task_manifest_exists()
+
+    def test_record_failed_tasks_propagates_manifest_write_failure(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
+        manifest_dir = tmp_path / "failed-tasks"
+        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
+
+        def fail_write(*_args: object, **_kwargs: object) -> None:
+            raise OSError("storage unavailable")
+
+        monkeypatch.setattr(failed_task_markers_module, "write_json_atomically", fail_write)
+
+        with pytest.raises(OSError, match="storage unavailable"):
+            record_failed_tasks("failed", [_failed_task()])
 
     def test_failed_task_manifest_exists_accepts_explicit_directory(self, tmp_path: Path) -> None:
         manifest_dir = tmp_path / "failed-tasks"

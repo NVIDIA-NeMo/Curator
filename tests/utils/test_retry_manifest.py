@@ -60,6 +60,23 @@ class TestCompletionManifest:
             "worker": "node-1",
         }
 
+    def test_mark_completed_nests_metadata_by_default_and_preserves_status(self, tmp_path: Path) -> None:
+        manifest = CompletionManifest(
+            checkpoint_path=tmp_path,
+            namespace="example",
+            identity={"partition_id": 3, "status": "identity-value"},
+            metadata={"attempt": 2, "status": "metadata-value"},
+        )
+
+        manifest_file = manifest.mark_completed({"status": "extra-value"})
+
+        assert manifest_file is not None
+        assert json.loads(manifest_file.read_text()) == {
+            "metadata": {"attempt": 2, "status": "metadata-value"},
+            "partition_id": 3,
+            "status": "completed",
+        }
+
     def test_read_completion_manifests_returns_namespace_records(self, tmp_path: Path) -> None:
         manifest = CompletionManifest(tmp_path, "example", {"partition_id": 3})
         other_namespace = CompletionManifest(tmp_path, "other", {"partition_id": 4})

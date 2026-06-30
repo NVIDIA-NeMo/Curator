@@ -27,7 +27,9 @@ from nemo_curator.backends.slurm_array import (
     SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR,
     SlurmArrayConfig,
     SlurmArrayRetryPlan,
+    SlurmArrayRetrySubmission,
     build_slurm_array_completion_manifest,
+    build_slurm_array_retry_submissions,
     configure_slurm_array_source_filtering,
     filter_slurm_array_source_tasks,
     find_slurm_array_retries,
@@ -36,6 +38,7 @@ from nemo_curator.backends.slurm_array import (
     resolve_slurm_array_config,
 )
 from nemo_curator.tasks import Task
+from nemo_curator.utils.atomic_io import write_json_atomically
 from nemo_curator.utils.retry_manifest import METADATA_DIRNAME
 
 
@@ -154,6 +157,30 @@ class TestSlurmArray:
         _enable_slurm_array(monkeypatch, shard_index=0, total_shards=0)
 
         with pytest.raises(ValueError, match="total_shards must be greater than 0"):
+            resolve_slurm_array_config(is_source_stage=True)
+
+    @pytest.mark.parametrize(
+        ("shard_index", "minimum_shard_index", "expected_error"),
+        [
+            (-1, 0, "shard_index must be non-negative"),
+            (0, -1, "minimum_shard_index must be non-negative"),
+        ],
+    )
+    def test_resolution_rejects_negative_shard_indices(
+        self,
+        monkeypatch: MonkeyPatch,
+        shard_index: int,
+        minimum_shard_index: int,
+        expected_error: str,
+    ) -> None:
+        _enable_slurm_array(
+            monkeypatch,
+            shard_index=shard_index,
+            total_shards=10,
+            minimum_shard_index=minimum_shard_index,
+        )
+
+        with pytest.raises(ValueError, match=expected_error):
             resolve_slurm_array_config(is_source_stage=True)
 
     def test_resolution_warns_for_out_of_range_shard(self, monkeypatch: MonkeyPatch) -> None:
@@ -308,12 +335,82 @@ class TestSlurmArray:
     def test_find_retries_returns_none_without_run_config(self, tmp_path: Path) -> None:
         assert find_slurm_array_retries(tmp_path) is None
 
+    def test_find_retries_rejects_negative_minimum_in_run_config(self, tmp_path: Path) -> None:
+        manifest_dir = tmp_path / METADATA_DIRNAME / ".slurm_array_completion"
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "run.json").write_text('{"minimum_shard_index":-1,"total_shards":3}\n')
+
+        with pytest.raises(ValueError, match="non-negative minimum_shard_index"):
+            find_slurm_array_retries(tmp_path)
+
+    def test_build_retry_submissions_uses_logical_indices_without_limit(self) -> None:
+        retry_plan = SlurmArrayRetryPlan(shard_indices=(1, 1001), total_shards=2000, minimum_shard_index=0)
+
+        assert build_slurm_array_retry_submissions(retry_plan) == (
+            SlurmArrayRetrySubmission(array_indices=(1, 1001), shard_index_offset=0),
+        )
+
+    def test_build_retry_submissions_derives_offset_windows(self) -> None:
+        retry_plan = SlurmArrayRetryPlan(
+            shard_indices=(1, 2, 1005, 1006, 2999),
+            total_shards=3000,
+            minimum_shard_index=0,
+        )
+
+        assert build_slurm_array_retry_submissions(retry_plan, max_array_size=1000) == (
+            SlurmArrayRetrySubmission(array_indices=(1, 2), shard_index_offset=0),
+            SlurmArrayRetrySubmission(array_indices=(5, 6), shard_index_offset=1000),
+            SlurmArrayRetrySubmission(array_indices=(999,), shard_index_offset=2000),
+        )
+
+    def test_build_retry_submissions_returns_no_submissions_when_complete(self) -> None:
+        retry_plan = SlurmArrayRetryPlan(shard_indices=(), total_shards=3, minimum_shard_index=0)
+
+        assert build_slurm_array_retry_submissions(retry_plan, max_array_size=1000) == ()
+
+    def test_build_retry_submissions_rejects_negative_indices_without_limit(self) -> None:
+        retry_plan = SlurmArrayRetryPlan(shard_indices=(-1, 0), total_shards=2, minimum_shard_index=-1)
+
+        with pytest.raises(ValueError, match="must be non-negative"):
+            build_slurm_array_retry_submissions(retry_plan)
+
     def test_build_completion_manifest_rejects_mixed_logical_runs(self, tmp_path: Path) -> None:
         first = build_slurm_array_completion_manifest(str(tmp_path), 1, 10, 0)
         assert first is not None
 
         with pytest.raises(ValueError, match="use a separate checkpoint path"):
             build_slurm_array_completion_manifest(str(tmp_path), 2, 20, 0)
+
+    def test_build_completion_manifest_validates_config_created_by_concurrent_writer(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
+        def competing_writer(path: Path, _payload: object, **_kwargs: object) -> bool:
+            write_json_atomically(
+                path,
+                {"minimum_shard_index": 0, "total_shards": 20},
+                separators=(",", ":"),
+            )
+            return False
+
+        monkeypatch.setattr(slurm_array_module, "write_json_atomically_if_absent", competing_writer)
+
+        with pytest.raises(ValueError, match="use a separate checkpoint path"):
+            build_slurm_array_completion_manifest(str(tmp_path), 1, 10, 0)
+
+    @pytest.mark.parametrize(("shard_index", "minimum_shard_index"), [(-1, -1), (0, -1)])
+    def test_build_completion_manifest_rejects_negative_indices(
+        self,
+        tmp_path: Path,
+        shard_index: int,
+        minimum_shard_index: int,
+    ) -> None:
+        with pytest.raises(ValueError, match="must be non-negative"):
+            build_slurm_array_completion_manifest(
+                str(tmp_path),
+                shard_index=shard_index,
+                total_shards=10,
+                minimum_shard_index=minimum_shard_index,
+            )
 
     @pytest.mark.parametrize(
         ("indices", "expected"),

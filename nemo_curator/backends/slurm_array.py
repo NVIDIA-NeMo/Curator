@@ -22,7 +22,7 @@ from pathlib import Path
 from loguru import logger
 
 from nemo_curator.tasks import Task
-from nemo_curator.utils.atomic_io import write_json_atomically
+from nemo_curator.utils.atomic_io import write_json_atomically_if_absent
 from nemo_curator.utils.retry_manifest import METADATA_DIRNAME, CompletionManifest, read_completion_manifests
 
 SLURM_ARRAY_ENABLED_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_ENABLED"
@@ -102,6 +102,14 @@ class SlurmArrayRetryPlan:
     minimum_shard_index: int
 
 
+@dataclass(frozen=True)
+class SlurmArrayRetrySubmission:
+    """Physical Slurm array indices and their logical shard offset."""
+
+    array_indices: tuple[int, ...]
+    shard_index_offset: int
+
+
 def configure_slurm_array_source_filtering(
     shard_index: int,
     total_shards: int,
@@ -125,6 +133,12 @@ def resolve_slurm_array_config(is_source_stage: bool) -> SlurmArrayConfig | None
 
     if resolved.total_shards <= 0:
         msg = f"total_shards must be greater than 0, got {resolved.total_shards}"
+        raise ValueError(msg)
+    if resolved.minimum_shard_index < 0:
+        msg = f"minimum_shard_index must be non-negative, got {resolved.minimum_shard_index}"
+        raise ValueError(msg)
+    if resolved.shard_index < 0:
+        msg = f"shard_index must be non-negative, got {resolved.shard_index}"
         raise ValueError(msg)
 
     min_assignable_shard_index = resolved.minimum_shard_index
@@ -233,7 +247,21 @@ def _ensure_slurm_array_run_config(
         return config_file
 
     config_file = _slurm_array_completion_dir(checkpoint_path) / SLURM_ARRAY_RUN_CONFIG_FILENAME
-    write_json_atomically(config_file, expected, separators=(",", ":"), sort_keys=True)
+    created = write_json_atomically_if_absent(config_file, expected, separators=(",", ":"), sort_keys=True)
+    if created:
+        return config_file
+
+    existing = _read_slurm_array_run_config(checkpoint_path)
+    if existing is None:
+        msg = f"Slurm array run configuration disappeared while initializing {config_file}"
+        raise RuntimeError(msg)
+    config_file, payload = existing
+    if payload != expected:
+        msg = (
+            f"Slurm array run configuration at {config_file} is {payload}, expected {expected}; "
+            "use a separate checkpoint path for each logical run"
+        )
+        raise ValueError(msg)
     return config_file
 
 
@@ -249,6 +277,12 @@ def build_slurm_array_completion_manifest(
 
     if total_shards <= 0:
         msg = f"total_shards must be greater than 0, got {total_shards}"
+        raise ValueError(msg)
+    if minimum_shard_index < 0:
+        msg = f"minimum_shard_index must be non-negative, got {minimum_shard_index}"
+        raise ValueError(msg)
+    if shard_index < 0:
+        msg = f"shard_index must be non-negative, got {shard_index}"
         raise ValueError(msg)
     maximum_shard_index = minimum_shard_index + total_shards - 1
     if not minimum_shard_index <= shard_index <= maximum_shard_index:
@@ -289,6 +323,12 @@ def find_slurm_array_retries(checkpoint_path: str | Path) -> SlurmArrayRetryPlan
     if total_shards <= 0:
         msg = f"Slurm array run configuration must have total_shards greater than 0, got {total_shards}"
         raise ValueError(msg)
+    if minimum_shard_index < 0:
+        msg = (
+            "Slurm array run configuration must have a non-negative minimum_shard_index, "
+            f"got {minimum_shard_index}"
+        )
+        raise ValueError(msg)
 
     completed_shard_indices = set()
     for record in records:
@@ -317,6 +357,36 @@ def find_slurm_array_retries(checkpoint_path: str | Path) -> SlurmArrayRetryPlan
         shard_indices=tuple(sorted(expected_shard_indices - completed_shard_indices)),
         total_shards=total_shards,
         minimum_shard_index=minimum_shard_index,
+    )
+
+
+def build_slurm_array_retry_submissions(
+    retry_plan: SlurmArrayRetryPlan,
+    max_array_size: int | None = None,
+) -> tuple[SlurmArrayRetrySubmission, ...]:
+    """Map missing logical shards to one or more physical Slurm arrays."""
+    if max_array_size is not None and (isinstance(max_array_size, bool) or not isinstance(max_array_size, int)):
+        msg = "max_array_size must be an integer"
+        raise TypeError(msg)
+    if max_array_size is not None and max_array_size <= 0:
+        msg = "max_array_size must be greater than 0"
+        raise ValueError(msg)
+    if any(shard_index < 0 for shard_index in retry_plan.shard_indices):
+        msg = "Slurm array shard indices must be non-negative"
+        raise ValueError(msg)
+    if not retry_plan.shard_indices:
+        return ()
+    if max_array_size is None:
+        return (SlurmArrayRetrySubmission(array_indices=retry_plan.shard_indices, shard_index_offset=0),)
+
+    indices_by_offset: dict[int, list[int]] = {}
+    for shard_index in retry_plan.shard_indices:
+        shard_index_offset = shard_index // max_array_size * max_array_size
+        indices_by_offset.setdefault(shard_index_offset, []).append(shard_index - shard_index_offset)
+
+    return tuple(
+        SlurmArrayRetrySubmission(array_indices=tuple(indices), shard_index_offset=shard_index_offset)
+        for shard_index_offset, indices in sorted(indices_by_offset.items())
     )
 
 

@@ -10,7 +10,7 @@ This tutorial shows how to scale a NeMo Curator pipeline from a single laptop to
 | `submit.sh` | `sbatch` script for bare-metal clusters with a shared virtualenv |
 | `submit_container.sh` | `sbatch` script using the official NGC container (Pyxis/enroot) |
 | `array_pipeline.py` | Generic JSONL/Parquet pipeline that processes one Slurm array shard |
-| `retry_array.py` | Finds shards without completion manifests and prints the retry array configuration |
+| `retry_array.py` | Finds shards without completion manifests and prints one or more retry array configurations |
 | `submit_array.sh` | `sbatch --array` script for splitting many input files across independent jobs |
 
 ---
@@ -289,6 +289,33 @@ SHARD_INDEX_OFFSET=9000 sbatch --array=0-999 tutorials/slurm/submit_array.sh
 
 Keep `MINIMUM_SHARD_INDEX=0` for this offset mode too. `SHARD_INDEX_OFFSET` changes the logical shard ID exported for adapter-level filtering; `MINIMUM_SHARD_INDEX` changes the assignable shard range used by the source-stage adapter.
 
+For retries on a cluster with a maximum array size, pass that limit once and let `retry_array.py` group every missing logical shard into physical array indices and derive each `SHARD_INDEX_OFFSET`. For example, a cluster with `MaxArraySize=1000` accepts physical indices from `0` through `999`:
+
+```bash
+if ! retry_fields="$(
+    python tutorials/slurm/retry_array.py \
+        --checkpoint-path "${CHECKPOINT_PATH}" \
+        --max-array-size 1000 \
+        --format fields
+)"; then
+    echo "Failed to discover retryable shards." >&2
+    exit 1
+fi
+
+while read -r RETRY_ARRAY SHARD_INDEX_OFFSET MINIMUM_SHARD_INDEX TOTAL_SHARDS; do
+    [[ -z "${RETRY_ARRAY}" ]] && continue
+    CHECKPOINT_PATH="${CHECKPOINT_PATH}" \
+    MINIMUM_SHARD_INDEX="${MINIMUM_SHARD_INDEX}" \
+    TOTAL_SHARDS="${TOTAL_SHARDS}" \
+    SHARD_INDEX_OFFSET="${SHARD_INDEX_OFFSET}" \
+    sbatch \
+        --array="${RETRY_ARRAY}" \
+        tutorials/slurm/submit_array.sh
+done <<< "${retry_fields}"
+```
+
+The maximum array size is a cluster submission limit rather than part of the logical Curator run, so it is not stored in `run.json`. The logical minimum index and total shard count are read from that manifest; all offsets are calculated by the helper.
+
 ### 5. Retry incomplete array tasks only
 
 When completion tracking is initialized, the array task atomically creates or validates the logical run configuration at:
@@ -315,27 +342,31 @@ python tutorials/slurm/retry_array.py \
     --format fields
 ```
 
-For example, this output means that shards `1`, `2`, `5` through `10`, and `99` should be retried using the original logical shard range of `0` through `99`:
+For example, this output means that shards `1`, `2`, `5` through `10`, and `99` should be retried with offset `0`, using the original logical shard range of `0` through `99`:
 
 ```text
-1-2,5-10,99 0 100
+1-2,5-10,99 0 0 100
 ```
 
-The three fields are the retry array expression, `MINIMUM_SHARD_INDEX`, and the original `TOTAL_SHARDS`. Capture and pass them when submitting the new array:
+The four fields are the retry array expression, `SHARD_INDEX_OFFSET`, `MINIMUM_SHARD_INDEX`, and the original `TOTAL_SHARDS`. Capture and pass them when submitting the new array:
 
 ```bash
-retry_fields="$(
+if ! retry_fields="$(
     python tutorials/slurm/retry_array.py \
         --checkpoint-path "${CHECKPOINT_PATH}" \
         --format fields
-)"
+)"; then
+    echo "Failed to discover retryable shards." >&2
+    exit 1
+fi
 
 if [[ -z "${retry_fields}" ]]; then
     echo "No shards need retrying."
 else
-    read -r RETRY_ARRAY MINIMUM_SHARD_INDEX TOTAL_SHARDS <<< "${retry_fields}"
+    read -r RETRY_ARRAY SHARD_INDEX_OFFSET MINIMUM_SHARD_INDEX TOTAL_SHARDS <<< "${retry_fields}"
 
     CHECKPOINT_PATH="${CHECKPOINT_PATH}" \
+    SHARD_INDEX_OFFSET="${SHARD_INDEX_OFFSET}" \
     MINIMUM_SHARD_INDEX="${MINIMUM_SHARD_INDEX}" \
     TOTAL_SHARDS="${TOTAL_SHARDS}" \
     sbatch \
@@ -348,6 +379,7 @@ You can change resources directly on the retry submission:
 
 ```bash
 CHECKPOINT_PATH="${CHECKPOINT_PATH}" \
+SHARD_INDEX_OFFSET="${SHARD_INDEX_OFFSET}" \
 MINIMUM_SHARD_INDEX="${MINIMUM_SHARD_INDEX}" \
 TOTAL_SHARDS="${TOTAL_SHARDS}" \
 sbatch \
@@ -363,7 +395,7 @@ sbatch \
 
 Always reuse the original `CHECKPOINT_PATH` for both pipeline-failure retries and `FailedTask` retries. A new checkpoint directory would lose the original run configuration and completed-shard history, causing previously completed shards to appear incomplete.
 
-Do not reuse a previous attempt's `NEMO_CURATOR_FAILED_TASKS_DIR`. Before Ray starts, `array_pipeline.py` automatically derives a fresh directory from `CHECKPOINT_PATH`, `SLURM_JOB_ID`, `SLURM_ARRAY_TASK_ID`, and the logical shard index. This keeps the durable run configuration and completion manifests in the shared checkpoint directory while isolating at most one FailedTask manifest for every Slurm job and array task:
+Do not reuse a previous attempt's `NEMO_CURATOR_FAILED_TASKS_DIR`. Before Ray starts, `array_pipeline.py` automatically derives a fresh directory from `CHECKPOINT_PATH`, `SLURM_JOB_ID`, `SLURM_ARRAY_TASK_ID`, `SLURM_RESTART_COUNT`, and the logical shard index. This keeps the durable run configuration and completion manifests in the shared checkpoint directory while isolating at most one FailedTask manifest for every Slurm job, array task, and restart:
 
 ```text
 ${CHECKPOINT_PATH}/.nemo_curator_metadata/
@@ -371,15 +403,15 @@ ${CHECKPOINT_PATH}/.nemo_curator_metadata/
 │   ├── run.json                         # original minimum index and total shards
 │   └── completed_slurm_array_*.json     # one per successfully completed shard
 └── .failed_tasks/
-    ├── slurm_job_<original-job-id>/.../failed_tasks.json
-    └── slurm_job_<retry-job-id>/.../failed_tasks.json
+    ├── slurm_job_<original-job-id>/.../restart_0/.../failed_tasks.json
+    └── slurm_job_<retry-job-id>/.../restart_0/.../failed_tasks.json
 ```
 
 Each attempt writes `failed_tasks.json` at most once, as soon as any `FailedTask` is detected; additional failures require only an existence check and do not create more files. Old FailedTask manifests are retained for inspection, but they cannot make a later successful attempt look failed because each attempt checks only its fresh directory. Custom submission scripts can set `NEMO_CURATOR_FAILED_TASKS_DIR` directly to choose a different manifest tree; keep the directory attempt-scoped so an old manifest cannot affect a retry.
 
 Run retry discovery only after all array submissions that make up the logical run have finished; a still-running or not-yet-submitted shard has no completion manifest and therefore appears retryable. Use a new `CHECKPOINT_PATH` for a new, unrelated logical pipeline run, and reuse the existing path only for retries of that run.
 
-Source-stage `FailedTask` sentinels are intentionally unsupported when Slurm array filtering is enabled. Source-stage `FailedTask`s do not carry enough stable source identity to guarantee a shard retry can recover the same work, so Curator raises an error instead. Source stages should raise an exception and leave the shard without a completion manifest.
+Source stages may not emit `FailedTask` sentinels, regardless of whether Slurm array filtering is enabled. Source-stage `FailedTask`s do not carry enough stable source identity to guarantee that downstream processing or a shard retry can recover the same work, so Curator raises an error instead. Source stages should raise an exception and, in the Slurm array workflow, leave the shard without a completion manifest.
 
 ---
 

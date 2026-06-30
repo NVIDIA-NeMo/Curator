@@ -18,7 +18,11 @@ from __future__ import annotations
 
 import argparse
 
-from nemo_curator.backends.slurm_array import find_slurm_array_retries, format_slurm_array_indices
+from nemo_curator.backends.slurm_array import (
+    build_slurm_array_retry_submissions,
+    find_slurm_array_retries,
+    format_slurm_array_indices,
+)
 
 
 def main() -> None:
@@ -33,25 +37,43 @@ def main() -> None:
         choices=["array", "fields"],
         default="array",
         help=(
-            "Output only the Slurm array expression, or three shell fields: "
-            "array expression, minimum shard index, and original total shards."
+            "Output only the Slurm array expression, or four shell fields per submission: "
+            "array expression, shard index offset, minimum shard index, and original total shards."
         ),
     )
+    parser.add_argument(
+        "--max-array-size",
+        type=int,
+        default=None,
+        help="Maximum physical Slurm array size; missing logical shards are split into offset submissions.",
+    )
     args = parser.parse_args()
+
+    if args.max_array_size is not None and args.max_array_size <= 0:
+        parser.error("--max-array-size must be greater than 0.")
+    if args.max_array_size is not None and args.format != "fields":
+        parser.error("--max-array-size requires --format fields so each derived offset is included.")
 
     retry_plan = find_slurm_array_retries(args.checkpoint_path)
     if retry_plan is None:
         parser.error(
             "Slurm array run configuration was not found. Use the same checkpoint path as the original array run."
         )
-    if not retry_plan.shard_indices:
+    submissions = build_slurm_array_retry_submissions(retry_plan, args.max_array_size)
+    if not submissions:
         return
 
-    array_expression = format_slurm_array_indices(retry_plan.shard_indices)
-    if args.format == "fields":
-        print(array_expression, retry_plan.minimum_shard_index, retry_plan.total_shards)
-    else:
-        print(array_expression)
+    for submission in submissions:
+        array_expression = format_slurm_array_indices(submission.array_indices)
+        if args.format == "fields":
+            print(
+                array_expression,
+                submission.shard_index_offset,
+                retry_plan.minimum_shard_index,
+                retry_plan.total_shards,
+            )
+        else:
+            print(array_expression)
 
 
 if __name__ == "__main__":

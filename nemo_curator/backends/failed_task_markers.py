@@ -13,9 +13,8 @@
 # limitations under the License.
 
 import os
+import uuid
 from pathlib import Path
-
-from loguru import logger
 
 from nemo_curator.tasks.sentinels import FailedTask
 from nemo_curator.utils.atomic_io import write_json_atomically
@@ -36,12 +35,12 @@ def _configure_failed_task_manifest_dir(default_dir: Path) -> Path:
 
 
 def configure_failed_task_manifest_dir(checkpoint_path: str | Path) -> Path:
-    """Configure a process-scoped FailedTask manifest directory unless overridden."""
+    """Configure a local attempt-scoped FailedTask manifest directory unless overridden."""
     manifest_dir = Path(
         checkpoint_path,
         METADATA_DIRNAME,
         ".failed_tasks",
-        f"local_process_{os.getpid()}",
+        f"local_attempt_{uuid.uuid4().hex}",
     )
     return _configure_failed_task_manifest_dir(manifest_dir)
 
@@ -50,12 +49,14 @@ def configure_slurm_array_failed_task_manifest_dir(checkpoint_path: str | Path, 
     """Configure an attempt-scoped FailedTask manifest directory unless overridden."""
     job_id = os.environ.get("SLURM_JOB_ID", f"local_{os.getpid()}")
     array_task_id = os.environ.get("SLURM_ARRAY_TASK_ID", "local")
+    restart_count = os.environ.get("SLURM_RESTART_COUNT", "0")
     manifest_dir = Path(
         checkpoint_path,
         METADATA_DIRNAME,
         ".failed_tasks",
         f"slurm_job_{job_id}",
         f"array_task_{array_task_id}",
+        f"restart_{restart_count}",
         f"shard_{shard_index}",
     )
     return _configure_failed_task_manifest_dir(manifest_dir)
@@ -63,23 +64,22 @@ def configure_slurm_array_failed_task_manifest_dir(checkpoint_path: str | Path, 
 
 def record_failed_tasks(_stage_name: str, failed_tasks: list[FailedTask]) -> None:
     """Write one attempt-scoped manifest after any FailedTask is detected."""
+    if not failed_tasks:
+        return
     manifest_dir = os.environ.get(FAILED_TASKS_DIR_ENV_VAR)
-    if not manifest_dir or not failed_tasks:
+    if not manifest_dir:
         return
 
     manifest_path = Path(manifest_dir, FAILED_TASK_MANIFEST_FILENAME)
     if manifest_path.is_file():
         return
 
-    try:
-        write_json_atomically(
-            manifest_path,
-            {"status": "failed_tasks"},
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"Failed to write FailedTask manifest to {manifest_path}: {e}")
+    write_json_atomically(
+        manifest_path,
+        {"status": "failed_tasks"},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
 
 
 def failed_task_manifest_exists(manifest_dir: str | Path | None = None) -> bool:

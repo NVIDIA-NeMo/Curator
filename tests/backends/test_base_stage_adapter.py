@@ -88,9 +88,7 @@ class TestBaseStageAdapter:
         }
         assert [task.data for task in results] == [["a.parquet"]]
 
-    def test_source_stage_failed_task_raises_with_slurm_array_filtering(
-        self, monkeypatch: MonkeyPatch
-    ) -> None:
+    def test_source_stage_failed_task_raises_before_retry_bookkeeping(self, monkeypatch: MonkeyPatch) -> None:
         calls = {"resolve_config": 0, "record_failed_tasks": 0, "filter_tasks": 0}
         slurm_array = SlurmArrayConfig(shard_index=0, total_shards=1)
 

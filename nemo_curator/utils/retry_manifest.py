@@ -115,15 +115,19 @@ class CompletionManifest:
         return f"completed_{_safe_token(self.namespace)}_{_mapping_digest(self.identity)}"
 
     def _payload(self, extra: Mapping[str, object] | None = None) -> dict[str, object]:
-        payload: dict[str, object] = {"status": "completed"}
+        payload: dict[str, object] = {}
         if self.flatten_identity:
             payload.update(self.identity)
         else:
             payload["identity"] = self.identity
-        if self.flatten_metadata:
-            payload.update(self.metadata)
+        if self.metadata:
+            if self.flatten_metadata:
+                payload.update(self.metadata)
+            else:
+                payload["metadata"] = self.metadata
         if extra is not None:
             payload.update(extra)
+        payload["status"] = "completed"
         return payload
 
     def mark_completed(self, extra: Mapping[str, object] | None = None) -> Path | None:
