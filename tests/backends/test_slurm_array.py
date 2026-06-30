@@ -271,7 +271,7 @@ class TestSlurmArray:
         assert failed_tasks is not None
         pending.mark_pending()
         failed.mark_failed(RuntimeError("boom"))
-        failed_tasks.mark_retryable("failed_tasks", {"failed_task_marker_count": 2})
+        failed_tasks.mark_retryable("failed_tasks")
 
         retry_plan = find_slurm_array_retries(tmp_path)
 

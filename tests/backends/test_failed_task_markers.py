@@ -12,17 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 from pathlib import Path
 
-import pytest
 from pytest import MonkeyPatch
 
 from nemo_curator.backends.failed_task_markers import (
+    FAILED_TASK_MANIFEST_FILENAME,
     FAILED_TASKS_DIR_ENV_VAR,
-    read_failed_task_markers,
+    failed_task_manifest_exists,
     record_failed_tasks,
-    summarize_failed_task_markers,
 )
 from nemo_curator.tasks.sentinels import FailedTask
 
@@ -33,101 +31,60 @@ def _failed_task(task_id: str = "0_7_0") -> FailedTask:
     return task
 
 
-class TestFailedTaskMarkers:
-    def test_read_failed_task_markers_returns_identities(
+class TestFailedTaskManifest:
+    def test_record_failed_tasks_writes_single_manifest(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
     ) -> None:
-        marker_dir = tmp_path / "failed-tasks"
-        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(marker_dir))
-        record_failed_tasks("stage-b", [_failed_task("0_8_0")])
+        manifest_dir = tmp_path / "failed-tasks"
+        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
+
+        record_failed_tasks("failed", [_failed_task("0_7_0"), _failed_task("0_8_0")])
+
+        manifest_files = list(manifest_dir.glob("*.json"))
+        assert manifest_files == [manifest_dir / FAILED_TASK_MANIFEST_FILENAME]
+        assert manifest_files[0].read_text() == '{"status":"failed_tasks"}\n'
+        assert failed_task_manifest_exists()
+
+    def test_additional_failed_tasks_leave_existing_manifest_unchanged(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
+        manifest_dir = tmp_path / "failed-tasks"
+        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
         record_failed_tasks("stage-a", [_failed_task("0_7_0")])
+        manifest_file = manifest_dir / FAILED_TASK_MANIFEST_FILENAME
+        original_manifest = manifest_file.read_text()
 
-        markers = read_failed_task_markers()
+        record_failed_tasks("stage-b", [_failed_task("0_8_0")])
 
-        assert {(marker.stage_name, marker.task_id) for marker in markers} == {
-            ("stage-a", "0_7_0"),
-            ("stage-b", "0_8_0"),
-        }
-        assert all(marker.path.parent == marker_dir for marker in markers)
+        assert list(manifest_dir.glob("*.json")) == [manifest_file]
+        assert manifest_file.read_text() == original_manifest
 
-    def test_read_failed_task_markers_handles_missing_dir(self, tmp_path: Path) -> None:
-        assert read_failed_task_markers(tmp_path / "missing") == []
-
-    def test_read_failed_task_markers_rejects_malformed_marker(self, tmp_path: Path) -> None:
-        marker_dir = tmp_path / "failed-tasks"
-        marker_dir.mkdir()
-        (marker_dir / "failed_task_bad.json").write_text('{"task_id":"0_7_0"}')
-
-        with pytest.raises(ValueError, match="must contain string stage_name and task_id"):
-            read_failed_task_markers(marker_dir)
-
-    def test_record_failed_tasks_writes_marker_when_enabled(
+    def test_record_failed_tasks_does_not_write_manifest_by_default(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
     ) -> None:
-        marker_dir = tmp_path / "failed-tasks"
-        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(marker_dir))
-
-        record_failed_tasks("failed", [_failed_task()])
-
-        marker_files = list(marker_dir.glob("failed_task_*.json"))
-        assert len(marker_files) == 1
-
-        marker_text = marker_files[0].read_text()
-        assert marker_text == '{"stage_name":"failed","task_id":"0_7_0"}\n'
-
-        payload = json.loads(marker_text)
-        assert payload == {
-            "stage_name": "failed",
-            "task_id": "0_7_0",
-        }
-
-    def test_record_failed_tasks_does_not_write_marker_by_default(
-        self, tmp_path: Path, monkeypatch: MonkeyPatch
-    ) -> None:
-        marker_dir = tmp_path / "failed-tasks"
+        manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
 
         record_failed_tasks("failed", [_failed_task()])
 
-        assert not marker_dir.exists()
+        assert not manifest_dir.exists()
+        assert not failed_task_manifest_exists()
 
-    def test_record_failed_tasks_does_not_write_marker_for_empty_list(
+    def test_record_failed_tasks_does_not_write_manifest_for_empty_list(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
     ) -> None:
-        marker_dir = tmp_path / "failed-tasks"
-        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(marker_dir))
+        manifest_dir = tmp_path / "failed-tasks"
+        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
 
         record_failed_tasks("failed", [])
 
-        assert not marker_dir.exists()
+        assert not manifest_dir.exists()
+        assert not failed_task_manifest_exists()
 
-    def test_record_failed_tasks_reuses_marker_for_same_task_identity(
-        self, tmp_path: Path, monkeypatch: MonkeyPatch
-    ) -> None:
-        marker_dir = tmp_path / "failed-tasks"
-        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(marker_dir))
+    def test_failed_task_manifest_exists_accepts_explicit_directory(self, tmp_path: Path) -> None:
+        manifest_dir = tmp_path / "failed-tasks"
+        manifest_dir.mkdir()
+        (manifest_dir / FAILED_TASK_MANIFEST_FILENAME).write_text('{"status":"failed_tasks"}\n')
 
-        record_failed_tasks("failed", [_failed_task("0_7_0")])
-        record_failed_tasks("failed", [_failed_task("0_7_0")])
-
-        marker_files = list(marker_dir.glob("failed_task_*.json"))
-        assert len(marker_files) == 1
-        assert marker_files[0].read_text() == '{"stage_name":"failed","task_id":"0_7_0"}\n'
-
-    def test_summarize_failed_task_markers_reads_env_dir(
-        self, tmp_path: Path, monkeypatch: MonkeyPatch
-    ) -> None:
-        marker_dir = tmp_path / "failed-tasks"
-        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(marker_dir))
-        record_failed_tasks("failed", [_failed_task("0_7_0"), _failed_task("0_8_0")])
-
-        summary = summarize_failed_task_markers()
-
-        assert summary == {"failed_task_marker_count": 2}
-
-    def test_summarize_failed_task_markers_handles_missing_dir(self, tmp_path: Path) -> None:
-        marker_dir = tmp_path / "missing"
-
-        summary = summarize_failed_task_markers(marker_dir)
-
-        assert summary == {"failed_task_marker_count": 0}
+        assert failed_task_manifest_exists(manifest_dir)
+        assert not failed_task_manifest_exists(tmp_path / "missing")

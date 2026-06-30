@@ -23,7 +23,7 @@ import argparse
 
 from loguru import logger
 
-from nemo_curator.backends.failed_task_markers import summarize_failed_task_markers
+from nemo_curator.backends.failed_task_markers import failed_task_manifest_exists
 from nemo_curator.backends.slurm_array import (
     SlurmArrayConfig,
     build_slurm_array_retry_manifest,
@@ -151,20 +151,15 @@ def main() -> None:  # noqa: C901
 
         pipeline.run()
 
-        failed_task_markers = summarize_failed_task_markers()
-        failed_task_marker_count = int(failed_task_markers["failed_task_marker_count"])
-        if failed_task_marker_count:
+        if failed_task_manifest_exists():
             if retry_manifest is not None:
-                manifest_file = retry_manifest.mark_retryable("failed_tasks", failed_task_markers)
+                manifest_file = retry_manifest.mark_retryable("failed_tasks")
                 logger.warning(
-                    "Pipeline completed without raising, but found "
-                    f"{failed_task_marker_count} FailedTask marker(s). "
+                    "Pipeline completed without raising, but a FailedTask manifest exists. "
                     f"Keeping retry manifest at {manifest_file}."
                 )
             else:
-                logger.warning(
-                    f"Pipeline completed without raising, but found {failed_task_marker_count} FailedTask marker(s)."
-                )
+                logger.warning("Pipeline completed without raising, but a FailedTask manifest exists.")
             return
 
         if retry_manifest is not None:

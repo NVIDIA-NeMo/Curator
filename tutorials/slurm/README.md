@@ -363,17 +363,17 @@ sbatch \
 
 Always reuse the original `CHECKPOINT_PATH` for both pipeline-failure retries and `FailedTask` retries. A new checkpoint directory would leave the old retry manifests behind, so successfully retried shards would continue to appear outstanding.
 
-Do not reuse a previous attempt's `NEMO_CURATOR_FAILED_TASKS_DIR`. `submit_array.sh` handles this automatically: it keeps retry manifests in the shared checkpoint directory while creating a fresh FailedTask marker directory for every Slurm job and array task:
+Do not reuse a previous attempt's `NEMO_CURATOR_FAILED_TASKS_DIR`. `submit_array.sh` handles this automatically: it keeps shard retry manifests in the shared checkpoint directory while creating a fresh directory containing at most one FailedTask manifest for every Slurm job and array task:
 
 ```text
 ${CHECKPOINT_PATH}/.nemo_curator_metadata/
 ├── .slurm_array_retry/                  # reused until this logical run succeeds
 └── .failed_tasks/
-    ├── slurm_job_<original-job-id>/...  # original attempt markers
-    └── slurm_job_<retry-job-id>/...     # fresh retry-attempt markers
+    ├── slurm_job_<original-job-id>/.../failed_tasks.json
+    └── slurm_job_<retry-job-id>/.../failed_tasks.json
 ```
 
-Old `FailedTask` marker files are retained for inspection, but they cannot make a later successful attempt look failed because each attempt reads only its fresh marker directory. Custom submission scripts can set `NEMO_CURATOR_FAILED_TASKS_DIR` directly to choose a different marker tree; keep the directory attempt-scoped so old markers cannot affect a retry.
+Each attempt writes `failed_tasks.json` at most once, as soon as any `FailedTask` is detected; additional failures require only an existence check and do not create more files. Old FailedTask manifests are retained for inspection, but they cannot make a later successful attempt look failed because each attempt checks only its fresh directory. Custom submission scripts can set `NEMO_CURATOR_FAILED_TASKS_DIR` directly to choose a different manifest tree; keep the directory attempt-scoped so an old manifest cannot affect a retry.
 
 Run retry discovery only after the submitted array has finished; still-running shards intentionally have `pending` manifests. Use a new `CHECKPOINT_PATH` for a new, unrelated logical pipeline run, and reuse the existing path only for retries of that run.
 

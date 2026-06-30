@@ -134,17 +134,17 @@ class TestRetryManifest:
 
         pending_file = manifest.mark_pending()
         retryable_file = manifest.mark_retryable(
-            "failed_tasks",
+            "partial_output",
             {
-                "failed_task_marker_count": 2,
+                "failed_partition_count": 2,
             },
         )
 
         assert retryable_file == pending_file
         assert retryable_file is not None
         payload = json.loads(retryable_file.read_text())
-        assert payload["status"] == "failed_tasks"
-        assert payload["failed_task_marker_count"] == 2
+        assert payload["status"] == "partial_output"
+        assert payload["failed_partition_count"] == 2
 
     def test_same_identity_reuses_manifest_file_across_instances(self, tmp_path: Path) -> None:
         manifest = RetryManifest(

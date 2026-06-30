@@ -64,7 +64,7 @@ NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX="${SHARD_INDEX}"
 NEMO_CURATOR_SLURM_ARRAY_TOTAL_SHARDS="${TOTAL_SHARDS}"
 NEMO_CURATOR_SLURM_ARRAY_MINIMUM_SHARD_INDEX="${MINIMUM_SHARD_INDEX}"
 
-# Attempt-scoped marker dirs keep old FailedTask markers from affecting retries.
+# Attempt-scoped directories keep old FailedTask manifests from affecting retries.
 export NEMO_CURATOR_FAILED_TASKS_DIR="${CHECKPOINT_PATH}/.nemo_curator_metadata/.failed_tasks/slurm_job_${SLURM_JOB_ID:-local_$$}/array_task_${SLURM_ARRAY_TASK_ID:-local}/shard_${SHARD_INDEX}"
 
 NUM_NODES="${SLURM_JOB_NUM_NODES:-${SLURM_NNODES:-1}}"

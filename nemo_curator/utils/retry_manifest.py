@@ -79,7 +79,6 @@ def read_retry_manifests(
     return records
 
 
-# TODO: Reverse
 class RetryManifest:
     """Compact marker for retryable work, keyed by stable identity fields."""
 
