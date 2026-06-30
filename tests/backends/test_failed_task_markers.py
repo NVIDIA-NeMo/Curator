@@ -18,7 +18,6 @@ from pathlib import Path
 import pytest
 from pytest import MonkeyPatch
 
-import nemo_curator.backends.failed_task_markers as failed_task_markers_module
 from nemo_curator.backends.failed_task_markers import (
     FAILED_TASK_MANIFEST_FILENAME,
     FAILED_TASKS_DIR_ENV_VAR,
@@ -87,7 +86,6 @@ class TestFailedTaskManifest:
 
         manifest_files = list(manifest_dir.glob("*.json"))
         assert manifest_files == [manifest_dir / FAILED_TASK_MANIFEST_FILENAME]
-        assert manifest_files[0].read_text() == '{"status":"failed_tasks"}\n'
         assert failed_task_manifest_exists()
 
     def test_additional_failed_tasks_leave_existing_manifest_unchanged(
@@ -131,11 +129,11 @@ class TestFailedTaskManifest:
         manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
 
-        def fail_write(*_args: object, **_kwargs: object) -> None:
+        def fail_touch(self: Path, mode: int = 0o666, exist_ok: bool = True) -> None:
             msg = "storage unavailable"
             raise OSError(msg)
 
-        monkeypatch.setattr(failed_task_markers_module, "write_json_atomically", fail_write)
+        monkeypatch.setattr(Path, "touch", fail_touch)
 
         with pytest.raises(OSError, match="storage unavailable"):
             record_failed_tasks([_failed_task()])

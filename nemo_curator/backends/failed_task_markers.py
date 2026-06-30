@@ -17,7 +17,6 @@ import uuid
 from pathlib import Path
 
 from nemo_curator.tasks.sentinels import FailedTask
-from nemo_curator.utils.atomic_io import write_json_atomically
 from nemo_curator.utils.retry_manifest import METADATA_DIRNAME
 
 FAILED_TASKS_DIR_ENV_VAR = "NEMO_CURATOR_FAILED_TASKS_DIR"
@@ -74,12 +73,8 @@ def record_failed_tasks(failed_tasks: list[FailedTask]) -> None:
     if manifest_path.is_file():
         return
 
-    write_json_atomically(
-        manifest_path,
-        {"status": "failed_tasks"},
-        separators=(",", ":"),
-        sort_keys=True,
-    )
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.touch()
 
 
 def failed_task_manifest_exists(manifest_dir: str | Path | None = None) -> bool:
