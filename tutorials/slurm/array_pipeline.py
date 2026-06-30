@@ -26,7 +26,7 @@ from loguru import logger
 from nemo_curator.backends.failed_task_markers import failed_task_manifest_exists
 from nemo_curator.backends.slurm_array import (
     SlurmArrayConfig,
-    build_slurm_array_retry_manifest,
+    build_slurm_array_completion_manifest,
     is_slurm_array_driver_process,
 )
 from nemo_curator.core.client import RayClient, SlurmRayClient
@@ -106,8 +106,8 @@ def main() -> None:  # noqa: C901
         type=str,
         default=None,
         help=(
-            "Path for checkpoint metadata. Slurm array retry manifests are written under "
-            "<checkpoint_path>/.nemo_curator_metadata/.slurm_array_retry/. Defaults to None."
+            "Path for checkpoint metadata. Slurm array completion manifests are written under "
+            "<checkpoint_path>/.nemo_curator_metadata/.slurm_array_completion/. Defaults to None."
         ),
     )
     parser.add_argument(
@@ -126,7 +126,7 @@ def main() -> None:  # noqa: C901
 
     ray_client = SlurmRayClient() if args.slurm else RayClient()
     is_driver_process = is_slurm_array_driver_process(args.slurm)
-    retry_manifest = build_slurm_array_retry_manifest(
+    completion_manifest = build_slurm_array_completion_manifest(
         checkpoint_path=args.checkpoint_path if is_driver_process else None,
         shard_index=slurm_array.shard_index,
         total_shards=slurm_array.total_shards,
@@ -134,10 +134,6 @@ def main() -> None:  # noqa: C901
     )
 
     try:
-        if retry_manifest is not None:
-            retry_manifest_file = retry_manifest.mark_pending()
-            logger.info(f"Wrote pending Slurm array retry manifest to {retry_manifest_file}")
-
         ray_client.start()
 
         pipeline = build_pipeline(
@@ -152,30 +148,17 @@ def main() -> None:  # noqa: C901
         pipeline.run()
 
         if failed_task_manifest_exists():
-            if retry_manifest is not None:
-                manifest_file = retry_manifest.mark_retryable("failed_tasks")
-                logger.warning(
-                    "Pipeline completed without raising, but a FailedTask manifest exists. "
-                    f"Keeping retry manifest at {manifest_file}."
-                )
-            else:
-                logger.warning("Pipeline completed without raising, but a FailedTask manifest exists.")
+            logger.warning(
+                "Pipeline completed without raising, but a FailedTask manifest exists. "
+                "The shard remains incomplete and will be selected for retry."
+            )
             return
 
-        if retry_manifest is not None:
-            try:
-                retry_manifest.mark_success()
-            except Exception as cleanup_error:  # noqa: BLE001
-                logger.error(f"Pipeline succeeded but failed to remove retry manifest: {cleanup_error}")
+        if completion_manifest is not None:
+            manifest_file = completion_manifest.mark_completed()
+            logger.info(f"Wrote Slurm array completion manifest to {manifest_file}")
     except Exception as e:
-        if retry_manifest is not None:
-            try:
-                manifest_file = retry_manifest.mark_failed(e)
-                logger.error(f"Wrote Slurm array retry manifest to {manifest_file}")
-            except Exception as manifest_error:  # noqa: BLE001
-                logger.error(f"Failed to write Slurm array retry manifest: {manifest_error}")
-
-        logger.error(f"Error running pipeline: {e}")
+        logger.error(f"Error running pipeline; shard remains incomplete: {e}")
         raise
     finally:
         if is_driver_process:

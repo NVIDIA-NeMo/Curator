@@ -13,22 +13,25 @@
 # limitations under the License.
 
 import hashlib
+import json
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from loguru import logger
 
 from nemo_curator.tasks import Task
-from nemo_curator.utils.retry_manifest import RetryManifest, RetryManifestRecord, read_retry_manifests
+from nemo_curator.utils.atomic_io import write_json_atomically
+from nemo_curator.utils.retry_manifest import CompletionManifest, METADATA_DIRNAME, read_completion_manifests
 
 SLURM_ARRAY_ENABLED_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_ENABLED"
 SLURM_ARRAY_SHARD_INDEX_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX"
 SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_TOTAL_SHARDS"
 SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_MINIMUM_SHARD_INDEX"
-SLURM_ARRAY_RETRY_MANIFEST_NAMESPACE = "slurm_array"
-SLURM_ARRAY_RETRY_DIRNAME = ".slurm_array_retry"
+SLURM_ARRAY_COMPLETION_MANIFEST_NAMESPACE = "slurm_array"
+SLURM_ARRAY_COMPLETION_DIRNAME = ".slurm_array_completion"
+SLURM_ARRAY_RUN_CONFIG_FILENAME = "run.json"
 
 _TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
 _FALSE_ENV_VALUES = {"0", "false", "no", "off"}
@@ -182,20 +185,81 @@ def is_slurm_array_driver_process(use_slurm: bool) -> bool:
     return not use_slurm or os.environ.get("SLURM_NODEID", "0") == "0"
 
 
-def build_slurm_array_retry_manifest(
-    checkpoint_path: str | None,
+def _slurm_array_completion_dir(checkpoint_path: str | Path) -> Path:
+    return Path(checkpoint_path, METADATA_DIRNAME, SLURM_ARRAY_COMPLETION_DIRNAME).absolute()
+
+
+def _require_manifest_int(payload: Mapping[str, object], path: Path, field: str) -> int:
+    value = payload.get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        msg = f"Slurm array manifest {path} must contain an integer {field}"
+        raise TypeError(msg)
+    return value
+
+
+def _read_slurm_array_run_config(checkpoint_path: str | Path) -> tuple[Path, dict[str, object]] | None:
+    config_file = _slurm_array_completion_dir(checkpoint_path) / SLURM_ARRAY_RUN_CONFIG_FILENAME
+    if not config_file.is_file():
+        return None
+    try:
+        payload = json.loads(config_file.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        msg = f"Failed to read Slurm array run configuration {config_file}: {e}"
+        raise ValueError(msg) from e
+    if not isinstance(payload, dict):
+        msg = f"Slurm array run configuration must contain a JSON object: {config_file}"
+        raise TypeError(msg)
+    return config_file, payload
+
+
+def _ensure_slurm_array_run_config(
+    checkpoint_path: str | Path,
+    total_shards: int,
+    minimum_shard_index: int,
+) -> Path:
+    expected = {
+        "minimum_shard_index": minimum_shard_index,
+        "total_shards": total_shards,
+    }
+    existing = _read_slurm_array_run_config(checkpoint_path)
+    if existing is not None:
+        config_file, payload = existing
+        if payload != expected:
+            msg = (
+                f"Slurm array run configuration at {config_file} is {payload}, expected {expected}; "
+                "use a separate checkpoint path for each logical run"
+            )
+            raise ValueError(msg)
+        return config_file
+
+    config_file = _slurm_array_completion_dir(checkpoint_path) / SLURM_ARRAY_RUN_CONFIG_FILENAME
+    write_json_atomically(config_file, expected, separators=(",", ":"), sort_keys=True)
+    return config_file
+
+
+def build_slurm_array_completion_manifest(
+    checkpoint_path: str | Path | None,
     shard_index: int,
     total_shards: int,
     minimum_shard_index: int,
-) -> RetryManifest | None:
-    """Create a retry manifest for one Slurm array shard."""
+) -> CompletionManifest | None:
+    """Create durable completion tracking for one Slurm array shard."""
     if checkpoint_path is None:
         return None
 
-    return RetryManifest(
+    if total_shards <= 0:
+        msg = f"total_shards must be greater than 0, got {total_shards}"
+        raise ValueError(msg)
+    maximum_shard_index = minimum_shard_index + total_shards - 1
+    if not minimum_shard_index <= shard_index <= maximum_shard_index:
+        msg = f"shard_index {shard_index} is outside the shard range [{minimum_shard_index}, {maximum_shard_index}]"
+        raise ValueError(msg)
+
+    _ensure_slurm_array_run_config(checkpoint_path, total_shards, minimum_shard_index)
+    return CompletionManifest(
         checkpoint_path=checkpoint_path,
-        namespace=SLURM_ARRAY_RETRY_MANIFEST_NAMESPACE,
-        retry_dirname=SLURM_ARRAY_RETRY_DIRNAME,
+        namespace=SLURM_ARRAY_COMPLETION_MANIFEST_NAMESPACE,
+        completion_dirname=SLURM_ARRAY_COMPLETION_DIRNAME,
         identity={
             "minimum_shard_index": minimum_shard_index,
             "shard_index": shard_index,
@@ -205,57 +269,52 @@ def build_slurm_array_retry_manifest(
     )
 
 
-def _require_manifest_int(record: RetryManifestRecord, field: str) -> int:
-    value = record.payload.get(field)
-    if isinstance(value, bool) or not isinstance(value, int):
-        msg = f"Slurm array retry manifest {record.path} must contain an integer {field}"
-        raise TypeError(msg)
-    return value
-
-
 def find_slurm_array_retries(checkpoint_path: str | Path) -> SlurmArrayRetryPlan | None:
-    """Build a retry plan from all outstanding Slurm array manifests."""
-    records = read_retry_manifests(
+    """Return expected shard IDs that have no completion manifest."""
+    records = read_completion_manifests(
         checkpoint_path,
-        namespace=SLURM_ARRAY_RETRY_MANIFEST_NAMESPACE,
-        retry_dirname=SLURM_ARRAY_RETRY_DIRNAME,
+        namespace=SLURM_ARRAY_COMPLETION_MANIFEST_NAMESPACE,
+        completion_dirname=SLURM_ARRAY_COMPLETION_DIRNAME,
     )
-    if not records:
+    run_config = _read_slurm_array_run_config(checkpoint_path)
+    if run_config is None:
+        if records:
+            msg = "Slurm array completion manifests exist without run.json"
+            raise ValueError(msg)
         return None
 
-    shard_indices = set()
-    total_shards_values = set()
-    minimum_shard_index_values = set()
-    for record in records:
-        shard_indices.add(_require_manifest_int(record, "shard_index"))
-        total_shards_values.add(_require_manifest_int(record, "total_shards"))
-        minimum_shard_index_values.add(_require_manifest_int(record, "minimum_shard_index"))
-
-    if len(total_shards_values) != 1 or len(minimum_shard_index_values) != 1:
-        msg = "Slurm array retry manifests contain multiple shard configurations; split them by logical run"
-        raise ValueError(msg)
-
-    total_shards = next(iter(total_shards_values))
-    minimum_shard_index = next(iter(minimum_shard_index_values))
+    config_file, config_payload = run_config
+    total_shards = _require_manifest_int(config_payload, config_file, "total_shards")
+    minimum_shard_index = _require_manifest_int(config_payload, config_file, "minimum_shard_index")
     if total_shards <= 0:
-        msg = f"Slurm array retry manifests must have total_shards greater than 0, got {total_shards}"
+        msg = f"Slurm array run configuration must have total_shards greater than 0, got {total_shards}"
         raise ValueError(msg)
+
+    completed_shard_indices = set()
+    for record in records:
+        record_total_shards = _require_manifest_int(record.payload, record.path, "total_shards")
+        record_minimum_shard_index = _require_manifest_int(record.payload, record.path, "minimum_shard_index")
+        if record_total_shards != total_shards or record_minimum_shard_index != minimum_shard_index:
+            msg = f"Slurm array completion manifest {record.path} does not match the run configuration"
+            raise ValueError(msg)
+        completed_shard_indices.add(_require_manifest_int(record.payload, record.path, "shard_index"))
 
     maximum_shard_index = minimum_shard_index + total_shards - 1
     invalid_shard_indices = sorted(
         shard_index
-        for shard_index in shard_indices
+        for shard_index in completed_shard_indices
         if not minimum_shard_index <= shard_index <= maximum_shard_index
     )
     if invalid_shard_indices:
         msg = (
-            f"Slurm array retry shard indices {invalid_shard_indices} are outside the original shard range "
+            f"Completed Slurm array shard indices {invalid_shard_indices} are outside the original shard range "
             f"[{minimum_shard_index}, {maximum_shard_index}]"
         )
         raise ValueError(msg)
 
+    expected_shard_indices = set(range(minimum_shard_index, maximum_shard_index + 1))
     return SlurmArrayRetryPlan(
-        shard_indices=tuple(sorted(shard_indices)),
+        shard_indices=tuple(sorted(expected_shard_indices - completed_shard_indices)),
         total_shards=total_shards,
         minimum_shard_index=minimum_shard_index,
     )

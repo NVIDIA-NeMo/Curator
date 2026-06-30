@@ -41,6 +41,10 @@ def main() -> None:
 
     retry_plan = find_slurm_array_retries(args.checkpoint_path)
     if retry_plan is None:
+        parser.error(
+            "Slurm array run configuration was not found. Use the same checkpoint path as the original array run."
+        )
+    if not retry_plan.shard_indices:
         return
 
     array_expression = format_slurm_array_indices(retry_plan.shard_indices)

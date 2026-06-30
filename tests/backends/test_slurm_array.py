@@ -26,7 +26,7 @@ from nemo_curator.backends.slurm_array import (
     SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR,
     SlurmArrayConfig,
     SlurmArrayRetryPlan,
-    build_slurm_array_retry_manifest,
+    build_slurm_array_completion_manifest,
     configure_slurm_array_source_filtering,
     filter_slurm_array_source_tasks,
     find_slurm_array_retries,
@@ -230,8 +230,8 @@ class TestSlurmArray:
 
         assert is_slurm_array_driver_process(use_slurm=True) is False
 
-    def test_build_retry_manifest_writes_slurm_shard_identity(self, tmp_path: Path) -> None:
-        manifest = build_slurm_array_retry_manifest(
+    def test_build_completion_manifest_writes_run_config_and_shard_identity(self, tmp_path: Path) -> None:
+        manifest = build_slurm_array_completion_manifest(
             checkpoint_path=str(tmp_path),
             shard_index=7,
             total_shards=11,
@@ -239,21 +239,26 @@ class TestSlurmArray:
         )
 
         assert manifest is not None
-        manifest_file = manifest.mark_pending()
+        manifest_file = manifest.mark_completed()
         assert manifest_file is not None
-        assert manifest_file.parent == tmp_path / METADATA_DIRNAME / ".slurm_array_retry"
+        assert manifest_file.parent == tmp_path / METADATA_DIRNAME / ".slurm_array_completion"
 
         payload = json.loads(manifest_file.read_text())
         assert payload == {
             "minimum_shard_index": 1,
             "shard_index": 7,
-            "status": "pending",
+            "status": "completed",
+            "total_shards": 11,
+        }
+        run_config = json.loads((manifest_file.parent / "run.json").read_text())
+        assert run_config == {
+            "minimum_shard_index": 1,
             "total_shards": 11,
         }
 
-    def test_build_retry_manifest_disabled_without_checkpoint(self) -> None:
+    def test_build_completion_manifest_disabled_without_checkpoint(self) -> None:
         assert (
-            build_slurm_array_retry_manifest(
+            build_slurm_array_completion_manifest(
                 checkpoint_path=None,
                 shard_index=7,
                 total_shards=11,
@@ -262,38 +267,53 @@ class TestSlurmArray:
             is None
         )
 
-    def test_find_retries_returns_original_config_and_all_outstanding_statuses(self, tmp_path: Path) -> None:
-        pending = build_slurm_array_retry_manifest(str(tmp_path), 7, 11, 1)
-        failed = build_slurm_array_retry_manifest(str(tmp_path), 3, 11, 1)
-        failed_tasks = build_slurm_array_retry_manifest(str(tmp_path), 4, 11, 1)
-        assert pending is not None
-        assert failed is not None
-        assert failed_tasks is not None
-        pending.mark_pending()
-        failed.mark_failed(RuntimeError("boom"))
-        failed_tasks.mark_retryable("failed_tasks")
+    def test_find_retries_returns_shards_without_completion_manifests(self, tmp_path: Path) -> None:
+        first = build_slurm_array_completion_manifest(str(tmp_path), 1, 4, 1)
+        third = build_slurm_array_completion_manifest(str(tmp_path), 3, 4, 1)
+        assert first is not None
+        assert third is not None
+        first.mark_completed()
+        third.mark_completed()
 
         retry_plan = find_slurm_array_retries(tmp_path)
 
         assert retry_plan == SlurmArrayRetryPlan(
-            shard_indices=(3, 4, 7),
-            total_shards=11,
+            shard_indices=(2, 4),
+            total_shards=4,
             minimum_shard_index=1,
         )
 
-    def test_find_retries_returns_none_without_manifests(self, tmp_path: Path) -> None:
+    def test_find_retries_returns_all_shards_when_none_completed(self, tmp_path: Path) -> None:
+        manifest = build_slurm_array_completion_manifest(str(tmp_path), 1, 3, 1)
+        assert manifest is not None
+
+        assert find_slurm_array_retries(tmp_path) == SlurmArrayRetryPlan(
+            shard_indices=(1, 2, 3),
+            total_shards=3,
+            minimum_shard_index=1,
+        )
+
+    def test_find_retries_returns_empty_plan_when_all_shards_completed(self, tmp_path: Path) -> None:
+        for shard_index in range(3):
+            manifest = build_slurm_array_completion_manifest(str(tmp_path), shard_index, 3, 0)
+            assert manifest is not None
+            manifest.mark_completed()
+
+        assert find_slurm_array_retries(tmp_path) == SlurmArrayRetryPlan(
+            shard_indices=(),
+            total_shards=3,
+            minimum_shard_index=0,
+        )
+
+    def test_find_retries_returns_none_without_run_config(self, tmp_path: Path) -> None:
         assert find_slurm_array_retries(tmp_path) is None
 
-    def test_find_retries_rejects_mixed_logical_runs(self, tmp_path: Path) -> None:
-        first = build_slurm_array_retry_manifest(str(tmp_path), 1, 10, 0)
-        second = build_slurm_array_retry_manifest(str(tmp_path), 2, 20, 0)
+    def test_build_completion_manifest_rejects_mixed_logical_runs(self, tmp_path: Path) -> None:
+        first = build_slurm_array_completion_manifest(str(tmp_path), 1, 10, 0)
         assert first is not None
-        assert second is not None
-        first.mark_pending()
-        second.mark_pending()
 
-        with pytest.raises(ValueError, match="multiple shard configurations"):
-            find_slurm_array_retries(tmp_path)
+        with pytest.raises(ValueError, match="use a separate checkpoint path"):
+            build_slurm_array_completion_manifest(str(tmp_path), 2, 20, 0)
 
     @pytest.mark.parametrize(
         ("indices", "expected"),

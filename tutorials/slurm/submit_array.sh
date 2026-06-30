@@ -30,8 +30,8 @@ CURATOR_DIR="${CURATOR_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 INPUT_DIR="${INPUT_DIR:-/path/to/your/input/directory}"
 OUTPUT_DIR="${OUTPUT_DIR:-/path/to/your/output/directory}"
 
-# Retry attempts must reuse this path. Retry manifests live under
-# ${CHECKPOINT_PATH}/.nemo_curator_metadata/.slurm_array_retry/.
+# Retry attempts must reuse this path. Completion manifests live under
+# ${CHECKPOINT_PATH}/.nemo_curator_metadata/.slurm_array_completion/.
 CHECKPOINT_PATH="${CHECKPOINT_PATH:-${OUTPUT_DIR}}"
 
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-nvcr.io/nvidia/nemo-curator:26.02}"

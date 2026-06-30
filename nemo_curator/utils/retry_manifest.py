@@ -18,17 +18,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from nemo_curator.utils.atomic_io import fsync_directory, write_json_atomically
+from nemo_curator.utils.atomic_io import write_json_atomically
 
 METADATA_DIRNAME = ".nemo_curator_metadata"
 
 
 @dataclass(frozen=True)
-class RetryManifestRecord:
-    """One outstanding retry manifest read from disk."""
+class CompletionManifestRecord:
+    """One durable completion manifest read from disk."""
 
     path: Path
-    status: str
     payload: dict[str, object]
 
 
@@ -41,20 +40,20 @@ def _mapping_digest(mapping: Mapping[str, object]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
 
 
-def read_retry_manifests(
+def read_completion_manifests(
     checkpoint_path: str | Path,
     *,
     namespace: str,
-    retry_dirname: str | None = None,
-) -> list[RetryManifestRecord]:
-    """Read outstanding manifests for one retry namespace."""
-    resolved_retry_dirname = retry_dirname or f".{_safe_token(namespace)}_retry"
-    manifest_dir = Path(checkpoint_path, METADATA_DIRNAME, resolved_retry_dirname).absolute()
+    completion_dirname: str | None = None,
+) -> list[CompletionManifestRecord]:
+    """Read completed identities for one manifest namespace."""
+    resolved_dirname = completion_dirname or f".{_safe_token(namespace)}_completion"
+    manifest_dir = Path(checkpoint_path, METADATA_DIRNAME, resolved_dirname).absolute()
     if not manifest_dir.exists():
         return []
 
     records = []
-    pattern = f"manifest_{_safe_token(namespace)}_*.json"
+    pattern = f"completed_{_safe_token(namespace)}_*.json"
     for manifest_file in sorted(manifest_dir.glob(pattern)):
         if not manifest_file.is_file():
             continue
@@ -62,25 +61,27 @@ def read_retry_manifests(
         try:
             payload = json.loads(manifest_file.read_text())
         except (OSError, json.JSONDecodeError) as e:
-            msg = f"Failed to read retry manifest {manifest_file}: {e}"
+            msg = f"Failed to read completion manifest {manifest_file}: {e}"
             raise ValueError(msg) from e
 
         if not isinstance(payload, dict):
-            msg = f"Retry manifest must contain a JSON object: {manifest_file}"
+            msg = f"Completion manifest must contain a JSON object: {manifest_file}"
             raise TypeError(msg)
-
         status = payload.get("status")
         if not isinstance(status, str):
-            msg = f"Retry manifest must contain a string status: {manifest_file}"
+            msg = f"Completion manifest must contain a string status: {manifest_file}"
             raise TypeError(msg)
+        if status != "completed":
+            msg = f"Completion manifest must have status 'completed': {manifest_file}"
+            raise ValueError(msg)
 
-        records.append(RetryManifestRecord(path=manifest_file, status=status, payload=payload))
+        records.append(CompletionManifestRecord(path=manifest_file, payload=payload))
 
     return records
 
 
-class RetryManifest:
-    """Compact marker for retryable work, keyed by stable identity fields."""
+class CompletionManifest:
+    """Durable proof that work identified by stable fields completed successfully."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -89,17 +90,17 @@ class RetryManifest:
         identity: Mapping[str, object],
         *,
         metadata: Mapping[str, object] | None = None,
-        retry_dirname: str | None = None,
+        completion_dirname: str | None = None,
         enabled: bool = True,
         flatten_identity: bool = True,
         flatten_metadata: bool = False,
     ) -> None:
-        """Create a manifest manager under ``checkpoint_path``."""
+        """Create a completion manifest manager under ``checkpoint_path``."""
         self.checkpoint_path = Path(checkpoint_path)
         self.namespace = namespace
         self.identity = dict(identity)
         self.metadata = dict(metadata or {})
-        self.retry_dirname = retry_dirname or f".{_safe_token(namespace)}_retry"
+        self.completion_dirname = completion_dirname or f".{_safe_token(namespace)}_completion"
         self.enabled = enabled
         self.flatten_identity = flatten_identity
         self.flatten_metadata = flatten_metadata
@@ -107,93 +108,43 @@ class RetryManifest:
 
     @property
     def manifest_dir(self) -> Path:
-        return Path(self.checkpoint_path, METADATA_DIRNAME, self.retry_dirname).absolute()
+        return Path(self.checkpoint_path, METADATA_DIRNAME, self.completion_dirname).absolute()
 
     @property
     def filename_prefix(self) -> str:
-        return f"manifest_{_safe_token(self.namespace)}_{_mapping_digest(self.identity)}"
+        return f"completed_{_safe_token(self.namespace)}_{_mapping_digest(self.identity)}"
 
-    def _payload(
-        self,
-        status: str,
-        *,
-        error: BaseException | None = None,
-        extra: Mapping[str, object] | None = None,
-    ) -> dict[str, object]:
-        payload: dict[str, object] = {
-            "status": status,
-        }
-
+    def _payload(self, extra: Mapping[str, object] | None = None) -> dict[str, object]:
+        payload: dict[str, object] = {"status": "completed"}
         if self.flatten_identity:
             payload.update(self.identity)
         else:
             payload["identity"] = self.identity
         if self.flatten_metadata:
             payload.update(self.metadata)
-        if error is not None:
-            payload["error_type"] = type(error).__name__
         if extra is not None:
             payload.update(extra)
-
         return payload
 
-    def write(
-        self,
-        status: str,
-        *,
-        error: BaseException | None = None,
-        extra: Mapping[str, object] | None = None,
-    ) -> Path | None:
-        """Write or update this manifest."""
+    def mark_completed(self, extra: Mapping[str, object] | None = None) -> Path | None:
+        """Atomically record successful completion."""
         if not self.enabled:
             return None
-
         if self.manifest_file is None:
             self.manifest_file = self.manifest_dir / f"{self.filename_prefix}.json"
 
         write_json_atomically(
             self.manifest_file,
-            self._payload(status, error=error, extra=extra),
+            self._payload(extra),
             separators=(",", ":"),
             sort_keys=True,
         )
         return self.manifest_file
 
-    def mark_pending(self) -> Path | None:
-        return self.write("pending")
-
-    def mark_failed(self, error: BaseException) -> Path | None:
-        return self.write("failed", error=error)
-
-    def mark_retryable(self, status: str, extra: Mapping[str, object] | None = None) -> Path | None:
-        return self.write(status, extra=extra)
-
-    def mark_success(self) -> int:
-        """Remove manifests for this identity and return the count."""
-        if not self.enabled:
-            return 0
-
-        removed = 0
-        if not self.manifest_dir.exists():
-            return removed
-
-        for manifest_file in self.manifest_dir.glob(f"{self.filename_prefix}*.json"):
-            try:
-                manifest_file.unlink()
-                removed += 1
-            except FileNotFoundError:
-                continue
-        if removed:
-            fsync_directory(self.manifest_dir)
-        return removed
-
-    def __enter__(self) -> "RetryManifest":
-        self.mark_pending()
+    def __enter__(self) -> "CompletionManifest":
         return self
 
-    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, _: object) -> bool:
-        if exc is not None:
-            self.mark_failed(exc)
-        else:
-            self.mark_success()
+    def __exit__(self, _exc_type: type[BaseException] | None, exc: BaseException | None, _: object) -> bool:
+        if exc is None:
+            self.mark_completed()
         return False
