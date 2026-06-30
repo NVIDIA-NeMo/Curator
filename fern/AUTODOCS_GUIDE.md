@@ -86,7 +86,13 @@ Notes:
 Run:
 
 ```bash
-fern docs md generate
+fern docs md generate --library nemo-curator
+```
+
+For local generation without Fern authentication (requires Docker):
+
+```bash
+fern docs md generate --local --library nemo-curator-local
 ```
 
 Fern will generate markdown under the output path you configured, for example:
