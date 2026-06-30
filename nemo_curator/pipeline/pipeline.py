@@ -224,7 +224,7 @@ class Pipeline:
 
         return "\n".join(lines)
 
-    def run(
+    def run(  # noqa: C901, PLR0912
         self,
         executor: BaseExecutor | None = None,
         initial_tasks: list[Task] | None = None,
