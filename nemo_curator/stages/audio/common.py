@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ruff: noqa: ANN401
 
 import json
 import os
@@ -25,9 +26,21 @@ from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio.io.manifest_writer_utils import AudioManifestWriterMetrics, manifest_lines
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
+
+
+def _config_get(config: Any, key: str, default: Any = None) -> Any:
+    if config is None:
+        return default
+    if isinstance(config, dict):
+        return config.get(key, default)
+    get = getattr(config, "get", None)
+    if callable(get):
+        return get(key, default)
+    return default
 
 
 def get_audio_duration(audio_filepath: str) -> float:
@@ -141,6 +154,7 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     """
 
     name: str = "manifest_reader_stage"
+    storage_options: dict[str, Any] | None = None
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         t0 = time.perf_counter()
@@ -148,20 +162,21 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
         results: list[AudioTask] = []
         count = 0
         for manifest in paths:
-            fs, resolved = url_to_fs(manifest)
+            fs, resolved = url_to_fs(manifest, **(self.storage_options or {}))
+            manifest_count = 0
             with fs.open(resolved, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
-                        results.append(
-                            AudioTask(
-                                dataset_name=task.dataset_name,
-                                data=json.loads(line.strip()),
-                                _metadata=task._metadata,
-                                _stage_perf=list(task._stage_perf),
-                            )
+                        audio_task = AudioTask(
+                            dataset_name=task.dataset_name,
+                            data=json.loads(line.strip()),
+                            _metadata=task._metadata,
+                            _stage_perf=list(task._stage_perf),
                         )
+                        results.append(audio_task)
                         count += 1
-            logger.info(f"ManifestReaderStage: loaded {count} entries from {manifest}")
+                        manifest_count += 1
+            logger.info(f"ManifestReaderStage: loaded {manifest_count} entries from {manifest}")
         self._log_metrics(
             {
                 "process_time": time.perf_counter() - t0,
@@ -216,7 +231,7 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
             ),
-            ManifestReaderStage(),
+            ManifestReaderStage(storage_options=self.storage_options),
         ]
 
     def get_description(self) -> str:
@@ -227,34 +242,94 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
             parts.append(f"with target blocksize {self.blocksize}")
         return ", ".join(parts)
 
+    def build_payload_materialize_stage(
+        self,
+        *,
+        payload_spec: Any,
+        payload_config: dict[str, Any],
+        pipeline_config: Any,
+        run_id: str,
+    ) -> ProcessingStage:
+        """Build the audio payload materializer for the generic lifecycle planner.
+
+        ``nemo_curator.pipeline.payload_lifecycle`` owns graph insertion order.
+        The reader owns modality-specific materialization, so central pipeline
+        code does not need to import audio reader/materializer internals.
+        """
+
+        from nemo_curator.stages.payload_lifecycle import AudioPayloadMaterializeStage
+
+        return AudioPayloadMaterializeStage(
+            name=payload_spec.materialize_stage_name,
+            target_sample_rate=int(payload_config.get("target_sample_rate", 16000)),
+            target_nchannels=int(payload_config.get("target_nchannels", 1)),
+            audio_filepath_key=payload_spec.source_key,
+            duration_key=payload_spec.duration_key,
+            segment_start_key=str(payload_config.get("segment_start_key", "segment_start_s")),
+            segment_duration_key=str(payload_config.get("segment_duration_key", "segment_duration_s")),
+            waveform_key=payload_spec.waveform_key,
+            waveform_ref_key=payload_spec.ref_key,
+            sample_rate_key=payload_spec.sample_rate_key,
+            num_samples_key=payload_spec.num_samples_key,
+            skip_on_read_error=bool(
+                payload_config.get(
+                    "skip_on_read_error",
+                    _config_get(pipeline_config, "audio_reader_skip_on_read_error", False),
+                )
+            ),
+            node_memory_fraction=float(payload_config.get("node_memory_fraction", 0.80)),
+            max_node_payload_bytes=payload_config.get("max_node_payload_bytes"),
+            max_cluster_payload_bytes=payload_config.get("max_cluster_payload_bytes"),
+            admission_actor_name=str(payload_config.get("admission_actor_name", "curator_payload_admission")),
+            admission_poll_interval_s=float(payload_config.get("admission_poll_interval_s", 0.25)),
+            admission_wait_timeout_s=float(payload_config.get("admission_wait_timeout_s", 4 * 60 * 60)),
+            run_id=run_id,
+        )
+
 
 @dataclass
 class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
-    """Append a single AudioTask to a JSONL manifest file.
+    """Append AudioTasks to a JSONL manifest file.
 
     The output file is truncated once in ``setup()`` (called on the driver)
     so repeated pipeline runs produce a clean output.  ``setup_on_node()``
     only creates the parent directory -- it never truncates, so multi-node
     deployments do not erase each other's data.
 
-    .. note::
-       Because all nodes append to the same path, callers in multi-node
-       setups should either use a shared filesystem or provide a
-       node-unique ``output_path``.
+    The stage is pinned to one worker/actor for all supported backends so
+    append writes to ``output_path`` are serialized. In-memory waveform tensors
+    can be omitted through explicit serialization policy.
 
     Supports local and cloud paths via fsspec.
 
     Args:
         output_path: Destination JSONL path (local or cloud).
+        write_perf_stats: If True, aggregate attached stage perf and refresh
+            ``perf_summary.json`` next to the output manifest after each batch
+            write, with teardown as a final backstop.
+        drop_manifest_keys: Explicit task data keys to omit from JSONL output.
+        drop_array_like_values: If True, omit tensor/array-like task data.
+        perf_summary_path: Optional override for perf summary output path.
     """
 
     output_path: str
     name: str = "manifest_writer"
+    write_perf_stats: bool = False
+    duration_key: str = "duration"
+    drop_manifest_keys: tuple[str, ...] = ()
+    drop_array_like_values: bool = False
+    perf_summary_path: str | None = None
+    _writer_metrics: AudioManifestWriterMetrics = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.output_path:
             msg = "output_path is required for ManifestWriterStage"
             raise ValueError(msg)
+        self._writer_metrics = AudioManifestWriterMetrics(
+            stage_name=self.name,
+            duration_key=self.duration_key,
+            write_perf_stats=self.write_perf_stats,
+        )
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Truncate the output file once on the driver before processing starts."""
@@ -264,6 +339,8 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             self._fs.makedirs(parent_dir, exist_ok=True)
         with self._fs.open(self._path, "w", encoding="utf-8"):
             pass
+        if self.write_perf_stats:
+            self._writer_metrics.reset_wall_timer()
         logger.info(f"ManifestWriterStage: writing to {self.output_path}")
 
     def setup_on_node(
@@ -276,16 +353,105 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         parent_dir = "/".join(self._path.split("/")[:-1])
         if parent_dir:
             self._fs.makedirs(parent_dir, exist_ok=True)
+        if self.write_perf_stats:
+            self._writer_metrics.reset_wall_timer()
 
     def process(self, task: AudioTask) -> AudioTask:
-        with self._fs.open(self._path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
-        return AudioTask(
-            dataset_name=task.dataset_name,
-            data=task.data,
-            _metadata=task._metadata,
-            _stage_perf=list(task._stage_perf),
+        return self.process_batch([task])[0]
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        if len(tasks) == 0:
+            return []
+        for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
+        lines = manifest_lines(
+            tasks,
+            self.drop_manifest_keys,
+            drop_array_like_values=self.drop_array_like_values,
         )
+        if self.write_perf_stats:
+            self._writer_metrics.record_invocation(len(tasks))
+            write_t0 = time.perf_counter()
+        with self._fs.open(self._path, "a", encoding="utf-8") as f:
+            f.writelines(lines)
+        if self.write_perf_stats:
+            self._writer_metrics.add_manifest_write_time(time.perf_counter() - write_t0)
+            for task in tasks:
+                self._writer_metrics.record_task(task)
+            self._write_perf_summary()
+        copied_tasks = []
+        for task in tasks:
+            copied_task = AudioTask(
+                dataset_name=task.dataset_name,
+                data=task.data,
+                _metadata=task._metadata,
+                _stage_perf=list(task._stage_perf),
+            )
+            copied_tasks.append(copied_task)
+        return copied_tasks
+
+    def _resolved_perf_summary_path(self) -> str:
+        if self.perf_summary_path:
+            return self.perf_summary_path
+        parent = self.output_path.rsplit("/", 1)[0] if "/" in self.output_path else ""
+        return f"{parent}/perf_summary.json" if parent else "perf_summary.json"
+
+    def _write_perf_summary(self) -> None:
+        summary_path = self._resolved_perf_summary_path()
+        fs, resolved = url_to_fs(summary_path)
+        parent_dir = "/".join(resolved.split("/")[:-1])
+        if parent_dir:
+            fs.makedirs(parent_dir, exist_ok=True)
+        summary = self._writer_metrics.build_perf_summary()
+        write_t0 = time.perf_counter()
+        with fs.open(resolved, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+        self._writer_metrics.add_perf_write_time(time.perf_counter() - write_t0)
+        logger.info(f"Wrote perf_summary.json: {summary_path}")
+
+    def record_external_stage_perf(self, perf_stats: Any) -> bool:
+        """Merge an externally collected stage summary into the persisted perf JSON."""
+        if not self.write_perf_stats:
+            return False
+        stage_summary = self._writer_metrics.build_external_stage_summary(perf_stats)
+        if not stage_summary:
+            return False
+        summary_path = self._resolved_perf_summary_path()
+        fs, resolved = url_to_fs(summary_path)
+        parent_dir = "/".join(resolved.split("/")[:-1])
+        if parent_dir:
+            fs.makedirs(parent_dir, exist_ok=True)
+        summary: dict[str, Any]
+        if fs.exists(resolved):
+            try:
+                with fs.open(resolved, "r", encoding="utf-8") as f:
+                    summary = json.load(f)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not read existing perf_summary.json at {}: {}", summary_path, exc)
+                summary = {}
+        else:
+            summary = {}
+        stages = summary.setdefault("stages", {})
+        if isinstance(stages, dict):
+            stages[perf_stats.stage_name] = stage_summary
+        else:
+            summary["stages"] = {perf_stats.stage_name: stage_summary}
+        write_t0 = time.perf_counter()
+        with fs.open(resolved, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+        self._writer_metrics.add_perf_write_time(time.perf_counter() - write_t0)
+        logger.info("Merged external perf stage {} into {}", perf_stats.stage_name, summary_path)
+        return True
+
+    def teardown(self) -> None:
+        if self.write_perf_stats and (
+            self._writer_metrics.items_processed > 0 or self._writer_metrics.total_utterances > 0
+        ):
+            self._write_perf_summary()
+        elif self.write_perf_stats:
+            logger.info("Skipping perf_summary.json write because no tasks were processed")
 
     def num_workers(self) -> int | None:
         return 1
@@ -301,7 +467,7 @@ def load_audio_file(audio_path: str, mono: bool = True) -> tuple[torch.Tensor, i
     return waveform, sample_rate
 
 
-def ensure_waveform_2d(waveform: Any) -> torch.Tensor:  # noqa: ANN401
+def ensure_waveform_2d(waveform: Any) -> torch.Tensor:
     """Ensure waveform is a torch.Tensor in 2D (channels, samples) format."""
     if not torch.is_tensor(waveform):
         waveform = torch.as_tensor(waveform, dtype=torch.float32)

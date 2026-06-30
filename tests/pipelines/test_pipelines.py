@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from nemo_curator.pipeline.pipeline import Pipeline, assign_root_task_ids
-from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -35,6 +35,17 @@ class _NoopStage(ProcessingStage[Task, Task]):
 
     def process(self, task: Task) -> Task:
         return task
+
+
+@dataclass
+class _SingleStageComposite(CompositeStage[Task, Task]):
+    name: str = "single"
+
+    def __post_init__(self) -> None:
+        super().__init__()
+
+    def decompose(self) -> list[ProcessingStage]:
+        return [_NoopStage(name="leaf")]
 
 
 @dataclass
@@ -113,6 +124,34 @@ class TestPipelineBuild:
         assert lone.is_source_stage is True
         assert lone.is_sink_stage is True
 
+    def test_add_stage_after_build_reassigns_default_sink(self) -> None:
+        s0, s1, s2 = _NoopStage(name="s0"), _NoopStage(name="s1"), _NoopStage(name="s2")
+        pipeline = Pipeline(name="t", stages=[s0, s1])
+
+        pipeline.build()
+        assert [s.is_source_stage for s in (s0, s1)] == [True, False]
+        assert [s.is_sink_stage for s in (s0, s1)] == [False, True]
+
+        pipeline.add_stage(s2)
+        pipeline.build()
+
+        assert [s.is_source_stage for s in (s0, s1, s2)] == [True, False, False]
+        assert [s.is_sink_stage for s in (s0, s1, s2)] == [False, False, True]
+
+    def test_direct_stage_append_after_build_replans_and_reassigns_sink(self) -> None:
+        s0, s1, s2 = _NoopStage(name="s0"), _NoopStage(name="s1"), _NoopStage(name="s2")
+        pipeline = Pipeline(name="t", stages=[s0, s1])
+
+        pipeline.build()
+        assert [s.is_source_stage for s in (s0, s1)] == [True, False]
+        assert [s.is_sink_stage for s in (s0, s1)] == [False, True]
+
+        pipeline.stages.append(s2)
+        pipeline.build()
+
+        assert [s.is_source_stage for s in (s0, s1, s2)] == [True, False, False]
+        assert [s.is_sink_stage for s in (s0, s1, s2)] == [False, False, True]
+
     def test_explicit_marks_override_defaults(self) -> None:
         s0, s1, s2 = _NoopStage(name="s0"), _NoopStage(name="s1"), _NoopStage(name="s2")
         s1.is_source_stage = True
@@ -135,6 +174,13 @@ class TestPipelineBuild:
         with pytest.raises(ValueError, match="multiple sink stages marked"):
             Pipeline(name="t", stages=[t0, t1]).build()
 
+    def test_single_stage_composite_preserves_main_behavior(self) -> None:
+        pipeline = Pipeline(name="t", stages=[_SingleStageComposite()])
+        pipeline.build()
+
+        assert [type(stage) for stage in pipeline.stages] == [_SingleStageComposite]
+        assert pipeline.decomposition_info == {}
+
 
 class TestRootTaskIds:
     """``assign_root_task_ids`` roots user-provided initial tasks under the
@@ -143,6 +189,14 @@ class TestRootTaskIds:
     def test_empty_task_id_is_zero(self) -> None:
         assert EmptyTask().task_id == "0"
         assert EmptyTask(dataset_name="d", data=None).task_id == "0"
+        assert EmptyTask(task_id="legacy", dataset_name="d", data=None).task_id == "0"
+
+    def test_rewrites_existing_internal_task_ids(self) -> None:
+        tasks = [_SimpleTask(dataset_name="d", data=[1]) for _ in range(3)]
+        for i, task in enumerate(tasks):
+            task.task_id = f"t{i}"
+        assign_root_task_ids(tasks)
+        assert [t.task_id for t in tasks] == ["0_0", "0_1", "0_2"]
 
     def test_roots_user_tasks_at_zero(self) -> None:
         tasks = [_SimpleTask(dataset_name="d", data=[1]) for _ in range(3)]

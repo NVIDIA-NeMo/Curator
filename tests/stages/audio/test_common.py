@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ruff: noqa: ANN202
 
 """Tests for common audio stages: GetAudioDurationStage, PreserveByValueStage,
 ManifestReaderStage, ManifestReader, and ManifestWriterStage."""
@@ -46,6 +47,12 @@ ALM_FIXTURES_DIR = FIXTURES_DIR / "audio" / "alm"
 
 def _make_file_group_task(paths: list[str]) -> FileGroupTask:
     return FileGroupTask(dataset_name="test", data=paths)
+
+
+def _audio_task_with_id(task_id: str, **kwargs) -> AudioTask:
+    task = AudioTask(**kwargs)
+    task.task_id = task_id
+    return task
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +179,29 @@ class TestManifestReaderStage:
         assert all(isinstance(r, AudioTask) for r in result)
         assert result[0].data["audio_filepath"] == "a.wav"
         assert result[1].data["audio_filepath"] == "b.wav"
+        assert "_shard_total" not in result[0]._metadata
+        assert "_shard_key" not in result[0]._metadata
+
+    def test_uses_storage_options_when_opening_manifest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        manifest = tmp_path / "input.jsonl"
+        manifest.write_text(json.dumps({"audio_filepath": "a.wav", "segments": []}))
+        seen_kwargs: list[dict] = []
+
+        class _LocalFS:
+            def open(self, path: str, mode: str, encoding: str | None = None):
+                return open(path, mode, encoding=encoding)
+
+        def fake_url_to_fs(path: str, **kwargs):
+            seen_kwargs.append(kwargs)
+            return _LocalFS(), path
+
+        monkeypatch.setattr("nemo_curator.stages.audio.common.url_to_fs", fake_url_to_fs)
+
+        stage = ManifestReaderStage(storage_options={"profile": "private"})
+        result = stage.process(_make_file_group_task([str(manifest)]))
+
+        assert len(result) == 1
+        assert seen_kwargs == [{"profile": "private"}]
 
     def test_worker_defaults(self) -> None:
         stage = ManifestReaderStage()
@@ -190,6 +220,8 @@ class TestManifestReaderStage:
         assert len(result) == 2
         paths = [r.data["audio_filepath"] for r in result]
         assert paths == ["a.wav", "b.wav"]
+        assert all("_shard_total" not in r._metadata for r in result)
+        assert all("_shard_key" not in r._metadata for r in result)
 
     def test_one_audio_entry_per_line(self, tmp_path: Path) -> None:
         entries = [{"audio_filepath": f"{i}.wav", "segments": []} for i in range(5)]
@@ -259,6 +291,8 @@ class TestManifestReaderStage:
 
         assert len(result) == 3
         assert all(r.data["audio_filepath"] == "a.wav" for r in result)
+        assert all("_shard_total" not in r._metadata for r in result)
+        assert all("_shard_key" not in r._metadata for r in result)
 
 
 class TestManifestReaderDirectory:
@@ -370,7 +404,7 @@ class TestManifestWriterStage:
 
     def test_writes_entry_to_jsonl(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
-        writer = ManifestWriterStage(output_path=str(out))
+        writer = ManifestWriterStage(output_path=str(out), write_perf_stats=False)
         writer.setup_on_node()
         writer.setup()
 
@@ -399,7 +433,7 @@ class TestManifestWriterStage:
 
     def test_propagates_metadata_and_stage_perf(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
-        writer = ManifestWriterStage(output_path=str(out))
+        writer = ManifestWriterStage(output_path=str(out), write_perf_stats=False)
         writer.setup_on_node()
         writer.setup()
 
@@ -429,6 +463,61 @@ class TestManifestWriterStage:
         lines = out.read_text().strip().split("\n")
         assert len(lines) == 3
         assert [json.loads(line)["entry"] for line in lines] == [1, 2, 3]
+
+    def test_process_batch_drops_waveform_and_array_like_keys(self, tmp_path: Path) -> None:
+        out = tmp_path / "output.jsonl"
+        writer = ManifestWriterStage(
+            output_path=str(out),
+            write_perf_stats=False,
+            drop_manifest_keys=("waveform",),
+            drop_array_like_values=True,
+        )
+        writer.setup_on_node()
+        writer.setup()
+
+        returned = writer.process_batch(
+            [
+                _audio_task_with_id(
+                    "t1",
+                    data={
+                        "audio_filepath": "a.wav",
+                        "duration": 1.0,
+                        "waveform": torch.zeros(1, 16000),
+                        "embedding": np.zeros(4, dtype=np.float32),
+                        "text": "hello",
+                    },
+                ),
+                _audio_task_with_id("t2", data={"audio_filepath": "b.wav", "duration": 2.0}),
+            ]
+        )
+
+        rows = [json.loads(line) for line in out.read_text().splitlines()]
+        assert [row["audio_filepath"] for row in rows] == ["a.wav", "b.wav"]
+        assert "waveform" not in rows[0]
+        assert "embedding" not in rows[0]
+        assert rows[0]["text"] == "hello"
+        assert [task.task_id for task in returned] == ["", ""]
+
+    def test_writes_perf_summary_during_process_batch(self, tmp_path: Path) -> None:
+        out = tmp_path / "output.jsonl"
+        writer = ManifestWriterStage(output_path=str(out), write_perf_stats=True)
+        writer.setup_on_node()
+        writer.setup()
+
+        writer.process_batch(
+            [
+                _audio_task_with_id("t1", data={"audio_filepath": "a.wav", "duration": 1.0}),
+                _audio_task_with_id("t2", data={"audio_filepath": "b.wav", "duration": 2.0}),
+            ]
+        )
+
+        summary = json.loads((tmp_path / "perf_summary.json").read_text(encoding="utf-8"))
+        assert summary["total_utterances"] == 2
+        assert summary["total_audio_seconds"] == 3.0
+        writer_summary = summary["stages"]["manifest_writer"]
+        assert writer_summary["total_items_processed"] == 2.0
+        assert writer_summary["invocation_count"] == 1.0
+        assert writer_summary["custom_metrics_sum"]["writer_items_processed"] == 2.0
 
     def test_setup_truncates_existing_file(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"

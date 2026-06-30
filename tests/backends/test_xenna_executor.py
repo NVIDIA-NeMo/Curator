@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import pytest
+from cosmos_xenna.utils.verbosity import VerbosityLevel
 
 from nemo_curator.backends.xenna import executor as xenna_executor
 from nemo_curator.backends.xenna.executor import XennaExecutor
@@ -41,6 +42,19 @@ class ConfigurableStage(ProcessingStage[EmptyTask, EmptyTask]):
 
     def process(self, task: EmptyTask) -> EmptyTask:
         return task
+
+
+def test_xenna_verbosity_none_uses_default() -> None:
+    executor = XennaExecutor(config={"actor_pool_verbosity_level": None})
+
+    assert executor._get_verbosity_config("actor_pool_verbosity_level") is VerbosityLevel.INFO
+
+
+def test_xenna_verbosity_bad_string_has_helpful_error() -> None:
+    executor = XennaExecutor(config={"actor_pool_verbosity_level": "loud"})
+
+    with pytest.raises(ValueError, match="Invalid Xenna verbosity config actor_pool_verbosity_level='loud'"):
+        executor._get_verbosity_config("actor_pool_verbosity_level")
 
 
 def test_xenna_executor_uses_stage_num_workers_when_xenna_spec_has_no_worker_sizing(

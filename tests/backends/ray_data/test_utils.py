@@ -14,10 +14,12 @@
 
 from unittest.mock import MagicMock, Mock, patch
 
+import numpy as np
 import pytest
 from ray.data import ActorPoolStrategy
 
 from nemo_curator.backends.ray_data.utils import (
+    coerce_batch_tasks,
     get_actor_compute_strategy_for_stage,
 )
 from nemo_curator.backends.utils import RayStageSpecKeys, get_available_cpu_gpu_resources
@@ -34,8 +36,8 @@ class TestGetAvailableCpuGpuResources:
         cpus, gpus = get_available_cpu_gpu_resources()
         assert cpus == 11
         # GPU count depends on whether GPU tests are running in this session
-        # Can be 0 (CPU-only) or 2 (GPU-enabled) depending on test selection
-        assert gpus in [0.0, 2.0]
+        # and on how many GPUs the test host exposes to the fixture.
+        assert gpus in [0.0, 1.0, 2.0]
 
     @pytest.mark.usefixtures("reset_head_node_cache")
     def test_get_resources_with_ignore_head_node(
@@ -124,3 +126,15 @@ class TestGetActorComputeStrategyForStage:
 
         with pytest.raises(ValueError, match="Invalid Ray Data actor pool sizing for stage stage"):
             get_actor_compute_strategy_for_stage(mock_stage)
+
+
+class TestCoerceBatchTasks:
+    def test_coerce_batch_tasks_from_numpy_object_array(self) -> None:
+        sentinel = object()
+        batch = np.array([sentinel], dtype=object)
+        assert coerce_batch_tasks(batch) == [sentinel]
+
+    def test_coerce_batch_tasks_empty(self) -> None:
+        assert coerce_batch_tasks([]) == []
+        assert coerce_batch_tasks(np.array([], dtype=object)) == []
+        assert coerce_batch_tasks(None) == []
