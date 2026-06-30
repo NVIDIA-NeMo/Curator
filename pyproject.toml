@@ -89,7 +89,6 @@ inference_server = [
     # but listing it explicitly lets prerelease="if-necessary-or-explicit" accept the
     # matching nightly instead of rejecting the transitive prerelease.
     "ai-dynamo-runtime==1.3.0.dev20260615; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "ray[serve,llm]>=2.56.0",
     "ray-haproxy==2.8.20; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",

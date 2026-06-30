@@ -5524,7 +5524,6 @@ image-cuda12 = [
 inference-server = [
     { name = "ai-dynamo", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "ai-dynamo-runtime", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "boto3" },
     { name = "gpustat" },
     { name = "nixl-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "nvidia-ml-py" },
@@ -5608,7 +5607,6 @@ sdg-cpu = [
 sdg-cuda12 = [
     { name = "ai-dynamo", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "ai-dynamo-runtime", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "boto3" },
     { name = "data-designer" },
     { name = "gpustat" },
     { name = "nixl-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -5763,7 +5761,6 @@ requires-dist = [
     { name = "albumentations", marker = "extra == 'interleaved-cpu'" },
     { name = "av", marker = "extra == 'video-cpu'", specifier = "==13.1.0" },
     { name = "beautifulsoup4", marker = "extra == 'text-cpu'" },
-    { name = "boto3", marker = "extra == 'inference-server'", specifier = ">=1.35" },
     { name = "boto3", marker = "extra == 'math-cpu'", specifier = ">=1.35" },
     { name = "boto3", marker = "extra == 'translation-aws'", specifier = ">=1.35" },
     { name = "comment-parser" },

@@ -36,10 +36,8 @@ class RayServeBackend(InferenceBackend):
         """Connect to Ray, deploy the models, and detach the driver."""
         import ray
 
-        self._reset_serve_client_cache()
         with ray.init(ignore_reinit_error=True):
             self._deploy()
-        self._reset_serve_client_cache()
 
     def stop(self) -> None:
         """Reconnect to Ray and tear down Ray Serve."""
@@ -48,13 +46,10 @@ class RayServeBackend(InferenceBackend):
             import ray
             from ray import serve
 
-            self._reset_serve_client_cache()
             with ray.init(ignore_reinit_error=True):
                 serve.shutdown()
         except Exception:  # noqa: BLE001
             logger.debug("serve.shutdown() failed (cluster may already be gone)")
-        finally:
-            self._reset_serve_client_cache()
 
         logger.info("Ray Serve stopped")
 
@@ -98,19 +93,6 @@ class RayServeBackend(InferenceBackend):
         except Exception:
             self._cleanup_failed_deploy()
             raise
-
-    @staticmethod
-    def _reset_serve_client_cache() -> None:
-        """Reset Ray Serve's cached controller client.
-
-        TODO: Remove this once https://github.com/ray-project/ray/issues/61608 is fixed.
-        """
-        try:
-            from ray.serve.context import _set_global_client
-
-            _set_global_client(None)
-        except (ImportError, AttributeError):
-            pass
 
     @staticmethod
     def _quiet_runtime_env() -> dict[str, Any]:
