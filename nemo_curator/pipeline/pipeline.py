@@ -298,15 +298,37 @@ class Pipeline:
         initial_tasks: list[Task] | None,
         checkpoint_path: Path,
     ) -> list[Task] | None:
-        """Run with resumability. The detached actor's lifecycle is managed by
-        ``create_resumability_actor`` / ``shutdown_resumability_actor``; neither
-        calls ``ray.init`` — a running Ray cluster (e.g. ``RayClient``) must
-        already exist, and the executor owns the ``ray.init`` that wraps
-        execution."""
+        """Run with resumability around a pre-existing Ray cluster (e.g. one
+        started by ``RayClient``).
+
+        We briefly connect with ``with ray.init()`` to spawn the detached
+        checkpoint actor, then disconnect *before* ``executor.execute`` so the
+        executor's own ``ray.init`` runs un-nested — a nested
+        ``ray.init(runtime_env=...)`` is silently dropped, so the executor's env
+        vars wouldn't propagate otherwise. The detached actor lives in the
+        cluster across the executor's separate Ray session; a final
+        ``with ray.init()`` closes and kills it. The cluster must pre-exist: had
+        we started it, the first ``with``-exit shutdown would tear it down and
+        take the actor with it.
+        """
+        import os
+
+        import ray
+
         from nemo_curator.utils.resumability_actor import create_resumability_actor, shutdown_resumability_actor
 
-        create_resumability_actor(str(checkpoint_path))
+        if not os.environ.get("RAY_ADDRESS"):
+            msg = (
+                "Resumability (checkpoint_path) requires a Ray cluster started before pipeline.run() — "
+                "start one with RayClient().start() (or the SLURM Ray client). Without a pre-existing "
+                "cluster the checkpoint actor would be torn down with this run's Ray session."
+            )
+            raise RuntimeError(msg)
+
+        with ray.init(ignore_reinit_error=True):
+            create_resumability_actor(str(checkpoint_path))
         try:
             return executor.execute(self.stages, initial_tasks)
         finally:
-            shutdown_resumability_actor()
+            with ray.init(ignore_reinit_error=True):
+                shutdown_resumability_actor()
