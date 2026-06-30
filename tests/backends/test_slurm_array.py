@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from pytest import MonkeyPatch
 
+import nemo_curator.backends.slurm_array as slurm_array_module
 from nemo_curator.backends.slurm_array import (
     SLURM_ARRAY_ENABLED_ENV_VAR,
     SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR,
@@ -155,16 +156,22 @@ class TestSlurmArray:
         with pytest.raises(ValueError, match="total_shards must be greater than 0"):
             resolve_slurm_array_config(is_source_stage=True)
 
-    def test_resolution_warns_for_out_of_range_shard(
-        self, monkeypatch: MonkeyPatch, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_resolution_warns_for_out_of_range_shard(self, monkeypatch: MonkeyPatch) -> None:
         _enable_slurm_array(monkeypatch, shard_index=0, total_shards=10, minimum_shard_index=1)
+        warnings: list[str] = []
 
-        with caplog.at_level("WARNING"):
-            slurm_array = resolve_slurm_array_config(is_source_stage=True)
+        def capture_warning(message: str, *args: object) -> None:
+            warnings.append(message.format(*args))
+
+        monkeypatch.setattr(slurm_array_module.logger, "warning", capture_warning)
+
+        slurm_array = resolve_slurm_array_config(is_source_stage=True)
 
         assert slurm_array == SlurmArrayConfig(shard_index=0, total_shards=10, minimum_shard_index=1)
-        assert "outside the assignable shard range [1, 10]" in caplog.text
+        assert warnings == [
+            "shard_index=0 is outside the assignable shard range [1, 10]. "
+            "This task will not receive any source tasks."
+        ]
 
     def test_filtering_is_disabled_without_config(self) -> None:
         tasks = [_task(f"0_{i}") for i in range(3)]
