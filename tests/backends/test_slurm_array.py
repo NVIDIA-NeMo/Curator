@@ -255,14 +255,13 @@ class TestSlurmArray:
 
     def test_is_driver_process_for_local_and_slurm_head(self, monkeypatch: MonkeyPatch) -> None:
         monkeypatch.delenv("SLURM_NODEID", raising=False)
+        assert is_slurm_array_driver_process() is True
 
-        assert is_slurm_array_driver_process(use_slurm=False) is True
-        assert is_slurm_array_driver_process(use_slurm=True) is True
+        monkeypatch.setenv("SLURM_NODEID", "0")
+        assert is_slurm_array_driver_process() is True
 
         monkeypatch.setenv("SLURM_NODEID", "1")
-
-        assert is_slurm_array_driver_process(use_slurm=True) is False
-        assert is_slurm_array_driver_process(use_slurm=False) is True
+        assert is_slurm_array_driver_process() is False
 
     def test_build_completion_manifest_writes_run_config_and_shard_identity(self, tmp_path: Path) -> None:
         manifest = build_slurm_array_completion_manifest(

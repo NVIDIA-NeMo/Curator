@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -288,9 +288,45 @@ class Pipeline:
         if initial_tasks:
             assign_root_task_ids(initial_tasks)
 
+        from nemo_curator.backends.failed_task_markers import (
+            configure_slurm_array_failed_task_manifest_dir,
+            failed_task_manifest_exists,
+        )
+        from nemo_curator.backends.slurm_array import (
+            SlurmArrayConfig,
+            build_slurm_array_completion_manifest,
+            is_slurm_array_driver_process,
+        )
+
+        slurm_array = SlurmArrayConfig.from_env()
+        completion_manifest = None
+        if slurm_array is not None:
+            is_driver = is_slurm_array_driver_process()
+            if checkpoint_path is not None:
+                configure_slurm_array_failed_task_manifest_dir(checkpoint_path, slurm_array.shard_index)
+            completion_manifest = build_slurm_array_completion_manifest(
+                checkpoint_path=checkpoint_path if is_driver else None,
+                shard_index=slurm_array.shard_index,
+                total_shards=slurm_array.total_shards,
+                minimum_shard_index=slurm_array.minimum_shard_index,
+            )
+
         if checkpoint_path is None:
-            return executor.execute(self.stages, initial_tasks)
-        return self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+            result = executor.execute(self.stages, initial_tasks)
+        else:
+            result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+
+        if completion_manifest is not None:
+            if failed_task_manifest_exists():
+                logger.warning(
+                    "Pipeline completed without raising, but a FailedTask manifest exists. "
+                    "The shard remains incomplete and will be selected for retry."
+                )
+            else:
+                manifest_file = completion_manifest.mark_completed()
+                logger.info(f"Wrote Slurm array completion manifest to {manifest_file}")
+
+        return result
 
     def _run_with_resumability(
         self,

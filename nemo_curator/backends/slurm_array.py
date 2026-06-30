@@ -197,15 +197,13 @@ def filter_slurm_array_source_tasks(
     return assigned_tasks
 
 
-def is_slurm_array_driver_process(use_slurm: bool) -> bool:
-    """Return true for the process that owns retry metadata.
+def is_slurm_array_driver_process() -> bool:
+    """Return True for the process that owns retry metadata.
 
-    When ``use_slurm`` is False (local or single-node) every process is the
-    driver. When ``use_slurm`` is True, only the Slurm head node
-    (``SLURM_NODEID == 0``) is the driver; if the variable is absent (e.g.
-    bare ``srun`` without an array) the process is treated as the head.
+    The head node has ``SLURM_NODEID == 0``; the variable is absent on
+    local / single-node runs, which are also treated as head.
     """
-    return not use_slurm or os.environ.get("SLURM_NODEID", "0") == "0"
+    return os.environ.get("SLURM_NODEID", "0") == "0"
 
 
 def _slurm_array_completion_dir(checkpoint_path: str | Path) -> Path:
