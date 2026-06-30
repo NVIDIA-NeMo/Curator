@@ -280,8 +280,6 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
             node_memory_fraction=float(payload_config.get("node_memory_fraction", 0.80)),
             max_node_payload_bytes=payload_config.get("max_node_payload_bytes"),
             max_cluster_payload_bytes=payload_config.get("max_cluster_payload_bytes"),
-            lease_ttl_s=float(payload_config.get("lease_ttl_s", 3600)),
-            materialized_lease_ttl_s=float(payload_config.get("materialized_lease_ttl_s", 4 * 60 * 60)),
             admission_actor_name=str(payload_config.get("admission_actor_name", "curator_payload_admission")),
             admission_poll_interval_s=float(payload_config.get("admission_poll_interval_s", 0.25)),
             admission_wait_timeout_s=float(payload_config.get("admission_wait_timeout_s", 4 * 60 * 60)),
@@ -413,13 +411,13 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         self._writer_metrics.add_perf_write_time(time.perf_counter() - write_t0)
         logger.info(f"Wrote perf_summary.json: {summary_path}")
 
-    def record_external_stage_perf(self, perf_stats: Any) -> None:
+    def record_external_stage_perf(self, perf_stats: Any) -> bool:
         """Merge an externally collected stage summary into the persisted perf JSON."""
         if not self.write_perf_stats:
-            return
+            return False
         stage_summary = self._writer_metrics.build_external_stage_summary(perf_stats)
         if not stage_summary:
-            return
+            return False
         summary_path = self._resolved_perf_summary_path()
         fs, resolved = url_to_fs(summary_path)
         parent_dir = "/".join(resolved.split("/")[:-1])
@@ -445,6 +443,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             json.dump(summary, f, indent=2, ensure_ascii=False)
         self._writer_metrics.add_perf_write_time(time.perf_counter() - write_t0)
         logger.info("Merged external perf stage {} into {}", perf_stats.stage_name, summary_path)
+        return True
 
     def teardown(self) -> None:
         if self.write_perf_stats and (

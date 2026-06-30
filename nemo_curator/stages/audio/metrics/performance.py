@@ -52,9 +52,6 @@ if TYPE_CHECKING:
 # and summarized as percentiles -- excluded from scalar totals so they are
 # never summed into a meaningless aggregate.
 _GPU_SAMPLE_KEYS = frozenset({"gpu_util_pct", "gpu_mem_used_pct"})
-_MAX_CUSTOM_METRIC_KEYS = frozenset(
-    {"expected_stage_gpu_count", "expected_stage_worker_count", "expected_worker_gpu_count"}
-)
 
 
 def _gpu_sample_base(key: str) -> str:
@@ -406,21 +403,6 @@ def _build_stage_summary(  # noqa: PLR0913
     if actor_breakdown:
         entry["per_actor"] = actor_breakdown
 
-    expected_gpu_count = custom_sums.get("expected_stage_gpu_count", 0.0)
-    if expected_gpu_count > 0:
-        active_gpu_count = float(entry.get("gpu_count", 0.0) or 0.0)
-        missing_gpu_count = max(0.0, expected_gpu_count - active_gpu_count)
-        entry["expected_gpu_count"] = expected_gpu_count
-        entry["active_sampled_gpu_count"] = active_gpu_count
-        entry["missing_or_unattributed_gpu_count"] = missing_gpu_count
-        entry["active_sampled_gpu_fraction"] = active_gpu_count / expected_gpu_count
-    expected_worker_count = custom_sums.get("expected_stage_worker_count", 0.0)
-    if expected_worker_count > 0:
-        entry["expected_worker_count"] = expected_worker_count
-    expected_worker_gpu_count = custom_sums.get("expected_worker_gpu_count", 0.0)
-    if expected_worker_gpu_count > 0:
-        entry["expected_worker_gpu_count"] = expected_worker_gpu_count
-
     if not custom_sums and not samples:
         return entry
 
@@ -683,13 +665,7 @@ class AudioPerformanceSummary:
                 if _gpu_sample_base(key) in _GPU_SAMPLE_KEYS:
                     continue
                 if isinstance(value, (int, float, bool)):
-                    if key in _MAX_CUSTOM_METRIC_KEYS:
-                        self._stage_custom_totals[perf.stage_name][key] = max(
-                            self._stage_custom_totals[perf.stage_name].get(key, 0.0),
-                            float(value),
-                        )
-                    else:
-                        self._stage_custom_totals[perf.stage_name][key] += float(value)
+                    self._stage_custom_totals[perf.stage_name][key] += float(value)
 
             self._stage_samples[perf.stage_name].add(perf)
             self._record_actor_breakdown(perf)

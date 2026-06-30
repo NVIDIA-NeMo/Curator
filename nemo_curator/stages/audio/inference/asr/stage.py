@@ -26,6 +26,7 @@ from __future__ import annotations
 import time
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
+from math import isclose
 from numbers import Real
 from threading import Lock
 from typing import TYPE_CHECKING, Any
@@ -34,13 +35,17 @@ import hydra.utils
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
-from nemo_curator.pipeline.payload_refs import PayloadRef, resolve_payload_refs_batched
+from nemo_curator.pipeline.payload_refs import (
+    PayloadRef,
+    release_payload_ref,
+    resolve_payload_refs_batched,
+)
 from nemo_curator.pipeline.prefetch import BoundedOneAheadPrefetchIterator
-from nemo_curator.stages.audio.inference.bucketed_stage import BucketedInferenceStage
 from nemo_curator.stages.audio.model_input_segmentation import plan_audio_segments, resolve_max_model_input_duration
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.payload_lifecycle import PayloadAwareStageMixin
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks import AudioTask, DispatchBatchTask
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -127,6 +132,14 @@ class _InferenceCall:
     items: list[dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class _PreparedDispatchBatch:
+    tasks: list[AudioTask]
+    items: list[dict[str, Any]]
+    aligned_results: list[ASRResult | None]
+    call: _InferenceCall | None
+
+
 _PAYLOAD_REF_ITEM_KEY = "_curator_payload_ref"
 _PAYLOAD_START_ITEM_KEY = "_curator_payload_start_sample"
 _PAYLOAD_STOP_ITEM_KEY = "_curator_payload_stop_sample"
@@ -143,12 +156,10 @@ class _PayloadCallMaterializer:
     def __init__(
         self,
         *,
-        resolve_max_batch_bytes: int | None,
         cache_max_bytes: int,
         consumer_node_id: str,
         slice_waveform: Callable[[object, int, int], object],
     ) -> None:
-        self._resolve_max_batch_bytes = resolve_max_batch_bytes
         self._cache_max_bytes = int(cache_max_bytes)
         self._consumer_node_id = consumer_node_id
         self._slice_waveform = slice_waveform
@@ -169,10 +180,7 @@ class _PayloadCallMaterializer:
 
         if missing:
             started = time.perf_counter()
-            payloads = resolve_payload_refs_batched(
-                missing,
-                max_batch_bytes=self._resolve_max_batch_bytes,
-            )
+            payloads = resolve_payload_refs_batched(missing)
             elapsed = time.perf_counter() - started
             with self._lock:
                 self.resolution_time_s += elapsed
@@ -198,8 +206,9 @@ class _PayloadCallMaterializer:
         return materialized
 
     def complete(self, call: _InferenceCall) -> None:
+        refs = self._unique_call_refs(call)
         with self._lock:
-            for ref in self._unique_call_refs(call):
+            for ref in refs:
                 key = _payload_cache_key(ref)
                 self._active[key] = max(0, self._active.get(key, 0) - 1)
             self._evict_inactive()
@@ -251,7 +260,7 @@ class _PayloadCallMaterializer:
 
 
 @dataclass
-class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTask, "dict[str, Any]", ASRResult]):
+class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
     """Audio speech-recognition Curator stage with pluggable adapter.
 
     Resolves an ``ASRAdapter`` from ``adapter_target``, slices long audio into
@@ -259,6 +268,8 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
     task. Duration-aware bucketing is controlled independently by
     ``batch_policy`` and packs already-created chunks.
     """
+
+    _curator_accepts_dispatch_batches = True
 
     # Adapter selection.
     adapter_target: str
@@ -288,7 +299,6 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
     # Optional payload-resolution optimization. Defaults preserve the eager
     # behavior used by existing pipelines; benchmark configs opt into bounded
     # one-call lookahead explicitly.
-    payload_resolve_max_batch_bytes: int | None = None
     payload_prefetch_enabled: bool = False
     payload_prefetch_max_bytes: int | None = None
 
@@ -338,14 +348,6 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
         if not isinstance(self.payload_prefetch_enabled, bool):
             msg = "ASRStage.payload_prefetch_enabled must be a bool"
             raise TypeError(msg)
-        if self.payload_resolve_max_batch_bytes is not None:
-            if (
-                isinstance(self.payload_resolve_max_batch_bytes, bool)
-                or int(self.payload_resolve_max_batch_bytes) <= 0
-            ):
-                msg = "ASRStage.payload_resolve_max_batch_bytes must be > 0 when set"
-                raise ValueError(msg)
-            self.payload_resolve_max_batch_bytes = int(self.payload_resolve_max_batch_bytes)
         if self.payload_prefetch_max_bytes is not None:
             if isinstance(self.payload_prefetch_max_bytes, bool) or int(self.payload_prefetch_max_bytes) <= 0:
                 msg = "ASRStage.payload_prefetch_max_bytes must be > 0 when set"
@@ -357,6 +359,24 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
         self._adapter_inference_items: int = 0
         self._warned_ray_per_node_pin = False
         self._supported_language_codes = self._normalise_supported_language_codes(self.supported_language_codes)
+
+    def validate_dispatch_source(self, source: object) -> None:
+        """Fail during graph expansion if an upstream plan cannot be dispatched unchanged."""
+        policy = self.batch_policy
+        if policy is None or not policy.enabled:
+            msg = f"Dispatch-batch owner {self.name!r} requires batch_policy.enabled=true"
+            raise ValueError(msg)
+        source_signature = getattr(source, "dispatch_policy_signature", None)
+        if not callable(source_signature):
+            msg = f"Dispatch-batch source {type(source).__name__} does not expose a policy signature"
+            raise TypeError(msg)
+        expected = policy.dispatch_signature(cost_unit="audio_seconds")
+        if source_signature() != expected:
+            msg = (
+                f"Dispatch-batch source constraints do not match owner {self.name!r} batch_policy; "
+                "both must use the same buckets, item caps, and total-cost cap"
+            )
+            raise ValueError(msg)
 
     @staticmethod
     def _normalise_supported_language_codes(value: object) -> set[str] | None:
@@ -550,40 +570,6 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
         )
         return [cls._slice_waveform(waveform, segment.start_sample, segment.stop_sample) for segment in segments]
 
-    def build_items(
-        self,
-        tasks: list[AudioTask],
-    ) -> tuple[list[dict[str, Any]], list[int]]:
-        """Expand tasks into the flat adapter item list + parent map.
-
-        ``BucketedInferenceStage`` hook (runs first each call): validates inputs,
-        resets per-call metric accumulators, then expands long clips into
-        model-input chunks using ``max_inference_duration_s``.
-
-        Returns:
-            ``(items, parent_of)`` where ``parent_of[i]`` is the originating task
-            index. Each item carries ``waveform`` (chunk or full),
-            ``sample_rate`` (unchanged), ``language`` (resolved name), ``task_id``,
-            ``audio_seconds``, and ``chunk_idx`` / ``chunk_count``.
-        """
-        for task in tasks:
-            if not self._validate_asr_task_input(task):
-                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
-                raise ValueError(msg)
-        if self._adapter is None:
-            msg = "Adapter not initialized - setup() was not called"
-            raise RuntimeError(msg)
-
-        self._acc_model_metrics = defaultdict(float)
-        self._inference_elapsed_s = 0.0
-        self._adapter_inference_calls = 0
-        self._adapter_inference_items = 0
-
-        chunk_specs = self._build_chunk_specs(tasks)
-        items = [self._chunk_spec_to_item(spec) for spec in chunk_specs]
-        parent_of = [spec.parent_idx for spec in chunk_specs]
-        return items, parent_of
-
     def _stitch(
         self,
         results: list[ASRResult],
@@ -637,7 +623,10 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
         msg = f"{type(self).__name__} only supports process_batch"
         raise NotImplementedError(msg)
 
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+    def process_batch(
+        self,
+        tasks: list[AudioTask | DispatchBatchTask],
+    ) -> list[AudioTask | DispatchBatchTask]:
         """Run one backend-provided ASR batch.
 
         Backend executors own how many parent rows reach this call. Model-input
@@ -648,6 +637,25 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
         """
         if len(tasks) == 0:
             return []
+        dispatch_flags = [isinstance(task, DispatchBatchTask) for task in tasks]
+        if any(dispatch_flags):
+            if not all(dispatch_flags):
+                msg = "ASRStage received a mixed batch of DispatchBatchTask and AudioTask rows"
+                raise TypeError(msg)
+            dispatch_batches = [task for task in tasks if isinstance(task, DispatchBatchTask)]
+            child_tasks = self._dispatch_child_tasks(dispatch_batches)
+            try:
+                if self.payload_prefetch_enabled and self._has_unresolved_payload_refs(child_tasks):
+                    return self._process_dispatch_batches(dispatch_batches)
+                inserted_waveforms: list[AudioTask] = []
+                try:
+                    inserted_waveforms = self._resolve_payload_refs(child_tasks)
+                    return self._process_dispatch_batches(dispatch_batches)
+                finally:
+                    self._drop_resolved_payload_waveforms(inserted_waveforms)
+            except Exception:
+                self._release_dispatch_payload_refs(child_tasks)
+                raise
         if self.payload_prefetch_enabled and self._has_unresolved_payload_refs(tasks):
             return self._process_plain_batch(tasks)
         inserted_waveforms: list[AudioTask] = []
@@ -657,6 +665,16 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
         finally:
             self._drop_resolved_payload_waveforms(inserted_waveforms)
 
+    @staticmethod
+    def _dispatch_child_tasks(dispatch_batches: list[DispatchBatchTask]) -> list[AudioTask]:
+        children: list[AudioTask] = []
+        for batch in dispatch_batches:
+            if not all(isinstance(item, AudioTask) for item in batch.items):
+                msg = f"ASRStage dispatch batch {batch.batch_id!r} contains non-audio tasks"
+                raise TypeError(msg)
+            children.extend(item for item in batch.items if isinstance(item, AudioTask))
+        return children
+
     def _has_unresolved_payload_refs(self, tasks: list[AudioTask]) -> bool:
         if not self.waveform_ref_key:
             return False
@@ -664,6 +682,15 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
             self.waveform_key not in task.data and isinstance(task.data.get(self.waveform_ref_key), PayloadRef)
             for task in tasks
         )
+
+    def _release_dispatch_payload_refs(self, tasks: list[AudioTask]) -> None:
+        """Mirror backend failure cleanup while refs are nested in an envelope."""
+        if not self.waveform_ref_key:
+            return
+        for task in tasks:
+            payload_ref = task.data.get(self.waveform_ref_key)
+            if isinstance(payload_ref, PayloadRef):
+                release_payload_ref(payload_ref)
 
     def _process_plain_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Dispatch one unbucketed backend batch.
@@ -699,18 +726,199 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
             raise RuntimeError(msg)
         return self.assemble(tasks, items, parent_of, results)
 
+    def _process_dispatch_batches(self, dispatch_batches: list[DispatchBatchTask]) -> list[DispatchBatchTask]:
+        """Execute every planner-owned envelope as exactly one adapter call."""
+        if self._adapter is None:
+            msg = "Adapter not initialized - setup() was not called"
+            raise RuntimeError(msg)
+
+        self._acc_model_metrics = defaultdict(float)
+        self._inference_elapsed_s = 0.0
+        self._adapter_inference_calls = 0
+        self._adapter_inference_items = 0
+
+        flat_tasks: list[AudioTask] = []
+        all_items: list[dict[str, Any]] = []
+        parent_of: list[int] = []
+        aligned_results: list[ASRResult | None] = []
+        calls: list[_InferenceCall] = []
+        batch_sizes: list[int] = []
+
+        for batch in dispatch_batches:
+            task_offset = len(flat_tasks)
+            prepared = self._prepare_dispatch_batch(
+                batch,
+                item_offset=len(all_items),
+            )
+            all_items.extend(prepared.items)
+            flat_tasks.extend(prepared.tasks)
+            parent_of.extend(range(task_offset, task_offset + len(prepared.tasks)))
+            aligned_results.extend(prepared.aligned_results)
+            batch_sizes.append(len(prepared.tasks))
+            if prepared.call is not None:
+                calls.append(prepared.call)
+
+        has_payload_refs = any(isinstance(item.get(_PAYLOAD_REF_ITEM_KEY), PayloadRef) for item in all_items)
+        if has_payload_refs:
+            results = self._run_payload_inference_calls(aligned_results, calls)
+        else:
+            results = self._run_inference_calls(aligned_results, calls)
+        processed_tasks = self.assemble(flat_tasks, all_items, parent_of, results)
+        self._log_metrics(
+            {
+                "dispatch_batches_input": float(len(dispatch_batches)),
+                "dispatch_batches_executed": float(len(calls)),
+                "dispatch_batch_items": float(len(all_items)),
+            }
+        )
+
+        rebuilt: list[DispatchBatchTask] = []
+        cursor = 0
+        for batch, batch_size in zip(dispatch_batches, batch_sizes, strict=True):
+            rebuilt.append(batch.with_items(processed_tasks[cursor : cursor + batch_size]))
+            cursor += batch_size
+        return rebuilt
+
+    def _prepare_dispatch_batch(
+        self,
+        batch: DispatchBatchTask,
+        *,
+        item_offset: int,
+    ) -> _PreparedDispatchBatch:
+        child_tasks = self._dispatch_child_tasks([batch])
+        for task in child_tasks:
+            if not self._validate_asr_task_input(task):
+                msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
+
+        chunk_specs = self._build_chunk_specs(child_tasks)
+        if len(chunk_specs) != len(child_tasks) or any(spec.chunk_count != 1 for spec in chunk_specs):
+            msg = (
+                f"Dispatch batch {batch.batch_id!r} was planned as model-ready, but ASR segmentation "
+                "would change its item boundaries"
+            )
+            raise RuntimeError(msg)
+        items = [self._chunk_spec_to_item(spec) for spec in chunk_specs]
+        self._validate_dispatch_batch(batch, items)
+        results, call = self._dispatch_call(items, item_offset=item_offset)
+        if any(spec.parent_idx != index for index, spec in enumerate(chunk_specs)):
+            msg = f"Dispatch batch {batch.batch_id!r} lost one-to-one child alignment"
+            raise RuntimeError(msg)
+        return _PreparedDispatchBatch(tasks=child_tasks, items=items, aligned_results=results, call=call)
+
+    def _dispatch_call(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        item_offset: int,
+    ) -> tuple[list[ASRResult | None], _InferenceCall | None]:
+        aligned_results: list[ASRResult | None] = [None] * len(items)
+        eligible_indices: list[int] = []
+        eligible_items: list[dict[str, Any]] = []
+        for local_index, item in enumerate(items):
+            if self._is_language_supported(item):
+                eligible_indices.append(item_offset + local_index)
+                eligible_items.append(item)
+                continue
+            code = str(item.get("language_code", "") or "").strip().lower()
+            aligned_results[local_index] = ASRResult(
+                text="",
+                skipped=True,
+                extras={"skip_reason": f"lang_not_supported:{code or 'unknown'}"},
+            )
+        call = _InferenceCall(indices=eligible_indices, items=eligible_items) if eligible_items else None
+        return aligned_results, call
+
+    def _validate_dispatch_batch(self, batch: DispatchBatchTask, items: list[dict[str, Any]]) -> None:
+        policy = self._dispatch_policy(batch)
+        if len(items) != len(batch.item_costs):
+            msg = f"Dispatch batch {batch.batch_id!r} item count changed before owner inference"
+            raise ValueError(msg)
+
+        observed_costs = [float(item.get("audio_seconds", 0.0)) for item in items]
+        self._validate_dispatch_cost_contract(batch, observed_costs)
+        self._validate_dispatch_caps(batch, policy, observed_costs)
+
+    def _dispatch_policy(self, batch: DispatchBatchTask) -> BatchPolicy:
+        owner_idents = {
+            str(value)
+            for value in (
+                getattr(self, "_curator_stage_id", None),
+                self.name,
+                type(self).__name__,
+                f"{type(self).__module__}.{type(self).__name__}",
+            )
+            if value
+        }
+        if batch.owner_stage not in owner_idents:
+            msg = (
+                f"Dispatch batch {batch.batch_id!r} belongs to owner {batch.owner_stage!r}, "
+                f"not ASR stage {sorted(owner_idents)}"
+            )
+            raise ValueError(msg)
+        policy = self.batch_policy
+        if policy is None or not policy.enabled:
+            msg = "ASRStage requires an enabled BatchPolicy to validate upstream dispatch batches"
+            raise ValueError(msg)
+        if batch.cost_unit != "audio_seconds":
+            msg = f"ASRStage expected audio_seconds dispatch cost, got {batch.cost_unit!r}"
+            raise ValueError(msg)
+        expected_signature = policy.dispatch_signature(cost_unit=batch.cost_unit)
+        if batch.policy_signature != expected_signature:
+            msg = f"Dispatch batch {batch.batch_id!r} policy constraints do not match the ASR owner policy"
+            raise ValueError(msg)
+        return policy
+
+    @staticmethod
+    def _validate_dispatch_cost_contract(
+        batch: DispatchBatchTask,
+        observed_costs: list[float],
+    ) -> None:
+        if any(cost < 0 for cost in observed_costs):
+            msg = f"Dispatch batch {batch.batch_id!r} contains a negative observed cost"
+            raise ValueError(msg)
+        planned_total = sum(float(cost) for cost in batch.item_costs)
+        if not isclose(batch.total_cost, planned_total, rel_tol=1e-7, abs_tol=1e-3):
+            msg = f"Dispatch batch {batch.batch_id!r} has inconsistent planned item and total costs"
+            raise ValueError(msg)
+
+    @staticmethod
+    def _validate_dispatch_caps(
+        batch: DispatchBatchTask,
+        policy: BatchPolicy,
+        observed_costs: list[float],
+    ) -> None:
+        observed_buckets = {policy.bucket_for(cost) for cost in observed_costs}
+        applicable_buckets = {batch.bucket_index, *observed_buckets}
+        item_cap = min(policy.max_items_per_batch_by_bucket[index] for index in applicable_buckets)
+        if len(observed_costs) > item_cap:
+            msg = f"Dispatch batch {batch.batch_id!r} has {len(observed_costs)} items, above owner cap {item_cap}"
+            raise ValueError(msg)
+        observed_total = sum(observed_costs)
+        if policy.max_audio_sec_per_batch is not None and observed_total > policy.max_audio_sec_per_batch + 1e-3:
+            msg = (
+                f"Dispatch batch {batch.batch_id!r} costs {observed_total:g} {batch.cost_unit}, "
+                f"above owner cap {policy.max_audio_sec_per_batch:g}"
+            )
+            raise ValueError(msg)
+
     def _run_inference_capped(self, items: list[dict[str, Any]]) -> list[ASRResult]:
-        """Run adapter calls with bucket-aware per-call item caps.
+        """Run adapter calls with policy batches as final model-call boundaries.
 
         When segmentation fans one backend batch out into many model work units,
-        cap each direct adapter call to avoid turning one long parent row into
-        an oversized vLLM request list. When ``BatchPolicy`` supplies
-        ``bucketed_inference_batch_size``, same-bucket short chunks can use a
-        larger model-call batch than long chunks; otherwise
-        ``adapter_batch_size`` is the fallback. Results are realigned to the
-        original item order.
+        bucket-on uses ``BatchPolicy`` to create final adapter calls bounded by
+        same-bucket membership, per-bucket item cap, and total cost. Bucket-off
+        keeps the normal ``adapter_batch_size`` / ``batch_size`` fallback.
+        Results are realigned to the original item order.
         """
         aligned_results, calls = self._plan_inference_calls(items)
+        return self._run_inference_calls(aligned_results, calls)
+
+    def _run_inference_calls(
+        self,
+        aligned_results: list[ASRResult | None],
+        calls: list[_InferenceCall],
+    ) -> list[ASRResult]:
         for call in calls:
             self._store_call_results(call, self.run_inference(call.items), aligned_results)
         return self._finalize_aligned_results(aligned_results)
@@ -721,16 +929,21 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
             msg = "payload_prefetch_max_bytes is required for payload-prefetched inference"
             raise RuntimeError(msg)
         aligned_results, calls = self._plan_inference_calls(items)
-        payload_refs = [
-            payload_ref for item in items if isinstance((payload_ref := item.get(_PAYLOAD_REF_ITEM_KEY)), PayloadRef)
-        ]
+        return self._run_payload_inference_calls(aligned_results, calls)
+
+    def _run_payload_inference_calls(
+        self,
+        aligned_results: list[ASRResult | None],
+        calls: list[_InferenceCall],
+    ) -> list[ASRResult]:
+        if self.payload_prefetch_max_bytes is None:
+            msg = "payload_prefetch_max_bytes is required for payload-prefetched inference"
+            raise RuntimeError(msg)
         materializer = _PayloadCallMaterializer(
-            resolve_max_batch_bytes=self.payload_resolve_max_batch_bytes,
             cache_max_bytes=self.payload_prefetch_max_bytes,
             consumer_node_id=self.payload_consumer_node_id(),
             slice_waveform=self._slice_waveform,
         )
-        self._start_payload_lease_keeper(payload_refs)
         try:
             prefetched_calls = BoundedOneAheadPrefetchIterator(
                 calls,
@@ -745,7 +958,6 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
                 finally:
                     materializer.complete(call)
         finally:
-            self._stop_payload_lease_keeper()
             self._log_payload_resolution_metrics(materializer)
             materializer.close()
         return self._finalize_aligned_results(aligned_results)
@@ -774,7 +986,7 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
         policy = self.batch_policy
         if policy is None or not policy.enabled:
             cursor = 0
-            for sub_items in self._split_items_for_inference_calls(eligible_items):
+            for sub_items in self._split_items_by_adapter_cap(eligible_items):
                 sub_indices = eligible_indices[cursor : cursor + len(sub_items)]
                 calls.append(_InferenceCall(indices=sub_indices, items=sub_items))
                 cursor += len(sub_items)
@@ -784,16 +996,12 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
             eligible_items,
             cost_fn=self.item_cost,
         ):
-            cursor = 0
-            for sub_items in self._split_items_for_inference_calls(bucket_items):
-                local_indices = bucket_indices[cursor : cursor + len(sub_items)]
-                calls.append(
-                    _InferenceCall(
-                        indices=[eligible_indices[index] for index in local_indices],
-                        items=sub_items,
-                    )
+            calls.append(
+                _InferenceCall(
+                    indices=[eligible_indices[index] for index in bucket_indices],
+                    items=bucket_items,
                 )
-                cursor += len(sub_items)
+            )
         return aligned_results, calls
 
     @staticmethod
@@ -837,40 +1045,14 @@ class ASRStage(PayloadAwareStageMixin, BucketedInferenceStage[AudioTask, AudioTa
             }
         )
 
-    def _split_items_for_inference_calls(self, items: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
-        """Split contiguous items by bucket-aware adapter-call batch size."""
-        batches: list[list[dict[str, Any]]] = []
-        current: list[dict[str, Any]] = []
-        current_bucket: int | None = None
-        current_cap = 1
-
-        for item in items:
-            bucket = self._bucket_for_inference_item(item)
-            cap = self._inference_batch_size_for_item(item)
-            if current and (bucket != current_bucket or len(current) >= current_cap):
-                batches.append(current)
-                current = []
-            current.append(item)
-            current_bucket = bucket
-            current_cap = cap
-
-        if current:
-            batches.append(current)
-        return batches
-
-    def _bucket_for_inference_item(self, item: dict[str, Any]) -> int | None:
-        policy = self.batch_policy
-        if policy is None or not policy.enabled or policy.bucketed_inference_batch_size is None:
-            return None
-        return policy.bucket_for(self.item_cost(item))
-
-    def _inference_batch_size_for_item(self, item: dict[str, Any]) -> int:
+    def _split_items_by_adapter_cap(self, items: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+        """Split bucket-off work by the stage's fallback adapter-call item cap."""
         fallback_source = self.adapter_batch_size if self.adapter_batch_size is not None else self.batch_size
-        fallback = max(1, int(fallback_source or 1))
-        policy = self.batch_policy
-        if policy is None:
-            return fallback
-        return policy.inference_batch_size_for_cost(self.item_cost(item), fallback)
+        cap = max(1, int(fallback_source or 1))
+        batches: list[list[dict[str, Any]]] = []
+        for start in range(0, len(items), cap):
+            batches.append(items[start : start + cap])
+        return batches
 
     def _build_chunk_specs(self, tasks: list[AudioTask]) -> list[_ChunkSpec]:
         """Build model-input descriptors from waveforms or payload metadata."""

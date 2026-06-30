@@ -118,16 +118,6 @@ def test_batch_policy_numeric_field_validation() -> None:
     with pytest.raises(TypeError, match="max_items_per_batch_by_bucket entry must be an int"):
         BatchPolicy(buckets_sec=[0, 60], max_items_per_batch_by_bucket=[1, True])  # type: ignore[list-item]
 
-    with pytest.raises(ValueError, match="bucketed_inference_batch_size has 1 entries"):
-        BatchPolicy(buckets_sec=[0, 60], max_items_per_batch_by_bucket=[1, 1], bucketed_inference_batch_size=[1])
-
-    with pytest.raises(TypeError, match="bucketed_inference_batch_size entry must be an int"):
-        BatchPolicy(
-            buckets_sec=[0, 60],
-            max_items_per_batch_by_bucket=[1, 1],
-            bucketed_inference_batch_size=[1, True],  # type: ignore[list-item]
-        )
-
     with pytest.raises(TypeError, match="max_audio_sec_per_batch must be numeric or None"):
         BatchPolicy(max_audio_sec_per_batch=True)  # type: ignore[arg-type]
 
@@ -422,19 +412,17 @@ def test_asr_batch_policy_respects_audio_sec_cap() -> None:
     assert stage._adapter.transcribe_batch.call_count == 2
 
 
-def test_asr_bucketed_inference_batch_size_controls_adapter_call_cap() -> None:
+def test_asr_batch_policy_batches_are_adapter_call_boundaries() -> None:
     policy = BatchPolicy(
         strategy="duration_bucketed",
         buckets_sec=[0, 60, 600],
         max_items_per_batch_by_bucket=[10, 10, 10],
-        bucketed_inference_batch_size=[3, 2, 1],
         max_audio_sec_per_batch=None,
     )
     stage = _make_stage(batch_policy=policy)
     stage.batch_size = 99
     stage._adapter.transcribe_batch.side_effect = [
-        [ASRResult(text="long-a")],
-        [ASRResult(text="long-b")],
+        [ASRResult(text="long-a"), ASRResult(text="long-b")],
         [ASRResult(text="medium-a"), ASRResult(text="medium-b")],
         [ASRResult(text="short-a"), ASRResult(text="short-b"), ASRResult(text="short-c")],
     ]
@@ -454,7 +442,7 @@ def test_asr_bucketed_inference_batch_size_controls_adapter_call_cap() -> None:
     durations_by_call = [
         [item["audio_seconds"] for item in call.args[0]] for call in stage._adapter.transcribe_batch.call_args_list
     ]
-    assert durations_by_call == [[700.0], [710.0], [120.0, 130.0], [5.0, 10.0, 15.0]]
+    assert durations_by_call == [[700.0, 710.0], [120.0, 130.0], [5.0, 10.0, 15.0]]
 
 
 def test_asr_batch_policy_none_runs_single_adapter_call() -> None:

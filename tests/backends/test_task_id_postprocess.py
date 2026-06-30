@@ -29,9 +29,12 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask, Task
 from nemo_curator.tasks.task_terminals import (
     TERMINAL_COUNT_KEY,
+    TERMINAL_DROPPED_BY_STAGE_KEY,
     TERMINAL_DROPPED_KEY,
     TERMINAL_GROUP_ID_KEY,
     TERMINAL_INDEX_KEY,
+    TERMINAL_SOURCE_INDEX_KEY,
+    preserve_dropped_terminal_tasks,
 )
 
 
@@ -80,16 +83,49 @@ class _SimpleTask(Task[list[int]]):
         return True
 
 
+@dataclass
+class _RoutedAudioTask(AudioTask):
+    route: str = "default-route"
+
+
 def _task(task_id: str = "") -> _SimpleTask:
     t = _SimpleTask(dataset_name="d", data=[])
     t.task_id = task_id
     return t
 
 
+def _terminal_task(index: int, *, count: int = 2, source_index: int = 7, **data: object) -> AudioTask:
+    task = AudioTask(
+        dataset_name="d",
+        data={
+            TERMINAL_GROUP_ID_KEY: "parent-0",
+            TERMINAL_INDEX_KEY: index,
+            TERMINAL_COUNT_KEY: count,
+            TERMINAL_SOURCE_INDEX_KEY: source_index,
+            **data,
+        },
+    )
+    task.task_id = f"0_{index}"
+    return task
+
+
 def _assign(tasks: list[Task], results: list[Task | None], *, is_source: bool = False) -> list[Task]:
     stage = _NoopStage()
     stage.is_source_stage = is_source
     return BaseStageAdapter(stage)._post_process_task_ids(tasks, results)
+
+
+def test_payload_tracking_reads_only_configured_top_level_ref() -> None:
+    top_level = PayloadRef("top", "node", "store", "admission", 1, 16_000, 1)
+    nested = PayloadRef("nested", "node", "store", "admission", 1, 16_000, 1)
+    task = AudioTask(data={"payload_ref": top_level, "nested": {"payload_ref": nested}})
+    stage = _NoopStage()
+    stage._curator_tracks_payload_refs = True
+    stage._curator_payload_ref_key = "payload_ref"
+
+    refs = BaseStageAdapter(stage)._collect_payload_refs([task])
+
+    assert refs == {"top": top_level}
 
 
 class TestPostProcessTaskIds:
@@ -190,15 +226,91 @@ class TestPostProcessTaskIds:
         keep.task_id = "0_0"
         drop.task_id = "0_1"
 
-        out = BaseStageAdapter(_DropSegmentRowStage()).process_batch([keep, drop])
+        stage = _DropSegmentRowStage()
+        stage._curator_stage_id = "configured_dropper"
+        out = BaseStageAdapter(stage).process_batch([keep, drop])
 
         assert len(out) == 2
         tombstone = out[1]
         assert tombstone.data["_skip_me"] == "dropped_segment_row"
         assert tombstone.data[TERMINAL_DROPPED_KEY] is True
+        assert tombstone.data[TERMINAL_DROPPED_BY_STAGE_KEY] == "configured_dropper"
         assert "_curator_segment_dropped" not in tombstone.data
         assert "large_payload" not in tombstone.data
         assert tombstone.task_id == "0_1_0"
+
+    def test_shorter_terminal_output_adds_missing_tombstone_in_input_order(self) -> None:
+        first = _terminal_task(0)
+        second = _terminal_task(1)
+
+        out = preserve_dropped_terminal_tasks(_DropSegmentRowStage(), [first, second], [first])
+
+        assert out[0] is first
+        assert out[1] is not None
+        assert out[1].data[TERMINAL_INDEX_KEY] == 1
+        assert out[1].data[TERMINAL_SOURCE_INDEX_KEY] == 7
+        assert out[1].data[TERMINAL_DROPPED_KEY] is True
+
+    def test_reordered_terminal_outputs_keep_their_explicit_terminal_identity(self) -> None:
+        first = _terminal_task(0)
+        second = _terminal_task(1)
+
+        out = preserve_dropped_terminal_tasks(_DropSegmentRowStage(), [first, second], [second, first])
+
+        assert out == [second, first]
+        assert [task.data[TERMINAL_INDEX_KEY] for task in out if task is not None] == [1, 0]
+
+    def test_replacement_without_terminal_metadata_is_kept_and_missing_terminal_gets_tombstone(self) -> None:
+        first = _terminal_task(0)
+        second = _terminal_task(1)
+        replacement = AudioTask(dataset_name="d", data={"replacement": True})
+
+        out = preserve_dropped_terminal_tasks(
+            _DropSegmentRowStage(),
+            [first, second],
+            [replacement, second],
+        )
+
+        assert out[:2] == [replacement, second]
+        assert out[2] is not None
+        assert out[2].data[TERMINAL_INDEX_KEY] == 0
+        assert out[2].data[TERMINAL_DROPPED_KEY] is True
+
+    def test_conflicting_terminal_identity_is_not_substituted_for_missing_input_identity(self) -> None:
+        first = _terminal_task(0)
+        second = _terminal_task(1)
+        conflicting = _terminal_task(9)
+
+        out = preserve_dropped_terminal_tasks(
+            _DropSegmentRowStage(),
+            [first, second],
+            [conflicting, second],
+        )
+
+        assert conflicting not in out
+        assert out[0] is not None
+        assert out[0].data[TERMINAL_INDEX_KEY] == 0
+        assert out[0].data[TERMINAL_DROPPED_KEY] is True
+        assert out[1] is second
+
+    def test_tombstone_reconstruction_preserves_optional_subclass_fields(self) -> None:
+        task = _RoutedAudioTask(
+            dataset_name="d",
+            route="custom-route",
+            data={
+                TERMINAL_GROUP_ID_KEY: "parent-0",
+                TERMINAL_INDEX_KEY: 0,
+                TERMINAL_COUNT_KEY: 1,
+                TERMINAL_SOURCE_INDEX_KEY: 0,
+            },
+        )
+
+        [tombstone] = preserve_dropped_terminal_tasks(_DropSegmentRowStage(), [task], [None])
+
+        assert tombstone is not None
+        assert isinstance(tombstone, _RoutedAudioTask)
+        assert tombstone.route == "custom-route"
+        assert type(tombstone.data) is type(task.data)
 
 
 class TestSourceStage:

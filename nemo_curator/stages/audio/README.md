@@ -214,7 +214,9 @@ confused:
    only a lightweight `PayloadRef` through normal `Task.data`.
 3. **Model-call batching** decides how many bounded model-input segments go
    into one adapter call after long audio has been segmented and optionally
-   duration bucketed inside `ASRStage.process_batch()`.
+   duration bucketed inside `ASRStage.process_batch()`. The shared stage also
+   understands atomic `DispatchBatchTask` rows from a full-dataset planner,
+   although this local reader emits ordinary rows only.
 
 The raw in-memory Qwen-style ASR shape is expressed in config as logical
 stages plus a `payload_lifecycle` rule. The rule inserts materialization after
@@ -239,17 +241,23 @@ with its own CPU/GPU contract.
 
 Payload lifecycle is intentionally a mechanical expansion rule, not a second
 pipeline scheduler. It is applied by `Pipeline.build()` before composite-stage
-decomposition and executor planning. Simple pipelines can use
-`payload_keys: [audio_filepath]`; multi-source pipelines should use
-`payloads:` entries with explicit `source_key`, `ref_key`, `waveform_key`,
-`sample_rate_key`, `num_samples_key`, and optional `duration_key`. Any number
-of downstream payload-aware consumers can share those refs. A consumer must
-implement `PayloadAwareStageMixin` or an equivalent
-`resolve_payload_refs_for_batch()` plus `payload_bindings()` contract so it can
-resolve and drop every declared `PayloadRef` handle inside its own
-`process_batch()` call. This local/windowed branch does not perform
-full-manifest global planning; duration-aware bucketing stays inside each
-backend-visible consumer's `process_batch()` call.
+decomposition and executor planning. Each row has exactly one large payload,
+configured with singular `source_key`, `ref_key`, `waveform_key`,
+`sample_rate_key`, `num_samples_key`, and optional `duration_key` fields. Any
+number of downstream payload-aware consumers can share that one ref. A consumer
+must implement `PayloadAwareStageMixin` or an equivalent
+`resolve_payload_refs_for_batch()` plus `payload_binding()` contract so it can
+resolve and drop the `PayloadRef` inside its own `process_batch()` call. This
+local/windowed branch does not perform full-manifest global planning;
+duration-aware bucketing stays inside each backend-visible consumer's
+`process_batch()` call.
+
+There is one logical `AudioPayloadMaterializeStage` in the graph, not one
+singleton materializer actor. Ray Data and Xenna may execute that stage
+concurrently on several workers and nodes. Materializer executions on the same
+node share one named, node-affined payload-store actor; all stores share one
+run-scoped admission actor that reserves bytes before decode and enforces the
+optional cluster-wide cap.
 
 To add another CPU or GPU stage that needs decoded audio, list the new logical
 stage after the reader and before the writer, add its stage id to
@@ -262,7 +270,7 @@ listed as payload consumers; they only need to run before `PayloadReleaseStage`
 if they depend on payload-ref metadata that release will strip.
 
 The payload lifecycle planner is still generic in this branch: it can
-materialize one or more configured payload sources once, keep any number of
+materialize one configured payload source once, keep any number of
 payload-aware CPU/GPU stages backend-visible, and release refs after the final
 consumer. It does not decide global segment ownership and does not change how
 Xenna streaming, Xenna batch, or Ray Data split work across visible stages.
@@ -282,15 +290,16 @@ Reusable pieces live alongside the audio inference stages:
 
 | Component | Location | Role |
 |---|---|---|
-| `AudioPayloadMaterializeStage` | `stages/payload_lifecycle.py` | Uses `AudioFileReaderStage` to decode one staged local audio row, reserves positive duration-derived byte tokens from a Ray-backed admission actor before decode, stores the waveform in a node-local payload store actor, and emits a `PayloadRef` instead of raw waveform bytes. Admission tracks per-node usage and can also enforce an explicit cluster-wide payload cap. The reservation uses `lease_ttl_s` during decode, switches to the longer finite `materialized_lease_ttl_s` after publication, and fails with an admission snapshot if `admission_wait_timeout_s` elapses. Explicit release is the normal path; finite expiry reclaims orphaned published rows. |
-| `PayloadReleaseStage` | `stages/payload_lifecycle.py` | Releases payload-store entries and admission reservations once downstream stages no longer need the waveform. |
-| `PayloadRef` | `stages/payload_lifecycle.py` | Lightweight serializable handle carried through `Task.data`; compute stages resolve it only when they need the waveform. |
-| `PayloadAwareStageMixin` | `stages/payload_lifecycle.py` | Reusable helper for CPU/GPU stages that need payload bytes. It resolves `PayloadRef` values with actor-grouped, byte-bounded RPCs at `process_batch()` time and drops temporary waveform tensors before returning. |
+| `AudioPayloadMaterializeStage` | `stages/payload_lifecycle.py` | Uses `AudioFileReaderStage` to decode one staged local audio row, reserves positive duration-derived byte tokens from a Ray-backed admission actor before decode, stores the waveform in a node-local payload store actor, and emits a `PayloadRef` instead of raw waveform bytes. Admission tracks per-node usage and can also enforce an explicit cluster-wide payload cap. Decode reservations have a fixed internal expiry; once publication succeeds, the store entry and admission accounting remain live until explicit release or executor cleanup. |
+| `PayloadReleaseStage` | `stages/payload_lifecycle.py` | Releases the configured top-level payload ref and its admission reservation after the final consumer. Recursive discovery is used only as defensive cleanup when the expected key is absent. |
+| `PayloadRef` | `pipeline/payload_refs.py` | Lightweight serializable handle carried through `Task.data`; compute stages resolve it only when they need the waveform. |
+| `PayloadAwareStageMixin` | `stages/payload_lifecycle.py` | Reusable helper for CPU/GPU stages that need payload bytes. It resolves all refs required by one already-bounded model call with actor-grouped store RPCs and drops temporary waveform tensors before returning. Published entries do not expire, so resolution has no heartbeat or lease-renewal RPC. |
 | `BoundedOneAheadPrefetchIterator` | `pipeline/prefetch.py` | Backend-neutral opt-in helper that overlaps one next work-item load while bounding estimated current-plus-next bytes. The Qwen ASR config uses it per adapter call; existing consumers keep eager resolution by default. |
+| `DispatchBatchTask` | `tasks/dispatch_batch.py` | Backend-neutral atomic row containing exact child tasks, costs, bucket, owner, and policy signature for one owner dispatch. The local reader does not emit it. |
+| `DispatchBatchUnpackStage` | `stages/dispatch_batch.py` | Generic fan-out stage for returning a processed dispatch envelope to ordinary child task rows. It is dormant in the local graph. |
 | `AudioFileReaderStage` | `stages/audio/io/audio_file_reader.py` | Opens a local audio file and decodes/resamples it into an in-memory waveform. In handle-based pipelines it is used by `AudioPayloadMaterializeStage`, not placed before every GPU stage. |
-| `BatchPolicy` | `stages/audio/inference/batch_policy.py` | Duration/cost bucket config (`buckets_sec`, `max_items_per_batch_by_bucket`, `bucketed_inference_batch_size`, `max_audio_sec_per_batch`). |
+| `BatchPolicy` | `stages/audio/inference/batch_policy.py` | Duration/cost bucket config (`buckets_sec`, `max_items_per_batch_by_bucket`, `max_audio_sec_per_batch`). |
 | `run_bucketed` | `stages/audio/inference/batch_policy.py` | Helper that dispatches cost-bucketed sub-batches and realigns results to original order. |
-| `BucketedInferenceStage` | `stages/audio/inference/bucketed_stage.py` | Abstract inference-stage base for item expansion, bucketed model dispatch, and parent reassembly. |
 
 Import these from `nemo_curator.stages.audio.io`,
 `nemo_curator.stages.payload_lifecycle`, and
@@ -307,7 +316,7 @@ tour for reviewers.
    `pipeline/pipeline.py:139`.
 2. `expand_payload_lifecycle_stages()` reads the lifecycle config, validates
    `materialize_after` / `consumers` / `release_after`, asks the reader for
-   materializers, and inserts release:
+   one materializer, and inserts release:
    `pipeline/payload_lifecycle.py:39`,
    `pipeline/payload_lifecycle.py:64`,
    `pipeline/payload_lifecycle.py:377`,
@@ -375,12 +384,11 @@ scheduled. Inside that call:
    become one segment.
 2. The flat segment/item list is bucketed by `BatchPolicy` when
    `batch_policy.enabled=True`.
-3. `max_items_per_batch_by_bucket` and `max_audio_sec_per_batch` determine which
-   same-bucket segments are considered together.
-4. `bucketed_inference_batch_size` determines the final adapter-call item cap
-   per duration bucket. This is the knob for "short segments can run more
-   samples per model call; long segments stay single-item."
-5. Results are realigned to original item order and stitched back to one output
+3. `max_items_per_batch_by_bucket` and `max_audio_sec_per_batch` determine the
+   final adapter-call boundaries for same-bucket segments. Short segments can
+   run multiple samples per model call; long segments stay small because the
+   total-cost cap prevents oversized calls.
+4. Results are realigned to original item order and stitched back to one output
    row per input parent.
 
 When `batch_policy.enabled=False`, model-input segmentation still happens as
@@ -394,27 +402,31 @@ There are three distinct batch-size knobs:
   it to decide how many parent rows reach one `process_batch()` call.
 - `adapter_batch_size` is the fallback cap for one adapter/model call when no
   enabled `BatchPolicy` supplies a bucket-specific cap.
-- `bucketed_inference_batch_size` is the per-duration-bucket adapter/model-call
-  cap used when `batch_policy.enabled=True`.
+- when `batch_policy.enabled=True`, `max_items_per_batch_by_bucket` and
+  `max_audio_sec_per_batch` define the actual adapter/model-call boundaries.
 
-The core `BucketedInferenceStage` hook contract is:
+`ASRStage` is a normal batched `ProcessingStage`. Its `process_batch()` owns the
+current Qwen path directly:
 
 ```text
-build_items(tasks)   -> (items, parent_of)   expand parent tasks into model items
-item_cost(item)      -> float                duration/cost used for bucketing
-run_inference(items) -> results              one adapter call; results are 1:1
-assemble(tasks, items, parent_of, results) -> out_tasks
+input AudioTask rows
+  -> validate required columns
+  -> create model-input descriptors and parent stitch-back indices
+  -> plan adapter calls with BatchPolicy, or trust validated dispatch envelopes
+  -> resolve payload refs only for the current bounded adapter call
+  -> run the adapter
+  -> realign item results and stitch them back to one output row per input row
 ```
 
-Some stages may expose optional scheduler hooks, but the Qwen raw in-memory
-pipeline does not rely on reader or payload prebatching. Keep batching decisions
-at the backend stage level and at the ASR model-call level.
+`BatchPolicy` remains reusable for other inference stages through direct calls
+to `bucketize()`, `bucketize_with_costs()`, or `run_bucketed()`. There is no
+separate abstract inference-stage base in this PR.
 
 ### The ASR adapter split (Tier-1 / Tier-2)
 
 For audio speech recognition the concrete stage is `ASRStage`
-(`stages/audio/inference/asr/stage.py`), a `BucketedInferenceStage`
-subclass that owns only Curator-side glue — input validation, ISO-code ->
+(`stages/audio/inference/asr/stage.py`), a batched `ProcessingStage`
+that owns only Curator-side glue — input validation, ISO-code ->
 language-name resolution, model-input segmentation for clips longer than
 `max_inference_duration_s`, stitch-back, and metrics. The *model-specific* logic
 (vLLM setup, prompt formatting, two-turn generation) lives behind a swappable
@@ -448,11 +460,13 @@ Curator-specific `AudioTask` objects.
 
 Swapping the model is a one-line `adapter_target:` change in YAML; the
 adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
-`tutorials/audio/qwen_omni_inprocess/` for the end-to-end config.
+`examples/audio/qwen_omni_raw_inprocess/` for the prompt assets and raw
+Qwen example notes.
 
 > **Per-call accumulator note (multi-worker safety):** `ASRStage` keeps a
 > couple of per-`process_batch` accumulators on `self` (model-metric sums,
-> inference wall time), reset in `build_items` and consumed in `assemble`.
+> inference wall time), reset at the start of the ASR batch path and consumed
+> when output rows are assembled.
 > This is safe because each worker runs one `process_batch` at a time
 > (Ray Actor Pool / Ray Data / single-slot Xenna). Do not enable an
 > executor that overlaps invocations on one stage instance without making
@@ -464,7 +478,7 @@ adapter class is resolved at `setup()` via `hydra.utils.get_class`. See
 |---|---|---|
 | CPU, one task at a time | `ProcessingStage[AudioTask, AudioTask]` | `process` |
 | GPU/IO, one batched call, no bucketing | `ProcessingStage` | `process_batch` (e.g. `InferenceAsrNemoStage`) |
-| GPU inference needing cost/duration bucketing + a swappable model | `BucketedInferenceStage` + an adapter | the four hooks (e.g. `ASRStage` + `ASRAdapter`) |
+| GPU inference needing cost/duration bucketing + a swappable model | `ProcessingStage` + `BatchPolicy` + an adapter | `process_batch` plans model items and adapter calls explicitly (e.g. `ASRStage` + `ASRAdapter`) |
 
 ## Performance metrics (`perf_summary.json`)
 

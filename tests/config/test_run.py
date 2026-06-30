@@ -253,6 +253,46 @@ def test_pipeline_with_empty_stages_list():
     assert pipeline.name == "yaml_pipeline"
 
 
+def test_pipeline_stage_metadata_selectors_and_stage_with():
+    cfg = OmegaConf.create(
+        {
+            "stages_to_run": ["reader"],
+            "stages_to_skip": ["disabled_reader"],
+            "stages": [
+                {
+                    "stage_id": "reader",
+                    "_target_": "nemo_curator.stages.text.io.reader.JsonlReader",
+                    "file_paths": "./data",
+                    "files_per_partition": None,
+                    "blocksize": None,
+                    "fields": None,
+                    "stage_with": {
+                        "batch_size": 7,
+                        "extended_performance_metrics": True,
+                    },
+                },
+                {
+                    "stage_id": "disabled_reader",
+                    "enabled": False,
+                    "_target_": "nemo_curator.stages.text.io.reader.JsonlReader",
+                    "file_paths": "./other",
+                    "files_per_partition": None,
+                    "blocksize": None,
+                    "fields": None,
+                },
+            ],
+        }
+    )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+
+    assert len(pipeline.stages) == 1
+    assert isinstance(pipeline.stages[0], JsonlReader)
+    assert pipeline.stages[0]._curator_stage_id == "reader"
+    assert pipeline.stages[0].batch_size == 7
+    assert pipeline.stages[0].extended_performance_metrics is True
+
+
 @patch("hydra.utils.instantiate")
 def test_workflow_creation_single_workflow(mock_instantiate: MagicMock):
     mock_workflow = MagicMock()

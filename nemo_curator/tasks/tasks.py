@@ -29,14 +29,15 @@ class Task(ABC, Generic[T]):
     (text, audio, video) can implement their own task types.
 
     Attributes:
-        task_id: Deterministic identifier for this task. NOT user-settable —
-            the framework assigns it via ``_set_task_id`` at every stage
-            boundary. It is an underscore-joined id path through the pipeline
-            DAG — the parents' ids plus this task's own segment (e.g.
-            ``"abc123_0_5"`` = source ``abc123``, then child 0, then
-            grandchild 5). Using the readable path directly (rather than a
-            hash of it) keeps task ids easy to debug. Empty string until the
-            first stage runs; two runs of the same pipeline on the same
+        task_id: Deterministic identifier for this task. The constructor still
+            accepts ``task_id=`` for compatibility with existing Curator code,
+            but pipeline execution treats it as framework-owned and rewrites it
+            via ``_set_task_id`` at stage boundaries. It is an underscore-joined
+            id path through the pipeline DAG — the parents' ids plus this task's
+            own segment (e.g. ``"abc123_0_5"`` = source ``abc123``, then child
+            0, then grandchild 5). Using the readable path directly (rather
+            than a hash of it) keeps task ids easy to debug. Empty string until
+            the first stage runs; two runs of the same pipeline on the same
             inputs produce byte-identical ``task_id``s across all tasks.
 
             A ``task_id`` that starts with ``"r"`` (followed by a uuid) is a
@@ -52,7 +53,7 @@ class Task(ABC, Generic[T]):
     data: T
     _stage_perf: list[StagePerfStats] = field(default_factory=list)
     _metadata: dict[str, Any] = field(default_factory=dict)
-    task_id: str = field(init=False, default="")
+    task_id: str = ""
 
     def __post_init__(self) -> None:
         """Post-initialization hook."""

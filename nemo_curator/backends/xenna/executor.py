@@ -169,9 +169,9 @@ class XennaExecutor(BaseExecutor):
             results = pipelines_v1.run_pipeline(pipeline_spec)
             hardware_perf = self._stop_pipeline_hardware_sampler(hardware_sampler)
             hardware_sampler = []
-            if results:
+            hardware_perf_published = self._publish_external_perf(stages, hardware_perf)
+            if results and not hardware_perf_published:
                 self._attach_pipeline_hardware_perf(results, hardware_perf)
-            self._publish_external_perf(stages, hardware_perf)
             logger.info(f"Pipeline completed successfully with {len(results) if results else 0} output tasks")
         except Exception as e:
             logger.error(f"Pipeline execution failed: {e}")

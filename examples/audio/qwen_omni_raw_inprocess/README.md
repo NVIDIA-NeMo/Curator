@@ -1,7 +1,7 @@
-# Qwen-Omni In-Process ASR Assets
+# Qwen-Omni Raw In-Process ASR Assets
 
-This folder contains prompt templates used by the Qwen-Omni in-process ASR
-adapter.
+This folder contains prompt templates used by the Qwen-Omni raw-manifest
+in-process ASR adapter.
 
 Install the runtime with `uv sync --extra audio_qwen`. The dedicated extra
 keeps Qwen/vLLM dependencies out of existing `audio_cuda12` installations.
@@ -25,6 +25,9 @@ outside the prompt files:
 - audio decode and payload refs live in `nemo_curator/stages/payload_lifecycle.py`;
 - local/windowed ASR model-input segmentation and batching live in
   `nemo_curator/stages/audio/inference/asr/stage.py`;
+- generic dispatch envelopes and fan-out live in
+  `nemo_curator/tasks/dispatch_batch.py` and
+  `nemo_curator/stages/dispatch_batch.py`; the local reader does not emit them;
 - Qwen/vLLM request construction lives in `nemo_curator/models/asr/qwen_omni.py`.
 
 Prompt files may use `{language}` and `{transcript}` placeholders when the

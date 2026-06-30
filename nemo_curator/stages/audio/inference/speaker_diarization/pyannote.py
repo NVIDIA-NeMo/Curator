@@ -85,7 +85,7 @@ class PyAnnoteDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         embedding_batch_size: Batch size for speaker embeddings
         min_length: Minimum segment length in seconds
         max_length: Maximum segment length in seconds
-        xenna_num_workers: If set, caps workers cluster-wide. Prefer ``with_(num_workers=...)`` for new code.
+        xenna_num_workers: If set, caps workers cluster-wide.
     """
 
     hf_token: str

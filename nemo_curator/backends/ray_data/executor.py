@@ -109,8 +109,8 @@ class RayDataExecutor(BaseExecutor):
             output_tasks = self._dataset_to_tasks(current_dataset)
             hardware_perf = self._stop_pipeline_hardware_sampler(hardware_sampler)
             hardware_sampler = []
-            self._attach_pipeline_hardware_perf(output_tasks, hardware_perf)
-            self._publish_external_perf(stages, hardware_perf)
+            if not self._publish_external_perf(stages, hardware_perf):
+                self._attach_pipeline_hardware_perf(output_tasks, hardware_perf)
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.

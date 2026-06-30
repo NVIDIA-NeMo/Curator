@@ -17,31 +17,19 @@ class _RemoteMethod:
         return self._function(*args, **kwargs)
 
 
-class _AdmissionActor:
-    def __init__(self) -> None:
-        self.calls: list[list[tuple[str, str, float | None]]] = []
-        self.heartbeat_many = _RemoteMethod(self._heartbeat_many)
-
-    def _heartbeat_many(self, requests: list[tuple[str, str, float | None]]) -> list[bool]:
-        self.calls.append(requests)
-        return [True] * len(requests)
-
-
 class _StoreActor:
     def __init__(self, values: dict[str, object]) -> None:
         self.values = values
-        self.pin_calls: list[list[tuple[str, float | None]]] = []
-        self.get_calls: list[list[tuple[str, float | None]]] = []
-        self.pin_many = _RemoteMethod(self._pin_many)
+        self.get_calls: list[list[str]] = []
         self.get_many = _RemoteMethod(self._get_many)
 
-    def _pin_many(self, requests: list[tuple[str, float | None]]) -> list[bool]:
-        self.pin_calls.append(requests)
-        return [payload_id in self.values for payload_id, _ttl in requests]
-
-    def _get_many(self, requests: list[tuple[str, float | None]]) -> list[object]:
-        self.get_calls.append(requests)
-        return [self.values[payload_id] for payload_id, _ttl in requests]
+    def _get_many(self, payload_ids: list[str]) -> list[object]:
+        self.get_calls.append(payload_ids)
+        missing = next((payload_id for payload_id in payload_ids if payload_id not in self.values), None)
+        if missing is not None:
+            msg = f"Payload {missing} is no longer present"
+            raise KeyError(msg)
+        return [self.values[payload_id] for payload_id in payload_ids]
 
 
 def _ref(payload_id: str, *, amount_bytes: int = 6) -> PayloadRef:
@@ -56,35 +44,23 @@ def _ref(payload_id: str, *, amount_bytes: int = 6) -> PayloadRef:
     )
 
 
-def test_resolve_payload_refs_batched_is_byte_bounded_and_ordered(monkeypatch: pytest.MonkeyPatch) -> None:
-    admission = _AdmissionActor()
+def test_resolve_payload_refs_batched_deduplicates_and_preserves_order(monkeypatch: pytest.MonkeyPatch) -> None:
     store = _StoreActor({"a": "payload-a", "b": "payload-b"})
-    actors = {"admission": admission, "store": store}
+    actors = {"store": store}
     monkeypatch.setattr(payload_refs, "_get_named_actor", lambda name, _namespace=None: actors[name])
     monkeypatch.setattr(payload_refs, "_ray_get", lambda value: value)
 
-    resolved = payload_refs.resolve_payload_refs_batched(
-        [_ref("b"), _ref("a"), _ref("b")],
-        max_batch_bytes=10,
-    )
+    resolved = payload_refs.resolve_payload_refs_batched([_ref("b"), _ref("a"), _ref("b")])
 
     assert resolved == ["payload-b", "payload-a", "payload-b"]
-    assert [[request[1] for request in call] for call in admission.calls] == [["b"], ["a"]]
-    assert [[request[0] for request in call] for call in store.pin_calls] == [["b"], ["a"]]
-    assert [[request[0] for request in call] for call in store.get_calls] == [["b"], ["a"]]
+    assert store.get_calls == [["b", "a"]]
 
 
 def test_resolve_payload_refs_batched_rejects_missing_store_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    admission = _AdmissionActor()
     store = _StoreActor({})
-    actors = {"admission": admission, "store": store}
+    actors = {"store": store}
     monkeypatch.setattr(payload_refs, "_get_named_actor", lambda name, _namespace=None: actors[name])
     monkeypatch.setattr(payload_refs, "_ray_get", lambda value: value)
 
     with pytest.raises(KeyError, match="no longer present"):
         payload_refs.resolve_payload_refs_batched([_ref("missing")])
-
-
-def test_resolve_payload_refs_batched_rejects_boolean_byte_limit() -> None:
-    with pytest.raises(ValueError, match="max_batch_bytes must be positive"):
-        payload_refs.resolve_payload_refs_batched([_ref("payload")], max_batch_bytes=True)

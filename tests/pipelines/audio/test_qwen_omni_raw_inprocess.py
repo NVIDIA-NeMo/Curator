@@ -23,24 +23,6 @@ from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.payload_lifecycle import AudioPayloadMaterializeStage, PayloadReleaseStage
 
 
-class _DualPayloadConsumer(ASRStage):
-    def payload_bindings(self) -> list[dict[str, str]]:
-        return [
-            {
-                "ref_key": "audio_ref",
-                "waveform_key": "audio",
-                "sample_rate_key": "sr",
-                "num_samples_key": "samples",
-            },
-            {
-                "ref_key": "reference_ref",
-                "waveform_key": "reference_audio",
-                "sample_rate_key": "reference_sr",
-                "num_samples_key": "reference_samples",
-            },
-        ]
-
-
 def _cfg(*, consumers: list[str] | None = None, release_after: str = "qwen_omni"):
     return OmegaConf.create(
         {
@@ -48,7 +30,7 @@ def _cfg(*, consumers: list[str] | None = None, release_after: str = "qwen_omni"
             "payload_lifecycle": {
                 "enabled": True,
                 "materialize_after": "manifest_reader",
-                "payload_keys": ["audio_filepath"],
+                "source_key": "audio_filepath",
                 "ref_key": "audio_ref",
                 "consumers": consumers or ["qwen_omni"],
                 "release_after": release_after,
@@ -56,7 +38,6 @@ def _cfg(*, consumers: list[str] | None = None, release_after: str = "qwen_omni"
                 "target_nchannels": 1,
                 "node_memory_fraction": 0.55,
                 "max_node_payload_bytes": "10g",
-                "lease_ttl_s": 1234,
                 "admission_actor_name": "test_payload_admission",
                 "admission_poll_interval_s": 0.5,
             },
@@ -96,21 +77,6 @@ def _asr_stage(name: str, *, pred_text_key: str = "prediction"):
         pred_text_key=pred_text_key,
         disfluency_text_key=None,
         skip_me_key="skip_me",
-        max_inference_duration_s=120,
-        adapter_batch_size=1,
-    )
-
-
-def _dual_stage(name: str = "dual_gpu_stage"):
-    return _DualPayloadConsumer(
-        adapter_target="nemo_curator.models.asr.QwenOmniASRAdapter",
-        model_id="test/model",
-        name=name,
-        waveform_key="audio",
-        waveform_ref_key="audio_ref",
-        sample_rate_key="sr",
-        pred_text_key="prediction",
-        disfluency_text_key=None,
         max_inference_duration_s=120,
         adapter_batch_size=1,
     )
@@ -225,7 +191,6 @@ def test_logical_graph_expands_to_payload_lifecycle() -> None:
     assert materialize.skip_on_read_error is True
     assert materialize.node_memory_fraction == 0.55
     assert materialize.max_node_payload_bytes == "10g"
-    assert materialize.lease_ttl_s == 1234
     assert materialize.admission_actor_name == "test_payload_admission"
     assert materialize.admission_poll_interval_s == 0.5
     assert materialize.run_id
@@ -233,6 +198,7 @@ def test_logical_graph_expands_to_payload_lifecycle() -> None:
     release = expanded[4]
     assert release.payload_ref_key == "audio_ref"
     assert release.waveform_key == "audio"
+    assert expanded[3]._curator_payload_ref_key == "audio_ref"
 
 
 def test_payload_lifecycle_can_span_multiple_backend_visible_consumers() -> None:
@@ -264,56 +230,26 @@ def test_payload_lifecycle_can_span_multiple_backend_visible_consumers() -> None
         "payload_release",
         "manifest_writer",
     ]
+    assert [stage._curator_payload_ref_key for stage in expanded[3:5]] == ["audio_ref", "audio_ref"]
 
 
-def test_payload_lifecycle_supports_multiple_source_keys() -> None:
-    reader = ManifestReader(manifest_path="/tmp/input.jsonl")
-    consumer = _dual_stage()
-    writer = ManifestWriterStage(output_path="/tmp/output.jsonl")
-    cfg = OmegaConf.create(
-        {
-            "payload_lifecycle": {
-                "enabled": True,
-                "materialize_after": "manifest_reader",
-                "payloads": [
-                    {
-                        "source_key": "audio_filepath",
-                        "ref_key": "audio_ref",
-                        "waveform_key": "audio",
-                        "sample_rate_key": "sr",
-                        "num_samples_key": "samples",
-                    },
-                    {
-                        "source_key": "reference_audio_filepath",
-                        "ref_key": "reference_ref",
-                        "waveform_key": "reference_audio",
-                        "sample_rate_key": "reference_sr",
-                        "num_samples_key": "reference_samples",
-                        "duration_key": "reference_duration",
-                    },
-                ],
-                "consumers": ["dual_gpu_stage"],
-                "release_after": "dual_gpu_stage",
-            }
-        }
-    )
+def test_payload_lifecycle_rejects_plural_payload_source_config() -> None:
+    reader, asr, writer = _logical_stages()
+    cfg = _cfg()
+    cfg.payload_lifecycle.payload_keys = ["audio_filepath", "reference_audio_filepath"]
 
-    expanded = _expanded([reader, consumer, writer], cfg)
+    with pytest.raises(ValueError, match="supports exactly one payload source"):
+        _expanded([reader, asr, writer], cfg)
 
-    assert [type(stage) for stage in expanded] == [
-        FilePartitioningStage,
-        ManifestReaderStage,
-        AudioPayloadMaterializeStage,
-        AudioPayloadMaterializeStage,
-        _DualPayloadConsumer,
-        PayloadReleaseStage,
-        ManifestWriterStage,
-    ]
-    assert expanded[2].audio_filepath_key == "audio_filepath"
-    assert expanded[2].waveform_ref_key == "audio_ref"
-    assert expanded[3].audio_filepath_key == "reference_audio_filepath"
-    assert expanded[3].waveform_ref_key == "reference_ref"
-    assert expanded[3].duration_key == "reference_duration"
+
+@pytest.mark.parametrize("key", ["lease_ttl_s", "materialized_lease_ttl_s"])
+def test_payload_lifecycle_rejects_removed_lease_config(key: str) -> None:
+    reader, asr, writer = _logical_stages()
+    cfg = _cfg()
+    cfg.payload_lifecycle[key] = 3600
+
+    with pytest.raises(ValueError, match="internal lifecycle policy"):
+        _expanded([reader, asr, writer], cfg)
 
 
 def test_raw_qwen_config_rejects_explicit_helper_stages() -> None:

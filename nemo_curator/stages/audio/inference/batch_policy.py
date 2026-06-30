@@ -32,6 +32,7 @@ budget before materializing payloads.
 
 from __future__ import annotations
 
+import json
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -197,12 +198,6 @@ class BatchPolicy:
             the last covers ``[buckets_sec[-1], +inf)``.
         max_items_per_batch_by_bucket: Per-bucket item cap; length must equal
             ``len(buckets_sec)``.
-        bucketed_inference_batch_size: Optional per-bucket cap for the final
-            model adapter call. This is separate from scheduler batch shape:
-            scheduler caps decide which items reach the worker together; this
-            cap decides how many same-bucket items are sent into one
-            ``model.inference``/adapter call. ``None`` keeps the stage's normal
-            ``batch_size`` fallback.
         max_audio_sec_per_batch: Optional per-sub-batch total-cost cap (``None``
             = only item caps apply).
         prebatching_window_size: Optional advisory candidate-window size for
@@ -217,7 +212,6 @@ class BatchPolicy:
     strategy: str = "duration_bucketed"
     buckets_sec: list[float] = field(default_factory=lambda: [0.0, 600.0, 1200.0, 2400.0])
     max_items_per_batch_by_bucket: list[int] = field(default_factory=lambda: [32, 16, 8, 4])
-    bucketed_inference_batch_size: list[int] | None = None
     max_audio_sec_per_batch: float | None = 2400.0
     prebatching_window_size: int | None = None
     flush_interval_ms: int = 250
@@ -273,7 +267,7 @@ class BatchPolicy:
                 )
                 raise ValueError(msg)
 
-    def _validate_batch_caps(self) -> None:  # noqa: C901
+    def _validate_batch_caps(self) -> None:
         if len(self.max_items_per_batch_by_bucket) != len(self.buckets_sec):
             msg = (
                 f"BatchPolicy: max_items_per_batch_by_bucket has "
@@ -290,24 +284,6 @@ class BatchPolicy:
             if cap <= 0:
                 msg = f"BatchPolicy: every max_items_per_batch_by_bucket entry must be > 0, got {cap}"
                 raise ValueError(msg)
-        if self.bucketed_inference_batch_size is not None:
-            if len(self.bucketed_inference_batch_size) != len(self.buckets_sec):
-                msg = (
-                    f"BatchPolicy: bucketed_inference_batch_size has "
-                    f"{len(self.bucketed_inference_batch_size)} entries but buckets_sec has "
-                    f"{len(self.buckets_sec)}; lengths must match"
-                )
-                raise ValueError(msg)
-            for cap in self.bucketed_inference_batch_size:
-                if isinstance(cap, bool) or not isinstance(cap, int):
-                    msg = (
-                        f"BatchPolicy: every bucketed_inference_batch_size entry must be an int, "
-                        f"got {type(cap).__name__}"
-                    )
-                    raise TypeError(msg)
-                if cap <= 0:
-                    msg = f"BatchPolicy: every bucketed_inference_batch_size entry must be > 0, got {cap}"
-                    raise ValueError(msg)
         if self.max_audio_sec_per_batch is not None:
             if isinstance(self.max_audio_sec_per_batch, bool) or not isinstance(self.max_audio_sec_per_batch, Real):
                 msg = (
@@ -344,16 +320,29 @@ class BatchPolicy:
                 return i
         return 0
 
-    def inference_batch_size_for_cost(self, cost: float, fallback: int) -> int:
-        """Return adapter-call batch size for one item cost.
+    def dispatch_signature(self, *, cost_unit: str) -> str:
+        """Stable signature of constraints that define one adapter dispatch.
 
-        This is intentionally independent from ``max_items_per_batch_by_bucket``:
-        the scheduler can form a coherent worker batch, then the stage can tune
-        the final model-call granularity for short versus long items.
+        Candidate-window and timer settings are intentionally excluded: they
+        decide when enough candidates are inspected, not whether an already
+        ready batch is safe to execute as one model call.
         """
-        if not self.enabled or self.bucketed_inference_batch_size is None:
-            return max(1, int(fallback))
-        return int(self.bucketed_inference_batch_size[self.bucket_for(float(cost))])
+        if not self.enabled:
+            msg = "BatchPolicy must be enabled to sign dispatch constraints"
+            raise ValueError(msg)
+        return json.dumps(
+            {
+                "strategy": self.strategy,
+                "cost_unit": str(cost_unit),
+                "buckets": [float(edge) for edge in self.buckets_sec],
+                "item_caps": [int(cap) for cap in self.max_items_per_batch_by_bucket],
+                "total_cost_cap": (
+                    None if self.max_audio_sec_per_batch is None else float(self.max_audio_sec_per_batch)
+                ),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
     def bucketize(
         self,

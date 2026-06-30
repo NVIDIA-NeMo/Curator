@@ -27,7 +27,7 @@ from nemo_curator.pipeline.payload_refs import PayloadRef
 from nemo_curator.stages.audio.inference.asr import ASRStage
 from nemo_curator.stages.audio.inference.asr import stage as asr_stage_module
 from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
-from nemo_curator.tasks import AudioTask
+from nemo_curator.tasks import AudioTask, DispatchBatchTask
 
 _QWEN_ADAPTER_TARGET = "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter"
 _SR = 16000
@@ -45,7 +45,6 @@ def _make_stage(  # noqa: PLR0913
     supported_language_codes: list[str] | None = None,
     payload_prefetch_enabled: bool = False,
     payload_prefetch_max_bytes: int | None = None,
-    payload_resolve_max_batch_bytes: int | None = None,
 ) -> ASRStage:
     """Build an ASRStage wired to a mock adapter (no real model load)."""
     stage = ASRStage(
@@ -62,7 +61,6 @@ def _make_stage(  # noqa: PLR0913
         supported_language_codes=supported_language_codes,
         payload_prefetch_enabled=payload_prefetch_enabled,
         payload_prefetch_max_bytes=payload_prefetch_max_bytes,
-        payload_resolve_max_batch_bytes=payload_resolve_max_batch_bytes,
     )
     mock_adapter = MagicMock()
     mock_adapter.last_metrics = {}
@@ -85,6 +83,30 @@ def _chunking_policy() -> BatchPolicy:
         buckets_sec=[0],
         max_items_per_batch_by_bucket=[32],
         max_audio_sec_per_batch=None,
+    )
+
+
+def _dispatch_batch(
+    stage: ASRStage,
+    policy: BatchPolicy,
+    *,
+    batch_index: int,
+    durations_s: list[float],
+) -> DispatchBatchTask:
+    tasks = [_make_task(waveform_len=int(_SR * duration_s)) for duration_s in durations_s]
+    bucket_index = policy.bucket_for(durations_s[0])
+    assert all(policy.bucket_for(duration_s) == bucket_index for duration_s in durations_s)
+    return DispatchBatchTask(
+        dataset_name="dataset",
+        data=tasks,
+        batch_id=f"run:dispatch:{batch_index}",
+        owner_stage=stage.name,
+        sequence_index=batch_index,
+        bucket_index=bucket_index,
+        total_cost=sum(durations_s),
+        item_costs=tuple(durations_s),
+        cost_unit="audio_seconds",
+        policy_signature=policy.dispatch_signature(cost_unit="audio_seconds"),
     )
 
 
@@ -177,6 +199,83 @@ def test_adapter_result_length_mismatch_raises() -> None:
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="x")]  # 1 result
     with pytest.raises(RuntimeError, match=r"returned 1 results for 2 items"):
         stage.process_batch([_make_task(), _make_task()])
+
+
+def test_dispatch_batches_are_exact_adapter_call_boundaries() -> None:
+    policy = BatchPolicy(
+        buckets_sec=[0.0, 30.0, 60.0],
+        max_items_per_batch_by_bucket=[3, 2, 1],
+        max_audio_sec_per_batch=60.0,
+    )
+    stage = _make_stage(max_inference_duration_s=60.0, batch_policy=policy)
+    first = _dispatch_batch(stage, policy, batch_index=0, durations_s=[10.0, 20.0])
+    second = _dispatch_batch(stage, policy, batch_index=1, durations_s=[40.0])
+    stage._adapter.transcribe_batch.side_effect = lambda items: [
+        ASRResult(text=f"samples={len(item['waveform'])}") for item in items
+    ]
+    policy.bucketize_with_costs = MagicMock(side_effect=AssertionError("owner must not rebucket dispatch batches"))
+
+    result = stage.process_batch([first, second])
+
+    assert stage._adapter.transcribe_batch.call_count == 2
+    calls = stage._adapter.transcribe_batch.call_args_list
+    assert [[len(item["waveform"]) / _SR for item in call.args[0]] for call in calls] == [
+        [10.0, 20.0],
+        [40.0],
+    ]
+    assert [batch.batch_id for batch in result] == [first.batch_id, second.batch_id]
+    assert [[item.data["qwen3_prediction_s1"] for item in batch.items] for batch in result] == [
+        [f"samples={10 * _SR}", f"samples={20 * _SR}"],
+        [f"samples={40 * _SR}"],
+    ]
+
+
+def test_dispatch_batch_rejects_owner_policy_mismatch() -> None:
+    policy = BatchPolicy(
+        buckets_sec=[0.0, 30.0],
+        max_items_per_batch_by_bucket=[2, 1],
+        max_audio_sec_per_batch=60.0,
+    )
+    stage = _make_stage(max_inference_duration_s=60.0, batch_policy=policy)
+    batch = _dispatch_batch(stage, policy, batch_index=0, durations_s=[10.0, 20.0])
+    batch.policy_signature = "different-policy"
+
+    with pytest.raises(ValueError, match="policy constraints do not match"):
+        stage.process_batch([batch])
+
+    stage._adapter.transcribe_batch.assert_not_called()
+
+
+def test_dispatch_batch_accepts_safe_decoded_duration_drift() -> None:
+    policy = BatchPolicy(
+        buckets_sec=[0.0, 30.0],
+        max_items_per_batch_by_bucket=[2, 1],
+        max_audio_sec_per_batch=60.0,
+    )
+    stage = _make_stage(max_inference_duration_s=60.0, batch_policy=policy)
+    batch = _dispatch_batch(stage, policy, batch_index=0, durations_s=[30.0])
+    batch.items[0].data["waveform"] = np.zeros(int(_SR * 29.9), dtype=np.float32)
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="ok")]
+
+    [result] = stage.process_batch([batch])
+
+    assert result.items[0].data["qwen3_prediction_s1"] == "ok"
+    stage._adapter.transcribe_batch.assert_called_once()
+
+
+def test_dispatch_batch_rejects_item_that_owner_would_segment_again() -> None:
+    policy = BatchPolicy(
+        buckets_sec=[0.0, 30.0, 60.0],
+        max_items_per_batch_by_bucket=[2, 1, 1],
+        max_audio_sec_per_batch=120.0,
+    )
+    stage = _make_stage(max_inference_duration_s=60.0, batch_policy=policy)
+    batch = _dispatch_batch(stage, policy, batch_index=0, durations_s=[61.0])
+
+    with pytest.raises(RuntimeError, match="segmentation would change its item boundaries"):
+        stage.process_batch([batch])
+
+    stage._adapter.transcribe_batch.assert_not_called()
 
 
 # ----------------------------------------------------------------------
@@ -396,8 +495,7 @@ def test_payload_prefetch_plans_from_metadata_resolves_parent_once_and_slices_pe
     )
     resolve_calls: list[list[str]] = []
 
-    def resolve(refs: list[PayloadRef], *, max_batch_bytes: int | None = None) -> list[np.ndarray]:
-        assert max_batch_bytes == 8_000_000
+    def resolve(refs: list[PayloadRef]) -> list[np.ndarray]:
         resolve_calls.append([ref.payload_id for ref in refs])
         return [waveform for _ref in refs]
 
@@ -407,10 +505,7 @@ def test_payload_prefetch_plans_from_metadata_resolves_parent_once_and_slices_pe
         batch_size=1,
         payload_prefetch_enabled=True,
         payload_prefetch_max_bytes=10_000_000,
-        payload_resolve_max_batch_bytes=8_000_000,
     )
-    stage._start_payload_lease_keeper = MagicMock()  # type: ignore[method-assign]
-    stage._stop_payload_lease_keeper = MagicMock()  # type: ignore[method-assign]
     stage.payload_consumer_node_id = MagicMock(return_value="node-a")  # type: ignore[method-assign]
     stage._adapter.transcribe_batch.side_effect = [
         [ASRResult(text="chunk0")],
@@ -441,10 +536,9 @@ def test_payload_prefetch_enabled_requires_bool() -> None:
         _make_stage(payload_prefetch_enabled="true")  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("field", ["payload_resolve_max_batch_bytes", "payload_prefetch_max_bytes"])
-def test_payload_byte_limits_reject_bool(field: str) -> None:
-    with pytest.raises(ValueError, match=field):
-        _make_stage(**{field: True})
+def test_payload_prefetch_byte_limit_rejects_bool() -> None:
+    with pytest.raises(ValueError, match="payload_prefetch_max_bytes"):
+        _make_stage(payload_prefetch_max_bytes=True)
 
 
 # ----------------------------------------------------------------------
