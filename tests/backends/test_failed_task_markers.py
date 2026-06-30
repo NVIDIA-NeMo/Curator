@@ -109,7 +109,7 @@ class TestFailedTaskManifest:
         manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
 
-        def fail_touch(_self: Path, _mode: int = 0o666, _exist_ok: bool = True) -> None:
+        def fail_touch(_self: Path, *_args: object, **_kwargs: object) -> None:
             msg = "storage unavailable"
             raise OSError(msg)
 
