@@ -36,7 +36,7 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import Task, _EmptyTask
+from nemo_curator.tasks import EmptyTask, Task
 
 SAMPLE_SENTENCES = [
     "I love this product, it works great",
@@ -60,7 +60,7 @@ class SampleTask(Task[pd.DataFrame]):
         return True
 
 
-class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
+class TaskCreationStage(ProcessingStage[EmptyTask, SampleTask]):
     name: str = "TaskCreationStage"
 
     def __init__(self, num_sentences_per_task: int, num_tasks: int):
@@ -73,7 +73,7 @@ class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["sentence"]
 
-    def process(self, _: _EmptyTask) -> SampleTask:
+    def process(self, _: EmptyTask) -> SampleTask:
         """
         Process the input task and return a new task with the processed data
         """

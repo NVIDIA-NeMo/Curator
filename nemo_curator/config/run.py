@@ -48,15 +48,20 @@ def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
     stage = hydra.utils.instantiate(cfg_dict)
 
     if stage_resources:
-        with_kwargs: dict[str, Any] = {"resources": Resources(**stage_resources)}
+        if isinstance(stage_resources, dict) and "_target_" in stage_resources:
+            resources_obj = hydra.utils.instantiate(stage_resources)
+        else:
+            resources_obj = Resources(**stage_resources)
+        with_kwargs: dict[str, Any] = {"resources": resources_obj}
         stage = stage.with_(**with_kwargs)
         logger.info(f"Applied .with_() to '{stage.name}': {with_kwargs}")
 
     return stage
 
 
-def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline | Any:  # noqa: ANN401
-    logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
+def create_pipeline_from_yaml(cfg: DictConfig, *, log_config: bool = True) -> Pipeline | Any:  # noqa: ANN401
+    if log_config:
+        logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
 
     if "stages" in cfg and "workflow" in cfg:
         msg = "Both stages and workflow are defined in the configuration. Please define either stages or workflow, not both."

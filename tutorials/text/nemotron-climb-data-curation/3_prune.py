@@ -28,13 +28,13 @@ from loguru import logger
 from scipy.cluster.hierarchy import fcluster, linkage
 from utils import attach_ray_client_args, centroid_id, create_ray_client, list_centroid_dirs
 
-import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.text.filters import DocumentFilter, Score
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.client_utils import is_remote_url
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 
 def preprocess_text(text: str) -> str:
@@ -106,7 +106,7 @@ class JsonlClusterWriter(JsonlWriter):
             if centroid is None:
                 msg = f"source_file {source_file} parent dir is not centroid=<int>"
                 raise RuntimeError(msg)
-            filename = f"centroid={centroid}/{writer_utils.get_deterministic_hash(source_files, task.task_id)}"
+            filename = f"centroid={centroid}/{get_deterministic_hash(source_files, task.task_id)}"
         else:
             msg = "The task either does not have source_files in metadata or source_files does not contain a 'centroid=' directory"
             raise RuntimeError(msg)

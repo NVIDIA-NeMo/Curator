@@ -32,13 +32,22 @@ class RayDataExecutor(BaseExecutor):
     """Ray Data-based executor for pipeline execution.
 
     This executor:
-    1. Executes setup on all nodes for all stages
+    1. Executes setup on Ray nodes for all stages
     2. Converts initial tasks to Ray Data dataset
     3. Applies each stage as a Ray Data transformation (as a task or actor in map_batches)
     4. Returns final results as a list of tasks
     """
 
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
+        """Initialize the executor.
+
+        Args:
+            config (dict[str, Any], optional): Configuration dictionary.
+            ignore_head_node (bool, optional): Whether to skip the Ray head node for
+                ``setup_on_node``. Ray Data controls ``map_batches`` task/actor placement
+                through Ray's scheduler; this flag does not cap actor-pool size or force
+                Ray Data workers away from the head node.
+        """
         super().__init__(config, ignore_head_node)
 
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:
@@ -87,7 +96,7 @@ class RayDataExecutor(BaseExecutor):
                 adapter = RayDataStageAdapter(stage)
 
                 # Apply stage transformation
-                current_dataset = adapter.process_dataset(current_dataset, self.ignore_head_node)
+                current_dataset = adapter.process_dataset(current_dataset)
         except Exception as e:
             logger.error(f"Error during pipeline execution: {e}")
             raise

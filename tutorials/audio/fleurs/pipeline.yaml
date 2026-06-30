@@ -9,49 +9,48 @@ hydra:
   output_subdir: null
 
 documentation: |
-  FLEURS
-  ######
-  This config can be used to prepare
-  `FLEURS <https://huggingface.co/datasets/google/fleurs>`_
-  dataset in the NeMo format.
-  It produces manifest for dev split of armenian language.
-  This config performs the following data processing.
+  FLEURS ASR curation pipeline
+  ############################
+  Download a `FLEURS <https://huggingface.co/datasets/google/fleurs>`_ split,
+  transcribe with a NeMo ASR model, score WER, filter by threshold, and write
+  a JSONL manifest.
 
-  1. Downloads FLEURS data
-  2. Calculates the length of wav files
+  Stages:
 
-  **Required arguments**.
+  0. ``CreateInitialManifestFleursStage`` — Hugging Face download (once per
+     language under ``<raw_data_dir>/<lang>/``) and manifest emission
+  1. ``InferenceAsrNemoStage`` — GPU ASR inference (adds ``pred_text``)
+  2. ``GetPairwiseWerStage`` — pairwise WER (adds ``wer_pct``)
+  3. ``GetAudioDurationStage`` — audio duration in seconds
+  4. ``PreserveByValueStage`` — keep samples with ``wer_pct <= wer_threshold``
+  5. ``AudioToDocumentStage`` + ``JsonlWriter`` — write JSONL output
 
-  * **raw_data_dir**: specify the workspace folder where all audio files will be stored.
+  **Required arguments**:
 
-  Note that you can customize any part of this config either directly or from command-line.
+  * **raw_data_dir**: Parent workspace folder. Each language is staged under
+    ``<raw_data_dir>/<lang>/``; filtered output is written to
+    ``<raw_data_dir>/result/<lang>/``.
 
-  **Output format**
+  **Output format**:
 
-  This config generates output manifest files:
+  JSONL at ``${output_dir}`` with keys ``audio_filepath``, ``text``,
+  ``pred_text``, ``wer_pct``, and ``duration``.
 
-  * ``${raw_data_dir}/result`` - dev subset of the data.
-
-  Output manifest contains the following keys:
-
-  * **audio_filepath (str)**: relative path to the audio files.
-  * **text (str)**: transcription (lower-case without punctuation).
-  * **duration (float)**: audio duration in seconds.
-processors_to_run: all
 raw_data_dir: ???
+lang: hy_am
 data_split: dev
-output_dir: ${raw_data_dir}/result
+wer_threshold: 5.5
+output_dir: ${raw_data_dir}/result/${lang}
 backend: xenna
 
-processors:
-  # Getting data for Armenian dev set
+stages:
   - _target_: nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.CreateInitialManifestFleursStage
-    lang: "hy_am"
+    lang: ${lang}
     split: ${data_split}
     raw_data_dir: ${raw_data_dir}
     batch_size: 4
 
-  - _target_: nemo_curator.stages.audio.inference.asr_nemo.InferenceAsrNemoStage
+  - _target_: nemo_curator.stages.audio.inference.asr.asr_nemo.InferenceAsrNemoStage
     model_name: nvidia/stt_hy_fastconformer_hybrid_large_pc
     resources:
       _target_: nemo_curator.stages.resources.Resources
@@ -68,7 +67,7 @@ processors:
 
   - _target_: nemo_curator.stages.audio.common.PreserveByValueStage
     input_value_key: "wer_pct"
-    target_value: 75.
+    target_value: ${wer_threshold}
     operator: "le"
 
   - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage

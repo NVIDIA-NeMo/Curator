@@ -49,7 +49,6 @@ class TestQwenVL:
             caption_batch_size=self.caption_batch_size,
             fp8=True,
             max_output_tokens=512,
-            model_does_preprocess=False,
             disable_mmcache=False,
             stage2_prompt_text="Stage 2 prompt: ",
             verbose=False,
@@ -78,13 +77,22 @@ class TestQwenVL:
         assert qwen_vl.caption_batch_size == self.caption_batch_size
         assert qwen_vl.fp8 is True
         assert qwen_vl.max_output_tokens == 512
-        assert qwen_vl.model_does_preprocess is False
         assert qwen_vl.disable_mmcache is False
         assert qwen_vl.stage2_prompt == "Please refine this caption: "
         assert qwen_vl.verbose is False
 
         expected_weight_file = str(pathlib.Path(self.model_dir) / _QWEN_VARIANTS_INFO[self.model_variant])
         assert qwen_vl.weight_file == expected_weight_file
+
+    def test_initialization_rejects_removed_model_does_preprocess_arg(self) -> None:
+        """Test that the removed preprocessing flag fails with a clear error."""
+        with pytest.raises(TypeError, match="model_does_preprocess is no longer supported"):
+            QwenVL(
+                model_dir=self.model_dir,
+                model_variant=self.model_variant,
+                caption_batch_size=self.caption_batch_size,
+                model_does_preprocess=True,
+            )
 
     def test_initialization_custom_parameters(self) -> None:
         """Test initialization with custom parameters."""
@@ -93,7 +101,6 @@ class TestQwenVL:
         assert self.qwen_vl.caption_batch_size == self.caption_batch_size
         assert self.qwen_vl.fp8 is True
         assert self.qwen_vl.max_output_tokens == 512
-        assert self.qwen_vl.model_does_preprocess is False
         assert self.qwen_vl.disable_mmcache is False
         assert self.qwen_vl.stage2_prompt == "Stage 2 prompt: "
         assert self.qwen_vl.verbose is False
@@ -131,9 +138,9 @@ class TestQwenVL:
 
         # Verify LLM initialization
         expected_mm_processor_kwargs = {
-            "do_resize": False,
-            "do_rescale": False,
-            "do_normalize": False,
+            "do_resize": True,
+            "do_rescale": True,
+            "do_normalize": True,
             "image_factor": 28,
             "min_pixels": 4 * 28 * 28,
             "max_pixels": 16384 * 28 * 28,
@@ -193,13 +200,12 @@ class TestQwenVL:
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
-    def test_setup_with_model_preprocessing(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
-        """Test setup method with model preprocessing enabled."""
+    def test_setup_uses_model_preprocessing(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
+        """Test setup method always enables model preprocessing."""
         qwen_vl = QwenVL(
             model_dir=self.model_dir,
             model_variant=self.model_variant,
             caption_batch_size=self.caption_batch_size,
-            model_does_preprocess=True,
             disable_mmcache=True,
         )
 
@@ -427,20 +433,19 @@ class TestQwenVL:
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
-    def test_setup_qwen3_do_resize_always_true(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
-        """Test that qwen3 sets do_resize=True even when model_does_preprocess=False."""
+    def test_setup_qwen3_uses_model_preprocessing(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:
+        """Test that qwen3 uses model preprocessing."""
         qwen_vl = QwenVL(
             model_dir=self.model_dir,
             model_variant="qwen3",
             caption_batch_size=1,
-            model_does_preprocess=False,
         )
         qwen_vl.setup()
 
         mm_kwargs = mock_llm.call_args[1]["mm_processor_kwargs"]
         assert mm_kwargs["do_resize"] is True
-        assert mm_kwargs["do_rescale"] is False
-        assert mm_kwargs["do_normalize"] is False
+        assert mm_kwargs["do_rescale"] is True
+        assert mm_kwargs["do_normalize"] is True
 
     @patch("nemo_curator.models.qwen_vl.LLM")
     @patch("nemo_curator.models.qwen_vl.SamplingParams")
