@@ -71,7 +71,7 @@ def record_failed_tasks() -> None:
         return
 
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.touch()
+    manifest_path.touch(exist_ok=True)
 
 
 def failed_task_manifest_exists(manifest_dir: str | Path | None = None) -> bool:
