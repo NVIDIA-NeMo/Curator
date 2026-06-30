@@ -125,6 +125,13 @@ class BaseStageAdapter:
         if failed_tasks:
             record_failed_tasks()
 
+        # Source-stage sentinels (NoneTask only; FailedTask already raised above) are
+        # not real partitions and must not influence shard assignment or resumability
+        # counters. Non-source stages keep sentinels here so _apply_resumability_counters
+        # can fire the correct -1 delta for filtered (NoneTask) slots in the 1:1 path.
+        if is_source_stage:
+            results = [r for r in results if not _is_sentinel(r)]
+
         # Filter tasks based on the Slurm array configuration.
         slurm_array = resolve_slurm_array_config(is_source_stage=is_source_stage)
         if slurm_array is not None and is_source_stage:
