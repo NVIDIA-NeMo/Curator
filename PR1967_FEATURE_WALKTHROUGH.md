@@ -226,7 +226,10 @@ For every segment child, `AudioPayloadMaterializeStage`:
 
 If decode or store fails, the stage rolls back the reservation and any inserted
 object. With `skip_on_read_error`, it emits a skipped row with no waveform or
-ref; release later safely no-ops on that row.
+ref. `ASRStage` recognizes the existing skip marker before waveform validation,
+keeps the row in its original position, writes empty ASR outputs, and excludes it
+from adapter calls. Release later safely no-ops while terminal segment identity
+continues to the assembler.
 
 The global planner emits one envelope per ready model call. Materialization
 keeps the envelope intact while decoding each child segment, so a 7,513-second
@@ -266,19 +269,15 @@ defensive cleanup when the expected key is absent. Preserving the mapping type
 keeps `AudioTask.data` attribute access valid downstream.
 
 `BaseStageAdapter` reads only the configured top-level ref key on stages marked
-by the expander. It releases input refs after an exception and refs lost when a
-stage filters a row. Ordinary pipelines pay no payload-tracking cost, and the
-normal payload path does not recursively inspect structured model outputs.
-While rows are enveloped, the materializer and owner perform equivalent
-nested-ref failure cleanup themselves. After unpack, normal top-level backend
-cleanup applies again.
-
-The exception path is per invocation, not per completed backend retry policy.
-The adapter releases refs before re-raising, so a backend retry that reuses the
-same input tasks receives handles whose store/admission entries have already
-been removed. Current code therefore relies on the first payload-aware attempt
-succeeding or the backend recomputing materialization; it does not provide an
-idempotent same-ref retry contract.
+by the expander. After a successful invocation, it releases refs only for rows
+that the stage actually filtered. It deliberately does not release input refs
+when an invocation raises: Ray Data or Xenna may retry the same logical rows,
+and those retries must resolve the same handles. ASR follows the same rule while
+rows are enveloped; it removes only temporary actor-local waveforms in `finally`
+and leaves the underlying refs owned by the payload store. Explicit
+`PayloadReleaseStage` release handles successful completion, while executor
+cleanup owns terminal run failure. Ordinary pipelines pay no payload-tracking
+cost, and the normal path does not recursively inspect structured model outputs.
 
 ## 4. Global Metadata Planning
 
@@ -307,11 +306,16 @@ No waveform is decoded during these steps. `estimated_waveform_bytes` is a
 planning/metric sum, not allocated RAM.
 
 Complete parent rows have one long-lived owner after planning: the parent-data
-actor. Peak planner memory is higher than one copy, however. `_ManifestPlanRecord`
-retains each original dictionary, `_store_parent_records()` creates one
-whole-manifest deep-copied dictionary for `put_many()`, Ray serializes that
-argument, and the actor deep-copies each received row. The temporary caller copy
-is released after the RPC, but the transfer is not streamed or byte-bounded.
+actor. Peak planner memory is temporarily higher than one copy, however.
+`_ManifestPlanRecord` retains each original dictionary while the plan is being
+emitted. `_store_parent_records()` builds a second top-level mapping whose
+values reference those same dictionaries; it does not deep-copy the rows in
+Python. Ray serializes that mapping for one `put_many()` RPC, and the actor owns
+the deserialized parent rows after the transfer. The temporary mapping and Ray
+serialization buffer are released after the RPC, and the planner records are
+released after the source call completes. The transfer is whole-manifest rather
+than streamed or byte-bounded. Segment rows separately deep-copy only configured
+`segment_input_keys`, not complete parent dictionaries.
 
 ### 4.2 Row shape and input columns
 
@@ -463,7 +467,11 @@ retain their own processing resources by default.
 
 For ordinary rows, each enabled `BatchPolicy` output is one adapter/model call.
 For globally planned envelopes, the matching policy validates safety but does
-not run a second bucketing pass: one envelope is one call.
+not run a second bucketing pass. One envelope produces at most one call: all
+successfully materialized, language-eligible children stay together in that
+call, while pre-skipped or unsupported children receive aligned skipped results
+without entering the adapter. An envelope with no eligible children makes no
+adapter call.
 `max_items_per_batch_by_bucket` limits item count, while
 `max_audio_sec_per_batch` limits aggregate estimated cost for that call. When
 the policy is disabled, `adapter_batch_size` is the fallback model-call item
@@ -475,23 +483,30 @@ admission.
 
 For ordinary rows, `ASRStage.process_batch()`:
 
-1. validates every row;
-2. creates model-input descriptors and parent stitch-back indices;
-3. uses the duration policy to produce exact adapter-call boundaries;
-4. in prefetch mode, does this from ref metadata before waveform resolution;
-5. resolves/slices only the current call and overlaps one bounded successor;
-6. invokes the adapter and realigns one result per item;
-7. joins ASR-local pieces in increasing segment index for each input row; and
-8. removes temporary waveforms while retaining the ref for later consumers or
+1. recognizes rows already marked skipped before requiring a waveform or ref;
+2. validates waveform/ref and sample-rate inputs only for non-skipped rows;
+3. creates model-input descriptors and parent stitch-back indices, including
+   zero-cost placeholders for pre-skipped rows;
+4. assigns aligned skipped results and excludes those placeholders from model
+   calls;
+5. uses the duration policy to produce exact boundaries for eligible adapter
+   items;
+6. in prefetch mode, does this from ref metadata before waveform resolution;
+7. resolves/slices only the current call and overlaps one bounded successor;
+8. invokes the adapter and realigns one result per item;
+9. joins ASR-local pieces in increasing segment index for each input row; and
+10. removes temporary waveforms while retaining the ref for later consumers or
    release.
 
 For dispatch envelopes, `ASRStage.process_batch()` validates owner identity,
 policy signature, bucket membership, item costs, aggregate cost, and that ASR
-would not segment a child again. It constructs one inference call per envelope
-directly. A backend invocation may contain two envelopes so one-ahead payload
-resolution can overlap with GPU execution. `DispatchBatchUnpackStage` then
-fans processed children back to ordinary rows before later consumers and
-release. No hidden coordinator owns GPU scheduling.
+would not segment a child again. It constructs one call directly from all
+eligible children in the envelope, without rebucketing; pre-skipped and
+unsupported children keep their positions but bypass the call. A backend
+invocation may contain two envelopes so one-ahead payload resolution can
+overlap with GPU execution. `DispatchBatchUnpackStage` then fans processed
+children back to ordinary rows before later consumers and release. No hidden
+coordinator owns GPU scheduling.
 
 Metrics include adapter calls/items, generated segments, audio duration,
 waveform bytes, output characters/tokens, inference time, resolution latency,
@@ -501,10 +516,15 @@ resolution bytes, and same-node/cross-node counts.
 
 [`batch_policy.py`](nemo_curator/stages/audio/inference/batch_policy.py) validates
 strictly increasing bucket edges beginning at zero, per-bucket item caps,
-optional adapter caps, aggregate cost, candidate windows, and flush timing.
-`bucketize_with_costs()` returns original indices so dispatch order can change
-without corrupting result alignment. `run_bucketed()` exposes the same
-cost/dispatch/realign pattern to other inference stages.
+aggregate cost, the advisory `prebatching_window_size`, and
+`flush_interval_ms`. `bucketize_with_costs()` creates a finite scheduler with
+timers disabled, drains it at the end of the supplied item list, and returns
+original indices so cost-ordered dispatch cannot corrupt result alignment.
+Consequently, `flush_interval_ms` does not affect the current finite ASR or
+global-planner paths. `prebatching_window_size` is currently validated and
+serialized in policy config but does not resize backend batches; the actual
+ordinary-row candidate window is `ASRStage.batch_size`. `run_bucketed()`
+exposes the same cost/dispatch/realign pattern to other inference stages.
 
 ## 7. Qwen-Omni Adapter
 
@@ -553,9 +573,13 @@ merge strategies define output reduction.
 ### 8.1 Collection and strict ordering
 
 The stage uses a run-scoped named actor so all wrapper calls share assembly
-state. For every segment it submits parent id, terminal index/count, task data,
-metadata, stage perf, and the original parent row fetched from the parent-data
-store. `_GlobalSegmentAssemblyState` rejects invalid indices/counts and stores
+state. For every segment the wrapper submits parent id, terminal index/count,
+task data, metadata, stage perf, a stable operation id, and acknowledgements for
+the preceding successful wrapper invocation. It does not copy the original
+parent row into every submission. When the first segment for a parent arrives,
+`_GlobalSegmentAssemblyState` atomically calls `take_parent()` on the parent-data
+actor and moves that row into the in-progress parent entry. The parent store no
+longer retains it. The assembly actor rejects invalid indices/counts and stores
 one entry per index.
 
 A parent is assembled only after all expected indices are present. Segment
@@ -614,23 +638,24 @@ fabricate a complete transcript or structured result from partial segments.
 
 ### 8.4 Retry and acknowledgement semantics
 
-`add_segment()` is a mutating RPC on a detached named actor. A repeated
-`(parent_id, segment_idx)` is rejected as a duplicate. When the final segment
-arrives, the actor removes the partial-parent entry, moves the completed parent
-through the ordered ready buffer, and may return it to the wrapper. When the
-first segment creates a parent entry, the assembly actor atomically takes the
-parent dictionary out of the parent-data actor. Later segments perform no
-parent lookup, so the assembly actor owns the sole active full parent copy until
-completion.
+Every segment submission has the stable operation id
+`<parent_id>:segment:<segment_idx>`. The actor retains the exact response for
+each unacknowledged operation: an intermediate segment replays the same empty
+list, while a final segment replays the same ordered parent list even after the
+partial-parent entry and parent-store row have been consumed. Reusing an
+operation id for a different terminal segment, or using a different operation
+id for an already accepted segment index, remains an error.
 
-There is no downstream acknowledgement or replay cache between that actor
-mutation and backend acceptance of the wrapper output. If a wrapper/transport
-attempt is retried after the named actor committed the call, an intermediate
-segment replay raises as a duplicate; a completed parent may already have been
-drained and its parent data deleted. The current assembly protocol is therefore
-ordered and memory-bounded on the normal path, but not idempotent under replay.
-`process_batch()` is the complete fan-in path because one incoming segment can
-unblock several ready parents; `process()` raises if that occurs.
+The wrapper acknowledges all operations from its previous successful
+`process_batch()` invocation by piggybacking those ids on the next
+`add_segment()` RPC. This adds no separate hot-path round trip. The in-memory
+replay table is capped at 4,096 unacknowledged operations and fails before a new
+mutation if the caller stops acknowledging. Since the assembler's backend batch
+size is one, normal steady state retains only the previous operation response.
+The first accepted segment still atomically takes the parent dictionary from the
+parent-data actor, and later segments perform no second parent lookup.
+`process_batch()` remains the complete fan-in path because one incoming segment
+can unblock several ready parents; `process()` raises if that occurs.
 
 ### 8.5 Cleanup and metrics
 
@@ -694,19 +719,31 @@ payload-prefetch, dispatch-envelope, or duration-bucketing policy.
 
 ## 10. Task Identity And Terminal Contracts
 
-Base `Task.task_id` is framework-owned (`init=False`). `BaseStageAdapter`
-overwrites it at every derivable boundary: one-to-many outputs use the parent
-plus output index/content id, positional many-to-many uses each corresponding
-parent, and ambiguous many-to-different-count fanout receives an `r<uuid>` id.
-`AudioTask` retains its audio-specific constructor field, but normal backend
-postprocessing still derives the boundary id. `EmptyTask` is a payload-less
-class with fixed root id `"0"` and is constructed as `EmptyTask()`.
+Base `Task.task_id` remains a public constructor field with default `""`, so
+existing `Task(task_id=...)` subclasses remain source-compatible. During
+pipeline execution it is framework-owned: `BaseStageAdapter` overwrites it at
+every derivable boundary. One-to-many outputs use the parent plus output
+index/content id, positional many-to-many uses each corresponding parent, and
+ambiguous many-to-different-count fanout receives an `r<uuid>` id. `EmptyTask`
+also accepts the inherited constructor shape, but `__post_init__()` always
+normalizes its root id to `"0"`.
 
 [`nemo_curator/tasks/task_terminals.py`](nemo_curator/tasks/task_terminals.py)
 defines modality-neutral `_curator_terminal_*` fields. It activates only for
 rows carrying terminal ownership and only on marked stages. Tombstone payload
 cleanup uses generic recursive ref stripping plus stage-provided data keys; it
-does not hardcode waveform cleanup in the backend.
+does not hardcode waveform cleanup in the backend. A tombstone shallow-copies
+the original task and task-data mapping, preserving optional subclass fields,
+task id, metadata, and prior performance records. Its drop marker prefers the
+configured `_curator_stage_id`, then stage name, then class name.
+
+The preservation helper treats terminal identity as
+`(group_id, index, count)`. A stage that returns replacement tasks must copy
+those fields. A non-terminal replacement is retained and a tombstone is also
+added for the missing terminal identity; an unmatched conflicting terminal
+identity can be discarded when the helper reconstructs an all-terminal output
+list. This is the current generic contract, so stages processing planned
+children should mutate them or explicitly preserve their terminal fields.
 
 ## 11. Performance And Resource Observability
 
@@ -812,23 +849,28 @@ modality-specific logic to the backend.
   validation and exact/over-boundary production durations;
 - [`tests/stages/audio/test_global_segment_assembler.py`](tests/stages/audio/test_global_segment_assembler.py):
   parent restoration, strict collisions, ordered merges, overwrite/drop,
-  tombstones, spill, and source order;
+  tombstones, spill, source order, intermediate/final operation replay, bounded
+  replay retention, and piggybacked acknowledgement;
 - [`tests/stages/audio/inference/test_asr_stage.py`](tests/stages/audio/inference/test_asr_stage.py):
   refs, metadata-first planning, exact envelope-to-adapter-call membership,
   policy/segmentation rejection, parent-cache reuse, one-call prefetch,
-  segmentation, ordering, and metrics;
+  read-error bypass, same-ref retry, segmentation, ordering, and metrics;
 - [`tests/stages/audio/inference/test_batch_policy.py`](tests/stages/audio/inference/test_batch_policy.py):
   bucket/cost caps, adapter calls, and index realignment;
+- [`tests/backends/test_task_id_postprocess.py`](tests/backends/test_task_id_postprocess.py):
+  task-id derivation, shorter/reordered/replacement terminal outputs,
+  conflicting identities, stage-id drop markers, and subclass-field-preserving
+  tombstones;
 - [`tests/backends/ray_data/test_utils.py`](tests/backends/ray_data/test_utils.py)
-  and [`tests/backends/xenna/test_executor.py`](tests/backends/xenna/test_executor.py):
+  and [`tests/backends/test_xenna_executor.py`](tests/backends/test_xenna_executor.py):
   unchanged sizing semantics and stage-spec construction.
 
-These tests primarily cover successful execution and explicit cleanup. The
-current suite does not establish same-ref consumer retry after an exception,
-hard driver loss before executor cleanup, systemic Qwen preprocessing failure
-behavior, replay of a committed assembler RPC, or downstream acknowledgement
-after completed assembly. Those are separate reviewer-visible properties of
-the current implementation.
+The focused suite now establishes same-ref retry for plain and dispatch inputs,
+reader-error pass-through without an adapter call, replay before and after
+assembly completion, and acknowledgement of committed assembler operations. It
+does not simulate hard driver loss before executor cleanup or fail-loud behavior
+for a systemic Qwen preprocessing error; those remain reviewer-visible
+properties outside these focused tests.
 
 ## 15. Reviewer File Map
 
@@ -852,8 +894,9 @@ the current implementation.
 
 1. Global planning reads metadata only and never decodes waveform bytes.
 2. Each emitted segment is no longer than `max_inference_duration_s`.
-3. Each ready planner batch is one atomic task row and becomes exactly one
-   non-empty owner adapter call without a second bucketing pass.
+3. Each ready planner batch is one atomic task row and is never rebucketed by
+   the owner. It becomes one adapter call containing every eligible child, or
+   zero calls when every child is already skipped/unsupported.
 4. Segment children carry every configured consumer input and only those parent
    fields plus planner metadata.
 5. On a normal successful attempt, each segment child opens and decodes only its
@@ -873,7 +916,11 @@ the current implementation.
     internals.
 14. Extended metrics and pipeline hardware sampling are opt-in outside the Qwen
     entrypoint and observational only.
-15. Payload-aware consumer retries are not same-ref safe after the first attempt
-    raises, because the adapter releases those refs before rethrowing.
-16. Global assembly is deterministic on the normal path but does not currently
-    provide idempotent replay or downstream acknowledgement.
+15. A failed payload-aware invocation leaves its input refs owned by the store,
+    so a backend retry can resolve the same handles; successful filtering and the
+    explicit release stage remain the only per-row release points.
+16. Global segment operations are idempotent until the wrapper acknowledges the
+    preceding successful invocation, including replay after ordered drain.
+17. A row already marked skipped, including a materialization read error, keeps
+    its dispatch/terminal position, receives empty ASR output, bypasses the
+    adapter, and still reaches parent assembly.

@@ -23,6 +23,8 @@ re-derivation, and source content-id vs. positional-index selection."""
 
 from dataclasses import dataclass
 
+import pytest
+
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.pipeline.payload_refs import PayloadRef
 from nemo_curator.stages.base import ProcessingStage
@@ -71,6 +73,20 @@ class _DropSegmentRowStage(ProcessingStage[AudioTask, AudioTask]):
         if task.data.get("drop"):
             return None
         return task
+
+
+@dataclass
+class _FailOncePayloadStage(_NoopStage):
+    attempts: int = 0
+    _curator_tracks_payload_refs: bool = True
+    _curator_payload_ref_key: str = "payload_ref"
+
+    def process_batch(self, tasks: list[Task]) -> list[Task]:
+        self.attempts += 1
+        if self.attempts == 1:
+            msg = "transient failure"
+            raise RuntimeError(msg)
+        return tasks
 
 
 @dataclass
@@ -126,6 +142,25 @@ def test_payload_tracking_reads_only_configured_top_level_ref() -> None:
     refs = BaseStageAdapter(stage)._collect_payload_refs([task])
 
     assert refs == {"top": top_level}
+
+
+def test_failed_attempt_keeps_payload_ref_for_backend_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    released: list[str] = []
+    monkeypatch.setattr(
+        "nemo_curator.pipeline.payload_refs.release_payload_ref",
+        lambda payload_ref: released.append(payload_ref.payload_id),
+    )
+    payload_ref = PayloadRef("retry", "node", "store", "admission", 1, 16_000, 1)
+    task = AudioTask(data={"payload_ref": payload_ref})
+    adapter = BaseStageAdapter(_FailOncePayloadStage())
+
+    with pytest.raises(RuntimeError, match="transient failure"):
+        adapter.process_batch([task])
+
+    assert task.data["payload_ref"] is payload_ref
+    assert released == []
+    assert adapter.process_batch([task]) == [task]
+    assert released == []
 
 
 class TestPostProcessTaskIds:

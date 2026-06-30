@@ -656,6 +656,14 @@ class _GlobalSegmentParentDataStore:
         self._parents.clear()
 
 
+_GLOBAL_ASSEMBLY_MAX_REPLAY_OPERATIONS = 4096
+
+
+def _global_segment_operation_id(parent_id: str, segment_idx: int) -> str:
+    """Return the stable identity of one terminal segment submission."""
+    return f"{parent_id}:segment:{segment_idx}"
+
+
 class _GlobalSegmentAssemblyState:
     """Ray actor state for generic global-segment parent assembly."""
 
@@ -726,8 +734,49 @@ class _GlobalSegmentAssemblyState:
         self._spill_bytes = 0
         self._max_buffered_parents = 0
         self._max_ready_gap = 0
+        self._operation_results: dict[str, tuple[str, int, list[dict[str, Any]]]] = {}
+        self._max_replay_operations = _GLOBAL_ASSEMBLY_MAX_REPLAY_OPERATIONS
 
-    def add_segment(  # noqa: C901, PLR0913
+    def acknowledge_operations(self, operation_ids: list[str] | tuple[str, ...]) -> int:
+        """Forget replay responses after the caller completed its prior invocation."""
+        acknowledged = 0
+        for operation_id in operation_ids:
+            if self._operation_results.pop(str(operation_id), None) is not None:
+                acknowledged += 1
+        return acknowledged
+
+    def _cached_operation_result(
+        self,
+        operation_id: str,
+        *,
+        parent_id: str,
+        segment_idx: int,
+    ) -> list[dict[str, Any]] | None:
+        cached = self._operation_results.get(operation_id)
+        if cached is None:
+            return None
+        cached_parent_id, cached_segment_idx, result = cached
+        if cached_parent_id != parent_id or cached_segment_idx != segment_idx:
+            msg = (
+                f"Global segment operation {operation_id!r} was reused for "
+                f"{parent_id!r}/{segment_idx}; it already belongs to "
+                f"{cached_parent_id!r}/{cached_segment_idx}"
+            )
+            raise ValueError(msg)
+        return result
+
+    def _remember_operation_result(
+        self,
+        operation_id: str,
+        *,
+        parent_id: str,
+        segment_idx: int,
+        result: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        self._operation_results[operation_id] = (parent_id, segment_idx, result)
+        return result
+
+    def add_segment(  # noqa: C901, PLR0912, PLR0913
         self,
         *,
         parent_id: str,
@@ -737,6 +786,8 @@ class _GlobalSegmentAssemblyState:
         metadata: dict[str, Any],
         stage_perf: list[Any],
         parent_data: dict[str, Any] | None = None,
+        operation_id: str | None = None,
+        acknowledge_operation_ids: list[str] | tuple[str, ...] | None = None,
     ) -> list[dict[str, Any]]:
         if segment_count <= 0:
             msg = f"segment_count must be > 0 for parent {parent_id!r}"
@@ -746,6 +797,21 @@ class _GlobalSegmentAssemblyState:
                 f"segment_idx {segment_idx} is outside expected range 0..{segment_count - 1} for parent {parent_id!r}"
             )
             raise ValueError(msg)
+
+        operation_id = str(operation_id or _global_segment_operation_id(parent_id, segment_idx))
+        self.acknowledge_operations(
+            [candidate for candidate in (acknowledge_operation_ids or ()) if str(candidate) != operation_id]
+        )
+        cached_result = self._cached_operation_result(
+            operation_id,
+            parent_id=parent_id,
+            segment_idx=segment_idx,
+        )
+        if cached_result is not None:
+            return cached_result
+        if len(self._operation_results) >= self._max_replay_operations:
+            msg = "Global segment assembly replay cache is full; the caller is not acknowledging completed operations"
+            raise RuntimeError(msg)
 
         self._segments_seen += 1
         skipped_segment = self._is_skipped_segment(data)
@@ -771,6 +837,7 @@ class _GlobalSegmentAssemblyState:
                 "parent_keys": parent_keys,
                 "metadata": dict(metadata),
                 "segments": {},
+                "segment_operations": {},
                 "stage_perf": [],
             }
             self._parents[parent_id] = entry
@@ -782,7 +849,10 @@ class _GlobalSegmentAssemblyState:
             raise ValueError(msg)
 
         segments: dict[int, dict[str, Any]] = entry["segments"]
+        segment_operations: dict[int, str] = entry["segment_operations"]
         if segment_idx in segments:
+            if segment_operations[segment_idx] == operation_id:
+                return []
             msg = f"Duplicate segment {segment_idx} for parent {parent_id!r}"
             raise ValueError(msg)
         parent_context = entry["base_data"]
@@ -797,10 +867,16 @@ class _GlobalSegmentAssemblyState:
             "skipped": skipped_segment,
             "drop_stage_ids": self._segment_drop_stage_ids(data),
         }
+        segment_operations[segment_idx] = operation_id
         entry["stage_perf"].extend(stage_perf)
 
         if len(segments) != segment_count:
-            return []
+            return self._remember_operation_result(
+                operation_id,
+                parent_id=parent_id,
+                segment_idx=segment_idx,
+                result=[],
+            )
 
         assembled = self._assemble_parent(parent_id, entry)
         self._parents_assembled += 1
@@ -810,7 +886,12 @@ class _GlobalSegmentAssemblyState:
             msg = f"Duplicate assembled parent source index {source_index} for parent {parent_id!r}"
             raise ValueError(msg)
         self._store_ready_parent(source_index, assembled)
-        return self._drain_ready_in_input_order()
+        return self._remember_operation_result(
+            operation_id,
+            parent_id=parent_id,
+            segment_idx=segment_idx,
+            result=self._drain_ready_in_input_order(),
+        )
 
     @staticmethod
     def _ray_get(obj: Any) -> Any:
@@ -1253,6 +1334,7 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
     _actor: Any = field(init=False, default=None, repr=False)
     _parent_store_actor: Any = field(init=False, default=None, repr=False)
     _last_actor_metrics: dict[str, float] = field(init=False, default_factory=dict, repr=False)
+    _pending_operation_acks: tuple[str, ...] = field(init=False, default=(), repr=False)
     _curator_consumes_segment_rows: bool = field(init=False, default=True, repr=False)
 
     def __post_init__(self) -> None:
@@ -1305,22 +1387,9 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
         parent_id_value = task.data.get(TERMINAL_GROUP_ID_KEY, task.data.get("_curator_segment_parent_id"))
         if parent_id_value is None:
             return task
-        self._ensure_actor()
-        parent_id = str(parent_id_value)
-        segment_idx = int(task.data.get(TERMINAL_INDEX_KEY, task.data.get("_curator_segment_idx", 0)))
-        segment_count = int(task.data.get(TERMINAL_COUNT_KEY, task.data.get("_curator_segment_count", 1)))
-        assembled_items = self._ray_get(
-            self._actor.add_segment.remote(
-                parent_id=parent_id,
-                segment_idx=segment_idx,
-                segment_count=segment_count,
-                data=dict(task.data),
-                metadata=dict(task._metadata),
-                stage_perf=list(task._stage_perf),
-            )
-        )
-        self._log_actor_metric_deltas()
+        assembled_items, operation_id = self._submit_segment(task, self._pending_operation_acks)
         if not assembled_items:
+            self._pending_operation_acks = (operation_id,)
             return None
         if len(assembled_items) != 1:
             msg = (
@@ -1328,6 +1397,7 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
                 "call process_batch() for segment assembly."
             )
             raise RuntimeError(msg)
+        self._pending_operation_acks = (operation_id,)
         assembled = assembled_items[0]
         output = AudioTask(
             dataset_name=task.dataset_name,
@@ -1340,26 +1410,16 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         outputs: list[AudioTask] = []
+        operation_ids: list[str] = []
+        acknowledge_operation_ids = self._pending_operation_acks
         for task in tasks:
             parent_id_value = task.data.get(TERMINAL_GROUP_ID_KEY, task.data.get("_curator_segment_parent_id"))
             if parent_id_value is None:
                 outputs.append(task)
                 continue
-            self._ensure_actor()
-            parent_id = str(parent_id_value)
-            segment_idx = int(task.data.get(TERMINAL_INDEX_KEY, task.data.get("_curator_segment_idx", 0)))
-            segment_count = int(task.data.get(TERMINAL_COUNT_KEY, task.data.get("_curator_segment_count", 1)))
-            assembled_items = self._ray_get(
-                self._actor.add_segment.remote(
-                    parent_id=parent_id,
-                    segment_idx=segment_idx,
-                    segment_count=segment_count,
-                    data=dict(task.data),
-                    metadata=dict(task._metadata),
-                    stage_perf=list(task._stage_perf),
-                )
-            )
-            self._log_actor_metric_deltas()
+            assembled_items, operation_id = self._submit_segment(task, acknowledge_operation_ids)
+            acknowledge_operation_ids = ()
+            operation_ids.append(operation_id)
             for assembled in assembled_items:
                 output = AudioTask(
                     dataset_name=task.dataset_name,
@@ -1369,7 +1429,34 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
                 )
                 output.task_id = f"assembled_{_safe_global_segment_actor_suffix(str(assembled['parent_id']))}"
                 outputs.append(output)
+        if operation_ids:
+            self._pending_operation_acks = tuple(operation_ids)
         return outputs
+
+    def _submit_segment(
+        self,
+        task: AudioTask,
+        acknowledge_operation_ids: tuple[str, ...],
+    ) -> tuple[list[dict[str, Any]], str]:
+        self._ensure_actor()
+        parent_id = str(task.data.get(TERMINAL_GROUP_ID_KEY, task.data.get("_curator_segment_parent_id")))
+        segment_idx = int(task.data.get(TERMINAL_INDEX_KEY, task.data.get("_curator_segment_idx", 0)))
+        segment_count = int(task.data.get(TERMINAL_COUNT_KEY, task.data.get("_curator_segment_count", 1)))
+        operation_id = _global_segment_operation_id(parent_id, segment_idx)
+        assembled_items = self._ray_get(
+            self._actor.add_segment.remote(
+                parent_id=parent_id,
+                segment_idx=segment_idx,
+                segment_count=segment_count,
+                data=dict(task.data),
+                metadata=dict(task._metadata),
+                stage_perf=list(task._stage_perf),
+                operation_id=operation_id,
+                acknowledge_operation_ids=acknowledge_operation_ids,
+            )
+        )
+        self._log_actor_metric_deltas()
+        return assembled_items, operation_id
 
     def _log_actor_metric_deltas(self) -> None:
         if self._actor is None:
@@ -1448,6 +1535,7 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
         store_name = f"{self.parent_store_actor_name_prefix}_{_safe_global_segment_actor_suffix(str(self.run_id))}"
         _kill_named_ray_actor(store_name, namespace)
         self._parent_store_actor = None
+        self._pending_operation_acks = ()
 
     @staticmethod
     def _ray_get(obj: Any) -> Any:

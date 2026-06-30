@@ -405,7 +405,7 @@ def test_segment_assembly_allows_parent_key_modified_when_sent_to_segment_consum
     assert assembled_items[0]["data"]["text_prompt"] == "normalized prompt"
 
 
-def test_segment_assembly_rejects_duplicate_segment() -> None:
+def test_segment_assembly_replays_duplicate_operation_before_completion() -> None:
     state = _GlobalSegmentAssemblyState(
         text_keys_to_join=["qwen3_prediction_s1"],
         field_merge_strategies={"qwen3_prediction_s2": "drop"},
@@ -425,10 +425,99 @@ def test_segment_assembly_rejects_duplicate_segment() -> None:
         "data": _segment_data(0, "hello"),
         "metadata": {},
         "stage_perf": [],
+        "operation_id": "manifest:0:0:segment:0",
     }
-    state.add_segment(**kwargs)
+    assert state.add_segment(**kwargs) == []
+    assert state.add_segment(**kwargs) == []
+
+    conflicting = {**kwargs, "operation_id": "different-operation"}
     with pytest.raises(ValueError, match="Duplicate segment"):
-        state.add_segment(**kwargs)
+        state.add_segment(**conflicting)
+
+
+def test_segment_assembly_replays_final_operation_after_ordered_drain() -> None:
+    state = _GlobalSegmentAssemblyState(
+        text_keys_to_join=["qwen3_prediction_s1"],
+        field_merge_strategies={"qwen3_prediction_s2": "drop"},
+        skip_me_key="_skip_me",
+        waveform_key="waveform",
+        waveform_ref_key="waveform_ref",
+        duration_key="duration",
+        num_samples_key="num_samples",
+        segment_start_key="segment_start_s",
+        segment_duration_key="segment_duration_s",
+    )
+    kwargs = {
+        "parent_id": "manifest:0:0",
+        "segment_idx": 0,
+        "segment_count": 1,
+        "data": {
+            **_segment_data(0, "hello"),
+            "_curator_segment_count": 1,
+        },
+        "metadata": {},
+        "stage_perf": [],
+        "operation_id": "manifest:0:0:segment:0",
+    }
+
+    first = state.add_segment(**kwargs)
+    replay = state.add_segment(**kwargs)
+
+    assert replay == first
+    assert [item["data"]["qwen3_prediction_s1"] for item in replay] == ["hello"]
+    assert state.snapshot_metrics()["global_assembler_segments_seen"] == 1.0
+    assert state.snapshot_metrics()["global_assembler_parents_assembled"] == 1.0
+    assert state.acknowledge_operations(["manifest:0:0:segment:0"]) == 1
+    assert state.acknowledge_operations(["manifest:0:0:segment:0"]) == 0
+
+
+def test_segment_assembly_replay_cache_is_bounded_until_acknowledged() -> None:
+    state = _GlobalSegmentAssemblyState(
+        text_keys_to_join=["qwen3_prediction_s1"],
+        field_merge_strategies={"qwen3_prediction_s2": "drop"},
+        skip_me_key="_skip_me",
+        waveform_key="waveform",
+        waveform_ref_key="waveform_ref",
+        duration_key="duration",
+        num_samples_key="num_samples",
+        segment_start_key="segment_start_s",
+        segment_duration_key="segment_duration_s",
+    )
+    state._max_replay_operations = 1
+    state.add_segment(
+        parent_id="manifest:0:0",
+        segment_idx=0,
+        segment_count=2,
+        data=_segment_data(0, "first"),
+        metadata={},
+        stage_perf=[],
+        operation_id="operation-0",
+    )
+
+    with pytest.raises(RuntimeError, match="replay cache is full"):
+        state.add_segment(
+            parent_id="manifest:1:1",
+            segment_idx=0,
+            segment_count=2,
+            data=_segment_data(0, "second", parent_source_index=1, parent_id="manifest:1:1"),
+            metadata={},
+            stage_perf=[],
+            operation_id="operation-1",
+        )
+
+    assert (
+        state.add_segment(
+            parent_id="manifest:1:1",
+            segment_idx=0,
+            segment_count=2,
+            data=_segment_data(0, "second", parent_source_index=1, parent_id="manifest:1:1"),
+            metadata={},
+            stage_perf=[],
+            operation_id="operation-1",
+            acknowledge_operation_ids=["operation-0"],
+        )
+        == []
+    )
 
 
 def test_segment_assembly_preserves_original_parent_order() -> None:
@@ -735,6 +824,43 @@ def test_segment_assembler_passes_non_segment_rows_through() -> None:
     assert stage.process(task) is task
 
 
+def test_segment_assembler_piggybacks_previous_operation_ack() -> None:
+    calls: list[dict[str, object]] = []
+
+    class _RemoteMethod:
+        def remote(self, **kwargs: object) -> list[dict[str, object]]:
+            calls.append(kwargs)
+            return []
+
+    class _Actor:
+        add_segment = _RemoteMethod()
+
+    stage = GlobalSegmentAssemblerStage(text_keys_to_join=["qwen3_prediction_s1"])
+    stage._actor = _Actor()
+    stage._ray_get = lambda value: value  # type: ignore[method-assign]
+    stage._log_actor_metric_deltas = lambda: None  # type: ignore[method-assign]
+    first = AudioTask(
+        data={
+            "_curator_terminal_group_id": "parent-0",
+            "_curator_terminal_index": 0,
+            "_curator_terminal_count": 2,
+        }
+    )
+    second = AudioTask(
+        data={
+            "_curator_terminal_group_id": "parent-0",
+            "_curator_terminal_index": 1,
+            "_curator_terminal_count": 2,
+        }
+    )
+
+    assert stage.process_batch([first]) == []
+    assert stage.process_batch([second]) == []
+
+    assert calls[0]["acknowledge_operation_ids"] == ()
+    assert calls[1]["acknowledge_operation_ids"] == ("parent-0:segment:0",)
+
+
 def test_assembly_actor_takes_parent_data_only_for_first_segment() -> None:
     taken: list[str] = []
 
@@ -772,15 +898,19 @@ def test_assembly_actor_takes_parent_data_only_for_first_segment() -> None:
         )
         == []
     )
-    state.add_segment(
-        parent_id="manifest:0:0",
-        segment_idx=1,
-        segment_count=2,
-        data=_segment_data(1, "world"),
-        metadata={},
-        stage_perf=[],
-    )
+    final_kwargs = {
+        "parent_id": "manifest:0:0",
+        "segment_idx": 1,
+        "segment_count": 2,
+        "data": _segment_data(1, "world"),
+        "metadata": {},
+        "stage_perf": [],
+    }
+    assembled = state.add_segment(**final_kwargs)
+    replay = state.add_segment(**final_kwargs)
 
+    assert replay == assembled
+    assert [item["data"]["qwen3_prediction_s1"] for item in replay] == ["hello world"]
     assert taken == ["manifest:0:0"]
 
 
