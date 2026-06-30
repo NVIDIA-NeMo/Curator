@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 from typing import Any
 
+import torch
 from loguru import logger
 
 from nemo_curator.models.base import ModelInterface
@@ -33,7 +35,63 @@ except ImportError:
         pass
 
 
-class VLLMModel(ModelInterface):
+class VLLMBase:
+    """Shared vLLM engine management for text and multimodal generation.
+
+    Holds the loaded ``LLM`` engine and ``SamplingParams`` and exposes
+    protected helpers for engine creation, generation, and GPU cleanup. Not
+    for direct instantiation. ``_generate`` returns raw ``RequestOutput``
+    objects so callers can read text *and* token-level metadata.
+    """
+
+    _llm: LLM | None = None
+    _sampling_params: SamplingParams | None = None
+
+    def _init_engine(self, model_kwargs: dict[str, Any], sampling_kwargs: dict[str, Any]) -> None:
+        """Create the vLLM ``LLM`` engine and ``SamplingParams``.
+
+        Args forward to ``vllm.LLM`` / ``vllm.SamplingParams``. Constructor
+        exceptions propagate unchanged, matching the public main behavior.
+        """
+        self._llm = LLM(**model_kwargs)
+        self._sampling_params = SamplingParams(**sampling_kwargs)
+
+    def _generate(self, prompts: list, *, use_tqdm: bool = False) -> list:
+        """Run generation and return raw ``RequestOutput`` objects, one per prompt.
+
+        ``prompts`` are text strings or multimodal prompt dicts. Raises
+        ``RuntimeError`` if the engine is uninitialized or generation fails.
+        """
+        if self._llm is None or self._sampling_params is None:
+            msg = "vLLM engine not initialized. Call setup() first."
+            raise RuntimeError(msg)
+        try:
+            return self._llm.generate(prompts, sampling_params=self._sampling_params, use_tqdm=use_tqdm)
+        except (RuntimeError, ValueError, TypeError) as e:
+            msg = f"Error generating text: {e}"
+            raise RuntimeError(msg) from e
+
+    def _cleanup_gpu(self) -> None:
+        """Release the engine and GPU memory.
+
+        vLLM owns its tensor-parallel process group, so we do not call
+        ``torch.distributed.destroy_process_group()`` here: that destroys the
+        default/global group and would corrupt any other component (another
+        stage, Ray primitives) sharing it in this process.
+        """
+        if self._llm is not None:
+            del self._llm
+            self._llm = None
+        self._sampling_params = None
+        gc.collect()
+        try:
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        except Exception as e:  # noqa: BLE001
+            logger.debug("CUDA cache clear skipped: {}", e)
+
+
+class VLLMModel(VLLMBase, ModelInterface):
     """Generic vLLM language model wrapper for text generation."""
 
     def __init__(  # noqa: PLR0913

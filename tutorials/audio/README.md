@@ -115,6 +115,8 @@ Audio pipelines can appear stuck for legitimate reasons. Before killing a run:
 | **Setup** | [Installation](https://docs.nvidia.com/nemo/curator/latest/get-started/installation.html) · [Configuration](https://docs.nvidia.com/nemo/curator/latest/get-started/configuration.html) |
 | **Concepts** | [Architecture](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) · [Data Loading](https://docs.nvidia.com/nemo/curator/latest/about/concepts/text/data-loading-concepts.html) |
 | **Advanced** | [Custom Pipelines](https://docs.nvidia.com/nemo/curator/latest/reference/index.html) · [Execution Backends](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/execution-backends.html) · [NeMo ASR Integration](https://docs.nvidia.com/nemo/curator/latest/about/key-features.html) |
+| **Developer guide** | [Audio stage internals](../../nemo_curator/stages/audio/README.md) · raw Qwen payload lifecycle, global segment planning, ASR adapter batching, perf-summary fields |
+| **Qwen assets** | [Qwen-Omni prompt templates](../../examples/audio/qwen_omni_raw_inprocess/prompts/) |
 
 ## Known Issues
 

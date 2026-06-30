@@ -327,6 +327,15 @@ class TestProcessingStageWith:
         assert stage.num_workers() == 2
         assert stage_new.num_workers() is None
 
+    def test_extended_performance_metrics_is_an_additive_override(self):
+        stage = BackendConfiguredStage()
+
+        stage_new = stage.with_(num_workers=4, extended_performance_metrics=True)
+
+        assert stage.extended_performance_metrics is False
+        assert stage_new.num_workers() == 4
+        assert stage_new.extended_performance_metrics is True
+
 
 class TestProcessingStageOverriddenProperties:
     """Test that ProcessingStage raises an error if a derived class overrides the _name, _resources, or _batch_size property."""

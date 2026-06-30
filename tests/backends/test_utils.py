@@ -11,10 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ruff: noqa: ANN202
 
+import sys
+import types
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -160,6 +164,41 @@ class TestExecuteSetupOnNode:
             f"Expected {len(ray.nodes())} logs for setup on node for 2 stages, got {len(matching_logs)}: {matching_logs}"
         )
 
+    def test_execute_setup_on_node_uses_stage_setup_resources(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """setup_on_node should use the stage's setup resource contract."""
+
+        class GPUStage(ProcessingStage):
+            name = "gpu_stage"
+            resources = Resources(cpus=8.0, gpus=4.0)
+
+            def process(self, task: "Task") -> "Task":
+                return task
+
+        class CPUOnlySetupStage(GPUStage):
+            name = "cpu_only_setup_stage"
+
+            def setup_on_node_resources(self) -> Resources:
+                return Resources(cpus=1.0, gpus=0.0)
+
+        submitted_kwargs = []
+
+        def fake_nodes():
+            return [{"Alive": True, "NodeID": "node-1"}]
+
+        def fake_submit_on_each_node(_remote_fn, _stage, **kwargs):  # noqa: ANN001
+            submitted_kwargs.append(kwargs)
+            return []
+
+        monkeypatch.setattr(ray, "nodes", fake_nodes)
+        monkeypatch.setattr("nemo_curator.backends.utils.submit_on_each_node", fake_submit_on_each_node)
+
+        execute_setup_on_node([GPUStage(), CPUOnlySetupStage()])
+
+        assert submitted_kwargs == [
+            {"ignore_head_node": False, "num_cpus": 8.0, "num_gpus": 4.0},
+            {"ignore_head_node": False, "num_cpus": 1.0, "num_gpus": 0.0},
+        ]
+
     def test_execute_setup_on_node_ignore_head_node(
         self,
         shared_ray_client: None,
@@ -302,3 +341,169 @@ class TestCheckTotalGpuCapacity:
                     check_total_gpu_capacity(needed)
             else:
                 check_total_gpu_capacity(needed)
+
+
+@dataclass
+class _FakeGpuAllocation:
+    """Mirror of cosmos_xenna ``GpuAllocation`` (only ``index`` is read)."""
+
+    index: int
+    used_fraction: float = 1.0
+
+
+@dataclass
+class _FakeWorkerResources:
+    """Mirror of cosmos_xenna ``WorkerResources`` (only ``gpus`` is read)."""
+
+    node: str
+    gpus: list[_FakeGpuAllocation]
+
+
+class _FakeRayContext:
+    def __init__(
+        self,
+        *,
+        node_id: str = "nodeabcdef123",
+        actor_id: str = "",
+        worker_id: str = "worker123456",
+    ) -> None:
+        self._node_id = node_id
+        self._actor_id = actor_id
+        self._worker_id = worker_id
+
+    def get_node_id(self) -> str:
+        return self._node_id
+
+    def get_actor_id(self) -> str:
+        return self._actor_id
+
+    def get_worker_id(self) -> str:
+        return self._worker_id
+
+
+class TestBackendPerfIdentity:
+    """Backend-specific GPU label resolvers (no cross-backend fallbacks)."""
+
+    def test_xenna_allocation_index(self) -> None:
+        from nemo_curator.backends.perf_identity import build_xenna_perf_identity
+
+        alloc = _FakeWorkerResources(node="ray-node-abc", gpus=[_FakeGpuAllocation(index=3)])
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("CUDA_VISIBLE_DEVICES", "7")
+            identity = build_xenna_perf_identity(
+                "QwenOmni_inference",
+                worker_id="worker-abc",
+                node_id="node-0",
+                allocation=alloc,
+                requires_gpu=True,
+            )
+        assert identity.gpu_id == "node-0:3"
+        assert identity.node_id == "node-0"
+        assert identity.actor_id == "QwenOmni_inference:actor-worker-a"
+        assert identity.gpu_indices == (3,)
+
+    def test_xenna_physical_address_uses_pod_ip_and_all_allocation_gpus(self) -> None:
+        from nemo_curator.backends.perf_identity import build_xenna_perf_identity
+
+        alloc = _FakeWorkerResources(
+            node="ray-node-abc",
+            gpus=[_FakeGpuAllocation(index=0), _FakeGpuAllocation(index=1)],
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("POD_IP", "10.244.181.136")
+            identity = build_xenna_perf_identity(
+                "QwenOmni_inference",
+                worker_id="worker-abc",
+                node_id="node-0",
+                allocation=alloc,
+                requires_gpu=True,
+            )
+        assert identity.gpu_id == "node-0:0"
+        assert identity.pod_ip == "10.244.181.136"
+        assert identity.physical_address == "10.244.181.136:0,1"
+        assert identity.gpu_indices == (0, 1)
+
+    def test_xenna_cpu_stage_with_empty_allocation_is_blank_gpu(self) -> None:
+        from nemo_curator.backends.perf_identity import build_xenna_perf_identity
+
+        alloc = _FakeWorkerResources(node="ray-node-abc", gpus=[])
+        with pytest.MonkeyPatch.context() as mp:
+            mp.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+            identity = build_xenna_perf_identity(
+                "reader",
+                worker_id="w1",
+                node_id="node-0",
+                allocation=alloc,
+                requires_gpu=False,
+            )
+        assert identity.gpu_id == ""
+
+    def test_xenna_bare_gpu_index_when_node_unknown(self) -> None:
+        from nemo_curator.backends.perf_identity import build_xenna_perf_identity
+
+        alloc = _FakeWorkerResources(node="", gpus=[_FakeGpuAllocation(index=2)])
+        identity = build_xenna_perf_identity(
+            "infer",
+            worker_id="w1",
+            node_id="",
+            allocation=alloc,
+            requires_gpu=True,
+        )
+        assert identity.gpu_id == "2"
+
+    def test_ray_does_not_parse_cuda_visible_devices(self) -> None:
+        from nemo_curator.backends.perf_identity import build_ray_perf_identity
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("CUDA_VISIBLE_DEVICES", "5,6")
+            identity = build_ray_perf_identity("infer", requires_gpu=True)
+        # Driver-side test has no Ray actor GPU assignment — must stay blank, not CVD.
+        assert identity.gpu_id == ""
+
+    def test_ray_runtime_context_resolves_gpu_without_worker_env(self) -> None:
+        from nemo_curator.backends.perf_identity import build_ray_perf_identity
+
+        fake_ray = types.SimpleNamespace(
+            is_initialized=lambda: True,
+            get_runtime_context=lambda: _FakeRayContext(worker_id="workerabcdef999"),
+            get_gpu_ids=lambda: [0, 1],
+            util=types.SimpleNamespace(get_node_ip_address=lambda: "10.0.0.5"),
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            mp.delenv("RAY_WORKER_ID", raising=False)
+            mp.setitem(sys.modules, "ray", fake_ray)
+            identity = build_ray_perf_identity("infer", requires_gpu=True)
+
+        assert identity.actor_id == "infer:actor-workerab"
+        assert identity.node_id == "node-nodeabcd"
+        assert identity.gpu_id == "node-nodeabcd:0"
+        assert identity.physical_address == "10.0.0.5:0,1"
+        assert identity.gpu_indices == (0, 1)
+
+    def test_ray_runtime_context_maps_uuid_gpu_assignments_with_nvml(self) -> None:
+        from nemo_curator.backends.perf_identity import build_ray_perf_identity
+
+        fake_ray = types.SimpleNamespace(
+            is_initialized=lambda: True,
+            get_runtime_context=lambda: _FakeRayContext(actor_id="actorabcdef999"),
+            get_gpu_ids=lambda: ["GPU-aaaa", "GPU-bbbb"],
+            util=types.SimpleNamespace(get_node_ip_address=lambda: "10.0.0.5"),
+        )
+        fake_pynvml = types.SimpleNamespace(
+            nvmlInit=lambda: None,
+            nvmlShutdown=lambda: None,
+            nvmlDeviceGetCount=lambda: 3,
+            nvmlDeviceGetHandleByIndex=lambda index: index,
+            nvmlDeviceGetUUID=lambda handle: ["GPU-zzzz", "GPU-aaaa", b"GPU-bbbb"][handle],
+        )
+        with pytest.MonkeyPatch.context() as mp:
+            mp.delenv("RAY_WORKER_ID", raising=False)
+            mp.setitem(sys.modules, "ray", fake_ray)
+            mp.setitem(sys.modules, "pynvml", fake_pynvml)
+            identity = build_ray_perf_identity("infer", requires_gpu=True)
+
+        assert identity.actor_id == "infer:actor-actorabc"
+        assert identity.gpu_id == "node-nodeabcd:1"
+        assert identity.physical_address == "10.0.0.5:1,2"
+        assert identity.gpu_indices == (1, 2)
+        assert identity.gpu_uuids == ("GPU-aaaa", "GPU-bbbb")
