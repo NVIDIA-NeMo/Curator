@@ -23,7 +23,10 @@ import argparse
 
 from loguru import logger
 
-from nemo_curator.backends.failed_task_markers import failed_task_manifest_exists
+from nemo_curator.backends.failed_task_markers import (
+    configure_slurm_array_failed_task_manifest_dir,
+    failed_task_manifest_exists,
+)
 from nemo_curator.backends.slurm_array import (
     SlurmArrayConfig,
     build_slurm_array_completion_manifest,
@@ -126,6 +129,13 @@ def main() -> None:
 
     ray_client = SlurmRayClient() if args.slurm else RayClient()
     is_driver_process = is_slurm_array_driver_process(args.slurm)
+    if args.checkpoint_path is not None:
+        failed_task_manifest_dir = configure_slurm_array_failed_task_manifest_dir(
+            args.checkpoint_path,
+            slurm_array.shard_index,
+        )
+        logger.info(f"FailedTask manifest directory: {failed_task_manifest_dir}")
+
     completion_manifest = build_slurm_array_completion_manifest(
         checkpoint_path=args.checkpoint_path if is_driver_process else None,
         shard_index=slurm_array.shard_index,

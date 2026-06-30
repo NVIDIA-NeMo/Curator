@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from pathlib import Path
 
 from pytest import MonkeyPatch
@@ -19,6 +20,8 @@ from pytest import MonkeyPatch
 from nemo_curator.backends.failed_task_markers import (
     FAILED_TASK_MANIFEST_FILENAME,
     FAILED_TASKS_DIR_ENV_VAR,
+    configure_failed_task_manifest_dir,
+    configure_slurm_array_failed_task_manifest_dir,
     failed_task_manifest_exists,
     record_failed_tasks,
 )
@@ -32,6 +35,48 @@ def _failed_task(task_id: str = "0_7_0") -> FailedTask:
 
 
 class TestFailedTaskManifest:
+    def test_configure_manifest_dir_uses_local_process_identity(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
+
+        manifest_dir = configure_failed_task_manifest_dir(tmp_path)
+
+        assert manifest_dir == (
+            tmp_path
+            / ".nemo_curator_metadata"
+            / ".failed_tasks"
+            / f"local_process_{os.getpid()}"
+        )
+        assert os.environ[FAILED_TASKS_DIR_ENV_VAR] == str(manifest_dir)
+
+    def test_configure_slurm_array_manifest_dir_uses_attempt_identity(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
+        monkeypatch.setenv("SLURM_JOB_ID", "123")
+        monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "7")
+
+        manifest_dir = configure_slurm_array_failed_task_manifest_dir(tmp_path, shard_index=9)
+
+        assert manifest_dir == (
+            tmp_path
+            / ".nemo_curator_metadata"
+            / ".failed_tasks"
+            / "slurm_job_123"
+            / "array_task_7"
+            / "shard_9"
+        )
+        assert os.environ[FAILED_TASKS_DIR_ENV_VAR] == str(manifest_dir)
+
+    def test_configure_slurm_array_manifest_dir_preserves_explicit_override(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
+        override = tmp_path / "custom-failed-tasks"
+        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(override))
+
+        assert configure_slurm_array_failed_task_manifest_dir(tmp_path / "checkpoint", shard_index=9) == override
+
     def test_record_failed_tasks_writes_single_manifest(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
     ) -> None:

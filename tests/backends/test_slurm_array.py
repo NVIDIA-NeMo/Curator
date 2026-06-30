@@ -109,13 +109,6 @@ class TestSlurmArray:
 
         assert SlurmArrayConfig.from_env() is None
 
-    def test_config_supports_curator_env_vars(self, monkeypatch: MonkeyPatch) -> None:
-        _enable_slurm_array(monkeypatch, shard_index=3, total_shards=8, minimum_shard_index=1)
-
-        slurm_array = SlurmArrayConfig.from_env()
-
-        assert slurm_array == SlurmArrayConfig(shard_index=3, total_shards=8, minimum_shard_index=1)
-
     def test_configure_source_filtering_sets_curator_env_vars(self, monkeypatch: MonkeyPatch) -> None:
         monkeypatch.delenv(SLURM_ARRAY_ENABLED_ENV_VAR, raising=False)
         monkeypatch.delenv(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, raising=False)

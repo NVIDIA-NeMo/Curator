@@ -19,9 +19,46 @@ from loguru import logger
 
 from nemo_curator.tasks.sentinels import FailedTask
 from nemo_curator.utils.atomic_io import write_json_atomically
+from nemo_curator.utils.retry_manifest import METADATA_DIRNAME
 
 FAILED_TASKS_DIR_ENV_VAR = "NEMO_CURATOR_FAILED_TASKS_DIR"
 FAILED_TASK_MANIFEST_FILENAME = "failed_tasks.json"
+
+
+def _configure_failed_task_manifest_dir(default_dir: Path) -> Path:
+    existing = os.environ.get(FAILED_TASKS_DIR_ENV_VAR)
+    if existing:
+        return Path(existing)
+
+    manifest_dir = default_dir.absolute()
+    os.environ[FAILED_TASKS_DIR_ENV_VAR] = str(manifest_dir)
+    return manifest_dir
+
+
+def configure_failed_task_manifest_dir(checkpoint_path: str | Path) -> Path:
+    """Configure a process-scoped FailedTask manifest directory unless overridden."""
+    manifest_dir = Path(
+        checkpoint_path,
+        METADATA_DIRNAME,
+        ".failed_tasks",
+        f"local_process_{os.getpid()}",
+    )
+    return _configure_failed_task_manifest_dir(manifest_dir)
+
+
+def configure_slurm_array_failed_task_manifest_dir(checkpoint_path: str | Path, shard_index: int) -> Path:
+    """Configure an attempt-scoped FailedTask manifest directory unless overridden."""
+    job_id = os.environ.get("SLURM_JOB_ID", f"local_{os.getpid()}")
+    array_task_id = os.environ.get("SLURM_ARRAY_TASK_ID", "local")
+    manifest_dir = Path(
+        checkpoint_path,
+        METADATA_DIRNAME,
+        ".failed_tasks",
+        f"slurm_job_{job_id}",
+        f"array_task_{array_task_id}",
+        f"shard_{shard_index}",
+    )
+    return _configure_failed_task_manifest_dir(manifest_dir)
 
 
 def record_failed_tasks(_stage_name: str, failed_tasks: list[FailedTask]) -> None:

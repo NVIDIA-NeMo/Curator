@@ -131,26 +131,23 @@ class BaseStageAdapter:
 
         return results
 
-    def _post_process_task_ids(self, input_tasks: list[Task], output_tasks: list[Task | None]) -> list[Task]:
+    def _post_process_task_ids(self, input_tasks: list[Task], output_tasks: list[Task]) -> list[Task]:
         """Assign a deterministic ``task_id`` to every emitted task.
 
-        This is the single place task ids are assigned — it runs for every
-        stage on every backend (all backend adapters subclass this), so it
-        makes no difference whether a stage defines ``process`` or overrides
-        ``process_batch``. ``task_id`` is the task's id path (parents + own segment); ids are
-        re-derived at each stage boundary so the same object passing through
-        N stages gets N ids.
+        This runs for every stage on every backend, whether the stage defines
+        ``process`` or overrides ``process_batch``. A task id is re-derived at
+        each stage boundary from its parent id and its own segment.
 
         The input -> output mapping decides each output's PARENT; whether the
         stage is a source decides each output's SEGMENT (content id vs index)
-        — the two are independent. ``None`` outputs (Curator's "return None to
-        filter") are NOT removed before the length check — keeping them in
-        place preserves positional alignment for filter stages — and are then
-        dropped from the returned list.
+        — the two are independent. Before this method is called, raw ``None``
+        outputs are normalized to ``NoneTask`` sentinels so positional slots
+        remain intact. Sentinels receive ids here like other tasks and are
+        removed later by ``process_batch``.
 
         - single input -> every output is its child (fan-out): ``parent_<seg>``
         - ``len(output) == len(input)`` -> positional 1:1: each ``parent_i_<seg>``;
-          a ``None`` slot just means input ``i`` was filtered.
+          a ``NoneTask`` slot means input ``i`` was filtered.
         - any other (ambiguous) cardinality across a batch -> a random ``uuid``
           prefixed with ``"r"`` (e.g. ``"r3f9a…"``), so ``task_id`` is never
           empty even when a derived id is not possible. The ``"r"`` prefix flags
@@ -162,7 +159,7 @@ class BaseStageAdapter:
         source partition keeps a stable id across reorderings regardless of
         whether the source is 1->N or N->N.
 
-        Note: a stage that BOTH filters and fans out within a single batch
+        A stage that both filters and fans out within a single batch
         (returning a flat list rather than a per-input slot) cannot be mapped
         positionally; if its length happens to equal the input length the 1:1
         assumption may misattribute parents. That combination is unsupported
@@ -171,22 +168,20 @@ class BaseStageAdapter:
         is_source = getattr(self.stage, "is_source_stage", False)
 
         if len(input_tasks) == 1:
-            # Fan-out (incl. a source reading from EmptyTask): every non-None
+            # Fan-out (including a source reading from EmptyTask): every
             # output is a child of the single input.
             parent_id = input_tasks[0].task_id
-            out: list[Task] = [t for t in output_tasks if t is not None]
+            out = list(output_tasks)
             for i, task in enumerate(out):
                 suffix = (task.get_deterministic_id() or i) if is_source else i
                 task._set_task_id(parent_id, suffix)
             return out
 
         if len(output_tasks) == len(input_tasks):
-            # Positional 1:1. None is kept above so a filtered slot still lines
-            # up with its own parent; drop the None slots from the result.
+            # Positional 1:1. A NoneTask sentinel remains aligned with the
+            # parent whose output was filtered.
             out = []
             for parent, task in zip(input_tasks, output_tasks, strict=True):
-                if task is None:
-                    continue
                 suffix = (task.get_deterministic_id() or 0) if is_source else 0
                 task._set_task_id(parent.task_id, suffix)
                 out.append(task)
@@ -195,7 +190,7 @@ class BaseStageAdapter:
         # Ambiguous cardinality across a batch: a derived id is not possible. Use a
         # random "r"-prefixed uuid so task_id is non-empty but clearly flagged
         # non-deterministic.
-        out = [t for t in output_tasks if t is not None]
+        out = list(output_tasks)
         for task in out:
             task.task_id = "r" + uuid.uuid4().hex
         return out

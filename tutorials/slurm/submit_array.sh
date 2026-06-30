@@ -64,16 +64,13 @@ NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX="${SHARD_INDEX}"
 NEMO_CURATOR_SLURM_ARRAY_TOTAL_SHARDS="${TOTAL_SHARDS}"
 NEMO_CURATOR_SLURM_ARRAY_MINIMUM_SHARD_INDEX="${MINIMUM_SHARD_INDEX}"
 
-# Attempt-scoped directories keep old FailedTask manifests from affecting retries.
-export NEMO_CURATOR_FAILED_TASKS_DIR="${CHECKPOINT_PATH}/.nemo_curator_metadata/.failed_tasks/slurm_job_${SLURM_JOB_ID:-local_$$}/array_task_${SLURM_ARRAY_TASK_ID:-local}/shard_${SHARD_INDEX}"
-
 NUM_NODES="${SLURM_JOB_NUM_NODES:-${SLURM_NNODES:-1}}"
 USE_SLURM_RAY=0
 if (( NUM_NODES > 1 )); then
     USE_SLURM_RAY=1
 fi
 
-mkdir -p "${CURATOR_DIR}/logs" "${OUTPUT_DIR}" "${CHECKPOINT_PATH}" "${NEMO_CURATOR_FAILED_TASKS_DIR}"
+mkdir -p "${CURATOR_DIR}/logs" "${OUTPUT_DIR}" "${CHECKPOINT_PATH}"
 
 export CURATOR_DIR
 export INPUT_DIR
@@ -107,7 +104,6 @@ echo "  Container : ${CONTAINER_IMAGE}"
 echo "  Mounts    : ${CONTAINER_MOUNTS}"
 echo "  Dir       : ${CURATOR_DIR}"
 echo "  Checkpoint path: ${CHECKPOINT_PATH}"
-echo "  FailedTask dir : ${NEMO_CURATOR_FAILED_TASKS_DIR}"
 echo "=================================================="
 
 srun \

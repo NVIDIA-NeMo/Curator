@@ -363,7 +363,7 @@ sbatch \
 
 Always reuse the original `CHECKPOINT_PATH` for both pipeline-failure retries and `FailedTask` retries. A new checkpoint directory would lose the original run configuration and completed-shard history, causing previously completed shards to appear incomplete.
 
-Do not reuse a previous attempt's `NEMO_CURATOR_FAILED_TASKS_DIR`. `submit_array.sh` handles this automatically: it keeps the durable run configuration and completion manifests in the shared checkpoint directory while creating a fresh directory containing at most one FailedTask manifest for every Slurm job and array task:
+Do not reuse a previous attempt's `NEMO_CURATOR_FAILED_TASKS_DIR`. Before Ray starts, `array_pipeline.py` automatically derives a fresh directory from `CHECKPOINT_PATH`, `SLURM_JOB_ID`, `SLURM_ARRAY_TASK_ID`, and the logical shard index. This keeps the durable run configuration and completion manifests in the shared checkpoint directory while isolating at most one FailedTask manifest for every Slurm job and array task:
 
 ```text
 ${CHECKPOINT_PATH}/.nemo_curator_metadata/
