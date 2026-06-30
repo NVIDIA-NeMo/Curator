@@ -127,19 +127,20 @@ class BaseExecutor(ABC):
         for task in tasks:
             task.add_stage_perf(perf_stats)
 
-    def _publish_external_perf(self, stages: list["ProcessingStage"], perf_stats: StagePerfStats | None) -> None:
-        """Publish a run-level perf record to the terminal artifact writer when one exists."""
+    def _publish_external_perf(self, stages: list["ProcessingStage"], perf_stats: StagePerfStats | None) -> bool:
+        """Publish a run-level perf record and report whether a stage accepted it."""
         if perf_stats is None:
-            return
+            return False
         for stage in reversed(stages):
             recorder = getattr(stage, "record_external_stage_perf", None)
             if not callable(recorder):
                 continue
             try:
-                recorder(perf_stats)
+                if bool(recorder(perf_stats)):
+                    return True
             except Exception as exc:  # noqa: BLE001
                 logger.debug("External perf publish failed for stage {}: {}", stage, exc)
-            return
+        return False
 
 
 class BaseStageAdapter:
@@ -147,26 +148,6 @@ class BaseStageAdapter:
 
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
-
-    @staticmethod
-    def _stage_resource_expectation_metrics(stage: "ProcessingStage") -> dict[str, float]:
-        """Return non-summing resource expectations attached by wrapper stages."""
-        metrics: dict[str, float] = {}
-        for attr_name, metric_name in (
-            ("_curator_expected_stage_gpu_count", "expected_stage_gpu_count"),
-            ("_curator_expected_stage_worker_count", "expected_stage_worker_count"),
-            ("_curator_expected_worker_gpu_count", "expected_worker_gpu_count"),
-        ):
-            value = getattr(stage, attr_name, None)
-            if isinstance(value, bool) or value is None:
-                continue
-            try:
-                numeric = float(value)
-            except (TypeError, ValueError):
-                continue
-            if numeric > 0:
-                metrics[metric_name] = numeric
-        return metrics
 
     def _cache_perf_identity(self) -> None:
         """Copy backend-stamped identity from ``WorkerMetadata`` (fixed per worker)."""
@@ -231,8 +212,6 @@ class BaseStageAdapter:
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
-        if extended_metrics:
-            stage_perf_stats.custom_metrics.update(self._stage_resource_expectation_metrics(self.stage))
         # Fold in windowed GPU utilization (no-op for CPU / no NVML). Namespaced
         # per physical device UUID (``gpu_util_pct::<uuid>``) so the summary can
         # attribute it to a GPU index and roll the actor up from its devices.
@@ -252,45 +231,43 @@ class BaseStageAdapter:
         """Add optional per-device diagnostics for one invocation window."""
         sampler = getattr(self, "_gpu_sampler", None)
         if sampler is not None:
-            diagnostics = getattr(sampler, "diagnostics", None)
-            if callable(diagnostics):
-                stage_perf_stats.custom_metrics.update(diagnostics())
-            for uuid_key, metrics in sampler.window_stats(window_start, window_end).items():
-                for metric, value in metrics.items():
-                    stage_perf_stats.custom_metrics[f"{metric}::{uuid_key}"] = value
+            stage_perf_stats.custom_metrics.update(sampler.window_metrics(window_start, window_end))
 
     def _collect_payload_refs(self, tasks: list[Task]) -> dict[str, object]:
         refs: dict[str, object] = {}
         if not bool(getattr(self.stage, "_curator_tracks_payload_refs", False)):
             return refs
-        try:
-            from nemo_curator.pipeline.payload_refs import task_payload_refs
-        except ImportError:
-            return refs
         for task in tasks:
-            for payload_ref in task_payload_refs(task):
-                payload_id = getattr(payload_ref, "payload_id", None)
-                if payload_id:
-                    refs[str(payload_id)] = payload_ref
+            payload_ref = self._task_payload_ref(task)
+            payload_id = getattr(payload_ref, "payload_id", None)
+            if payload_id:
+                refs[str(payload_id)] = payload_ref
         return refs
 
     def _release_dropped_payload_refs(self, input_refs: dict[str, object], output_tasks: list[Task]) -> None:
         if not input_refs:
             return
-        try:
-            from nemo_curator.pipeline.payload_refs import task_payload_refs
-        except ImportError:
-            return
         output_ids: set[str] = set()
         for task in output_tasks:
             if task is None:
                 continue
-            for payload_ref in task_payload_refs(task):
-                payload_id = getattr(payload_ref, "payload_id", None)
-                if payload_id:
-                    output_ids.add(str(payload_id))
+            payload_ref = self._task_payload_ref(task)
+            payload_id = getattr(payload_ref, "payload_id", None)
+            if payload_id:
+                output_ids.add(str(payload_id))
         dropped = [payload_ref for payload_id, payload_ref in input_refs.items() if payload_id not in output_ids]
         self._release_payload_refs(dropped)
+
+    def _task_payload_ref(self, task: Task) -> object | None:
+        ref_key = str(getattr(self.stage, "_curator_payload_ref_key", "") or "").strip()
+        if not ref_key or not isinstance(task.data, dict):
+            return None
+        try:
+            from nemo_curator.pipeline.payload_refs import PayloadRef
+        except ImportError:
+            return None
+        payload_ref = task.data.get(ref_key)
+        return payload_ref if isinstance(payload_ref, PayloadRef) else None
 
     @staticmethod
     def _release_payload_refs(payload_refs: object) -> None:
@@ -409,7 +386,9 @@ class BaseStageAdapter:
             from nemo_curator.utils.gpu_sampler import GpuUtilSampler
 
             gpu_uuids = tuple(getattr(self._perf_identity, "gpu_uuids", ()) or ())
-            sampler = GpuUtilSampler(gpu_uuids=gpu_uuids, sample_all_visible=True)
+            if not gpu_uuids:
+                return None
+            sampler = GpuUtilSampler(gpu_uuids=gpu_uuids, sample_all_visible=False)
             sampler.start()
         except Exception:  # noqa: BLE001
             return None

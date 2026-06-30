@@ -146,6 +146,12 @@ class Pipeline:
         payload_cfg = self.config.get("payload_lifecycle")
         payload_cfg_get = getattr(payload_cfg, "get", None)
         if not callable(payload_cfg_get) or not bool(payload_cfg_get("enabled", False)):
+            required = [
+                stage.name for stage in stages if bool(getattr(stage, "_curator_requires_payload_lifecycle", False))
+            ]
+            if required:
+                msg = f"Stage(s) {required} require payload_lifecycle.enabled=true"
+                raise ValueError(msg)
             return stages
         from nemo_curator.pipeline.payload_lifecycle import expand_payload_lifecycle_stages
 

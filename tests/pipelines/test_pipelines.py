@@ -189,6 +189,7 @@ class TestRootTaskIds:
     def test_empty_task_id_is_zero(self) -> None:
         assert EmptyTask().task_id == "0"
         assert EmptyTask(dataset_name="d", data=None).task_id == "0"
+        assert EmptyTask(task_id="legacy", dataset_name="d", data=None).task_id == "0"
 
     def test_rewrites_existing_internal_task_ids(self) -> None:
         tasks = [_SimpleTask(dataset_name="d", data=[1]) for _ in range(3)]

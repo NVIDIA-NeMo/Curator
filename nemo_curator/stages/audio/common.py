@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ruff: noqa: ANN401, BLE001, C901, N806, PERF403, PLR0911, PLR0912, PLR0913, S110, TRY300, TRY301
+# ruff: noqa: ANN401
 
 import contextlib
 import copy
@@ -26,7 +26,7 @@ import uuid
 from dataclasses import dataclass, field
 from numbers import Real
 from operator import eq, ge, gt, le, lt, ne
-from typing import Any
+from typing import Any, ClassVar
 
 import soundfile
 import torch
@@ -43,7 +43,7 @@ from nemo_curator.stages.audio.model_input_segmentation import (
 )
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
+from nemo_curator.tasks import AudioTask, DispatchBatchTask, EmptyTask, FileGroupTask
 from nemo_curator.tasks.task_terminals import (
     TERMINAL_COUNT_KEY,
     TERMINAL_DROPPED_BY_STAGE_KEY,
@@ -80,8 +80,8 @@ def _as_container(value: Any) -> Any:
 
         if OmegaConf.is_config(value):
             return OmegaConf.to_container(value, resolve=True)
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001
+        return value
     return value
 
 
@@ -177,7 +177,7 @@ def get_audio_duration(audio_filepath: str) -> float:
     try:
         info = soundfile.info(audio_filepath)
         return info.frames / info.samplerate
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to get duration for audio file {audio_filepath}: {e}")
         return -1.0
 
@@ -331,9 +331,9 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
     2. ManifestReaderStage — reads each partition line-by-line (no Pandas)
 
     When ``enable_global_bucketing`` is true, the same reader entry point uses a
-    metadata-only full-manifest planner and emits reordered ordinary
-    ``AudioTask`` rows. Bucket-off mode therefore keeps the original streaming
-    reader behavior.
+    metadata-only full-manifest planner and emits atomic ``DispatchBatchTask``
+    rows containing model-ready ``AudioTask`` segments. Bucket-off mode keeps
+    the original streaming reader behavior.
     Global planning has exactly one owner stage: ``owner_stage`` names the
     downstream consumer whose model-input duration ceiling and bucket policy
     define the emitted segment rows. The owner must be the payload consumer with
@@ -357,7 +357,6 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
     storage_options: dict[str, Any] | None = None
     enable_global_bucketing: bool = False
     owner_stage: str | None = None
-    parent_coalescing: bool = True
     duration_key: str = "duration"
     fallback_duration_keys: list[str] = field(default_factory=lambda: ["actual_duration", "duration_sec"])
     sample_rate_key: str = "sample_rate"
@@ -384,6 +383,7 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
         if not isinstance(self.enable_global_bucketing, bool):
             msg = f"enable_global_bucketing must be a bool, got {type(self.enable_global_bucketing).__name__}"
             raise TypeError(msg)
+        self._curator_requires_payload_lifecycle = self.enable_global_bucketing
         if self.enable_global_bucketing:
             self.owner_stage = _single_global_owner_stage(self.owner_stage)
 
@@ -394,7 +394,6 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
                     manifest_path=self.manifest_path,
                     storage_options=self.storage_options,
                     owner_stage=self.owner_stage,
-                    parent_coalescing=self.parent_coalescing,
                     duration_key=self.duration_key,
                     fallback_duration_keys=self.fallback_duration_keys,
                     sample_rate_key=self.sample_rate_key,
@@ -463,8 +462,6 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
             node_memory_fraction=float(payload_config.get("node_memory_fraction", 0.80)),
             max_node_payload_bytes=payload_config.get("max_node_payload_bytes"),
             max_cluster_payload_bytes=payload_config.get("max_cluster_payload_bytes"),
-            lease_ttl_s=float(payload_config.get("lease_ttl_s", 3600)),
-            materialized_lease_ttl_s=float(payload_config.get("materialized_lease_ttl_s", 4 * 60 * 60)),
             admission_actor_name=str(payload_config.get("admission_actor_name", "curator_payload_admission")),
             admission_poll_interval_s=float(payload_config.get("admission_poll_interval_s", 0.25)),
             admission_wait_timeout_s=float(payload_config.get("admission_wait_timeout_s", 4 * 60 * 60)),
@@ -486,7 +483,7 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
         *,
         pipeline_config: Any,
         consumers: list[ProcessingStage],
-        primary_payload_spec: Any,
+        payload_spec: Any,
         run_id: str,
     ) -> ProcessingStage | None:
         """Build the optional global segment assembler for audio global bucketing."""
@@ -515,10 +512,10 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
                 assembler_cfg.get("skip_me_key") or _first_stage_attr(consumers, "skip_me_key", "_skip_me")
             ),
             skip_me_keys=_assembler_skip_keys(assembler_cfg, consumers),
-            waveform_key=primary_payload_spec.waveform_key,
-            waveform_ref_key=primary_payload_spec.ref_key,
-            duration_key=primary_payload_spec.duration_key,
-            num_samples_key=primary_payload_spec.num_samples_key,
+            waveform_key=payload_spec.waveform_key,
+            waveform_ref_key=payload_spec.ref_key,
+            duration_key=payload_spec.duration_key,
+            num_samples_key=payload_spec.num_samples_key,
             segment_start_key=str(
                 assembler_cfg.get("segment_start_key") or payload_cfg.get("segment_start_key", "segment_start_s")
             ),
@@ -587,16 +584,19 @@ class _ManifestPlanRecord:
 
 
 @dataclass(frozen=True)
-class _PlannedManifestRecord:
-    record: _ManifestPlanRecord
-    plan_order: int
-
-
-@dataclass(frozen=True)
 class _PlannedManifestSegment:
     record: _ManifestPlanRecord
     segment: _GlobalSegmentPlan
     plan_order: int
+
+
+@dataclass(frozen=True)
+class _PlannedManifestBatch:
+    batch_index: int
+    segments: tuple[_PlannedManifestSegment, ...]
+    bucket_index: int
+    total_cost: float
+    policy_signature: str
 
 
 def _safe_global_segment_actor_suffix(value: str) -> str:
@@ -618,8 +618,8 @@ def _current_ray_namespace() -> str | None:
                 namespace = get_namespace()
         if namespace:
             return str(namespace)
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001
+        return None
     return None
 
 
@@ -629,10 +629,10 @@ def _kill_named_ray_actor(name: str, namespace: str | None = None) -> bool:
 
         actor = ray.get_actor(name, namespace=namespace)
         ray.kill(actor, no_restart=True)
-        return True
+        return True  # noqa: TRY300
     except ValueError:
         return False
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning(f"Failed to kill global segment actor {name!r}: {exc}")
     return False
 
@@ -645,19 +645,12 @@ class _GlobalSegmentParentDataStore:
 
     def put_many(self, items: dict[str, dict[str, Any]]) -> int:
         for parent_id, data in items.items():
-            self._parents[str(parent_id)] = copy.deepcopy(data)
+            self._parents[str(parent_id)] = data
         return len(items)
 
-    def get_parent(self, parent_id: str) -> dict[str, Any] | None:
-        data = self._parents.get(str(parent_id))
-        return copy.deepcopy(data) if data is not None else None
-
-    def delete_many(self, parent_ids: list[str]) -> int:
-        deleted = 0
-        for parent_id in parent_ids:
-            if self._parents.pop(str(parent_id), None) is not None:
-                deleted += 1
-        return deleted
+    def take_parent(self, parent_id: str) -> dict[str, Any] | None:
+        """Atomically transfer one parent row out of the store."""
+        return self._parents.pop(str(parent_id), None)
 
     def clear(self) -> None:
         self._parents.clear()
@@ -668,7 +661,7 @@ class _GlobalSegmentAssemblyState:
 
     _SEGMENT_INPUT_KEYS_FIELD = "_curator_segment_input_keys"
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         text_keys_to_join: list[str],
@@ -687,6 +680,7 @@ class _GlobalSegmentAssemblyState:
         unmerged_segment_field_allowlist: list[str] | None = None,
         overwrite_keys: list[str] | None = None,
         require_parent_data: bool = False,
+        parent_store_actor: Any = None,
     ) -> None:
         if max_ready_parents_in_memory < 0:
             msg = f"max_ready_parents_in_memory must be >= 0, got {max_ready_parents_in_memory}"
@@ -719,6 +713,7 @@ class _GlobalSegmentAssemblyState:
             str(key).strip() for key in (unmerged_segment_field_allowlist or []) if str(key).strip()
         }
         self.require_parent_data = bool(require_parent_data)
+        self._parent_store_actor = parent_store_actor
         self._spill_dir: str | None = None
         self._parents: dict[str, dict[str, Any]] = {}
         self._ready_by_source_index: dict[int, dict[str, Any]] = {}
@@ -732,7 +727,7 @@ class _GlobalSegmentAssemblyState:
         self._max_buffered_parents = 0
         self._max_ready_gap = 0
 
-    def add_segment(
+    def add_segment(  # noqa: C901, PLR0913
         self,
         *,
         parent_id: str,
@@ -742,15 +737,7 @@ class _GlobalSegmentAssemblyState:
         metadata: dict[str, Any],
         stage_perf: list[Any],
         parent_data: dict[str, Any] | None = None,
-        include_completion: bool = False,
-    ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], str | None]:
-        if self.require_parent_data and parent_data is None:
-            msg = (
-                f"Global segment assembly requires original parent data for parent {parent_id!r}; "
-                "refusing to assemble from segment rows because segment rows carry only configured "
-                "segment input keys."
-            )
-            raise RuntimeError(msg)
+    ) -> list[dict[str, Any]]:
         if segment_count <= 0:
             msg = f"segment_count must be > 0 for parent {parent_id!r}"
             raise ValueError(msg)
@@ -765,18 +752,28 @@ class _GlobalSegmentAssemblyState:
         if skipped_segment:
             self._tombstone_segments_seen += 1
 
-        entry = self._parents.setdefault(
-            parent_id,
-            {
+        entry = self._parents.get(parent_id)
+        if entry is None:
+            if parent_data is None and self._parent_store_actor is not None:
+                parent_data = self._ray_get(self._parent_store_actor.take_parent.remote(parent_id))
+            if self.require_parent_data and parent_data is None:
+                msg = (
+                    f"Global segment assembly requires original parent data for parent {parent_id!r}; "
+                    "refusing to assemble from segment rows because segment rows carry only configured "
+                    "segment input keys."
+                )
+                raise RuntimeError(msg)
+            parent_keys = set((parent_data or data).keys())
+            entry = {
                 "segment_count": segment_count,
                 "source_index": self._parent_source_index(parent_id, data),
                 "base_data": self._parent_base_data(data, parent_data=parent_data),
-                "parent_keys": set((parent_data or data).keys()),
+                "parent_keys": parent_keys,
                 "metadata": dict(metadata),
                 "segments": {},
                 "stage_perf": [],
-            },
-        )
+            }
+            self._parents[parent_id] = entry
         if int(entry["segment_count"]) != segment_count:
             msg = (
                 f"Segments for parent {parent_id!r} disagree on segment_count: "
@@ -788,13 +785,14 @@ class _GlobalSegmentAssemblyState:
         if segment_idx in segments:
             msg = f"Duplicate segment {segment_idx} for parent {parent_id!r}"
             raise ValueError(msg)
-        self._validate_segment_output_fields(parent_id, data, set(entry["parent_keys"]), parent_data=parent_data)
+        parent_context = entry["base_data"]
+        self._validate_segment_output_fields(parent_id, data, set(entry["parent_keys"]), parent_data=parent_context)
         segments[segment_idx] = {
             "values": {key: copy.deepcopy(data[key]) for key in self.field_merge_strategies if key in data},
             "passthrough_values": self._passthrough_segment_values(
                 data,
                 set(entry["parent_keys"]),
-                parent_data=parent_data,
+                parent_data=parent_context,
             ),
             "skipped": skipped_segment,
             "drop_stage_ids": self._segment_drop_stage_ids(data),
@@ -802,7 +800,7 @@ class _GlobalSegmentAssemblyState:
         entry["stage_perf"].extend(stage_perf)
 
         if len(segments) != segment_count:
-            return ([], None) if include_completion else []
+            return []
 
         assembled = self._assemble_parent(parent_id, entry)
         self._parents_assembled += 1
@@ -812,8 +810,13 @@ class _GlobalSegmentAssemblyState:
             msg = f"Duplicate assembled parent source index {source_index} for parent {parent_id!r}"
             raise ValueError(msg)
         self._store_ready_parent(source_index, assembled)
-        ready = self._drain_ready_in_input_order()
-        return (ready, parent_id) if include_completion else ready
+        return self._drain_ready_in_input_order()
+
+    @staticmethod
+    def _ray_get(obj: Any) -> Any:
+        import ray
+
+        return ray.get(obj)
 
     def _store_ready_parent(self, source_index: int, assembled: dict[str, Any]) -> None:
         if len(self._ready_by_source_index) < self.max_ready_parents_in_memory:
@@ -881,7 +884,7 @@ class _GlobalSegmentAssemblyState:
         return assembled
 
     def _parent_base_data(self, data: dict[str, Any], *, parent_data: dict[str, Any] | None = None) -> dict[str, Any]:
-        base = copy.deepcopy(parent_data) if parent_data is not None else dict(data)
+        base = parent_data if parent_data is not None else dict(data)
         parent_duration = base.get("_curator_segment_parent_duration_s")
         parent_num_samples = base.get("_curator_segment_parent_num_samples")
         if parent_data is not None:
@@ -931,7 +934,7 @@ class _GlobalSegmentAssemblyState:
             )
             raise ValueError(msg)
 
-    def _is_forbidden_parent_collision(
+    def _is_forbidden_parent_collision(  # noqa: PLR0911
         self,
         key: str,
         *,
@@ -1064,8 +1067,7 @@ class _GlobalSegmentAssemblyState:
         segments: dict[int, dict[str, Any]] = entry["segments"]
         ordered = [segments[idx] for idx in sorted(segments)]
         data = dict(entry["base_data"])
-        for key, value in self._consistent_passthrough_values(parent_id, ordered).items():
-            data[key] = value
+        data.update(self._consistent_passthrough_values(parent_id, ordered))
         skipped_segments = [segment for segment in ordered if bool(segment["skipped"])]
         if skipped_segments:
             marker = self._partial_drop_marker(skipped_segments)
@@ -1128,7 +1130,11 @@ class _GlobalSegmentAssemblyState:
         return deduped
 
     @staticmethod
-    def _merge_field_values(key: str, values: list[Any], strategy: str) -> Any:
+    def _merge_field_values(  # noqa: C901, PLR0911, PLR0912
+        key: str,
+        values: list[Any],
+        strategy: str,
+    ) -> Any:
         if strategy in {"join", "join_text"}:
             return " ".join(str(value).strip() for value in values if str(value).strip())
         if strategy == "list":
@@ -1246,7 +1252,6 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
     overwrite: list[str] = field(default_factory=list)
     _actor: Any = field(init=False, default=None, repr=False)
     _parent_store_actor: Any = field(init=False, default=None, repr=False)
-    _parent_data_cache: dict[str, dict[str, Any]] = field(init=False, default_factory=dict, repr=False)
     _last_actor_metrics: dict[str, float] = field(init=False, default_factory=dict, repr=False)
     _curator_consumes_segment_rows: bool = field(init=False, default=True, repr=False)
 
@@ -1304,8 +1309,7 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
         parent_id = str(parent_id_value)
         segment_idx = int(task.data.get(TERMINAL_INDEX_KEY, task.data.get("_curator_segment_idx", 0)))
         segment_count = int(task.data.get(TERMINAL_COUNT_KEY, task.data.get("_curator_segment_count", 1)))
-        parent_data = self._parent_data(parent_id)
-        assembled_items, completed_parent_id = self._ray_get(
+        assembled_items = self._ray_get(
             self._actor.add_segment.remote(
                 parent_id=parent_id,
                 segment_idx=segment_idx,
@@ -1313,12 +1317,8 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
                 data=dict(task.data),
                 metadata=dict(task._metadata),
                 stage_perf=list(task._stage_perf),
-                parent_data=parent_data,
-                include_completion=True,
             )
         )
-        if completed_parent_id is not None:
-            self._release_parent_data([completed_parent_id])
         self._log_actor_metric_deltas()
         if not assembled_items:
             return None
@@ -1340,7 +1340,6 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         outputs: list[AudioTask] = []
-        completed_parent_ids: list[str] = []
         for task in tasks:
             parent_id_value = task.data.get(TERMINAL_GROUP_ID_KEY, task.data.get("_curator_segment_parent_id"))
             if parent_id_value is None:
@@ -1350,8 +1349,7 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
             parent_id = str(parent_id_value)
             segment_idx = int(task.data.get(TERMINAL_INDEX_KEY, task.data.get("_curator_segment_idx", 0)))
             segment_count = int(task.data.get(TERMINAL_COUNT_KEY, task.data.get("_curator_segment_count", 1)))
-            parent_data = self._parent_data(parent_id)
-            assembled_items, completed_parent_id = self._ray_get(
+            assembled_items = self._ray_get(
                 self._actor.add_segment.remote(
                     parent_id=parent_id,
                     segment_idx=segment_idx,
@@ -1359,12 +1357,8 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
                     data=dict(task.data),
                     metadata=dict(task._metadata),
                     stage_perf=list(task._stage_perf),
-                    parent_data=parent_data,
-                    include_completion=True,
                 )
             )
-            if completed_parent_id is not None:
-                completed_parent_ids.append(completed_parent_id)
             self._log_actor_metric_deltas()
             for assembled in assembled_items:
                 output = AudioTask(
@@ -1375,7 +1369,6 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
                 )
                 output.task_id = f"assembled_{_safe_global_segment_actor_suffix(str(assembled['parent_id']))}"
                 outputs.append(output)
-        self._release_parent_data(completed_parent_ids)
         return outputs
 
     def _log_actor_metric_deltas(self) -> None:
@@ -1402,13 +1395,17 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
         actor_name = f"{self.actor_name_prefix}_{_safe_global_segment_actor_suffix(str(self.run_id))}"
         try:
             self._actor = ray.get_actor(actor_name, namespace=namespace)
-            return
+            return  # noqa: TRY300
         except ValueError:
             pass
 
-        RemoteState = ray.remote(_GlobalSegmentAssemblyState)
+        self._ensure_parent_store_actor()
+        if self._parent_store_actor is None:
+            msg = "Global segment parent data store is unavailable; cannot create the assembly actor."
+            raise RuntimeError(msg)
+        remote_state = ray.remote(_GlobalSegmentAssemblyState)
         try:
-            self._actor = RemoteState.options(name=actor_name, lifetime="detached", namespace=namespace).remote(
+            self._actor = remote_state.options(name=actor_name, lifetime="detached", namespace=namespace).remote(
                 text_keys_to_join=self.text_keys_to_join,
                 field_merge_strategies=self.field_merge_strategies,
                 skip_me_key=self.skip_me_key,
@@ -1425,30 +1422,11 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
                 unmerged_segment_field_allowlist=self.unmerged_segment_field_allowlist,
                 overwrite_keys=self.overwrite,
                 require_parent_data=True,
+                parent_store_actor=self._parent_store_actor,
             )
             logger.info("Created global segment assembler actor {}", actor_name)
         except ValueError:
             self._actor = ray.get_actor(actor_name, namespace=namespace)
-
-    def _parent_data(self, parent_id: str) -> dict[str, Any] | None:
-        if parent_id in self._parent_data_cache:
-            return copy.deepcopy(self._parent_data_cache[parent_id])
-        self._ensure_parent_store_actor()
-        if self._parent_store_actor is None:
-            msg = (
-                f"Global segment parent data store is unavailable for parent {parent_id!r}; "
-                "cannot safely restore original parent fields after global bucketing."
-            )
-            raise RuntimeError(msg)
-        parent_data = self._ray_get(self._parent_store_actor.get_parent.remote(parent_id))
-        if parent_data is None:
-            msg = (
-                f"Global segment parent data for parent {parent_id!r} was not found in the parent store; "
-                "cannot safely restore original parent fields after global bucketing."
-            )
-            raise RuntimeError(msg)
-        self._parent_data_cache[parent_id] = copy.deepcopy(parent_data)
-        return parent_data
 
     def _ensure_parent_store_actor(self) -> None:
         if self._parent_store_actor is not None:
@@ -1462,15 +1440,6 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
         except ValueError:
             self._parent_store_actor = None
 
-    def _release_parent_data(self, parent_ids: list[str]) -> None:
-        if not parent_ids:
-            return
-        unique_parent_ids = list(dict.fromkeys(str(parent_id) for parent_id in parent_ids))
-        for parent_id in unique_parent_ids:
-            self._parent_data_cache.pop(parent_id, None)
-        if self._parent_store_actor is not None:
-            self._ray_get(self._parent_store_actor.delete_many.remote(unique_parent_ids))
-
     def cleanup_run_resources(self) -> None:
         namespace = _current_ray_namespace()
         actor_name = f"{self.actor_name_prefix}_{_safe_global_segment_actor_suffix(str(self.run_id))}"
@@ -1479,7 +1448,6 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
         store_name = f"{self.parent_store_actor_name_prefix}_{_safe_global_segment_actor_suffix(str(self.run_id))}"
         _kill_named_ray_actor(store_name, namespace)
         self._parent_store_actor = None
-        self._parent_data_cache.clear()
 
     @staticmethod
     def _ray_get(obj: Any) -> Any:
@@ -1489,21 +1457,23 @@ class GlobalSegmentAssemblerStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
-class _ManifestReaderGlobalBucketingStage(ProcessingStage[EmptyTask, AudioTask]):
-    """Read manifests and emit segment rows from a full-manifest bucket plan.
+class _ManifestReaderGlobalBucketingStage(ProcessingStage[EmptyTask, DispatchBatchTask]):
+    """Read manifests and emit atomic dispatch batches from a global plan.
 
     The planner sees all manifest rows and planned segments, but it never loads
-    waveform. Runtime rows are ordinary ``AudioTask`` segment tasks carrying
-    ``segment_start_s`` and ``segment_duration_s``. Downstream audio reading
-    decodes only that local-file segment, then a later assembler stitches segment
-    ASR outputs back to one parent manifest row.
+    waveform. Every runtime row is one ``DispatchBatchTask`` containing the
+    ``AudioTask`` segments intended for one owner-stage adapter call. Downstream
+    materialization preserves that envelope; a later unpack stage restores flat
+    segment rows before parent assembly.
     """
+
+    _curator_emits_dispatch_batches = True
+    _curator_dispatch_window_size: ClassVar[int] = 2
 
     manifest_path: str | list[str]
     name: str = "manifest_reader_global_bucketing"
     storage_options: dict[str, Any] | None = None
     owner_stage: str | None = None
-    parent_coalescing: bool = True
     duration_key: str = "duration"
     fallback_duration_keys: list[str] = field(default_factory=lambda: ["actual_duration", "duration_sec"])
     sample_rate_key: str = "sample_rate"
@@ -1599,15 +1569,13 @@ class _ManifestReaderGlobalBucketingStage(ProcessingStage[EmptyTask, AudioTask])
             msg = f"target_ready_batches_per_bucket must be > 0, got {value}"
             raise ValueError(msg)
 
-    def process(self, task: EmptyTask) -> list[AudioTask]:
+    def process(self, task: EmptyTask) -> list[DispatchBatchTask]:
         t0 = time.perf_counter()
         records = self._read_manifest_records()
         self._store_parent_records(records)
-        planned = self._plan_records(records)
-        results = [
-            self._segment_to_task(task, output_index, planned_segment)
-            for output_index, planned_segment in enumerate(planned)
-        ]
+        planned_batches = self._plan_records(records)
+        results = [self._dispatch_batch_to_task(task, planned_batch) for planned_batch in planned_batches]
+        planned_segment_count = sum(len(batch.segments) for batch in planned_batches)
 
         self._log_metrics(
             {
@@ -1617,9 +1585,10 @@ class _ManifestReaderGlobalBucketingStage(ProcessingStage[EmptyTask, AudioTask])
                 "entries_emitted": float(len(results)),
                 "global_manifest_bucketing_enabled": 1.0,
                 "global_manifest_segments": float(sum(record.segment_count for record in records)),
-                "global_manifest_planned_rows": float(len(results)),
+                "global_manifest_planned_rows": float(planned_segment_count),
+                "global_manifest_ready_batches": float(len(results)),
                 "global_manifest_parent_rows": float(len(records)),
-                "global_manifest_segment_rows": float(len(results)),
+                "global_manifest_segment_rows": float(planned_segment_count),
                 "audio_duration_s": float(sum(record.duration_s for record in records)),
                 "estimated_waveform_bytes": float(
                     sum(
@@ -1632,16 +1601,19 @@ class _ManifestReaderGlobalBucketingStage(ProcessingStage[EmptyTask, AudioTask])
                                 * self.waveform_dtype_bytes
                             ),
                         )
-                        for planned_segment in planned
+                        for planned_batch in planned_batches
+                        for planned_segment in planned_batch.segments
                         for segment in [planned_segment.segment]
                     )
                 ),
             }
         )
         logger.info(
-            "ManifestReader global bucketing: loaded {} parent rows from {} manifest(s); emitted {} segment row(s)",
+            "ManifestReader global bucketing: loaded {} parent rows from {} manifest(s); "
+            "emitted {} segment row(s) in {} atomic dispatch batch(es)",
             len(records),
             len(self._manifest_paths()),
+            planned_segment_count,
             len(results),
         )
         return results
@@ -1676,7 +1648,7 @@ class _ManifestReaderGlobalBucketingStage(ProcessingStage[EmptyTask, AudioTask])
         return records
 
     def _store_parent_records(self, records: list[_ManifestPlanRecord]) -> None:
-        parent_data = {self._parent_id(record): copy.deepcopy(record.data) for record in records}
+        parent_data = {self._parent_id(record): record.data for record in records}
         if not parent_data:
             return
         try:
@@ -1687,14 +1659,14 @@ class _ManifestReaderGlobalBucketingStage(ProcessingStage[EmptyTask, AudioTask])
                     "Global bucketing requires Ray to store original parent rows for later segment assembly. "
                     "Ray is not initialized, so parent fields cannot be safely restored."
                 )
-                raise RuntimeError(msg)
+                raise RuntimeError(msg)  # noqa: TRY301
             namespace = _current_ray_namespace()
             actor_name = f"{self.parent_store_actor_name_prefix}_{_safe_global_segment_actor_suffix(str(self.run_id))}"
             try:
                 actor = ray.get_actor(actor_name, namespace=namespace)
             except ValueError:
-                RemoteStore = ray.remote(_GlobalSegmentParentDataStore)
-                actor = RemoteStore.options(name=actor_name, lifetime="detached", namespace=namespace).remote()
+                remote_store = ray.remote(_GlobalSegmentParentDataStore)
+                actor = remote_store.options(name=actor_name, lifetime="detached", namespace=namespace).remote()
             self._parent_store_actor = actor
             ray.get(actor.put_many.remote(parent_data))
             logger.info("Stored {} global segment parent rows in actor {}", len(parent_data), actor_name)
@@ -1737,45 +1709,73 @@ class _ManifestReaderGlobalBucketingStage(ProcessingStage[EmptyTask, AudioTask])
             dominant_bucket_cost_s=bucket_costs[dominant_bucket],
         )
 
-    def _plan_records(self, records: list[_ManifestPlanRecord]) -> list[_PlannedManifestSegment]:
+    def _plan_records(self, records: list[_ManifestPlanRecord]) -> list[_PlannedManifestBatch]:
         if not records:
             return []
-        ready_batches = self._global_ready_batches(records)
+        policy = self._global_batch_policy()
+        ready_batches = self._global_ready_batches(records, policy=policy)
         by_parent = {record.source_index: record for record in records}
-        ordered: list[tuple[_ManifestPlanRecord, _GlobalSegmentPlan]] = []
+        all_keys = {(record.source_index, segment.segment_idx) for record in records for segment in record.segments}
         assigned: set[tuple[int, int]] = set()
-        for _, segment_batch, _ in ready_batches:
+        planned_batches: list[_PlannedManifestBatch] = []
+        plan_order = 0
+        policy_signature = policy.dispatch_signature(cost_unit="audio_seconds")
+        for batch_index, (_, segment_batch, total_cost) in enumerate(ready_batches):
+            planned_segments: list[_PlannedManifestSegment] = []
             for segment in segment_batch:
                 key = (segment.parent_index, segment.segment_idx)
                 if key in assigned:
-                    continue
-                ordered.append((by_parent[segment.parent_index], segment))
+                    msg = f"Global dispatch planner emitted duplicate segment {key}"
+                    raise RuntimeError(msg)
+                planned_segments.append(
+                    _PlannedManifestSegment(
+                        record=by_parent[segment.parent_index],
+                        segment=segment,
+                        plan_order=plan_order,
+                    )
+                )
+                plan_order += 1
                 assigned.add(key)
-        for record in records:
-            for segment in record.segments:
-                key = (record.source_index, segment.segment_idx)
-                if key in assigned:
-                    continue
-                ordered.append((record, segment))
-                assigned.add(key)
-        return [
-            _PlannedManifestSegment(record=record, segment=segment, plan_order=plan_order)
-            for plan_order, (record, segment) in enumerate(ordered)
-        ]
+            if not planned_segments:
+                continue
+            bucket_index = planned_segments[0].segment.bucket_id
+            if any(item.segment.bucket_id != bucket_index for item in planned_segments):
+                msg = f"Global dispatch batch {batch_index} mixes duration buckets"
+                raise RuntimeError(msg)
+            planned_batches.append(
+                _PlannedManifestBatch(
+                    batch_index=batch_index,
+                    segments=tuple(planned_segments),
+                    bucket_index=bucket_index,
+                    total_cost=float(total_cost),
+                    policy_signature=policy_signature,
+                )
+            )
+        if assigned != all_keys:
+            missing = sorted(all_keys - assigned)
+            msg = f"Global dispatch planner failed to assign {len(missing)} segment(s): {missing[:5]}"
+            raise RuntimeError(msg)
+        return planned_batches
 
     def _global_ready_batches(
         self,
         records: list[_ManifestPlanRecord],
+        *,
+        policy: Any | None = None,
     ) -> list[tuple[list[int], list[_GlobalSegmentPlan], float]]:
-        from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
-
         segment_items = [segment for record in records for segment in record.segments]
         if not segment_items:
             return []
+        policy = policy or self._global_batch_policy()
+        return policy.bucketize_with_costs(segment_items, cost_fn=lambda segment: segment.duration_s)
+
+    def _global_batch_policy(self) -> Any:
+        from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
+
         caps = self.max_items_per_batch_by_bucket or [
             max(1, int(self.target_ready_batches_per_bucket)) for _ in self.buckets_sec
         ]
-        policy = BatchPolicy(
+        return BatchPolicy(
             enabled=True,
             strategy="duration_bucketed",
             buckets_sec=[float(edge) for edge in self.buckets_sec],
@@ -1784,7 +1784,53 @@ class _ManifestReaderGlobalBucketingStage(ProcessingStage[EmptyTask, AudioTask])
             prebatching_window_size=None,
             flush_interval_ms=0,
         )
-        return policy.bucketize_with_costs(segment_items, cost_fn=lambda segment: segment.duration_s)
+
+    def dispatch_policy_signature(self) -> str:
+        """Return the exact owner-call constraints encoded by this source."""
+        return self._global_batch_policy().dispatch_signature(cost_unit="audio_seconds")
+
+    def _dispatch_batch_to_task(
+        self,
+        task: EmptyTask,
+        planned_batch: _PlannedManifestBatch,
+    ) -> DispatchBatchTask:
+        batch_id = f"{self.run_id}:dispatch:{planned_batch.batch_index}"
+        children = [
+            self._segment_to_task(task, planned_segment.plan_order, planned_segment)
+            for planned_segment in planned_batch.segments
+        ]
+        for item_index, child in enumerate(children):
+            child._metadata.update(
+                {
+                    "_curator_dispatch_batch_id": batch_id,
+                    "_curator_dispatch_batch_index": planned_batch.batch_index,
+                    "_curator_dispatch_item_index": item_index,
+                    "_curator_dispatch_batch_size": len(children),
+                    "_curator_dispatch_batch_total_cost": planned_batch.total_cost,
+                }
+            )
+        batch = DispatchBatchTask(
+            dataset_name=task.dataset_name,
+            data=children,
+            _metadata={
+                **dict(task._metadata),
+                "_curator_dispatch_batch_id": batch_id,
+                "_curator_dispatch_batch_index": planned_batch.batch_index,
+                "_curator_dispatch_batch_size": len(children),
+                "_curator_dispatch_batch_total_cost": planned_batch.total_cost,
+            },
+            _stage_perf=list(task._stage_perf),
+            batch_id=batch_id,
+            owner_stage=str(self.owner_stage),
+            sequence_index=planned_batch.batch_index,
+            bucket_index=planned_batch.bucket_index,
+            total_cost=planned_batch.total_cost,
+            item_costs=tuple(item.segment.duration_s for item in planned_batch.segments),
+            cost_unit="audio_seconds",
+            policy_signature=planned_batch.policy_signature,
+        )
+        batch._set_task_id(task.task_id, f"dispatch_{planned_batch.batch_index}")
+        return batch
 
     def _segment_to_task(self, task: EmptyTask, output_index: int, planned: _PlannedManifestSegment) -> AudioTask:
         record = planned.record
@@ -2101,20 +2147,13 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         self._writer_metrics.add_perf_write_time(time.perf_counter() - write_t0)
         logger.info(f"Wrote perf_summary.json: {summary_path}")
 
-    def record_external_stage_perf(self, perf_stats: Any) -> None:
-        """Merge an externally collected stage summary into the persisted perf JSON.
-
-        Executors can observe run-level data after the terminal writer has
-        already flushed its normal summary.  This method performs a narrow
-        read/merge/write of that single external stage so the writer's existing
-        counters are not recomputed or overwritten by the driver-side stage
-        instance.
-        """
+    def record_external_stage_perf(self, perf_stats: Any) -> bool:
+        """Merge an externally collected stage summary into the persisted perf JSON."""
         if not self.write_perf_stats:
-            return
+            return False
         stage_summary = self._writer_metrics.build_external_stage_summary(perf_stats)
         if not stage_summary:
-            return
+            return False
         summary_path = self._resolved_perf_summary_path()
         fs, resolved = url_to_fs(summary_path)
         parent_dir = "/".join(resolved.split("/")[:-1])
@@ -2125,7 +2164,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             try:
                 with fs.open(resolved, "r", encoding="utf-8") as f:
                     summary = json.load(f)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("Could not read existing perf_summary.json at {}: {}", summary_path, exc)
                 summary = {}
         else:
@@ -2140,6 +2179,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             json.dump(summary, f, indent=2, ensure_ascii=False)
         self._writer_metrics.add_perf_write_time(time.perf_counter() - write_t0)
         logger.info("Merged external perf stage {} into {}", perf_stats.stage_name, summary_path)
+        return True
 
     def teardown(self) -> None:
         if self.write_perf_stats and (

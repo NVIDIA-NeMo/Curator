@@ -26,26 +26,10 @@ from nemo_curator.stages.audio.common import (
     _ManifestReaderGlobalBucketingStage,
 )
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.inference.batch_policy import BatchPolicy
+from nemo_curator.stages.dispatch_batch import DispatchBatchUnpackStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.payload_lifecycle import AudioPayloadMaterializeStage, PayloadReleaseStage
-
-
-class _DualPayloadConsumer(ASRStage):
-    def payload_bindings(self) -> list[dict[str, str]]:
-        return [
-            {
-                "ref_key": "audio_ref",
-                "waveform_key": "audio",
-                "sample_rate_key": "sr",
-                "num_samples_key": "samples",
-            },
-            {
-                "ref_key": "reference_ref",
-                "waveform_key": "reference_audio",
-                "sample_rate_key": "reference_sr",
-                "num_samples_key": "reference_samples",
-            },
-        ]
 
 
 def _cfg(*, consumers: list[str] | None = None, release_after: str = "qwen_omni"):
@@ -55,7 +39,7 @@ def _cfg(*, consumers: list[str] | None = None, release_after: str = "qwen_omni"
             "payload_lifecycle": {
                 "enabled": True,
                 "materialize_after": "manifest_reader",
-                "payload_keys": ["audio_filepath"],
+                "source_key": "audio_filepath",
                 "ref_key": "audio_ref",
                 "consumers": consumers or ["qwen_omni"],
                 "release_after": release_after,
@@ -63,7 +47,6 @@ def _cfg(*, consumers: list[str] | None = None, release_after: str = "qwen_omni"
                 "target_nchannels": 2,
                 "node_memory_fraction": 0.55,
                 "max_node_payload_bytes": "10g",
-                "lease_ttl_s": 1234,
                 "admission_actor_name": "test_payload_admission",
                 "admission_poll_interval_s": 0.5,
             },
@@ -94,6 +77,12 @@ def _logical_stages(*, enable_global_bucketing: bool = False):
         skip_me_key="skip_me",
         max_inference_duration_s=120,
         adapter_batch_size=1,
+        batch_policy=BatchPolicy(
+            enabled=True,
+            buckets_sec=[0.0, 30.0, 60.0, 120.0],
+            max_items_per_batch_by_bucket=[4, 4, 4, 4],
+            max_audio_sec_per_batch=None,
+        ),
     )
     writer = ManifestWriterStage(output_path="/tmp/output.jsonl", duration_key="dur")
     return reader, asr, writer
@@ -112,21 +101,12 @@ def _asr_stage(name: str, *, pred_text_key: str = "prediction", max_inference_du
         skip_me_key="skip_me",
         max_inference_duration_s=max_inference_duration_s,
         adapter_batch_size=1,
-    )
-
-
-def _dual_stage(name: str = "dual_gpu_stage"):
-    return _DualPayloadConsumer(
-        adapter_target="nemo_curator.models.asr.QwenOmniASRAdapter",
-        model_id="test/model",
-        name=name,
-        waveform_key="audio",
-        waveform_ref_key="audio_ref",
-        sample_rate_key="sr",
-        pred_text_key="prediction",
-        disfluency_text_key=None,
-        max_inference_duration_s=120,
-        adapter_batch_size=1,
+        batch_policy=BatchPolicy(
+            enabled=True,
+            buckets_sec=[0.0, 30.0, 60.0, 120.0],
+            max_items_per_batch_by_bucket=[4, 4, 4, 4],
+            max_audio_sec_per_batch=None,
+        ),
     )
 
 
@@ -247,7 +227,6 @@ def test_bucket_off_logical_graph_expands_to_payload_lifecycle() -> None:
     assert materialize.skip_on_read_error is True
     assert materialize.node_memory_fraction == 0.55
     assert materialize.max_node_payload_bytes == "10g"
-    assert materialize.lease_ttl_s == 1234
     assert materialize.admission_actor_name == "test_payload_admission"
     assert materialize.admission_poll_interval_s == 0.5
     assert materialize.run_id
@@ -255,6 +234,7 @@ def test_bucket_off_logical_graph_expands_to_payload_lifecycle() -> None:
     release = expanded[4]
     assert release.payload_ref_key == "audio_ref"
     assert release.waveform_key == "audio"
+    assert expanded[3]._curator_payload_ref_key == "audio_ref"
 
 
 def test_payload_lifecycle_can_span_multiple_backend_visible_consumers() -> None:
@@ -286,56 +266,26 @@ def test_payload_lifecycle_can_span_multiple_backend_visible_consumers() -> None
         "payload_release",
         "manifest_writer",
     ]
+    assert [stage._curator_payload_ref_key for stage in expanded[3:5]] == ["audio_ref", "audio_ref"]
 
 
-def test_payload_lifecycle_supports_multiple_source_keys() -> None:
-    reader = ManifestReader(manifest_path="/tmp/input.jsonl")
-    consumer = _dual_stage()
-    writer = ManifestWriterStage(output_path="/tmp/output.jsonl")
-    cfg = OmegaConf.create(
-        {
-            "payload_lifecycle": {
-                "enabled": True,
-                "materialize_after": "manifest_reader",
-                "payloads": [
-                    {
-                        "source_key": "audio_filepath",
-                        "ref_key": "audio_ref",
-                        "waveform_key": "audio",
-                        "sample_rate_key": "sr",
-                        "num_samples_key": "samples",
-                    },
-                    {
-                        "source_key": "reference_audio_filepath",
-                        "ref_key": "reference_ref",
-                        "waveform_key": "reference_audio",
-                        "sample_rate_key": "reference_sr",
-                        "num_samples_key": "reference_samples",
-                        "duration_key": "reference_duration",
-                    },
-                ],
-                "consumers": ["dual_gpu_stage"],
-                "release_after": "dual_gpu_stage",
-            }
-        }
-    )
+def test_payload_lifecycle_rejects_plural_payload_source_config() -> None:
+    reader, asr, writer = _logical_stages()
+    cfg = _cfg()
+    cfg.payload_lifecycle.payload_keys = ["audio_filepath", "reference_audio_filepath"]
 
-    expanded = _expanded([reader, consumer, writer], cfg)
+    with pytest.raises(ValueError, match="supports exactly one payload source"):
+        _expanded([reader, asr, writer], cfg)
 
-    assert [type(stage) for stage in expanded] == [
-        FilePartitioningStage,
-        ManifestReaderStage,
-        AudioPayloadMaterializeStage,
-        AudioPayloadMaterializeStage,
-        _DualPayloadConsumer,
-        PayloadReleaseStage,
-        ManifestWriterStage,
-    ]
-    assert expanded[2].audio_filepath_key == "audio_filepath"
-    assert expanded[2].waveform_ref_key == "audio_ref"
-    assert expanded[3].audio_filepath_key == "reference_audio_filepath"
-    assert expanded[3].waveform_ref_key == "reference_ref"
-    assert expanded[3].duration_key == "reference_duration"
+
+@pytest.mark.parametrize("key", ["lease_ttl_s", "materialized_lease_ttl_s"])
+def test_payload_lifecycle_rejects_removed_lease_config(key: str) -> None:
+    reader, asr, writer = _logical_stages()
+    cfg = _cfg()
+    cfg.payload_lifecycle[key] = 3600
+
+    with pytest.raises(ValueError, match="internal lifecycle policy"):
+        _expanded([reader, asr, writer], cfg)
 
 
 def test_global_bucket_on_accepts_one_owner_among_multiple_payload_consumers() -> None:
@@ -358,11 +308,13 @@ def test_global_bucket_on_accepts_one_owner_among_multiple_payload_consumers() -
         _ManifestReaderGlobalBucketingStage,
         AudioPayloadMaterializeStage,
         ASRStage,
+        DispatchBatchUnpackStage,
         ASRStage,
         PayloadReleaseStage,
         GlobalSegmentAssemblerStage,
         ManifestWriterStage,
     ]
+    assert first.batch_size == 2
 
 
 def test_global_bucket_on_accepts_segment_inputs_when_owner_has_largest_window() -> None:
@@ -458,6 +410,14 @@ def test_global_bucket_on_rejects_reader_window_below_owner() -> None:
         )
 
 
+def test_global_bucket_on_rejects_owner_batch_policy_mismatch() -> None:
+    reader, asr, writer = _logical_stages(enable_global_bucketing=True)
+    asr.batch_policy.max_items_per_batch_by_bucket = [3, 3, 3, 3]
+
+    with pytest.raises(ValueError, match="source constraints do not match owner"):
+        _expanded([reader, asr, writer])
+
+
 def test_global_bucket_on_rejects_owner_outside_payload_consumers() -> None:
     reader = ManifestReader(
         manifest_path="/tmp/input.jsonl",
@@ -495,18 +455,28 @@ def test_global_bucket_on_logical_graph_adds_segment_assembler() -> None:
         _ManifestReaderGlobalBucketingStage,
         AudioPayloadMaterializeStage,
         ASRStage,
+        DispatchBatchUnpackStage,
         PayloadReleaseStage,
         GlobalSegmentAssemblerStage,
         ManifestWriterStage,
     ]
 
-    assembler = expanded[4]
+    assert expanded[2].batch_size == 2
+    assembler = expanded[5]
     assert assembler.text_keys_to_join == ["prediction", "raw_prediction"]
     assert assembler.skip_me_key == "skip_me"
     assert assembler.waveform_key == "audio"
     assert assembler.waveform_ref_key == "audio_ref"
     assert assembler.duration_key == "dur"
     assert assembler.num_samples_key == "samples"
+
+
+def test_global_bucket_on_requires_payload_lifecycle_expansion() -> None:
+    reader, asr, writer = _logical_stages(enable_global_bucketing=True)
+    pipeline = Pipeline(name="test_pipeline", stages=[reader, asr, writer], config={})
+
+    with pytest.raises(ValueError, match=r"require payload_lifecycle\.enabled=true"):
+        pipeline.build()
 
 
 def test_raw_qwen_config_rejects_explicit_helper_stages() -> None:

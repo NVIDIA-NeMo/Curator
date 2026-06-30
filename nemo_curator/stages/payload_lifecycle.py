@@ -1,12 +1,11 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-# ruff: noqa: ANN401, BLE001, C901, EM101, EM102, PLR0912, S110, S112, TRY300, TRY301
+# ruff: noqa: ANN401, BLE001, C901, EM101, EM102, S110, S112, TRY300, TRY301
 
 from __future__ import annotations
 
 import os
 import re
-import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -17,26 +16,24 @@ from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.pipeline.payload_refs import (
+    PAYLOAD_RESERVATION_LEASE_TTL_S,
     PayloadRef,
     _get_named_actor,
-    heartbeat_payload_refs_batched,
     release_payload_ref,
     resolve_payload_refs_batched,
     strip_payload_refs,
     task_payload_refs,
 )
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import AudioTask, Task
+from nemo_curator.tasks import AudioTask, DispatchBatchTask, Task
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import NodeInfo
 
 
 _DEFAULT_NODE_MEMORY_FRACTION = 0.70
-_DEFAULT_LEASE_TTL_S = 3600.0
 _DEFAULT_POLL_INTERVAL_S = 0.25
 _DEFAULT_ADMISSION_WAIT_TIMEOUT_S = 4 * 60 * 60
-_DEFAULT_MATERIALIZED_LEASE_TTL_S = 4 * 60 * 60
 _DEFAULT_SAMPLE_WIDTH_BYTES = 4
 
 
@@ -131,28 +128,6 @@ def _detect_memory_limit_bytes() -> int | None:
     return None
 
 
-def _detect_memory_usage_bytes() -> int:
-    cgroup_paths = (
-        "/sys/fs/cgroup/memory.current",
-        "/sys/fs/cgroup/memory/memory.usage_in_bytes",
-    )
-    for path in cgroup_paths:
-        try:
-            with open(path, encoding="utf-8") as f:
-                raw = f.read().strip()
-            if raw:
-                return max(0, int(raw))
-        except Exception:
-            continue
-    try:
-        import resource
-
-        # ru_maxrss is KiB on Linux.
-        return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024)
-    except Exception:
-        return 0
-
-
 def _resolve_node_payload_budget(
     explicit_bytes: int | None,
     memory_fraction: float,
@@ -219,7 +194,7 @@ class _PayloadAdmissionState:
         *,
         default_node_budget_bytes: int,
         default_cluster_budget_bytes: int | None = None,
-        default_lease_ttl_s: float = _DEFAULT_LEASE_TTL_S,
+        default_lease_ttl_s: float = PAYLOAD_RESERVATION_LEASE_TTL_S,
     ) -> None:
         self.default_node_budget_bytes = max(1, int(default_node_budget_bytes))
         self.default_cluster_budget_bytes = (
@@ -260,24 +235,14 @@ class _PayloadAdmissionState:
         self._leases[(node_id, owner_id)] = (amount, _lease_expires_at(ttl))
         return True
 
-    def heartbeat(self, node_id: str, owner_id: str, lease_ttl_s: float | None = None) -> bool:
+    def publish(self, node_id: str, owner_id: str) -> bool:
+        """Make a completed payload reservation non-expiring until release."""
         self._reap_expired()
-        return self._heartbeat(node_id, owner_id, lease_ttl_s)
-
-    def heartbeat_many(self, requests: list[tuple[str, str, float | None]]) -> list[bool]:
-        """Refresh several admission leases in one actor RPC and one reap pass."""
-        self._reap_expired()
-        return [self._heartbeat(node_id, owner_id, lease_ttl_s) for node_id, owner_id, lease_ttl_s in requests]
-
-    def _heartbeat(self, node_id: str, owner_id: str, lease_ttl_s: float | None) -> bool:
         key = (node_id, owner_id)
         if key not in self._leases:
             return False
-        amount, expires_at = self._leases[key]
-        if expires_at is not None:
-            ttl = self.default_lease_ttl_s if lease_ttl_s is None else float(lease_ttl_s)
-            expires_at = _lease_expires_at(ttl)
-        self._leases[key] = (amount, expires_at)
+        amount, _expires_at = self._leases[key]
+        self._leases[key] = (amount, None)
         return True
 
     def release(self, node_id: str, owner_id: str, amount_bytes: int | None = None) -> None:
@@ -353,52 +318,27 @@ class _PayloadAdmissionState:
 class _StoredPayload:
     payload: Any
     amount_bytes: int
-    expires_at: float | None
 
 
 class _PayloadStoreState:
-    def __init__(self, *, default_lease_ttl_s: float = _DEFAULT_LEASE_TTL_S) -> None:
-        self.default_lease_ttl_s = float(default_lease_ttl_s)
+    def __init__(self) -> None:
         self._payloads: dict[str, _StoredPayload] = {}
 
-    def put(self, payload_id: str, payload: Any, amount_bytes: int, lease_ttl_s: float | None = None) -> None:
-        self._reap_expired()
-        ttl = self.default_lease_ttl_s if lease_ttl_s is None else float(lease_ttl_s)
-        self._payloads[payload_id] = _StoredPayload(payload, int(amount_bytes), _lease_expires_at(ttl))
+    def put(self, payload_id: str, payload: Any, amount_bytes: int) -> None:
+        self._payloads[payload_id] = _StoredPayload(payload, int(amount_bytes))
 
-    def get(self, payload_id: str, lease_ttl_s: float | None = None) -> Any:
-        self._reap_expired()
-        return self._get(payload_id, lease_ttl_s)
+    def get(self, payload_id: str) -> Any:
+        return self._get(payload_id)
 
-    def get_many(self, requests: list[tuple[str, float | None]]) -> list[Any]:
-        """Resolve several payloads in request order in one actor RPC and one reap pass."""
-        self._reap_expired()
-        return [self._get(payload_id, lease_ttl_s) for payload_id, lease_ttl_s in requests]
+    def get_many(self, payload_ids: list[str]) -> list[Any]:
+        """Resolve several payloads retained until explicit release in one actor RPC."""
+        return [self._get(payload_id) for payload_id in payload_ids]
 
-    def _get(self, payload_id: str, lease_ttl_s: float | None) -> Any:
-        stored = self._payloads[payload_id]
-        if stored.expires_at is not None:
-            ttl = self.default_lease_ttl_s if lease_ttl_s is None else float(lease_ttl_s)
-            stored.expires_at = _lease_expires_at(ttl)
-        return stored.payload
-
-    def pin(self, payload_id: str, lease_ttl_s: float | None = None) -> bool:
-        self._reap_expired()
-        return self._pin(payload_id, lease_ttl_s)
-
-    def pin_many(self, requests: list[tuple[str, float | None]]) -> list[bool]:
-        """Refresh several store leases in one actor RPC and one reap pass."""
-        self._reap_expired()
-        return [self._pin(payload_id, lease_ttl_s) for payload_id, lease_ttl_s in requests]
-
-    def _pin(self, payload_id: str, lease_ttl_s: float | None) -> bool:
+    def _get(self, payload_id: str) -> Any:
         stored = self._payloads.get(payload_id)
         if stored is None:
-            return False
-        if stored.expires_at is not None:
-            ttl = self.default_lease_ttl_s if lease_ttl_s is None else float(lease_ttl_s)
-            stored.expires_at = _lease_expires_at(ttl)
-        return True
+            raise KeyError(f"Payload {payload_id} is no longer present")
+        return stored.payload
 
     def release(self, payload_id: str) -> int:
         stored = self._payloads.pop(payload_id, None)
@@ -407,21 +347,10 @@ class _PayloadStoreState:
         return stored.amount_bytes
 
     def snapshot(self) -> dict[str, Any]:
-        self._reap_expired()
         return {
             "payload_count": len(self._payloads),
             "payload_bytes": sum(payload.amount_bytes for payload in self._payloads.values()),
         }
-
-    def _reap_expired(self) -> None:
-        now = time.monotonic()
-        expired = [
-            payload_id
-            for payload_id, payload in self._payloads.items()
-            if payload.expires_at is not None and payload.expires_at < now
-        ]
-        for payload_id in expired:
-            self._payloads.pop(payload_id, None)
 
 
 def _kill_named_actor(name: str, namespace: str | None = None) -> bool:
@@ -488,58 +417,13 @@ def _get_admission_actor(
     )
 
 
-def _get_store_actor(actor_name: str, *, node_id: str, default_lease_ttl_s: float, namespace: str | None) -> Any:
+def _get_store_actor(actor_name: str, *, node_id: str, namespace: str | None) -> Any:
     return _get_named_actor_or_create(
         _PayloadStoreState,
         actor_name,
         node_id=node_id,
         namespace=namespace,
-        default_lease_ttl_s=default_lease_ttl_s,
     )
-
-
-class _PayloadLeaseKeeper:
-    def __init__(self, payload_refs: list[PayloadRef], *, interval_s: float | None = None) -> None:
-        deduped: dict[tuple[str | None, str, str], PayloadRef] = {}
-        for payload_ref in payload_refs:
-            key = (payload_ref.actor_namespace, payload_ref.store_actor_name, payload_ref.payload_id)
-            deduped[key] = payload_ref
-        self._payload_refs = list(deduped.values())
-        if interval_s is None:
-            ttl_s = min((payload_ref.lease_ttl_s for payload_ref in self._payload_refs), default=_DEFAULT_LEASE_TTL_S)
-            interval_s = min(30.0, max(1.0, ttl_s / 3.0))
-        self._interval_s = float(interval_s)
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
-        self._warned = False
-
-    def start(self) -> None:
-        if not self._payload_refs or self._thread is not None:
-            return
-        self._thread = threading.Thread(
-            target=self._run,
-            name="curator-payload-lease-keeper",
-            daemon=True,
-        )
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=max(1.0, min(5.0, self._interval_s)))
-            self._thread = None
-
-    def _run(self) -> None:
-        while not self._stop.wait(self._interval_s):
-            try:
-                heartbeat_payload_refs_batched(self._payload_refs)
-            except Exception as exc:
-                if not self._warned:
-                    logger.warning(
-                        "Payload lease heartbeat failed; one or more payloads may expire during long stage work: {}",
-                        exc,
-                    )
-                    self._warned = True
 
 
 class PayloadAwareStageMixin:
@@ -550,35 +434,26 @@ class PayloadAwareStageMixin:
     sample_rate_key: str
     num_samples_key: str
 
-    def payload_bindings(self) -> list[dict[str, str]]:
-        """Return payload-ref bindings consumed by this stage.
-
-        Stages with one waveform can rely on the legacy ``waveform_*`` fields.
-        Multi-input stages can override this method and return one mapping per
-        payload, each with ``ref_key`` and ``waveform_key`` plus optional
-        ``sample_rate_key`` and ``num_samples_key``.
-        """
+    def payload_binding(self) -> dict[str, str] | None:
+        """Return the single payload-ref binding consumed by this stage."""
 
         payload_ref_key = getattr(self, "waveform_ref_key", None)
         if not payload_ref_key:
-            return []
-        return [
-            {
-                "ref_key": str(payload_ref_key),
-                "waveform_key": str(getattr(self, "waveform_key", "waveform")),
-                "sample_rate_key": str(getattr(self, "sample_rate_key", "sample_rate")),
-                "num_samples_key": str(getattr(self, "num_samples_key", "num_samples")),
-            }
-        ]
+            return None
+        return {
+            "ref_key": str(payload_ref_key),
+            "waveform_key": str(getattr(self, "waveform_key", "waveform")),
+            "sample_rate_key": str(getattr(self, "sample_rate_key", "sample_rate")),
+            "num_samples_key": str(getattr(self, "num_samples_key", "num_samples")),
+        }
 
     def resolve_payload_refs_for_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        bindings = self.payload_bindings()
-        if not bindings:
+        binding = self.payload_binding()
+        if binding is None:
             return []
-        self._stop_payload_lease_keeper()
         inserted: list[AudioTask] = []
         payload_refs: list[PayloadRef] = []
-        pending: list[tuple[AudioTask, dict[str, str], PayloadRef]] = []
+        pending: list[tuple[AudioTask, PayloadRef]] = []
         consumer_node_id = _resolve_node_id()
         resolution_start = time.perf_counter()
         same_node_count = 0
@@ -586,47 +461,37 @@ class PayloadAwareStageMixin:
         resolved_bytes = 0
         try:
             for task in tasks:
-                task_inserted = False
-                for binding in bindings:
-                    payload_ref_key = binding["ref_key"]
-                    payload_key = binding["waveform_key"]
-                    if payload_key in task.data:
-                        continue
-                    payload_ref = task.data.get(payload_ref_key)
-                    if payload_ref is None:
-                        continue
-                    if not isinstance(payload_ref, PayloadRef):
-                        msg = (
-                            f"Task {task.task_id} has non-PayloadRef '{payload_ref_key}' "
-                            f"value: {type(payload_ref).__name__}"
-                        )
-                        raise TypeError(msg)
-                    if payload_ref.owner_node_id and payload_ref.owner_node_id == consumer_node_id:
-                        same_node_count += 1
-                    else:
-                        cross_node_count += 1
-                    resolved_bytes += int(payload_ref.amount_bytes)
-                    pending.append((task, binding, payload_ref))
-                    payload_refs.append(payload_ref)
-                    task_inserted = True
-                if task_inserted:
-                    inserted.append(task)
+                payload_ref_key = binding["ref_key"]
+                payload_key = binding["waveform_key"]
+                if payload_key in task.data:
+                    continue
+                payload_ref = task.data.get(payload_ref_key)
+                if payload_ref is None:
+                    continue
+                if not isinstance(payload_ref, PayloadRef):
+                    msg = (
+                        f"Task {task.task_id} has non-PayloadRef '{payload_ref_key}' "
+                        f"value: {type(payload_ref).__name__}"
+                    )
+                    raise TypeError(msg)
+                if payload_ref.owner_node_id and payload_ref.owner_node_id == consumer_node_id:
+                    same_node_count += 1
+                else:
+                    cross_node_count += 1
+                resolved_bytes += int(payload_ref.amount_bytes)
+                pending.append((task, payload_ref))
+                payload_refs.append(payload_ref)
+                inserted.append(task)
 
-            payloads = resolve_payload_refs_batched(
-                payload_refs,
-                max_batch_bytes=getattr(self, "payload_resolve_max_batch_bytes", None),
-            )
-            for (task, binding, payload_ref), payload in zip(pending, payloads, strict=True):
+            payloads = resolve_payload_refs_batched(payload_refs)
+            for (task, payload_ref), payload in zip(pending, payloads, strict=True):
                 task.data[binding["waveform_key"]] = payload
                 task.data[binding.get("sample_rate_key", "sample_rate")] = payload_ref.sample_rate
                 task.data.setdefault(binding.get("num_samples_key", "num_samples"), payload_ref.num_samples)
         except Exception:
             for task in inserted:
-                for binding in bindings:
-                    task.data.pop(binding["waveform_key"], None)
-            self._stop_payload_lease_keeper()
+                task.data.pop(binding["waveform_key"], None)
             raise
-        self._start_payload_lease_keeper(payload_refs)
         if payload_refs:
             log_metrics = getattr(self, "_log_metrics", None)
             if callable(log_metrics):
@@ -642,33 +507,20 @@ class PayloadAwareStageMixin:
         return inserted
 
     def drop_resolved_payloads(self, tasks: list[AudioTask]) -> None:
-        self._stop_payload_lease_keeper()
-        payload_keys = [binding["waveform_key"] for binding in self.payload_bindings()]
+        binding = self.payload_binding()
+        if binding is None:
+            return
         for task in tasks:
-            for payload_key in payload_keys:
-                task.data.pop(payload_key, None)
+            task.data.pop(binding["waveform_key"], None)
 
     def terminal_tombstone_drop_data_keys(self) -> tuple[str, ...]:
-        return tuple({binding["waveform_key"] for binding in self.payload_bindings()})
+        binding = self.payload_binding()
+        return (binding["waveform_key"],) if binding is not None else ()
 
     @staticmethod
     def payload_consumer_node_id() -> str:
         """Return the node currently resolving payloads for locality metrics."""
         return _resolve_node_id()
-
-    def _start_payload_lease_keeper(self, payload_refs: list[PayloadRef]) -> None:
-        if not payload_refs:
-            return
-        keeper = _PayloadLeaseKeeper(payload_refs)
-        keeper.start()
-        self._payload_lease_keeper = keeper
-
-    def _stop_payload_lease_keeper(self) -> None:
-        keeper = getattr(self, "_payload_lease_keeper", None)
-        if keeper is None:
-            return
-        keeper.stop()
-        self._payload_lease_keeper = None
 
 
 @dataclass
@@ -694,8 +546,6 @@ class AudioPayloadMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
     node_memory_fraction: float = _DEFAULT_NODE_MEMORY_FRACTION
     max_node_payload_bytes: int | str | None = None
     max_cluster_payload_bytes: int | str | None = None
-    lease_ttl_s: float = _DEFAULT_LEASE_TTL_S
-    materialized_lease_ttl_s: float = _DEFAULT_MATERIALIZED_LEASE_TTL_S
     admission_poll_interval_s: float = _DEFAULT_POLL_INTERVAL_S
     admission_wait_timeout_s: float = _DEFAULT_ADMISSION_WAIT_TIMEOUT_S
     admission_actor_name: str = "curator_payload_admission"
@@ -716,10 +566,6 @@ class AudioPayloadMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
     _store: Any = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
-        if self.lease_ttl_s <= 0:
-            raise ValueError("lease_ttl_s must be positive while a payload is being materialized")
-        if self.materialized_lease_ttl_s <= 0:
-            raise ValueError("materialized_lease_ttl_s must be positive")
         if self.admission_poll_interval_s <= 0:
             raise ValueError("admission_poll_interval_s must be positive")
         if self.admission_wait_timeout_s <= 0:
@@ -794,7 +640,7 @@ class AudioPayloadMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
                         self._node_id,
                         payload_id,
                         actual_bytes,
-                        self.lease_ttl_s,
+                        PAYLOAD_RESERVATION_LEASE_TTL_S,
                     )
                 ):
                     self._release(payload_id, reserved_bytes)
@@ -804,7 +650,13 @@ class AudioPayloadMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
                     )
                 reserved_bytes = actual_bytes
 
-            _ray_get(self._store.put.remote(payload_id, waveform, actual_bytes, self.materialized_lease_ttl_s))
+            _ray_get(
+                self._store.put.remote(
+                    payload_id,
+                    waveform,
+                    actual_bytes,
+                )
+            )
             stored = True
             self._log_metrics(
                 {
@@ -820,16 +672,14 @@ class AudioPayloadMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
                 amount_bytes=actual_bytes,
                 sample_rate=int(decoded.data[self.sample_rate_key]),
                 num_samples=int(decoded.data[self.num_samples_key]),
-                lease_ttl_s=self.lease_ttl_s,
                 actor_namespace=self._actor_namespace,
             )
             decoded.data["_curator_payload_estimated_bytes"] = estimated_bytes
             decoded.data["_curator_payload_bytes"] = actual_bytes
             if not _ray_get(
-                self._admission.heartbeat.remote(
+                self._admission.publish.remote(
                     self._node_id,
                     payload_id,
-                    self.materialized_lease_ttl_s,
                 )
             ):
                 raise RuntimeError(f"Payload reservation expired before materialization completed: {payload_id}")
@@ -844,12 +694,38 @@ class AudioPayloadMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
             task.data.pop(self.waveform_key, None)
             raise
 
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+    def process_batch(
+        self,
+        tasks: list[AudioTask | DispatchBatchTask],
+    ) -> list[AudioTask | DispatchBatchTask]:
+        results: list[AudioTask | DispatchBatchTask] = []
         for task in tasks:
+            if isinstance(task, DispatchBatchTask):
+                try:
+                    children = self.process_batch(list(task.items))
+                except Exception:
+                    self._release_dispatch_children(task)
+                    raise
+                if not all(isinstance(child, AudioTask) for child in children):
+                    msg = f"{type(self).__name__} dispatch children must remain AudioTask rows"
+                    raise TypeError(msg)
+                results.append(task.with_items(children))
+                continue
             if not self.validate_input(task):
                 msg = f"Task {task!s} failed validation for stage {self}"
                 raise ValueError(msg)
-        return [self.process(task) for task in tasks]
+            results.append(self.process(task))
+        return results
+
+    def _release_dispatch_children(self, batch: DispatchBatchTask) -> None:
+        """Release children materialized before a sibling failed."""
+        for child in batch.items:
+            if not isinstance(child, AudioTask):
+                continue
+            payload_ref = child.data.pop(self.waveform_ref_key, None)
+            if isinstance(payload_ref, PayloadRef):
+                release_payload_ref(payload_ref)
+            child.data.pop(self.waveform_key, None)
 
     def _ensure_ready(self) -> None:
         if self._reader is None:
@@ -896,13 +772,12 @@ class AudioPayloadMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
                 self._admission_actor_name,
                 default_node_budget_bytes=self._node_budget_bytes,
                 default_cluster_budget_bytes=explicit_cluster_budget,
-                default_lease_ttl_s=self.lease_ttl_s,
+                default_lease_ttl_s=PAYLOAD_RESERVATION_LEASE_TTL_S,
                 namespace=self._actor_namespace,
             )
             self._store = _get_store_actor(
                 self._store_actor_name,
                 node_id=self._node_id,
-                default_lease_ttl_s=self.lease_ttl_s,
                 namespace=self._actor_namespace,
             )
             _ray_get(self._admission.register_node.remote(self._node_id, self._node_budget_bytes))
@@ -937,7 +812,7 @@ class AudioPayloadMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
                     self._node_id,
                     payload_id,
                     amount_bytes,
-                    self.lease_ttl_s,
+                    PAYLOAD_RESERVATION_LEASE_TTL_S,
                 )
             )
             if acquired:
@@ -965,6 +840,16 @@ class AudioPayloadMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
         store_prefix = f"{self.store_actor_prefix}_{suffix}_"
         for node_id in _active_ray_node_ids():
             _kill_named_actor(f"{store_prefix}{_safe_actor_suffix(node_id)}", namespace)
+
+        self._reader = None
+        self._node_id = ""
+        self._node_budget_bytes = 0
+        self._cluster_budget_bytes = None
+        self._admission_actor_name = ""
+        self._store_actor_name = ""
+        self._actor_namespace = None
+        self._admission = None
+        self._store = None
 
     def ray_stage_spec(self) -> dict[str, Any]:
         spec = super().ray_stage_spec()
@@ -1002,7 +887,10 @@ class PayloadReleaseStage(ProcessingStage[AudioTask, AudioTask]):
     def process(self, task: AudioTask) -> AudioTask:
         released_ids: set[str] = set()
         released_bytes = 0
-        for payload_ref in task_payload_refs(task):
+        configured_ref = task.data.get(self.payload_ref_key)
+        fallback_cleanup = not isinstance(configured_ref, PayloadRef)
+        payload_refs = task_payload_refs(task) if fallback_cleanup else [configured_ref]
+        for payload_ref in payload_refs:
             if payload_ref.payload_id in released_ids:
                 continue
             release_payload_ref(payload_ref)
@@ -1015,10 +903,12 @@ class PayloadReleaseStage(ProcessingStage[AudioTask, AudioTask]):
                     "payload_release_bytes": float(released_bytes),
                 }
             )
-        if isinstance(task.data, dict):
+        if fallback_cleanup and isinstance(task.data, dict):
             stripped_data = strip_payload_refs(task.data)
             task.data.clear()
             task.data.update(stripped_data)
+        else:
+            task.data.pop(self.payload_ref_key, None)
         task.data.pop(self.waveform_key, None)
         if self.remove_payload_metadata:
             for key in tuple(task.data):

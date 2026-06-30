@@ -35,6 +35,9 @@ if TYPE_CHECKING:
     from nemo_curator.utils.performance_utils import StagePerfStats
 
 
+# Identity model
+
+
 @dataclass(frozen=True)
 class WorkerPerfIdentity:
     """Perf identity resolved once per worker at backend setup."""
@@ -47,6 +50,17 @@ class WorkerPerfIdentity:
     hostname: str = ""
     gpu_indices: tuple[int, ...] = ()
     gpu_uuids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class GpuAssignment:
+    """Physical GPU indices and either parallel UUIDs or no UUID attribution."""
+
+    indices: tuple[int, ...] = ()
+    uuids: tuple[str, ...] = ()
+
+
+# Backend-neutral identity construction
 
 
 def _format_gpu_label(node_label: str, gpu_index: object) -> str:
@@ -78,7 +92,7 @@ def _resolve_pod_ip() -> str:
     return ""
 
 
-def _resolve_host_ip() -> str:
+def _resolve_runtime_ip() -> str:
     pod_ip = _resolve_pod_ip()
     if pod_ip:
         return pod_ip
@@ -90,25 +104,13 @@ def _resolve_host_ip() -> str:
         return ""
 
 
-def _allocation_gpu_indices(allocation: object | None, requires_gpu: bool) -> tuple[int, ...]:
-    if not requires_gpu or allocation is None:
-        return ()
-    gpus = getattr(allocation, "gpus", None) or []
-    indices: list[int] = []
-    for gpu in gpus:
-        idx = getattr(gpu, "index", None)
-        if idx is not None:
-            indices.append(int(idx))
-    return tuple(indices)
-
-
 def _visible_gpu_ordinals(gpu_indices: tuple[int, ...], visible_count: int) -> list[int]:
     """Translate physical CUDA indices to torch's *visible* ordinals.
 
     ``gpu_indices`` are physical ids but torch enumerates only the devices in
     ``CUDA_VISIBLE_DEVICES`` as ordinals ``0..visible_count-1``. Map via the env
-    when it lists integer ids; under per-worker isolation every visible ordinal
-    belongs to this worker.
+    only when it lists every physical index as an integer; otherwise omit UUID
+    attribution instead of guessing an ordinal.
     """
     env = os.environ.get("CUDA_VISIBLE_DEVICES")
     if not env:
@@ -119,35 +121,44 @@ def _visible_gpu_ordinals(gpu_indices: tuple[int, ...], visible_count: int) -> l
         try:
             phys_to_ordinal[int(token)] = ordinal
         except ValueError:
-            phys_to_ordinal = {}  # UUID-style mask -> no positional int mapping
-            break
+            # A UUID-style mask cannot safely establish the positional mapping
+            # between physical indices and torch ordinals. Ray's UUID path uses
+            # NVML directly; other callers omit UUID attribution rather than
+            # claiming every visible device.
+            return []
     mapped = [phys_to_ordinal[i] for i in gpu_indices if i in phys_to_ordinal]
-    if mapped:
-        return mapped
-    # Isolated worker (or unmappable ids): the visible set *is* this worker's.
-    return list(range(visible_count))
+    return mapped if len(mapped) == len(gpu_indices) else []
 
 
-def _collect_gpu_uuids(gpu_indices: tuple[int, ...]) -> tuple[str, ...]:
-    if not gpu_indices:
-        return ()
+def _torch_visible_cuda_count() -> int:
     try:
         import torch
 
-        if not torch.cuda.is_available():
-            return ()
-        visible_count = torch.cuda.device_count()
+        return int(torch.cuda.device_count()) if torch.cuda.is_available() else 0
     except Exception:  # noqa: BLE001
+        return 0
+
+
+def _torch_gpu_uuid(ordinal: int) -> str:
+    try:
+        import torch
+
+        return str(getattr(torch.cuda.get_device_properties(ordinal), "uuid", "") or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _collect_gpu_uuids(gpu_indices: tuple[int, ...]) -> tuple[str, ...]:
+    visible_count = _torch_visible_cuda_count() if gpu_indices else 0
+    ordinals = _visible_gpu_ordinals(gpu_indices, visible_count)
+    if len(ordinals) != len(gpu_indices):
         return ()
     uuids: list[str] = []
-    # Per-ordinal guard: one bad index must not wipe the rest.
-    for ordinal in _visible_gpu_ordinals(gpu_indices, visible_count):
-        try:
-            uuid = str(getattr(torch.cuda.get_device_properties(ordinal), "uuid", "") or "").strip()
-        except Exception:  # noqa: BLE001
-            continue
-        if uuid:
-            uuids.append(uuid)
+    for ordinal in ordinals:
+        uuid = _torch_gpu_uuid(ordinal)
+        if not uuid:
+            return ()
+        uuids.append(uuid)
     return tuple(uuids)
 
 
@@ -164,6 +175,49 @@ def _format_physical_address(host_token: str, gpu_indices: tuple[int, ...]) -> s
     return f"{host}:{idx_part}"
 
 
+def _build_worker_identity(
+    stage_name: str,
+    *,
+    worker_id: str,
+    node_label: str,
+    gpu_assignment: GpuAssignment,
+    host_token: str,
+) -> WorkerPerfIdentity:
+    """Build the backend-neutral identity after a backend resolves placement."""
+    gpu_indices = gpu_assignment.indices
+    hostname = _resolve_hostname()
+    return WorkerPerfIdentity(
+        actor_id=_format_actor_label(stage_name, worker_id),
+        node_id=node_label,
+        gpu_id=_format_gpu_label(node_label, gpu_indices[0]) if gpu_indices else "",
+        physical_address=_format_physical_address(host_token or hostname or node_label, gpu_indices),
+        pod_ip=_resolve_pod_ip(),
+        hostname=hostname,
+        gpu_indices=gpu_indices,
+        gpu_uuids=gpu_assignment.uuids,
+    )
+
+
+# Xenna placement resolution
+
+
+def _allocation_gpu_indices(allocation: object | None, requires_gpu: bool) -> tuple[int, ...]:
+    if not requires_gpu or allocation is None:
+        return ()
+    gpus = getattr(allocation, "gpus", None) or []
+    indices: list[int] = []
+    for gpu in gpus:
+        idx = getattr(gpu, "index", None)
+        if idx is not None:
+            indices.append(int(idx))
+    return tuple(indices)
+
+
+def _xenna_gpu_assignment(allocation: object | None, requires_gpu: bool) -> GpuAssignment:
+    indices = _allocation_gpu_indices(allocation, requires_gpu)
+    return GpuAssignment(indices=indices, uuids=_collect_gpu_uuids(indices))
+
+
 def build_xenna_perf_identity(
     stage_name: str,
     *,
@@ -172,10 +226,10 @@ def build_xenna_perf_identity(
     allocation: object | None,
     requires_gpu: bool,
 ) -> WorkerPerfIdentity:
-    """Identity from Xenna ``WorkerMetadata`` + ``NodeInfo`` (allocation-first GPU).
+    """Identity from Xenna ``WorkerMetadata`` + ``NodeInfo``.
 
-    GPU index comes only from ``allocation.gpus[0].index``; node label falls back
-    ``node_id`` -> MPI rank env -> ``allocation.node``.
+    Every allocation GPU is retained; only the short ``gpu_id`` display label
+    uses the first. Node label falls back ``node_id`` -> MPI rank -> allocation.
     """
     node_label = (node_id or "").strip()
     if not node_label:
@@ -185,29 +239,16 @@ def build_xenna_perf_identity(
         elif allocation is not None:
             node_label = str(getattr(allocation, "node", "") or "").strip()
 
-    actor_label = _format_actor_label(stage_name, worker_id)
-
-    gpu_label = ""
-    gpu_indices: tuple[int, ...] = ()
-    if requires_gpu and allocation is not None:
-        gpu_indices = _allocation_gpu_indices(allocation, requires_gpu=True)
-        if gpu_indices:
-            gpu_label = _format_gpu_label(node_label, gpu_indices[0])
-
-    hostname = _resolve_hostname()
-    physical_address = _format_physical_address(_resolve_host_ip() or hostname or node_label, gpu_indices)
-    gpu_uuids = _collect_gpu_uuids(gpu_indices) if gpu_indices else ()
-
-    return WorkerPerfIdentity(
-        actor_id=actor_label,
-        node_id=node_label,
-        gpu_id=gpu_label,
-        physical_address=physical_address,
-        pod_ip=_resolve_pod_ip(),
-        hostname=hostname,
-        gpu_indices=gpu_indices,
-        gpu_uuids=gpu_uuids,
+    return _build_worker_identity(
+        stage_name,
+        worker_id=worker_id,
+        node_label=node_label,
+        gpu_assignment=_xenna_gpu_assignment(allocation, requires_gpu),
+        host_token=_resolve_runtime_ip(),
     )
+
+
+# Ray Data placement resolution
 
 
 def _ray_node_label(ctx: object) -> str:
@@ -268,17 +309,17 @@ def _normalize_gpu_uuid(value: object) -> str:
     return text.removeprefix("gpu-")
 
 
-def _uuid_gpu_assignment(tokens: tuple[str, ...]) -> tuple[tuple[int, ...], tuple[str, ...]]:
-    """Map Ray/CUDA UUID assignment tokens back to physical GPU indices with NVML."""
-    wanted = tuple((token, _normalize_gpu_uuid(token)) for token in tokens if _normalize_gpu_uuid(token))
-    if not wanted:
-        return (), ()
+def _wanted_gpu_uuid_tokens(tokens: tuple[str, ...]) -> list[tuple[str, str]]:
+    return [(token, normalized) for token in tokens if (normalized := _normalize_gpu_uuid(token))]
+
+
+def _nvml_uuid_index_map() -> dict[str, int]:
     try:
         import pynvml
 
         pynvml.nvmlInit()
     except Exception:  # noqa: BLE001
-        return (), ()
+        return {}
 
     matches: dict[str, int] = {}
     try:
@@ -295,6 +336,13 @@ def _uuid_gpu_assignment(tokens: tuple[str, ...]) -> tuple[tuple[int, ...], tupl
             pynvml.nvmlShutdown()
         except Exception:  # noqa: BLE001
             pass
+    return matches
+
+
+def _uuid_gpu_assignment(tokens: tuple[str, ...]) -> GpuAssignment:
+    """Map Ray/CUDA UUID assignment tokens back to physical GPU indices with NVML."""
+    wanted = _wanted_gpu_uuid_tokens(tokens)
+    matches = _nvml_uuid_index_map() if wanted else {}
 
     indices: list[int] = []
     uuids: list[str] = []
@@ -302,19 +350,19 @@ def _uuid_gpu_assignment(tokens: tuple[str, ...]) -> tuple[tuple[int, ...], tupl
         if normalized in matches:
             indices.append(matches[normalized])
             uuids.append(token)
-    return tuple(indices), tuple(uuids)
+    return GpuAssignment(indices=tuple(indices), uuids=tuple(uuids))
 
 
-def _gpu_assignment_from_tokens(tokens: tuple[str, ...]) -> tuple[tuple[int, ...], tuple[str, ...]]:
+def _gpu_assignment_from_tokens(tokens: tuple[str, ...]) -> GpuAssignment:
     indices = _parse_int_indices(tokens)
     if indices:
-        return indices, _collect_gpu_uuids(indices)
+        return GpuAssignment(indices=indices, uuids=_collect_gpu_uuids(indices))
     return _uuid_gpu_assignment(tokens)
 
 
-def _ray_gpu_assignment(requires_gpu: bool) -> tuple[tuple[int, ...], tuple[str, ...]]:
+def _ray_gpu_assignment(requires_gpu: bool) -> GpuAssignment:
     if not requires_gpu:
-        return (), ()
+        return GpuAssignment()
     try:
         import ray
 
@@ -322,9 +370,9 @@ def _ray_gpu_assignment(requires_gpu: bool) -> tuple[tuple[int, ...], tuple[str,
     except Exception:  # noqa: BLE001
         tokens = ()
 
-    indices, uuids = _gpu_assignment_from_tokens(tokens)
-    if indices:
-        return indices, uuids
+    assignment = _gpu_assignment_from_tokens(tokens)
+    if assignment.indices:
+        return assignment
 
     # Ray may leave CUDA_VISIBLE_DEVICES set to this worker's assigned slice
     # when get_gpu_ids() is empty. Support both integer and UUID masks.
@@ -337,7 +385,7 @@ def build_ray_perf_identity(
     *,
     requires_gpu: bool,
 ) -> WorkerPerfIdentity:
-    """Identity from Ray runtime context (Ray Data / Ray Actor Pool).
+    """Identity from Ray runtime context for Ray Data workers.
 
     GPU assignment comes from ``ray.get_gpu_ids()``, falling back to
     ``CUDA_VISIBLE_DEVICES`` when Ray returns no ids. Supports both integer and
@@ -359,31 +407,17 @@ def build_ray_perf_identity(
     if not (worker_id or node_label):
         return blank
 
-    actor_label = _format_actor_label(stage_name, worker_id)
-    gpu_indices, gpu_uuids = _ray_gpu_assignment(requires_gpu)
-    gpu_label = _format_gpu_label(node_label, gpu_indices[0]) if gpu_indices else ""
-    host_ip = ""
-    try:
-        import ray
-
-        host_ip = (ray.util.get_node_ip_address() or "").strip()
-    except Exception:  # noqa: BLE001
-        host_ip = ""
-    hostname = _resolve_hostname()
-    physical_address = _format_physical_address(host_ip or hostname or node_label, gpu_indices)
-    if gpu_indices and not gpu_uuids:
-        gpu_uuids = _collect_gpu_uuids(gpu_indices)
-
-    return WorkerPerfIdentity(
-        actor_id=actor_label,
-        node_id=node_label,
-        gpu_id=gpu_label,
-        physical_address=physical_address,
-        pod_ip=_resolve_pod_ip(),
-        hostname=hostname,
-        gpu_indices=gpu_indices,
-        gpu_uuids=gpu_uuids,
+    gpu_assignment = _ray_gpu_assignment(requires_gpu)
+    return _build_worker_identity(
+        stage_name,
+        worker_id=worker_id,
+        node_label=node_label,
+        gpu_assignment=gpu_assignment,
+        host_token=_resolve_runtime_ip(),
     )
+
+
+# Identity transport
 
 
 def read_worker_metadata_identity(

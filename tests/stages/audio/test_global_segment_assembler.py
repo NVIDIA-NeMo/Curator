@@ -58,39 +58,13 @@ def _parent_data() -> dict:
     }
 
 
-def test_parent_store_delete_many_releases_completed_parents() -> None:
+def test_parent_store_take_parent_transfers_and_removes_one_parent() -> None:
     store = _GlobalSegmentParentDataStore()
     store.put_many({"parent-a": {"value": 1}, "parent-b": {"value": 2}})
 
-    assert store.delete_many(["parent-a", "missing"]) == 1
-    assert store.get_parent("parent-a") is None
-    assert store.get_parent("parent-b") == {"value": 2}
-
-
-def test_segment_assembly_reports_parent_completion_without_changing_default_contract() -> None:
-    state = _GlobalSegmentAssemblyState(
-        text_keys_to_join=["qwen3_prediction_s1"],
-        skip_me_key="_skip_me",
-        waveform_key="waveform",
-        waveform_ref_key="waveform_ref",
-        duration_key="duration",
-        num_samples_key="num_samples",
-        segment_start_key="segment_start_s",
-        segment_duration_key="segment_duration_s",
-    )
-
-    ready, completed_parent_id = state.add_segment(
-        parent_id="manifest:0:0",
-        segment_idx=0,
-        segment_count=1,
-        data={**_segment_data(0, "hello"), "_curator_segment_count": 1},
-        metadata={},
-        stage_perf=[],
-        include_completion=True,
-    )
-
-    assert completed_parent_id == "manifest:0:0"
-    assert ready[0]["data"]["qwen3_prediction_s1"] == "hello"
+    assert store.take_parent("parent-a") == {"value": 1}
+    assert store.take_parent("parent-a") is None
+    assert store.take_parent("parent-b") == {"value": 2}
 
 
 def test_segment_assembly_waits_for_all_segments_and_strips_payload_refs() -> None:
@@ -600,6 +574,51 @@ def test_segment_assembly_completes_parent_with_dropped_segment_tombstone() -> N
     assert "_skip_me" not in assembled_items[0]["data"]
 
 
+def test_partial_drop_retains_consistent_unconfigured_generated_fields() -> None:
+    state = _GlobalSegmentAssemblyState(
+        text_keys_to_join=["qwen3_prediction_s1"],
+        field_merge_strategies={"qwen3_prediction_s2": "drop"},
+        skip_me_key="_skip_me",
+        waveform_key="waveform",
+        waveform_ref_key="waveform_ref",
+        duration_key="duration",
+        num_samples_key="num_samples",
+        segment_start_key="segment_start_s",
+        segment_duration_key="segment_duration_s",
+        require_parent_data=True,
+    )
+
+    first = _segment_data(0, "kept text")
+    first["speaker_confidence"] = 0.9
+    assert (
+        state.add_segment(
+            parent_id="manifest:0:0",
+            segment_idx=0,
+            segment_count=2,
+            data=first,
+            metadata={},
+            stage_perf=[],
+            parent_data=_parent_data(),
+        )
+        == []
+    )
+    assembled_items = state.add_segment(
+        parent_id="manifest:0:0",
+        segment_idx=1,
+        segment_count=2,
+        data={
+            **_segment_data(1, ""),
+            "_curator_segment_dropped": True,
+            "_curator_segment_dropped_by_stage": "ASRStage",
+        },
+        metadata={},
+        stage_perf=[],
+    )
+
+    assert assembled_items[0]["data"]["qwen3_prediction_s1"] == "one or more intermediate segments dropped by ASRStage"
+    assert assembled_items[0]["data"]["speaker_confidence"] == 0.9
+
+
 def test_segment_assembly_marks_outputs_when_all_segments_drop_with_consumer_keys() -> None:
     state = _GlobalSegmentAssemblyState(
         text_keys_to_join=["qwen3_prediction_s1"],
@@ -716,30 +735,53 @@ def test_segment_assembler_passes_non_segment_rows_through() -> None:
     assert stage.process(task) is task
 
 
-def test_segment_assembler_releases_completed_parent_data() -> None:
-    deleted: list[list[str]] = []
+def test_assembly_actor_takes_parent_data_only_for_first_segment() -> None:
+    taken: list[str] = []
 
     class _RemoteMethod:
-        def remote(self, parent_ids: list[str]) -> int:
-            deleted.append(parent_ids)
-            return len(parent_ids)
+        def remote(self, parent_id: str) -> dict[str, object]:
+            taken.append(parent_id)
+            return _parent_data()
 
     class _ParentStore:
-        delete_many = _RemoteMethod()
+        take_parent = _RemoteMethod()
 
-    stage = GlobalSegmentAssemblerStage(text_keys_to_join=["qwen3_prediction_s1"])
-    stage._parent_store_actor = _ParentStore()
-    stage._parent_data_cache = {
-        "parent-a": {"value": 1},
-        "parent-b": {"value": 2},
-    }
-    stage._ray_get = lambda value: value  # type: ignore[method-assign]
+    state = _GlobalSegmentAssemblyState(
+        text_keys_to_join=["qwen3_prediction_s1"],
+        field_merge_strategies={"qwen3_prediction_s2": "drop"},
+        skip_me_key="_skip_me",
+        waveform_key="waveform",
+        waveform_ref_key="waveform_ref",
+        duration_key="duration",
+        num_samples_key="num_samples",
+        segment_start_key="segment_start_s",
+        segment_duration_key="segment_duration_s",
+        require_parent_data=True,
+        parent_store_actor=_ParentStore(),
+    )
+    state._ray_get = lambda value: value  # type: ignore[method-assign]
 
-    stage._release_parent_data(["parent-a", "parent-a"])
+    assert (
+        state.add_segment(
+            parent_id="manifest:0:0",
+            segment_idx=0,
+            segment_count=2,
+            data=_segment_data(0, "hello"),
+            metadata={},
+            stage_perf=[],
+        )
+        == []
+    )
+    state.add_segment(
+        parent_id="manifest:0:0",
+        segment_idx=1,
+        segment_count=2,
+        data=_segment_data(1, "world"),
+        metadata={},
+        stage_perf=[],
+    )
 
-    assert deleted == [["parent-a"]]
-    assert "parent-a" not in stage._parent_data_cache
-    assert stage._parent_data_cache["parent-b"] == {"value": 2}
+    assert taken == ["manifest:0:0"]
 
 
 def test_global_segment_assembler_cleanup_kills_run_scoped_actor(monkeypatch: pytest.MonkeyPatch) -> None:

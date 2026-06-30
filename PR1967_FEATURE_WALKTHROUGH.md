@@ -6,14 +6,19 @@ in code: graph expansion, metadata planning, payload ownership, GPU execution,
 release, parent assembly, output, and observability. It intentionally omits
 discarded designs and old run history.
 
+This file is versioned with the implementation it describes; reviewers should
+use the PR commit containing the file as the code snapshot instead of relying
+on a copied HEAD value that becomes stale after documentation commits. Runtime
+benchmark results and development history are deliberately outside this guide.
+
 The branch provides five connected capabilities:
 
 1. a generic pipeline rule that inserts payload materialization and release
    around independently scheduled consumers;
 2. a Ray-backed payload lifecycle that decodes a large input once and passes a
    lightweight `PayloadRef` through ordinary task data;
-3. a full-manifest, metadata-only audio planner that emits bounded segment
-   rows before waveform decode;
+3. a full-manifest, metadata-only audio planner that emits each final owner
+   model-call batch as one atomic backend row before waveform decode;
 4. a strict parent assembler that restores original rows and merges declared
    segment outputs in deterministic segment and parent order; and
 5. a pluggable ASR/Qwen execution path with duration-aware model calls,
@@ -32,6 +37,7 @@ the backend-visible graph:
 ManifestReader(global metadata planner)
   -> AudioPayloadMaterializeStage
   -> ASRStage
+  -> DispatchBatchUnpackStage
   -> PayloadReleaseStage
   -> GlobalSegmentAssemblerStage
   -> ManifestWriterStage
@@ -60,11 +66,19 @@ otherwise byte-identical in the current worktrees.
 - **Payload binding**: source, ref, waveform, sample-rate, sample-count,
   duration, and materializer fields describing one payload.
 - **PayloadRef**: a lightweight handle carrying actor names, payload id, owner
-  node, byte size, sample metadata, lease settings, and namespace.
+  node, byte size, sample metadata, and namespace.
 - **Parent row**: one complete source manifest record.
 - **Model-input segment**: one contiguous input interval no longer than
   `max_inference_duration_s`.
 - **Segment row**: the `AudioTask` emitted for one globally planned interval.
+- **Dispatch batch**: one backend-neutral `DispatchBatchTask` envelope whose
+  child tasks are the exact items planned for one owner adapter call. A backend
+  may deliver several envelopes in one invocation, but it cannot split an
+  envelope because the envelope itself is one ordinary task row.
+- **Dispatch owner**: the stage selected to validate and consume an envelope
+  without running a second bucketing pass.
+- **Dispatch unpack**: the generic fan-out stage that restores processed child
+  tasks to ordinary rows immediately after the owner.
 - **Global owner**: the single consumer whose maximum input duration and
   duration policy define the global plan.
 - **Terminal row**: one member of an ordered group that a terminal consumer
@@ -124,12 +138,13 @@ The expander validates:
 - one source selected by `materialize_after`;
 - one final consumer selected by `release_after`;
 - every configured consumer lies in that range and supports payload bindings;
-- ref, waveform, and source keys do not collide; and
+- every consumer declares the configured ref and waveform keys; and
 - users did not manually insert lifecycle helper stages.
 
-The preferred form is `payload_lifecycle.payloads`, one binding per large
-input. `payload_keys` remains a compact single-input form. Stage selectors may
-match Hydra id, stage name, class name, or fully qualified class name.
+Each row has one payload source configured through singular `source_key`,
+`ref_key`, and `waveform_key` fields. Multiple downstream consumers may share
+that one ref. Stage selectors may match Hydra id, stage name, class name, or
+fully qualified class name.
 
 The central expander does not construct an audio stage itself. It calls the
 source stage's `build_payload_materialize_stage()` hook. For global audio it
@@ -138,18 +153,26 @@ returns the assembler. That division keeps graph ordering generic and keeps
 audio decode/assembly in the audio module.
 
 The source logical `ManifestReader` is replaced by its physical global planner
-before helper insertion. The result is planner -> materializers -> consumers ->
+before helper insertion. Because that source emits atomic dispatch rows, the
+expander verifies that the selected owner accepts them, checks reader/owner
+policy signatures, gives the owner a two-envelope backend window for one-call
+lookahead, and inserts `DispatchBatchUnpackStage` directly after the owner. The
+result is planner -> materializer -> owner -> unpack -> remaining consumers ->
 release -> assembler -> writer.
+Global planning therefore requires `payload_lifecycle.enabled=true`; graph
+construction rejects an envelope-producing source without that expansion.
 
 ### 2.3 Multi-consumer behavior
 
 `consumers` may list several CPU or GPU stages. Each remains a separate
 backend-visible stage with its own resources, batch size, and worker count. A
 payload ref remains valid through all consumers and is released only after the
-configured final consumer. Global planning still has exactly one owner: other
-consumers must accept the owner's segment rows. Configuration fails if the
-owner is absent, is not a payload consumer, does not have the largest model
-input window, or disagrees with the reader's maximum duration.
+configured final consumer. Global planning still has exactly one owner. The
+owner receives atomic dispatch batches; after unpack, other consumers receive
+ordinary owner-planned segment rows. Configuration fails if the owner is
+absent, is not a payload consumer, is not the first consumer after
+materialization, does not have the largest model input window, disagrees with
+the reader's maximum duration, or has different bucket/item/cost constraints.
 
 ## 3. Payload Reference Lifecycle
 
@@ -172,17 +195,24 @@ admission is shared. Actor names include the private pipeline run id and active
 Ray namespace. They are detached so backend worker replacement does not erase
 payloads, and executor cleanup kills them after the run.
 
-Materialization reservations initially use `lease_ttl_s`. Once a row has been
-stored and published, both its store entry and admission reservation use the
-longer finite `materialized_lease_ttl_s` (four hours by default). This protects
-normal backend queueing without allowing an orphaned post-decode payload to
-hold admission bytes forever. When ASR claims the ref, `_PayloadLeaseKeeper`
-renews the active `lease_ttl_s` while model work is in progress. Explicit
-release remains the normal fast path; TTL reap is the failure-recovery path.
+The graph contains one logical materializer stage, but Ray Data and Xenna may
+execute it concurrently on several workers and nodes. Same-node materializer
+executions share one named store actor. The separate run-scoped admission actor
+reserves bytes before decode and coordinates the optional cluster-wide cap; it
+does not carry waveform data during resolution.
+
+Lifetime is fixed internal lifecycle policy, not pipeline configuration. Decode
+reservations use a one-hour lease so a worker lost during decode cannot reserve
+admission capacity forever. Once store insertion succeeds, `publish()` converts
+the reservation to non-expiring accounting and the store entry is likewise
+non-expiring. The normal terminal path is explicit `PayloadReleaseStage`
+release; executor cleanup kills all run-scoped actors. Resolution therefore
+needs no heartbeat, pin, or lease-renewal RPC, and queued rows cannot expire
+while waiting for a consumer.
 
 ### 3.2 Materialization
 
-For every segment row, `AudioPayloadMaterializeStage`:
+For every segment child, `AudioPayloadMaterializeStage`:
 
 1. validates duration and estimates float waveform bytes;
 2. acquires admission capacity;
@@ -198,17 +228,20 @@ If decode or store fails, the stage rolls back the reservation and any inserted
 object. With `skip_on_read_error`, it emits a skipped row with no waveform or
 ref; release later safely no-ops on that row.
 
-The global planner emits one row per model-safe segment, so materialization
-decodes only that segment. A 7,513-second source split into four segments never
-requires a 7,513-second tensor in one materializer task.
+The global planner emits one envelope per ready model call. Materialization
+keeps the envelope intact while decoding each child segment, so a 7,513-second
+source split into four segments never requires a 7,513-second tensor in one
+materializer task. If one child fails after siblings were stored, the
+materializer releases those already-created refs before propagating the error.
 
 ### 3.3 Batched resolution and one-call prefetch
 
 `resolve_payload_refs_batched()` groups refs by admission/store actor,
-deduplicates handles, calls `heartbeat_many`, `pin_many`, and `get_many`, and
-restores the caller's order. `get_many` work can be split by a byte ceiling.
-This replaces three serial actor round trips per ref with actor-grouped bulk
-operations without increasing the payload bytes transferred.
+deduplicates handles, calls the appropriate store actor's `get_many`, and
+restores the caller's order. One already-bounded adapter call is the retrieval
+boundary; there is no second payload-resolution byte cap. This replaces three
+serial actor round trips per ref with actor-grouped bulk operations without
+increasing the payload bytes transferred.
 
 The Qwen ASR config also opts into
 [`BoundedOneAheadPrefetchIterator`](nemo_curator/pipeline/prefetch.py).
@@ -226,15 +259,26 @@ Ray Data or Xenna.
 
 ### 3.4 Release and failure paths
 
-`PayloadReleaseStage` recursively finds and deduplicates refs, removes objects,
-releases admission bytes, strips refs and lifecycle bookkeeping, and mutates
-the existing task-data mapping in place. Preserving that mapping type keeps
-`AudioTask.data` attribute access valid downstream.
+`PayloadReleaseStage` reads the configured top-level ref directly, removes its
+object, releases admission bytes, strips lifecycle bookkeeping, and mutates the
+existing task-data mapping in place. Recursive discovery is reserved for
+defensive cleanup when the expected key is absent. Preserving the mapping type
+keeps `AudioTask.data` attribute access valid downstream.
 
-`BaseStageAdapter` scans payloads only on stages marked by the expander. On
-those stages it releases input refs after an exception and releases refs lost
-when a stage filters a row. Ordinary pipelines do not pay the recursive scan
-cost.
+`BaseStageAdapter` reads only the configured top-level ref key on stages marked
+by the expander. It releases input refs after an exception and refs lost when a
+stage filters a row. Ordinary pipelines pay no payload-tracking cost, and the
+normal payload path does not recursively inspect structured model outputs.
+While rows are enveloped, the materializer and owner perform equivalent
+nested-ref failure cleanup themselves. After unpack, normal top-level backend
+cleanup applies again.
+
+The exception path is per invocation, not per completed backend retry policy.
+The adapter releases refs before re-raising, so a backend retry that reuses the
+same input tasks receives handles whose store/admission entries have already
+been removed. Current code therefore relies on the first payload-aware attempt
+succeeding or the backend recomputing materialization; it does not provide an
+idempotent same-ref retry contract.
 
 ## 4. Global Metadata Planning
 
@@ -254,12 +298,20 @@ The global planner:
 4. calls the shared segment planner with `max_inference_duration_s`;
 5. assigns each segment to a duration bucket;
 6. asks `BatchPolicy.bucketize_with_costs()` for full-manifest ready batches;
-7. flattens those ready batches into ordinary `AudioTask` rows in plan order;
-8. stores every full parent row once in a run-scoped parent-data actor; and
+7. emits each ready batch as one `DispatchBatchTask`, preserving its segment
+   children, costs, bucket, owner, and policy signature;
+8. stores every full parent row in a run-scoped parent-data actor; and
 9. emits only configured `segment_input_keys` plus planner/terminal fields.
 
 No waveform is decoded during these steps. `estimated_waveform_bytes` is a
 planning/metric sum, not allocated RAM.
+
+Complete parent rows have one long-lived owner after planning: the parent-data
+actor. Peak planner memory is higher than one copy, however. `_ManifestPlanRecord`
+retains each original dictionary, `_store_parent_records()` creates one
+whole-manifest deep-copied dictionary for `put_many()`, Ray serializes that
+argument, and the actor deep-copies each received row. The temporary caller copy
+is released after the RPC, but the transfer is not streamed or byte-bounded.
 
 ### 4.2 Row shape and input columns
 
@@ -298,7 +350,7 @@ call cap yields:
 | Parent rows | 89 |
 | Parent audio | 18,022.1876 s / 5.0062 h |
 | Parents longer than 2,400 s | 2 |
-| Emitted segment rows | 93 |
+| Emitted dispatch rows / child segment rows | 27 / 93 |
 | Parents with 1 / 2 / 4 segments | 87 / 1 / 1 |
 | Segments in `[0,600)` / `[600,1200)` / `[1200,2400)` / `[2400,+inf)` | 88 / 1 / 0 / 4 |
 | Full-manifest ready batches | 27 |
@@ -335,9 +387,17 @@ seconds, and belongs to bucket 0. The original parent can contain many other
 fields; only configured segment inputs are copied. The complete parent is
 restored from the parent-data actor.
 
-The plan order is intentionally not parent order. Ready batches are ordered by
-duration cost across the whole manifest, then flattened into rows. The
-assembler, not the GPU stage, restores parent order.
+The first four dispatch rows each contain one 2,400-second bucket-3 child,
+because that bucket's item cap is one. Dispatch row 4 contains four bucket-0
+children from source rows 81-84 with durations 521.0335, 101.1135, 210.2335,
+and 207.8419 seconds (1,040.2224 seconds total). Dispatch row 6 contains the
+313.3335-second tail from source 0, the 356.4135-second tail from source 1,
+and source rows 2 and 3. Those exact memberships survive materialization and
+become the owner's adapter calls.
+
+The plan order is intentionally not parent order. Ready envelopes are ordered
+by duration cost across the whole manifest. The assembler, not the GPU stage,
+restores parent order after the owner output is unpacked.
 
 ### 4.4 Single-owner validation
 
@@ -346,8 +406,9 @@ stage is therefore a scalar selector and must be one of the payload consumers.
 The owner must have the largest configured `max_inference_duration_s`; a
 consumer requiring a larger parent interval would otherwise receive segments
 that were unnecessarily cut for a smaller model. Reader and owner ceilings
-must match. These conditions are validated while expanding the graph, before a
-backend starts.
+must match. Reader and owner policy signatures must also encode the same bucket
+edges, per-bucket item caps, and aggregate cost cap. These conditions are
+validated while expanding the graph, before a backend starts.
 
 ## 5. Model-Input Segmentation
 
@@ -380,10 +441,10 @@ defines the backend-visible GPU consumer. Model implementations conform to
 
 ### 6.1 Inputs, outputs, and setup
 
-The stage accepts waveform or `waveform_ref`, sample rate, optional language,
-and optional reference text. It writes configured primary/secondary text and a
-skip field. Global segment rows look like ordinary ASR tasks; terminal metadata
-passes through untouched.
+The stage accepts ordinary audio rows or atomic dispatch envelopes. Envelope
+children contain waveform or `waveform_ref`, sample rate, optional language,
+and optional reference text. The stage writes configured primary/secondary
+text and a skip field; terminal metadata passes through untouched.
 
 `setup_on_node()` prefetches model files using the stage's explicit CPU-only
 setup resource override. Worker `setup()` constructs the model under the
@@ -394,20 +455,25 @@ retain their own processing resources by default.
 
 | Control | Scope |
 | --- | --- |
-| `ASRStage.batch_size` | backend-provided candidate parent/segment window |
-| `max_items_per_batch_by_bucket` | item grouping per duration bucket |
+| `ASRStage.batch_size` | ordinary-row candidate window; internally two envelopes for the global owner |
+| `max_items_per_batch_by_bucket` | per-duration-bucket adapter-call item cap |
 | `adapter_batch_size` | fallback adapter-call item cap |
-| `bucketed_inference_batch_size` | per-bucket adapter-call item cap |
 | `max_audio_sec_per_batch` | aggregate estimated cost cap per bucketed call |
-| `payload_resolve_max_batch_bytes` | maximum bytes in one bulk resolve request |
 | `payload_prefetch_max_bytes` | current-plus-one-lookahead payload working bound |
 
-These controls govern model-call packing and ASR-local transfers. Payload-store
-RAM is governed separately by byte admission.
+For ordinary rows, each enabled `BatchPolicy` output is one adapter/model call.
+For globally planned envelopes, the matching policy validates safety but does
+not run a second bucketing pass: one envelope is one call.
+`max_items_per_batch_by_bucket` limits item count, while
+`max_audio_sec_per_batch` limits aggregate estimated cost for that call. When
+the policy is disabled, `adapter_batch_size` is the fallback model-call item
+cap. All refs for one already-bounded adapter call are resolved in one
+actor-grouped request wave. Payload-store RAM is governed separately by byte
+admission.
 
 ### 6.3 Process flow
 
-`ASRStage.process_batch()`:
+For ordinary rows, `ASRStage.process_batch()`:
 
 1. validates every row;
 2. creates model-input descriptors and parent stitch-back indices;
@@ -419,9 +485,13 @@ RAM is governed separately by byte admission.
 8. removes temporary waveforms while retaining the ref for later consumers or
    release.
 
-The global planner's ready-batch order influences which rows reach the GPU, but
-backends still provide ordinary finite ASR windows. ASR validates and buckets
-the rows in its window; no hidden coordinator owns GPU scheduling.
+For dispatch envelopes, `ASRStage.process_batch()` validates owner identity,
+policy signature, bucket membership, item costs, aggregate cost, and that ASR
+would not segment a child again. It constructs one inference call per envelope
+directly. A backend invocation may contain two envelopes so one-ahead payload
+resolution can overlap with GPU execution. `DispatchBatchUnpackStage` then
+fans processed children back to ordinary rows before later consumers and
+release. No hidden coordinator owns GPU scheduling.
 
 Metrics include adapter calls/items, generated segments, audio duration,
 waveform bytes, output characters/tokens, inference time, resolution latency,
@@ -454,6 +524,17 @@ The adapter owns model-specific work:
   multimodal limits, sampling, seed, and output-token configuration; and
 - preparation, generation, valid/skipped, and token metrics.
 
+The adapter's current preprocessing error policy is fail-open per item.
+`_prepare_single()` catches any `Exception`, logs a warning, and returns `None`;
+Turn 1 then emits an empty `ASRResult(skipped=True)`. If every item encounters a
+systemic processor/template/dependency error, the batch can therefore complete
+with every row skipped. `_prepare_turn2_single()` also catches any exception and
+omits that item's refinement output. vLLM generation errors are different:
+`VLLMBase._generate()` raises them as `RuntimeError`.
+
+`QwenOmniASRAdapter.setup()` currently passes `trust_remote_code=True` directly
+to vLLM; there is no adapter field that disables it in this snapshot.
+
 `ASRStage` passes waveform, sample rate, language, reference text, task id,
 audio duration, and stitch-back fields. It does not construct Qwen prompts or
 vLLM requests. This separation lets another adapter reuse segmentation,
@@ -479,9 +560,11 @@ one entry per index.
 
 A parent is assembled only after all expected indices are present. Segment
 values are always read in numeric index order, regardless of completion order.
-Completed parents enter `_ready_by_source_index`; `_drain_ready()` emits only
-the next source index. The output manifest therefore preserves original parent
-order even though planning and GPU completion do not.
+Completed parents enter `_ready_by_source_index`;
+`_drain_ready_in_input_order()` emits only the next source index. Segment values
+are already ordered numerically inside each parent, and parent rows are then
+drained by source index. The output manifest therefore preserves original
+parent order even though planning and GPU completion do not.
 
 To bound memory behind a slow early parent, ready parents above
 `max_ready_parents_in_memory` spill to files under `spill_dir`. The actor keeps
@@ -529,15 +612,35 @@ dropped, every configured merged output (except an explicit `drop`) is set to
 `"one or more intermediate segments dropped by <stage ids>"`. It does not
 fabricate a complete transcript or structured result from partial segments.
 
-### 8.4 Cleanup and metrics
+### 8.4 Retry and acknowledgement semantics
+
+`add_segment()` is a mutating RPC on a detached named actor. A repeated
+`(parent_id, segment_idx)` is rejected as a duplicate. When the final segment
+arrives, the actor removes the partial-parent entry, moves the completed parent
+through the ordered ready buffer, and may return it to the wrapper. When the
+first segment creates a parent entry, the assembly actor atomically takes the
+parent dictionary out of the parent-data actor. Later segments perform no
+parent lookup, so the assembly actor owns the sole active full parent copy until
+completion.
+
+There is no downstream acknowledgement or replay cache between that actor
+mutation and backend acceptance of the wrapper output. If a wrapper/transport
+attempt is retried after the named actor committed the call, an intermediate
+segment replay raises as a duplicate; a completed parent may already have been
+drained and its parent data deleted. The current assembly protocol is therefore
+ordered and memory-bounded on the normal path, but not idempotent under replay.
+`process_batch()` is the complete fan-in path because one incoming segment can
+unblock several ready parents; `process()` raises if that occurs.
+
+### 8.5 Cleanup and metrics
 
 Executor teardown calls stage `cleanup_run_resources()`. The planner kills the
-parent-data actor; the assembler kills its state actor and clears local caches;
+parent-data actor; the assembler kills its state actor and clears its actor handle;
 the payload lifecycle kills admission/store actors. Cleanup runs in `finally`
 paths for Ray Data and Xenna.
 
 Assembler metrics include segments and tombstones seen, parents assembled,
-buffered/ready parents, spill count/bytes, maximum ready gap, and output rate.
+spill count/bytes, maximum buffered-parent count, and maximum ready gap.
 
 ## 9. Backend Scheduling And Autoscaling
 
@@ -549,12 +652,14 @@ Shared backend changes are modality-neutral and opt-in where they add work.
 normal validation -> `process_batch()` -> task-id/perf flow. Payload scans and
 terminal preservation run only on stages carrying lifecycle markers. Extended
 identity and GPU sampling run only when `extended_performance_metrics` is true.
-The Qwen entrypoint opts in; ordinary pipelines keep the compact main-compatible
-perf schema and avoid those scans.
+The raw Qwen configs opt in explicitly through each stage's `stage_with`;
+ordinary pipelines keep the compact main-compatible perf schema and avoid those
+scans.
 
-Payload bucketing and prefetch are not backend schedulers. They execute inside
-the existing ASR actor after the backend has chosen that actor and delivered a
-batch.
+Payload bucketing, dispatch envelopes, and prefetch are not backend schedulers.
+An envelope is one ordinary task row; the backend still chooses actors and may
+place several rows in one invocation. Exact owner dispatch executes inside the
+existing ASR actor.
 
 ### 9.2 Ray Data
 
@@ -585,7 +690,7 @@ per-stage contract. ASR alone overrides setup to CPU-only because its node
 setup downloads files; actual model construction remains in the GPU worker.
 
 Ray Actor Pool is not used by this Qwen benchmark path and receives no
-payload-prefetch or duration-bucketing policy.
+payload-prefetch, dispatch-envelope, or duration-bucketing policy.
 
 ## 10. Task Identity And Terminal Contracts
 
@@ -607,8 +712,10 @@ does not hardcode waveform cleanup in the backend.
 
 `StagePerfStats.to_dict()` and numeric `items()` preserve the public
 main-compatible schema. With extended metrics enabled, records also carry an
-invocation id, expected resources, actor/node/host identity, GPU allocation,
-and invocation-window GPU/VRAM samples. Audio aggregation deduplicates one
+invocation id, actor/node/host identity, assigned GPU allocation, and
+invocation-window GPU/VRAM samples. Actor samplers target only UUIDs assigned to
+that actor; if assignment cannot be resolved, actor sampling is skipped rather
+than attributing neighboring devices. Audio aggregation deduplicates one
 invocation record attached to several output rows.
 
 The Qwen pipeline records:
@@ -617,13 +724,18 @@ The Qwen pipeline records:
 - adapter calls, items, generation/preparation time, tokens, and audio hours;
 - payload admission wait, reserved/stored/resolved/released bytes, and locality;
 - global planner parent/segment counts and estimated bytes;
-- assembler buffering, tombstones, spills, and output rate; and
+- assembler buffering, tombstones, spills, and ready-gap high-water marks; and
 - writer timing and end-to-end wall time.
 
 When `pipeline_hardware_sampler_enabled` is true, one observational sampler per
-alive node records all GPUs for the executor lifetime. The generic executor
-default is off; the Qwen entrypoint opts in. Samples never influence placement,
-worker counts, or autoscaling.
+alive node records all GPUs for the executor lifetime. Each sampler is pinned by
+Ray `NodeAffinitySchedulingStrategy` using the node's `NodeID`; it does not
+assume that Ray's `node:*` resource key contains that id. The generic executor
+default is off; the raw Qwen runtime YAML opts in. Samples never influence
+worker counts or autoscaling. At shutdown, the executor first offers the single
+run-level record to a terminal performance recorder. An accepting writer
+persists it once in `perf_summary.json`; only when no recorder accepts it does
+the executor attach the record to returned tasks as a fallback.
 
 ## 12. Manifest Output
 
@@ -638,8 +750,8 @@ release/assembly to remove refs and planner internals, then enables writer
 filtering for configured transient fields.
 
 `write_perf_stats` defaults off for compatibility. The benchmark config enables
-it, causing the writer to aggregate attached records into `perf_summary.json`
-and merge the executor's external hardware record.
+it, causing the writer to aggregate attached stage records and merge the late
+run-level hardware record directly into `perf_summary.json`.
 
 For global bucket-on, output cardinality is parent cardinality, not segment
 cardinality. Parent columns are restored from the parent-data store, configured
@@ -654,12 +766,16 @@ creates refs, consumers declare/resolve payload bindings, and the central
 expander inserts materialize/release without knowing whether the object is
 audio, image, video, or another large payload.
 
-### 13.2 Several payloads or consumers
+A full-dataset planner may additionally emit `DispatchBatchTask` rows. A
+selected owner validates and consumes each envelope, and the generic unpack
+stage restores child rows without any backend-specific implementation.
 
-Use one `payload_lifecycle.payloads` entry per source. A consumer overrides
-`payload_bindings()` for multiple handles. Materializers are inserted after the
-source and one release stage recursively frees every nested ref after the final
-consumer. Each consumer remains independently scheduled.
+### 13.2 Several consumers
+
+List every stage that needs the one payload ref under
+`payload_lifecycle.consumers`, and set `release_after` to the final consumer.
+Each consumer remains independently scheduled with its own resources and
+worker count. Multiple payload sources per row are intentionally out of scope.
 
 ### 13.3 Another inference model
 
@@ -681,22 +797,25 @@ modality-specific logic to the backend.
 - [`tests/pipelines/test_pipelines.py`](tests/pipelines/test_pipelines.py):
   logical/execution graph state, direct mutation, rebuilds, and source/sink
   roles;
-- [`tests/pipelines/audio/test_qwen_omni_inprocess.py`](tests/pipelines/audio/test_qwen_omni_inprocess.py):
-  lifecycle expansion, owner validation, several consumers/payloads, and
+- [`tests/pipelines/audio/test_qwen_omni_raw_inprocess.py`](tests/pipelines/audio/test_qwen_omni_raw_inprocess.py):
+  lifecycle expansion, owner validation, several consumers sharing one payload, and
   global assembler insertion;
 - [`tests/stages/test_payload_lifecycle.py`](tests/stages/test_payload_lifecycle.py):
-  admission, leases, stores, namespaces, bulk actor methods, nested release,
-  read errors, and cleanup;
+  admission, leases, stores, namespaces, bulk actor methods, direct-key
+  release, fallback cleanup, read errors, and cleanup;
+- [`tests/tasks/test_dispatch_batch.py`](tests/tasks/test_dispatch_batch.py):
+  envelope validation, cardinality preservation, and generic fan-out;
 - [`tests/pipeline/test_payload_refs.py`](tests/pipeline/test_payload_refs.py)
   and [`tests/pipeline/test_prefetch.py`](tests/pipeline/test_prefetch.py):
-  actor-grouped resolution, order, byte bounds, and one-ahead behavior;
+  actor-grouped resolution, order, cache behavior, and one-ahead behavior;
 - [`tests/stages/audio/test_model_input_segmentation.py`](tests/stages/audio/test_model_input_segmentation.py):
   validation and exact/over-boundary production durations;
 - [`tests/stages/audio/test_global_segment_assembler.py`](tests/stages/audio/test_global_segment_assembler.py):
   parent restoration, strict collisions, ordered merges, overwrite/drop,
   tombstones, spill, and source order;
 - [`tests/stages/audio/inference/test_asr_stage.py`](tests/stages/audio/inference/test_asr_stage.py):
-  refs, metadata-first planning, parent-cache reuse, one-call prefetch,
+  refs, metadata-first planning, exact envelope-to-adapter-call membership,
+  policy/segmentation rejection, parent-cache reuse, one-call prefetch,
   segmentation, ordering, and metrics;
 - [`tests/stages/audio/inference/test_batch_policy.py`](tests/stages/audio/inference/test_batch_policy.py):
   bucket/cost caps, adapter calls, and index realignment;
@@ -704,41 +823,57 @@ modality-specific logic to the backend.
   and [`tests/backends/xenna/test_executor.py`](tests/backends/xenna/test_executor.py):
   unchanged sizing semantics and stage-spec construction.
 
+These tests primarily cover successful execution and explicit cleanup. The
+current suite does not establish same-ref consumer retry after an exception,
+hard driver loss before executor cleanup, systemic Qwen preprocessing failure
+behavior, replay of a committed assembler RPC, or downstream acknowledgement
+after completed assembly. Those are separate reviewer-visible properties of
+the current implementation.
+
 ## 15. Reviewer File Map
 
 | Concern | Primary files |
 | --- | --- |
-| pipeline graph | `pipeline/pipeline.py`, `pipeline/payload_lifecycle.py` |
+| pipeline graph | `pipeline/pipeline.py`, `pipeline/payload_lifecycle.py`, `stages/dispatch_batch.py` |
 | payload handles/prefetch | `pipeline/payload_refs.py`, `pipeline/prefetch.py` |
 | actor state/materialize/release | `stages/payload_lifecycle.py` |
 | global planner/assembler/writer | `stages/audio/common.py` |
 | local segment decode | `stages/audio/io/audio_file_reader.py` |
 | model-input segmentation | `stages/audio/model_input_segmentation.py` |
-| ASR and batch policy | `stages/audio/inference/asr/stage.py`, `batch_policy.py`, `bucketed_stage.py` |
+| ASR and batch policy | `stages/audio/inference/asr/stage.py`, `batch_policy.py` |
 | Qwen model path | `models/asr/base.py`, `models/asr/qwen_omni.py`, `models/vllm_model.py` |
 | backend execution | `backends/base.py`, `backends/ray_data/*`, `backends/xenna/*` |
-| task contracts | `tasks/tasks.py`, `tasks/task_terminals.py`, `tasks/sentinels.py` |
+| task contracts | `tasks/tasks.py`, `tasks/dispatch_batch.py`, `tasks/task_terminals.py`, `tasks/sentinels.py` |
 | observability | `backends/perf_identity.py`, `utils/gpu_sampler.py`, `utils/pipeline_hardware_sampler.py`, `stages/audio/metrics/*` |
 | output policy | `stages/audio/io/manifest_writer_utils.py`, `stages/audio/common.py` |
-| Hydra entrypoint | `pipelines/audio/qwen_omni_inprocess.py` |
+| Hydra/YAML construction and execution | `config/run.py` |
 
-## 16. Core Invariants To Verify
+## 16. Current Contracts And Reviewer Checks
 
 1. Global planning reads metadata only and never decodes waveform bytes.
 2. Each emitted segment is no longer than `max_inference_duration_s`.
-3. Segment rows carry every configured consumer input and only those parent
+3. Each ready planner batch is one atomic task row and becomes exactly one
+   non-empty owner adapter call without a second bucketing pass.
+4. Segment children carry every configured consumer input and only those parent
    fields plus planner metadata.
-4. Each segment file interval is decoded once by the materializer.
-5. Payload actor RAM and admission bytes remain owned until explicit release.
-6. Bulk resolution preserves ref order and one-ahead prefetch remains
+5. On a normal successful attempt, each segment child opens and decodes only its
+   own file interval once. A long parent file is opened once per planned segment,
+   not once for the complete parent; downstream consumers do not reread it.
+6. Published payload actor RAM and admission bytes remain owned until explicit
+   release or executor cleanup; queue residence does not expire them.
+7. Bulk resolution preserves ref order and one-ahead prefetch remains
    byte-bounded.
-7. Every consumer remains a separate backend-visible stage.
-8. Ray Data and Xenna retain their stage resource and worker contracts.
-9. Segment outputs are merged strictly in index order.
-10. A dropped segment produces explicit drop markers in configured merged
+8. Every consumer remains a separate backend-visible stage.
+9. Ray Data and Xenna retain their stage resource and worker contracts.
+10. Segment outputs are merged strictly in index order.
+11. A dropped segment produces explicit drop markers in configured merged
     outputs, never an incomplete apparently successful result.
-11. Parent rows leave assembly in original source order.
-12. Output rows contain neither waveform tensors, payload refs, nor planner
+12. Parent rows leave assembly in original source order.
+13. Output rows contain neither waveform tensors, payload refs, nor planner
     internals.
-13. Extended metrics and pipeline hardware sampling are opt-in outside the Qwen
+14. Extended metrics and pipeline hardware sampling are opt-in outside the Qwen
     entrypoint and observational only.
+15. Payload-aware consumer retries are not same-ref safe after the first attempt
+    raises, because the adapter releases those refs before rethrowing.
+16. Global assembly is deterministic on the normal path but does not currently
+    provide idempotent replay or downstream acknowledgement.

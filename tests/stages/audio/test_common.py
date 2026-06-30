@@ -18,6 +18,7 @@ ManifestReaderStage, ManifestReader, and ManifestWriterStage."""
 
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from unittest import mock
 
@@ -25,8 +26,10 @@ import numpy as np
 import pytest
 import torch
 
+from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.payload_refs import PayloadRef
 from nemo_curator.stages.audio.alm import ALMDataBuilderStage, ALMDataOverlapStage
 from nemo_curator.stages.audio.common import (
     GetAudioDurationStage,
@@ -34,13 +37,22 @@ from nemo_curator.stages.audio.common import (
     ManifestReaderStage,
     ManifestWriterStage,
     PreserveByValueStage,
+    _GlobalSegmentAssemblyState,
     ensure_mono,
     ensure_waveform_2d,
     load_audio_file,
     resolve_model_path,
     resolve_waveform_from_item,
 )
-from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.payload_lifecycle import PayloadReleaseStage
+from nemo_curator.tasks import AudioTask, DispatchBatchTask, EmptyTask, FileGroupTask
+from nemo_curator.tasks.task_terminals import (
+    TERMINAL_COUNT_KEY,
+    TERMINAL_GROUP_ID_KEY,
+    TERMINAL_INDEX_KEY,
+    TERMINAL_SOURCE_INDEX_KEY,
+)
 from tests import FIXTURES_DIR
 
 ALM_FIXTURES_DIR = FIXTURES_DIR / "audio" / "alm"
@@ -54,6 +66,28 @@ def _audio_task_with_id(task_id: str, **kwargs) -> AudioTask:
     task = AudioTask(**kwargs)
     task.task_id = task_id
     return task
+
+
+@dataclass
+class _DropTerminalIndexStage(ProcessingStage[AudioTask, AudioTask]):
+    name: str = "drop_terminal_index"
+    drop_index: int = 1
+    skip_me_key: str = "_skip_me"
+    _curator_preserves_terminal_tasks: bool = True
+    _curator_tracks_payload_refs: bool = True
+    _curator_payload_ref_key: str = "waveform_ref"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], ["qwen3_prediction_s1"]
+
+    def process(self, task: AudioTask) -> AudioTask | None:
+        if int(task.data[TERMINAL_INDEX_KEY]) == self.drop_index:
+            return None
+        task.data["qwen3_prediction_s1"] = "kept text"
+        return task
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +390,10 @@ class TestManifestReaderGlobalBucketing:
         manifest.write_text("\n".join(json.dumps(entry) for entry in entries))
         return manifest
 
+    @staticmethod
+    def _flatten_dispatch_batches(batches: list[DispatchBatchTask]) -> list[AudioTask]:
+        return [item for batch in batches for item in batch.items if isinstance(item, AudioTask)]
+
     def test_disabled_uses_regular_streaming_reader_decomposition(self, tmp_path: Path) -> None:
         manifest = self._write_manifest(
             tmp_path,
@@ -404,10 +442,16 @@ class TestManifestReaderGlobalBucketing:
         )
 
         [stage] = reader.decompose()
-        result = stage.process(EmptyTask())
+        batches = stage.process(EmptyTask())
+        result = self._flatten_dispatch_batches(batches)
 
-        assert all(isinstance(task, AudioTask) for task in result)
+        assert all(isinstance(batch, DispatchBatchTask) for batch in batches)
+        assert all(batch.owner_stage == "qwen_omni" for batch in batches)
+        assert all(batch.validate() for batch in batches)
         assert len(result) == 7
+        assert sum(batch.num_items for batch in batches) == 7
+        assert [batch.sequence_index for batch in batches] == list(range(len(batches)))
+        assert all(batch.total_cost == pytest.approx(sum(batch.item_costs)) for batch in batches)
         assert [task._metadata["_curator_global_plan_order"] for task in result] == list(range(7))
         assert result[0]._metadata["_curator_global_owner_stage"] == "qwen_omni"
         long_b_segments = [task for task in result if task.data["audio_filepath"] == "long_b.wav"]
@@ -454,7 +498,8 @@ class TestManifestReaderGlobalBucketing:
         )
 
         [stage] = reader.decompose()
-        result = stage.process(EmptyTask())
+        batches = stage.process(EmptyTask())
+        result = self._flatten_dispatch_batches(batches)
 
         assert len(result) == 2
         for task in result:
@@ -465,6 +510,82 @@ class TestManifestReaderGlobalBucketing:
             assert "speaker_id" not in task.data
             assert task.data["duration"] == task.data["segment_duration_s"]
         assert stage._parent_store_actor._parents["0:0:0"]["speaker_id"] == "speaker-a"
+
+    def test_planner_drop_release_and_assembly_complete_with_tombstone(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manifest = self._write_manifest(
+            tmp_path,
+            [{"audio_filepath": "long.wav", "duration": 70.0, "source_lang": "en"}],
+        )
+        reader = ManifestReader(
+            manifest_path=str(manifest),
+            enable_global_bucketing=True,
+            owner_stage="qwen_omni",
+            max_inference_duration_s=60.0,
+            buckets_sec=[0.0, 30.0, 60.0],
+            max_items_per_batch_by_bucket=[4, 4, 4],
+        )
+        [planner] = reader.decompose()
+        segments = self._flatten_dispatch_batches(planner.process(EmptyTask()))
+        segments.sort(key=lambda task: int(task.data[TERMINAL_INDEX_KEY]))
+        released: list[str] = []
+        for index, task in enumerate(segments):
+            task.data["waveform_ref"] = PayloadRef(
+                payload_id=f"payload-{index}",
+                owner_node_id="node",
+                store_actor_name="store",
+                admission_actor_name="admission",
+                amount_bytes=1,
+                sample_rate=16_000,
+                num_samples=1,
+            )
+
+        def _record_release(payload_ref: PayloadRef) -> None:
+            released.append(payload_ref.payload_id)
+
+        monkeypatch.setattr("nemo_curator.pipeline.payload_refs.release_payload_ref", _record_release)
+        monkeypatch.setattr("nemo_curator.stages.payload_lifecycle.release_payload_ref", _record_release)
+
+        processed = BaseStageAdapter(_DropTerminalIndexStage()).process_batch(segments)
+        released_tasks = PayloadReleaseStage().process_batch(processed)
+
+        parent_id = str(released_tasks[0].data[TERMINAL_GROUP_ID_KEY])
+        parent_data = planner._parent_store_actor._parents[parent_id]
+        state = _GlobalSegmentAssemblyState(
+            text_keys_to_join=["qwen3_prediction_s1"],
+            skip_me_key="_skip_me",
+            waveform_key="waveform",
+            waveform_ref_key="waveform_ref",
+            duration_key="duration",
+            num_samples_key="num_samples",
+            segment_start_key="segment_start_s",
+            segment_duration_key="segment_duration_s",
+            require_parent_data=True,
+        )
+        assembled: list[dict] = []
+        for index, task in enumerate(released_tasks):
+            assembled.extend(
+                state.add_segment(
+                    parent_id=parent_id,
+                    segment_idx=int(task.data[TERMINAL_INDEX_KEY]),
+                    segment_count=int(task.data[TERMINAL_COUNT_KEY]),
+                    data=dict(task.data),
+                    metadata=dict(task._metadata),
+                    stage_perf=list(task._stage_perf),
+                    parent_data=parent_data if index == 0 else None,
+                )
+            )
+
+        assert released == ["payload-1", "payload-0"]
+        assert len(assembled) == 1
+        assert assembled[0]["source_index"] == int(released_tasks[0].data[TERMINAL_SOURCE_INDEX_KEY])
+        assert (
+            assembled[0]["data"]["qwen3_prediction_s1"]
+            == "one or more intermediate segments dropped by drop_terminal_index"
+        )
 
     def test_enabled_propagates_storage_options_to_global_manifest_open(
         self,
@@ -496,8 +617,42 @@ class TestManifestReaderGlobalBucketing:
         result = stage.process(EmptyTask())
 
         assert len(result) == 1
-        assert isinstance(result[0], AudioTask)
+        assert isinstance(result[0], DispatchBatchTask)
+        assert len(result[0].items) == 1
+        assert isinstance(result[0].items[0], AudioTask)
         assert seen_kwargs == [{"profile": "private"}]
+
+    def test_enabled_preserves_each_ready_batch_as_one_atomic_task(self, tmp_path: Path) -> None:
+        manifest = self._write_manifest(
+            tmp_path,
+            [
+                {"audio_filepath": "a.wav", "duration": 10.0},
+                {"audio_filepath": "b.wav", "duration": 11.0},
+                {"audio_filepath": "c.wav", "duration": 12.0},
+                {"audio_filepath": "d.wav", "duration": 13.0},
+                {"audio_filepath": "e.wav", "duration": 14.0},
+            ],
+        )
+        reader = ManifestReader(
+            manifest_path=str(manifest),
+            enable_global_bucketing=True,
+            owner_stage="qwen_omni",
+            max_inference_duration_s=60.0,
+            buckets_sec=[0.0, 30.0, 60.0],
+            max_items_per_batch_by_bucket=[2, 1, 1],
+            max_audio_sec_per_batch=60.0,
+        )
+
+        [stage] = reader.decompose()
+        batches = stage.process(EmptyTask())
+
+        assert [len(batch.items) for batch in batches] == [2, 2, 1]
+        assert [batch.total_cost for batch in batches] == pytest.approx([25.0, 21.0, 14.0])
+        assert [[item.data["audio_filepath"] for item in batch.items] for batch in batches] == [
+            ["c.wav", "d.wav"],
+            ["a.wav", "b.wav"],
+            ["e.wav"],
+        ]
 
     def test_enabled_rejects_non_positive_ready_batch_count(self, tmp_path: Path) -> None:
         manifest = self._write_manifest(

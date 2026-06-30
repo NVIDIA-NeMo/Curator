@@ -129,7 +129,7 @@ def _terminal_row_tombstone(stage: ProcessingStage, task: Task) -> Task:
         data.pop(key, None)
     skip_key = str(getattr(stage, "skip_me_key", "_skip_me") or "_skip_me")
     data.setdefault(skip_key, "dropped_segment_row")
-    stage_name = str(getattr(stage, "name", type(stage).__name__))
+    stage_name = str(getattr(stage, "_curator_stage_id", None) or getattr(stage, "name", None) or type(stage).__name__)
     data[TERMINAL_DROPPED_KEY] = True
     data[TERMINAL_DROPPED_BY_STAGE_KEY] = stage_name
     data.setdefault(TERMINAL_DROP_REASON_KEY, "dropped_before_terminal_assembly")
@@ -137,18 +137,13 @@ def _terminal_row_tombstone(stage: ProcessingStage, task: Task) -> Task:
         data["_curator_segment_dropped"] = True
         data["_curator_segment_dropped_by_stage"] = stage_name
         data.setdefault("_curator_segment_drop_reason", "dropped_before_segment_assembly")
-    try:
-        tombstone = task.__class__(
-            dataset_name=task.dataset_name,
-            data=data,
-            _stage_perf=list(task._stage_perf),
-            _metadata=dict(task._metadata),
-        )
-    except TypeError:
-        tombstone = copy.copy(task)
-        tombstone.data = data
-        tombstone._stage_perf = list(task._stage_perf)
-        tombstone._metadata = dict(task._metadata)
+    tombstone = copy.copy(task)
+    tombstone_data = copy.copy(task.data)
+    tombstone_data.clear()
+    tombstone_data.update(data)
+    tombstone.data = tombstone_data
+    tombstone._stage_perf = list(task._stage_perf)
+    tombstone._metadata = dict(task._metadata)
     tombstone.task_id = task.task_id
     return tombstone
 
