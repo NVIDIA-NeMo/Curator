@@ -83,10 +83,6 @@ executor = XennaExecutor(
         # Autoscale interval: seconds between auto-scaling checks (default: 180)
         # How often to run the stage auto-scaler.
         "autoscale_interval_s": 180,
-        
-        # Max workers per stage: maximum number of workers (optional)
-        # Limits worker count per stage; None means no limit
-        "max_workers_per_stage": None,
     }
 )
 
@@ -102,9 +98,10 @@ results = pipeline.run(executor)
 | `ignore_failures` | `bool` | `False` | If `True`, continue pipeline execution even when stages fail |
 | `cpu_allocation_percentage` | `float` | `0.95` | Fraction (0-1) of available CPU resources to allocate |
 | `autoscale_interval_s` | `int` | `180` | Seconds between auto-scaling evaluations |
-| `max_workers_per_stage` | `int \| None` | `None` | Maximum workers per stage; `None` means no limit |
 
-For more details, refer to the official [NVIDIA Cosmos-Xenna project](https://github.com/nvidia-cosmos/cosmos-xenna/tree/main).
+Set a cluster-wide stage count with `stage.with_(num_workers=N)`, or set `xenna_stage_spec={"num_workers_per_node": N}` for a per-node count. These settings are mutually exclusive. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#xenna-worker-counts) and the [`XennaExecutor` API](/api/reference/api-reference/executors/xenna-executor).
+
+For more details about the underlying engine, refer to the official [NVIDIA Cosmos-Xenna project](https://github.com/nvidia-cosmos/cosmos-xenna/tree/main).
 
 ### `RayActorPoolExecutor`
 
@@ -137,6 +134,8 @@ results = pipeline.run(executor)
 | `ignore_head_node` | `bool` | `False` | Exclude head node from task scheduling |
 | `show_progress` | `bool` | `True` | Display tqdm progress bars during stage execution and shuffle inserts |
 | `progress_interval` | `float` | `10.0` | Minimum interval in seconds between progress bar updates |
+
+A positive stage `num_workers()` requests an exact actor count when resources fit. If fewer actors fit, this executor warns and caps the request to available CPU/GPU capacity. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#ray-actor-pool-resource-capping).
 
 <Accordion title="Example: Fuzzy Deduplication">
 
@@ -191,11 +190,17 @@ results = pipeline.run(executor)
 |-----|------|---------|-------------|
 | `ignore_failures` | `bool` | `False` | If `True`, continue pipeline execution even when tasks fail |
 
+Ray Data uses `ActorPoolStrategy` for actor stages and `TaskPoolStrategy` for task stages. Configure a fixed pool with `stage.with_(num_workers=N)`, or configure actor autoscaling with `min_workers`, `max_workers`, and `initial_workers` in `ray_stage_spec`. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#ray-data-worker-pools) for copy-pasteable examples and precedence rules.
+
+Ray Data may fuse adjacent operators when their compute and resource requirements are compatible. Matching resources enables the optimization but does not guarantee it; Ray Data makes the final optimizer decision. The [resource matching and fusion reference](/reference/infra/stage-worker-sizing#resource-matching-and-ray-data-fusion) explains the video-stage CPU reservation behavior.
+
 ## Per-Stage Runtime Environments
 
 All three backends support per-stage runtime environments, which allow individual stages to declare isolated Python dependencies. When a stage sets a `runtime_env`, the backend forwards it to Ray so that each stage's workers run in a dedicated virtualenv. This enables pipelines where stages require incompatible library versions.
 
 See the [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) reference for configuration details and examples.
+
+For worker counts, resources, and backend-specific `with_()` overrides, see [Stage Worker Sizing](/reference/infra/stage-worker-sizing).
 
 ## Ray Executors in Practice
 
