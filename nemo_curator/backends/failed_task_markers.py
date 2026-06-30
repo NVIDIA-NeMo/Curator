@@ -16,7 +16,6 @@ import os
 import uuid
 from pathlib import Path
 
-from nemo_curator.tasks.sentinels import FailedTask
 from nemo_curator.utils.retry_manifest import METADATA_DIRNAME
 
 FAILED_TASKS_DIR_ENV_VAR = "NEMO_CURATOR_FAILED_TASKS_DIR"
@@ -61,10 +60,8 @@ def configure_slurm_array_failed_task_manifest_dir(checkpoint_path: str | Path, 
     return _configure_failed_task_manifest_dir(manifest_dir)
 
 
-def record_failed_tasks(failed_tasks: list[FailedTask]) -> None:
+def record_failed_tasks() -> None:
     """Write one attempt-scoped manifest after any FailedTask is detected."""
-    if not failed_tasks:
-        return
     manifest_dir = os.environ.get(FAILED_TASKS_DIR_ENV_VAR)
     if not manifest_dir:
         return

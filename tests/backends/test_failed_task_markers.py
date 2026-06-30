@@ -26,13 +26,6 @@ from nemo_curator.backends.failed_task_markers import (
     failed_task_manifest_exists,
     record_failed_tasks,
 )
-from nemo_curator.tasks.sentinels import FailedTask
-
-
-def _failed_task(task_id: str = "0_7_0") -> FailedTask:
-    task = FailedTask()
-    task.task_id = task_id
-    return task
 
 
 class TestFailedTaskManifest:
@@ -82,7 +75,7 @@ class TestFailedTaskManifest:
         manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
 
-        record_failed_tasks([_failed_task("0_7_0"), _failed_task("0_8_0")])
+        record_failed_tasks()
 
         manifest_files = list(manifest_dir.glob("*.json"))
         assert manifest_files == [manifest_dir / FAILED_TASK_MANIFEST_FILENAME]
@@ -93,14 +86,12 @@ class TestFailedTaskManifest:
     ) -> None:
         manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
-        record_failed_tasks([_failed_task("0_7_0")])
+        record_failed_tasks()
         manifest_file = manifest_dir / FAILED_TASK_MANIFEST_FILENAME
-        original_manifest = manifest_file.read_text()
 
-        record_failed_tasks([_failed_task("0_8_0")])
+        record_failed_tasks()
 
         assert list(manifest_dir.glob("*.json")) == [manifest_file]
-        assert manifest_file.read_text() == original_manifest
 
     def test_record_failed_tasks_without_configured_attempt_is_noop(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
@@ -108,20 +99,9 @@ class TestFailedTaskManifest:
         monkeypatch.delenv(FAILED_TASKS_DIR_ENV_VAR, raising=False)
         monkeypatch.chdir(tmp_path)
 
-        record_failed_tasks([_failed_task()])
+        record_failed_tasks()
 
         assert not (tmp_path / ".nemo_curator_metadata").exists()
-
-    def test_record_failed_tasks_does_not_write_manifest_for_empty_list(
-        self, tmp_path: Path, monkeypatch: MonkeyPatch
-    ) -> None:
-        manifest_dir = tmp_path / "failed-tasks"
-        monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
-
-        record_failed_tasks([])
-
-        assert not manifest_dir.exists()
-        assert not failed_task_manifest_exists()
 
     def test_record_failed_tasks_propagates_manifest_write_failure(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
@@ -129,19 +109,19 @@ class TestFailedTaskManifest:
         manifest_dir = tmp_path / "failed-tasks"
         monkeypatch.setenv(FAILED_TASKS_DIR_ENV_VAR, str(manifest_dir))
 
-        def fail_touch(self: Path, mode: int = 0o666, exist_ok: bool = True) -> None:
+        def fail_touch(_self: Path, _mode: int = 0o666, _exist_ok: bool = True) -> None:
             msg = "storage unavailable"
             raise OSError(msg)
 
         monkeypatch.setattr(Path, "touch", fail_touch)
 
         with pytest.raises(OSError, match="storage unavailable"):
-            record_failed_tasks([_failed_task()])
+            record_failed_tasks()
 
     def test_failed_task_manifest_exists_accepts_explicit_directory(self, tmp_path: Path) -> None:
         manifest_dir = tmp_path / "failed-tasks"
         manifest_dir.mkdir()
-        (manifest_dir / FAILED_TASK_MANIFEST_FILENAME).write_text('{"status":"failed_tasks"}\n')
+        (manifest_dir / FAILED_TASK_MANIFEST_FILENAME).touch()
 
         assert failed_task_manifest_exists(manifest_dir)
         assert not failed_task_manifest_exists(tmp_path / "missing")

@@ -122,11 +122,12 @@ class BaseStageAdapter:
             raise ValueError(msg)
 
         # Record failed tasks for later inspection or retry bookkeeping.
-        record_failed_tasks(failed_tasks)
+        if failed_tasks:
+            record_failed_tasks()
 
         # Filter tasks based on the Slurm array configuration.
         slurm_array = resolve_slurm_array_config(is_source_stage=is_source_stage)
-        if slurm_array is not None:
+        if slurm_array is not None and is_source_stage:
             results = filter_slurm_array_source_tasks(results, slurm_array, self.stage.name)
 
         # Opt-in resumability: fire per-source deltas (no-op when no actor registered).

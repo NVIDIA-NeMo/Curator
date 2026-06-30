@@ -104,7 +104,7 @@ class TestBaseStageAdapter:
             calls["filter_tasks"] += 1
             return tasks
 
-        def record_failed_tasks(_failed_tasks: list[FailedTask]) -> None:
+        def record_failed_tasks() -> None:
             calls["record_failed_tasks"] += 1
 
         monkeypatch.setattr(base_module, "resolve_slurm_array_config", resolve_config)
