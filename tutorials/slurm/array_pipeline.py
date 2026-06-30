@@ -158,7 +158,7 @@ def main() -> None:
         )
         logger.info(f"\n{pipeline.describe()}")
 
-        pipeline.run()
+        pipeline.run(checkpoint_path=args.checkpoint_path)
 
         # Check unconditionally: the user may have set NEMO_CURATOR_FAILED_TASKS_DIR
         # manually even without --checkpoint-path, and the function safely returns
