@@ -84,11 +84,6 @@ class TestBaseStageAdapter:
             return tasks[:1]
 
         monkeypatch.setattr(base_module, "resolve_slurm_array_config", resolve_config)
-        monkeypatch.setattr(
-            base_module,
-            "raise_for_failed_source_tasks_with_slurm_array",
-            raise_for_failed_source_tasks,
-        )
         monkeypatch.setattr(base_module, "filter_slurm_array_source_tasks", filter_tasks)
 
         output = base_module.BaseStageAdapter(_SourceFanoutStage(partitions=[["a.parquet"], ["b.parquet"]]))
@@ -138,11 +133,6 @@ class TestBaseStageAdapter:
             calls["record_failed_tasks"] += 1
 
         monkeypatch.setattr(base_module, "resolve_slurm_array_config", resolve_config)
-        monkeypatch.setattr(
-            base_module,
-            "raise_for_failed_source_tasks_with_slurm_array",
-            raise_for_failed_source_tasks,
-        )
         monkeypatch.setattr(base_module, "filter_slurm_array_source_tasks", filter_tasks)
         monkeypatch.setattr(base_module, "record_failed_tasks", record_failed_tasks)
 

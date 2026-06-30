@@ -29,7 +29,6 @@ from nemo_curator.backends.slurm_array import (
     configure_slurm_array_source_filtering,
     filter_slurm_array_source_tasks,
     is_slurm_array_driver_process,
-    raise_for_failed_source_tasks_with_slurm_array,
     resolve_slurm_array_config,
 )
 from nemo_curator.tasks import Task
@@ -204,18 +203,6 @@ class TestSlurmArray:
 
         with pytest.raises(ValueError, match="requires deterministic task IDs"):
             filter_slurm_array_source_tasks(tasks, slurm_array, "source")
-
-    def test_rejects_failed_source_tasks_with_active_config(self) -> None:
-        slurm_array = SlurmArrayConfig(shard_index=0, total_shards=1)
-        failed_task = FailedTask()
-
-        with pytest.raises(ValueError, match="Source stage source emitted FailedTask"):
-            raise_for_failed_source_tasks_with_slurm_array("source", [failed_task], slurm_array)
-
-    def test_allows_failed_source_tasks_without_active_config(self) -> None:
-        failed_task = FailedTask()
-
-        assert raise_for_failed_source_tasks_with_slurm_array("source", [failed_task], None) is None
 
     def test_is_driver_process_for_local_and_slurm_head(self, monkeypatch: MonkeyPatch) -> None:
         monkeypatch.delenv("SLURM_NODEID", raising=False)

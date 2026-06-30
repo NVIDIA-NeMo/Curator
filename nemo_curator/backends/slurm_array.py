@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from loguru import logger
 
 from nemo_curator.tasks import Task
-from nemo_curator.tasks.sentinels import FailedTask
 from nemo_curator.utils.retry_manifest import RetryManifest
 
 SLURM_ARRAY_ENABLED_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_ENABLED"
