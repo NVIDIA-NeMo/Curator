@@ -64,15 +64,6 @@ class TestBaseStageAdapter:
             calls["is_source_stage"] = is_source_stage
             return slurm_array
 
-        def raise_for_failed_source_tasks(
-            stage_name: str,
-            failed_tasks: list[FailedTask],
-            resolved_slurm_array: SlurmArrayConfig,
-        ) -> None:
-            calls["guard_stage_name"] = stage_name
-            calls["failed_task_count"] = len(failed_tasks)
-            calls["guard_slurm_array"] = resolved_slurm_array
-
         def filter_tasks(
             tasks: list[Task],
             resolved_slurm_array: SlurmArrayConfig,
@@ -91,9 +82,6 @@ class TestBaseStageAdapter:
 
         assert calls == {
             "is_source_stage": True,
-            "guard_stage_name": "source",
-            "failed_task_count": 0,
-            "guard_slurm_array": slurm_array,
             "task_count": 2,
             "filter_stage_name": "source",
             "filter_slurm_array": slurm_array,
@@ -103,23 +91,12 @@ class TestBaseStageAdapter:
     def test_source_stage_failed_task_raises_with_slurm_array_filtering(
         self, monkeypatch: MonkeyPatch
     ) -> None:
-        calls = {"record_failed_tasks": 0, "filter_tasks": 0}
+        calls = {"resolve_config": 0, "record_failed_tasks": 0, "filter_tasks": 0}
         slurm_array = SlurmArrayConfig(shard_index=0, total_shards=1)
 
-        def resolve_config(is_source_stage: bool) -> SlurmArrayConfig:
-            calls["is_source_stage"] = is_source_stage
+        def resolve_config(_is_source_stage: bool) -> SlurmArrayConfig:
+            calls["resolve_config"] += 1
             return slurm_array
-
-        def raise_for_failed_source_tasks(
-            stage_name: str,
-            failed_tasks: list[FailedTask],
-            resolved_slurm_array: SlurmArrayConfig,
-        ) -> None:
-            calls["stage_name"] = stage_name
-            calls["failed_task_count"] = len(failed_tasks)
-            calls["slurm_array"] = resolved_slurm_array
-            msg = "Source stage source emitted FailedTask"
-            raise ValueError(msg)
 
         def filter_tasks(
             tasks: list[Task],
@@ -140,10 +117,7 @@ class TestBaseStageAdapter:
             base_module.BaseStageAdapter(_FailedSourceStage()).process_batch([EmptyTask()])
 
         assert calls == {
-            "stage_name": "source",
-            "is_source_stage": True,
-            "failed_task_count": 1,
-            "slurm_array": slurm_array,
+            "resolve_config": 0,
             "record_failed_tasks": 0,
             "filter_tasks": 0,
         }

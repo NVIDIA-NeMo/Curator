@@ -78,7 +78,7 @@ def build_pipeline(
     return pipeline
 
 
-def main() -> None:  # noqa: C901
+def main() -> None:
     parser = argparse.ArgumentParser(description="Slurm array file-partitioning demo")
     parser.add_argument("--input-dir", required=True, help="Directory containing input files")
     parser.add_argument(

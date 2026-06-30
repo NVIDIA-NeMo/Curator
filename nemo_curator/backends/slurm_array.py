@@ -23,7 +23,7 @@ from loguru import logger
 
 from nemo_curator.tasks import Task
 from nemo_curator.utils.atomic_io import write_json_atomically
-from nemo_curator.utils.retry_manifest import CompletionManifest, METADATA_DIRNAME, read_completion_manifests
+from nemo_curator.utils.retry_manifest import METADATA_DIRNAME, CompletionManifest, read_completion_manifests
 
 SLURM_ARRAY_ENABLED_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_ENABLED"
 SLURM_ARRAY_SHARD_INDEX_ENV_VAR = "NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX"
@@ -70,6 +70,7 @@ class SlurmArrayConfig:
     @classmethod
     def from_env(cls) -> "SlurmArrayConfig | None":
         """Build config from Curator or Slurm env vars unless explicitly disabled."""
+        explicitly_configured = SLURM_ARRAY_ENABLED_ENV_VAR in os.environ
         enabled = os.environ.get(SLURM_ARRAY_ENABLED_ENV_VAR, "1").strip().lower()
         if enabled in _FALSE_ENV_VALUES:
             return None
@@ -80,13 +81,9 @@ class SlurmArrayConfig:
             )
             raise ValueError(msg)
 
-        has_shard_index = (
-            SLURM_ARRAY_SHARD_INDEX_ENV_VAR in os.environ or "SLURM_ARRAY_TASK_ID" in os.environ
-        )
-        has_total_shards = (
-            SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR in os.environ or "SLURM_ARRAY_TASK_COUNT" in os.environ
-        )
-        if not has_shard_index and not has_total_shards:
+        has_shard_index = SLURM_ARRAY_SHARD_INDEX_ENV_VAR in os.environ or "SLURM_ARRAY_TASK_ID" in os.environ
+        has_total_shards = SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR in os.environ or "SLURM_ARRAY_TASK_COUNT" in os.environ
+        if not explicitly_configured and not has_shard_index and not has_total_shards:
             return None
 
         return cls(
@@ -156,6 +153,9 @@ def filter_slurm_array_source_tasks(
     stage_name: str,
 ) -> list[Task]:
     """Keep only source tasks assigned to the active Slurm array shard."""
+    if slurm_array is None:
+        return tasks
+
     nondeterministic_task_ids = [task.task_id for task in tasks if task.task_id.startswith("r")]
     if nondeterministic_task_ids:
         msg = (

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.utils.retry_manifest import CompletionManifest, METADATA_DIRNAME, read_completion_manifests
+from nemo_curator.utils.retry_manifest import METADATA_DIRNAME, CompletionManifest, read_completion_manifests
 
 
 class TestCompletionManifest:
@@ -126,7 +126,7 @@ class TestCompletionManifest:
         manifest = CompletionManifest(tmp_path, "example", {"partition_id": 3})
 
         with pytest.raises(RuntimeError, match="boom"), manifest:
-            raise RuntimeError("boom")
+            raise RuntimeError("boom")  # noqa: EM101
 
         assert manifest.manifest_file is None
         assert not manifest.manifest_dir.exists()
