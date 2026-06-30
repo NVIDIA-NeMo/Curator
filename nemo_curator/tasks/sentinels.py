@@ -34,8 +34,7 @@ from nemo_curator.tasks.tasks import Task
 
 @dataclass
 class SentinelTask(Task[None]):
-    """Base for payload-less marker tasks. Always carries no data; ``task_id``
-    is framework-assigned like any other task."""
+    """Base for payload-less marker tasks: no data, framework-assigned ``task_id``."""
 
     data: None = None
 
@@ -53,11 +52,8 @@ class SentinelTask(Task[None]):
 
 @dataclass
 class EmptyTask(SentinelTask):
-    """Payload-less task that seeds a pipeline. Its ``task_id`` is fixed to
-    ``"0"`` — the implicit root every task in a run descends from, so all
-    ``task_id``s share the ``"0"`` prefix (source partitions become
-    ``"0_<id>"``, user-provided initial tasks become ``"0_0"``, ``"0_1"``, …).
-    """
+    """Seeds a pipeline with ``task_id="0"`` — the implicit root every task
+    descends from (so all ids share the ``"0"`` prefix)."""
 
     dataset_name: str = "empty"
     task_id: str = field(init=False, default="0")

@@ -17,6 +17,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from loguru import logger
+
 from nemo_curator.backends.failed_task_markers import record_failed_tasks
 from nemo_curator.backends.slurm_array import (
     filter_slurm_array_source_tasks,
@@ -26,9 +28,19 @@ from nemo_curator.core.utils import ignore_ray_head_node
 from nemo_curator.tasks import Task
 from nemo_curator.tasks.sentinels import FailedTask, NoneTask
 from nemo_curator.utils.performance_utils import StageTimer
+from nemo_curator.utils.resumability_client import (
+    completed_resumability_sources,
+    flush_resumability_deltas,
+    is_resumability_actor_active,
+)
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
+
+
+def _is_sentinel(task: Task) -> bool:
+    """A payload-less marker (NoneTask/FailedTask), stripped before the next stage."""
+    return isinstance(task, (NoneTask, FailedTask))
 
 
 @dataclass
@@ -112,13 +124,17 @@ class BaseStageAdapter:
         # Record failed tasks for later inspection or retry bookkeeping.
         record_failed_tasks(failed_tasks)
 
-        # Sentinels never propagate to the next stage.
-        results = [r for r in results if not isinstance(r, (NoneTask, FailedTask))]
-
         # Filter tasks based on the Slurm array configuration.
         slurm_array = resolve_slurm_array_config(is_source_stage=is_source_stage)
         if slurm_array is not None:
             results = filter_slurm_array_source_tasks(results, slurm_array, self.stage.name)
+
+        # Opt-in resumability: fire per-source deltas (no-op when no actor registered).
+        if is_resumability_actor_active():
+            results = self._apply_resumability_counters(tasks, results)
+
+        # Sentinels never propagate to the next stage.
+        results = [r for r in results if not _is_sentinel(r)]
 
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
@@ -132,38 +148,22 @@ class BaseStageAdapter:
         return results
 
     def _post_process_task_ids(self, input_tasks: list[Task], output_tasks: list[Task]) -> list[Task]:
-        """Assign a deterministic ``task_id`` to every emitted task.
+        """Assign a deterministic ``task_id`` (parent id + own segment) to every
+        emitted task. Runs once per stage on every backend, so ``process`` vs
+        ``process_batch`` makes no difference; ids are re-derived at each stage
+        boundary, so one object passing through N stages gets N ids.
 
-        This runs for every stage on every backend, whether the stage defines
-        ``process`` or overrides ``process_batch``. A task id is re-derived at
-        each stage boundary from its parent id and its own segment.
+        - single input → fan-out: each output is ``parent_<seg>``
+        - ``len(output) == len(input)`` → positional 1:1: ``parent_i_<seg>``; a
+          ``NoneTask`` slot means input ``i`` was filtered (kept for alignment, then
+          dropped from the result)
+        - any other cardinality → a random ``"r"``-prefixed uuid (non-deterministic,
+          ancestry-not-tracked; see ``Task.task_id``)
 
-        The input -> output mapping decides each output's PARENT; whether the
-        stage is a source decides each output's SEGMENT (content id vs index)
-        — the two are independent. Before this method is called, raw ``None``
-        outputs are normalized to ``NoneTask`` sentinels so positional slots
-        remain intact. Sentinels receive ids here like other tasks and are
-        removed later by ``process_batch``.
-
-        - single input -> every output is its child (fan-out): ``parent_<seg>``
-        - ``len(output) == len(input)`` -> positional 1:1: each ``parent_i_<seg>``;
-          a ``NoneTask`` slot means input ``i`` was filtered.
-        - any other (ambiguous) cardinality across a batch -> a random ``uuid``
-          prefixed with ``"r"`` (e.g. ``"r3f9a…"``), so ``task_id`` is never
-          empty even when a derived id is not possible. The ``"r"`` prefix flags
-          the id as non-deterministic / ancestry-not-tracked (see
-          ``Task.task_id`` docstring).
-
-        ``seg`` is the output's content id (``Task.get_deterministic_id()``)
-        for a source stage when available, else the positional index — so a
-        source partition keeps a stable id across reorderings regardless of
-        whether the source is 1->N or N->N.
-
-        A stage that both filters and fans out within a single batch
-        (returning a flat list rather than a per-input slot) cannot be mapped
-        positionally; if its length happens to equal the input length the 1:1
-        assumption may misattribute parents. That combination is unsupported
-        unless the stage preserves an unambiguous input -> output mapping.
+        ``seg`` is the content id (``get_deterministic_id()``) for a source stage,
+        else the positional index. A stage that both filters and fans out in one
+        batch can't be mapped positionally and falls to the ``"r"`` case — return
+        one value (or ``None``) per input to stay positional.
         """
         is_source = getattr(self.stage, "is_source_stage", False)
 
@@ -194,6 +194,86 @@ class BaseStageAdapter:
         for task in out:
             task.task_id = "r" + uuid.uuid4().hex
         return out
+
+    # Resumability (opt-in): stamp _source_id, fire per-source deltas, drop
+    # completed sources. task_ids are already assigned; sentinels stripped by caller.
+    def _apply_resumability_counters(self, input_tasks: list[Task], output_tasks: list[Task]) -> list[Task]:  # noqa: C901
+        # Dedup key is always an OUTPUT task_id, never the input's: the source
+        # already keyed its +1 on that id, and an output id is one level deeper,
+        # so it's unique to the (task, stage) that produced it.
+        stage = self.stage
+        if getattr(stage, "is_source_stage", False):
+            return self._source_counters(output_tasks)
+
+        # No outputs (e.g. a batch entirely filtered, or an end-of-pipeline
+        # no-op): nothing to attribute a delta to, so skip.
+        if not output_tasks:
+            return output_tasks
+
+        # Pre-source: inputs have no _source_id yet; nothing to track.
+        if all(not t._source_id for t in input_tasks):
+            return output_tasks
+
+        is_sink = stage.is_sink_stage
+        per_task: list[tuple[str, str, int]] = []
+
+        if len(input_tasks) == 1 and len(output_tasks) > 1:
+            # Fan-out (1->N): parent consumed (-1); each real child continues
+            # (+1, or 0 at a sink); each FailedTask keeps the source open (+1);
+            # NoneTask contributes 0.
+            parent = input_tasks[0]
+            real = [t for t in output_tasks if not _is_sentinel(t)]
+            n_failed = sum(1 for t in output_tasks if isinstance(t, FailedTask))
+            continuing = 0 if is_sink else len(real)
+            delta = continuing + n_failed - 1
+            # Key on output[0].task_id (not parent.task_id, which collides with the
+            # source's +1). Non-source children are indexed positionally, so
+            # output[0] is always "<parent>_0".
+            per_task.append((output_tasks[0].task_id, parent._source_id, delta))
+            for c in real:
+                if not c._source_id:
+                    c._source_id = parent._source_id
+        elif len(output_tasks) == len(input_tasks):
+            # Positional 1:1; each delta keys on the output id (r.task_id).
+            for parent, r in zip(input_tasks, output_tasks, strict=True):
+                sid = parent._source_id
+                if isinstance(r, NoneTask):  # filtered -> consumed
+                    per_task.append((r.task_id, sid, -1))
+                    continue
+                if isinstance(r, FailedTask):  # failed -> source stays open (no sink test)
+                    per_task.append((r.task_id, sid, 0))
+                    continue
+                per_task.append((r.task_id, sid, -1 if is_sink else 0))  # real: sink -1, else 0
+                if not r._source_id:
+                    r._source_id = sid
+        else:
+            # M->K (M!=K): can't attribute parents; skip (source stays pending -> reprocessed).
+            logger.warning(
+                f"resumability: {type(stage).__name__} produced {len(output_tasks)} outputs "
+                f"for {len(input_tasks)} inputs; can't attribute sources, skipping counter "
+                f"update for this batch."
+            )
+            return output_tasks
+
+        flush_resumability_deltas(per_task)
+        return output_tasks
+
+    def _source_counters(self, output_tasks: list[Task]) -> list[Task]:
+        """Source stage: each output is a source partition; its ``_source_id`` is
+        ``Task.get_source_id()``. Drop already-completed sources; each survivor fires ``+1``."""
+        sources = [t for t in output_tasks if not _is_sentinel(t)]
+        for t in sources:
+            t._source_id = t.get_source_id()
+        completed = completed_resumability_sources([t._source_id for t in sources])
+        per_task: list[tuple[str, str, int]] = []
+        survivors: list[Task] = []
+        for t in sources:
+            if t._source_id in completed:
+                continue
+            per_task.append((t.task_id, t._source_id, +1))
+            survivors.append(t)
+        flush_resumability_deltas(per_task)
+        return survivors
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup the stage on a node.
