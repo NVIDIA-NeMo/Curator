@@ -27,7 +27,7 @@ from loguru import logger
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
-from nemo_curator.tasks import AudioTask, FileGroupTask, _EmptyTask
+from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
 
 
 def get_audio_duration(audio_filepath: str) -> float:
@@ -174,12 +174,12 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_fanout_stage": True}
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers": 1}
+    def num_workers(self) -> int | None:
+        return 1
 
 
 @dataclass
-class ManifestReader(CompositeStage[_EmptyTask, AudioTask]):
+class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
     """Composite stage for reading JSONL manifests.
 
     Decomposes into:
@@ -289,9 +289,6 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def num_workers(self) -> int | None:
         return 1
-
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers": 1}
 
 
 def load_audio_file(audio_path: str, mono: bool = True) -> tuple[torch.Tensor, int]:

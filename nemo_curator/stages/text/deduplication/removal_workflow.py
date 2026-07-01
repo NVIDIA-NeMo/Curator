@@ -23,6 +23,7 @@ from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.tasks import FileGroupTask
+from nemo_curator.utils.file_utils import get_default_file_extensions
 
 from .removal import TextDuplicatesRemovalStage
 
@@ -77,6 +78,10 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
                 msg = "input_path is required when initial_tasks is None"
                 raise ValueError(msg)
 
+            if self.input_filetype not in ("parquet", "jsonl"):
+                msg = f"Invalid input filetype: {self.input_filetype}"
+                raise ValueError(msg)
+
             from nemo_curator.stages.file_partitioning import FilePartitioningStage
 
             stages.append(
@@ -84,7 +89,7 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
                     file_paths=self.input_path,
                     files_per_partition=self.input_files_per_partition,
                     blocksize=self.input_blocksize,
-                    file_extensions=self.input_file_extensions,
+                    file_extensions=(self.input_file_extensions or get_default_file_extensions(self.input_filetype)),
                     storage_options=(self.input_kwargs or {}).get("storage_options"),
                     limit=self.input_task_limit,
                 )

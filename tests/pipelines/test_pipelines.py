@@ -20,7 +20,7 @@ import pytest
 from nemo_curator.pipeline.pipeline import Pipeline, assign_root_task_ids
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import EmptyTask, Task, _EmptyTask
+from nemo_curator.tasks import EmptyTask, Task
 
 
 @dataclass
@@ -138,11 +138,11 @@ class TestPipelineBuild:
 
 class TestRootTaskIds:
     """``assign_root_task_ids`` roots user-provided initial tasks under the
-    implicit ``_EmptyTask`` root id ``"0"``."""
+    implicit ``EmptyTask`` root id ``"0"``."""
 
     def test_empty_task_id_is_zero(self) -> None:
-        assert EmptyTask.task_id == "0"
-        assert _EmptyTask(dataset_name="d", data=None).task_id == "0"
+        assert EmptyTask().task_id == "0"
+        assert EmptyTask(dataset_name="d", data=None).task_id == "0"
 
     def test_roots_user_tasks_at_zero(self) -> None:
         tasks = [_SimpleTask(dataset_name="d", data=[1]) for _ in range(3)]
@@ -151,7 +151,7 @@ class TestRootTaskIds:
         assert [t.task_id for t in tasks] == ["0_0", "0_1", "0_2"]
 
     def test_skips_empty_tasks(self) -> None:
-        et = _EmptyTask(dataset_name="d", data=None)
+        et = EmptyTask(dataset_name="d", data=None)
         real = _SimpleTask(dataset_name="d", data=[1])
         assign_root_task_ids([et, real])
         # EmptyTask stays "0"; the real task is rooted by its position.

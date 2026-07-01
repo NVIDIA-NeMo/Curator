@@ -571,3 +571,32 @@ class TestClipTranscodingStage:
             assert result.data.source_bytes is None
             mock_logger.warning.assert_called_once()
             assert "No clips to transcode" in mock_logger.warning.call_args[0][0]
+
+
+class TestClipTranscodingStageRayDataResources:
+    def test_cpu_path_sets_ray_data_num_cpus_to_1(self):
+        stage = ClipTranscodingStage()
+        assert stage.ray_data_num_cpus == 1.0
+        assert stage.resources.cpus == stage.num_cpus_per_worker
+
+    def test_cpu_path_ray_stage_spec_includes_ray_num_cpus(self):
+        from nemo_curator.backends.utils import RayStageSpecKeys
+
+        stage = ClipTranscodingStage()
+        spec = stage.ray_stage_spec()
+        assert spec[RayStageSpecKeys.RAY_NUM_CPUS] == 1.0
+        assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
+
+    def test_gpu_path_ray_data_num_cpus_is_none(self):
+        from nemo_curator.backends.utils import RayStageSpecKeys
+
+        stage = ClipTranscodingStage(encoder="h264_nvenc")
+        assert stage.ray_data_num_cpus is None
+        assert RayStageSpecKeys.RAY_NUM_CPUS not in stage.ray_stage_spec()
+
+    def test_user_can_override_ray_data_num_cpus(self):
+        from nemo_curator.backends.utils import RayStageSpecKeys
+
+        stage = ClipTranscodingStage(ray_data_num_cpus=2.0)
+        assert stage.ray_data_num_cpus == 2.0
+        assert stage.ray_stage_spec()[RayStageSpecKeys.RAY_NUM_CPUS] == 2.0

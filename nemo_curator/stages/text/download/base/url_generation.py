@@ -18,7 +18,7 @@ from typing import Any
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
 class URLGenerator(ABC):
@@ -31,7 +31,7 @@ class URLGenerator(ABC):
 
 
 @dataclass
-class URLGenerationStage(ProcessingStage[_EmptyTask, FileGroupTask]):
+class URLGenerationStage(ProcessingStage[EmptyTask, FileGroupTask]):
     """Stage that generates URLs from minimal input parameters.
 
     This allows pipelines to start with URL generation (like Common Crawl).
@@ -52,11 +52,11 @@ class URLGenerationStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         """Define output - produces FileGroupTask with URLs."""
         return (["data"], [])
 
-    def process(self, task: _EmptyTask) -> list[FileGroupTask]:
+    def process(self, task: EmptyTask) -> list[FileGroupTask]:
         """Generate URLs and create FileGroupTasks.
 
         Args:
-            task (_EmptyTask): Empty input task
+            task (EmptyTask): Empty input task
 
         Returns:
             list[FileGroupTask]: List of tasks containing URLs
@@ -81,7 +81,5 @@ class URLGenerationStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             "is_fanout_stage": True,
         }
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {
-            "num_workers_per_node": 1,
-        }
+    def num_workers(self) -> int | None:
+        return 1

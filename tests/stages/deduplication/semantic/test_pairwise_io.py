@@ -23,12 +23,18 @@ import pytest
 # Suppress GPU-related import errors when running pytest -m "not gpu"
 with suppress(ImportError):
     from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
-    from nemo_curator.tasks import FileGroupTask, _EmptyTask
+    from nemo_curator.tasks import EmptyTask, FileGroupTask
 
 
 @pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU
 class TestClusterWiseFilePartitioningStage:
     """Test cases for ClusterWiseFilePartitioningStage."""
+
+    def test_worker_defaults(self):
+        stage = ClusterWiseFilePartitioningStage("/test/path")
+
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
 
     def test_setup(self):
         # Test fs and path_normalizer are set correctly
@@ -80,7 +86,7 @@ class TestClusterWiseFilePartitioningStage:
         mock_path_normalizer = Mock(side_effect=lambda x: x)
         stage.path_normalizer = mock_path_normalizer
 
-        empty_task = _EmptyTask(dataset_name="test", data=None)
+        empty_task = EmptyTask(dataset_name="test", data=None)
         result = stage.process(empty_task)
 
         # Verify path_normalizer was called exactly 3 times (once per centroid directory)

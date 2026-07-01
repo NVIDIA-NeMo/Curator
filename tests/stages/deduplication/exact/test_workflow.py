@@ -186,6 +186,29 @@ class TestExactDuplicatesWorkflow:
         removal_ids_df = cudf.read_parquet(tmpdir / "ExactDuplicateIds")
         assert len(removal_ids_df) == 0
 
+    def test_input_file_extensions_default_to_input_filetype(self, tmpdir: Path) -> None:
+        workflow = ExactDeduplicationWorkflow(
+            input_path="/dummy",
+            output_path=str(tmpdir),
+            input_filetype="jsonl",
+        )
+
+        stages = workflow._create_input_filegroups().stages
+
+        assert stages[0].file_extensions == [".jsonl", ".json"]
+
+    def test_input_file_extensions_override_default(self, tmpdir: Path) -> None:
+        workflow = ExactDeduplicationWorkflow(
+            input_path="/dummy",
+            output_path=str(tmpdir),
+            input_filetype="parquet",
+            input_file_extensions=[".pq"],
+        )
+
+        stages = workflow._create_input_filegroups().stages
+
+        assert stages[0].file_extensions == [".pq"]
+
     def test_bad_inputs(self, tmpdir: Path) -> None:
         with pytest.raises(NotImplementedError, match="Removal is not implemented"):
             # Removal is not implemented yet
