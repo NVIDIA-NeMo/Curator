@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib.util
 import os
-import shutil
 import socket
 import subprocess
 import time
@@ -30,6 +30,7 @@ from nemo_curator.core.constants import (
     DEFAULT_RAY_MAX_WORKER_PORT,
     DEFAULT_RAY_MIN_WORKER_PORT,
     DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT,
+    DEFAULT_RAY_SERVE_HAPROXY_STATS_PORT,
     RAY_CLUSTER_START_VERIFICATION_TIMEOUT,
 )
 
@@ -95,10 +96,11 @@ def check_ray_responsive(timeout_s: int = RAY_CLUSTER_START_VERIFICATION_TIMEOUT
     return responsive
 
 
-def get_free_port(start_port: int, get_next_free_port: bool = True) -> int:
+def get_free_port(start_port: int, get_next_free_port: bool = True, bind_host: str = "localhost") -> int:
     """Checks if start_port is free.
     If not, it will get the next free port starting from start_port if get_next_free_port is True.
     Else, it will raise an error if the free port is not equal to start_port.
+    bind_host controls the interface used for the probe.
     """
     for port in range(start_port, 65536):
         if port >= DEFAULT_RAY_MIN_WORKER_PORT and port <= DEFAULT_RAY_MAX_WORKER_PORT:
@@ -107,7 +109,7 @@ def get_free_port(start_port: int, get_next_free_port: bool = True) -> int:
             # SO_REUSEADDR to avoid TIME_WAIT issues on some OSes
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
-                s.bind(("localhost", port))
+                s.bind((bind_host, port))
                 # If bind succeeds, port is free
                 return port  # noqa: TRY300
             except OSError:
@@ -188,20 +190,29 @@ def init_cluster(  # noqa: PLR0913
     # We set some env vars for Xenna here. This is only used for Xenna clusters.
     os.environ["XENNA_RAY_METRICS_PORT"] = str(ray_metrics_port)
 
-    # Opt into Ray Serve's HAProxy ingress when both binaries resolve. Ray Serve
-    # uses socat to drive HAProxy's admin socket — without it, the controller's
-    # healthcheck silently returns False and trips a 5s timeout. Must precede
-    # Popen so Ray sees the env var at module-import on the raylet/worker.
-    # TODO(https://github.com/ray-project/ray/issues/62976): also set
-    # RAY_SERVE_HAPROXY_STATS_PORT once that lands so multi-cluster hosts
-    # don't collide on HAProxy's stats bind.
-    if shutil.which("haproxy") is not None and shutil.which("socat") is not None:
-        haproxy_metrics_port = get_free_port(DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT)
+    haproxy_source = _ray_serve_haproxy_source()
+    if haproxy_source is not None:
+        haproxy_metrics_port = get_free_port(
+            DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT,
+            bind_host="0.0.0.0",  # noqa: S104
+        )
+        haproxy_stats_port = get_free_port(
+            DEFAULT_RAY_SERVE_HAPROXY_STATS_PORT,
+            bind_host="0.0.0.0",  # noqa: S104
+        )
         os.environ["RAY_SERVE_ENABLE_HA_PROXY"] = "1"
+        os.environ["RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY"] = "1"
         os.environ["RAY_SERVE_HAPROXY_METRICS_PORT"] = str(haproxy_metrics_port)
-        logger.info(f"Ray Serve HAProxy ingress enabled (metrics port {haproxy_metrics_port}).")
+        os.environ["RAY_SERVE_HAPROXY_STATS_PORT"] = str(haproxy_stats_port)
+        logger.info(
+            f"Ray Serve HAProxy ingress enabled via {haproxy_source} "
+            f"(metrics port {haproxy_metrics_port}, stats port {haproxy_stats_port})."
+        )
     else:
-        logger.debug("haproxy and/or socat not found on PATH; Ray Serve will use the default Python proxy.")
+        logger.debug(
+            "ray-haproxy package or explicit RAY_SERVE_HAPROXY_BINARY_PATH not found; "
+            "Ray Serve will use the default Python proxy."
+        )
     if stdouterr_capture_file:
         with open(stdouterr_capture_file, "w") as f:
             proc = subprocess.Popen(  # noqa: S603
@@ -212,6 +223,15 @@ def init_cluster(  # noqa: PLR0913
     logger.info(f"Ray start command: {' '.join(ray_command)}")
 
     return proc
+
+
+def _ray_serve_haproxy_source() -> str | None:
+    """Return the configured Ray Serve HAProxy source, if available."""
+    if importlib.util.find_spec("ray_haproxy") is not None:
+        return "ray-haproxy package"
+    if os.environ.get("RAY_SERVE_HAPROXY_BINARY_PATH"):
+        return "RAY_SERVE_HAPROXY_BINARY_PATH"
+    return None
 
 
 def split_table_by_group_max_bytes(

@@ -36,7 +36,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         model_identifier: str,
         vllm_init_kwargs: dict[str, Any] | None = None,
         text_field: str = "text",
-        pretokenize: bool = False,
+        pretokenize: bool = True,
         embedding_field: str = "embeddings",
         max_chars: int | None = None,
         cache_dir: str | None = None,

@@ -254,7 +254,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-identifier=google/embeddinggemma-300m
-      --model-variation=vllm_text
+      --model-variation=vllm_text_pretokenized
       --cache-dir={dataset:text_models_hf_cache,files}
     timeout_s: 800
     sink_data:
@@ -280,7 +280,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-identifier=google/embeddinggemma-300m
-      --model-variation=vllm_text
+      --model-variation=vllm_text_pretokenized
       --cache-dir={dataset:text_models_hf_cache,files}
     timeout_s: 800
     sink_data:
@@ -877,7 +877,7 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
-    timeout_s: 400
+    timeout_s: 900
     sink_data:
       - name: slack
         ping_on_failure:
