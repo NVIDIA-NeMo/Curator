@@ -12,14 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 
 # TODO: Should this be a safe import?
 import cudf
 import numpy as np
 import ray
+from fsspec.core import split_protocol
 
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, IdGenerator
+from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import get_fs
 
 
@@ -35,10 +38,33 @@ class DeduplicationIO:
     def read_jsonl(
         self, filepath: str | list[str], columns: list[str] | None = None, assign_id: bool = False, **kwargs
     ) -> "cudf.DataFrame":
-        df = cudf.read_json(filepath, lines=True, **kwargs)
+        with self._open_remote_files(filepath, kwargs) as (read_filepath, read_kwargs):
+            df = cudf.read_json(read_filepath, lines=True, **read_kwargs)
         if columns is not None:
             df = df[columns]
         return self.assign_id(filepath, df) if assign_id and self.id_generator else df
+
+    @contextmanager
+    def _open_remote_files(
+        self, filepath: str | list[str], kwargs: dict
+    ) -> Iterator[tuple[str | list[str] | object | list[object], dict]]:
+        paths = [filepath] if isinstance(filepath, str) else filepath
+        if not paths or not all(isinstance(path, str) and is_remote_url(path) for path in paths):
+            yield filepath, kwargs
+            return
+
+        read_kwargs = kwargs.copy()
+        storage_options = read_kwargs.pop("storage_options", {})
+
+        with ExitStack() as stack:
+            buffers = []
+            filesystems = {}
+            for path in paths:
+                protocol, _ = split_protocol(path)
+                if protocol not in filesystems:
+                    filesystems[protocol] = get_fs(path, storage_options=storage_options)
+                buffers.append(stack.enter_context(filesystems[protocol].open(path, mode="rb")))
+            yield (buffers[0] if isinstance(filepath, str) else buffers), read_kwargs
 
     def read_parquet(self, filepath: str | list[str], assign_id: bool = False, **kwargs) -> "cudf.DataFrame":
         read_kwargs = kwargs.copy()
