@@ -133,6 +133,8 @@ This design avoids cross-host LMDB writer locks and allows jobs such as a SLURM 
 - An unreadable writer file is skipped with a warning. Preserve the other files and investigate the damaged file rather than assuming its sources completed.
 - The default LMDB map is 1 GiB but sparse on Linux; physical usage grows with stored completion keys.
 
+For deterministic array sharding, shard-completion manifests, scheduler limits, and incomplete-shard resubmission, see [SLURM Job Arrays](/admin/deployment/slurm-arrays).
+
 ### Reset or Clean Up
 
 To restart every source, stop all jobs using the checkpoint and remove its `.nemo_curator_metadata` directory, or select a fresh `checkpoint_path`. Removing only an output directory does not reset completion state; a subsequent run would still skip sources recorded as complete.
@@ -217,6 +219,7 @@ Before relying on a resume:
 
 ## Related References
 
+- [SLURM Job Arrays](/admin/deployment/slurm-arrays)
 - [ProcessingStage API](/api/reference/api-reference/processing-stage)
 - [Pipeline Execution Backends](/reference/infra/execution-backends)
 - [Memory Management](/reference/infra/memory-management)
