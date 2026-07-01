@@ -119,6 +119,12 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     # resumability layer to mark the counter-decrement boundary.
     is_source_stage: bool = False
     is_sink_stage: bool = False
+    # Whether this stage is safe to run under resumability (``checkpoint_path``).
+    # Defaults to True; set False only on stages whose input→output mapping isn't
+    # source-attributable (shuffle / fan-in, e.g. the dedup shuffle/LSH/connected-
+    # components stages). ``Pipeline.run(checkpoint_path=...)`` errors if any stage
+    # in the pipeline is not resumable.
+    is_resumable: bool = True
 
     @property
     @final
