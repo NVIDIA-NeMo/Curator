@@ -58,6 +58,10 @@ The interleaved data quickstart moved into a dedicated getting-started workflow 
 
 Pipelines can now pass a local `checkpoint_path` to `Pipeline.run()` to track completed source partitions in LMDB and skip them when a run is restarted ([#2063](https://github.com/NVIDIA-NeMo/Curator/pull/2063)). Resumability requires a pre-existing Ray cluster and every stage in the pipeline to be marked resumability-safe. `NoneTask` records intentionally filtered branches, while `FailedTask` keeps a source pending for retry. See [Resumable Processing](/reference/infra/resumable-processing).
 
+### SLURM Job Arrays
+
+NeMo Curator can shard deterministic source tasks across independent SLURM array jobs, record one durable completion manifest per successful shard, and discover only the shards that require retry ([#2059](https://github.com/NVIDIA-NeMo/Curator/pull/2059)). The reference workflow supports JSONL and Parquet, single-node or multi-node Ray within each array task, logical shard counts larger than the scheduler array limit, and downstream `FailedTask` recovery. See [SLURM Job Arrays](/admin/deployment/slurm-arrays).
+
 ### Video Caption Quality Evaluation
 
 The [caption evaluation workflow](/curate-video/process-data/caption-evaluation) from [#1980](https://github.com/NVIDIA-NeMo/Curator/pull/1980) builds a diverse benchmark from sampled OpenVid clips, summarizes captions to the model's token budget, and uses Cosmos-Embed1 cosine similarity to evaluate video-text alignment. Summaries are cached so repeated evaluations do not regenerate them.
