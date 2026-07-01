@@ -585,6 +585,9 @@ navigation:
               - page: Multi-Node Ray on Slurm
                 path: ./main/pages/admin/deployment/slurm/multi-node-ray.mdx
                 slug: slurm-multi-node-ray
+              - page: SLURM Job Arrays
+                path: ./main/pages/admin/deployment/slurm/arrays.mdx
+                slug: slurm-arrays
           - section: Integrations
             slug: integrations
             contents:
