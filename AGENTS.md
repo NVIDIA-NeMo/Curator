@@ -1,0 +1,478 @@
+# Agent Constitution
+
+## North Star
+
+NeMo Curator builds scalable, configurable pipelines to curate text,
+image, audio, and video datasets for accurate AI applications. Customers
+run trillion-token pretraining, multi-modal corpora, and synthetic data
+generation at multi-node GPU scale. We protect the conditions that make
+this possible:
+
+- **Higher accuracy** — better data, less training compute
+- **Faster processing** — RAPIDS-accelerated dedup, classification, and inference
+- **Scalability** — multi-node, multi-GPU, designed for PB-scale workloads
+- **Classifier models** — state-of-the-art open quality/domain/safety models
+- **Deploy anywhere** — Python APIs, runnable on CSP and on-prem
+
+The architecture rests on three design pillars:
+
+- **Task-centric** — Tasks (`DocumentBatch`, `ImageBatch`, `VideoTask`, `AudioTask`) are the unit of data flowing through pipelines
+- **Map-style** — every stage transforms tasks to tasks; this constraint enables auto-balancing and streaming
+- **Fault tolerant** — stages survive preemption and reschedule; partial state is recoverable
+
+The same pipeline definition must run unchanged across the streaming
+executors (Xenna and Ray Data). Ray Actor Pool is the dedup-batch
+executor — appropriate for shuffle-based dedup and full-data-state
+passes, not for general streaming workloads.
+
+## Non-Negotiables
+
+- `ProcessingStage[X, Y]`, `Task[T]`, `Pipeline`, `BaseExecutor`, and
+  `Resources` are public ABI (`nemo_curator/stages/base.py`,
+  `tasks/tasks.py`, `pipeline/pipeline.py`, `backends/base.py`,
+  `stages/resources.py`). Breaks here are Stop-And-Ask.
+- All stages MUST be fault-tolerant and retry-safe. Xenna preempts and
+  reschedules; partial state must be idempotent or recoverable.
+- Same pipeline → equivalent results across the streaming
+  executors (Xenna and Ray Data). Ray Actor Pool is dedup-only.
+  Executor-specific behavior must be explicitly documented.
+- GPU code paths degrade gracefully when CUDA/RAPIDS aren't installed.
+  Guard imports outside the dedup tree; don't crash CPU-only installs.
+
+## Architecture Boundaries
+
+| Path | Steward / contract |
+| --- | --- |
+| `nemo_curator/tasks/` | `Task[T]` and modality tasks (`DocumentBatch`, `ImageBatch`, `VideoTask`, `AudioTask`, `FileGroupTask`, `InterleavedBatch`) |
+| `nemo_curator/stages/` | `ProcessingStage`, `CompositeStage`, `Resources`. Modality subtrees have their own stewards |
+| `nemo_curator/backends/` | Executors + adapters. Backend parity steward |
+| `nemo_curator/pipeline/` | `Pipeline`, `Workflow` |
+| `nemo_curator/core/` | `RayClient`, Ray cluster lifecycle |
+| `fern/` | **Canonical** user-facing docs (`docs.nvidia.com/nemo/curator`). `docs/` is deprecated |
+| `tests/` | Mirrors source. CPU-default; `@pytest.mark.gpu` for GPU. L0 scripts are CI entrypoints |
+| `tutorials/` | Runnable examples per modality |
+| `benchmarking/` | Perf gates, nightly benchmarks |
+
+## Governance Alignment
+
+`.github/CODEOWNERS` is the source of truth for human review. AI
+stewards advise; CODEOWNERS approve. Route review to the named humans
+when a change crosses their lines — never replace them.
+
+Canonical knowledge lives in `fern/`. Cursor rules
+(`.cursor/rules/*.mdc`), Copilot instructions
+(`.github/copilot-instructions.md`), Claude skills (`.claude/skills/`),
+and `AGENTS.md` files extend canonical docs — they do not replace them.
+If important product knowledge is only in an agent artifact, fix
+`fern/` first.
+
+Cross-repo terminology or duplicate-fact conflicts route to
+`@NVIDIA-NeMo/docs_team`. Stewards are repo-local; escalate rather than
+spawning a steward to mediate a cross-repo concern.
+
+## Stop And Ask
+
+Pause for human review before:
+
+- Changing any signature, default, or return shape on `ProcessingStage`,
+  `Task`, `Pipeline`, `BaseExecutor`, `BaseStageAdapter`, `Resources`,
+  `RayClient`.
+- Adding a runtime dependency or extras group; touching `pyproject.toml`
+  / `uv.lock` / `docker/` / `.github/workflows/` in ways that change
+  build or release surface.
+- Migrations, on-disk cache layouts, dedup ID-generator behavior, or
+  any persistent artifact schema.
+- Irreversible operations (mass deletions, force-push, public-module
+  rename).
+- Security / auth changes, Ray cluster auth flows.
+- Concurrency changes: `batch_size`, executor parallelism, autoscaling
+  knobs.
+- Tests and code disagree, or a bug can't be reproduced locally.
+
+## Anti-Patterns
+
+Repo-specific anti-patterns that show up in agent-authored code.
+Each row pairs the wrong pattern with the right one:
+
+| Don't | Do instead |
+| --- | --- |
+| `pip install …` | `uv sync --extra <group>` |
+| `python script.py` | `uv run python script.py` |
+| Define `name` / `resources` / `batch_size` as `@property` on a `ProcessingStage` | Set as plain class attributes |
+| Override `_name`, `_resources`, `_batch_size` | Use `name`, `resources`, `batch_size` (the `_` versions are `@final` properties) |
+| Load model in `__init__` | Load in `setup()`; download in `setup_on_node()` |
+| Set `batch_size > 1` without overriding `process_batch` | Override `process_batch` or keep `batch_size = 1` |
+| Drop `_metadata` / `_stage_perf` in fan-out output tasks | Propagate input task's `_metadata` and `_stage_perf` to every output |
+| Backend-specific code path inside a `ProcessingStage` | Put differences in `nemo_curator/backends/<name>/` adapters |
+| Top-level RAPIDS import outside `stages/deduplication/` | Lazy-import inside GPU code paths (dedup tree is a known exception being paid down) |
+| Edit `docs/` for product reasons | Edit `fern/` — `docs/` is under write-freeze. See [fern/AGENTS.md](fern/AGENTS.md) |
+| Document a flag/config/classifier/codec that doesn't trace to source | Verify against argparse / Pydantic / dataclass / config schema first |
+| `print()` | `loguru.logger` |
+| Commit without `-s` (signoff) | `git commit -sS …` — unsigned commits get rejected by CI |
+| One test class per source function (`TestThisClassFunction`) | Flat `test_*` functions; group classes only when they share fixtures |
+| Treat `.cursor/rules/`, `copilot-instructions.md`, and `AGENTS.md` as redundant | They serve different agents but must agree on facts; update together when shared facts change |
+
+## Steward System
+
+Each scoped steward is a domain agent with the same operating model:
+
+- **Point of View** — what the domain represents and why it matters
+- **Protect** — invariants, contracts, quality bars
+- **Contract Checklist** — surfaces to inspect when this domain changes
+- **Advocate** — investments to push for
+- **Own** — code, tests, docs, fixtures, checks (with CODEOWNERS routing)
+
+Optional sections — include only when they carry weight a careful
+reader can't infer from the other sections:
+
+- **Do Not** — only for non-obvious local anti-patterns
+- **Serve Peers** — only for explicit cross-domain obligations
+
+Cross-boundary work includes a **Steward Notes** block in the PR
+description naming consulted stewards, accepted/deferred findings,
+merged duplicates, and required collateral.
+
+## Inference Acceleration (cross-cutting concern)
+
+Inference acceleration is a cross-cutting concern owned at root, not
+a separately-scoped steward. When code changes touch an
+inference-bearing surface, these invariants apply in addition to the
+relevant modality steward's:
+
+- **Speed-of-light per model.** TensorRT-LLM, memory optimization,
+  FP8/INT8 quantization, and paged attention are the floor — not the
+  ceiling.
+- **Serving pattern is explicit.** Either *in-process* (model loaded
+  per stage worker; must fit the worker's GPU memory budget) or
+  *server-endpoint* (CPU-only Curator stages calling a local model
+  server; replica count, per-client concurrency, queue behavior, and
+  serialization overhead documented).
+- **Model server choice.** vLLM is canonical. Ray Serve is preferred
+  for Ray-native ergonomics. Dynamo is supported when NV-optimized
+  inference matters more than integration cost.
+- **Async scheduling** features (e.g., vLLM's `RayExecutorV2`) are
+  adopted when they reduce GPU idle time.
+- **Benchmarks capture model + serving stack + hardware.** Numbers
+  without that context are noise.
+
+Inference-bearing surfaces include classifier / embedder / VLM / LLM
+stages, semantic-dedup embedding integrations, `runtime_env` carrying
+model-serving deps, and any documented throughput / latency / GPU-
+utilization claim.
+
+### Contract Checklist (repo-wide)
+
+For cross-surface changes identify every surface that should agree:
+public API (`ProcessingStage` subclasses, `nemo_curator/__init__.py`),
+schema (`Task`, `Resources`, Pydantic models), all three backend
+adapters, `fern/` pages, `tutorials/`, tests, benchmarks, `CHANGELOG.md`,
+and matching agent artifacts. Every accepted finding names required
+proof and collateral, or explicitly says `no collateral: <reason>`.
+Contract-affecting PRs that span backends include a parity matrix
+(API / Xenna / Ray Data / Docs / Tests; Ray Actor Pool only for
+dedup-affecting changes).
+
+### Steward Signal Format
+
+```text
+Steward:
+Area:
+Severity: P0/P1/P2/P3
+Invariant:
+Evidence: <source-file:line> [→ <doc-file:line> for content audit]
+User Impact:
+Required Fix:
+Required Proof:
+Collateral:
+Confidence:
+Verification Status: machine-verified / manual-confirmation-needed / not-machine-verifiable
+```
+
+Factual claims that are machine-checkable must pass a verification gate
+before triage — grep, schema-trace, or signature-check the source.
+Findings that cannot be machine-verified must carry
+`manual-confirmation-needed` or `not-machine-verifiable`.
+
+### Convergence
+
+When two or more stewards independently flag the same finding it is
+automatically P0 regardless of individual severity. Call it out
+explicitly in synthesis. When the same *shape* of finding recurs across
+audits, promote it to a **Known Regression Pattern** below.
+
+### Steward Swarms
+
+Stewards spawn as independent agents, each reading root plus their
+closest scoped file, each advocating only for their domain, each
+returning findings in the Steward Signal Format. The implementing agent
+owns synthesis and final decisions; stewards advise.
+
+**Triggers:** `ask stewards`, `bugbash`, `review swarm`, `steward
+synthesis` → **Implementation Review** (defend invariants against the
+diff). `audit docs`, `content audit`, `accuracy pass` → **Content
+Audit** (verify doc claims against source). P0 = breaks a shipped
+contract or names a wrong factual claim. P1 = degrades / stale /
+misleading. P2/P3 = polish or advocacy.
+
+**When to consult:** nearest steward for local work; multiple stewards
+when ownership lines cross; full swarm for site-wide `fern/` IA
+refactors or cross-cutting refactors. **Consult the Inference
+Acceleration Steward** for any inference-bearing or model-serving
+change. Parallelize only when the questions are independent — independent
+stewards surface convergence. Route structural, cross-domain,
+standards-impacting, or ownership-affecting decisions to human
+governance stewards.
+
+Match depth to risk: typo and link fixes ship after automated checks;
+technical-accuracy changes need agent first-pass plus human review;
+standards-impacting changes route to `@NVIDIA-NeMo/docs_team` or
+`curator_reviewers`.
+
+### Global Sweep On Accepted P0s
+
+When a P0 names a wrong factual claim (wrong default, endpoint shape,
+flag name, file path), the fix is *not* "edit the page where it was
+flagged." The fix is: grep the entire `fern/` site (and `tutorials/`,
+`.cursor/rules/`, `.github/copilot-instructions.md`, `README.md`,
+`api-design.md`) for the same claim and correct every instance before
+the P0 is closed. Cross-surface propagation is the dominant failure
+mode of narrow fixes.
+
+### Impacted-Docs Discovery
+
+When a steward's code changes, discover impacted docs by grep — not
+by pre-pinned file lists. Path lists go stale; source-derived
+searches self-maintain.
+
+Derive search terms from the diff itself:
+
+- Class / function names you renamed, removed, or reshaped
+- Attribute, field, or default values you altered
+- CLI flags, config keys, or extras names you added
+- User-visible labels, rubrics, or identifiers you changed
+- Public-API symbols re-exported from `__init__.py` `_LAZY` /
+  `__all__` registries
+
+Search surfaces in priority order:
+
+1. `fern/` — canonical docs site
+2. `tutorials/` — runnable examples and per-modality READMEs
+3. `README.md`, `api-design.md`, `CONTRIBUTING.md`, `CHANGELOG.md`
+4. `.cursor/rules/`, `.github/copilot-instructions.md`,
+   `.claude/skills/` — agent artifacts that mirror code surfaces
+
+For each hit, either:
+
+- **Update in the same PR** — preferred for direct-rename,
+  behavior-change, default-change, removed-symbol cases.
+- **Mark `no-impact: <reason>`** in the PR description when the
+  doc references the symbol but doesn't depend on the changed
+  behavior.
+- **Escalate to the Docs Steward** (`@NVIDIA-NeMo/docs_team`) when
+  the change reshapes a cross-cutting concern: IA structure,
+  terminology, release-notes shape, or a navigation surface that
+  spans multiple domains.
+
+Each scoped steward's **Own → Docs** section lists the
+domain-specific search terms that an agent might not think to grep
+for. The procedure here is the shared mechanism; the per-steward
+terms are the local vocabulary.
+
+**When to delegate to the Docs Steward instead of self-grep.** Grep
+beats delegation when the change is symbol-derivable (renames,
+defaults, schemas, removed symbols). Spawn a subagent with
+`fern/AGENTS.md` plus a one-paragraph diff summary when the change
+is *abstraction-level* — reshaped concept, terminology shift,
+restructured mental model — and you can't list useful grep terms in
+one line. The Docs Steward subagent has the site's IA and
+cross-page consistency context the code steward doesn't. Treat
+delegation as the escalation path, not the default.
+
+### Doc Autopilot
+
+The Content Audit swarm is the primary mechanism for keeping docs
+accurate over time. The Docs Steward ([fern/AGENTS.md](fern/AGENTS.md))
+owns three triggers:
+
+1. **Merge gate** — Doc-shaped PRs (IA refactors, release notes, large
+   content updates, README sweeps) gate on a Content Audit having run.
+   Initial rollout: verified P0 only. Mature rollout: P0 + P1.
+2. **Periodic re-audit** — Full swarm at every release boundary (a new
+   `fern/versions/v*.yml` lands) and on a 4–6 week cadence.
+3. **Source-triggered re-audit** — When code touching a documented
+   public surface changes, the relevant scoped steward's Content Audit
+   runs against its owned doc pages.
+
+Each scoped steward's **Own** list is its audit surface in autopilot
+mode. Current state is manual rollout; wiring these into CI is open
+advocacy with the Docs Steward.
+
+### Docs-First Agent Artifact Evaluation
+
+Before creating or expanding a cursor rule, Claude skill, MCP workflow,
+script, CLI helper, or prompt template:
+
+1. Identify where agents struggle.
+2. Check whether `fern/` is missing, unclear, stale, or scattered.
+3. Fix `fern/` first when that would solve the problem for humans and
+   agents alike.
+4. Create the artifact only when docs alone cannot reliably support
+   the workflow.
+5. Record ownership, review path, source docs, maintenance trigger,
+   and evaluation proof for the artifact.
+
+## Known Regression Patterns
+
+Stewards in autopilot mode hunt these by default. Each pattern names
+the verification recipe.
+
+- **Fabricated CLI / config fields.** Doc claims a flag, env var, or
+  YAML key that doesn't exist. *Verify:* every flag traces to a
+  `pyproject.toml` entry, argparse declaration, Pydantic field, or
+  dataclass field. Grep the source.
+- **Stage-contract drift.** Doc claims `ProcessingStage` input/output
+  types or resource shapes that no longer match
+  `stages/base.py` or the stage's definition. *Verify:* read
+  `inputs`, `outputs`, `process`, `resources` and cross-check.
+- **Executor parity drift.** Doc claims a streaming behavior across
+  Xenna and Ray Data but the two adapters differ. *Verify:* grep
+  `backends/{xenna,ray_data}/` for the named feature. (Ray Actor
+  Pool is dedup-only; parity comparisons are Xenna vs Ray Data.)
+- **Inference performance regression.** A model-bearing stage's
+  throughput, latency, or GPU utilization drops without explanation,
+  or a new inference path lands without speed-of-light benchmarks
+  (TensorRT-LLM, quantization, paged attention). *Verify:* every
+  inference change carries a benchmark capturing model + serving
+  stack + hardware.
+- **Deduplication CUDA gating.** Dedup example doesn't name the
+  `deduplication_cuda12` extras or GPU requirement. Today, importing
+  the dedup package itself requires `deduplication_cuda12` (RAPIDS at
+  module top level); until lazy-import work lands, docs and tutorials
+  must say so. *Verify:* grep dedup docs for the install prereq.
+- **`docs/` vs `fern/` regression.** Product edits land in `docs/`
+  instead of `fern/`. *Verify:* any new doc-changing PR that touches
+  `docs/` is a P0 unless explicit decommissioning.
+- **Doc-snippet rot.** `from nemo_curator…` imports or CLI lines in
+  `tutorials/` and `fern/` drift from current public surface.
+  *Verify:* round-trip imports against the package; round-trip CLI
+  lines against argparse.
+- **Naming and counting drift.** Any doc claim with a count, version
+  pin, or named entity is stale-by-default. *Verify:* re-check
+  against current source on every audit pass.
+- **Cross-page inconsistency.** Same fact stated differently across
+  `fern/`, `README.md`, `CONTRIBUTING.md`, cursor rules. *Verify:*
+  cross-steward synthesis explicitly checks for disagreement.
+- **Narrow-fix regression.** A P0 fixed on the flagged page survives
+  on sibling pages. *Verify:* every accepted P0 closure runs the
+  Global Sweep above.
+- **Unverified finding regression.** A steward reports a divergence
+  that a source grep would have disproved. *Verify:* every factual
+  P0/P1 carries a verification status before triage.
+- **Stage lifecycle drift (`__init__` / `setup_on_node` / `setup`).**
+  Heavy work or model loading in `__init__` (serialized to every
+  replica); model load in `setup_on_node()` (should be download-only
+  — the next worker on the same node would reload it); missing
+  `to("cuda")` in `setup()` despite GPU resources declared. *Verify:*
+  grep stage files for `from_pretrained`, `.to("cuda")`, and `torch`
+  imports — they should live in `setup()`, not `__init__`. See the
+  Pipeline steward's `__init__ / setup_on_node / setup` discipline.
+- **`process_batch` mis-use.** Stage declares `batch_size > 1` but
+  only overrides `process`; or overrides `process_batch` when
+  single-Task-with-many-items would do. *Verify:* for every stage
+  with `batch_size > 1`, confirm `process_batch` is implemented;
+  conversely, `process_batch` should only appear when combining
+  across Tasks is genuinely required.
+- **Metadata / `_stage_perf` propagation drop.** Stage output missing
+  the input task's `_metadata` or `_stage_perf` — especially in
+  fan-out stages where the convenient mistake is to put metadata
+  only on the first output. *Verify:* every output task construction
+  passes through `_metadata=task._metadata, _stage_perf=task._stage_perf`.
+  Pipeline-level analysis collapses to the last stage if this drops.
+- **Ray Data spec missing.** Stateful (model-holding) stage without
+  `RayStageSpecKeys.IS_ACTOR_STAGE: True` in `ray_stage_spec` — Ray
+  Data reloads the model per call. Fan-out stage without
+  `RayDataStageSpecKeys.IS_FANOUT_STAGE: True` in `ray_data_stage_spec`
+  — Ray Data treats the output `list[Task]` as one block. *Verify:*
+  any stage that overrides `setup()` is auto-detected as an Actor by
+  default, but `IS_ACTOR_STAGE: True` is required when overriding
+  the auto-detection; any stage whose `process()` returns `list[Y]`
+  for fan-out needs the fanout flag.
+- **Ray Actor Pool mis-attribution.** Documenting Ray Actor Pool as
+  a general production backend. It is the dedup-batch executor.
+  *Verify:* production streaming comparisons are Xenna vs Ray Data;
+  Ray Actor Pool appears only in dedup contexts (shuffle, RAFT,
+  removal passes, Id-Generator workflows).
+- **Test over-classification.** New tests written as
+  `TestThisClassFunction` (one class per source function with one
+  test method). *Verify:* test files under `tests/stages/` and
+  `tests/backends/` prefer flat `test_*` functions; classes appear
+  only when sharing fixtures or `setup_method`.
+- **`EmptyTask` first-stage worker waste.** First stage of a Xenna
+  pipeline starts from `EmptyTask` → `list[Task]` but doesn't set
+  `max_workers_per_node: 1` in `xenna_stage_spec`. *Verify:* grep
+  for `EmptyTask` first stages; each should pin `max_workers_per_node`.
+
+Add new patterns as audits surface them, each with a verification
+recipe.
+
+## Steward Feedback Loop
+
+- **Miss**: bug escaped an applicable steward → update the checklist,
+  add a regression test, or record why this miss shouldn't become
+  policy.
+- **Overreach**: steward pulls unrelated work into PRs → narrow the
+  checklist, split the steward, move concerns to follow-up.
+- Repeated high-quality findings become checklist items; repeated
+  convergent findings become Known Regression Patterns; repeated
+  noisy findings get pruned or scoped down.
+- **Signal budget**: cap each audit pass at ~10 P2/P3 findings —
+  beyond that, move to not-now unless convergent.
+- **False-positive target**: track disputed P0/P1, aim under 15%
+  before tightening gates.
+- **Steward health**: track signal-to-noise per steward; below
+  threshold gets reduced or retired.
+
+## Measurement
+
+Track: owner coverage (CODEOWNERS), `fern/` freshness and broken-link
+rate, PR-to-merge time, pre-commit pass rate, steward finding
+acceptance rate, false-positive rate, P2/P3 volume, convergence rate,
+recurring Known Regression Patterns, duplicate-fact incidents,
+terminology drift. Tune quarterly.
+
+## Extension Routing
+
+- Custom stages: subclass `ProcessingStage` in
+  `nemo_curator/stages/<modality>/<area>/`. Auto-registered by
+  `StageMeta`.
+- Custom tasks: subclass `Task[T]` in `nemo_curator/tasks/`.
+- Custom executors: subclass `BaseExecutor` in
+  `nemo_curator/backends/<name>/` with a matching `BaseStageAdapter`.
+- Composite stages: `CompositeStage` in `nemo_curator/stages/base.py`.
+- Per-modality patterns documented in
+  `.cursor/rules/modality-structure.mdc`,
+  `.cursor/rules/processing-stage-patterns.mdc`.
+
+## Done Criteria
+
+- `pytest` (and `pytest -m gpu` for GPU branches), ruff lint/format,
+  and `pre-commit run --all-files` clean.
+- `uv.lock` in sync if `pyproject.toml` changed.
+- Docs changes land in `fern/` (not `docs/`). `CHANGELOG.md` updated
+  for user-visible behavior. Release notes in `fern/` only.
+- Tutorials / `quickstart.py` updated when public surface changes, or
+  an explicit `no-impact: <reason>` note.
+- Benchmark notes for perf-sensitive changes; inference-bearing
+  changes carry model + serving-stack + hardware context.
+- Every accepted steward finding has proof or an explicit no-impact
+  note. Factual P0/P1 findings carry verification status.
+- For doc-shaped PRs: a Content Audit ran; accepted P0s were
+  globally grep-swept.
+- Agent-facing artifact changes record source docs, owner, review
+  trigger, and docs-first evaluation.
+- Commits signed and signed-off (`-sS`).
+
+PR descriptions should flag: convergent findings, unverified factual
+findings, signal/noise breaches, governance exceptions, CODEOWNERS
+gaps, docs-first evaluation gaps for new agent artifacts, deferred /
+not-now findings.

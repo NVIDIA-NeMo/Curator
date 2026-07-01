@@ -10,6 +10,7 @@ tests/stages/deduplication/ @ayushdg @praateekmahajan
 
 # Documentation
 docs/ @NVIDIA-NeMo/docs_team
+fern/ @NVIDIA-NeMo/docs_team
 
 # CI/CD and Build Configuration
 .github/ @NVIDIA-NeMo/automation
