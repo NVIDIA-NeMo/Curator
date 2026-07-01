@@ -24,7 +24,7 @@ Use this checklist to update applications and pipeline configuration for NeMo Cu
 | Stage workers | Move executor sizing to `with_(num_workers=...)` where appropriate | Custom scheduling and tutorial code |
 | Audio dependencies | Account for missing `nemo_text_processing` on aarch64 and macOS | Audio pipelines using ITN or WER stages |
 | Video dependencies | Install FlashAttention explicitly only if custom code imports it | Custom video environments |
-| Resumability | Remove unreleased checkpoint configuration | Code written against PR #2033 |
+| Resumability | Start Ray first and pass a local `checkpoint_path` only to resumability-safe pipelines | Long-running Ray pipelines |
 
 ## 1. Upgrade Python
 
@@ -202,20 +202,40 @@ If they require `nemo_text_processing` in your pipeline, run that portion on a s
 
 In [#2107](https://github.com/NVIDIA-NeMo/Curator/pull/2107), NeMo Curator removed the direct `flash-attn<=2.8.3` pin from `video_cuda12`, the lock file, and related Docker build handling. The built-in video stack should run with its declared dependencies. If your own model or stage imports `flash_attn`, install a version compatible with your CUDA, PyTorch, compiler, and architecture instead of relying on the Curator extra.
 
-## 8. Remove Unreleased Checkpoint Configuration
+## 8. Configure Pipeline Resumability
 
-<Warning>
-Pipeline checkpoint and resume support proposed in [#2033](https://github.com/NVIDIA-NeMo/Curator/pull/2033) is not part of 26.06. That PR merged into a feature branch, not `main`.
-</Warning>
+NeMo Curator 26.06 includes source-level counter checkpointing from [#2063](https://github.com/NVIDIA-NeMo/Curator/pull/2063). On rerun, it skips source partitions whose downstream work completed and retries sources with unfinished or failed branches.
 
-The 26.06 API does not support this proposed call:
+Start the Ray cluster before running the pipeline, then pass a local directory to `checkpoint_path`:
 
 ```python
-# Not available in 26.06
-pipeline.run(checkpoint_path="/shared/checkpoints/pipeline.lmdb")
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.core.client import RayClient
+
+client = RayClient()
+client.start()
+executor = RayDataExecutor()
+
+try:
+    results = pipeline.run(
+        executor=executor,
+        checkpoint_path="/shared/checkpoints/my_pipeline",
+    )
+finally:
+    client.stop()
 ```
 
-Remove `checkpoint_path`, LMDB task metadata assumptions, and references to the proposed `NoneTask` or `FailedTask` sentinels. Use the released `Pipeline.run()` signature and `EmptyTask()` until resumability lands on `main`.
+Follow these constraints:
+
+- `checkpoint_path` must be a local or shared filesystem directory, not an object-store or cloud URI. State is written under `.nemo_curator_metadata`.
+- A Ray cluster must already be running and discoverable through `RAY_ADDRESS`. `RayClient().start()` or the SLURM Ray client establishes it.
+- Every stage must have `is_resumable=True`. `Pipeline.run()` fails before execution if any stage is marked unsafe; do not override the flag until you have verified the stage's input-to-output mapping.
+- Multiple runs, including SLURM array shards, can share the directory because each writer owns a separate LMDB file.
+- Keep the checkpoint directory between attempts. Delete it only when intentionally starting the pipeline from scratch.
+
+`NoneTask` and `FailedTask` are now released sentinel classes used by the resumability layer. A returned `None` becomes `NoneTask` and consumes that branch. `FailedTask` leaves the source pending so it is retried. Most user stages should continue returning their normal task type or `None` rather than constructing these markers directly.
+
+See [Resumable Processing](/reference/infra/resumable-processing) for the full execution model and supported patterns.
 
 ## 9. Run Post-Upgrade Checks
 
@@ -228,7 +248,7 @@ Use a representative subset rather than a synthetic no-op pipeline. Confirm all 
 - Ray Data and Xenna schedule the intended number of workers.
 - aarch64 jobs do not import unavailable audio text-processing stages.
 - Custom video code does not assume FlashAttention was installed by `video_cuda12`.
-- Pipeline calls contain no unreleased `checkpoint_path` argument.
+- Resumable runs use a pre-existing Ray cluster, a persistent local checkpoint directory, and only resumability-safe stages.
 - Output manifests, metrics, and retry behavior match the previous production baseline.
 
 For backend-specific validation, see [Execution Backends](/reference/infra/execution-backends).
