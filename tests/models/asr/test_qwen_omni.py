@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -38,6 +39,11 @@ def test_qwen_adapter_conforms_to_asr_protocol() -> None:
     """QwenOmniASRAdapter satisfies the ASRAdapter contract (requires @runtime_checkable)."""
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
     assert isinstance(adapter, ASRAdapter)
+
+
+def test_qwen_adapter_default_prompt_matches_official_asr_prompt() -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
+    assert adapter.prompt_text == "Transcribe the audio into text."
 
 
 # ----------------------------------------------------------------------
@@ -286,6 +292,7 @@ def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
     )
     fake_llm = MagicMock()
     fake_processor = MagicMock()
+    fake_processor.tokenizer.eos_token_id = 151645
     with (
         patch("nemo_curator.models.asr.qwen_omni.VLLM_AVAILABLE", new=True),
         patch("nemo_curator.models.asr.qwen_omni.process_mm_info", MagicMock()),
@@ -294,7 +301,7 @@ def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
             "nemo_curator.models.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
             return_value=fake_processor,
         ),
-        patch("nemo_curator.models.vllm_model.SamplingParams"),
+        patch("nemo_curator.models.vllm_model.SamplingParams") as sampling_ctor,
     ):
         adapter.setup()
 
@@ -306,6 +313,23 @@ def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
     assert kwargs["max_num_batched_tokens"] == 49152
     assert kwargs["seed"] == 42
     assert "revision" not in kwargs
+    sampling_ctor.assert_called_once_with(
+        temperature=0.0,
+        top_k=1,
+        max_tokens=256,
+        stop_token_ids=[151645],
+    )
+
+
+def test_qwen_adapter_setup_rejects_vllm_v1() -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", tensor_parallel_size=1)
+    with (
+        patch("nemo_curator.models.asr.qwen_omni.VLLM_AVAILABLE", new=True),
+        patch("nemo_curator.models.asr.qwen_omni.process_mm_info", MagicMock()),
+        patch.dict(os.environ, {"VLLM_USE_V1": "1"}),
+        pytest.raises(RuntimeError, match="requires VLLM_USE_V1=0"),
+    ):
+        adapter.setup()
 
 
 def test_qwen_adapter_setup_forwards_revision_to_llm_and_processor() -> None:
@@ -317,6 +341,7 @@ def test_qwen_adapter_setup_forwards_revision_to_llm_and_processor() -> None:
     )
     fake_llm = MagicMock()
     fake_processor = MagicMock()
+    fake_processor.tokenizer.eos_token_id = 151645
     with (
         patch("nemo_curator.models.asr.qwen_omni.VLLM_AVAILABLE", new=True),
         patch("nemo_curator.models.asr.qwen_omni.process_mm_info", MagicMock()),
