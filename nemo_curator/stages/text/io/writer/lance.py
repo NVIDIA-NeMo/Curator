@@ -70,11 +70,18 @@ class LanceWriter(ProcessingStage[DocumentBatch, FileGroupTask]):
     schema: pa.Schema | None = None
     write_kwargs: dict[str, Any] = field(default_factory=dict)
     fields: list[str] | None = None
+    enable_stable_row_ids: bool = False
     name: str = "lance_writer"
     mode: Literal["create", "append", "overwrite"] = "create"
 
     def __post_init__(self) -> None:
         self.write_kwargs = dict(self.write_kwargs or {})
+        if "enable_stable_row_ids" in self.write_kwargs:
+            msg = "Set enable_stable_row_ids on LanceWriter, not in write_kwargs"
+            raise ValueError(msg)
+        if self.enable_stable_row_ids and self.mode != "create":
+            msg = "enable_stable_row_ids requires mode='create' because Lance only enables it for new datasets"
+            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -112,6 +119,7 @@ class LanceWriter(ProcessingStage[DocumentBatch, FileGroupTask]):
                 "kind": "lance_write",
                 "dataset_path": self.path,
                 "mode": self.mode,
+                "enable_stable_row_ids": self.enable_stable_row_ids,
                 "task_id": task.task_id,
                 "fragment_index": index,
                 "schema": schema_to_json(schema),
@@ -349,15 +357,37 @@ def commit_lance_checkpoint(
 
     _validate_checkpoint_path(records, path)
     mode = str(_single_checkpoint_value(records, "mode", "write mode"))
+    stable_row_id_settings = {bool(record.get("enable_stable_row_ids", False)) for record in records}
+    if len(stable_row_id_settings) != 1:
+        msg = f"Expected one stable row ID setting; got {sorted(stable_row_id_settings)}"
+        raise ValueError(msg)
+    enable_stable_row_ids = next(iter(stable_row_id_settings))
     fragments = _decode_write_fragments(records)
     schema = fragments[0][1]
 
-    committer = LanceFragmentCommitter(path, schema=schema, mode=mode, storage_options=storage_options)
-    if mode == "append":
-        committer.on_write_start(schema)
-    fragment_payloads = [(pickle.dumps(fragment), pickle.dumps(schema)) for fragment, schema in fragments]
-    committer.on_write_complete([fragment_payloads])
-    version = lance.dataset(path, storage_options=storage_options).version
+    if enable_stable_row_ids:
+        if mode != "create":
+            msg = "Stable row IDs can only be enabled while creating a new Lance dataset"
+            raise ValueError(msg)
+        operation = lance.LanceOperation.Overwrite(schema, [fragment for fragment, _ in fragments])
+        lance.LanceDataset.commit(
+            path,
+            operation,
+            read_version=0,
+            storage_options=storage_options,
+            enable_stable_row_ids=True,
+        )
+    else:
+        committer = LanceFragmentCommitter(path, schema=schema, mode=mode, storage_options=storage_options)
+        if mode == "append":
+            committer.on_write_start(schema)
+        fragment_payloads = [(pickle.dumps(fragment), pickle.dumps(schema)) for fragment, schema in fragments]
+        committer.on_write_complete([fragment_payloads])
+    dataset = lance.dataset(path, storage_options=storage_options)
+    if enable_stable_row_ids and not dataset.has_stable_row_ids:
+        msg = "Lance commit completed without enabling stable row IDs"
+        raise RuntimeError(msg)
+    version = dataset.version
     write_lance_checkpoint_marker(commit_path, version, checkpoint_storage_options)
     return version
 

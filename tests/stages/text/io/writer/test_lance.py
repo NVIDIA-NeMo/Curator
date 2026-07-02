@@ -117,6 +117,27 @@ def test_lance_writer_checkpoint_commit_retry_and_blobs(tmp_path: Path):
     _assert_blob_dataset(output_path, version)
 
 
+def test_lance_writer_enables_stable_row_ids(tmp_path: Path):
+    import lance
+
+    output_path = tmp_path / "stable.lance"
+    commit_path = tmp_path / "stable_commit"
+    batch = DocumentBatch(dataset_name="docs", data=_blob_table())
+    batch._set_task_id("0", "stable")
+
+    LanceWriter(
+        path=str(output_path),
+        commit_path=str(commit_path),
+        schema=_blob_schema(),
+        enable_stable_row_ids=True,
+        write_kwargs={"max_rows_per_file": 2, "data_storage_version": "2.2"},
+    ).process(batch)
+
+    version = commit_lance_checkpoint(str(output_path), str(commit_path))
+    dataset = lance.dataset(str(output_path), version=version)
+    assert dataset.has_stable_row_ids
+
+
 def test_lance_writer_preserves_reader_blob_columns_without_explicit_schema(tmp_path: Path):
     source_path = tmp_path / "source.lance"
     output_path = tmp_path / "out.lance"
