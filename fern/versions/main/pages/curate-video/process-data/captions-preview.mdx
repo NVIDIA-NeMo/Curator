@@ -283,4 +283,8 @@ Refer to Save & Export for directory structure and file locations: [Save & Expor
 - If you observe warnings about low frame rate or height, consider lowering `target_fps` or `target_height` to better match inputs.
 - On encoding errors, check logs for the `ffmpeg` command and output to diagnose missing encoders.
 
+## Evaluate Caption Quality
+
+After generating captions, use the [Video Caption Quality Evaluation](/curate-video/process-data/caption-evaluation) workflow to build a fixed benchmark and compare caption-to-video alignment across models with Summarize-then-Align and CosmosEmbed1.
+
 {/* end */}

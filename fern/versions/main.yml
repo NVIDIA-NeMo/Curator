@@ -441,6 +441,9 @@ navigation:
               - page: Captions Preview
                 path: ./main/pages/curate-video/process-data/captions-preview.mdx
                 slug: captions-preview
+              - page: Caption Quality Evaluation
+                path: ./main/pages/curate-video/process-data/caption-evaluation.mdx
+                slug: caption-evaluation
           - page: Save and Export
             path: ./main/pages/curate-video/save-export.mdx
             slug: save-export
