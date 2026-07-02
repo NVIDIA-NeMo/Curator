@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnifuse-curator-tutorial"
+version = "0.1.0"
+description = "Standalone NeMo Curator tutorial for Omni-Fuse multimodal data curation."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "nemo-curator>=1.1.0,<2",
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "requests>=2.31",
+    "spacy>=3.8.14,<4",
+    "torch>=2.2",
+    "accelerate>=0.26",
+    "einops>=0.6",
+    "easydict>=1.13",
+    "huggingface_hub>=0.25",
+    "ffmpeg-python",
+    "future",
+    "fvcore",
+    "lighthouse @ git+https://github.com/line/lighthouse.git",
+    "librosa>=0.10,<0.12",
+    "msclap",
+    "nvidia-ml-py>=12",
+    "opencv-python>=4,<5",
+    "Pillow>=10,<12",
+    "qwen-vl-utils>=0.0.8",
+    "sentence-transformers>=2.2,<4",
+    "soundfile>=0.12",
+    "torchlibrosa",
+    "torchcodec",
+    "clip @ git+https://github.com/openai/CLIP.git",
+    "torchaudio>=2.2",
+    "torchvision>=0.17",
+    "transformers>=4.57,<5",
+    "en-core-web-sm",
+    "peft>=0.19.1",
+    "decord>=0.6.0",
+    "pytorchvideo>=0.1.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv]
+override-dependencies = [
+    "numpy>=1.26",
+    "transformers>=4.57,<5",
+]
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
+
+[tool.setuptools]
+py-modules = []
+
+[tool.ruff]
+extend = "../../../pyproject.toml"
+
+[tool.ruff.lint]
+extend-ignore = [
+    "ANN401",  # Tutorial glue handles dynamic Curator, torch, and model objects.
+    "ARG002",
+    "ARG005",
+    "B904",
+    "B905",
+    "BLE001",
+    "C901",
+    "EM101",
+    "EM102",
+    "F401",
+    "N801",
+    "N812",
+    "NPY002",
+    "PLR0911",
+    "PLR0912",
+    "PLR0913",
+    "PLR0915",
+    "PLR2004",
+    "PLW0603",
+    "RUF012",
+    "RUF034",
+    "S110",
+    "SIM102",
+    "SIM108",
+    "SIM115",
+    "TC001",
+    "TC002",
+    "TRY004",
+    "TRY300",
+]
