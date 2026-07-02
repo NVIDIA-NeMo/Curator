@@ -28,7 +28,7 @@ class AudioTask(Task[dict]):
 
     dataset_name: str
     data: dict  # _AttrDict subclass — supports attribute-style access
-    # task_id is inherited from Task and is framework-owned.
+    # task_id is inherited from Task with init=False.
 ```
 
 ## Audio Manifest Format

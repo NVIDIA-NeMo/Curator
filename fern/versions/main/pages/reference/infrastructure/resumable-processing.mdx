@@ -155,7 +155,7 @@ Keep checkpoint metadata until you have validated the output. After a successful
 
 - `EmptyTask()` is a class instance with root ID `"0"`. It replaces the former shared `EmptyTask` singleton pattern.
 - Source outputs use `Task.get_deterministic_id()` when the task type implements it. `FileGroupTask` hashes its sorted paths, which keeps unchanged file groups stable if other groups are added or removed.
-- A custom source task's deterministic ID must be stable, unique within the source, and should not contain underscores. Resumability uses the final underscore-separated lineage segment as the source ID.
+- A custom source task's deterministic ID must be stable, unique within the source, and must not contain underscores. Resumability uses the final underscore-separated lineage segment as the source ID, so underscores can make distinct sources collide during checkpoint lookup.
 - Otherwise, a source output uses its position. Reordering positional sources can make a checkpoint refer to different work.
 - One-to-one results inherit their positional parent and append `0`.
 - A single input can fan out deterministically; child positions are appended.
@@ -197,7 +197,9 @@ from nemo_curator.tasks import FailedTask
 
 def process(self, task: DocumentBatch) -> DocumentBatch | FailedTask:
     try:
+        # Replace with the external call used by your stage.
         return call_external_service(task)
+    # Replace TemporaryError with the recoverable exception raised by your service.
     except TemporaryError:
         return FailedTask()
 ```
