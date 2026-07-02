@@ -32,7 +32,7 @@ import pandas as pd
 data = pd.DataFrame({
     "text": ["This is high quality text.", "Poor quality text here."]
 })
-batch = DocumentBatch(data=data, task_id="test_task", dataset_name="test_dataset")
+batch = DocumentBatch(data=data, dataset_name="test_dataset")
 
 # Set up GPU-accelerated classifier
 classifier = QualityClassifier(

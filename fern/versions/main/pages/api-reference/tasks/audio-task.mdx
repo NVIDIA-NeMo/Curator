@@ -21,14 +21,14 @@ class AudioTask(Task[dict]):
     """Task containing a single audio manifest entry for processing.
 
     Attributes:
-        task_id: Unique identifier for this task.
+        task_id: Framework-managed deterministic lineage identifier.
         dataset_name: Name of the source dataset.
         data: Audio manifest entry (single dict, stored as _AttrDict).
     """
 
-    task_id: str
     dataset_name: str
     data: dict  # _AttrDict subclass — supports attribute-style access
+    # task_id is inherited from Task with init=False.
 ```
 
 ## Audio Manifest Format
@@ -67,7 +67,6 @@ from nemo_curator.tasks import AudioTask
 
 # Single manifest entry
 task = AudioTask(
-    task_id="audio_001",
     dataset_name="speech_dataset",
     data={
         "audio_filepath": "/data/audio/sample.wav",
@@ -80,6 +79,8 @@ task = AudioTask(
 task.data["audio_filepath"]   # "/data/audio/sample.wav"
 task.data.audio_filepath      # "/data/audio/sample.wav"
 ```
+
+Do not pass or derive `task_id`. Treat it as read-only even when working with a task subclass that exposes a compatibility default; the adapter overwrites it with framework lineage at the next stage boundary.
 
 ## Usage in Stages
 
