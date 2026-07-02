@@ -1,0 +1,314 @@
+---
+description: "Migration checklist for upgrading NeMo Curator pipelines to 26.06 (v1.3.0)"
+categories: ["reference", "how-to"]
+tags: ["migration", "upgrade", "26.06", "v1.3.0"]
+personas: ["data-scientist-focused", "mle-focused", "admin-focused", "devops-focused"]
+difficulty: "intermediate"
+content_type: "how-to"
+modality: "universal"
+---
+
+# Migrate to NeMo Curator 26.06
+
+Use this checklist to update applications and pipeline configuration for NeMo Curator 26.06 (v1.3.0). For the complete feature and fix list, see the [26.06 release notes](/about/release-notes).
+
+## Migration at a Glance
+
+| Area | Required action | Affected users |
+| --- | --- | --- |
+| Python | Move to Python 3.11, 3.12, or 3.13 | Everyone |
+| Task IDs | Stop passing or assigning `task_id` | Custom tasks, readers, and stages |
+| Sentinels | Instantiate `EmptyTask()` and use `isinstance` | Pipelines with explicit empty inputs or sentinel checks |
+| Video preprocessing | Remove `model_does_preprocess` | Video caption pipelines and CLIs |
+| Video caption variants | Replace `qwen` with `qwen2.5` or `qwen3` | Video caption and enhancement pipelines |
+| Inference server | Replace `InferenceModelConfig` with a typed Ray Serve or Dynamo configuration | Pipelines that serve local LLMs |
+| Audio ASR workers | Rename `num_workers` to `dataloader_num_workers` | ASR and alignment stages |
+| Stage workers | Move executor sizing to `with_(num_workers=...)` where appropriate | Custom scheduling and tutorial code |
+| Audio dependencies | Account for missing `nemo_text_processing` on aarch64 and macOS | Audio pipelines using ITN or WER stages |
+| Video dependencies | Install FlashAttention explicitly only if custom code imports it | Custom video environments |
+| Resumability | Start Ray first and pass a local `checkpoint_path` only to resumability-safe pipelines | Long-running Ray pipelines |
+
+## 1. Upgrade Python
+
+NeMo Curator 26.06 requires Python 3.11 or later and supports Python versions below 3.14. Recreate the environment instead of upgrading Python in place, then install only the extras your pipeline uses.
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install "nemo-curator[all]"
+```
+
+Replace `all` with a narrower modality extra when possible.
+
+## 2. Stop Supplying `task_id`
+
+`Task.task_id` is framework-owned in 26.06. It has `init=False`, so passing it to a task constructor raises an error. NeMo Curator assigns IDs at every stage boundary and preserves deterministic lineage for supported one-to-one, one-to-many, and positionally aligned many-to-many mappings. Ambiguous M-to-K mappings receive a random ID prefixed with `r`.
+
+Before:
+
+```python
+batch = DocumentBatch(
+    task_id="batch-0001",
+    dataset_name="training",
+    data=documents,
+)
+```
+
+After:
+
+```python
+batch = DocumentBatch(
+    dataset_name="training",
+    data=documents,
+)
+
+results = pipeline.run(initial_tasks=[batch])
+print(results[0].task_id)
+```
+
+Do not assign `task_id` inside a custom stage. If you need a durable business identifier, store it in the task payload or metadata and treat `task_id` as execution lineage.
+
+This change was introduced in [#2036](https://github.com/NVIDIA-NeMo/Curator/pull/2036), with stale tutorial constructors removed in [#2058](https://github.com/NVIDIA-NeMo/Curator/pull/2058).
+
+## 3. Instantiate Sentinel Tasks
+
+`EmptyTask` is now a class derived from the payloadless `SentinelTask` base. Construct it like any other task and use type checks instead of object identity.
+
+Before:
+
+```python
+results = pipeline.run(initial_tasks=[EmptyTask])
+
+if task is EmptyTask:
+    return task
+```
+
+After:
+
+```python
+from nemo_curator.tasks.sentinels import EmptyTask
+
+results = pipeline.run(initial_tasks=[EmptyTask()])
+
+if isinstance(task, EmptyTask):
+    return task
+```
+
+When `initial_tasks` is omitted, `Pipeline.run()` normally creates the empty starting task for you. The class conversion and follow-up fixes landed in [#2062](https://github.com/NVIDIA-NeMo/Curator/pull/2062) and [#2070](https://github.com/NVIDIA-NeMo/Curator/pull/2070).
+
+## 4. Remove the Video Model Preprocessing Option
+
+Video caption models now use their vLLM or Hugging Face preprocessing path. The following interfaces no longer accept `model_does_preprocess`:
+
+- `CaptionPreparationStage`
+- `CaptionGenerationStage`
+- `QwenVL`
+- `split_video_into_windows`
+- The `--captioning-model-does-preprocess` CLI option
+
+Before:
+
+```python
+model = QwenVL(
+    model_dir="/models",
+    model_variant="qwen2.5",
+    caption_batch_size=8,
+    model_does_preprocess=True,
+)
+```
+
+After:
+
+```python
+model = QwenVL(
+    model_dir="/models",
+    model_variant="qwen2.5",
+    caption_batch_size=8,
+)
+```
+
+Remove the CLI flag from shell scripts and job templates. Keep `preprocess_dtype` when you need to control preprocessing precision. `QwenVL` rejects the retired keyword with a targeted error instead of silently forwarding it to vLLM. See [#2109](https://github.com/NVIDIA-NeMo/Curator/pull/2109).
+
+## 5. Replace the Unversioned Video Caption Variant
+
+The unversioned `qwen` caption model variant is no longer accepted. Select the version explicitly in both preparation and generation so the prepared-input and caption keys continue to match.
+
+Before:
+
+```python
+CaptionPreparationStage(model_variant="qwen")
+CaptionGenerationStage(model_variant="qwen")
+```
+
+After, preserving the previous Qwen2.5 behavior:
+
+```python
+CaptionPreparationStage(model_variant="qwen2.5")
+CaptionGenerationStage(model_variant="qwen2.5")
+```
+
+For the example CLI, replace `--captioning-algorithm qwen` with `--captioning-algorithm qwen2.5`. To adopt Qwen3-VL instead, use `qwen3` consistently. If `CaptionEnhancementStage` reads the earlier caption, update its `captioning_model_variant` to the same value. See [Captions and Preview](/curate-video/process-data/captions-preview) for all supported Qwen and Nemotron variants.
+
+## 6. Replace `InferenceModelConfig`
+
+`InferenceModelConfig` was replaced by typed model and backend configuration. Existing Ray Serve deployments should use `RayServeModelConfig`:
+
+```python
+from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
+
+model = RayServeModelConfig(
+    model_identifier="google/gemma-3-27b-it",
+    deployment_config={
+        "autoscaling_config": {"min_replicas": 1, "max_replicas": 1},
+    },
+    engine_kwargs={"tensor_parallel_size": 4},
+)
+server = InferenceServer(models=[model])
+```
+
+To use NVIDIA Dynamo instead, configure the model and backend separately:
+
+```python
+from nemo_curator.core.serve import (
+    DynamoServerConfig,
+    DynamoVLLMModelConfig,
+    InferenceServer,
+)
+
+model = DynamoVLLMModelConfig(
+    model_identifier="google/gemma-3-27b-it",
+    num_replicas=1,
+    engine_kwargs={"tensor_parallel_size": 4},
+)
+server = InferenceServer(models=[model], backend=DynamoServerConfig())
+```
+
+Do not pass Ray Serve's `deployment_config` to `DynamoVLLMModelConfig`. Use `num_replicas` for aggregated serving or configure the Dynamo prefill and decode roles for disaggregated serving. See [Inference Server](/curate-text/synthetic/inference-server) for the backend decision and complete configuration reference.
+
+## 7. Separate ASR DataLoader Workers from Stage Workers
+
+In audio ASR stages, the old `num_workers` constructor argument is now `dataloader_num_workers`. The default remains 10. The `num_workers` name is reserved for backend execution workers and is set with `with_()`.
+
+Before:
+
+```python
+aligner = NeMoASRAlignerStage(
+    model_name="nvidia/parakeet-tdt-0.6b-v2",
+    num_workers=4,
+)
+```
+
+After:
+
+```python
+aligner = NeMoASRAlignerStage(
+    model_name="nvidia/parakeet-tdt-0.6b-v2",
+    dataloader_num_workers=4,
+).with_(num_workers=2)
+```
+
+The same rename applies to stages derived from `BaseASRProcessorStage`. The two values control different layers:
+
+- `dataloader_num_workers` controls loading within each ASR stage worker.
+- `.with_(num_workers=...)` controls how many stage workers the backend schedules.
+
+See [#2086](https://github.com/NVIDIA-NeMo/Curator/pull/2086) and [Stage worker sizing](/reference/infra/stage-worker-sizing).
+
+## 8. Normalize Custom Stage Scheduling
+
+Review custom `ray_stage_spec()` and `xenna_stage_spec()` methods after the scheduling changes in [#2077](https://github.com/NVIDIA-NeMo/Curator/pull/2077) and [#2086](https://github.com/NVIDIA-NeMo/Curator/pull/2086).
+
+For a per-pipeline fixed worker override, prefer:
+
+```python
+stage = MyProcessingStage(...).with_(num_workers=4)
+```
+
+Use stage specifications when the class itself needs a reusable scheduling policy:
+
+- `ActorPoolStrategy` or `TaskPoolStrategy` for fixed Ray Data workers.
+- Minimum, maximum, and initial sizes for an autoscaling actor pool.
+- Xenna `Resources` for per-worker computation and memory requirements.
+- Per-node resources only for work that truly consumes node-scoped capacity.
+
+Do not copy a Xenna-only `num_workers` dictionary into all backends. The NDD tutorial correction in [#2104](https://github.com/NVIDIA-NeMo/Curator/pull/2104) is a representative migration.
+
+## 9. Review Architecture-Specific Dependencies
+
+### Dependency Matrix
+
+| Dependency | x86_64 Linux | aarch64 Linux | macOS | Migration |
+| --- | --- | --- | --- | --- |
+| `nemo_text_processing` from audio extras | Installed | Not installed | Not installed | Omit dependent stages or provide a separately supported environment |
+| `flash-attn` from `video_cuda12` | Not installed directly | Not installed directly | Not installed directly | Install a compatible build only when custom code imports it |
+
+### Audio Text Processing
+
+In [#2049](https://github.com/NVIDIA-NeMo/Curator/pull/2049), the audio dependency marker for `nemo_text_processing` was limited to x86_64 non-macOS systems because `pynini` wheels are unavailable on the other supported platforms.
+
+On aarch64 or macOS, audit imports of stages such as:
+
+```python
+from nemo_curator.stages.audio.tagging import InverseTextNormalizationStage
+from nemo_curator.stages.audio.metrics import ComputeWERStage
+```
+
+If they require `nemo_text_processing` in your pipeline, run that portion on a supported x86_64 environment or replace the stage. Installing the audio extra alone no longer makes those imports available on aarch64.
+
+### FlashAttention
+
+In [#2107](https://github.com/NVIDIA-NeMo/Curator/pull/2107), NeMo Curator removed the direct `flash-attn<=2.8.3` pin from `video_cuda12`, the lock file, and related Docker build handling. The built-in video stack should run with its declared dependencies. If your own model or stage imports `flash_attn`, install a version compatible with your CUDA, PyTorch, compiler, and architecture instead of relying on the Curator extra.
+
+## 10. Configure Pipeline Resumability
+
+NeMo Curator 26.06 includes source-level counter checkpointing from [#2063](https://github.com/NVIDIA-NeMo/Curator/pull/2063). On rerun, it skips source partitions whose downstream work completed and retries sources with unfinished or failed branches.
+
+Start the Ray cluster before running the pipeline, then pass a local directory to `checkpoint_path`:
+
+```python
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.core.client import RayClient
+
+client = RayClient()
+client.start()
+executor = RayDataExecutor()
+
+try:
+    results = pipeline.run(
+        executor=executor,
+        checkpoint_path="/shared/checkpoints/my_pipeline",
+    )
+finally:
+    client.stop()
+```
+
+Follow these constraints:
+
+- `checkpoint_path` must be a local or shared filesystem directory, not an object-store or cloud URI. State is written under `.nemo_curator_metadata`.
+- A Ray cluster must already be running and discoverable through `RAY_ADDRESS`. `RayClient().start()` or the SLURM Ray client establishes it.
+- Every stage must have `is_resumable=True`. `Pipeline.run()` fails before execution if any stage is marked unsafe; do not override the flag until you have verified the stage's input-to-output mapping.
+- Multiple runs, including SLURM array shards, can share the directory because each writer owns a separate LMDB file.
+- Keep the checkpoint directory between attempts. Delete it only when intentionally starting the pipeline from scratch.
+
+`NoneTask` and `FailedTask` are now released sentinel classes used by the resumability layer. A returned `None` becomes `NoneTask` and consumes that branch. `FailedTask` leaves the source pending so it is retried. Most user stages should continue returning their normal task type or `None` rather than constructing these markers directly.
+
+See [Resumable Processing](/reference/infra/resumable-processing) for the full execution model and supported patterns.
+
+## 11. Run Post-Upgrade Checks
+
+Use a representative subset rather than a synthetic no-op pipeline. Confirm all of the following:
+
+- Task constructors do not receive `task_id`, and returned task IDs are populated.
+- Explicit empty inputs use `EmptyTask()`.
+- Video commands contain no `model_does_preprocess` option.
+- Video caption stages use an explicit, matching model variant rather than `qwen`.
+- Inference servers use `RayServeModelConfig` or an explicit Dynamo model and server configuration.
+- ASR constructors use `dataloader_num_workers`; stage concurrency is configured separately.
+- Ray Data and Xenna schedule the intended number of workers.
+- aarch64 jobs do not import unavailable audio text-processing stages.
+- Custom video code does not assume FlashAttention was installed by `video_cuda12`.
+- Resumable runs use a pre-existing Ray cluster, a persistent local checkpoint directory, and only resumability-safe stages.
+- Output manifests, metrics, and retry behavior match the previous production baseline.
+
+For backend-specific validation, see [Execution Backends](/reference/infra/execution-backends).
