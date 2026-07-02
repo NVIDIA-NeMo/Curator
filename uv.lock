@@ -4010,6 +4010,52 @@ wheels = [
 ]
 
 [[package]]
+name = "lance-namespace"
+version = "0.7.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lance-namespace-urllib3-client" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/06/5c/9822af615fc1bd3ee1073994696c739aecde377be32435ec3303aed1bc5d/lance_namespace-0.7.7.tar.gz", hash = "sha256:d00b525f2e26993a6c61668e798bca6c808605ab8a79f29f86a1a1af92d91ae2", size = 10754, upload-time = "2026-05-20T17:32:59.45Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/11/43/186acc1156da20c351db196e2b6241b2453b16dc1b4cc8e0a626667ca471/lance_namespace-0.7.7-py3-none-any.whl", hash = "sha256:477a7ca6b5e1f673a2c9ba52f42d6e8e3ff7c27a601392a21eb90fba98d0309b", size = 12581, upload-time = "2026-05-20T17:32:57.389Z" },
+]
+
+[[package]]
+name = "lance-namespace-urllib3-client"
+version = "0.7.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "python-dateutil" },
+    { name = "typing-extensions" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/07/95/38ab81ccc1e09beeecd8ddfc61b8bc73831dc5053db1e3f9021f64a4896b/lance_namespace_urllib3_client-0.7.7.tar.gz", hash = "sha256:4d8c066628c17c6a10cf643b51a7f7ae1bfb8a614d9cc54a5af38a4ba2b4b102", size = 202930, upload-time = "2026-05-20T17:32:58.308Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/35/96/5483e48e40433b1d078183c15a92c99e59a156041b0260e7f18ee34e7c08/lance_namespace_urllib3_client-0.7.7-py3-none-any.whl", hash = "sha256:9221c3e00fd89f0c811953d94b32d2ea527765280460a174f5872dc8a74c0ed6", size = 334767, upload-time = "2026-05-20T17:32:55.883Z" },
+]
+
+[[package]]
+name = "lance-ray"
+version = "0.4.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lance-namespace" },
+    { name = "more-itertools", marker = "python_full_version < '3.12'" },
+    { name = "packaging" },
+    { name = "pyarrow" },
+    { name = "pylance" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ray", extra = ["data"] },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/6d/5d7047d6680bb71e5f1d83342fb58c6b7b376ea8ba30142fe9771d2d657f/lance_ray-0.4.2.tar.gz", hash = "sha256:c1d32ca787b29e1efc41d68d5802ead6229371e680d7135fa52f2f4f2f011d0c", size = 60459, upload-time = "2026-05-12T03:37:32.619Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2c/b8/4b993529f2d5d90a30ab9373254081723b9ad9e2caa9bd359b78a34f7243/lance_ray-0.4.2-py3-none-any.whl", hash = "sha256:aed853718177783a371788fba4a0bfd84621ae577665f1fc9c359fc4a541863e", size = 42869, upload-time = "2026-05-12T03:37:31.502Z" },
+]
+
+[[package]]
 name = "lark"
 version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -5114,6 +5160,7 @@ all = [
     { name = "gpustat" },
     { name = "iso639-lang" },
     { name = "justext" },
+    { name = "lance-ray" },
     { name = "librosa" },
     { name = "lxml" },
     { name = "matplotlib" },
@@ -5291,6 +5338,9 @@ interleaved-cuda12 = [
     { name = "s3fs" },
     { name = "timm" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+]
+lance = [
+    { name = "lance-ray" },
 ]
 math-cpu = [
     { name = "beautifulsoup4" },
@@ -5517,6 +5567,7 @@ requires-dist = [
     { name = "iso639-lang", marker = "extra == 'translation-common'", specifier = ">=2.6.0" },
     { name = "jieba", specifier = "==0.42.1" },
     { name = "justext", marker = "extra == 'text-cpu'" },
+    { name = "lance-ray", marker = "extra == 'lance'", specifier = ">=0.4" },
     { name = "librosa", marker = "extra == 'audio-common'" },
     { name = "lmdb", specifier = ">=1.4" },
     { name = "loguru" },
@@ -5544,6 +5595,7 @@ requires-dist = [
     { name = "nemo-curator", extras = ["inference-server"], marker = "extra == 'sdg-cuda12'" },
     { name = "nemo-curator", extras = ["interleaved-cpu"], marker = "extra == 'interleaved-cuda12'" },
     { name = "nemo-curator", extras = ["interleaved-cuda12"], marker = "extra == 'all'" },
+    { name = "nemo-curator", extras = ["lance"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["math-cpu"], marker = "extra == 'math-cuda12'" },
     { name = "nemo-curator", extras = ["math-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["sdg-cpu"], marker = "extra == 'sdg-cuda12'" },
@@ -5641,7 +5693,7 @@ requires-dist = [
     { name = "warcio", marker = "extra == 'text-cpu'" },
     { name = "whisperx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'audio-common'", specifier = ">=3.8.4" },
 ]
-provides-extras = ["cuda12", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "translation-common", "translation-metrics", "translation-segmentation", "translation-aws", "translation-google", "translation-nmt", "translation-all", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "math-cpu", "math-cuda12", "interleaved-cpu", "interleaved-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
+provides-extras = ["cuda12", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "translation-common", "translation-metrics", "translation-segmentation", "translation-aws", "translation-google", "translation-nmt", "translation-all", "text-cpu", "lance", "text-cuda12", "video-cpu", "video-cuda12", "math-cpu", "math-cuda12", "interleaved-cpu", "interleaved-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
 
 [package.metadata.requires-dev]
 build = [
@@ -8239,6 +8291,24 @@ wheels = [
 [package.optional-dependencies]
 crypto = [
     { name = "cryptography" },
+]
+
+[[package]]
+name = "pylance"
+version = "7.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lance-namespace" },
+    { name = "numpy" },
+    { name = "pyarrow" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ac/ad/2f64921bf346e7075aef24a72595db44821724a3d89a9a92dd24e79632aa/pylance-7.0.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:98422021975be76e72b1572f41b8c9abb3bee5bdc9bfa5e9ce731110a65ed4d1", size = 62134146, upload-time = "2026-05-27T21:59:37.459Z" },
+    { url = "https://files.pythonhosted.org/packages/73/1c/c5a01bee0160b55d9a98895cbd33091d038f0a0995b121ab72e629008d02/pylance-7.0.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:4bec86ee5b6fbd8bfc493e653f0a1fba0303cfe5492b9b46fc25ab908edc7183", size = 65373684, upload-time = "2026-05-27T22:04:01.584Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/da/1fe8b8f7dbfe734d76af76acc994fc360a0d0c79a4874ef69f5a72a58fe3/pylance-7.0.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:881491432c53184e52f8d1db8d5f872f39a03f36fb104bec77b33d379519d8b5", size = 69458555, upload-time = "2026-05-27T22:16:50.567Z" },
+    { url = "https://files.pythonhosted.org/packages/76/f0/dd505cf3fd0226ab9d94759acd713125af1d3bfacfd80bbd52e3b9f89509/pylance-7.0.0-cp39-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:18453999e7fff4f76b16d6b7882c9df0628bd142ff95e2461bd7dd5ee3fe0af3", size = 65394430, upload-time = "2026-05-27T22:05:30.923Z" },
+    { url = "https://files.pythonhosted.org/packages/17/ba/2357b81034f28eb00790e258ed140289a6a887a7468ca9df6349fd186b27/pylance-7.0.0-cp39-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:04a58051d408c60fe76d41a220dcaf8fea8fb6d1aa0ca78a709b60bc3cc8d19a", size = 69473470, upload-time = "2026-05-27T22:17:18.935Z" },
+    { url = "https://files.pythonhosted.org/packages/1f/ec/5c00b6303a67d787f9475141832cbdc513d674ac3dcaeef8a7b169905e65/pylance-7.0.0-cp39-abi3-win_amd64.whl", hash = "sha256:467d4864af047eaab4e1370e2f1e88e2c6f507c079874421116cb41d78bc3629", size = 74792863, upload-time = "2026-05-27T22:19:23.875Z" },
 ]
 
 [[package]]
