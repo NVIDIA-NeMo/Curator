@@ -13,7 +13,7 @@ modality: "universal"
 NeMo Curator 26.06 expands text, audio, video, and synthetic-data curation, and makes pipeline resource configuration more consistent across execution backends.
 
 <Warning>
-**Python 3.11 or later is required.** NeMo Curator 26.06 supports Python 3.11 through 3.13. Before upgrading, review the [26.06 migration checklist](/about/release-notes/26-06-migration), especially framework-owned task IDs, sentinel task construction, pipeline resumability, the removed video preprocessing option, the audio ASR worker rename, and architecture-specific dependency changes. The Python range changed in [#1855](https://github.com/NVIDIA-NeMo/Curator/pull/1855).
+**Python 3.11 or later is required.** NeMo Curator 26.06 supports Python 3.11 through 3.13. Before upgrading, review the [26.06 migration checklist](/about/release-notes/26-06-migration), especially framework-owned task IDs, sentinel task construction, pipeline resumability, video caption variant names, typed inference-server configuration, the removed video preprocessing option, the audio ASR worker rename, and architecture-specific dependency changes. The Python range changed in [#1855](https://github.com/NVIDIA-NeMo/Curator/pull/1855).
 </Warning>
 
 ## What's New
@@ -69,6 +69,18 @@ The [caption evaluation workflow](/curate-video/process-data/caption-evaluation)
 <Note>
 The removed `--captioning-model-does-preprocess` option appears in an older benchmark README. Do not use it with 26.06; follow the [video preprocessing migration](/about/release-notes/26-06-migration#4-remove-the-video-model-preprocessing-option).
 </Note>
+
+### Expanded Video Caption Models
+
+Video captioning now supports Qwen2.5-VL, Qwen3-VL, NVIDIA Nemotron Nano 12B V2 VL in BF16, FP8, and NVFP4 variants, and Nemotron 3 Nano Omni ([#1827](https://github.com/NVIDIA-NeMo/Curator/pull/1827), [#1883](https://github.com/NVIDIA-NeMo/Curator/pull/1883)). The [captions and preview guide](/curate-video/process-data/captions-preview) provides the model matrix, precision behavior, preparation and generation controls, and second-pass refinement options.
+
+The unversioned `qwen` variant was removed. Existing pipelines must select `qwen2.5` to preserve the former behavior or choose `qwen3` explicitly; see the [caption variant migration](/about/release-notes/26-06-migration#5-replace-the-unversioned-video-caption-variant).
+
+### Typed Inference Server Backends
+
+`InferenceServer` now uses typed backend configuration for Ray Serve and NVIDIA Dynamo. Use `RayServeModelConfig` for Ray Serve, or combine `DynamoVLLMModelConfig` and `DynamoServerConfig` for aggregated or disaggregated Dynamo serving. The expanded [Inference Server guide](/curate-text/synthetic/inference-server) covers model replicas, routing, runtime environments, resource placement, HAProxy ingress, pipeline coexistence, and troubleshooting ([#1813](https://github.com/NVIDIA-NeMo/Curator/pull/1813), [#1820](https://github.com/NVIDIA-NeMo/Curator/pull/1820), [#1833](https://github.com/NVIDIA-NeMo/Curator/pull/1833), [#1834](https://github.com/NVIDIA-NeMo/Curator/pull/1834), [#1861](https://github.com/NVIDIA-NeMo/Curator/pull/1861), [#1895](https://github.com/NVIDIA-NeMo/Curator/pull/1895), [#1957](https://github.com/NVIDIA-NeMo/Curator/pull/1957)).
+
+`InferenceModelConfig` was removed. Migrate existing Ray Serve configuration to `RayServeModelConfig`, or select a Dynamo model and server configuration explicitly; see the [inference-server migration](/about/release-notes/26-06-migration#6-replace-inferencemodelconfig).
 
 ### Expanded Translation Controls
 
@@ -142,6 +154,8 @@ The [26.06 migration checklist](/about/release-notes/26-06-migration) provides b
 - **Framework-owned task IDs:** `Task.task_id` is no longer accepted by task constructors. Executors assign deterministic IDs at stage boundaries ([#2036](https://github.com/NVIDIA-NeMo/Curator/pull/2036), [#2058](https://github.com/NVIDIA-NeMo/Curator/pull/2058)).
 - **Sentinel task classes:** Construct empty sentinels with `EmptyTask()` and check them with `isinstance`. `SentinelTask` is the payloadless base class ([#2062](https://github.com/NVIDIA-NeMo/Curator/pull/2062), [#2070](https://github.com/NVIDIA-NeMo/Curator/pull/2070)).
 - **Video preprocessing option removed:** Remove `model_does_preprocess` and `--captioning-model-does-preprocess`; video models now use vLLM or Hugging Face preprocessing ([#2109](https://github.com/NVIDIA-NeMo/Curator/pull/2109)).
+- **Video caption variant renamed:** Replace the removed `qwen` variant with `qwen2.5` for equivalent behavior, or select `qwen3` explicitly ([#1827](https://github.com/NVIDIA-NeMo/Curator/pull/1827), [#1883](https://github.com/NVIDIA-NeMo/Curator/pull/1883)).
+- **Inference server configuration is typed:** Replace the removed `InferenceModelConfig` with `RayServeModelConfig` or Dynamo's `DynamoVLLMModelConfig` and `DynamoServerConfig`.
 - **Audio ASR worker rename:** Replace stage argument `num_workers` with `dataloader_num_workers`. `num_workers` is now reserved for execution-worker configuration through `with_()` ([#2086](https://github.com/NVIDIA-NeMo/Curator/pull/2086)).
 
 ## Dependency Changes
@@ -151,7 +165,7 @@ The [26.06 migration checklist](/about/release-notes/26-06-migration) provides b
 - **`nemo_text_processing` on Arm:** The audio extra installs `nemo_text_processing` on x86_64 Linux, but no longer installs it on aarch64 or macOS because its `pynini` dependency is not supported there. Audio stages that import it, including inverse text normalization and WER processing, must be omitted or supplied through a separately supported environment on those platforms ([#2049](https://github.com/NVIDIA-NeMo/Curator/pull/2049)).
 - **`flash-attn` is no longer a direct video dependency:** The `video_cuda12` extra no longer pins or installs `flash-attn`. Built-in video pipelines use their declared dependencies; custom code that imports FlashAttention must install a compatible build explicitly ([#2107](https://github.com/NVIDIA-NeMo/Curator/pull/2107)). This applies to both x86_64 and aarch64.
 
-See the [architecture dependency matrix](/about/release-notes/26-06-migration#7-review-architecture-specific-dependencies) for upgrade actions.
+See the [architecture dependency matrix](/about/release-notes/26-06-migration#9-review-architecture-specific-dependencies) for upgrade actions.
 
 ## Upgrade Checklist
 
