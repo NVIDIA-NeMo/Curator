@@ -43,7 +43,6 @@ class XennaExecutor(BaseExecutor):
 |--------|------|---------|-------------|
 | `logging_interval` | `int` | `60` | Seconds between progress logs |
 | `ignore_failures` | `bool` | `False` | Continue on task failures |
-| `max_workers_per_stage` | `int \| None` | `None` | Max workers per stage |
 | `execution_mode` | `str` | `"streaming"` | `"streaming"` or `"batch"` |
 | `cpu_allocation_percentage` | `float` | `0.95` | CPU allocation fraction |
 | `autoscale_interval_s` | `int` | `180` | Autoscaling check interval |
@@ -65,6 +64,45 @@ results = pipeline.run()
 executor = XennaExecutor()
 results = pipeline.run(executor=executor)
 ```
+
+### Per-Stage Worker Overrides
+
+Use `num_workers` for a cluster-wide count. To request workers per node instead, leave `num_workers` unset and configure only `num_workers_per_node`:
+
+```python
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import EmptyTask
+
+
+class PassthroughStage(ProcessingStage[EmptyTask, EmptyTask]):
+    name = "passthrough"
+    resources = Resources(cpus=1.0)
+
+    def process(self, task: EmptyTask) -> EmptyTask:
+        return task
+
+
+cluster_wide_stage = PassthroughStage().with_(
+    num_workers=12,
+    xenna_stage_spec={
+        "worker_max_lifetime_m": 45,
+    },
+)
+
+per_node_stage = PassthroughStage().with_(
+    num_workers=None,
+    xenna_stage_spec={
+        "num_workers_per_node": 2,
+    },
+)
+```
+
+<Warning>
+Do not set both worker controls. Do not place `num_workers` inside `xenna_stage_spec`; use `with_(num_workers=...)` or override the stage's `num_workers()` method.
+</Warning>
+
+See [Stage Worker Sizing](/reference/infra/stage-worker-sizing#xenna-worker-counts) for scope, invalid-combination behavior, and `with_()` merge semantics.
 
 ### Custom Configuration
 
