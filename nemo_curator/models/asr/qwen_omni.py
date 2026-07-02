@@ -27,7 +27,6 @@ pool, adapter protocol methods). Both turns share ``_infer_turn`` and
 
 from __future__ import annotations
 
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -39,12 +38,6 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
-
-# Qwen3-Omni's vLLM integration currently requires the V0 engine. Set the
-# supported default before importing vLLM through VLLMBase; reject an explicit
-# conflicting override in setup() instead of running with undefined behavior.
-os.environ.setdefault("VLLM_USE_V1", "0")
-
 from nemo_curator.models.vllm_model import VLLM_AVAILABLE, VLLMBase
 from nemo_curator.utils.gpu_utils import get_gpu_count
 
@@ -135,7 +128,7 @@ class QwenOmniASRAdapter(VLLMBase):
     model_id: str = _QWEN3_OMNI_MODEL_ID
     revision: str | None = None
 
-    prompt_text: str = "Transcribe the audio into text."
+    prompt_text: str = "Transcribe the audio."
     prompt_file: str | None = None
     en_prompt_text: str | None = None
     en_prompt_file: str | None = None
@@ -201,9 +194,6 @@ class QwenOmniASRAdapter(VLLMBase):
         if self._llm is not None:
             return
         _require_audio_qwen_stack(context="setup()")
-        if os.environ.get("VLLM_USE_V1") != "0":
-            msg = "QwenOmniASRAdapter requires VLLM_USE_V1=0"
-            raise RuntimeError(msg)
 
         tp_size = self.tensor_parallel_size or get_gpu_count()
         logger.info(
@@ -366,8 +356,8 @@ class QwenOmniASRAdapter(VLLMBase):
             {
                 "role": "user",
                 "content": [
-                    {"type": "audio", "audio": waveform},
                     {"type": "text", "text": prompt},
+                    {"type": "audio", "audio": waveform},
                 ],
             }
         )
