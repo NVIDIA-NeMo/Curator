@@ -155,14 +155,18 @@ When no text is missing, `dense_dump_prob` can select a single turn listing ever
 
 ## Conversation schema
 
+Within each output JSONL record, the top-level `conversation` field contains a wrapper object whose inner `conversation` field is the ordered turn list:
+
 ```json
 {
-  "conversation": [
-    {"sender": "user", "fragments": [{"t": "image", "value": "000042.jpg"}, "What text is in the bounding box [120, 90, 440, 160]?"]},
-    {"sender": "assistant", "fragments": ["PROJECT STATUS"]},
-    {"sender": "user", "fragments": ["Point at the text 'TOTAL'. Answer with [x, y]."]},
-    {"sender": "assistant", "fragments": ["[732, 518]"]}
-  ]
+  "conversation": {
+    "conversation": [
+      {"sender": "user", "fragments": [{"t": "image", "value": "000042.jpg"}, "What text is in the bounding box [120, 90, 440, 160]?"]},
+      {"sender": "assistant", "fragments": ["PROJECT STATUS"]},
+      {"sender": "user", "fragments": ["Point at the text 'TOTAL'. Answer with [x, y]."]},
+      {"sender": "assistant", "fragments": ["[732, 518]"]}
+    ]
+  }
 }
 ```
 
