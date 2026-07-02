@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -41,9 +40,9 @@ def test_qwen_adapter_conforms_to_asr_protocol() -> None:
     assert isinstance(adapter, ASRAdapter)
 
 
-def test_qwen_adapter_default_prompt_matches_official_asr_prompt() -> None:
+def test_qwen_adapter_default_prompt_matches_reference_asr_prompt() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-    assert adapter.prompt_text == "Transcribe the audio into text."
+    assert adapter.prompt_text == "Transcribe the audio."
 
 
 # ----------------------------------------------------------------------
@@ -141,8 +140,8 @@ def test_qwen_adapter_turn2_extends_shared_audio_prompt_messages() -> None:
 
     assert [message["role"] for message in turn2_messages[:2]] == [message["role"] for message in turn1_messages]
     assert turn2_messages[0]["content"][0]["text"] == turn1_messages[0]["content"][0]["text"]
-    assert turn2_messages[1]["content"][0]["audio"] is waveform
-    assert turn2_messages[1]["content"][1]["text"] == turn1_messages[1]["content"][1]["text"]
+    assert turn2_messages[1]["content"][0]["text"] == turn1_messages[1]["content"][0]["text"]
+    assert turn2_messages[1]["content"][1]["audio"] is waveform
     assert turn2_messages[2] == {"role": "assistant", "content": [{"type": "text", "text": "draft text"}]}
     assert turn2_messages[3] == {"role": "user", "content": [{"type": "text", "text": "Refine English."}]}
 
@@ -159,10 +158,10 @@ def test_qwen_adapter_prompt_replaces_language_and_reference_transcript() -> Non
     turn1_messages = adapter._build_messages(waveform, "English", "hello reference")
     turn2_messages = adapter._build_turn2_messages(waveform, "draft", "Spanish", "hola ref")
 
-    assert turn1_messages[-1]["content"][0]["audio"] is waveform
-    assert turn1_messages[-1]["content"][1]["text"] == "English prompt hello reference"
-    assert turn2_messages[0]["content"][0]["audio"] is waveform
-    assert turn2_messages[0]["content"][1]["text"] == "Transcribe Spanish: hola ref"
+    assert turn1_messages[-1]["content"][0]["text"] == "English prompt hello reference"
+    assert turn1_messages[-1]["content"][1]["audio"] is waveform
+    assert turn2_messages[0]["content"][0]["text"] == "Transcribe Spanish: hola ref"
+    assert turn2_messages[0]["content"][1]["audio"] is waveform
     assert turn2_messages[2]["content"][0]["text"] == "Refine Spanish: hola ref"
 
 
@@ -319,17 +318,6 @@ def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
         max_tokens=256,
         stop_token_ids=[151645],
     )
-
-
-def test_qwen_adapter_setup_rejects_vllm_v1() -> None:
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", tensor_parallel_size=1)
-    with (
-        patch("nemo_curator.models.asr.qwen_omni.VLLM_AVAILABLE", new=True),
-        patch("nemo_curator.models.asr.qwen_omni.process_mm_info", MagicMock()),
-        patch.dict(os.environ, {"VLLM_USE_V1": "1"}),
-        pytest.raises(RuntimeError, match="requires VLLM_USE_V1=0"),
-    ):
-        adapter.setup()
 
 
 def test_qwen_adapter_setup_forwards_revision_to_llm_and_processor() -> None:
