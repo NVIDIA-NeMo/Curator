@@ -27,6 +27,7 @@ pool, adapter protocol methods). Both turns share ``_infer_turn`` and
 
 from __future__ import annotations
 
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -38,6 +39,12 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
+
+# Qwen3-Omni's vLLM integration currently requires the V0 engine. Set the
+# supported default before importing vLLM through VLLMBase; reject an explicit
+# conflicting override in setup() instead of running with undefined behavior.
+os.environ.setdefault("VLLM_USE_V1", "0")
+
 from nemo_curator.models.vllm_model import VLLM_AVAILABLE, VLLMBase
 from nemo_curator.utils.gpu_utils import get_gpu_count
 
@@ -67,6 +74,14 @@ def _require_audio_qwen_stack(*, context: str) -> None:
             f"Missing: {', '.join(missing)}. Install with: uv sync --extra audio_qwen"
         )
         raise ImportError(msg)
+
+
+def _processor_eos_token_id(processor: Any) -> int:  # noqa: ANN401
+    eos_token_id = getattr(getattr(processor, "tokenizer", None), "eos_token_id", None)
+    if not isinstance(eos_token_id, int):
+        msg = "Qwen processor tokenizer does not define an integer EOS token id"
+        raise TypeError(msg)
+    return eos_token_id
 
 
 _QWEN3_OMNI_MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
@@ -120,7 +135,7 @@ class QwenOmniASRAdapter(VLLMBase):
     model_id: str = _QWEN3_OMNI_MODEL_ID
     revision: str | None = None
 
-    prompt_text: str = "Transcribe the audio."
+    prompt_text: str = "Transcribe the audio into text."
     prompt_file: str | None = None
     en_prompt_text: str | None = None
     en_prompt_file: str | None = None
@@ -186,6 +201,9 @@ class QwenOmniASRAdapter(VLLMBase):
         if self._llm is not None:
             return
         _require_audio_qwen_stack(context="setup()")
+        if os.environ.get("VLLM_USE_V1") != "0":
+            msg = "QwenOmniASRAdapter requires VLLM_USE_V1=0"
+            raise RuntimeError(msg)
 
         tp_size = self.tensor_parallel_size or get_gpu_count()
         logger.info(
@@ -216,19 +234,22 @@ class QwenOmniASRAdapter(VLLMBase):
         if self.revision is not None:
             model_kwargs["revision"] = self.revision
 
-        sampling_kwargs: dict[str, Any] = {
-            "temperature": self.temperature,
-            "top_k": self.top_k,
-            "max_tokens": self.max_output_tokens,
-        }
-
         try:
-            self._init_engine(model_kwargs, sampling_kwargs)
-
             proc_kwargs: dict[str, Any] = {}
             if self.revision is not None:
                 proc_kwargs["revision"] = self.revision
             self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id, **proc_kwargs)
+            eos_token_id = _processor_eos_token_id(self._processor)
+            sampling_kwargs: dict[str, Any] = {
+                "temperature": self.temperature,
+                "top_k": self.top_k,
+                "max_tokens": self.max_output_tokens,
+                # Qwen-Omni's top-level model config exposes eos_token_id=null.
+                # Pass the tokenizer's <|im_end|> id explicitly so vLLM stops
+                # completed transcripts instead of running to max_tokens.
+                "stop_token_ids": [eos_token_id],
+            }
+            self._init_engine(model_kwargs, sampling_kwargs)
             self._prep_pool = ThreadPoolExecutor(max_workers=self.prep_workers)
         except Exception:
             self.teardown()

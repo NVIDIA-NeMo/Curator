@@ -35,3 +35,8 @@ outside the prompt files:
 
 Prompt files may use `{language}` and `{transcript}` placeholders when the
 stage supplies language or reference text columns.
+
+Qwen3-Omni runs on vLLM's supported V0 engine and passes the processor
+tokenizer's `<|im_end|>` token explicitly to vLLM. The adapter's default ASR
+prompt is `Transcribe the audio into text.`; prompt files remain optional for
+workloads that require a more specialized transcription policy.
