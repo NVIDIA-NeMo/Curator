@@ -147,7 +147,7 @@ gen = CaptionGenerationStage(
 | `disable_mmcache` | bool | `False` | Disable the vLLM multimodal cache for Qwen. The example CLI disables it unless `--captioning-use-vllm-mmcache` is set. |
 | `vllm_kwargs` | dict | `{}` | Additional keyword arguments forwarded only to the Qwen vLLM constructor; Nemotron variants do not use this field. |
 | `generate_stage2_caption` | bool | `False` | Run the same VLM a second time to refine its initial caption. |
-| `stage2_prompt_text` | str \| None | `None` | Custom prefix for Nemotron same-VLM refinement. Qwen currently uses `Please refine this caption:`. |
+| `stage2_prompt_text` | str \| None | `None` | Custom prefix forwarded to Nemotron variants for same-VLM refinement. `CaptionGenerationStage` does not forward this field to Qwen variants, which always use `Please refine this caption:`. |
 | `verbose` | bool | `False` | Emit additional generation logs. |
 
 ## Refine or enhance captions
