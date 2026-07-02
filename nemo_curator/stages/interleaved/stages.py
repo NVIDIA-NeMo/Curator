@@ -78,7 +78,7 @@ class BaseInterleavedFilterStage(BaseInterleavedAnnotatorStage, ABC):
     @staticmethod
     def _basic_row_validity_mask(df: pd.DataFrame) -> pd.Series:
         keep_mask = pd.Series(True, index=df.index, dtype=bool)
-        allowed = {"text", "image", "metadata"}
+        allowed = {"text", "image", "metadata", "table"}
         keep_mask &= df["modality"].isin(allowed)
         metadata_pos = (df["modality"] == "metadata") & (df["position"] == -1)
         content_pos = (df["modality"] != "metadata") & (df["position"] >= 0)
