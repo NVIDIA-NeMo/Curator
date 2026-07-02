@@ -59,6 +59,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
 
         self.name = self.__class__.__name__
         self.resources = Resources(cpus=1.0, gpus=1.0)
+        self.is_resumable = False  # connected components fans in -> not source-attributable
         self.batch_size = None
 
         # Handle output directory cleanup logic
