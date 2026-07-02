@@ -57,6 +57,9 @@ class ShuffleStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     # Use BulkRapidsMPFShuffler directly
     actor_class = BulkRapidsMPFShuffler
 
+    # Shuffle reorders rows across partitions, so outputs aren't source-attributable.
+    is_resumable = False
+
     def __init__(  # noqa: PLR0913
         self,
         shuffle_on: list[str],
