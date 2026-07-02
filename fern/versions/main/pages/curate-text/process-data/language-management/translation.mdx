@@ -406,6 +406,7 @@ from nemo_curator.stages.text.experimental.translation import TranslationStage
 faith_client = AsyncOpenAIClient(
     api_key=os.environ["NVIDIA_API_KEY"],
     base_url="https://integrate.api.nvidia.com/v1",
+    max_concurrent_requests=64,
 )
 
 stage = TranslationStage(
@@ -422,11 +423,14 @@ stage = TranslationStage(
     enable_faith_eval=True,
     faith_model_name="openai/gpt-oss-120b",
     faith_generation_config=GenerationConfig(temperature=0.0, max_tokens=256),
+    faith_max_concurrent_requests=64,
     faith_threshold=2.5,
     output_mode="both",
     merge_scores=True,
 )
 ```
+
+The client-side `max_concurrent_requests` limit and the stage-level `faith_max_concurrent_requests` semaphore both apply. The lower value is the effective concurrency, so size them together for the intended service limit.
 
 ### Round-Trip Metrics
 
