@@ -17,17 +17,19 @@ from .document import DocumentBatch
 from .file_group import FileGroupTask
 from .image import ImageBatch, ImageObject
 from .interleaved import InterleavedBatch
-from .sentinels import EmptyTask, SentinelTask
+from .sentinels import EmptyTask, FailedTask, NoneTask, SentinelTask
 from .tasks import Task
 
 __all__ = [
     "AudioTask",
     "DocumentBatch",
     "EmptyTask",
+    "FailedTask",
     "FileGroupTask",
     "ImageBatch",
     "ImageObject",
     "InterleavedBatch",
+    "NoneTask",
     "SentinelTask",
     "Task",
 ]

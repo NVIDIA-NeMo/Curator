@@ -69,6 +69,7 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
     name = "LSHStage"
     resources = Resources(gpus=1.0)
+    is_resumable = False  # LSH banding fans in across partitions -> not source-attributable
 
     # Core Algo objects
     actor_class = LSHActor
