@@ -106,7 +106,7 @@ python 2_cluster.py \
 **Key configuration**
 
 - `--n-clusters 1000` is the full recipe default. Use fewer clusters for a small smoke-test corpus.
-- The recipe passes the conservative estimate `--embedding-dim 3072` for Stella embeddings. K-means uses this value to split Parquet input into smaller groups around cuDF limits; a larger estimate creates smaller groups and can reduce memory pressure. Adjust it for the model's embedding width and available GPU memory.
+- Stella produces 1024-dimensional embeddings by default, but the recipe deliberately passes the 3× estimate `--embedding-dim 3072`. K-means uses this value only to estimate safe Parquet subgroup sizes around cuDF limits; it does not reshape or validate the embeddings. A larger estimate creates smaller groups and can reduce memory pressure. Lower it toward the actual width only when the available GPU memory can safely hold larger groups.
 - `--fit-data-fraction` fits centroids on a sample while assigning all documents.
 - Tune `--max-samples-per-batch`, `--max-iter`, and `--tol` for memory, runtime, and convergence.
 - `--init`, `--n-init`, and `--random-state` control initialization and repeatability.
@@ -160,7 +160,7 @@ The stage always writes JSONL. Each retained `centroid=<id>/` contains the text 
 
 **Key configuration**
 
-- A cluster survives only when its average is at least every corresponding `--pruning-threshold`.
+- A cluster survives only when its average score meets or exceeds every corresponding `--pruning-threshold`.
 - Use a subset of classifiers by passing matching subsets to all three array arguments.
 - `--merge-threshold 1.5` is the recipe value. This is Euclidean distance between centroids under Ward linkage, not the cosine `eps` used by semantic duplicate removal.
 - Each worker loads every FastText model in sequence. Reduce `--num-cpus` when worker replication exhausts host memory.
