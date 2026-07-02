@@ -20,6 +20,8 @@ Use this checklist to update applications and pipeline configuration for NeMo Cu
 | Task IDs | Stop passing or assigning `task_id` | Custom tasks, readers, and stages |
 | Sentinels | Instantiate `EmptyTask()` and use `isinstance` | Pipelines with explicit empty inputs or sentinel checks |
 | Video preprocessing | Remove `model_does_preprocess` | Video caption pipelines and CLIs |
+| Video caption variants | Replace `qwen` with `qwen2.5` or `qwen3` | Video caption and enhancement pipelines |
+| Inference server | Replace `InferenceModelConfig` with a typed Ray Serve or Dynamo configuration | Pipelines that serve local LLMs |
 | Audio ASR workers | Rename `num_workers` to `dataloader_num_workers` | ASR and alignment stages |
 | Stage workers | Move executor sizing to `with_(num_workers=...)` where appropriate | Custom scheduling and tutorial code |
 | Audio dependencies | Account for missing `nemo_text_processing` on aarch64 and macOS | Audio pipelines using ITN or WER stages |
@@ -128,7 +130,63 @@ model = QwenVL(
 
 Remove the CLI flag from shell scripts and job templates. Keep `preprocess_dtype` when you need to control preprocessing precision. `QwenVL` rejects the retired keyword with a targeted error instead of silently forwarding it to vLLM. See [#2109](https://github.com/NVIDIA-NeMo/Curator/pull/2109).
 
-## 5. Separate ASR DataLoader Workers from Stage Workers
+## 5. Replace the Unversioned Video Caption Variant
+
+The unversioned `qwen` caption model variant is no longer accepted. Select the version explicitly in both preparation and generation so the prepared-input and caption keys continue to match.
+
+Before:
+
+```python
+CaptionPreparationStage(model_variant="qwen")
+CaptionGenerationStage(model_variant="qwen")
+```
+
+After, preserving the previous Qwen2.5 behavior:
+
+```python
+CaptionPreparationStage(model_variant="qwen2.5")
+CaptionGenerationStage(model_variant="qwen2.5")
+```
+
+For the example CLI, replace `--captioning-algorithm qwen` with `--captioning-algorithm qwen2.5`. To adopt Qwen3-VL instead, use `qwen3` consistently. If `CaptionEnhancementStage` reads the earlier caption, update its `captioning_model_variant` to the same value. See [Captions and Preview](/curate-video/process-data/captions-preview) for all supported Qwen and Nemotron variants.
+
+## 6. Replace `InferenceModelConfig`
+
+`InferenceModelConfig` was replaced by typed model and backend configuration. Existing Ray Serve deployments should use `RayServeModelConfig`:
+
+```python
+from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
+
+model = RayServeModelConfig(
+    model_identifier="google/gemma-3-27b-it",
+    deployment_config={
+        "autoscaling_config": {"min_replicas": 1, "max_replicas": 1},
+    },
+    engine_kwargs={"tensor_parallel_size": 4},
+)
+server = InferenceServer(models=[model])
+```
+
+To use NVIDIA Dynamo instead, configure the model and backend separately:
+
+```python
+from nemo_curator.core.serve import (
+    DynamoServerConfig,
+    DynamoVLLMModelConfig,
+    InferenceServer,
+)
+
+model = DynamoVLLMModelConfig(
+    model_identifier="google/gemma-3-27b-it",
+    num_replicas=1,
+    engine_kwargs={"tensor_parallel_size": 4},
+)
+server = InferenceServer(models=[model], backend=DynamoServerConfig())
+```
+
+Do not pass Ray Serve's `deployment_config` to `DynamoVLLMModelConfig`. Use `num_replicas` for aggregated serving or configure the Dynamo prefill and decode roles for disaggregated serving. See [Inference Server](/curate-text/synthetic/inference-server) for the backend decision and complete configuration reference.
+
+## 7. Separate ASR DataLoader Workers from Stage Workers
 
 In audio ASR stages, the old `num_workers` constructor argument is now `dataloader_num_workers`. The default remains 10. The `num_workers` name is reserved for backend execution workers and is set with `with_()`.
 
@@ -157,7 +215,7 @@ The same rename applies to stages derived from `BaseASRProcessorStage`. The two 
 
 See [#2086](https://github.com/NVIDIA-NeMo/Curator/pull/2086) and [Stage worker sizing](/reference/infra/stage-worker-sizing).
 
-## 6. Normalize Custom Stage Scheduling
+## 8. Normalize Custom Stage Scheduling
 
 Review custom `ray_stage_spec()` and `xenna_stage_spec()` methods after the scheduling changes in [#2077](https://github.com/NVIDIA-NeMo/Curator/pull/2077) and [#2086](https://github.com/NVIDIA-NeMo/Curator/pull/2086).
 
@@ -176,7 +234,7 @@ Use stage specifications when the class itself needs a reusable scheduling polic
 
 Do not copy a Xenna-only `num_workers` dictionary into all backends. The NDD tutorial correction in [#2104](https://github.com/NVIDIA-NeMo/Curator/pull/2104) is a representative migration.
 
-## 7. Review Architecture-Specific Dependencies
+## 9. Review Architecture-Specific Dependencies
 
 ### Dependency Matrix
 
@@ -202,7 +260,7 @@ If they require `nemo_text_processing` in your pipeline, run that portion on a s
 
 In [#2107](https://github.com/NVIDIA-NeMo/Curator/pull/2107), NeMo Curator removed the direct `flash-attn<=2.8.3` pin from `video_cuda12`, the lock file, and related Docker build handling. The built-in video stack should run with its declared dependencies. If your own model or stage imports `flash_attn`, install a version compatible with your CUDA, PyTorch, compiler, and architecture instead of relying on the Curator extra.
 
-## 8. Configure Pipeline Resumability
+## 10. Configure Pipeline Resumability
 
 NeMo Curator 26.06 includes source-level counter checkpointing from [#2063](https://github.com/NVIDIA-NeMo/Curator/pull/2063). On rerun, it skips source partitions whose downstream work completed and retries sources with unfinished or failed branches.
 
@@ -237,13 +295,15 @@ Follow these constraints:
 
 See [Resumable Processing](/reference/infra/resumable-processing) for the full execution model and supported patterns.
 
-## 9. Run Post-Upgrade Checks
+## 11. Run Post-Upgrade Checks
 
 Use a representative subset rather than a synthetic no-op pipeline. Confirm all of the following:
 
 - Task constructors do not receive `task_id`, and returned task IDs are populated.
 - Explicit empty inputs use `EmptyTask()`.
 - Video commands contain no `model_does_preprocess` option.
+- Video caption stages use an explicit, matching model variant rather than `qwen`.
+- Inference servers use `RayServeModelConfig` or an explicit Dynamo model and server configuration.
 - ASR constructors use `dataloader_num_workers`; stage concurrency is configured separately.
 - Ray Data and Xenna schedule the intended number of workers.
 - aarch64 jobs do not import unavailable audio text-processing stages.
