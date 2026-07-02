@@ -155,11 +155,12 @@ try:
     pipeline.run(XennaExecutor())
 finally:
     client.stop()
+    merged_output = merge_output_shards(output)
 
-print(merge_output_shards(output))
+print(merged_output)
 ```
 
-The CLI merges shards only after a successful pipeline run. For stronger recovery, call `merge_output_shards` in your own outer `finally` after workers stop.
+The CLI merges shards only after a successful pipeline run. This example uses an outer `finally` so workers stop before any available shards are merged, including after a pipeline failure.
 
 Configure stages individually when you need Python-only options:
 
@@ -194,6 +195,8 @@ pipeline.add_stage(JsonlSampleWriterStage(
     image_parent="/workspace/ocr-data/images",
 ))
 ```
+
+`JsonlSampleWriterStage` defaults `valid_only=True` when constructed directly, while the tutorial CLI defaults `--valid-only` to false and passes that value explicitly. Set `valid_only=False` to retain invalid records for inspection or a later rerun.
 
 ## 5. Read scored output
 
