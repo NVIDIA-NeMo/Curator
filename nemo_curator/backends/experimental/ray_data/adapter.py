@@ -16,7 +16,7 @@ from collections.abc import Callable
 from typing import Any
 
 from loguru import logger
-from ray.data import Dataset
+from ray.data import ActorPoolStrategy, Dataset
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
@@ -89,13 +89,11 @@ class RayDataStageAdapter(BaseStageAdapter):
         if is_actor_stage_:
             map_batches_fn = create_actor_from_stage(self.stage)
             concurrency_kwargs = {
-                "concurrency": calculate_concurrency_for_actors_for_stage(
-                    self.stage, ignore_head_node=ignore_head_node
-                ),
+                "compute": self._actor_compute_strategy(ignore_head_node=ignore_head_node),
             }
         else:
             map_batches_fn = create_task_from_stage(self.stage)
-            concurrency_kwargs = {"concurrency": None}
+            concurrency_kwargs = {}
             max_calls = self.stage.ray_stage_spec().get(RayStageSpecKeys.MAX_CALLS_PER_WORKER, None)
             if max_calls is not None:
                 concurrency_kwargs["max_calls"] = max_calls
@@ -114,6 +112,13 @@ class RayDataStageAdapter(BaseStageAdapter):
             processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
 
         return processed_dataset
+
+    def _actor_compute_strategy(self, ignore_head_node: bool = False) -> ActorPoolStrategy:
+        concurrency = calculate_concurrency_for_actors_for_stage(self.stage, ignore_head_node=ignore_head_node)
+        if isinstance(concurrency, tuple):
+            min_size, max_size = concurrency
+            return ActorPoolStrategy(min_size=min_size, max_size=max_size)
+        return ActorPoolStrategy(size=concurrency)
 
 
 def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]:
