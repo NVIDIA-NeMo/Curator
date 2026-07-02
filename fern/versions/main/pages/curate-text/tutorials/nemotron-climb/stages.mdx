@@ -70,6 +70,7 @@ The default `--output-filetype parquet` produces partitioned files in `computed_
 **Key configuration**
 
 - The default model is `NovaSearch/stella_en_400M_v5`; the script automatically selects a 512-token maximum and `{"trust_remote_code": true}` for this model.
+- `--use-sentence-transformer` loads Stella through the Sentence Transformers implementation instead of the raw Hugging Face `AutoModel` pooling path. In this mode, `--embedding-pooling` is ignored.
 - `--model-inference-batch-size 1024` controls forward-pass batching. Reduce it after a GPU out-of-memory error.
 - `--max-chars` and `--max-seq-length` cap long documents; `--disable-sort-by-length` trades simpler scheduling for less efficient batches.
 - Use `--cache-dir` for a shared model cache and `--hf-token` when an alternative model is gated.
@@ -89,6 +90,7 @@ python 2_cluster.py \
     --output-path /data/climb/clusters \
     --text-field text \
     --id-field _curator_climb_id \
+    --embedding-field embeddings \
     --embedding-dim 3072 \
     --centroids-path /data/climb/centroids
 ```
@@ -96,7 +98,7 @@ python 2_cluster.py \
 **Inputs**
 
 - Stage 1 files, Parquet by default.
-- The exact `--id-field`, `--text-field`, and `--embedding-field` names written by stage 1.
+- The exact `--id-field`, `--text-field`, and `--embedding-field` names written by stage 1. Both scripts default `--embedding-field` to `embeddings`.
 
 **Outputs**
 
