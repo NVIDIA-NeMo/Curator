@@ -141,10 +141,10 @@ client = AsyncOpenAIClient(
 To serve models locally and connect them to `AsyncOpenAIClient`, use NeMo Curator's built-in [Inference Server](/curate-text/synthetic/inference-server) (Ray Serve + vLLM):
 
 ```python
-from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 
-config = InferenceModelConfig(
+config = RayServeModelConfig(
     model_identifier="meta-llama/Llama-3-8B-Instruct",
     engine_kwargs={"tensor_parallel_size": 2},
 )

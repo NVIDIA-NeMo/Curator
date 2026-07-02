@@ -147,7 +147,7 @@ import data_designer.config as dd
 
 from nemo_curator.backends.ray_data import RayDataExecutor
 from nemo_curator.core.client import RayClient
-from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemo_data_designer.data_designer import DataDesignerStage
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
@@ -158,7 +158,7 @@ client = RayClient(num_cpus=16, num_gpus=4)
 client.start()
 
 # Start local inference server
-server_config = InferenceModelConfig(
+server_config = RayServeModelConfig(
     model_identifier="google/gemma-3-27b-it",
     deployment_config={"autoscaling_config": {"min_replicas": 1, "max_replicas": 1}},
     engine_kwargs={"tensor_parallel_size": 4},
