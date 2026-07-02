@@ -24,7 +24,7 @@ flowchart LR
 ```
 
 <Info>
-The merged API names are `OCRNemotronV2Stage`, `OCRScoringQAStage`, `HFDatasetImageReaderStage`, `JsonlSampleWriterStage`, `NVInferenceClient`, `OCRDenseItem`, and `OCRData`. Earlier development names such as `NemotronOCRV2Stage`, `OCRConversationalizeStage`, `OCRDenseQAStage`, `NVInferenceModel`, `OCRDenseWord`, `TarImageReader`, `SkipProcessedStage`, and `ResultWriterStage` are not shipped APIs. Conversation and dense-QA behavior is implemented by helper functions called inside `OCRScoringQAStage`.
+The merged API names are `OCRNemotronV2Stage`, `OCRScoringQAStage`, `HFDatasetImageReaderStage`, `JsonlSampleWriterStage`, `NVInferenceClient`, `OCRDenseItem`, `OCRData`, and `OCRConversationData`. Earlier development names such as `NemotronOCRV2Stage`, `OCRConversationalizeStage`, `OCRDenseQAStage`, `NVInferenceModel`, `OCRDenseWord`, `TarImageReader`, `SkipProcessedStage`, and `ResultWriterStage` are not shipped APIs. Conversation and dense-QA behavior is implemented by helper functions called inside `OCRScoringQAStage`.
 </Info>
 
 ## Runtime architecture
@@ -85,7 +85,7 @@ The current OCR pipeline has no tar reader, parquet reader, or skip-processed st
 
 ## OCR data model
 
-`OCRData` extends `ImageTaskData` and is populated incrementally:
+`OCRData` extends `ImageTaskData` and carries the reader, OCR, and verifier fields. When `OCRScoringQAStage` runs, it converts the payload to `OCRConversationData`, an `OCRData` subclass that adds the `conversation` field while retaining the base fields:
 
 | Field | Producer | Meaning |
 | --- | --- | --- |
@@ -94,7 +94,7 @@ The current OCR pipeline has no tar reader, parquet reader, or skip-processed st
 | `ocr_is_word_level` | OCR/verifier | Defaults true; changes to false when the verifier identifies line boxes. |
 | `ocr_dense` | OCR | `OCRDenseItem` values on a normalized 0–1000 grid. |
 | `ocr_scoring_*` | Scoring QA | Prompt, model, raw response, mode, and missing-region audit data. |
-| `conversation` | Scoring QA | Alternating user/assistant messages, with the image on the first user turn. |
+| `conversation` | `OCRConversationData` from Scoring QA | Alternating user/assistant messages, with the image on the first user turn. This field is not part of the base `OCRData` dataclass. |
 
 Each `OCRDenseItem` contains `bbox_2d`, `text_content`, optional `quad`, `valid`, `bbox_match`, and `text_errors`. Nemotron output is scaled to integer 0–1000 coordinates, and inverted vertical bounds are sorted.
 
@@ -124,7 +124,7 @@ The verifier returns `ocr_mode`, indexed box scores, and `missing_text`. Missing
 
 ## QA interaction shapes
 
-The implementation records four QA tags, but single-occurrence and repeated-text routing produces six user-visible shapes:
+The source defines five QA type constants. Four tag and balance the multi-turn families; the fifth, `dense_dump`, names the separate single-turn all-words path. Single-occurrence and repeated-text routing within the four tagged families produces six user-visible shapes:
 
 | Shape | Prompt gives | Answer gives |
 | --- | --- | --- |
@@ -135,7 +135,7 @@ The implementation records four QA tags, but single-occurrence and repeated-text
 | Text to one point | Text occurring once | One center point |
 | Text to many points | Repeated text | Every matching center point |
 
-Generation is seeded from the framework task ID. At most 100 QA pairs are balanced across the four internal families. When five or more OCR items are invalid, text-to-location questions are disabled.
+Generation is seeded from the framework task ID. At most 100 multi-turn QA pairs are balanced across the four tagged families. When five or more OCR items are invalid, text-to-location questions are disabled.
 
 When no text is missing, `dense_dump_prob` can select a single turn listing every valid word. It combines one of 33 instruction phrasings with one of 11 answer formats:
 
