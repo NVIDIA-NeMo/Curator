@@ -128,7 +128,7 @@ class QwenOmniASRAdapter(VLLMBase):
     model_id: str = _QWEN3_OMNI_MODEL_ID
     revision: str | None = None
 
-    prompt_text: str = "Transcribe the audio."
+    prompt_text: str = "Transcribe the audio into text."
     prompt_file: str | None = None
     en_prompt_text: str | None = None
     en_prompt_file: str | None = None
@@ -144,6 +144,7 @@ class QwenOmniASRAdapter(VLLMBase):
     max_output_tokens: int = 256
     temperature: float = 0.0
     top_k: int = 1
+    repetition_penalty: float = 1.05
     prep_workers: int = 8
 
     enable_prefix_caching: bool = True
@@ -164,6 +165,9 @@ class QwenOmniASRAdapter(VLLMBase):
             raise ValueError(msg)
         if self.max_output_tokens <= 0:
             msg = "max_output_tokens must be positive"
+            raise ValueError(msg)
+        if self.repetition_penalty <= 0:
+            msg = "repetition_penalty must be positive"
             raise ValueError(msg)
         if self.limit_mm_per_prompt_audio <= 0:
             msg = "limit_mm_per_prompt_audio must be positive"
@@ -233,6 +237,7 @@ class QwenOmniASRAdapter(VLLMBase):
             sampling_kwargs: dict[str, Any] = {
                 "temperature": self.temperature,
                 "top_k": self.top_k,
+                "repetition_penalty": self.repetition_penalty,
                 "max_tokens": self.max_output_tokens,
                 # Qwen-Omni's top-level model config exposes eos_token_id=null.
                 # Pass the tokenizer's <|im_end|> id explicitly so vLLM stops
@@ -356,8 +361,8 @@ class QwenOmniASRAdapter(VLLMBase):
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": prompt},
                     {"type": "audio", "audio": waveform},
+                    {"type": "text", "text": prompt},
                 ],
             }
         )
@@ -520,6 +525,25 @@ class QwenOmniASRAdapter(VLLMBase):
         token_ids = getattr(sequence, "token_ids", None)
         return finish_reason is None and token_ids is not None and len(token_ids) >= self.max_output_tokens
 
+    @staticmethod
+    def _output_limit_diagnostic(output: Any) -> str:  # noqa: ANN401
+        """Return bounded diagnostics for an output that reached its token cap."""
+        sequences = getattr(output, "outputs", None) or []
+        if not sequences:
+            return "no_sequence"
+        sequence = sequences[0]
+        token_ids = list(getattr(sequence, "token_ids", None) or [])
+        text = (getattr(sequence, "text", "") or "").strip()
+        unique_tokens = len(set(token_ids))
+        tail_unique_tokens = len(set(token_ids[-256:]))
+        return (
+            f"finish_reason={getattr(sequence, 'finish_reason', None)!r}, "
+            f"stop_reason={getattr(sequence, 'stop_reason', None)!r}, "
+            f"tokens={len(token_ids)}, unique_tokens={unique_tokens}, "
+            f"tail_256_unique_tokens={tail_unique_tokens}, chars={len(text)}, "
+            f"text_head={text[:160]!r}, text_tail={text[-160:]!r}"
+        )
+
     def _infer_turn(
         self,
         inputs: list[dict[str, Any]],
@@ -536,14 +560,17 @@ class QwenOmniASRAdapter(VLLMBase):
         outputs = self._generate(inputs)
         generation_time_s = time.perf_counter() - t0
         output_tokens = self._count_output_tokens(outputs)
-        truncated_indices = [
-            idx for idx, output in zip(indices, outputs, strict=True) if self._output_hit_token_limit(output)
+        truncated_outputs = [
+            (idx, output) for idx, output in zip(indices, outputs, strict=True) if self._output_hit_token_limit(output)
         ]
-        if truncated_indices:
+        if truncated_outputs:
+            diagnostics = "; ".join(
+                f"position={idx}: {self._output_limit_diagnostic(output)}" for idx, output in truncated_outputs
+            )
             msg = (
                 f"Qwen ASR output reached max_output_tokens={self.max_output_tokens} for batch positions "
-                f"{truncated_indices}; refusing to emit an incomplete transcript. Reduce "
-                "ASRStage.max_inference_duration_s or increase adapter max_output_tokens."
+                f"{[idx for idx, _output in truncated_outputs]}; refusing to emit an incomplete transcript. "
+                f"Diagnostics: {diagnostics}"
             )
             raise RuntimeError(msg)
         texts: list[str] = [""] * n
