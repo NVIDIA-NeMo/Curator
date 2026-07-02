@@ -115,7 +115,7 @@ prep = CaptionPreparationStage(
 | `sampling_fps` | float | 2.0 | Frames per second sampled from the source clip. |
 | `window_size` | int | 256 | Number of sampled frames in each caption window. |
 | `remainder_threshold` | int | 128 | Minimum remaining frames required to create a final shorter window. |
-| `preprocess_dtype` | str | `"float32"` | Raw-frame dtype. The example CLI accepts `float32`, `float16`, `bfloat16`, or `uint8` and defaults to `float16`. |
+| `preprocess_dtype` | str | `"float32"` | Raw-frame dtype. The Python stage defaults to `float32`; the example CLI accepts `float32`, `float16`, `bfloat16`, or `uint8` and overrides the default to `float16`. |
 | `generate_previews` | bool | `True` | Preserve per-window MP4 bytes for preview generation. |
 | `verbose` | bool | `False` | Emit additional logs. |
 
@@ -145,7 +145,7 @@ gen = CaptionGenerationStage(
 | `fp8` | bool | `False` | Quantize Qwen weights to FP8. Select `nemotron-fp8` for the Nemotron FP8 checkpoint. |
 | `max_output_tokens` | int | 512 | Maximum tokens generated for each caption. |
 | `disable_mmcache` | bool | `False` | Disable the vLLM multimodal cache for Qwen. The example CLI disables it unless `--captioning-use-vllm-mmcache` is set. |
-| `vllm_kwargs` | dict | `{}` | Additional keyword arguments forwarded to the Qwen vLLM constructor. |
+| `vllm_kwargs` | dict | `{}` | Additional keyword arguments forwarded only to the Qwen vLLM constructor; Nemotron variants do not use this field. |
 | `generate_stage2_caption` | bool | `False` | Run the same VLM a second time to refine its initial caption. |
 | `stage2_prompt_text` | str \| None | `None` | Custom prefix for Nemotron same-VLM refinement. Qwen currently uses `Please refine this caption:`. |
 | `verbose` | bool | `False` | Emit additional generation logs. |
