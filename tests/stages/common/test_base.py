@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pyarrow as pa
 import pytest
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import Task
+from nemo_curator.tasks import DocumentBatch, Task
 
 
 class MockTask(Task[dict]):
@@ -263,6 +264,38 @@ class TestProcessingStageWith:
         # But the instances created with with_ should still have their custom values
         assert stage_with_custom.resources == Resources(cpus=5.0)
         assert stage_with_custom2.resources == Resources(cpus=7.0)
+
+
+class RequiredColumnStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    name = "RequiredColumnStage"
+
+    def process(self, task: DocumentBatch) -> DocumentBatch:
+        return task
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], ["text"]
+
+
+class TestProcessingStageValidateInput:
+    def test_validate_input_accepts_pyarrow_columns(self):
+        stage = RequiredColumnStage()
+        batch = DocumentBatch(
+            task_id="batch",
+            dataset_name="dataset",
+            data=pa.table({"text": ["hello"]}),
+        )
+
+        assert stage.validate_input(batch) is True
+
+    def test_validate_input_rejects_missing_pyarrow_columns(self):
+        stage = RequiredColumnStage()
+        batch = DocumentBatch(
+            task_id="batch",
+            dataset_name="dataset",
+            data=pa.table({"other": ["hello"]}),
+        )
+
+        assert stage.validate_input(batch) is False
 
 
 class TestProcessingStageOverriddenProperties:
