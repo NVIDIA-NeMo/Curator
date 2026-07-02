@@ -125,7 +125,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         """Load tokenizer per worker. Falls back to full init if setup_on_node was not called."""
-        if self._model is None or not hasattr(self._model, "_llm") or self._model._llm is None:
+        if self._model is None or not hasattr(self._model, "llm") or self._model.llm is None:
             self._initialize_model()
         self._tokenizer = self._model.get_tokenizer()
 
