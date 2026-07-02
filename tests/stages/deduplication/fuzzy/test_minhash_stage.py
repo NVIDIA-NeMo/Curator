@@ -19,6 +19,7 @@ from contextlib import suppress
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 # Suppress GPU-related import errors when running pytest -m "not gpu"
@@ -30,7 +31,7 @@ with suppress(ImportError):
     from nemo_curator.stages.deduplication.fuzzy.minhash import MinHashStage
     from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
-from nemo_curator.tasks import FileGroupTask
+from nemo_curator.tasks import DocumentBatch, FileGroupTask
 
 
 @pytest.fixture
@@ -79,44 +80,48 @@ def sample_data_with_duplicates() -> tuple[pd.DataFrame, pd.DataFrame]:
     return data1, data2
 
 
-@pytest.fixture
-def sample_files(
-    tmp_path: Path, sample_data_with_duplicates: tuple[pd.DataFrame, pd.DataFrame], request: "pytest.FixtureRequest"
-) -> tuple[list[str], str]:
-    """Create sample files in the requested format."""
+@pytest.fixture(params=["jsonl", "parquet", "docbatch_pandas", "docbatch_pyarrow"])
+def input_task(
+    request: "pytest.FixtureRequest",
+    tmp_path: Path,
+    sample_data_with_duplicates: tuple[pd.DataFrame, pd.DataFrame],
+) -> "FileGroupTask | DocumentBatch":
+    """Provide the MinHash input as each supported task/format combination.
+
+    Covers both FileGroupTask formats (jsonl, parquet) and both DocumentBatch backings
+    (pandas, pyarrow). DocumentBatch inputs are the two frames concatenated into a single batch
+    and carry the pre-assigned ``_curator_dedup_id`` column (the stage assigns IDs only on the
+    file-read path). All variants therefore yield the same 9 rows with the same duplicate layout.
+    """
     data1, data2 = sample_data_with_duplicates
-    format_type = request.param  # Will be either 'jsonl' or 'parquet'
+    kind = request.param
 
-    if format_type == "jsonl":
-        file1 = tmp_path / "data1.jsonl"
-        file2 = tmp_path / "data2.jsonl"
-        data1.to_json(file1, orient="records", lines=True)
-        data2.to_json(file2, orient="records", lines=True)
-    else:  # parquet
-        file1 = tmp_path / "data1.parquet"
-        file2 = tmp_path / "data2.parquet"
-        data1.to_parquet(file1)
-        data2.to_parquet(file2)
+    if kind in ("jsonl", "parquet"):
+        if kind == "jsonl":
+            file1, file2 = tmp_path / "data1.jsonl", tmp_path / "data2.jsonl"
+            data1.to_json(file1, orient="records", lines=True)
+            data2.to_json(file2, orient="records", lines=True)
+        else:
+            file1, file2 = tmp_path / "data1.parquet", tmp_path / "data2.parquet"
+            data1.to_parquet(file1)
+            data2.to_parquet(file2)
+        return FileGroupTask(
+            dataset_name="test_dataset",
+            data=[str(file1), str(file2)],
+            _metadata={"batch_id": 0, "total_batches": 1, "format": kind},
+        )
 
-    return [str(file1), str(file2)], format_type
-
-
-@pytest.fixture
-def input_task(sample_files: tuple[list[str], str]) -> FileGroupTask:
-    """Create a FileGroupTask from sample files."""
-    files, format_type = sample_files
-    return FileGroupTask(
-        dataset_name="test_dataset",
-        data=files,
-        _metadata={"batch_id": 0, "total_batches": 1, "format": format_type},
-    )
+    # DocumentBatch: combine both frames and pre-assign the dedup id column.
+    combined = pd.concat([data1, data2], ignore_index=True)
+    combined.insert(0, CURATOR_DEDUP_ID_STR, list(range(len(combined))))
+    data = combined if kind == "docbatch_pandas" else pa.Table.from_pandas(combined, preserve_index=False)
+    return DocumentBatch(dataset_name="test_dataset", data=data, _metadata={})
 
 
 @pytest.mark.gpu
 class TestMinHashStage:
     """Test suite for MinHashStage ProcessingStage."""
 
-    @pytest.mark.parametrize("sample_files", ["jsonl", "parquet"], indirect=True)
     @pytest.mark.parametrize("use_64bit_hash", [False, True])
     @pytest.mark.parametrize(
         ("num_hashes", "char_ngrams", "text_field"),
@@ -129,20 +134,20 @@ class TestMinHashStage:
     @pytest.mark.usefixtures("ray_client_with_id_generator")
     def test_minhash_processing(  # noqa: PLR0913
         self,
-        input_task: FileGroupTask,
+        input_task: "FileGroupTask | DocumentBatch",
         tmp_path: Path,
         use_64bit_hash: bool,
         num_hashes: int,
         char_ngrams: int,
         text_field: str,
     ) -> None:
-        """Test minhash processing with various parameter combinations."""
-        # Get format from task metadata
-        read_format = input_task._metadata["format"]
+        """Test minhash processing across all input types (FileGroupTask jsonl/parquet, DocumentBatch pandas/pyarrow)."""
+        # read_format only applies to the file path; DocumentBatch inputs ignore it.
+        read_format = input_task._metadata.get("format", "jsonl")
 
         # Create stage
         stage = MinHashStage(
-            output_path=str(tmp_path / f"output_{read_format}_{use_64bit_hash}_{num_hashes}"),
+            output_path=str(tmp_path / "output"),
             text_field=text_field,
             minhash_field="_minhash_signature",
             char_ngrams=char_ngrams,
@@ -155,9 +160,10 @@ class TestMinHashStage:
 
         # Setup and process
         stage.setup()
+        assert stage.validate_input(input_task) is True
         output_task = stage.process(input_task)
 
-        # Verify output task structure
+        # Verify output task structure (output is always a FileGroupTask)
         assert isinstance(output_task, FileGroupTask)
         assert len(output_task.data) == 1
         assert output_task._metadata["minhash_field"] == "_minhash_signature"
@@ -170,9 +176,8 @@ class TestMinHashStage:
         # Read and verify the output
         result_df = cudf.read_parquet(output_file)
 
-        # Check required columns exist
-        assert CURATOR_DEDUP_ID_STR in result_df.columns
-        assert "_minhash_signature" in result_df.columns
+        # Only the ID + minhash columns survive; all other input columns are pruned
+        assert set(result_df.columns) == {CURATOR_DEDUP_ID_STR, "_minhash_signature"}
 
         assert len(result_df) == 9
 
@@ -259,7 +264,7 @@ class TestMinHashStage:
         input_task = FileGroupTask(dataset_name="test_dataset", data=["dummy.jsonl"], _metadata={})
 
         # Should raise error because setup wasn't called
-        with pytest.raises(RuntimeError, match="MinHash processor or ID generator not initialized"):
+        with pytest.raises(RuntimeError, match="MinHash processor not initialized"):
             stage.process(input_task)
 
     @pytest.mark.usefixtures("ray_client_with_id_generator")
@@ -402,3 +407,131 @@ class TestMinHashStage:
         # IDs should be sequential integers
         assert ids_batch1 == [0, 1, 2]
         assert ids_batch2 == [3, 4, 5]
+
+    # --- Validation / IdGenerator edge cases (end-to-end processing for every input type,
+    # --- including DocumentBatch pandas/pyarrow, is covered by test_minhash_processing above) ---
+
+    @pytest.fixture
+    def batch_dataframe(self) -> pd.DataFrame:
+        """A DocumentBatch-style frame with pre-assigned IDs and extra columns to be dropped."""
+        return pd.DataFrame(
+            {
+                CURATOR_DEDUP_ID_STR: [10, 11, 12, 13, 14],
+                "text": [
+                    "The quick brown fox jumps over the lazy dog",
+                    "A test string for deduplication",
+                    "Another test string that is similar",
+                    "This is an exact duplicate",
+                    "This is an exact duplicate",  # Exact duplicate of the previous row
+                ],
+                # Extra columns that must be dropped by the stage
+                "content": ["a", "b", "c", "d", "e"],
+                "meta": ["doc1", "doc2", "doc3", "doc4", "doc5"],
+            }
+        )
+
+    @pytest.mark.usefixtures("shared_ray_client")
+    def test_document_batch_validate_input_missing_id_column(self, tmp_path: Path) -> None:
+        """A DocumentBatch without the ID column fails validation."""
+        data = pd.DataFrame({"text": ["a", "b"], "meta": ["x", "y"]})
+        task = DocumentBatch(dataset_name="no_id", data=data, _metadata={})
+        stage = MinHashStage(output_path=str(tmp_path / "no_id"), text_field="text", pool=False)
+        assert stage.validate_input(task) is False
+
+    @pytest.mark.usefixtures("shared_ray_client")
+    def test_document_batch_validate_input_missing_text_column(self, tmp_path: Path) -> None:
+        """A DocumentBatch without the text column fails validation."""
+        data = pd.DataFrame({CURATOR_DEDUP_ID_STR: [0, 1], "meta": ["x", "y"]})
+        task = DocumentBatch(dataset_name="no_text", data=data, _metadata={})
+        stage = MinHashStage(output_path=str(tmp_path / "no_text"), text_field="text", pool=False)
+        assert stage.validate_input(task) is False
+
+    @pytest.mark.usefixtures("shared_ray_client")
+    def test_validate_input_filegroup_passes(self, tmp_path: Path) -> None:
+        """A FileGroupTask passes validation without any column checks."""
+        task = FileGroupTask(dataset_name="fg", data=["dummy.parquet"], _metadata={})
+        stage = MinHashStage(output_path=str(tmp_path / "fg"), text_field="text", pool=False)
+        assert stage.validate_input(task) is True
+
+    @pytest.mark.usefixtures("ray_client_with_id_generator")
+    def test_document_batch_without_id_generator(self, batch_dataframe: pd.DataFrame, tmp_path: Path) -> None:
+        """The DocumentBatch path runs even when the IdGenerator actor is unavailable."""
+        task = DocumentBatch(dataset_name="lazy_doc", data=batch_dataframe, _metadata={})
+        stage = MinHashStage(
+            output_path=str(tmp_path / "lazy_doc"),
+            text_field="text",
+            num_hashes=64,
+            char_ngrams=3,
+            pool=False,
+        )
+        stage.setup()
+        # Simulate a missing IdGenerator actor; the DocumentBatch path must not need it.
+        stage.id_generator = None
+        output_task = stage.process(task)
+
+        result_df = cudf.read_parquet(output_task.data[0])
+        assert len(result_df) == 5
+        assert result_df[CURATOR_DEDUP_ID_STR].to_pandas().tolist() == [10, 11, 12, 13, 14]
+
+    @pytest.mark.usefixtures("ray_client_with_id_generator")
+    def test_filegroup_without_id_generator_raises(self, tmp_path: Path) -> None:
+        """The FileGroupTask path raises a clear error when the IdGenerator is unavailable."""
+        data = pd.DataFrame({"text": ["a", "b"]})
+        input_file = tmp_path / "data.jsonl"
+        data.to_json(input_file, orient="records", lines=True)
+        task = FileGroupTask(dataset_name="fg", data=[str(input_file)], _metadata={})
+
+        stage = MinHashStage(
+            output_path=str(tmp_path / "fg_out"),
+            text_field="text",
+            read_format="jsonl",
+            pool=False,
+        )
+        stage.setup()
+        stage.id_generator = None  # simulate missing actor
+        with pytest.raises(RuntimeError, match="IdGenerator actor is required"):
+            stage.process(task)
+
+    @pytest.mark.usefixtures("shared_ray_client")
+    def test_setup_tolerates_missing_id_generator(self, tmp_path: Path) -> None:
+        """setup() stores None (does not raise) when no IdGenerator actor is running."""
+        from nemo_curator.stages.deduplication.id_generator import kill_id_generator_actor
+
+        # Ensure no actor lingers from a prior test in the shared cluster.
+        with suppress(Exception):
+            kill_id_generator_actor()
+
+        stage = MinHashStage(output_path=str(tmp_path / "no_actor"), text_field="text", pool=False)
+        stage.setup()
+        assert stage.id_generator is None
+
+    @pytest.mark.usefixtures("ray_client_with_id_generator")
+    def test_read_format_none_ok_for_document_batch(self, batch_dataframe: pd.DataFrame, tmp_path: Path) -> None:
+        """read_format=None is fine for DocumentBatch input (no file reading happens)."""
+        task = DocumentBatch(dataset_name="docbatch", data=batch_dataframe, _metadata={})
+        stage = MinHashStage(
+            output_path=str(tmp_path / "rf_none"),
+            text_field="text",
+            read_format=None,
+            num_hashes=64,
+            char_ngrams=3,
+            pool=False,
+        )
+        stage.setup()
+        output_task = stage.process(task)
+        result_df = cudf.read_parquet(output_task.data[0])
+        assert len(result_df) == 5
+
+    @pytest.mark.usefixtures("ray_client_with_id_generator")
+    def test_read_format_none_raises_for_filegroup(self, tmp_path: Path) -> None:
+        """A FileGroupTask with read_format=None raises a clear error."""
+        data = pd.DataFrame({"text": ["a", "b"]})
+        input_file = tmp_path / "data.jsonl"
+        data.to_json(input_file, orient="records", lines=True)
+        task = FileGroupTask(dataset_name="fg", data=[str(input_file)], _metadata={})
+
+        stage = MinHashStage(output_path=str(tmp_path / "rf_none_fg"), text_field="text", read_format=None, pool=False)
+        stage.setup()
+        with pytest.raises(ValueError, match="read_format must be 'jsonl' or 'parquet'"):
+            stage.process(task)
+        assert stage.minhash_processor is not None
