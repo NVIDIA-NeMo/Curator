@@ -345,8 +345,8 @@ class QwenOmniASRAdapter(VLLMBase):
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": prompt},
                     {"type": "audio", "audio": waveform},
+                    {"type": "text", "text": prompt},
                 ],
             }
         )
