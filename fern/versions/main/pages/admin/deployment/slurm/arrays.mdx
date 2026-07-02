@@ -86,8 +86,10 @@ The example accepts `jsonl` or `parquet` for each file type. The array assignmen
 For every source task, NeMo Curator computes:
 
 ```text
-logical shard = sha256(task_id) mod total_shards + minimum_shard_index
+logical shard = int(sha256(task_id)[:16], 16) mod total_shards + minimum_shard_index
 ```
+
+The calculation converts the first 16 hexadecimal characters—the first 64 bits—of the SHA-256 digest to an integer before applying the modulo.
 
 The source-stage adapter keeps only tasks whose logical shard matches the active array task. Hash-based assignment provides these properties:
 
@@ -100,7 +102,7 @@ Every array task still discovers the full deterministic source-task list before 
 
 ## Array configuration
 
-NeMo Curator automatically enables source filtering when both a shard index and total shard count are available.
+NeMo Curator attempts to enable source filtering when either a shard index or total shard count is available, or when `NEMO_CURATOR_SLURM_ARRAY_ENABLED` explicitly enables it. A valid configuration requires both the shard index and total shard count; if either is missing, configuration raises an error instead of running with partial sharding.
 
 | NeMo Curator variable | SLURM fallback | Description |
 | --- | --- | --- |
