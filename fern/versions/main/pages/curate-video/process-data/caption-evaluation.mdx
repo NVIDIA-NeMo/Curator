@@ -238,6 +238,7 @@ For the original 200-clip OpenVid-1M benchmark, observed means were approximatel
 - `--seed` controls Python sampling and the K-means random state, but library versions, model revisions, decoding, GPU kernels, and source-file ordering can still affect the selected benchmark. Version the resulting `selected_uids.txt` rather than rebuilding it for every comparison.
 - `CUBLAS_WORKSPACE_CONFIG=:4096:8`, temperature 0, and cached summaries reduce variation, but do not guarantee bitwise-identical scores across different hardware or software stacks.
 - The scorer uses the intersection of embeddings and all caption metadata directories. Missing outputs silently reduce the evaluated set; compare the logged `Evaluating N clips` value with the expected benchmark size.
+- Source/span fallback reads metadata only from the first `--caption-dirs` path. Pass the most complete caption run first; a benchmark clip missing there cannot be resolved from a later caption directory.
 - Source/span fallback uses the source-video basename and timestamps rounded to four decimal places. Duplicate basenames or changed split settings can resolve incorrectly or not at all.
 - Empty caption windows are concatenated to an empty caption and are still summarized. Inspect metadata before treating a low score as a model-quality result.
 - `--num-clusters` must not exceed the number of embeddings left after splitting and aesthetic filtering. Lower the cluster count, sample more videos, or relax filtering if K-means rejects the input.
