@@ -135,8 +135,8 @@ def test_qwen_adapter_turn2_extends_shared_audio_prompt_messages() -> None:
 
     assert [message["role"] for message in turn2_messages[:2]] == [message["role"] for message in turn1_messages]
     assert turn2_messages[0]["content"][0]["text"] == turn1_messages[0]["content"][0]["text"]
-    assert turn2_messages[1]["content"][0]["text"] == turn1_messages[1]["content"][0]["text"]
-    assert turn2_messages[1]["content"][1]["audio"] is waveform
+    assert turn2_messages[1]["content"][0]["audio"] is waveform
+    assert turn2_messages[1]["content"][1]["text"] == turn1_messages[1]["content"][1]["text"]
     assert turn2_messages[2] == {"role": "assistant", "content": [{"type": "text", "text": "draft text"}]}
     assert turn2_messages[3] == {"role": "user", "content": [{"type": "text", "text": "Refine English."}]}
 
@@ -153,8 +153,10 @@ def test_qwen_adapter_prompt_replaces_language_and_reference_transcript() -> Non
     turn1_messages = adapter._build_messages(waveform, "English", "hello reference")
     turn2_messages = adapter._build_turn2_messages(waveform, "draft", "Spanish", "hola ref")
 
-    assert turn1_messages[-1]["content"][0]["text"] == "English prompt hello reference"
-    assert turn2_messages[0]["content"][0]["text"] == "Transcribe Spanish: hola ref"
+    assert turn1_messages[-1]["content"][0]["audio"] is waveform
+    assert turn1_messages[-1]["content"][1]["text"] == "English prompt hello reference"
+    assert turn2_messages[0]["content"][0]["audio"] is waveform
+    assert turn2_messages[0]["content"][1]["text"] == "Transcribe Spanish: hola ref"
     assert turn2_messages[2]["content"][0]["text"] == "Refine Spanish: hola ref"
 
 
