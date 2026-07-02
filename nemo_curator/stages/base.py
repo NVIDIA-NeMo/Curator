@@ -191,7 +191,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         # Check required columns exist
         missing_data_attrs = []
         for attr in required_data_attrs:
-            if not hasattr(task.data, attr):
+            if not self._has_data_attr(task.data, attr):
                 missing_data_attrs.append(attr)
 
         # Log warning with missing attributes
@@ -201,6 +201,23 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             )
 
         return not missing_top_level_attrs and not missing_data_attrs
+
+    @staticmethod
+    def _has_data_attr(data: object, attr: str) -> bool:
+        """Return whether a task data object exposes the requested field/column."""
+        if hasattr(data, attr):
+            return True
+
+        if hasattr(data, "column_names"):
+            return attr in data.column_names
+
+        if hasattr(data, "columns"):
+            return attr in data.columns
+
+        if hasattr(data, "schema") and hasattr(data.schema, "names"):
+            return attr in data.schema.names
+
+        return False
 
     @abstractmethod
     def process(self, task: X) -> Y | list[Y]:
