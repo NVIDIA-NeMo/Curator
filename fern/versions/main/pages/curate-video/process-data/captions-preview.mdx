@@ -10,78 +10,69 @@ modality: "video-only"
 
 # Captions and Preview
 
-Prepare inputs, generate captions, optionally enhance them, and produce preview images.
+Prepare inputs, generate window-level captions, optionally refine or enhance them, and produce preview images.
 
-## Choosing a Captioning Model
+## Choose a captioning model
 
-The video captioning pipeline supports two model families. Pick a variant based on quality, GPU memory, and throughput:
+Use the same `model_variant` in `CaptionPreparationStage` and `CaptionGenerationStage`. The preparation stage formats prompts and video frames for that exact checkpoint; the generation stage looks up the prepared input by the variant name.
 
-| Variant | Model | Default Use Case |
+| Variant | Hugging Face model | Precision and notes |
 | --- | --- | --- |
-| `qwen` | `Qwen/Qwen2.5-VL-7B-Instruct` | Default — good quality/throughput balance |
-| `nemotron` / `nemotron-bf16` | Nemotron Nano 12B v2 VL (BF16) | High-quality captions; auto-downloaded from Hugging Face |
-| `nemotron-fp8` | Nemotron Nano 12B v2 VL (FP8) | Same model, FP8-quantized for lower memory |
-| `nemotron-nvfp4` | Nemotron Nano 12B v2 VL (NVFP4-QAD) | NVFP4 quantization-aware-distilled checkpoint |
+| `qwen2.5` | `Qwen/Qwen2.5-VL-7B-Instruct` | Default; BF16 unless `fp8=True` or `--captioning-use-fp8-weights` is set |
+| `qwen3` | `Qwen/Qwen3-VL-8B-Instruct` | Qwen3-VL; BF16 unless FP8 is enabled |
+| `nemotron`, `nemotron-bf16` | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16` | `nemotron` is an alias for the BF16 checkpoint |
+| `nemotron-fp8` | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-FP8` | Pre-quantized FP8 checkpoint |
+| `nemotron-nvfp4` | `nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD` | NVFP4 quantization-aware-distilled checkpoint |
+| `nemotron-3-nano-omni` | `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning` | Nemotron 3 Nano Omni; currently initialized with tensor parallel size 1 |
 
-Caption **enhancement** (the optional second-pass LLM rewrite) uses Qwen-LM (`--enhance-captions-algorithm qwen_lm`).
-
----
+All checkpoints are downloaded from Hugging Face on each node when absent from `model_dir`. Caption generation requires vLLM and reserves one GPU per worker. For Qwen, use the `fp8` parameter or `--captioning-use-fp8-weights`; for Nemotron Nano 12B v2, select the precision-specific variant instead. Nemotron 3 Nano Omni uses one video per prompt, a 131,072-token model context, and vLLM compatibility patches that NeMo Curator applies automatically to the downloaded checkpoint.
 
 ## Quickstart
 
-Use the pipeline stages or the example script flags to prepare captions and preview images.
-
 <Tabs>
-<Tab title="Pipeline Stage">
+<Tab title="Pipeline stages">
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
 from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
-from nemo_curator.stages.video.caption.caption_enhancement import CaptionEnhancementStage
+from nemo_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
 from nemo_curator.stages.video.preview.preview import PreviewStage
+
+model_variant = "qwen2.5"
 
 pipe = Pipeline(name="captions_preview")
 pipe.add_stage(
     CaptionPreparationStage(
-        model_variant="qwen",
+        model_variant=model_variant,
         prompt_variant="default",
-        prompt_text=None,
         sampling_fps=2.0,
         window_size=256,
         remainder_threshold=128,
         preprocess_dtype="float16",
         generate_previews=True,
-        verbose=True,
     )
 )
-pipe.add_stage(PreviewStage(target_fps=1.0, target_height=240, verbose=True))
+pipe.add_stage(PreviewStage(target_fps=1.0, target_height=240))
 pipe.add_stage(
     CaptionGenerationStage(
         model_dir="/models",
-        model_variant="qwen",
+        model_variant=model_variant,
         caption_batch_size=8,
-        fp8=False,
         max_output_tokens=512,
-        generate_stage2_caption=False,
-        stage2_prompt_text=None,
-        disable_mmcache=True,
     )
 )
 pipe.run()
 ```
 
-To use Nemotron instead, set `model_variant="nemotron"` (or one of `nemotron-bf16`, `nemotron-fp8`, `nemotron-nvfp4`) on both `CaptionPreparationStage` and `CaptionGenerationStage` — Nemotron weights are auto-downloaded from Hugging Face on first use.
-
 </Tab>
 
-<Tab title="Script Flags">
+<Tab title="Example script">
 
 ```bash
 python tutorials/video/getting-started/video_split_clip_example.py \
   ... \
   --generate-captions \
-  --captioning-algorithm qwen \
+  --captioning-algorithm qwen2.5 \
   --captioning-window-size 256 \
   --captioning-remainder-threshold 128 \
   --captioning-sampling-fps 2.0 \
@@ -93,145 +84,135 @@ python tutorials/video/getting-started/video_split_clip_example.py \
   --preview-target-height 240
 ```
 
-`--captioning-algorithm` accepts: `qwen` (default, Qwen2.5-VL-7B-Instruct), `nemotron`, `nemotron-bf16`, `nemotron-fp8`, `nemotron-nvfp4`. To enable caption enhancement with the Qwen LM, also pass `--enhance-captions --enhance-captions-algorithm qwen_lm`.
+`--captioning-algorithm` accepts `qwen2.5`, `qwen3`, `nemotron`, `nemotron-bf16`, `nemotron-fp8`, `nemotron-nvfp4`, and `nemotron-3-nano-omni`.
 
 </Tab>
 </Tabs>
 
-## Preparation and previews
+## Prepare caption inputs
 
-1. Prepare caption inputs from each clip window. This step splits clips into fixed windows, formats model‑ready inputs for the chosen VLM (Qwen‑VL or Nemotron), and optionally stores per‑window `mp4` bytes for previews.
+`CaptionPreparationStage` splits each clip into windows, samples frames, and writes the model-ready value to `window.llm_inputs[model_variant]`. If `generate_previews=True`, it also keeps MP4 bytes for `PreviewStage`.
 
-   ```python
-   from nemo_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
-   from nemo_curator.stages.video.preview.preview import PreviewStage
+```python
+from nemo_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
 
-   prep = CaptionPreparationStage(
-       model_variant="qwen",  # or "nemotron" / "nemotron-fp8" / ...
-       prompt_variant="default",
-       prompt_text=None,
-       sampling_fps=2.0,
-       window_size=256,
-       remainder_threshold=128,
-       preprocess_dtype="float16",
-       generate_previews=True,
-       verbose=True,
-   )
-   ```
-
-2. Optionally generate `.webp` previews from each window’s `mp4` bytes for quick QA and review.
-
-   ```python
-   preview = PreviewStage(
-       target_fps=1.0,
-       target_height=240,
-       verbose=True,
-   )
-   ```
-
-### Parameters
-
-<Tabs>
-<Tab title="CaptionPreparationStage">
+prep = CaptionPreparationStage(
+    model_variant="qwen3",
+    prompt_variant="default",
+    sampling_fps=2.0,
+    window_size=256,
+    remainder_threshold=128,
+    preprocess_dtype="float16",
+    generate_previews=True,
+)
+```
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `model_variant` | str | `"qwen"` | Vision‑language model used to format inputs. One of `qwen`, `nemotron`, `nemotron-bf16`, `nemotron-fp8`, `nemotron-nvfp4`. |
-| `prompt_variant` | {"default", "av", "av-surveillance"} | `"default"` | Built‑in prompt to steer caption content when `prompt_text` is not provided. |
-| `prompt_text` | str \| None | `None` | Custom prompt text. When set, overrides `prompt_variant`. |
-| `sampling_fps` | float | 2.0 | Source sampling rate for creating per‑window inputs. |
-| `window_size` | int | 256 | Number of frames per window before captioning. |
-| `remainder_threshold` | int | 128 | Minimum leftover frames required to create a final shorter window. |
-| `preprocess_dtype` | str | `"float32"` | Raw frame dtype used before passing video frames to the vLLM multimodal processor. |
-| `generate_previews` | bool | `True` | When `True`, return per‑window `mp4` bytes to enable preview generation. |
-| `verbose` | bool | `False` | Log additional setup and per‑clip details. |
+| `model_variant` | str | `"qwen2.5"` | One of the seven variants in the model table. Must match the generation stage. |
+| `prompt_variant` | `"default"`, `"av"`, `"av-surveillance"` | `"default"` | Built-in caption prompt used when `prompt_text` is not set. |
+| `prompt_text` | str \| None | `None` | Custom prompt that overrides `prompt_variant`. |
+| `sampling_fps` | float | 2.0 | Frames per second sampled from the source clip. |
+| `window_size` | int | 256 | Number of sampled frames in each caption window. |
+| `remainder_threshold` | int | 128 | Minimum remaining frames required to create a final shorter window. |
+| `preprocess_dtype` | str | `"float32"` | Raw-frame dtype. The Python stage defaults to `float32`; the example CLI accepts `float32`, `float16`, `bfloat16`, or `uint8` and overrides the default to `float16`. |
+| `generate_previews` | bool | `True` | Preserve per-window MP4 bytes for preview generation. |
+| `verbose` | bool | `False` | Emit additional logs. |
 
-</Tab>
-<Tab title="PreviewStage">
+## Generate captions
 
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `target_fps` | float | 1.0 | Frames per second for preview encoding. |
-| `target_height` | int | 240 | Output height in pixels; width auto‑scales to preserve aspect ratio. |
-| `compression_level` | int (0–6) | 6 | WebP compression level (`0` = lossless, higher = smaller files). |
-| `quality` | int (0–100) | 50 | WebP quality factor (`100` = best quality, larger files). |
-| `num_cpus_per_worker` | float | 4.0 | CPU threads mapped to `ffmpeg -threads` for encoding. |
-| `verbose` | bool | `False` | Log warnings and per‑window encoding details. |
+`CaptionGenerationStage` consumes `window.llm_inputs[model_variant]` and writes its result to `window.caption[model_variant]`. After generation it removes that prepared input and the window MP4 bytes.
 
-</Tab>
+```python
+from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
 
-</Tabs>
-
-## Caption generation and enhancement
-
-1. Generate window‑level captions with the chosen VLM (Qwen‑VL or Nemotron). This stage reads `clip.windows[*].qwen_llm_input` (created earlier) and writes `window.caption["qwen"]` (or `window.caption["nemotron"]`, depending on the variant).
-
-   ```python
-   from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
-   from nemo_curator.stages.video.caption.caption_enhancement import CaptionEnhancementStage
-
-   gen = CaptionGenerationStage(
-       model_dir="/models",
-       model_variant="qwen",  # or "nemotron" / "nemotron-fp8" / ...
-       caption_batch_size=8,
-       fp8=False,
-       max_output_tokens=512,
-       generate_stage2_caption=False,
-       stage2_prompt_text=None,
-       disable_mmcache=True,
-   )
-
-   ```
-
-2. Optionally enhance captions with a text‑based LLM (Qwen‑LM) to expand and refine descriptions. This stage reads `window.caption["qwen"]` and writes `window.enhanced_caption["qwen_lm"]`.
-
-   ```python
-   enh = CaptionEnhancementStage(
-       model_dir="/models",
-       model_variant="qwen",
-       prompt_variant="default",
-       prompt_text=None,
-       model_batch_size=128,
-       fp8=False,
-       max_output_tokens=512,
-       verbose=True,
-   )
-   ```
-
-### Parameters
-
-<Tabs>
-<Tab title="CaptionGenerationStage">
+gen = CaptionGenerationStage(
+    model_dir="/models",
+    model_variant="qwen3",
+    caption_batch_size=8,
+    fp8=False,
+    max_output_tokens=512,
+    disable_mmcache=False,
+    generate_stage2_caption=False,
+)
+```
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `model_dir` | str | `"models/qwen"` | Directory for model weights; downloaded on each node if missing. |
-| `model_variant` | str | `"qwen"` | Vision‑language model variant. One of `qwen`, `nemotron`, `nemotron-bf16`, `nemotron-fp8`, `nemotron-nvfp4`. |
-| `caption_batch_size` | int | 16 | Batch size for caption generation. |
-| `fp8` | bool | `False` | Use FP8 weights when available. |
-| `max_output_tokens` | int | 512 | Maximum number of tokens to generate per caption. |
-| `disable_mmcache` | bool | `False` | Disable multimodal cache for generation backends that support it. |
-| `generate_stage2_caption` | bool | `False` | Enable a second‑pass caption for refinement. |
-| `stage2_prompt_text` | str \| None | `None` | Custom prompt for stage‑2 caption refinement. |
-| `verbose` | bool | `False` | Emit additional logs during generation. |
+| `model_dir` | str | `"models/qwen"` | Base directory under which checkpoint-specific directories are created. |
+| `model_variant` | str | `"qwen2.5"` | One of the seven variants in the model table. |
+| `caption_batch_size` | int | 16 | Generation batch size. The example CLI defaults to 8. |
+| `fp8` | bool | `False` | Quantize Qwen weights to FP8. Select `nemotron-fp8` for the Nemotron FP8 checkpoint. |
+| `max_output_tokens` | int | 512 | Maximum tokens generated for each caption. |
+| `disable_mmcache` | bool | `False` | Disable the vLLM multimodal cache for Qwen. The example CLI disables it unless `--captioning-use-vllm-mmcache` is set. |
+| `vllm_kwargs` | dict | `{}` | Additional keyword arguments forwarded only to the Qwen vLLM constructor; Nemotron variants do not use this field. |
+| `generate_stage2_caption` | bool | `False` | Run the same VLM a second time to refine its initial caption. |
+| `stage2_prompt_text` | str \| None | `None` | Custom prefix forwarded to Nemotron variants for same-VLM refinement. `CaptionGenerationStage` does not forward this field to Qwen variants, which always use `Please refine this caption:`. |
+| `verbose` | bool | `False` | Emit additional generation logs. |
 
-</Tab>
+## Refine or enhance captions
 
-<Tab title="CaptionEnhancementStage">
+NeMo Curator provides two distinct second-pass workflows:
+
+- **Same-VLM refinement** reruns the selected captioning model with its first caption. Set `generate_stage2_caption=True`, or pass `--captioning-stage2-caption`. The refined text replaces the first-pass value in `window.caption[model_variant]`.
+- **Text-only enhancement** runs a separate Qwen language model after caption generation. Add `CaptionEnhancementStage`, or pass `--enhance-captions`. The result is stored in `window.enhanced_caption["qwen_lm"]` and the original caption remains available.
+
+```python
+from nemo_curator.stages.video.caption.caption_enhancement import CaptionEnhancementStage
+
+enhance = CaptionEnhancementStage(
+    model_dir="/models",
+    model_variant="qwen3",
+    captioning_model_variant="qwen3",
+    prompt_variant="default",
+    model_batch_size=128,
+    fp8=False,
+    max_output_tokens=512,
+)
+```
+
+The enhancement model can be `qwen2.5` (`Qwen/Qwen2.5-14B-Instruct`) or `qwen3` (`Qwen/Qwen3-14B`). `captioning_model_variant` must identify the caption key produced by the earlier generation stage; it does not have to match the enhancement model.
+
+In the example script, `--enhance-captions-algorithm` selects `qwen2.5` or `qwen3`. The separate `--enhanced-caption-models` output selector currently accepts only `qwen_lm`.
+
+```bash
+python tutorials/video/getting-started/video_split_clip_example.py \
+  ... \
+  --generate-captions \
+  --captioning-algorithm nemotron-fp8 \
+  --enhance-captions \
+  --enhance-captions-algorithm qwen3 \
+  --enhanced-caption-models qwen_lm
+```
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `model_dir` | str | `"models/qwen"` | Directory for language‑model weights; downloaded per node if missing. |
-| `model_variant` | {"qwen"} | `"qwen"` | Language‑model variant. |
-| `prompt_variant` | {"default", "av-surveillance"} | `"default"` | Built‑in enhancement prompt when `prompt_text` is not provided. |
-| `prompt_text` | str \| None | `None` | Custom enhancement prompt. When set, overrides `prompt_variant`. |
-| `model_batch_size` | int | 128 | Batch size for enhancement generation. |
-| `fp8` | bool | `False` | Use FP8 weights when available. |
-| `max_output_tokens` | int | 512 | Maximum number of tokens to generate per enhanced caption. |
-| `verbose` | bool | `False` | Emit additional logs during enhancement. |
+| `model_dir` | str | `"models/qwen"` | Base directory for Qwen language-model weights. |
+| `model_variant` | `"qwen2.5"`, `"qwen3"` | `"qwen2.5"` | Text-only model used for enhancement. |
+| `captioning_model_variant` | str | `"qwen2.5"` | Key in `window.caption` to read. Set it to the earlier captioning variant. |
+| `prompt_variant` | `"default"`, `"av-surveillance"` | `"default"` | Built-in enhancement prompt used when `prompt_text` is not set. |
+| `prompt_text` | str \| None | `None` | Custom enhancement system prompt. |
+| `model_batch_size` | int | 128 | Enhancement generation batch size. |
+| `fp8` | bool | `False` | Quantize the Qwen language-model weights to FP8. |
+| `vllm_kwargs` | dict | `{}` | Additional keyword arguments forwarded to vLLM. |
+| `max_output_tokens` | int | 512 | Maximum tokens generated for each enhanced caption. |
+| `verbose` | bool | `False` | Emit additional logs. |
 
-</Tab>
-</Tabs>
+## Migrate from the former `qwen` variant
+
+The unversioned `qwen` identifier is no longer accepted. Replace it with `qwen2.5` to retain the previous Qwen2.5-VL behavior, or choose `qwen3` explicitly. Update both preparation and generation so their keys continue to match.
+
+```python
+# Before
+CaptionPreparationStage(model_variant="qwen")
+CaptionGenerationStage(model_variant="qwen")
+
+# After: equivalent Qwen2.5 behavior
+CaptionPreparationStage(model_variant="qwen2.5")
+CaptionGenerationStage(model_variant="qwen2.5")
+```
+
+For the example script, change `--captioning-algorithm qwen` to `--captioning-algorithm qwen2.5`. If you enhance captions programmatically, also set `captioning_model_variant="qwen2.5"`. Qwen video preprocessing is now always handled by the Hugging Face/vLLM processor; remove the former `model_does_preprocess` argument rather than replacing it.
 
 ## Preview Generation
 
