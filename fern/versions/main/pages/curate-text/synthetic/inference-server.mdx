@@ -55,7 +55,7 @@ ray_client = RayClient(num_cpus=8, num_gpus=1)
 ray_client.start()
 
 model = RayServeModelConfig(
-    model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",
+    model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",  # pragma: allowlist secret
     deployment_config={
         "autoscaling_config": {
             "min_replicas": 1,
@@ -71,7 +71,7 @@ model = RayServeModelConfig(
 with InferenceServer(models=[model]) as server:
     client = OpenAI(base_url=server.endpoint, api_key="unused")
     response = client.chat.completions.create(
-        model="HuggingFaceTB/SmolLM2-135M-Instruct",
+        model="HuggingFaceTB/SmolLM2-135M-Instruct",  # pragma: allowlist secret
         messages=[{"role": "user", "content": "Say hello in one word."}],
         max_tokens=16,
     )
@@ -147,7 +147,7 @@ from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
 
 models = [
     RayServeModelConfig(
-        model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",
+        model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",  # pragma: allowlist secret
         model_name="writer",
         deployment_config={
             "autoscaling_config": {"min_replicas": 1, "max_replicas": 2},
@@ -155,7 +155,7 @@ models = [
         engine_kwargs={"tensor_parallel_size": 1},
     ),
     RayServeModelConfig(
-        model_identifier="HuggingFaceTB/SmolLM-135M-Instruct",
+        model_identifier="HuggingFaceTB/SmolLM-135M-Instruct",  # pragma: allowlist secret
         model_name="reviewer",
         deployment_config={
             "autoscaling_config": {"min_replicas": 1, "max_replicas": 1},
@@ -182,7 +182,7 @@ from nemo_curator.core.serve import (
 )
 
 model = DynamoVLLMModelConfig(
-    model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",
+    model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",  # pragma: allowlist secret
     mode="aggregated",
     num_replicas=2,
     engine_kwargs={
@@ -214,7 +214,7 @@ from nemo_curator.core.serve import (
 )
 
 model = DynamoVLLMModelConfig(
-    model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",
+    model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",  # pragma: allowlist secret
     mode="disagg",
     engine_kwargs={
         "max_model_len": 2048,
@@ -268,7 +268,7 @@ All models in one server must have unique `model_name` values. Dynamo also rejec
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `num_replicas` | `int` | `1` | Number of workers for this role. Disaggregated models require at least one prefill and one decode replica. |
+| `num_replicas` | `int` | `1` | Number of workers for this role. Must be at least 0; `DynamoVLLMModelConfig` requires at least one prefill and one decode replica in disaggregated mode. |
 | `engine_kwargs` | `dict` | `{}` | Role-level vLLM settings merged over the model settings. |
 
 ### `DynamoServerConfig`
@@ -305,7 +305,7 @@ backend = DynamoServerConfig(
 | `"kv"` | Route using KV-cache affinity. |
 | `"direct"` | Use Dynamo's direct-routing mode. |
 
-`kv_events` is valid only with KV routing. With `kv_events=False`, Dynamo uses approximate tree-based tracking. Exact event-backed routing publishes vLLM KV events; it is incompatible with explicitly enabling vLLM's hybrid KV-cache manager.
+`kv_events` is valid only with KV routing. When you explicitly set `mode="kv"`, `kv_events=False` uses approximate tree-based tracking. When `mode=None` auto-selects KV routing for a disaggregated model, NeMo Curator also enables exact event-backed routing even though the configured default is `False`. If a publishing role explicitly enables vLLM's hybrid KV-cache manager, automatic routing instead keeps events disabled; explicitly requesting event-backed routing with that configuration raises an error.
 
 Additional `router_kwargs` are forwarded to the Dynamo frontend. Do not put `router_mode` or `router_kv_events` in that dictionary; use the typed fields instead. Boolean false values are emitted as `--no-*` flags.
 
