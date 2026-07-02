@@ -164,7 +164,7 @@ All parameters are keyword-only. `source_lang` and `target_lang` are the only re
 - `backend_type="llm"` requires both `client` and a non-empty `model_name`, even in dry-run mode.
 - FAITH always uses an LLM client. With Google, AWS, NMT, or a custom translation backend, pass a separate `client` and set `faith_model_name`.
 - `merge_scores=True` with `output_mode="replaced"` is rejected. With FAITH disabled, score merging is skipped with a warning.
-- `output_mode="raw"` removes `output_field` after building `translation_metadata`. Do not combine raw mode with message reconstruction; use `"both"` when you need metadata and `translated_messages`.
+- `output_mode="raw"` removes `output_field` after building `translation_metadata`. Do not combine raw mode with message reconstruction: `output_field` is dropped before `_build_translated_messages` runs, so every `translated_messages` entry is an empty string. Use `output_mode="both"` when you need metadata and `translated_messages`.
 - Custom prompt files and any local assets they reference must be available at the same absolute path on every worker.
 
 ## DocumentBatch Walkthrough
