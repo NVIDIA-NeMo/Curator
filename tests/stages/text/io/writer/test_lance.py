@@ -63,11 +63,17 @@ def _blob_table() -> pa.Table:
     )
 
 
-def _write_source_dataset(path: Path) -> None:
+def _write_source_dataset(path: Path, *, enable_stable_row_ids: bool = False) -> None:
     import lance
 
     lance.write_dataset(
-        _blob_table(), str(path), mode="create", max_rows_per_file=2, max_rows_per_group=2, data_storage_version="2.2"
+        _blob_table(),
+        str(path),
+        mode="create",
+        max_rows_per_file=2,
+        max_rows_per_group=2,
+        data_storage_version="2.2",
+        enable_stable_row_ids=enable_stable_row_ids,
     )
 
 
@@ -174,7 +180,9 @@ def test_lance_annotation_writer_prepare_sparse_update_and_commit(tmp_path: Path
 
     dataset_path = tmp_path / "source.lance"
     commit_path = tmp_path / "annotation_commit"
-    _write_source_dataset(dataset_path)
+    _write_source_dataset(dataset_path, enable_stable_row_ids=True)
+    initial = lance.dataset(str(dataset_path)).to_table(columns=["id"], with_row_id=True)
+    initial_row_ids = dict(zip(initial["id"].to_pylist(), initial["_rowid"].to_pylist(), strict=True))
     writer = LanceAnnotationWriter(
         path=str(dataset_path),
         commit_path=str(commit_path),
@@ -190,8 +198,13 @@ def test_lance_annotation_writer_prepare_sparse_update_and_commit(tmp_path: Path
     committed_version = commit_lance_annotation_checkpoint(str(dataset_path), str(commit_path))
 
     assert committed_version > version
+    committed = lance.dataset(str(dataset_path), version=committed_version)
+    assert committed.has_stable_row_ids
+    final = committed.to_table(columns=["id"], with_row_id=True)
+    final_row_ids = dict(zip(final["id"].to_pylist(), final["_rowid"].to_pylist(), strict=True))
+    assert final_row_ids == initial_row_ids
     result = (
-        lance.dataset(str(dataset_path), version=committed_version)
+        committed
         .scanner(columns=["word_count"], with_row_address=True)
         .to_table()
     )
