@@ -183,7 +183,7 @@ uv run python tutorials/audio/tagging/main.py \
 | Additional split signals | Pause longer than `max_pause`; bandwidth change | Randomized duration boundary |
 | Reproducibility | Deterministic for an input entry | Randomized boundary is deterministically seeded from audio path or ID |
 
-`terminal_punct_marks` defaults to the value in the YAML, `. ! ? 。 ？ ！ 。` without spaces. If `punctuation_split_only: true`, the stage returns no prepared segments when it cannot find a punctuation boundary. With the supplied `false`, duration and TTS pause/bandwidth heuristics remain available.
+`terminal_punct_marks` defaults to the value in the YAML, `.!?。？！。`. If `punctuation_split_only: true`, the stage returns no prepared segments when it cannot find a punctuation boundary. With the supplied `false`, duration and TTS pause/bandwidth heuristics remain available.
 
 ## Add text normalization
 
@@ -282,6 +282,8 @@ The writer stores the full mutated task as one JSON object per input recording. 
 | `metrics.sisdr_squim` | Non-intrusive TorchSQUIM SI-SDR estimate, rounded to three decimals. |
 | `metrics.wer.wer`, `metrics.cer.cer` | Second-pass disagreement ratios, not percentages. Each object also records token and edit rates. |
 | `metrics.start_cer.cer`, `metrics.end_cer.cer` | CER at the configured beginning and ending character windows. |
+| `metrics.word_rate` | Words per second for the segment, computed from the hypothesis text and segment duration. |
+| `metrics.char_rate` | Characters per second for the segment, computed from the hypothesis text and segment duration. |
 
 SQUIM values are model estimates, not comparisons against a clean reference. Calibrate filtering thresholds on representative data instead of assuming a universal cutoff.
 
