@@ -175,5 +175,5 @@ class TestCommonCrawlWarcIterator:
         iterator = CommonCrawlWarcIterator()
         columns = iterator.output_columns()
 
-        expected_columns = ["url", "warc_id", "source_id", "content"]
+        expected_columns = ["snapshot_id", "url", "warc_id", "source_id", "content"]
         assert columns == expected_columns

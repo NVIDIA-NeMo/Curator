@@ -12,6 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .cc_html_extract import HtmlExtractStage
 from .stage import CommonCrawlDownloadExtractStage
 
-__all__ = ["CommonCrawlDownloadExtractStage"]
+__all__ = [
+    "CommonCrawlDownloadExtractStage",
+    "HtmlExtractStage",
+]
