@@ -154,6 +154,9 @@ class QwenOmniASRAdapter(VLLMBase):
         if self.max_num_batched_tokens is not None and self.max_num_batched_tokens <= 0:
             msg = "max_num_batched_tokens must be positive when set"
             raise ValueError(msg)
+        if self.max_output_tokens <= 0:
+            msg = "max_output_tokens must be positive"
+            raise ValueError(msg)
         if self.limit_mm_per_prompt_audio <= 0:
             msg = "limit_mm_per_prompt_audio must be positive"
             raise ValueError(msg)
@@ -494,6 +497,18 @@ class QwenOmniASRAdapter(VLLMBase):
             return ""
         return (getattr(sequences[0], "text", "") or "").strip()
 
+    def _output_hit_token_limit(self, output: Any) -> bool:  # noqa: ANN401
+        """Return whether vLLM stopped the first sequence at the token cap."""
+        sequences = getattr(output, "outputs", None) or []
+        if not sequences:
+            return False
+        sequence = sequences[0]
+        finish_reason = getattr(sequence, "finish_reason", None)
+        if finish_reason == "length":
+            return True
+        token_ids = getattr(sequence, "token_ids", None)
+        return finish_reason is None and token_ids is not None and len(token_ids) >= self.max_output_tokens
+
     def _infer_turn(
         self,
         inputs: list[dict[str, Any]],
@@ -510,6 +525,16 @@ class QwenOmniASRAdapter(VLLMBase):
         outputs = self._generate(inputs)
         generation_time_s = time.perf_counter() - t0
         output_tokens = self._count_output_tokens(outputs)
+        truncated_indices = [
+            idx for idx, output in zip(indices, outputs, strict=True) if self._output_hit_token_limit(output)
+        ]
+        if truncated_indices:
+            msg = (
+                f"Qwen ASR output reached max_output_tokens={self.max_output_tokens} for batch positions "
+                f"{truncated_indices}; refusing to emit an incomplete transcript. Reduce "
+                "ASRStage.max_inference_duration_s or increase adapter max_output_tokens."
+            )
+            raise RuntimeError(msg)
         texts: list[str] = [""] * n
         # strict=True: a count mismatch means a broken engine contract; fail
         # loud rather than silently emit empty text with skipped=False.

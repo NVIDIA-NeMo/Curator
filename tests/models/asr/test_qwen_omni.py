@@ -53,6 +53,37 @@ def test_qwen_adapter_count_output_tokens_handles_empty_vllm_output() -> None:
     assert QwenOmniASRAdapter._count_output_tokens([SimpleNamespace(outputs=[])]) == 0.0
 
 
+def test_qwen_adapter_rejects_nonpositive_max_output_tokens() -> None:
+    with pytest.raises(ValueError, match="max_output_tokens must be positive"):
+        QwenOmniASRAdapter(model_id="mock/qwen-omni", max_output_tokens=0)
+
+
+def test_qwen_adapter_infer_turn_rejects_length_truncated_output() -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", max_output_tokens=2)
+    adapter._generate = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            SimpleNamespace(outputs=[SimpleNamespace(text="partial", token_ids=[0, 1], finish_reason="length")])
+        ]
+    )
+
+    with pytest.raises(RuntimeError, match="refusing to emit an incomplete transcript"):
+        adapter._infer_turn(inputs=[{"prompt": "a"}], indices=[0], n=1)
+
+
+def test_qwen_adapter_infer_turn_accepts_explicit_stop_at_token_cap() -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", max_output_tokens=2)
+    adapter._generate = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            SimpleNamespace(outputs=[SimpleNamespace(text="complete", token_ids=[0, 1], finish_reason="stop")])
+        ]
+    )
+
+    texts, _generation_s, tokens = adapter._infer_turn(inputs=[{"prompt": "a"}], indices=[0], n=1)
+
+    assert texts == ["complete"]
+    assert tokens == 2.0
+
+
 def test_qwen_adapter_infer_turn_scatters_outputs_by_index() -> None:
     """``_infer_turn`` scatters vLLM outputs back to original positions and reports time + tokens."""
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
