@@ -60,4 +60,5 @@ jobs:
           path: |
             fern/
             .preview-metadata/
+          include-hidden-files: true
           retention-days: 1
