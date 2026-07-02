@@ -28,6 +28,7 @@ from nemo_curator.utils.hash_utils import get_deterministic_hash
 from nemo_curator.utils.lance import (
     LANCE_FRAGID_COLUMN,
     LANCE_ROWADDR_COLUMN,
+    LANCE_ROWID_COLUMN,
     add_lance_metadata_columns,
 )
 
@@ -150,7 +151,7 @@ class LanceReaderStage(BaseReader[LanceReadTask]):
         path: Path or URI of the Lance dataset.
         fields: Optional columns to read. Overrides ``columns`` in ``read_kwargs``.
         read_kwargs: Keyword arguments for Lance dataset and scanner construction.
-        include_lance_metadata: Whether to include row-address and fragment-id metadata columns.
+        include_lance_metadata: Whether to include row-id, row-address, and fragment-id metadata columns.
         allow_empty: Whether filtered reads may return empty tables without raising.
     """
 
@@ -175,7 +176,7 @@ class LanceReaderStage(BaseReader[LanceReadTask]):
             columns = scanner_options.get("columns")
         output_fields = list(columns or [])
         if self.include_lance_metadata:
-            output_fields.extend([LANCE_ROWADDR_COLUMN, LANCE_FRAGID_COLUMN])
+            output_fields.extend([LANCE_ROWID_COLUMN, LANCE_ROWADDR_COLUMN, LANCE_FRAGID_COLUMN])
         return ["data"], output_fields
 
     def _output_metadata(self, task: LanceReadTask, output: ReaderOutput) -> dict[str, Any]:
@@ -243,6 +244,8 @@ class LanceReaderStage(BaseReader[LanceReadTask]):
         ]
         if self.include_lance_metadata or blob_columns:
             scanner_kwargs["with_row_address"] = True
+        if self.include_lance_metadata:
+            scanner_kwargs["with_row_id"] = True
         scanner_kwargs["fragments"] = fragments
         table = dataset.scanner(**scanner_kwargs).to_table()
         if blob_columns:
@@ -255,6 +258,7 @@ class LanceReaderStage(BaseReader[LanceReadTask]):
         metadata = dict(task._metadata)
         lance_metadata = dict(metadata.get("lance") or {})
         lance_metadata["schema"] = schema_to_json(dataset.schema)
+        lance_metadata["has_stable_row_ids"] = dataset.has_stable_row_ids
         metadata["lance"] = lance_metadata
         return ReaderOutput(table, metadata)
 
@@ -272,7 +276,7 @@ class LanceReader(CompositeStage[EmptyTask, DocumentBatch]):
         fragments_per_partition: Number of Lance fragments assigned to each read task.
         fields: Optional columns to read.
         read_kwargs: Keyword arguments for Lance dataset and scanner construction.
-        include_lance_metadata: Whether to include row-address and fragment-id metadata columns.
+        include_lance_metadata: Whether to include row-id, row-address, and fragment-id metadata columns.
         fragment_ids: Optional explicit fragment ids to read. Defaults to all fragments. Duplicates are ignored.
         task_type: Output task type. Only ``"document"`` is currently supported.
     """

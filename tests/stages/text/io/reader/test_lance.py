@@ -21,6 +21,7 @@ from nemo_curator.stages.text.io.reader.base import BaseReader
 from nemo_curator.stages.text.io.reader.lance import (
     LANCE_FRAGID_COLUMN,
     LANCE_ROWADDR_COLUMN,
+    LANCE_ROWID_COLUMN,
     LancePartitioningStage,
     LanceReader,
     LanceReaderStage,
@@ -30,7 +31,7 @@ from nemo_curator.tasks import EmptyTask
 pytest.importorskip("lance")
 
 
-def _write_lance_dataset(path: Path) -> None:
+def _write_lance_dataset(path: Path, *, enable_stable_row_ids: bool = False) -> None:
     import lance
 
     table = pa.table(
@@ -50,7 +51,13 @@ def _write_lance_dataset(path: Path) -> None:
         ),
     )
     lance.write_dataset(
-        table, str(path), mode="create", max_rows_per_file=2, max_rows_per_group=2, data_storage_version="2.2"
+        table,
+        str(path),
+        mode="create",
+        max_rows_per_file=2,
+        max_rows_per_group=2,
+        data_storage_version="2.2",
+        enable_stable_row_ids=enable_stable_row_ids,
     )
 
 
@@ -76,6 +83,8 @@ def test_lance_reader_partitions_filters_blobs_and_metadata(tmp_path: Path):
     for batch in batches:
         table = batch.to_pyarrow()
         assert "schema" in batch._metadata["lance"]
+        assert batch._metadata["lance"]["has_stable_row_ids"] is False
+        assert LANCE_ROWID_COLUMN in table.column_names
         assert LANCE_ROWADDR_COLUMN in table.column_names
         assert LANCE_FRAGID_COLUMN in table.column_names
         assert table.schema.field("content_zlib").type.extension_name == "lance.blob.v2"
@@ -83,6 +92,19 @@ def test_lance_reader_partitions_filters_blobs_and_metadata(tmp_path: Path):
         assert seen_fragments.isdisjoint(fragids)
         seen_fragments.update(fragids)
     assert seen_fragments == {0, 1}
+
+
+def test_lance_reader_exposes_stable_row_ids(tmp_path: Path):
+    dataset_path = tmp_path / "stable.lance"
+    _write_lance_dataset(dataset_path, enable_stable_row_ids=True)
+    task = LancePartitioningStage(path=str(dataset_path)).process(EmptyTask)[0]
+
+    batch = LanceReaderStage(path=str(dataset_path), fields=["url"]).process(task)
+    table = batch.to_pyarrow()
+
+    assert batch._metadata["lance"]["has_stable_row_ids"] is True
+    assert table[LANCE_ROWID_COLUMN].null_count == 0
+    assert len(set(table[LANCE_ROWID_COLUMN].to_pylist())) == table.num_rows
 
 
 def test_lance_reader_validates_requested_fragments(tmp_path: Path):
@@ -113,6 +135,7 @@ def test_lance_reader_columns_empty_filters_and_fields_override(tmp_path: Path):
     )
     empty_table = empty_batch.to_pyarrow()
     assert empty_table.num_rows == 0
+    assert LANCE_ROWID_COLUMN in empty_table.column_names
     assert LANCE_ROWADDR_COLUMN in empty_table.column_names
     assert LANCE_FRAGID_COLUMN in empty_table.column_names
 

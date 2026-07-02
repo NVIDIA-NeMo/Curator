@@ -22,6 +22,7 @@ from nemo_curator.utils.file_utils import get_fs
 from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 LANCE_ROWADDR_COLUMN = "__lance_rowaddr"
+LANCE_ROWID_COLUMN = "__lance_rowid"
 LANCE_FRAGID_COLUMN = "__lance_fragid"
 _COMMITTED_MARKER = "_COMMITTED"
 _RECORDS_DIR = "records"
@@ -38,11 +39,16 @@ def lance_fragment_ids_from_row_addresses(rowaddr_column: pa.ChunkedArray) -> pa
 
 
 def add_lance_metadata_columns(table: pa.Table) -> pa.Table:
-    if "_rowaddr" not in table.column_names:
-        msg = "Lance scanner did not return _rowaddr; include_lance_metadata requires row addresses"
+    missing = [name for name in ("_rowid", "_rowaddr") if name not in table.column_names]
+    if missing:
+        msg = f"Lance scanner did not return {missing}; include_lance_metadata requires row ids and addresses"
         raise ValueError(msg)
 
-    table = table.rename_columns([LANCE_ROWADDR_COLUMN if name == "_rowaddr" else name for name in table.column_names])
+    renamed = {
+        "_rowid": LANCE_ROWID_COLUMN,
+        "_rowaddr": LANCE_ROWADDR_COLUMN,
+    }
+    table = table.rename_columns([renamed.get(name, name) for name in table.column_names])
     return table.append_column(LANCE_FRAGID_COLUMN, lance_fragment_ids_from_row_addresses(table[LANCE_ROWADDR_COLUMN]))
 
 
