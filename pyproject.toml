@@ -207,6 +207,8 @@ text_cpu = [
     "sentence-transformers",
 ]
 
+lance = ["lance-ray>=0.4"]
+
 text_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
@@ -282,6 +284,7 @@ all = [
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
     "nemo_curator[interleaved_cuda12]",
+    "nemo_curator[lance]",
     "nemo_curator[math_cuda12]",
     "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
