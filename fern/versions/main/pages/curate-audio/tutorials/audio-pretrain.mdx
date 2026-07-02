@@ -270,7 +270,12 @@ prepare_audio_pretrain_outputs(manifest, metrics, audio_tar)
 try:
     pipeline.run(XennaExecutor(config={"execution_mode": "streaming"}))
 finally:
-    finalize_audio_pretrain_outputs(manifest, metrics, audio_tar)
+    finalize_audio_pretrain_outputs(
+        manifest,
+        metrics,
+        audio_tar,
+        audio_filepath_key="audio_filepath",
+    )
 ```
 
 `prepare_audio_pretrain_outputs` removes stale `*.shard-*` files next to all three outputs. `finalize_audio_pretrain_outputs` merges manifest and metrics shards, streams readable tar members into lexicographic order, removes merged shards, and reconciles the manifest against the tar.
@@ -358,7 +363,7 @@ The final metrics file includes aggregate and per-source values:
 }
 ```
 
-Input duration is the wall-clock span from the earliest segment start to the latest segment end, not decoded file duration or summed speech duration. Output duration is also a snippet span and therefore includes silence between packed segments. Histogram bins are fixed 30-second ranges; a duration exactly on a boundary enters the higher bin.
+Input duration is the wall-clock span from the earliest segment start to the latest segment end, not decoded file duration or summed speech duration. Output duration is also a snippet span and therefore includes silence between packed segments. Histogram bins are fixed 30-second ranges, and a duration exactly on a boundary enters the higher bin. Consequently, a snippet of exactly 30 seconds appears in `30-60` even when `max_duration_sec=30`; that bin does not indicate that the configured cap was exceeded.
 
 `missing_audio` and `corrupted_audio` appear only when final reconciliation removes manifest rows. After such removals, output totals, histogram values, and each per-source `out_*` field are rebuilt from the authoritative manifest.
 
