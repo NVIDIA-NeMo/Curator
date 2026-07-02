@@ -67,25 +67,30 @@ results = pipeline.run(executor=executor)
 
 ### Per-Stage Worker Overrides
 
-Use `num_workers` for a cluster-wide count:
+Use `num_workers` for a cluster-wide count. To request workers per node instead, leave `num_workers` unset and configure only `num_workers_per_node`:
 
 ```python
-from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import EmptyTask
 
-stage = stage.with_(
+
+class PassthroughStage(ProcessingStage[EmptyTask, EmptyTask]):
+    name = "passthrough"
+    resources = Resources(cpus=1.0)
+
+    def process(self, task: EmptyTask) -> EmptyTask:
+        return task
+
+
+cluster_wide_stage = PassthroughStage().with_(
     num_workers=12,
     xenna_stage_spec={
         "worker_max_lifetime_m": 45,
     },
 )
 
-results = pipeline.run(executor=XennaExecutor())
-```
-
-To request workers per node, leave `num_workers` unset and configure only `num_workers_per_node`:
-
-```python
-stage = stage.with_(
+per_node_stage = PassthroughStage().with_(
     num_workers=None,
     xenna_stage_spec={
         "num_workers_per_node": 2,
