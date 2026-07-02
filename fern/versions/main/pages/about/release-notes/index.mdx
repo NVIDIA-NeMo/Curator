@@ -67,7 +67,7 @@ NeMo Curator can shard deterministic source tasks across independent SLURM array
 The [caption evaluation workflow](/curate-video/process-data/caption-evaluation) from [#1980](https://github.com/NVIDIA-NeMo/Curator/pull/1980) builds a diverse benchmark from sampled OpenVid clips, summarizes captions to the model's token budget, and uses Cosmos-Embed1 cosine similarity to evaluate video-text alignment. Summaries are cached so repeated evaluations do not regenerate them.
 
 <Note>
-The removed `--captioning-model-does-preprocess` option appears in an older benchmark README. Do not use it with 26.06; follow the [video preprocessing migration](/about/release-notes/26-06-migration#remove-the-video-model-preprocessing-option).
+The removed `--captioning-model-does-preprocess` option appears in an older benchmark README. Do not use it with 26.06; follow the [video preprocessing migration](/about/release-notes/26-06-migration#4-remove-the-video-model-preprocessing-option).
 </Note>
 
 ### Expanded Translation Controls
@@ -151,7 +151,7 @@ The [26.06 migration checklist](/about/release-notes/26-06-migration) provides b
 - **`nemo_text_processing` on Arm:** The audio extra installs `nemo_text_processing` on x86_64 Linux, but no longer installs it on aarch64 or macOS because its `pynini` dependency is not supported there. Audio stages that import it, including inverse text normalization and WER processing, must be omitted or supplied through a separately supported environment on those platforms ([#2049](https://github.com/NVIDIA-NeMo/Curator/pull/2049)).
 - **`flash-attn` is no longer a direct video dependency:** The `video_cuda12` extra no longer pins or installs `flash-attn`. Built-in video pipelines use their declared dependencies; custom code that imports FlashAttention must install a compatible build explicitly ([#2107](https://github.com/NVIDIA-NeMo/Curator/pull/2107)). This applies to both x86_64 and aarch64.
 
-See the [architecture dependency matrix](/about/release-notes/26-06-migration#review-architecture-specific-dependencies) for upgrade actions.
+See the [architecture dependency matrix](/about/release-notes/26-06-migration#7-review-architecture-specific-dependencies) for upgrade actions.
 
 ## Upgrade Checklist
 
