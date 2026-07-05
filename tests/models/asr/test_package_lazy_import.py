@@ -24,8 +24,8 @@ if TYPE_CHECKING:
     import pytest
 
 
-def test_importing_asr_subpackage_does_not_load_qwen_omni(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``import nemo_curator.models.asr`` must not pull in ``qwen_omni`` at init time."""
+def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The package init must not pull in either concrete ASR implementation."""
     original_import = builtins.__import__
     blocked: list[str] = []
 
@@ -36,7 +36,10 @@ def test_importing_asr_subpackage_does_not_load_qwen_omni(monkeypatch: pytest.Mo
         fromlist: tuple[str, ...] = (),
         level: int = 0,
     ) -> object:
-        if name.endswith("nemo_curator.models.asr.qwen_omni") or name == "nemo_curator.models.asr.qwen_omni":
+        if name in {
+            "nemo_curator.models.asr.nemo_asr",
+            "nemo_curator.models.asr.qwen_omni",
+        }:
             blocked.append(name)
             msg = f"blocked eager import of {name}"
             raise ImportError(msg)
@@ -44,19 +47,39 @@ def test_importing_asr_subpackage_does_not_load_qwen_omni(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(builtins, "__import__", tracking_import)
 
-    for mod_name in list(sys.modules):
-        if mod_name in {"nemo_curator.models.asr", "nemo_curator.models.asr.base"}:
-            del sys.modules[mod_name]
+    module_names = {
+        "nemo_curator.models.asr",
+        "nemo_curator.models.asr.base",
+        "nemo_curator.models.asr.nemo_asr",
+        "nemo_curator.models.asr.qwen_omni",
+    }
+    saved_modules = {name: sys.modules.get(name) for name in module_names}
+    try:
+        for mod_name in module_names:
+            sys.modules.pop(mod_name, None)
 
-    import nemo_curator.models.asr as asr_pkg
+        import nemo_curator.models.asr as asr_pkg
 
-    assert blocked == []
-    assert asr_pkg.ASRAdapter is not None
-    assert asr_pkg.ASRResult is not None
-    assert "QwenOmniASRAdapter" in asr_pkg._LAZY
+        assert blocked == []
+        assert asr_pkg.ASRAdapter is not None
+        assert asr_pkg.ASRResult is not None
+        assert "NeMoASRAdapter" in asr_pkg._LAZY
+        assert "QwenOmniASRAdapter" in asr_pkg._LAZY
+    finally:
+        for mod_name in module_names:
+            sys.modules.pop(mod_name, None)
+        for mod_name, module in saved_modules.items():
+            if module is not None:
+                sys.modules[mod_name] = module
 
 
 def test_asr_subpackage_lazy_getattr_resolves_qwen_adapter() -> None:
     from nemo_curator.models.asr import QwenOmniASRAdapter
 
     assert QwenOmniASRAdapter.__name__ == "QwenOmniASRAdapter"
+
+
+def test_asr_subpackage_lazy_getattr_resolves_nemo_adapter() -> None:
+    from nemo_curator.models.asr import NeMoASRAdapter
+
+    assert NeMoASRAdapter.__name__ == "NeMoASRAdapter"

@@ -122,6 +122,12 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     # Opt-in diagnostics used by benchmark pipelines. Existing stages retain
     # main's performance record shape and avoid background GPU sampling.
     extended_performance_metrics: bool = False
+    # Whether this stage is safe to run under resumability (``checkpoint_path``).
+    # Defaults to True; set False only on stages whose input→output mapping isn't
+    # source-attributable (shuffle / fan-in, e.g. the dedup shuffle/LSH/connected-
+    # components stages). ``Pipeline.run(checkpoint_path=...)`` errors if any stage
+    # in the pipeline is not resumable.
+    is_resumable: bool = True
 
     @property
     @final

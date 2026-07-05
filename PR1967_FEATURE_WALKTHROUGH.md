@@ -219,6 +219,8 @@ For every segment child, `AudioPayloadMaterializeStage`:
 3. invokes `AudioFileReaderStage` with `segment_start_s` and
    `segment_duration_s`;
 4. decodes local audio to contiguous float32 PCM at configured rate/channels;
+   for a metadata-planned segment, trims only an ffmpeg rounding overshoot to
+   the planner-declared `num_samples` ceiling, without padding a short decode;
 5. removes the waveform from ordinary task data;
 6. resizes the reservation to measured tensor bytes;
 7. stores the tensor in the node-local payload actor; and
@@ -526,7 +528,54 @@ serialized in policy config but does not resize backend batches; the actual
 ordinary-row candidate window is `ASRStage.batch_size`. `run_bucketed()`
 exposes the same cost/dispatch/realign pattern to other inference stages.
 
-## 7. Qwen-Omni Adapter
+## 7. ASR Model Adapters
+
+`ASRStage` resolves the class named by `adapter_target`, constructs it with
+`model_id`, `revision`, and opaque `adapter_kwargs`, and calls the common
+`ASRAdapter` lifecycle. Segmentation, payload resolution, global-envelope
+validation, output alignment, stitch-back, and stage metrics therefore stay
+identical when the model implementation changes.
+
+### 7.1 NeMo FastConformer CTC
+
+[`nemo_curator/models/asr/nemo_asr.py`](nemo_curator/models/asr/nemo_asr.py)
+implements `NeMoASRAdapter`. Its default checkpoint is
+`nvidia/stt_en_fastconformer_ctc_large`; another checkpoint accepted by
+`nemo.collections.asr.models.ASRModel.from_pretrained()` can be selected with
+`model_id`.
+
+The adapter performs model-only work:
+
+1. `prefetch_weights()` downloads the checkpoint on the CPU-only node setup
+   task without constructing a GPU model;
+2. worker `setup()` loads one model instance on the configured device, or on
+   CUDA when available;
+3. `transcribe_batch()` converts each waveform to contiguous mono float32,
+   resamples it to the configured or model-reported sample rate, and keeps
+   invalid inputs as ordered skipped results;
+4. every valid item in that adapter call is passed to one NeMo
+   `transcribe()` invocation with `batch_size=len(valid_items)`; and
+5. string, hypothesis, nested-list, and tuple return shapes are normalized to
+   one ordered `ASRResult` per input.
+
+Step 4 is the batching contract relevant to this branch. One validated global
+dispatch envelope becomes one NeMo DataLoader batch; NeMo cannot silently
+split it at its public default batch size of four. The reader's duration policy
+still controls safe item count and total audio cost before waveform resolution.
+
+The adapter records input, valid, skipped, call, item, requested-batch-size,
+and transcription-time scalars in `last_metrics`. `ASRStage` publishes those
+under its normal `model_*` metric aliases. It uses the existing
+`audio_common` dependency extra and lazy package export, so importing
+`nemo_curator.models.asr` does not import NeMo.
+
+The existing `InferenceAsrNemoStage` remains unchanged for file-path-based
+pipelines on main. `NeMoASRAdapter` is the in-memory path for payload refs,
+global dispatch, model-input segmentation, and common ASR observability.
+Because NeMo's loader has no checkpoint-revision parameter, a non-null
+`revision` is rejected explicitly.
+
+### 7.2 Qwen-Omni
 
 [`nemo_curator/models/asr/qwen_omni.py`](nemo_curator/models/asr/qwen_omni.py)
 implements `QwenOmniASRAdapter` on
@@ -535,14 +584,33 @@ implements `QwenOmniASRAdapter` on
 The adapter owns model-specific work:
 
 - prompt templates from inline text or files;
+- selectable text-before-audio or audio-before-text user-message order;
 - per-item language/transcript interpolation;
 - waveform normalization and 16 kHz resampling;
 - threaded multimodal request preparation;
 - one-turn or two-turn Qwen generation;
 - stable one-result-per-input output with skipped placeholders;
 - tensor parallelism, model/token/sequence limits, GPU memory utilization,
-  multimodal limits, sampling, seed, and output-token configuration; and
+  multimodal limits, top-k/top-p sampling, seed, and output-token
+  configuration;
 - preparation, generation, valid/skipped, and token metrics.
+
+The defaults match the Qwen implementation on `nkoluguri/integration-test`:
+`Transcribe the audio.`, text before audio, `temperature=0.0`, `top_k=1`, and no
+top-p override. Pipelines can explicitly select
+audio before text, a language-specific prompt, and `top_p` to reproduce Qwen's
+official ASR recipe. The adapter returns vLLM's first output text even when
+generation stops at the configured length limit; it does not infer repetition,
+retry a request, split audio recursively, inject a custom EOS stop id, or apply
+a repetition penalty.
+
+The additional code in this branch is framework plumbing rather than a model
+behavior fork: it normalizes Curator waveform objects, packages outputs as
+`ASRResult`, records scalar timing/token metrics, supports revision-aware
+weight prefetch, and accepts an optional vLLM scheduler token budget for long
+model inputs. The raw benchmark config retains the reference-compatible
+defaults; correctness experiments override the prompt/order/sampling and model
+window explicitly rather than changing behavior for existing benchmark users.
 
 The adapter's current preprocessing error policy is fail-open per item.
 `_prepare_single()` catches any `Exception`, logs a warning, and returns `None`;
@@ -562,7 +630,10 @@ payload resolution, and batch policy without inheriting Qwen details.
 
 Install the adapter with `uv sync --extra audio_qwen`. The Qwen extra composes
 audio CUDA and vLLM dependencies rather than placing Qwen packages in the
-general `audio_common` extra.
+general `audio_common` extra. It pins the compatible tested floor to
+Transformers 4.57.6, vLLM 0.18.1, qwen-omni-utils 0.0.9, and Accelerate 1.12.0.
+Transformers 5.2 is not selected because vLLM's supported dependency envelope
+excludes that release line.
 
 ## 8. Global Parent Assembly
 
@@ -857,6 +928,13 @@ modality-specific logic to the backend.
   read-error bypass, same-ref retry, segmentation, ordering, and metrics;
 - [`tests/stages/audio/inference/test_batch_policy.py`](tests/stages/audio/inference/test_batch_policy.py):
   bucket/cost caps, adapter calls, and index realignment;
+- [`tests/models/asr/test_nemo_asr.py`](tests/models/asr/test_nemo_asr.py)
+  and [`tests/models/asr/test_waveform.py`](tests/models/asr/test_waveform.py):
+  NeMo adapter lifecycle, exact batch forwarding, output alignment, sample-rate
+  conversion, output-shape normalization, stage integration, and shared
+  waveform conversion;
+- [`tests/models/asr/test_package_lazy_import.py`](tests/models/asr/test_package_lazy_import.py):
+  importing the ASR package does not eagerly import either concrete adapter;
 - [`tests/backends/test_task_id_postprocess.py`](tests/backends/test_task_id_postprocess.py):
   task-id derivation, shorter/reordered/replacement terminal outputs,
   conflicting identities, stage-id drop markers, and subclass-field-preserving
@@ -883,7 +961,7 @@ properties outside these focused tests.
 | local segment decode | `stages/audio/io/audio_file_reader.py` |
 | model-input segmentation | `stages/audio/model_input_segmentation.py` |
 | ASR and batch policy | `stages/audio/inference/asr/stage.py`, `batch_policy.py` |
-| Qwen model path | `models/asr/base.py`, `models/asr/qwen_omni.py`, `models/vllm_model.py` |
+| ASR model adapters | `models/asr/base.py`, `models/asr/nemo_asr.py`, `models/asr/qwen_omni.py`, `models/asr/waveform.py`, `models/vllm_model.py` |
 | backend execution | `backends/base.py`, `backends/ray_data/*`, `backends/xenna/*` |
 | task contracts | `tasks/tasks.py`, `tasks/dispatch_batch.py`, `tasks/task_terminals.py`, `tasks/sentinels.py` |
 | observability | `backends/perf_identity.py`, `utils/gpu_sampler.py`, `utils/pipeline_hardware_sampler.py`, `stages/audio/metrics/*` |

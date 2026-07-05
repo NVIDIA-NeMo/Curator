@@ -1200,6 +1200,11 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
         """
         inference_t0 = time.perf_counter()
         sub_results = self._adapter.transcribe_batch(items)
+        self._record_inference_attempt(items, inference_t0)
+        return sub_results
+
+    def _record_inference_attempt(self, items: list[dict[str, Any]], inference_t0: float) -> None:
+        """Account for one successful adapter call."""
         self._inference_elapsed_s += time.perf_counter() - inference_t0
         self._adapter_inference_calls += 1
         self._adapter_inference_items += len(items)
@@ -1207,7 +1212,6 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
         for k, v in last_m.items():
             if isinstance(v, (int, float)):
                 self._acc_model_metrics[k] += float(v)
-        return sub_results
 
     def assemble(
         self,

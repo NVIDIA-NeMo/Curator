@@ -150,3 +150,56 @@ def test_audio_file_reader_uses_ffmpeg_seek_for_segments(
     assert seen_cmd[6] == str(audio_path)
     assert "-t" in seen_cmd
     assert seen_cmd[seen_cmd.index("-t") + 1] == "30"
+
+
+def test_audio_file_reader_trims_segment_decode_to_planned_samples(
+    audio_task: Callable[..., AudioTask],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stage = AudioFileReaderStage(target_sample_rate=16000, target_nchannels=1)
+    monkeypatch.setattr(stage, "_load_waveform", lambda *_args, **_kwargs: (torch.zeros(1, 101), 16000))
+    task = audio_task(
+        audio_filepath="/local/audio/segment.opus",
+        segment_start_s=0.0,
+        segment_duration_s=1.0,
+        num_samples=100,
+    )
+
+    result = stage.process(task)
+
+    assert result.data["waveform"].shape == (1, 100)
+    assert result.data["num_samples"] == 100
+    assert result.data["duration"] == 100 / 16000
+
+
+def test_audio_file_reader_does_not_pad_short_segment_decode(
+    audio_task: Callable[..., AudioTask],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stage = AudioFileReaderStage(target_sample_rate=16000, target_nchannels=1)
+    monkeypatch.setattr(stage, "_load_waveform", lambda *_args, **_kwargs: (torch.zeros(1, 99), 16000))
+    task = audio_task(
+        audio_filepath="/local/audio/segment.opus",
+        segment_start_s=0.0,
+        segment_duration_s=1.0,
+        num_samples=100,
+    )
+
+    result = stage.process(task)
+
+    assert result.data["waveform"].shape == (1, 99)
+    assert result.data["num_samples"] == 99
+
+
+def test_audio_file_reader_does_not_trim_full_parent_from_stale_num_samples(
+    audio_task: Callable[..., AudioTask],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stage = AudioFileReaderStage(target_sample_rate=16000, target_nchannels=1)
+    monkeypatch.setattr(stage, "_load_waveform", lambda *_args, **_kwargs: (torch.zeros(1, 101), 16000))
+    task = audio_task(audio_filepath="/local/audio/full.opus", num_samples=100)
+
+    result = stage.process(task)
+
+    assert result.data["waveform"].shape == (1, 101)
+    assert result.data["num_samples"] == 101

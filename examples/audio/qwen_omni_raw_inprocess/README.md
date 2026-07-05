@@ -35,3 +35,17 @@ outside the prompt files:
 
 Prompt files may use `{language}` and `{transcript}` placeholders when the
 stage supplies language or reference text columns.
+
+Qwen3-Omni runs on the installed vLLM engine. The adapter's default prompt,
+text-before-audio message order, and sampling values preserve the reference
+adapter behavior. Pipelines can instead set `prompt_content_order=audio_text`,
+a language-specific prompt, and `top_p` to reproduce Qwen's official ASR
+recipe. The adapter returns vLLM's first output text, including output stopped
+at the configured generation-length limit; it does not apply a repetition
+heuristic, retry inference, or invoke another ASR model.
+
+`ASRStage.max_inference_duration_s` is the hard per-request audio ceiling.
+With bucketing disabled, `adapter_batch_size` is the item-count cap for one
+adapter call. For example, `max_inference_duration_s=600` and
+`adapter_batch_size=1` guarantee that every Qwen call receives one contiguous
+audio segment no longer than ten minutes.

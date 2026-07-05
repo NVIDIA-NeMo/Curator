@@ -14,8 +14,8 @@
 
 """ASR model adapters.
 
-Exposes :class:`ASRAdapter` / :class:`ASRResult` (always importable) from
-``base``. Concrete adapters (e.g. :class:`QwenOmniASRAdapter`) live in
+Exposes :class:`ASRAdapter` and :class:`ASRResult` from ``base``. Concrete
+adapters (for example :class:`NeMoASRAdapter` and :class:`QwenOmniASRAdapter`) live in
 submodules, resolved via YAML ``adapter_target`` or lazy attribute access
 (PEP 562) to avoid importing heavy GPU deps eagerly.
 """
@@ -23,10 +23,11 @@ submodules, resolved via YAML ``adapter_target`` or lazy attribute access
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
 
 _LAZY: dict[str, str] = {
+    "NeMoASRAdapter": ".nemo_asr",
     "QwenOmniASRAdapter": ".qwen_omni",
 }
 
-__all__ = ["ASRAdapter", "ASRResult", "QwenOmniASRAdapter"]
+__all__ = ["ASRAdapter", "ASRResult", "NeMoASRAdapter", "QwenOmniASRAdapter"]
 
 
 def __getattr__(name: str) -> object:

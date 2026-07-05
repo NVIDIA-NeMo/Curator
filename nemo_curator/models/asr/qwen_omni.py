@@ -31,15 +31,18 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
 from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.asr.waveform import resample_waveform, to_mono_numpy_1d
 from nemo_curator.models.vllm_model import VLLM_AVAILABLE, VLLMBase
 from nemo_curator.utils.gpu_utils import get_gpu_count
+
+if TYPE_CHECKING:
+    import numpy as np
 
 try:
     from qwen_omni_utils import process_mm_info
@@ -72,7 +75,8 @@ def _require_audio_qwen_stack(*, context: str) -> None:
 _QWEN3_OMNI_MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 _QWEN_SAMPLE_RATE = 16000
 _MIN_QWEN_AUDIO_SAMPLES = 1600
-_WAVEFORM_2D_NDIM = 2
+_PROMPT_CONTENT_ORDERS = frozenset({"text_audio", "audio_text"})
+_FINISH_REASON_LABELS = ("stop", "length", "abort", "other", "missing")
 _FOLLOWUP_PROMPT_DEFAULT = (
     "Now listen to the audio again and add any false starts, filler words "
     "and preserve colloquial words (like lemme, gonna, wanna, etc) as is "
@@ -103,6 +107,9 @@ class QwenOmniASRAdapter(VLLMBase):
             ``"English"``.
         followup_prompt / *_file: when set, enables Turn-2 inference.
         system_prompt / *_file: optional system message for both turns.
+        prompt_content_order: order of text and audio blocks in each user
+            message. ``text_audio`` preserves reference-adapter behavior;
+            ``audio_text`` matches Qwen's official ASR cookbook.
         tensor_parallel_size: ``None`` -> auto-detect from visible GPUs.
         enable_prefix_caching: default ``True`` since prompts repeat across
             requests; disable for highly variable prompts.
@@ -128,6 +135,7 @@ class QwenOmniASRAdapter(VLLMBase):
     followup_prompt_file: str | None = None
     system_prompt: str | None = None
     system_prompt_file: str | None = None
+    prompt_content_order: str = "text_audio"
     max_model_len: int = 32768
     max_num_batched_tokens: int | None = None
     max_num_seqs: int = 32
@@ -135,7 +143,9 @@ class QwenOmniASRAdapter(VLLMBase):
     tensor_parallel_size: int | None = None
     max_output_tokens: int = 256
     temperature: float = 0.0
+    top_p: float | None = None
     top_k: int = 1
+    repetition_penalty: float = 1.0
     prep_workers: int = 8
 
     enable_prefix_caching: bool = True
@@ -153,6 +163,21 @@ class QwenOmniASRAdapter(VLLMBase):
 
         if self.max_num_batched_tokens is not None and self.max_num_batched_tokens <= 0:
             msg = "max_num_batched_tokens must be positive when set"
+            raise ValueError(msg)
+        if self.max_output_tokens <= 0:
+            msg = "max_output_tokens must be positive"
+            raise ValueError(msg)
+        if self.prompt_content_order not in _PROMPT_CONTENT_ORDERS:
+            msg = (
+                "prompt_content_order must be one of "
+                f"{sorted(_PROMPT_CONTENT_ORDERS)}, got {self.prompt_content_order!r}"
+            )
+            raise ValueError(msg)
+        if self.top_p is not None and not 0.0 < float(self.top_p) <= 1.0:
+            msg = f"top_p must be in (0, 1] when set, got {self.top_p}"
+            raise ValueError(msg)
+        if self.repetition_penalty <= 0.0:
+            msg = f"repetition_penalty must be greater than zero, got {self.repetition_penalty}"
             raise ValueError(msg)
         if self.limit_mm_per_prompt_audio <= 0:
             msg = "limit_mm_per_prompt_audio must be positive"
@@ -213,18 +238,20 @@ class QwenOmniASRAdapter(VLLMBase):
         if self.revision is not None:
             model_kwargs["revision"] = self.revision
 
-        sampling_kwargs: dict[str, Any] = {
-            "temperature": self.temperature,
-            "top_k": self.top_k,
-            "max_tokens": self.max_output_tokens,
-        }
-
         try:
-            self._init_engine(model_kwargs, sampling_kwargs)
-
             proc_kwargs: dict[str, Any] = {}
             if self.revision is not None:
                 proc_kwargs["revision"] = self.revision
+            sampling_kwargs: dict[str, Any] = {
+                "temperature": self.temperature,
+                "top_k": self.top_k,
+                "max_tokens": self.max_output_tokens,
+            }
+            if self.top_p is not None:
+                sampling_kwargs["top_p"] = float(self.top_p)
+            if self.repetition_penalty != 1.0:
+                sampling_kwargs["repetition_penalty"] = float(self.repetition_penalty)
+            self._init_engine(model_kwargs, sampling_kwargs)
             self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id, **proc_kwargs)
             self._prep_pool = ThreadPoolExecutor(max_workers=self.prep_workers)
         except Exception:
@@ -281,38 +308,11 @@ class QwenOmniASRAdapter(VLLMBase):
     @staticmethod
     def _to_mono_numpy_1d(waveform: object) -> np.ndarray:
         """Normalize Curator waveform objects to Qwen's 1-D mono numpy input."""
-        if waveform is None:
-            return np.asarray([], dtype=np.float32)
-        if hasattr(waveform, "detach"):
-            waveform = waveform.detach().cpu().numpy()
-        arr = np.asarray(waveform, dtype=np.float32)
-        if arr.size == 0:
-            return arr.reshape(0)
-        if arr.ndim == 0:
-            return arr.reshape(1)
-        if arr.ndim == 1:
-            return np.ascontiguousarray(arr)
-
-        squeezed = np.squeeze(arr)
-        if squeezed.ndim == 1:
-            return np.ascontiguousarray(squeezed.astype(np.float32, copy=False))
-        if squeezed.ndim == _WAVEFORM_2D_NDIM:
-            # Curator's canonical waveform is channels-first (C, T). If an
-            # adapter caller supplies channel-last (T, C), average over the
-            # smaller channel-looking axis.
-            axis = 0 if squeezed.shape[0] <= squeezed.shape[1] else 1
-            return np.ascontiguousarray(squeezed.mean(axis=axis).astype(np.float32, copy=False))
-
-        msg = f"Expected 1-D or 2-D waveform, got shape {arr.shape}"
-        raise ValueError(msg)
+        return to_mono_numpy_1d(waveform)
 
     @staticmethod
     def _resample(waveform: np.ndarray, orig_sr: int, target_sr: int = _QWEN_SAMPLE_RATE) -> np.ndarray:
-        if orig_sr == target_sr:
-            return waveform
-        import librosa
-
-        return librosa.resample(waveform, orig_sr=orig_sr, target_sr=target_sr)
+        return resample_waveform(waveform, orig_sr, target_sr)
 
     def _resolve_prompt(self, template: str, language: str | None, reference_text: str | None = None) -> str:
         result = template
@@ -338,15 +338,14 @@ class QwenOmniASRAdapter(VLLMBase):
         if self.system_prompt:
             sys_prompt = self._resolve_prompt(self.system_prompt, language)
             messages.append({"role": "system", "content": [{"type": "text", "text": sys_prompt}]})
-        messages.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "audio", "audio": waveform},
-                ],
-            }
+        text_content = {"type": "text", "text": prompt}
+        audio_content = {"type": "audio", "audio": waveform}
+        content = (
+            [audio_content, text_content]
+            if self.prompt_content_order == "audio_text"
+            else [text_content, audio_content]
         )
+        messages.append({"role": "user", "content": content})
         return messages
 
     def _build_messages(
@@ -494,28 +493,47 @@ class QwenOmniASRAdapter(VLLMBase):
             return ""
         return (getattr(sequences[0], "text", "") or "").strip()
 
+    @staticmethod
+    def _count_finish_reasons(outputs: list[Any]) -> dict[str, float]:
+        """Count one canonical vLLM finish reason per generated request."""
+        counts = dict.fromkeys(_FINISH_REASON_LABELS, 0.0)
+        for output in outputs:
+            sequences = getattr(output, "outputs", None) or []
+            if not sequences:
+                counts["missing"] += 1.0
+                continue
+            raw_reason = getattr(sequences[0], "finish_reason", None)
+            if raw_reason is None:
+                counts["missing"] += 1.0
+                continue
+            reason = str(getattr(raw_reason, "value", raw_reason)).strip().lower()
+            counts[reason if reason in {"stop", "length", "abort"} else "other"] += 1.0
+        return counts
+
     def _infer_turn(
         self,
         inputs: list[dict[str, Any]],
         indices: list[int],
         n: int,
-    ) -> tuple[list[str], float, float]:
+    ) -> tuple[list[str], float, float, dict[str, float]]:
         """Run one vLLM turn and scatter its texts back to input order.
 
         ``indices[k]`` is the position in the length-``n`` batch that
         ``inputs[k]`` came from. Returns
-        ``(texts_of_len_n, generation_time_s, output_token_count)``.
+        ``(texts_of_len_n, generation_time_s, output_token_count,
+        finish_reason_counts)``.
         """
         t0 = time.perf_counter()
         outputs = self._generate(inputs)
         generation_time_s = time.perf_counter() - t0
         output_tokens = self._count_output_tokens(outputs)
+        finish_reason_counts = self._count_finish_reasons(outputs)
         texts: list[str] = [""] * n
         # strict=True: a count mismatch means a broken engine contract; fail
         # loud rather than silently emit empty text with skipped=False.
         for idx, out in zip(indices, outputs, strict=True):
             texts[idx] = self._first_output_text(out)
-        return texts, generation_time_s, output_tokens
+        return texts, generation_time_s, output_tokens, finish_reason_counts
 
     def _run_vllm_turn(
         self,
@@ -525,10 +543,18 @@ class QwenOmniASRAdapter(VLLMBase):
         metrics: dict[str, float],
         turn_name: str,
     ) -> list[str]:
-        texts, generation_s, output_tokens = self._infer_turn(inputs, indices, n)
+        texts, generation_s, output_tokens, finish_reason_counts = self._infer_turn(inputs, indices, n)
         metrics[f"{turn_name}_generation_time_s"] = generation_s
         metrics[f"{turn_name}_output_tokens"] = output_tokens
         metrics["output_tokens"] += output_tokens
+        for reason, count in finish_reason_counts.items():
+            turn_key = f"{turn_name}_finish_reason_{reason}_count"
+            total_key = f"finish_reason_{reason}_count"
+            metrics[turn_key] = metrics.get(turn_key, 0.0) + count
+            metrics[total_key] = metrics.get(total_key, 0.0) + count
+        finish_count = sum(finish_reason_counts.values())
+        metrics[f"{turn_name}_finish_reason_total_count"] = finish_count
+        metrics["finish_reason_total_count"] = metrics.get("finish_reason_total_count", 0.0) + finish_count
         return texts
 
     def _run_two_turn(

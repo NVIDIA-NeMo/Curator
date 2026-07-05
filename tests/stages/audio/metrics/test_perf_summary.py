@@ -121,6 +121,37 @@ def test_stage_summary_exposes_adapter_inference_call_count() -> None:
     assert stage["adapter_inference_calls_per_stage_invocation"] == 7.0
 
 
+def test_stage_summary_sums_qwen_finish_reason_counts() -> None:
+    summary = AudioPerformanceSummary(duration_key="duration")
+    summary.record_stage_perf(
+        [
+            StagePerfStats(
+                stage_name="QwenOmni_inference",
+                process_time=1.0,
+                custom_metrics={
+                    "model_finish_reason_stop_count": 2.0,
+                    "model_finish_reason_length_count": 1.0,
+                    "model_turn1_finish_reason_length_count": 1.0,
+                },
+            ),
+            StagePerfStats(
+                stage_name="QwenOmni_inference",
+                process_time=1.0,
+                custom_metrics={
+                    "model_finish_reason_stop_count": 3.0,
+                    "model_finish_reason_length_count": 2.0,
+                    "model_turn1_finish_reason_length_count": 2.0,
+                },
+            ),
+        ]
+    )
+
+    custom = summary.build_stage_summaries()["QwenOmni_inference"]["custom_metrics_sum"]
+    assert custom["model_finish_reason_stop_count"] == 5.0
+    assert custom["model_finish_reason_length_count"] == 3.0
+    assert custom["model_turn1_finish_reason_length_count"] == 3.0
+
+
 # ----------------------------------------------------------------------
 # Per-GPU scheduling breakdown + topology
 # ----------------------------------------------------------------------

@@ -41,6 +41,9 @@ class Session:
     entries: list[Entry] = field(default_factory=list)
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
+    # Maximum allowed per-entry timeout after default_timeout_s has been applied.
+    # 3h59m keeps generated CI wall-clock below common 4h limits once cleanup time is added.
+    max_timeout_s: int = 14340
     # object store size is either a value in bytes (int), a fraction of total system memory (float), or None or the
     # value "default" (string) both representing the default object store size as used by "ray start".
     object_store_size: int | float | str | None = 0.5
@@ -55,7 +58,7 @@ class Session:
     path_resolver: PathResolver = None
     dataset_resolver: DatasetResolver = None
 
-    def __post_init__(self) -> None:  # noqa: C901
+    def __post_init__(self) -> None:  # noqa: C901, PLR0912
         """Post-initialization checks and updates for dataclass."""
         names = [entry.name for entry in self.entries]
         if len(names) != len(set(names)):
@@ -75,15 +78,27 @@ class Session:
             )
             raise ValueError(msg)
 
+        if not isinstance(self.max_timeout_s, int) or isinstance(self.max_timeout_s, bool) or self.max_timeout_s <= 0:
+            msg = f"Invalid max_timeout_s: {self.max_timeout_s}; must be a positive integer."
+            raise ValueError(msg)
+
         # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
         for entry in self.entries:
             if entry.delete_scratch is None:
                 entry.delete_scratch = self.delete_scratch
 
-        # Update timeout_s for each entry that has not been set to the session-level default_timeout_s
+        # Update timeout_s for each entry that has not been set to the session-level
+        # default_timeout_s, then enforce the session-level maximum against effective values.
         for entry in self.entries:
             if entry.timeout_s is None:
                 entry.timeout_s = self.default_timeout_s
+            if entry.timeout_s > self.max_timeout_s:
+                msg = (
+                    f"Entry '{entry.name}' has timeout_s={entry.timeout_s}, which exceeds "
+                    f"max_timeout_s={self.max_timeout_s}. Entry timeouts are validated after "
+                    "all YAML files have been merged and default_timeout_s has been applied."
+                )
+                raise ValueError(msg)
 
         # Update object store size for each entry that has not been set.
         for entry in self.entries:

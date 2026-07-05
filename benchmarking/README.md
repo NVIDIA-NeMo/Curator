@@ -145,8 +145,12 @@ paths:
     host_path: /path/to/model_weights
     container_path: /model_weights  # optional override
 
-# Optional: Global timeout for all entries (seconds)
+# Optional: Global timeout for entries that omit timeout_s (seconds)
 default_timeout_s: 7200
+
+# Optional: Maximum allowed effective timeout for any entry (seconds).
+# Defaults to 14340 (3h59m).
+max_timeout_s: 14340
 
 # Optional: Delete scratch directories after each entry completes
 # The path {session_entry_dir}/scratch is automatically created when an entry starts and can be used by benchmark
