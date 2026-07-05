@@ -279,7 +279,10 @@ The important invariant is **one audio-byte decode per row**. Remote object
 storage is staged outside Curator. `AudioFileReaderStage` accepts local paths
 only and is used by `AudioPayloadMaterializeStage` as the only code path that
 opens `audio_filepath`, decodes, resamples, and creates the in-memory
-`waveform` payload. After materialization, normal task rows carry `waveform_ref`
+`waveform` payload. If a caller supplies a metadata-planned segment with an
+existing `num_samples` ceiling, ffmpeg time-seek/resample overshoot is trimmed
+to that ceiling; short decodes are never padded and ordinary full-file reads
+are never trimmed this way. After materialization, normal task rows carry `waveform_ref`
 rather than the tensor itself. `ASRStage` resolves that ref only inside its own
 `process_batch()` call, drops the temporary waveform before returning, and
 `PayloadReleaseStage` releases the payload store entry before the writer runs.
@@ -436,13 +439,51 @@ language-name resolution, model-input segmentation for clips longer than
 |---|---|---|
 | `ASRStage` | `stages/audio/inference/asr/stage.py` | Generic, model-independent stage glue. |
 | `ASRAdapter` (Protocol) + `ASRResult` | `models/asr/base.py` | The contract a model adapter must satisfy (`setup`, `teardown`, `transcribe_batch`, `prefetch_weights`, `last_metrics`). |
+| `NeMoASRAdapter` | `models/asr/nemo_asr.py` | NeMo Framework implementation for checkpoints accepted by `ASRModel.from_pretrained`; defaults to `nvidia/stt_en_fastconformer_ctc_large`. |
 | `QwenOmniASRAdapter` | `models/asr/qwen_omni.py` | Qwen3-Omni implementation (built on the shared `VLLMBase` in `models/vllm_model.py`). |
 
 The split is **Tier-1 / Tier-2**:
 
+The NeMo implementation is available through the existing `audio_common`
+extra. It consumes the in-memory waveforms supplied by `ASRStage`, converts
+them to contiguous mono samples, resamples to the checkpoint's sample rate,
+and passes every valid item in one adapter call to one NeMo transcription
+batch by setting `batch_size=len(valid_items)`. This makes each local
+duration-policy output one exact model call instead of falling back to NeMo's
+public default batch size of four. Invalid or empty waveforms retain their
+positions as skipped `ASRResult` values.
+
+```yaml
+_target_: nemo_curator.stages.audio.inference.asr.ASRStage
+adapter_target: nemo_curator.models.asr.NeMoASRAdapter
+model_id: nvidia/stt_en_fastconformer_ctc_large
+adapter_kwargs:
+  num_workers: 0
+  verbose: false
+```
+
+`InferenceAsrNemoStage` remains available for existing file-path pipelines.
+The adapter path is the option for payload-backed execution, model-input
+segmentation, local duration-aware calls, and the shared ASR performance
+schema. NeMo's loader does not expose a revision argument, so
+`NeMoASRAdapter` rejects a non-null `revision` instead of silently ignoring it.
+
 Install the Qwen implementation with `uv sync --extra audio_qwen`. This
 Qwen-only extra composes the unchanged `audio_cuda12` stack with vLLM and
-`qwen-omni-utils`; existing non-Qwen audio environments are unaffected.
+`qwen-omni-utils`; existing non-Qwen audio environments are unaffected. The
+tested dependency floor is Transformers 4.57.6, vLLM 0.18.1,
+qwen-omni-utils 0.0.9, and Accelerate 1.12.0. vLLM excludes the currently
+recommended Transformers 5.2 line, so the vLLM adapter stays on the newest
+compatible Transformers 4 release.
+
+The model-facing contract matches `nkoluguri/integration-test`: default prompt
+`Transcribe the audio.`, text before audio in the user message, greedy
+`temperature=0.0` / `top_k=1`, and no custom EOS, nucleus sampling,
+repetition penalty, retry, or output-limit policy. Curator-specific code only
+normalizes task waveforms, packages `ASRResult`, and records metrics. The raw
+long-audio benchmark config uses a 1,200-second input ceiling, 65,536-position
+context, and 32,768-token output allowance without changing those generation
+semantics.
 
 - **Tier-1** fields are universal stage knobs set in YAML (`adapter_target`,
   `model_id`, I/O keys, `max_inference_duration_s`, `keep_waveform`, `batch_size`,

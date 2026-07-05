@@ -150,6 +150,7 @@ class AudioFileReaderStage(ProcessingStage[AudioTask, AudioTask]):
             self.segment_duration_key,
             strictly_positive=True,
         )
+        planned_segment_num_samples = self._planned_segment_num_samples(data_entry, segment_duration_s)
         data_entry.setdefault(self.audio_item_id_key, audio_item_id_from_path(audio_path))
         if self._is_remote_path(audio_path):
             msg = (
@@ -170,6 +171,9 @@ class AudioFileReaderStage(ProcessingStage[AudioTask, AudioTask]):
             logger.warning("Skipping audio row after read failure for {}: {}", audio_path, exc)
             return self._mark_read_error(task, audio_path, exc, time.perf_counter() - t0)
 
+        decoded_num_samples = int(waveform.shape[-1])
+        if planned_segment_num_samples is not None and decoded_num_samples > planned_segment_num_samples:
+            waveform = waveform[..., :planned_segment_num_samples].contiguous()
         num_samples = int(waveform.shape[-1])
         duration = num_samples / float(sample_rate)
 
@@ -193,8 +197,26 @@ class AudioFileReaderStage(ProcessingStage[AudioTask, AudioTask]):
             metrics["segment_start_s"] = float(segment_start_s)
         if segment_duration_s is not None:
             metrics["segment_duration_s"] = float(duration)
+            metrics["segment_trimmed_samples"] = float(decoded_num_samples - num_samples)
         self._log_metrics(metrics)
         return task
+
+    def _planned_segment_num_samples(
+        self,
+        data_entry: dict[str, Any],
+        segment_duration_s: float | None,
+    ) -> int | None:
+        """Return the planner's segment sample ceiling when one is present."""
+        if segment_duration_s is None:
+            return None
+        value = data_entry.get(self.num_samples_key)
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            planned = int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return planned if planned > 0 else None
 
     @staticmethod
     def _optional_seconds(value: object, key: str, *, strictly_positive: bool = False) -> float | None:

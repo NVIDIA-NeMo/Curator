@@ -524,6 +524,40 @@ def test_model_input_segmentation_normal_flow_caps_adapter_calls_by_batch_size()
     assert result[0].data["qwen3_prediction_s1"] == "chunk0 chunk1 chunk2 chunk3"
 
 
+def test_local_bucket_off_plans_long_audio_as_single_item_ten_minute_calls() -> None:
+    """The 8.9-hour correctness row becomes only <=10-minute, one-item adapter calls."""
+    duration_s = 535.26 * 60.0
+    num_samples = round(duration_s * _SR)
+    stage = _make_stage(max_inference_duration_s=600.0, batch_policy=None)
+    stage.adapter_batch_size = 1
+    payload_ref = PayloadRef(
+        payload_id="long-audio",
+        owner_node_id="node-0",
+        store_actor_name="store",
+        admission_actor_name="admission",
+        amount_bytes=num_samples * 4,
+        sample_rate=_SR,
+        num_samples=num_samples,
+    )
+    task = AudioTask(
+        data={
+            "waveform_ref": payload_ref,
+            "sample_rate": _SR,
+            "source_lang": "en",
+        }
+    )
+
+    specs = stage._build_chunk_specs([task])
+    items = [stage._chunk_spec_to_item(spec) for spec in specs]
+    _aligned_results, calls = stage._plan_inference_calls(items)
+
+    assert len(specs) == 54
+    assert len(calls) == 54
+    assert all(len(call.items) == 1 for call in calls)
+    assert all(0.0 < item["audio_seconds"] <= 600.0 for item in items)
+    assert sum(item["audio_seconds"] for item in items) == pytest.approx(duration_s, abs=1.0 / _SR)
+
+
 def test_payload_prefetch_plans_from_metadata_resolves_parent_once_and_slices_per_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -852,6 +886,8 @@ def test_metrics_model_alias_skips_already_emitted_keys() -> None:
     stage._adapter.last_metrics = {
         "audio_duration_s": 999.0,
         "extra_diagnostic_metric": 42.0,
+        "turn1_finish_reason_length_count": 1.0,
+        "finish_reason_length_count": 1.0,
     }
     stage._log_metrics = MagicMock()  # type: ignore[method-assign]
 
@@ -860,6 +896,8 @@ def test_metrics_model_alias_skips_already_emitted_keys() -> None:
     metrics = stage._log_metrics.call_args[0][0]
     assert "model_audio_duration_s" not in metrics
     assert metrics["model_extra_diagnostic_metric"] == 42.0
+    assert metrics["model_turn1_finish_reason_length_count"] == 1.0
+    assert metrics["model_finish_reason_length_count"] == 1.0
 
 
 # ----------------------------------------------------------------------

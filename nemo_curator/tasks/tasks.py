@@ -29,15 +29,17 @@ class Task(ABC, Generic[T]):
     (text, audio, video) can implement their own task types.
 
     Attributes:
+        dataset_name: Name of the dataset this task belongs to.
+        data: The task's payload (modality-specific).
+        _stage_perf: Per-stage perf stats this task has accumulated.
+        _metadata: Free-form metadata carried alongside the task.
         task_id: Deterministic identifier for this task. The constructor still
             accepts ``task_id=`` for compatibility with existing Curator code,
             but pipeline execution treats it as framework-owned and rewrites it
-            via ``_set_task_id`` at stage boundaries. It is an underscore-joined
-            id path through the pipeline DAG — the parents' ids plus this task's
-            own segment (e.g. ``"abc123_0_5"`` = source ``abc123``, then child
-            0, then grandchild 5). Using the readable path directly (rather
-            than a hash of it) keeps task ids easy to debug. Empty string until
-            the first stage runs; two runs of the same pipeline on the same
+            via ``_set_task_id`` at every stage boundary. It is an underscore-
+            joined path through the pipeline DAG (for example,
+            ``"abc123_0_5"``). Empty string until the first stage runs; two runs
+            of the same pipeline on the same
             inputs produce byte-identical ``task_id``s across all tasks.
 
             A ``task_id`` that starts with ``"r"`` (followed by a uuid) is a
@@ -45,8 +47,9 @@ class Task(ABC, Generic[T]):
             derived — e.g. a stage that overrides ``process_batch`` with an
             ambiguous batch fan-out (M inputs → K≠M outputs). Such ids are
             NON-deterministic (differ across runs).
-        dataset_name: Name of the dataset this task belongs to.
-        _stage_perf: List of stages perfs this task has passed through.
+        _source_id: Source (input partition) this task descends from. Stamped at
+            the source stage, inherited downstream; used only by the opt-in
+            resumability layer. Empty for pre-source tasks.
     """
 
     dataset_name: str
@@ -54,6 +57,7 @@ class Task(ABC, Generic[T]):
     _stage_perf: list[StagePerfStats] = field(default_factory=list)
     _metadata: dict[str, Any] = field(default_factory=dict)
     task_id: str = ""
+    _source_id: str = field(init=False, default="")
 
     def __post_init__(self) -> None:
         """Post-initialization hook."""
@@ -100,6 +104,14 @@ class Task(ABC, Generic[T]):
             self.task_id = f"{parent_task_id}_{current_task_id_suffix}"
         else:
             self.task_id = str(current_task_id_suffix)
+
+    def get_source_id(self) -> str:
+        """This task's source-partition identity: the trailing segment of
+        ``task_id`` (the id-path leaf). At a source stage that segment is the
+        partition's own id (content id or index); the resumability layer stamps
+        it onto ``_source_id`` and inherits it downstream. Kept here next to
+        :py:meth:`_set_task_id` so the ``"_"`` id-path encoding lives in one place."""
+        return self.task_id.rsplit("_", 1)[-1]
 
     def get_deterministic_id(self) -> str | None:
         """Return a content-based identifier for this task as a source,

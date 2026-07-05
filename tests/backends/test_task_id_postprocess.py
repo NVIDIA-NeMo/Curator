@@ -17,7 +17,7 @@ place every backend assigns a deterministic ``task_id`` to emitted tasks.
 The happy-path flow (fan-out, 1:1, source content ids) is exercised
 end-to-end against real backends in tests/backends/test_integration.py
 (``test_task_ids``). This file keeps only the cases that are awkward or
-impossible to trigger through a real pipeline: filter-``None`` positional
+impossible to trigger through a real pipeline: filter-``NoneTask`` positional
 alignment, the ambiguous-cardinality ``"r"``-uuid fallback, in-place
 re-derivation, and source content-id vs. positional-index selection."""
 
@@ -29,6 +29,7 @@ from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.pipeline.payload_refs import PayloadRef
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask, Task
+from nemo_curator.tasks.sentinels import NoneTask
 from nemo_curator.tasks.task_terminals import (
     TERMINAL_COUNT_KEY,
     TERMINAL_DROPPED_BY_STAGE_KEY,
@@ -125,7 +126,7 @@ def _terminal_task(index: int, *, count: int = 2, source_index: int = 7, **data:
     return task
 
 
-def _assign(tasks: list[Task], results: list[Task | None], *, is_source: bool = False) -> list[Task]:
+def _assign(tasks: list[Task], results: list[Task], *, is_source: bool = False) -> list[Task]:
     stage = _NoopStage()
     stage.is_source_stage = is_source
     return BaseStageAdapter(stage)._post_process_task_ids(tasks, results)
@@ -164,15 +165,18 @@ def test_failed_attempt_keeps_payload_ref_for_backend_retry(monkeypatch: pytest.
 
 
 class TestPostProcessTaskIds:
-    def test_filter_stage_keeps_positional_alignment(self) -> None:
-        # A filter stage returns None in the filtered slot. None is NOT
-        # dropped before the length check, so the surviving outputs still map
-        # to their OWN parents (not shifted), then None slots are removed.
+    def test_none_task_keeps_positional_alignment(self) -> None:
+        # process_batch normalizes a filtered None slot to NoneTask before this
+        # helper runs, so every positional output maps to its own parent.
         p0, p1, p2 = _task("0_0"), _task("0_1"), _task("0_2")
         c0, c2 = _task(), _task()
-        out = _assign([p0, p1, p2], [c0, None, c2])
-        assert out == [c0, c2]
+        filtered = NoneTask()
+
+        out = _assign([p0, p1, p2], [c0, filtered, c2])
+
+        assert out == [c0, filtered, c2]
         assert c0.task_id == "0_0_0"  # child of p0, not shifted
+        assert filtered.task_id == "0_1_0"
         assert c2.task_id == "0_2_0"  # child of p2, not p1
 
     def test_in_place_return_is_reassigned(self) -> None:
