@@ -3,9 +3,9 @@
 # Reads parquets from Stage 1 (magic-html-extract), runs heuristic doc-level
 # filters tuned for a multimodal corpus, writes filtered parquets.
 #
-# Differences vs the default `text_filter.yaml`:
+# Multimodal tweaks vs a stock Gopher/C4 setup:
 #   - word_count_min lowered from 50 → 20 (keeps caption-rich pages)
-#   - lang_id DISABLED (no drop; defer lang annotation to a separate stage)
+#   - lang_id DISABLED (no drop); lang_id_annotate ENABLED (tag only)
 #   - all other Gopher/C4 heuristic filters at default
 #   - no quality classifier, no bad_words, no PII redact, no image stages
 #
@@ -19,13 +19,16 @@ description: Stage 2 — Parquet → 12 heuristic text filters (multimodal-tuned
 input_type: parquet
 
 # ======================================================================
-# ① Extraction settings (ignored on Parquet input)
+# ① Reader / batch sizing
+#    (extractor / min_text_chars / max_text_chars / resiliparse_text are
+#     inherited from run_warc_pipeline.py's argparse and ignored by
+#     run_text_filter_only.py — only max_batch_bytes is honored here.)
 # ======================================================================
 extractor: magic_traf
 min_text_chars: 1
 max_text_chars: 50000
 resiliparse_text: false
-max_batch_bytes: 268435456
+max_batch_bytes: 268435456       # 256 MiB Parquet-read batch cap
 
 # ======================================================================
 # ② Heuristic doc-level filters — 12 enabled, lang_id + bad_words OFF

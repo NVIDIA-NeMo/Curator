@@ -23,13 +23,16 @@ description: Stage 2 multimodal-tuned text filter, text_source=metadata (Resilip
 input_type: parquet
 
 # ======================================================================
-# ① Extraction settings (ignored on Parquet input)
+# ① Reader / batch sizing
+#    (extractor / min_text_chars / max_text_chars / resiliparse_text are
+#     inherited from run_warc_pipeline.py's argparse and ignored by
+#     run_text_filter_only.py — only max_batch_bytes is honored here.)
 # ======================================================================
 extractor: magic_traf
 min_text_chars: 1
 max_text_chars: 50000
 resiliparse_text: false
-max_batch_bytes: 268435456
+max_batch_bytes: 268435456       # 256 MiB Parquet-read batch cap
 
 # ======================================================================
 # ② Heuristic doc-level filters — 12 enabled, lang_id + bad_words OFF
