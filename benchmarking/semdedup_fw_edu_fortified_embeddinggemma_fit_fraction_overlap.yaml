@@ -1,0 +1,82 @@
+paths:
+  - name: "results_path"
+    host_path: "/raid/praateekm/curator-nightly/results"
+  - name: "raytmp_path"
+    host_path: "/raid/praateekm/curator-nightly/raytmp"
+    container_path: "/raytmp"
+
+gpu_stats_recorder:
+  interval_s: 5.0
+
+delete_scratch: false
+default_timeout_s: 21600
+max_timeout_s: 28800
+cleanup_timeout_s: 60
+min_timeout_s: 600
+
+sinks: []
+
+entries:
+  - name: semdedup_fw_edu_fortified_fitfrac0_05
+    enabled: true
+    script: semdedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path=s3://llm_post_training_data_processing/fineweb-edu-fortified/embeddings/embeddinggemma-300m-vllm-text-maxseq2048-dim768/
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/duplicate_ids
+      --executor=xenna
+      --n-clusters=1000
+      --id-field=id
+      --embedding-field=embedding
+      --embedding-dim=2304
+      --input-filetype=parquet
+      --eps=0.01
+      --which-to-keep=hard
+      --pairwise-batch-size=4096
+      --dataset-size-ratio=1.0
+      --fit-data-fraction=0.05
+      --use-env-s3-storage-options
+      --s3-endpoint-url=https://pdx.s8k.io
+      --s3-region-name=us-east-1
+      --delete-kmeans-cache-after-run
+    timeout_s: 21600
+    delete_scratch: false
+    ray:
+      num_cpus: 80
+      num_gpus: 4
+    requirements:
+      - metric: num_duplicates
+        min_value: 1
+
+  - name: semdedup_fw_edu_fortified_fitfrac0_15
+    enabled: true
+    script: semdedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path=s3://llm_post_training_data_processing/fineweb-edu-fortified/embeddings/embeddinggemma-300m-vllm-text-maxseq2048-dim768/
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/duplicate_ids
+      --executor=xenna
+      --n-clusters=1000
+      --id-field=id
+      --embedding-field=embedding
+      --embedding-dim=2304
+      --input-filetype=parquet
+      --eps=0.01
+      --which-to-keep=hard
+      --pairwise-batch-size=4096
+      --dataset-size-ratio=1.0
+      --fit-data-fraction=0.15
+      --use-env-s3-storage-options
+      --s3-endpoint-url=https://pdx.s8k.io
+      --s3-region-name=us-east-1
+      --delete-kmeans-cache-after-run
+    timeout_s: 28800
+    delete_scratch: false
+    ray:
+      num_cpus: 80
+      num_gpus: 4
+    requirements:
+      - metric: num_duplicates
+        min_value: 1

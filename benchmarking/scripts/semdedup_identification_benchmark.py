@@ -22,6 +22,8 @@ Assumes embeddings are already pre-generated in the input path.
 """
 
 import argparse
+import os
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -31,6 +33,32 @@ from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow
 from nemo_curator.tasks.utils import TaskPerfUtils
+
+
+def s3_storage_options_from_env(endpoint_url: str | None, region_name: str | None) -> dict[str, Any]:
+    endpoint_url = endpoint_url or os.environ.get("S3_ENDPOINT_URL") or os.environ.get("AWS_ENDPOINT_URL")
+    region_name = region_name or os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+
+    if not endpoint_url:
+        msg = "S3 endpoint URL is required when --use-env-s3-storage-options is set"
+        raise ValueError(msg)
+    if not access_key or not secret_key:
+        msg = "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required when --use-env-s3-storage-options is set"
+        raise ValueError(msg)
+
+    # Let s3fs/botocore resolve credentials from the AWS_* environment variables
+    # so repr/logging of storage_options does not persist secrets in benchmark logs.
+    return {
+        "client_kwargs": {
+            "endpoint_url": endpoint_url,
+            "region_name": region_name,
+        },
+        "config_kwargs": {
+            "connect_timeout": 5,
+        },
+    }
 
 
 def run_semdedup_identification_benchmark(  # noqa: PLR0913
@@ -47,6 +75,11 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     eps: float = 0.01,
     which_to_keep: str = "hard",
     pairwise_batch_size: int = 1024,
+    fit_data_fraction: float | None = None,
+    use_env_s3_storage_options: bool = False,
+    s3_endpoint_url: str | None = None,
+    s3_region_name: str | None = None,
+    delete_kmeans_cache_after_run: bool = False,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the semantic duplicate identification benchmark and collect comprehensive metrics.
@@ -65,6 +98,11 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         eps: Epsilon value for duplicate identification threshold (cosine_sim >= 1-eps)
         which_to_keep: Strategy for ranking within clusters ("hard", "easy", "random")
         pairwise_batch_size: Batch size for pairwise similarity computation
+        fit_data_fraction: Fraction of data to fit KMeans on. If unset, fit on all data.
+        use_env_s3_storage_options: Build S3 storage options from AWS_* env vars.
+        s3_endpoint_url: Endpoint URL to use with S3 storage options.
+        s3_region_name: Region name to use with S3 storage options.
+        delete_kmeans_cache_after_run: Delete cache_path/kmeans_results after workflow completion.
         **kwargs: Additional arguments (ignored)
 
     Returns:
@@ -76,10 +114,22 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
 
     logger.info("Starting semantic duplicate identification benchmark")
     run_start_time = time.perf_counter()
+    read_kwargs = None
+    if use_env_s3_storage_options:
+        read_kwargs = {
+            "storage_options": s3_storage_options_from_env(
+                endpoint_url=s3_endpoint_url,
+                region_name=s3_region_name,
+            )
+        }
 
     # Create and run workflow
     workflow = SemanticDeduplicationWorkflow(
-        input_path=load_dataset_files(input_path, dataset_ratio=dataset_size_ratio),
+        input_path=load_dataset_files(
+            input_path,
+            dataset_ratio=dataset_size_ratio,
+            storage_options=read_kwargs["storage_options"] if read_kwargs is not None else None,
+        ),
         output_path=output_path,
         cache_path=cache_path,
         n_clusters=n_clusters,
@@ -90,11 +140,17 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
         eps=eps,
         which_to_keep=which_to_keep,
         pairwise_batch_size=pairwise_batch_size,
+        fit_data_fraction=fit_data_fraction,
+        read_kwargs=read_kwargs,
     )
 
     # Run the workflow, extract metrics from the WorkflowRunResult object
     executor_obj = setup_executor(executor)
     workflow_run_result = workflow.run(pairwise_executor=executor_obj)
+    if delete_kmeans_cache_after_run:
+        kmeans_cache_path = Path(cache_path) / "kmeans_results"
+        logger.info(f"Deleting KMeans cache after workflow completion: {kmeans_cache_path}")
+        shutil.rmtree(kmeans_cache_path, ignore_errors=True)
 
     run_time_taken = time.perf_counter() - run_start_time
     task_metrics = TaskPerfUtils.aggregate_task_metrics(workflow_run_result)
@@ -182,6 +238,32 @@ def main() -> int:
     )
     parser.add_argument(
         "--pairwise-batch-size", type=int, default=1024, help="Batch size for pairwise similarity computation"
+    )
+    parser.add_argument(
+        "--fit-data-fraction",
+        type=float,
+        default=None,
+        help="Fraction of data to fit KMeans on. Omit to fit on all data.",
+    )
+    parser.add_argument(
+        "--use-env-s3-storage-options",
+        action="store_true",
+        help="Build S3 storage_options from AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env vars.",
+    )
+    parser.add_argument(
+        "--s3-endpoint-url",
+        default=None,
+        help="S3-compatible endpoint URL used with --use-env-s3-storage-options.",
+    )
+    parser.add_argument(
+        "--s3-region-name",
+        default=None,
+        help="S3 region name used with --use-env-s3-storage-options.",
+    )
+    parser.add_argument(
+        "--delete-kmeans-cache-after-run",
+        action="store_true",
+        help="Delete cache_path/kmeans_results after the workflow completes, preserving pairwise results.",
     )
 
     args = parser.parse_args()
