@@ -54,6 +54,11 @@ def test_nemo_adapter_rejects_unsupported_revision() -> None:
         NeMoASRAdapter(revision="main")
 
 
+def test_nemo_adapter_rejects_invalid_local_attention_context() -> None:
+    with pytest.raises(ValueError, match="must contain two positive integers"):
+        NeMoASRAdapter(local_attention_context_size=(128, 0))
+
+
 def test_prefetch_downloads_without_constructing_model() -> None:
     nemo_asr = MagicMock()
     with patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_asr):
@@ -80,6 +85,42 @@ def test_setup_loads_one_worker_local_model_and_is_idempotent() -> None:
     kwargs = nemo_asr.models.ASRModel.from_pretrained.call_args.kwargs
     assert kwargs["model_name"] == adapter.model_id
     assert kwargs["map_location"].type == "cpu"
+    model.change_attention_model.assert_not_called()
+    model.change_subsampling_conv_chunking_factor.assert_not_called()
+
+
+def test_setup_configures_local_attention_when_enabled() -> None:
+    nemo_asr = MagicMock()
+    model = _mock_model([])
+    nemo_asr.models.ASRModel.from_pretrained.return_value = model
+    adapter = NeMoASRAdapter(
+        device="cpu",
+        enable_local_attention=True,
+        local_attention_context_size=(64, 96),
+    )
+
+    with patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_asr):
+        adapter.setup()
+
+    model.change_attention_model.assert_called_once_with(
+        self_attention_model="rel_pos_local_attn",
+        att_context_size=[64, 96],
+    )
+    model.change_subsampling_conv_chunking_factor.assert_called_once_with(1)
+
+
+def test_setup_rejects_model_without_local_attention_api() -> None:
+    nemo_asr = MagicMock()
+    nemo_asr.models.ASRModel.from_pretrained.return_value = SimpleNamespace()
+    adapter = NeMoASRAdapter(device="cpu", enable_local_attention=True)
+
+    with (
+        patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_asr),
+        pytest.raises(TypeError, match="does not support FastConformer local-attention conversion"),
+    ):
+        adapter.setup()
+
+    assert adapter._model is None
 
 
 def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:

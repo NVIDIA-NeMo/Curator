@@ -299,8 +299,8 @@ def create_pipeline_from_yaml(cfg: DictConfig, *, log_config: bool = True) -> Pi
         raise RuntimeError(msg)
 
 
-@hydra.main(version_base=None)
-def main(cfg: DictConfig) -> None:
+def run_pipeline_from_yaml(cfg: DictConfig) -> Any:  # noqa: ANN401
+    """Build and execute one YAML-defined pipeline."""
     apply_process_env_defaults_from_yaml(cfg)
     ray_client = None
     if cfg.get("backend") in (None, ""):
@@ -312,15 +312,21 @@ def main(cfg: DictConfig) -> None:
 
         print("Starting pipeline execution...")
         start_s = time.time()
-        _results = pipeline.run(executor=executor)
+        results = pipeline.run(executor=executor)
         elapsed_s = time.time() - start_s
 
         output_dir = cfg.get("output_dir") or cfg.get("workspace_dir", "./output")
         _record_pipeline_duration(output_dir, elapsed_s)
         print("\nPipeline completed!")
+        return results
     finally:
         if ray_client is not None:
             ray_client.stop()
+
+
+@hydra.main(version_base=None)
+def main(cfg: DictConfig) -> None:
+    run_pipeline_from_yaml(cfg)
 
 
 if __name__ == "__main__":

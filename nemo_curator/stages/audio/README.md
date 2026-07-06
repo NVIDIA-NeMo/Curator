@@ -460,6 +460,8 @@ model_id: nvidia/stt_en_fastconformer_ctc_large
 adapter_kwargs:
   num_workers: 0
   verbose: false
+  enable_local_attention: true
+  local_attention_context_size: [128, 128]
 ```
 
 `InferenceAsrNemoStage` remains available for existing file-path pipelines.
@@ -467,6 +469,13 @@ The adapter path is the option for payload-backed execution, model-input
 segmentation, local duration-aware calls, and the shared ASR performance
 schema. NeMo's loader does not expose a revision argument, so
 `NeMoASRAdapter` rejects a non-null `revision` instead of silently ignoring it.
+
+`enable_local_attention` is opt-in and defaults to `false`. When enabled,
+worker setup converts a compatible FastConformer encoder to NeMo's
+`rel_pos_local_attn` implementation using the configured left/right context
+and enables automatic subsampling-convolution chunking. This bounds attention
+memory for long inputs. It also changes the checkpoint's inference attention
+topology, so pipelines should validate WER for their chosen context size.
 
 Install the Qwen implementation with `uv sync --extra audio_qwen`. This
 Qwen-only extra composes the unchanged `audio_cuda12` stack with vLLM and
@@ -575,7 +584,9 @@ written; sharded `.done` markers still written for the sharded writer).
    GPU-stage `gpu_addresses` / `gpu_count`.
 4. **Dedup** — `AudioPerformanceSummary.record_stage_perf` fingerprints each
    `StagePerfStats` (including identity) so fan-out stages do not multiply-count
-   upstream invocations.
+   upstream invocations. Top-level `perf_invocations_counted` is the number of
+   unique records retained after this deduplication; it is a coverage/debugging
+   count, not an adapter-call count.
 
 ### File writes (`ManifestWriterStage` / `ShardedManifestWriterStage`)
 
@@ -596,6 +607,41 @@ When `write_perf_stats=true` (default):
 
 `main.py` (tutorial entry points) may add `pipeline_duration_s` after
 `pipeline.run()` returns.
+
+`Pipeline` uses `PIPELINE_RUN_ID` when an orchestrator supplies it and otherwise
+creates a private UUID. `Pipeline.run()` stamps that ID, the concrete executor,
+and one read-only execution description onto every planned stage. Manifest
+writers publish the ID and executor as top-level `run_id` and `executor`, and
+publish the execution description once under `pipeline`.
+
+The `pipeline` block records backend, Xenna execution mode, dataset/source URI,
+node/GPU shape, Curator source ref, runtime config name, and the planned stages.
+Each stage can expose JSON-safe observational settings with
+`runtime_metadata()`; executors never use this metadata for scheduling. The
+manifest reader identifies local/windowed bucketing, ASR identifies its
+prediction/reference keys and exact call policy, and the payload materializer
+identifies its target format and memory budgets.
+
+The summary also publishes `dataset_names` and `output_schema`. The latter
+contains the union of terminal output columns and the number of rows carrying
+each column. Runtime analysis can therefore verify that `text`, predictions,
+and unknown source columns reached output without consulting an input manifest.
+
+Pipeline boundary accounting is explicit and stage-name independent:
+
+- the first stage that emits `pipeline_input_rows` and
+  `pipeline_input_audio_s` supplies top-level `rows_in` and `input_hours`;
+- the last stage that emits `pipeline_output_rows` and
+  `pipeline_output_audio_s` supplies top-level `rows_out` and `output_hours`.
+
+Manifest readers and NeMo tar readers implement the input contract; manifest
+writers implement the output contract. This keeps internal model-input rows
+from replacing original source-row counts at the top level.
+
+Unmodified manifest columns are preserved. The reader stores the full JSON
+object, payload/ASR stages mutate that task in place, release removes only
+payload lifecycle data, and writer omission remains explicit. Source fields
+such as `text` and future nested metadata therefore reach the terminal row.
 
 ### Adding custom metrics (stage authors)
 
@@ -643,7 +689,8 @@ writer phase — use whole-run pipeline wall clock from the entry point for thro
 **Validation (recommended for pipeline changes)**
 
 - **Perf** — compare `perf_summary.json` across runs on shared throughput fields;
-  work-done identical (`total_utterances`, shard counts).
+  require `rows_in`, `rows_out`, `input_hours`, and `output_hours` to agree for
+  equivalent workloads.
 - **Output** — compare `manifest_*.jsonl` rows keyed on `audio_filepath`; gate
   on key alignment and prediction-field stability (vLLM nondeterminism expected
   on a small fraction of rows).

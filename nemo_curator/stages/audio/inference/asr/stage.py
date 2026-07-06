@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 
 import hydra.utils
 from loguru import logger
+from omegaconf import OmegaConf
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
 from nemo_curator.pipeline.payload_refs import (
@@ -144,6 +145,16 @@ _PAYLOAD_START_ITEM_KEY = "_curator_payload_start_sample"
 _PAYLOAD_STOP_ITEM_KEY = "_curator_payload_stop_sample"
 _WAVEFORM_BYTES_ITEM_KEY = "_curator_waveform_bytes"
 _PRE_SKIPPED_ITEM_KEY = "_curator_asr_pre_skipped_reason"
+
+
+def _plain_runtime_metadata(value: Any) -> Any:  # noqa: ANN401
+    if OmegaConf.is_config(value):
+        value = OmegaConf.to_container(value, resolve=True)
+    if isinstance(value, dict):
+        return {key: _plain_runtime_metadata(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_runtime_metadata(item) for item in value]
+    return value
 
 
 def _payload_cache_key(payload_ref: PayloadRef) -> tuple[str | None, str, str]:
@@ -359,6 +370,37 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
         self._adapter_inference_items: int = 0
         self._warned_ray_per_node_pin = False
         self._supported_language_codes = self._normalise_supported_language_codes(self.supported_language_codes)
+
+    def runtime_metadata(self) -> dict[str, Any]:
+        """Describe the exact ASR call contract recorded in the perf summary."""
+        policy = self.batch_policy
+        batch_policy = None
+        if policy is not None:
+            batch_policy = {
+                "enabled": policy.enabled,
+                "strategy": policy.strategy,
+                "buckets_sec": list(policy.buckets_sec),
+                "max_items_per_batch_by_bucket": list(policy.max_items_per_batch_by_bucket),
+                "max_audio_sec_per_batch": policy.max_audio_sec_per_batch,
+                "prebatching_window_size": policy.prebatching_window_size,
+                "flush_interval_ms": policy.flush_interval_ms,
+            }
+        return {
+            "role": "audio_asr",
+            "adapter_target": self.adapter_target,
+            "model_id": self.model_id,
+            "revision": self.revision,
+            "prediction_text_key": self.pred_text_key,
+            "secondary_prediction_text_key": self.disfluency_text_key,
+            "reference_text_key": self.reference_text_key,
+            "max_inference_duration_s": self.max_inference_duration_s,
+            "candidate_batch_size": self.batch_size,
+            "adapter_batch_size": self.adapter_batch_size,
+            "payload_prefetch_enabled": self.payload_prefetch_enabled,
+            "payload_prefetch_max_bytes": self.payload_prefetch_max_bytes,
+            "batch_policy": batch_policy,
+            "adapter_kwargs": _plain_runtime_metadata(self.adapter_kwargs),
+        }
 
     def validate_dispatch_source(self, source: object) -> None:
         """Fail during graph expansion if an upstream plan cannot be dispatched unchanged."""
@@ -1200,11 +1242,6 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
         """
         inference_t0 = time.perf_counter()
         sub_results = self._adapter.transcribe_batch(items)
-        self._record_inference_attempt(items, inference_t0)
-        return sub_results
-
-    def _record_inference_attempt(self, items: list[dict[str, Any]], inference_t0: float) -> None:
-        """Account for one successful adapter call."""
         self._inference_elapsed_s += time.perf_counter() - inference_t0
         self._adapter_inference_calls += 1
         self._adapter_inference_items += len(items)
@@ -1212,6 +1249,7 @@ class ASRStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
         for k, v in last_m.items():
             if isinstance(v, (int, float)):
                 self._acc_model_metrics[k] += float(v)
+        return sub_results
 
     def assemble(
         self,

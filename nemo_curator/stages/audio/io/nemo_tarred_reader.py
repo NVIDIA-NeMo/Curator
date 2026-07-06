@@ -602,6 +602,8 @@ class NemoTarShardReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                 "corrupt_audio_count": float(corrupt_audio_count),
                 "duration_filtered_count": float(duration_filtered_count),
                 "utterances_emitted": float(shard_total),
+                "pipeline_input_rows": float(shard_total),
+                "pipeline_input_audio_s": decoded_audio_seconds,
                 "utterance_limit_hit": float(
                     bool(self.max_utterances_per_shard and shard_total >= self.max_utterances_per_shard)
                 ),

@@ -73,6 +73,58 @@ def test_pipeline_uses_xenna_executor_by_default():
         mock_xenna_instance.execute.assert_called_once()
 
 
+def test_pipeline_stamps_run_and_executor_context_on_planned_stages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PIPELINE_RUN_ID", "kratos-run-123")
+    monkeypatch.setenv("CURATOR_RUNTIME_CONFIG_NAME", "legacy_env_config.yaml")
+    monkeypatch.setenv("CURATOR_PIPELINE_TO_RUN", "legacy_env_pipeline")
+    monkeypatch.setenv("DATA_CONFIG_SWIFT_PATH", "swift://datasets/input.yaml")
+    monkeypatch.setenv("CURATOR_DATASET_NAME", "wer-ready-600h")
+    monkeypatch.setenv("CURATOR_NUM_NODES", "2")
+    monkeypatch.setenv("CURATOR_GPUS_PER_NODE", "4")
+    stage = _NoopStage()
+    executor = Mock()
+    executor.execute.return_value = []
+    pipeline = Pipeline(
+        name="test",
+        stages=[stage],
+        config={
+            "runtime_config_name": "qwen_local.yaml",
+            "pipeline_to_run": "qwen_omni_raw_inprocess",
+        },
+    )
+
+    pipeline.run(executor=executor)
+
+    assert stage._curator_run_id == "kratos-run-123"
+    assert stage._curator_executor == "Mock"
+    assert stage._curator_pipeline_metadata == {
+        "schema_version": 1,
+        "pipeline_name": "test",
+        "executor": "Mock",
+        "backend": "unittest.mock.Mock",
+        "execution_mode": None,
+        "curator_source_ref": "",
+        "runtime_config_name": "qwen_local.yaml",
+        "pipeline_to_run": "qwen_omni_raw_inprocess",
+        "source_dataset_uri": "swift://datasets/input.yaml",
+        "dataset_name": "wer-ready-600h",
+        "num_nodes": "2",
+        "gpus_per_node": "4",
+        "output_run_id": "",
+        "stages": [
+            {
+                "name": "noop",
+                "stage_id": "",
+                "type": f"{_NoopStage.__module__}._NoopStage",
+                "batch_size": 1,
+                "num_workers": None,
+                "resources": {"cpus": 1.0, "gpus": 0.0},
+                "settings": {},
+            }
+        ],
+    }
+
+
 def test_logs_info_when_ray_serve_active_with_gpu_stages_non_xenna() -> None:
     """Non-Xenna executors log an info message when Serve is active with GPU stages."""
     gpu_stage = Mock(spec=ProcessingStage)

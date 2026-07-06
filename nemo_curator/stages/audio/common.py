@@ -13,6 +13,7 @@
 # limitations under the License.
 # ruff: noqa: ANN401
 
+import contextlib
 import json
 import os
 import time
@@ -155,12 +156,12 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     name: str = "manifest_reader_stage"
     storage_options: dict[str, Any] | None = None
+    duration_key: str = "duration"
 
     def process(self, task: FileGroupTask) -> list[AudioTask]:
         t0 = time.perf_counter()
         paths = task.data
         results: list[AudioTask] = []
-        count = 0
         for manifest in paths:
             fs, resolved = url_to_fs(manifest, **(self.storage_options or {}))
             manifest_count = 0
@@ -174,14 +175,20 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                             _stage_perf=list(task._stage_perf),
                         )
                         results.append(audio_task)
-                        count += 1
                         manifest_count += 1
             logger.info(f"ManifestReaderStage: loaded {manifest_count} entries from {manifest}")
+        input_audio_s = 0.0
+        for result in results:
+            with contextlib.suppress(TypeError, ValueError):
+                input_audio_s += max(float(result.data.get(self.duration_key, 0.0)), 0.0)
         self._log_metrics(
             {
                 "process_time": time.perf_counter() - t0,
                 "manifests_read": len(paths),
                 "entries_read": len(results),
+                "audio_duration_s": input_audio_s,
+                "pipeline_input_rows": float(len(results)),
+                "pipeline_input_audio_s": input_audio_s,
             }
         )
         return results
@@ -191,6 +198,14 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     def num_workers(self) -> int | None:
         return 1
+
+    def runtime_metadata(self) -> dict[str, Any]:
+        return {
+            "role": "audio_manifest_reader",
+            "bucketing_implementation": "local_windowed",
+            "global_bucketing_enabled": False,
+            "duration_key": self.duration_key,
+        }
 
 
 @dataclass
@@ -207,6 +222,7 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
         blocksize: Target size per partition (e.g., "100MB"). Ignored if files_per_partition is set.
         file_extensions: File extensions to filter. Defaults to [".jsonl", ".json"].
         storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
+        duration_key: Manifest field used for input audio-hour accounting.
     """
 
     manifest_path: str | list[str]
@@ -215,6 +231,7 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
     blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
     storage_options: dict[str, Any] | None = None
+    duration_key: str = "duration"
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -231,7 +248,7 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
             ),
-            ManifestReaderStage(storage_options=self.storage_options),
+            ManifestReaderStage(storage_options=self.storage_options, duration_key=self.duration_key),
         ]
 
     def get_description(self) -> str:
@@ -404,7 +421,11 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         parent_dir = "/".join(resolved.split("/")[:-1])
         if parent_dir:
             fs.makedirs(parent_dir, exist_ok=True)
-        summary = self._writer_metrics.build_perf_summary()
+        summary = self._writer_metrics.build_perf_summary(
+            run_id=self._curator_run_id,
+            executor=self._curator_executor,
+            pipeline_metadata=self._curator_pipeline_metadata,
+        )
         write_t0 = time.perf_counter()
         with fs.open(resolved, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)

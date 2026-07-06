@@ -305,15 +305,6 @@ class QwenOmniASRAdapter(VLLMBase):
 
     # Input preparation
 
-    @staticmethod
-    def _to_mono_numpy_1d(waveform: object) -> np.ndarray:
-        """Normalize Curator waveform objects to Qwen's 1-D mono numpy input."""
-        return to_mono_numpy_1d(waveform)
-
-    @staticmethod
-    def _resample(waveform: np.ndarray, orig_sr: int, target_sr: int = _QWEN_SAMPLE_RATE) -> np.ndarray:
-        return resample_waveform(waveform, orig_sr, target_sr)
-
     def _resolve_prompt(self, template: str, language: str | None, reference_text: str | None = None) -> str:
         result = template
         if language and "{language}" in result:
@@ -401,14 +392,14 @@ class QwenOmniASRAdapter(VLLMBase):
         reference_text: str | None = None,
     ) -> tuple[dict[str, Any], np.ndarray] | None:
         try:
-            waveform_1d = self._to_mono_numpy_1d(waveform)
+            waveform_1d = to_mono_numpy_1d(waveform)
             if waveform_1d.size == 0:
                 logger.warning("Skipping empty waveform")
                 return None
             if waveform_1d.size < _MIN_QWEN_AUDIO_SAMPLES:
                 logger.warning("Skipping too-short waveform ({} samples)", waveform_1d.size)
                 return None
-            waveform_16k = self._resample(waveform_1d, sample_rate)
+            waveform_16k = resample_waveform(waveform_1d, sample_rate, _QWEN_SAMPLE_RATE)
             messages = self._build_messages(waveform_16k, language, reference_text)
             inputs = self._pack_vllm_inputs(messages)
         except Exception as exc:  # noqa: BLE001

@@ -6,6 +6,22 @@ in-process ASR adapter.
 Install the runtime with `uv sync --extra audio_qwen`. The dedicated extra
 keeps Qwen/vLLM dependencies out of existing `audio_cuda12` installations.
 
+Run a complete YAML config through the pipeline entrypoint, following the same
+Hydra pattern as the audio-tagging tutorial:
+
+```bash
+python tutorials/audio/qwen_omni_raw_inprocess/main.py \
+  --config-path /path/to/configs \
+  --config-name qwen_omni_raw_inprocess_local \
+  input_manifest=/data/input.jsonl \
+  output_dir=/data/qwen_output \
+  final_manifest=/data/qwen_output/output.jsonl
+```
+
+The command supplies only runtime I/O. Backend, workers, model settings,
+segmentation, bucketing, payload lifecycle, and performance collection belong
+in the selected YAML.
+
 The executable code path is:
 
 ```text
