@@ -582,6 +582,19 @@ class AudioPayloadMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.waveform_ref_key, self.sample_rate_key, self.num_samples_key]
 
+    def runtime_metadata(self) -> dict[str, Any]:
+        return {
+            "role": "payload_materializer",
+            "target_sample_rate": self.target_sample_rate,
+            "target_nchannels": self.target_nchannels,
+            "node_memory_fraction": self.node_memory_fraction,
+            "max_node_payload_bytes": self.max_node_payload_bytes,
+            "max_cluster_payload_bytes": self.max_cluster_payload_bytes,
+            "admission_poll_interval_s": self.admission_poll_interval_s,
+            "admission_wait_timeout_s": self.admission_wait_timeout_s,
+            "skip_on_read_error": self.skip_on_read_error,
+        }
+
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: dict[str, Any] | None = None) -> None:
         self._node_id = node_info.node_id or _resolve_node_id()
         self._ensure_ready()
@@ -883,6 +896,13 @@ class PayloadReleaseStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def runtime_metadata(self) -> dict[str, Any]:
+        return {
+            "role": "payload_release",
+            "payload_ref_key": self.payload_ref_key,
+            "remove_payload_metadata": self.remove_payload_metadata,
+        }
 
     def process(self, task: AudioTask) -> AudioTask:
         released_ids: set[str] = set()

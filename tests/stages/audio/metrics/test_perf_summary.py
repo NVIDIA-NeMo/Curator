@@ -20,6 +20,7 @@ from nemo_curator.stages.audio.metrics.performance import (
     AudioPerformanceSummary,
     serialize_stage_perf,
 )
+from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.performance_utils import StagePerfStats
 
 
@@ -119,6 +120,33 @@ def test_stage_summary_exposes_adapter_inference_call_count() -> None:
     assert stage["avg_adapter_inference_batch_size"] == 9.0 / 7.0
     assert stage["avg_audio_s_per_adapter_inference_call"] == 120.0 / 7.0
     assert stage["adapter_inference_calls_per_stage_invocation"] == 7.0
+
+
+def test_stage_summary_reports_idle_sum_and_inference_compute_fraction() -> None:
+    summary = AudioPerformanceSummary(duration_key="duration")
+    summary.record_stage_perf(
+        [
+            StagePerfStats(
+                stage_name="QwenOmni_inference",
+                process_time=10.0,
+                actor_idle_time=2.0,
+                custom_metrics={"inference_time_s": 8.0},
+                invocation_id="invocation-1",
+            ),
+            StagePerfStats(
+                stage_name="QwenOmni_inference",
+                process_time=20.0,
+                actor_idle_time=3.0,
+                custom_metrics={"inference_time_s": 12.0},
+                invocation_id="invocation-2",
+            ),
+        ]
+    )
+
+    stage = summary.build_stage_summaries()["QwenOmni_inference"]
+    assert stage["total_actor_idle_time_s"] == 5.0
+    assert stage["inference_compute_fraction"] == 20.0 / 30.0
+    assert "wallclock_s" not in stage
 
 
 def test_stage_summary_sums_qwen_finish_reason_counts() -> None:
@@ -273,9 +301,17 @@ def test_pipeline_throughput_rollup_unions_gpu_addresses() -> None:
             _perf(addr="10.0.0.6:0", actor_id="S:actor-b", audio_s=3600.0),
         ]
     )
-    # total_audio_seconds is normally driven by record_task; set it directly here.
-    summary._total_audio_seconds = 7200.0  # 2 audio-hours
-    out = summary.build_summary(wall_time_s=3600.0)  # 1 wall-hour
+    out = summary.build_summary(
+        wall_time_s=3600.0,
+        extra_stage_summaries={
+            "sink": {
+                "custom_metrics_sum": {
+                    "pipeline_output_rows": 2.0,
+                    "pipeline_output_audio_s": 7200.0,
+                }
+            }
+        },
+    )
 
     pt = out["pipeline_throughput"]
     assert pt["gpu_addresses"] == ["10.0.0.5:0", "10.0.0.6:0"]
@@ -283,7 +319,7 @@ def test_pipeline_throughput_rollup_unions_gpu_addresses() -> None:
     assert pt["audio_hours_per_wallclock_hour"] == 2.0  # 2 audio-h / 1 wall-h
 
 
-def test_rows_in_prefers_reader_manifest_entries_over_discovery_input_task() -> None:
+def test_summary_uses_first_input_boundary_and_last_output_boundary() -> None:
     summary = AudioPerformanceSummary(duration_key="duration")
     summary.record_stage_perf(
         [
@@ -295,15 +331,95 @@ def test_rows_in_prefers_reader_manifest_entries_over_discovery_input_task() -> 
             StagePerfStats(
                 stage_name="nemo_tar_shard_reader",
                 process_time=1.0,
-                custom_metrics={"manifest_entries": 123.0, "output_utterances": 100.0, "audio_duration_s": 3600.0},
+                custom_metrics={
+                    "pipeline_input_rows": 123.0,
+                    "pipeline_input_audio_s": 3600.0,
+                    "audio_duration_s": 3600.0,
+                },
+            ),
+            StagePerfStats(
+                stage_name="intermediate",
+                process_time=1.0,
+                custom_metrics={
+                    "pipeline_input_rows": 999.0,
+                    "pipeline_input_audio_s": 999.0,
+                    "pipeline_output_rows": 999.0,
+                    "pipeline_output_audio_s": 999.0,
+                },
             ),
         ]
     )
 
-    out = summary.build_summary(wall_time_s=10.0)
+    out = summary.build_summary(
+        wall_time_s=10.0,
+        run_id="run-123",
+        executor="RayDataExecutor",
+        extra_stage_summaries={
+            "terminal_writer": {
+                "custom_metrics_sum": {
+                    "pipeline_output_rows": 100.0,
+                    "pipeline_output_audio_s": 1800.0,
+                }
+            }
+        },
+    )
 
     assert out["rows_in"] == 123.0
     assert out["input_hours"] == 1.0
+    assert out["rows_out"] == 100.0
+    assert out["output_hours"] == 0.5
+    assert out["run_id"] == "run-123"
+    assert out["executor"] == "RayDataExecutor"
+    for removed in (
+        "total_utterances",
+        "pipeline_audio_s_per_wall_s",
+        "pipeline_utterances_per_wall_s",
+        "shards",
+    ):
+        assert removed not in out
+    assert all("wallclock_s" not in stage for stage in out["stages"].values())
+
+
+def test_summary_describes_pipeline_dataset_and_output_columns() -> None:
+    summary = AudioPerformanceSummary(duration_key="duration")
+    summary.record_task(
+        AudioTask(
+            dataset_name="wer-ready-600h",
+            data={
+                "audio_filepath": "audio.opus",
+                "duration": 60.0,
+                "text": "reference transcript",
+                "qwen3_prediction_s1": "prediction",
+            },
+        )
+    )
+    pipeline_metadata = {
+        "schema_version": 1,
+        "backend": "ray_data",
+        "execution_mode": None,
+    }
+
+    out = summary.build_summary(
+        pipeline_metadata=pipeline_metadata,
+        extra_stage_summaries={
+            "writer": {
+                "custom_metrics_sum": {
+                    "pipeline_output_rows": 1.0,
+                    "pipeline_output_audio_s": 60.0,
+                }
+            }
+        },
+    )
+
+    assert out["pipeline"] == pipeline_metadata
+    assert out["dataset_names"] == ["wer-ready-600h"]
+    assert out["output_schema"]["columns"] == [
+        "audio_filepath",
+        "duration",
+        "qwen3_prediction_s1",
+        "text",
+    ]
+    assert out["output_schema"]["column_row_counts"]["text"] == 1
 
 
 # ----------------------------------------------------------------------

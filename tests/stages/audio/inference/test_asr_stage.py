@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 import torch
+from omegaconf import OmegaConf
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.models.asr.base import ASRResult
@@ -751,6 +752,34 @@ def test_reference_text_key_is_passed_to_adapter_items() -> None:
 
     items = stage._adapter.transcribe_batch.call_args[0][0]
     assert items[0]["reference_text"] == "reference transcript"
+    assert task.data["text"] == "reference transcript"
+
+
+def test_runtime_metadata_identifies_output_reference_and_batch_contract() -> None:
+    policy = BatchPolicy(
+        buckets_sec=[0, 60, 600],
+        max_items_per_batch_by_bucket=[8, 4, 1],
+        max_audio_sec_per_batch=2400.0,
+    )
+    stage = _make_stage(
+        batch_policy=policy,
+        batch_size=16,
+        reference_text_key="text",
+        payload_prefetch_enabled=True,
+        payload_prefetch_max_bytes=1024,
+    )
+    stage.adapter_kwargs = {"local_attention_context_size": OmegaConf.create([128, 128])}
+
+    metadata = stage.runtime_metadata()
+
+    assert metadata["role"] == "audio_asr"
+    assert metadata["prediction_text_key"] == "qwen3_prediction_s1"
+    assert metadata["reference_text_key"] == "text"
+    assert metadata["candidate_batch_size"] == 16
+    assert metadata["batch_policy"]["buckets_sec"] == [0, 60, 600]
+    assert metadata["batch_policy"]["max_items_per_batch_by_bucket"] == [8, 4, 1]
+    assert metadata["batch_policy"]["max_audio_sec_per_batch"] == 2400.0
+    assert metadata["adapter_kwargs"]["local_attention_context_size"] == [128, 128]
 
 
 def test_reference_text_key_is_preserved_for_chunked_items() -> None:

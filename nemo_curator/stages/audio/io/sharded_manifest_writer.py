@@ -177,7 +177,11 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
 
     def _write_perf_summary(self) -> None:
         """Write aggregate perf_summary.json at the output root."""
-        summary = self._writer_metrics.build_perf_summary()
+        summary = self._writer_metrics.build_perf_summary(
+            run_id=self._curator_run_id,
+            executor=self._curator_executor,
+            pipeline_metadata=self._curator_pipeline_metadata,
+        )
         summary_path = os.path.join(self.output_dir, "perf_summary.json")
         write_t0 = time.perf_counter()
         with open(summary_path, "w", encoding="utf-8") as f:

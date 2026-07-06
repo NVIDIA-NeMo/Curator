@@ -122,6 +122,11 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     # Opt-in diagnostics used by benchmark pipelines. Existing stages retain
     # main's performance record shape and avoid background GPU sampling.
     extended_performance_metrics: bool = False
+    # Framework-owned execution identity. Pipeline.run() stamps instance
+    # values after resolving the concrete executor.
+    _curator_run_id: str = ""
+    _curator_executor: str = ""
+    _curator_pipeline_metadata: dict[str, Any] | None = None
     # Whether this stage is safe to run under resumability (``checkpoint_path``).
     # Defaults to True; set False only on stages whose input→output mapping isn't
     # source-attributable (shuffle / fan-in, e.g. the dedup shuffle/LSH/connected-
@@ -175,6 +180,14 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     def num_workers(self) -> int | None:
         """Number of workers required. If None, then executor will determine the number of workers."""
         return None
+
+    def runtime_metadata(self) -> dict[str, Any]:
+        """Return JSON-safe stage settings needed to interpret run artifacts.
+
+        The pipeline records this once in the terminal performance summary. It
+        is observational only: executors never use it for scheduling.
+        """
+        return {}
 
     def validate_input(self, task: Task) -> bool:
         """Validate input task meets requirements.

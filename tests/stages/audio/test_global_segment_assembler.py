@@ -54,6 +54,8 @@ def _parent_data() -> dict:
         "source_lang": "en",
         "text_prompt": "original prompt",
         "speaker_id": "speaker-a",
+        "text": "reference transcript",
+        "future_column": {"nested": [1, 2, {"value": "unchanged"}]},
         "audio_item_id": "audio",
     }
 
@@ -151,6 +153,8 @@ def test_segment_assembly_restores_parent_fields_from_parent_store_data() -> Non
     assert data["qwen3_prediction_s1"] == "hello world"
     assert data["text_prompt"] == "original prompt"
     assert data["speaker_id"] == "speaker-a"
+    assert data["text"] == "reference transcript"
+    assert data["future_column"] == {"nested": [1, 2, {"value": "unchanged"}]}
 
 
 def test_segment_assembly_rejects_parent_key_collision_by_default() -> None:

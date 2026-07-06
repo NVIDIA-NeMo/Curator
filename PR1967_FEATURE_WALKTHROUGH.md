@@ -107,8 +107,8 @@ boundary is `max_inference_duration_s`, and its shared record is
   public-list mutation.
 
 `Pipeline.__init__()` preserves the caller-visible config mapping, matching
-main-branch behavior, and creates a private `_curator_pipeline_run_id`. The id
-is copied only into the ephemeral expansion config. It therefore scopes named
+main-branch behavior. It uses orchestrator `PIPELINE_RUN_ID` when present and
+otherwise creates a private `_curator_pipeline_run_id`; the ID scopes named
 actors without injecting framework state into caller configuration.
 
 `Pipeline.add_stage()` updates the logical graph and invalidates the plan.
@@ -550,18 +550,26 @@ The adapter performs model-only work:
    task without constructing a GPU model;
 2. worker `setup()` loads one model instance on the configured device, or on
    CUDA when available;
-3. `transcribe_batch()` converts each waveform to contiguous mono float32,
+3. when `enable_local_attention=true`, setup converts a compatible
+   FastConformer encoder to `rel_pos_local_attn` with the configured left/right
+   context and enables subsampling-convolution chunking;
+4. `transcribe_batch()` converts each waveform to contiguous mono float32,
    resamples it to the configured or model-reported sample rate, and keeps
    invalid inputs as ordered skipped results;
-4. every valid item in that adapter call is passed to one NeMo
+5. every valid item in that adapter call is passed to one NeMo
    `transcribe()` invocation with `batch_size=len(valid_items)`; and
-5. string, hypothesis, nested-list, and tuple return shapes are normalized to
+6. string, hypothesis, nested-list, and tuple return shapes are normalized to
    one ordered `ASRResult` per input.
 
-Step 4 is the batching contract relevant to this branch. One validated global
+Step 5 is the batching contract relevant to this branch. One validated global
 dispatch envelope becomes one NeMo DataLoader batch; NeMo cannot silently
 split it at its public default batch size of four. The reader's duration policy
 still controls safe item count and total audio cost before waveform resolution.
+
+Local attention is disabled by default, preserving the selected checkpoint's
+original attention behavior. Enabling it bounds attention memory for long
+inputs but changes the inference attention topology, so the configured context
+size requires WER validation for the target dataset.
 
 The adapter records input, valid, skipped, call, item, requested-batch-size,
 and transcription-time scalars in `last_metrics`. `ASRStage` publishes those
@@ -826,6 +834,26 @@ that actor; if assignment cannot be resolved, actor sampling is skipped rather
 than attributing neighboring devices. Audio aggregation deduplicates one
 invocation record attached to several output rows.
 
+`Pipeline.run()` stamps its run ID, resolved executor, and one observational
+pipeline description onto every planned stage. The terminal writer publishes
+top-level `run_id` and `executor`, the run-level `pipeline` description,
+`dataset_names`, and `output_schema`. The description records backend/Xenna
+mode, dataset/source, compute shape, source ref, and every stage's declared
+runtime settings; it never influences scheduling. Dataset totals use a stage-name-independent
+boundary contract: the first stage emitting
+`pipeline_input_rows`/`pipeline_input_audio_s` supplies
+`rows_in`/`input_hours`; the last stage emitting
+`pipeline_output_rows`/`pipeline_output_audio_s` supplies
+`rows_out`/`output_hours`. The global planner reports original parent rows, so
+planned segment rows cannot inflate top-level input cardinality.
+
+`perf_invocations_counted` is the number of unique stage invocation records
+retained after deduplication. `total_actor_idle_time_s` sums gaps between
+successive invocations on each actor; it is not CUDA idle time.
+`inference_compute_fraction` divides summed adapter-call time by summed complete
+ASR-stage process time. Per-stage estimated `wallclock_s` and redundant
+top-level utterance/writer-throughput/shard aliases are not published.
+
 The Qwen pipeline records:
 
 - stage process/items/throughput;
@@ -966,7 +994,7 @@ properties outside these focused tests.
 | task contracts | `tasks/tasks.py`, `tasks/dispatch_batch.py`, `tasks/task_terminals.py`, `tasks/sentinels.py` |
 | observability | `backends/perf_identity.py`, `utils/gpu_sampler.py`, `utils/pipeline_hardware_sampler.py`, `stages/audio/metrics/*` |
 | output policy | `stages/audio/io/manifest_writer_utils.py`, `stages/audio/common.py` |
-| Hydra/YAML construction and execution | `config/run.py` |
+| Hydra/YAML construction and execution | `tutorials/audio/qwen_omni_raw_inprocess/main.py`, `config/run.py` |
 
 ## 16. Current Contracts And Reviewer Checks
 
@@ -1002,3 +1030,6 @@ properties outside these focused tests.
 17. A row already marked skipped, including a materialization read error, keeps
     its dispatch/terminal position, receives empty ASR output, bypasses the
     adapter, and still reaches parent assembly.
+18. The Qwen entrypoint follows the audio-tagging tutorial contract: one Hydra
+    config path/name plus `input_manifest`, `output_dir`, and `final_manifest`;
+    every behavioral setting remains in the selected YAML.

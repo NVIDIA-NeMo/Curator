@@ -48,6 +48,8 @@ python tutorials/audio/fleurs/main.py \
 | Curate multilingual ASR data (download, transcribe, filter by WER) | [**fleurs/**](fleurs/) | Yes (~4 GB VRAM) | Auto-downloads from HuggingFace |
 | Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
 | Label raw audio for TTS/ASR/ALM via diarization, alignment, and quality metrics | [**tagging/**](tagging/) | Yes (~8 GB VRAM) | Bring your own audio manifest |
+| Run a YAML-defined raw-manifest ASR adapter pipeline | [**asr_adapter_inprocess/**](asr_adapter_inprocess/) | Yes | Bring your own audio manifest |
+| Transcribe raw manifests with Qwen-Omni using YAML-defined batching and payload lifecycle | [**qwen_omni_raw_inprocess/**](qwen_omni_raw_inprocess/) | Yes (multi-GPU) | Bring your own audio manifest |
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
 | Filter a manifest to keep only single-speaker audio | [**single_speaker_filter/**](single_speaker_filter/) | Yes (~8 GB VRAM) | Requires a pre-existing JSONL manifest |
 | Quality-filter raw audio (MOS, VAD, bandwidth, noise) | [**readspeech/**](readspeech/) | Recommended (~4 GB VRAM) | Auto-downloads DNS Challenge (4.88 GB) |
@@ -77,6 +79,8 @@ sudo apt-get install -y ffmpeg
 | `fleurs/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
 | `alm/` | `ffmpeg` | `audio_cpu` |
 | `tagging/` | `ffmpeg` | `audio_cuda12` |
+| `asr_adapter_inprocess/` | `ffmpeg` | Adapter-dependent (`audio_common` for NeMo) |
+| `qwen_omni_raw_inprocess/` | `ffmpeg` | `audio_qwen` |
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
 | `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
 | `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
@@ -116,7 +120,7 @@ Audio pipelines can appear stuck for legitimate reasons. Before killing a run:
 | **Concepts** | [Architecture](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) · [Data Loading](https://docs.nvidia.com/nemo/curator/latest/about/concepts/text/data-loading-concepts.html) |
 | **Advanced** | [Custom Pipelines](https://docs.nvidia.com/nemo/curator/latest/reference/index.html) · [Execution Backends](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/execution-backends.html) · [NeMo ASR Integration](https://docs.nvidia.com/nemo/curator/latest/about/key-features.html) |
 | **Developer guide** | [Audio stage internals](../../nemo_curator/stages/audio/README.md) · raw Qwen payload lifecycle, global segment planning, ASR adapter batching, perf-summary fields |
-| **Qwen assets** | [Qwen-Omni prompt templates](../../examples/audio/qwen_omni_raw_inprocess/prompts/) |
+| **Qwen pipeline** | [YAML entrypoint](qwen_omni_raw_inprocess/main.py) · [prompt templates and runtime notes](../../examples/audio/qwen_omni_raw_inprocess/) |
 
 ## Known Issues
 

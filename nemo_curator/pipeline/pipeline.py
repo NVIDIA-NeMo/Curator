@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -76,7 +77,7 @@ class Pipeline:
         self._default_source_stage: ProcessingStage | None = None
         self._default_sink_stage: ProcessingStage | None = None
         self._planned_stage_snapshot: list[ProcessingStage] = []
-        self._curator_pipeline_run_id = uuid.uuid4().hex
+        self._curator_pipeline_run_id = os.environ.get("PIPELINE_RUN_ID", "").strip() or uuid.uuid4().hex
 
     def add_stage(self, stage: ProcessingStage) -> "Pipeline":
         """Add a stage to the pipeline.
@@ -227,6 +228,76 @@ class Pipeline:
             self.stages[-1].is_sink_stage = True
             self._default_sink_stage = self.stages[-1]
 
+    def _set_execution_context(self, executor: BaseExecutor) -> None:
+        """Stamp one read-only execution description onto every planned stage."""
+        executor_name = type(executor).__name__
+        backend = {
+            "RayDataExecutor": "ray_data",
+            "XennaExecutor": "xenna",
+        }.get(executor_name, f"{type(executor).__module__}.{executor_name}")
+        execution_mode = None
+        if backend == "xenna":
+            execution_mode = str(getattr(executor, "config", {}).get("execution_mode", "streaming"))
+
+        stage_metadata = []
+        for stage in self.stages:
+            metadata_provider = getattr(stage, "runtime_metadata", None)
+            details = metadata_provider() if callable(metadata_provider) else {}
+            if not isinstance(details, dict):
+                details = {}
+            batch_size = getattr(stage, "batch_size", None)
+            batch_size = batch_size if isinstance(batch_size, int) and not isinstance(batch_size, bool) else None
+            num_workers_provider = getattr(stage, "num_workers", None)
+            num_workers = num_workers_provider() if callable(num_workers_provider) else None
+            num_workers = num_workers if isinstance(num_workers, int) and not isinstance(num_workers, bool) else None
+            resources = getattr(stage, "resources", None)
+            cpus = getattr(resources, "cpus", None)
+            gpus = getattr(resources, "gpus", None)
+            cpus = cpus if isinstance(cpus, (int, float)) and not isinstance(cpus, bool) else None
+            gpus = gpus if isinstance(gpus, (int, float)) and not isinstance(gpus, bool) else None
+            stage_metadata.append(
+                {
+                    "name": str(stage.name),
+                    "stage_id": str(getattr(stage, "_curator_stage_id", "") or ""),
+                    "type": f"{type(stage).__module__}.{type(stage).__name__}",
+                    "batch_size": batch_size,
+                    "num_workers": num_workers,
+                    "resources": {
+                        "cpus": cpus,
+                        "gpus": gpus,
+                    },
+                    "settings": details,
+                }
+            )
+
+        source_ref = os.environ.get("CURATOR_SOURCE_REF", "").strip()
+        if not source_ref:
+            source_ref_path = Path("/opt/Curator/.curator_source_ref")
+            if source_ref_path.is_file():
+                source_ref = source_ref_path.read_text(encoding="utf-8").strip()
+        pipeline_metadata = {
+            "schema_version": 1,
+            "pipeline_name": self.name,
+            "executor": executor_name,
+            "backend": backend,
+            "execution_mode": execution_mode,
+            "curator_source_ref": source_ref,
+            "runtime_config_name": self.config.get("runtime_config_name")
+            or os.environ.get("CURATOR_RUNTIME_CONFIG_NAME", ""),
+            "pipeline_to_run": self.config.get("pipeline_to_run")
+            or os.environ.get("CURATOR_PIPELINE_TO_RUN", ""),
+            "source_dataset_uri": os.environ.get("DATA_CONFIG_SWIFT_PATH", ""),
+            "dataset_name": os.environ.get("CURATOR_DATASET_NAME", ""),
+            "num_nodes": os.environ.get("CURATOR_NUM_NODES", ""),
+            "gpus_per_node": os.environ.get("CURATOR_GPUS_PER_NODE", ""),
+            "output_run_id": os.environ.get("CURATOR_OUTPUT_RUN_ID", ""),
+            "stages": stage_metadata,
+        }
+        for stage in self.stages:
+            stage._curator_run_id = self._curator_pipeline_run_id
+            stage._curator_executor = executor_name
+            stage._curator_pipeline_metadata = pipeline_metadata
+
     def _decompose_stages(
         self, stages: list[ProcessingStage | CompositeStage]
     ) -> tuple[list[ProcessingStage], dict[str, list[str]]]:
@@ -360,6 +431,8 @@ class Pipeline:
             from nemo_curator.backends.xenna import XennaExecutor
 
             executor = XennaExecutor()
+
+        self._set_execution_context(executor)
 
         from nemo_curator.core.serve import is_inference_server_active
 

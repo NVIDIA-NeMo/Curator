@@ -72,6 +72,13 @@ class AudioStageMetrics:
     # ----- universal counters -----
     input_tasks: float = 0.0
     output_tasks: float = 0.0
+    # Standard pipeline-boundary counters. Source-like stages emit the input
+    # pair; terminal writers emit the output pair. The top-level summary uses
+    # stage order rather than recognizing concrete reader/writer class names.
+    pipeline_input_rows: float = 0.0
+    pipeline_input_audio_s: float = 0.0
+    pipeline_output_rows: float = 0.0
+    pipeline_output_audio_s: float = 0.0
     # Actor-pattern fix for stages the framework's num_items_processed cannot
     # count (e.g. discovery synthesises work from config, so input is seen as 0).
     total_items_emitted: float = 0.0
@@ -385,9 +392,6 @@ def _build_stage_summary(  # noqa: PLR0913
             actor_count=actor_count_p50,
         )
     )
-    if wallclock_s is not None and wallclock_s > 0:
-        entry["wallclock_s"] = wallclock_s
-
     if ctx.gpu_hours > 0:
         entry["gpu_hours"] = ctx.gpu_hours
     if ctx.setup_time_s_total > 0:
@@ -574,14 +578,19 @@ class AudioPerformanceSummary:
     _stage_actors: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
     _actor_node: dict[str, str] = field(default_factory=dict, repr=False)
     _shard_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int), repr=False)
-    _shard_audio_seconds: dict[str, float] = field(default_factory=lambda: defaultdict(float), repr=False)
     _total_utterances: int = field(default=0, repr=False)
     _total_audio_seconds: float = field(default=0.0, repr=False)
+    _dataset_names: set[str] = field(default_factory=set, repr=False)
+    _output_column_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int), repr=False)
     _wall_start_s: float = field(default_factory=time.perf_counter, repr=False)
 
     @property
     def total_utterances(self) -> int:
         return self._total_utterances
+
+    @property
+    def total_audio_seconds(self) -> float:
+        return self._total_audio_seconds
 
     @property
     def shard_keys(self) -> list[str]:
@@ -602,10 +611,16 @@ class AudioPerformanceSummary:
         audio_seconds = _task_audio_seconds(task, self.duration_key)
         self._total_utterances += 1
         self._total_audio_seconds += audio_seconds
+        dataset_name = str(getattr(task, "dataset_name", "") or "").strip()
+        if dataset_name:
+            self._dataset_names.add(dataset_name)
+        data = getattr(task, "data", None)
+        if isinstance(data, dict):
+            for key in data:
+                self._output_column_counts[str(key)] += 1
 
         if shard_key is not None:
             self._shard_counts[shard_key] += 1
-            self._shard_audio_seconds[shard_key] += audio_seconds
 
         if include_stage_perf:
             self.record_stage_perf(getattr(task, "_stage_perf", []) or [])
@@ -853,21 +868,23 @@ class AudioPerformanceSummary:
             for stage_name, totals in self._stage_totals.items()
         }
 
-    def build_summary(
+    def build_summary(  # noqa: PLR0913
         self,
         *,
         extra_stage_summaries: dict[str, dict[str, Any]] | None = None,
         wall_time_s: float | None = None,
         run_id: str | None = None,
         executor: str | None = None,
+        pipeline_metadata: dict[str, Any] | None = None,
         stage_caller_context: dict[str, AudioStageCallerContext] | None = None,
     ) -> dict[str, Any]:
         """Build the full audio pipeline performance summary.
 
-        Top-level fields match the proposed pipeline-perf shape (run_id,
-        executor, input_hours, output_hours, rows_in, rows_out, stages).
-        Backward-compat keys (total_utterances, total_audio_seconds, shards,
-        etc.) are preserved verbatim for the protocol-doc baseline tables.
+        Top-level fields match the pipeline-perf shape (run_id, executor,
+        input_hours, output_hours, rows_in, rows_out, stages). Input values
+        come from the first stage that declares the standard input-boundary
+        counters; output values come from the last stage that declares the
+        standard output-boundary counters.
         """
         resolved_wall_time_s = (
             max(time.perf_counter() - self._wall_start_s, 0.0) if wall_time_s is None else max(wall_time_s, 0.0)
@@ -876,28 +893,19 @@ class AudioPerformanceSummary:
         if extra_stage_summaries:
             stages_summary.update(extra_stage_summaries)
 
-        # Derive top-level input_hours from the first stage that has audio volume.
-        # Derive rows_in by priority so discovery's synthetic input_tasks=1 does
-        # not mask reader-level row counts.
-        input_hours = 0.0
-        rows_in_by_key = {
-            "manifest_entries": 0.0,
-            "output_utterances": 0.0,
-            "input_shards": 0.0,
-            "input_tasks": 0.0,
-        }
-        for stage_dict in stages_summary.values():
-            if input_hours == 0.0 and "audio_hours_in" in stage_dict:
-                input_hours = stage_dict["audio_hours_in"]
-            cm = stage_dict.get("custom_metrics_sum", {})
-            for key, value in rows_in_by_key.items():
-                if value == 0.0:
-                    rows_in_by_key[key] = float(cm.get(key, 0.0) or 0.0)
-
-        rows_in = next((value for value in rows_in_by_key.values() if value > 0.0), 0.0)
-
-        output_hours = seconds_to_hours(self._total_audio_seconds)
-        rows_out = float(self._total_utterances)
+        rows_in, input_audio_s = self._pipeline_boundary(
+            stages_summary,
+            rows_key="pipeline_input_rows",
+            audio_key="pipeline_input_audio_s",
+        )
+        rows_out, output_audio_s = self._pipeline_boundary(
+            stages_summary,
+            rows_key="pipeline_output_rows",
+            audio_key="pipeline_output_audio_s",
+            reverse=True,
+        )
+        input_hours = seconds_to_hours(input_audio_s)
+        output_hours = seconds_to_hours(output_audio_s)
 
         summary: dict[str, Any] = {
             # proposed-structure top-level
@@ -907,25 +915,15 @@ class AudioPerformanceSummary:
             "output_hours": output_hours,
             "rows_in": rows_in,
             "rows_out": rows_out,
-            # backward-compat top-level (protocol-doc baselines)
-            "total_utterances": self._total_utterances,
-            "total_audio_seconds": self._total_audio_seconds,
+            "total_audio_seconds": output_audio_s,
             "total_audio_hours": output_hours,
             "writer_wall_time_s": resolved_wall_time_s,
-            "pipeline_audio_s_per_wall_s": (
-                self._total_audio_seconds / resolved_wall_time_s if resolved_wall_time_s > 0 else 0.0
-            ),
-            "pipeline_utterances_per_wall_s": (
-                self._total_utterances / resolved_wall_time_s if resolved_wall_time_s > 0 else 0.0
-            ),
             "perf_invocations_counted": len(self._seen_perf_invocations),
-            "shards": {
-                shard: {
-                    "utterances": count,
-                    "audio_seconds": self._shard_audio_seconds.get(shard, 0.0),
-                    "audio_hours": self._shard_audio_seconds.get(shard, 0.0) / 3600.0,
-                }
-                for shard, count in sorted(self._shard_counts.items())
+            "pipeline": dict(pipeline_metadata or {}),
+            "dataset_names": sorted(self._dataset_names),
+            "output_schema": {
+                "columns": sorted(self._output_column_counts),
+                "column_row_counts": dict(sorted(self._output_column_counts.items())),
             },
             "stages": stages_summary,
         }
@@ -933,9 +931,9 @@ class AudioPerformanceSummary:
         # Cluster-level rollup (scheduling only). Hardware rollups are deferred
         # to the NVML/DCGM proposal; only identity-derivable fields emitted here.
         pipeline_throughput: dict[str, Any] = {}
-        if resolved_wall_time_s > 0 and self._total_audio_seconds > 0:
+        if resolved_wall_time_s > 0 and output_audio_s > 0:
             pipeline_throughput["audio_hours_per_wallclock_hour"] = seconds_to_hours(
-                self._total_audio_seconds
+                output_audio_s
             ) / seconds_to_hours(resolved_wall_time_s)
         all_addresses = sorted({addr for addrs in self._stage_gpus.values() for addr in addrs})
         if all_addresses:
@@ -946,3 +944,24 @@ class AudioPerformanceSummary:
             summary["pipeline_throughput"] = pipeline_throughput
 
         return summary
+
+    @staticmethod
+    def _pipeline_boundary(
+        stages_summary: dict[str, dict[str, Any]],
+        *,
+        rows_key: str,
+        audio_key: str,
+        reverse: bool = False,
+    ) -> tuple[float, float]:
+        """Return rows/audio from the first matching stage in traversal order."""
+        stage_values = list(stages_summary.values())
+        if reverse:
+            stage_values.reverse()
+        for stage_summary in stage_values:
+            custom = stage_summary.get("custom_metrics_sum")
+            if not isinstance(custom, dict) or rows_key not in custom:
+                continue
+            rows = float(custom.get(rows_key, 0.0) or 0.0)
+            audio_s = float(custom.get(audio_key, 0.0) or 0.0)
+            return rows, audio_s
+        return 0.0, 0.0

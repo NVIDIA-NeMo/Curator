@@ -95,6 +95,10 @@ class AudioManifestWriterMetrics:
         return self._perf_summary.total_utterances
 
     @property
+    def total_audio_seconds(self) -> float:
+        return self._perf_summary.total_audio_seconds
+
+    @property
     def shard_keys(self) -> list[str]:
         return self._perf_summary.shard_keys
 
@@ -142,11 +146,24 @@ class AudioManifestWriterMetrics:
                 "writer_process_calls": float(self._writer_invocation_count),
                 "writer_invocation_count": float(self._writer_invocation_count),
                 "writer_items_processed": float(self._writer_items_processed),
+                "pipeline_output_rows": float(self._perf_summary.total_utterances),
+                "pipeline_output_audio_s": self._perf_summary.total_audio_seconds,
             },
         }
 
-    def build_perf_summary(self) -> dict[str, Any]:
-        return self._perf_summary.build_summary(extra_stage_summaries={self.stage_name: self.build_writer_summary()})
+    def build_perf_summary(
+        self,
+        *,
+        run_id: str = "",
+        executor: str = "",
+        pipeline_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._perf_summary.build_summary(
+            extra_stage_summaries={self.stage_name: self.build_writer_summary()},
+            run_id=run_id,
+            executor=executor,
+            pipeline_metadata=pipeline_metadata,
+        )
 
     def build_external_stage_summary(self, perf_stats: StagePerfStats) -> dict[str, Any] | None:
         """Render one externally collected perf record in the normal stage-summary shape."""

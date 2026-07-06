@@ -19,7 +19,7 @@ from __future__ import annotations
 import gc
 import time
 from dataclasses import dataclass, field
-from numbers import Real
+from numbers import Integral, Real
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -30,6 +30,7 @@ from nemo_curator.models.asr.waveform import resample_waveform, to_mono_numpy_1d
 
 _DEFAULT_FASTCONFORMER_CTC_MODEL = "nvidia/stt_en_fastconformer_ctc_large"
 _DEFAULT_SAMPLE_RATE = 16_000
+_ATTENTION_CONTEXT_DIRECTIONS = 2
 
 
 def _nemo_asr_module() -> Any:  # noqa: ANN401
@@ -63,6 +64,8 @@ class NeMoASRAdapter:
     num_workers: int = 0
     verbose: bool = False
     device: str | None = None
+    enable_local_attention: bool = False
+    local_attention_context_size: tuple[int, int] = (128, 128)
     refresh_cache: bool = False
     strict: bool = True
     last_metrics: dict[str, float] = field(default_factory=dict)
@@ -81,6 +84,20 @@ class NeMoASRAdapter:
         if self.num_workers < 0:
             msg = "NeMoASRAdapter.num_workers must be non-negative"
             raise ValueError(msg)
+        if not isinstance(self.enable_local_attention, bool):
+            msg = "NeMoASRAdapter.enable_local_attention must be a boolean"
+            raise TypeError(msg)
+        try:
+            context_size = tuple(self.local_attention_context_size)
+        except TypeError as exc:
+            msg = "NeMoASRAdapter.local_attention_context_size must contain two positive integers"
+            raise ValueError(msg) from exc
+        if len(context_size) != _ATTENTION_CONTEXT_DIRECTIONS or any(
+            isinstance(value, bool) or not isinstance(value, Integral) or value <= 0 for value in context_size
+        ):
+            msg = "NeMoASRAdapter.local_attention_context_size must contain two positive integers"
+            raise ValueError(msg)
+        self.local_attention_context_size = (int(context_size[0]), int(context_size[1]))
 
     @classmethod
     def prefetch_weights(cls, model_id: str, revision: str | None = None) -> None:
@@ -100,12 +117,35 @@ class NeMoASRAdapter:
         device = (
             torch.device(self.device) if self.device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         )
-        self._model = _nemo_asr_module().models.ASRModel.from_pretrained(
+        model = _nemo_asr_module().models.ASRModel.from_pretrained(
             model_name=self.model_id,
             map_location=device,
             refresh_cache=self.refresh_cache,
             strict=self.strict,
         )
+        if self.enable_local_attention:
+            self._configure_local_attention(model)
+        self._model = model
+
+    def _configure_local_attention(self, model: Any) -> None:  # noqa: ANN401
+        change_attention_model = getattr(model, "change_attention_model", None)
+        change_subsampling_chunking = getattr(model, "change_subsampling_conv_chunking_factor", None)
+        encoder = getattr(model, "encoder", None)
+        encoder_change_attention = getattr(encoder, "change_attention_model", None)
+        encoder_change_subsampling = getattr(encoder, "change_subsampling_conv_chunking_factor", None)
+        if (
+            not callable(change_attention_model)
+            or not callable(change_subsampling_chunking)
+            or not callable(encoder_change_attention)
+            or not callable(encoder_change_subsampling)
+        ):
+            msg = f"NeMo checkpoint {self.model_id!r} does not support FastConformer local-attention conversion"
+            raise TypeError(msg)
+        change_attention_model(
+            self_attention_model="rel_pos_local_attn",
+            att_context_size=list(self.local_attention_context_size),
+        )
+        change_subsampling_chunking(1)
 
     def teardown(self) -> None:
         """Release worker-local model and CUDA cache state."""

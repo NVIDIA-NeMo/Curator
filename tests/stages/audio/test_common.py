@@ -201,8 +201,8 @@ class TestManifestReaderStage:
 
     def test_reads_single_manifest(self, tmp_path: Path) -> None:
         entries = [
-            {"audio_filepath": "a.wav", "audio_sample_rate": 16000, "segments": []},
-            {"audio_filepath": "b.wav", "audio_sample_rate": 22050, "segments": []},
+            {"audio_filepath": "a.wav", "audio_sample_rate": 16000, "duration": 1.25, "segments": []},
+            {"audio_filepath": "b.wav", "audio_sample_rate": 22050, "duration": 2.75, "segments": []},
         ]
         manifest = tmp_path / "input.jsonl"
         manifest.write_text("\n".join(json.dumps(e) for e in entries))
@@ -216,6 +216,9 @@ class TestManifestReaderStage:
         assert result[1].data["audio_filepath"] == "b.wav"
         assert "_shard_total" not in result[0]._metadata
         assert "_shard_key" not in result[0]._metadata
+        metrics = stage._consume_custom_metrics()
+        assert metrics["pipeline_input_rows"] == 2.0
+        assert metrics["pipeline_input_audio_s"] == 4.0
 
     def test_uses_storage_options_when_opening_manifest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         manifest = tmp_path / "input.jsonl"
@@ -298,6 +301,8 @@ class TestManifestReaderStage:
         entry = {
             "audio_filepath": "a.wav",
             "audio_sample_rate": 16000,
+            "text": "reference transcript",
+            "future_column": {"nested": [1, 2, {"value": "unchanged"}]},
             "segments": [
                 {
                     "start": 0.0,
@@ -314,6 +319,7 @@ class TestManifestReaderStage:
         result = stage.process(_make_file_group_task([str(manifest)]))
 
         loaded = result[0].data
+        assert loaded == entry
         assert loaded["segments"][0]["metrics"]["bandwidth"] == 8000
         assert loaded["segments"][0]["speaker"] == "spk_0"
 
@@ -878,6 +884,8 @@ class TestManifestWriterStage:
     def test_writes_perf_summary_during_process_batch(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
         writer = ManifestWriterStage(output_path=str(out), write_perf_stats=True)
+        writer._curator_run_id = "run-123"
+        writer._curator_executor = "RayDataExecutor"
         writer.setup_on_node()
         writer.setup()
 
@@ -889,12 +897,18 @@ class TestManifestWriterStage:
         )
 
         summary = json.loads((tmp_path / "perf_summary.json").read_text(encoding="utf-8"))
-        assert summary["total_utterances"] == 2
+        assert summary["run_id"] == "run-123"
+        assert summary["executor"] == "RayDataExecutor"
+        assert summary["rows_out"] == 2.0
+        assert summary["output_hours"] == 3.0 / 3600.0
         assert summary["total_audio_seconds"] == 3.0
+        assert "total_utterances" not in summary
         writer_summary = summary["stages"]["manifest_writer"]
         assert writer_summary["total_items_processed"] == 2.0
         assert writer_summary["invocation_count"] == 1.0
         assert writer_summary["custom_metrics_sum"]["writer_items_processed"] == 2.0
+        assert writer_summary["custom_metrics_sum"]["pipeline_output_rows"] == 2.0
+        assert writer_summary["custom_metrics_sum"]["pipeline_output_audio_s"] == 3.0
 
     def test_setup_truncates_existing_file(self, tmp_path: Path) -> None:
         out = tmp_path / "output.jsonl"
