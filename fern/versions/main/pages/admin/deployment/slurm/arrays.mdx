@@ -24,22 +24,26 @@ An array task normally uses `RayClient` on one node. If you allocate multiple no
 
 ## Prerequisites
 
-- A SLURM cluster with job-array support.
-- A NeMo Curator source checkout and environment visible from every compute node.
+- A SLURM cluster with job-array support (for example, `sbatch --array=0-19`).
+- A NeMo Curator environment visible from every compute node. This can be a shared source checkout, a container image, or a `.sqsh` image file mounted through your site's SLURM container integration.
 - Input, output, and checkpoint directories on a shared filesystem or mounted at the same path in every container.
-- Source stages that emit deterministic task IDs. NeMo Curator rejects source IDs beginning with `r` because ambiguous IDs cannot be assigned consistently across retries.
+- Source stages that emit deterministic task IDs. For the most common array workflows built around `FilePartitioningStage`, this works out of the box. If a source stage is incompatible, NeMo Curator raises a clear error instead of silently sharding the wrong tasks. NeMo Curator also rejects source IDs beginning with `r` because ambiguous IDs cannot be assigned consistently across retries.
 
 The repository includes these reference files:
 
 | File | Purpose |
 | --- | --- |
 | `tutorials/slurm/submit_array.sh` | Container-based `sbatch` script and environment setup |
-| `tutorials/slurm/array_pipeline.py` | JSONL or Parquet reader/writer pipeline |
+| `tutorials/slurm/array_pipeline.py` | Example toy JSONL or Parquet reader/writer pipeline |
 | `tutorials/slurm/retry_array.py` | Finds incomplete logical shards and formats retry submissions |
+
+`array_pipeline.py` is only a minimal example. Any NeMo Curator pipeline whose source stage supports deterministic task IDs can run under the same array configuration.
 
 ## Run a JSONL array
 
-Prepare the source checkout and editable environment on a shared filesystem:
+The steps below show one bare-metal setup on a shared filesystem. The same array variables and checkpoint path also work with containerized SLURM launches, including NGC images and site-specific `.sqsh` files, through `tutorials/slurm/submit_array.sh`.
+
+Prepare a source checkout and editable environment:
 
 ```bash
 cd /path/to/Curator
@@ -102,14 +106,14 @@ Every array task still discovers the full deterministic source-task list before 
 
 ## Array configuration
 
-NeMo Curator attempts to enable source filtering when either a shard index or total shard count is available, or when `NEMO_CURATOR_SLURM_ARRAY_ENABLED` explicitly enables it. A valid configuration requires both the shard index and total shard count; if either is missing, configuration raises an error instead of running with partial sharding.
+NeMo Curator attempts to enable source filtering when either a shard index or total shard count is available. A valid configuration requires both the shard index and total shard count; if either is missing, configuration raises an error instead of running with partial sharding.
 
 | NeMo Curator variable | SLURM fallback | Description |
 | --- | --- | --- |
 | `NEMO_CURATOR_SLURM_ARRAY_SHARD_INDEX` | `SLURM_ARRAY_TASK_ID` | Active logical shard index |
 | `NEMO_CURATOR_SLURM_ARRAY_TOTAL_SHARDS` | `SLURM_ARRAY_TASK_COUNT` | Total logical shard count |
 | `NEMO_CURATOR_SLURM_ARRAY_MINIMUM_SHARD_INDEX` | None; defaults to `0` | First assignable logical shard |
-| `NEMO_CURATOR_SLURM_ARRAY_ENABLED` | None; automatic | Set to `0`, `false`, `no`, or `off` to disable filtering explicitly |
+| `NEMO_CURATOR_SLURM_ARRAY_ENABLED` | None; defaults to `1` (true) | Set to `0`, `false`, `no`, or `off` to disable filtering explicitly |
 
 Values are validated before source filtering:
 
@@ -247,7 +251,6 @@ python tutorials/slurm/retry_array.py \
 - Wait for every initial/windowed submission to finish before discovering retries.
 - Make output naming deterministic or writes idempotent because incomplete shards can replay work.
 - Monitor empty-shard warnings when logical shards outnumber source tasks.
-- Do not expect a `nemo-curator-slurm-cli` command; use the shipped Python and shell helpers.
 
 ## Related topics
 
