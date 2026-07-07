@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent_ready import AgentReady, StageContract
 from nemo_curator.stages.audio.filtering import BandFilterStage, SIGMOSFilterStage, UTMOSFilterStage
 from nemo_curator.stages.audio.postprocessing import TimestampMapperStage
 from nemo_curator.stages.audio.preprocessing import MonoConversionStage, SegmentConcatenationStage
@@ -56,7 +57,7 @@ from nemo_curator.stages.resources import Resources
 from .config import _deep_merge, get_enabled_stages, load_config
 
 
-class AudioDataFilterStage(CompositeStage):
+class AudioDataFilterStage(AgentReady, CompositeStage):
     """Complete audio data filtering and curation pipeline (CompositeStage).
 
     Decomposes into independent stages that the executor can schedule with
@@ -89,6 +90,9 @@ class AudioDataFilterStage(CompositeStage):
         self._cfg = load_config(config_path)
         if config:
             self._cfg = _deep_merge(self._cfg, config)
+
+    def describe(self) -> StageContract:
+        return StageContract(wrappable=False)
 
     def decompose(self) -> list[ProcessingStage]:
         """Build a self-consistent pipeline topology based on enabled features."""
