@@ -126,7 +126,7 @@ def _inject_model(stage: ChatterboxTTSStage) -> None:
 class TestChatterboxTTSStage:
     """Test suite for ChatterboxTTSStage."""
 
-    @patch(f"{MODULE}.ChatterboxTTS")
+    @patch("chatterbox.tts.ChatterboxTTS")
     def test_setup_loads_english_model(
         self, mock_cls: MagicMock, output_dir: str, ref_dataset: str
     ) -> None:
@@ -139,7 +139,7 @@ class TestChatterboxTTSStage:
         stage.teardown()
         assert stage.model is None
 
-    @patch(f"{MODULE}.ChatterboxMultilingualTTS")
+    @patch("chatterbox.mtl_tts.ChatterboxMultilingualTTS")
     def test_setup_loads_multilingual_model(
         self, mock_cls: MagicMock, output_dir: str, ref_dataset: str
     ) -> None:
@@ -148,6 +148,37 @@ class TestChatterboxTTSStage:
         stage.setup()
         mock_cls.from_pretrained.assert_called_once_with(device="cpu")
         assert stage.language == "fr"
+
+    def test_multilingual_load_restores_global_state(
+        self, output_dir: str, ref_dataset: str
+    ) -> None:
+        import chatterbox.models.t3.llama_configs as llama_cfgs
+
+        env_before = os.environ.get("TRANSFORMERS_ATTN_IMPLEMENTATION")
+        cfgs_before = {
+            name: cfg.get("attn_implementation")
+            for name, cfg in llama_cfgs.LLAMA_CONFIGS.items()
+        }
+
+        stage = _build_stage(output_dir, ref_dataset, language="fr")
+        with patch("chatterbox.mtl_tts.ChatterboxMultilingualTTS") as mock_cls:
+            mock_cls.from_pretrained.return_value = _fake_model()
+            stage.setup()
+
+        assert os.environ["TRANSFORMERS_ATTN_IMPLEMENTATION"] == "eager"
+        assert all(
+            cfg.get("attn_implementation") == "eager"
+            for cfg in llama_cfgs.LLAMA_CONFIGS.values()
+        )
+
+        stage.teardown()
+
+        assert os.environ.get("TRANSFORMERS_ATTN_IMPLEMENTATION") == env_before
+        cfgs_after = {
+            name: cfg.get("attn_implementation")
+            for name, cfg in llama_cfgs.LLAMA_CONFIGS.items()
+        }
+        assert cfgs_after == cfgs_before
 
     def test_setup_on_node_pre_downloads_english_model(
         self, output_dir: str, ref_dataset: str

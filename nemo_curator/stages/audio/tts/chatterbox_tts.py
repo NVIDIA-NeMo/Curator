@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import atexit
 import contextlib
 import glob
 import hashlib
@@ -30,9 +29,6 @@ import numpy as np
 import soundfile as sf
 import torch
 import torchaudio as ta
-from chatterbox.models.t3 import llama_configs as _llama_cfgs
-from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-from chatterbox.tts import ChatterboxTTS
 from huggingface_hub import hf_hub_download, snapshot_download
 from loguru import logger
 
@@ -64,6 +60,13 @@ _MULTILINGUAL_MODEL_FILES = (
     "conds.pt",
     "Cangjie5_TC.json",
 )
+
+# The multilingual model requires eager attention. Loading it mutates
+# process-global state (this env var and chatterbox's LLAMA_CONFIGS), which
+# teardown() restores so other transformer stages in the same worker are
+# unaffected. ``_UNSET`` marks state that was absent before we touched it.
+_ATTN_ENV = "TRANSFORMERS_ATTN_IMPLEMENTATION"
+_UNSET = object()
 
 
 class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
@@ -106,6 +109,9 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
     name = "ChatterboxTTSStage"
     resources = Resources(gpus=1)
+    # Turns are synthesised serially in process_batch (Chatterbox generate()
+    # is single-text and per-voice-conditioned), so one task per batch.
+    batch_size = 1
 
     def __init__(  # noqa: PLR0913
         self,
@@ -177,6 +183,23 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         self.temp_dir: str | None = None
         self._rng = random.Random()  # noqa: S311
 
+        # Saved process-global state for restoration in teardown().
+        self._global_state_modified = False
+        self._prev_attn_env: str | None = None
+        self._llama_cfg_restore: list[tuple[dict, Any]] = []
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        """Required task data keys.
+
+        The transcript is read from ``utterance``; ``text`` is accepted as a
+        fallback when ``utterance`` is absent.
+        """
+        return [], ["conversation_id", "speaker", "utterance"]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        """Data keys added to each task."""
+        return [], ["audio_filepath", "duration", "reference_voice"]
+
     def setup_on_node(
         self,
         _node_info: NodeInfo | None = None,
@@ -222,18 +245,38 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         self._load_reference_audio_files()
 
     def teardown(self) -> None:
-        """Release model and clean up temp files."""
+        """Release model, restore global state, and clean up temp files."""
         self.model = None
         self.speaker_to_reference.clear()
         self._speaker_to_original_wav.clear()
         self.speaker_to_ref_id.clear()
         self.conversation_exaggeration.clear()
+        self._restore_global_state()
         self._cleanup_temp_dir()
+
+    def _restore_global_state(self) -> None:
+        """Undo the process-global mutations made by the multilingual model load."""
+        if not self._global_state_modified:
+            return
+
+        if self._prev_attn_env is None:
+            os.environ.pop(_ATTN_ENV, None)
+        else:
+            os.environ[_ATTN_ENV] = self._prev_attn_env
+
+        for cfg, prev in self._llama_cfg_restore:
+            if prev is _UNSET:
+                cfg.pop("attn_implementation", None)
+            else:
+                cfg["attn_implementation"] = prev
+
+        self._llama_cfg_restore = []
+        self._prev_attn_env = None
+        self._global_state_modified = False
 
     def _init_temp_dir(self) -> None:
         if self.temp_dir is None or not os.path.exists(self.temp_dir):
             self.temp_dir = tempfile.mkdtemp(prefix="chatterbox_ref_")
-            atexit.register(self._cleanup_temp_dir)
 
     def _cleanup_temp_dir(self) -> None:
         if self.temp_dir and os.path.exists(self.temp_dir):
@@ -244,13 +287,25 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     def _load_model(self) -> None:
         """Load ChatterboxTTS or ChatterboxMultilingualTTS."""
         if self.language:
-            os.environ["TRANSFORMERS_ATTN_IMPLEMENTATION"] = "eager"
-            for _cfg_dict in _llama_cfgs.LLAMA_CONFIGS.values():
-                _cfg_dict["attn_implementation"] = "eager"
+            from chatterbox.models.t3 import llama_configs as _llama_cfgs
+            from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+
+            self._prev_attn_env = os.environ.get(_ATTN_ENV, None)
+            self._llama_cfg_restore = [
+                (cfg, cfg.get("attn_implementation", _UNSET))
+                for cfg in _llama_cfgs.LLAMA_CONFIGS.values()
+            ]
+            self._global_state_modified = True
+
+            os.environ[_ATTN_ENV] = "eager"
+            for cfg in _llama_cfgs.LLAMA_CONFIGS.values():
+                cfg["attn_implementation"] = "eager"
 
             self.model = ChatterboxMultilingualTTS.from_pretrained(device=self.device)
             logger.info(f"Loaded ChatterboxMultilingualTTS (language={self.language})")
         else:
+            from chatterbox.tts import ChatterboxTTS
+
             self.model = ChatterboxTTS.from_pretrained(device=self.device)
             logger.info("Loaded ChatterboxTTS (English)")
 
