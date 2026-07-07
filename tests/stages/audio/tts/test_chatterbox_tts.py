@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -26,10 +26,13 @@ import soundfile as sf
 import torch
 
 from nemo_curator.stages.audio.tts.chatterbox_tts import (
-    ChatterboxTTSStage,
     _ENGLISH_MODEL_FILES,
+    ChatterboxTTSStage,
 )
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 MODULE = "nemo_curator.stages.audio.tts.chatterbox_tts"
 
@@ -181,22 +184,24 @@ class TestChatterboxTTSStage:
         assert cfgs_after == cfgs_before
 
     def test_setup_on_node_pre_downloads_english_model(
-        self, output_dir: str, ref_dataset: str
+        self, output_dir: str, ref_dataset: str, tmp_path: Path
     ) -> None:
-        stage = _build_stage(output_dir, ref_dataset, cache_dir="/tmp/hf-cache")
+        cache_dir = str(tmp_path / "hf-cache")
+        stage = _build_stage(output_dir, ref_dataset, cache_dir=cache_dir)
         with patch(f"{MODULE}.hf_hub_download") as mock_download:
             stage.setup_on_node()
         assert mock_download.call_count == len(_ENGLISH_MODEL_FILES)
         mock_download.assert_any_call(
             repo_id="ResembleAI/chatterbox",
             filename="ve.safetensors",
-            cache_dir="/tmp/hf-cache",
+            cache_dir=cache_dir,
         )
 
     def test_setup_on_node_pre_downloads_multilingual_model(
-        self, output_dir: str, ref_dataset: str
+        self, output_dir: str, ref_dataset: str, tmp_path: Path
     ) -> None:
-        stage = _build_stage(output_dir, ref_dataset, language="fr", cache_dir="/tmp/hf-cache")
+        cache_dir = str(tmp_path / "hf-cache")
+        stage = _build_stage(output_dir, ref_dataset, language="fr", cache_dir=cache_dir)
         with patch(f"{MODULE}.snapshot_download") as mock_download:
             stage.setup_on_node()
         mock_download.assert_called_once_with(
@@ -211,7 +216,7 @@ class TestChatterboxTTSStage:
                 "conds.pt",
                 "Cangjie5_TC.json",
             ],
-            cache_dir="/tmp/hf-cache",
+            cache_dir=cache_dir,
             token=os.getenv("HF_TOKEN"),
         )
 

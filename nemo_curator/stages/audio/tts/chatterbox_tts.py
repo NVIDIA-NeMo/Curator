@@ -530,7 +530,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
                 wav = self._normalize_audio(wav)
 
             return wav.squeeze(0).cpu().numpy()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- graceful fallback: any failure yields silence
             logger.error(f"TTS generation failed: {e}")
             return np.zeros(self.sample_rate * 2)
 
