@@ -19,12 +19,16 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from nemo_curator.stages.audio.alignment.mfa_alignment import MFAAlignmentStage
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 MODULE = "nemo_curator.stages.audio.alignment.mfa_alignment"
 
@@ -76,7 +80,7 @@ def _fake_textgrid(
     tier = _fake_tier(entries)
     return SimpleNamespace(
         tierNames=[tier_name],
-        getTier=lambda _name: tier,  # noqa: ARG005
+        getTier=lambda _name: tier,
     )
 
 
@@ -107,7 +111,7 @@ def _setup_stage(
     return fake_tg_mod
 
 
-def _mock_mfa_writes_textgrid(wav: Path):
+def _mock_mfa_writes_textgrid(wav: Path) -> Callable[..., subprocess.CompletedProcess]:
     def _run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess:  # noqa: ARG001
         tg_dir = _align_textgrid_output_dir(cmd)
         (tg_dir / f"{wav.stem}.TextGrid").write_text("fake textgrid")
@@ -353,9 +357,12 @@ class TestMFAAlignmentStage:
             stage.process_batch([task])
 
         assert "align" in captured_cmd
-        assert "--beam" in captured_cmd and "200" in captured_cmd
-        assert "--retry_beam" in captured_cmd and "800" in captured_cmd
-        assert "--output_format" in captured_cmd and "short_textgrid" in captured_cmd
+        assert "--beam" in captured_cmd
+        assert "200" in captured_cmd
+        assert "--retry_beam" in captured_cmd
+        assert "800" in captured_cmd
+        assert "--output_format" in captured_cmd
+        assert "short_textgrid" in captured_cmd
         assert "--single_speaker" not in captured_cmd
         assert "--clean" not in captured_cmd
         assert "--use_mp" not in captured_cmd

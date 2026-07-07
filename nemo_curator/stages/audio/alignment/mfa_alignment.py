@@ -217,7 +217,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         msg = "MFAAlignmentStage only supports process_batch"
         raise NotImplementedError(msg)
 
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:  # noqa: C901, PLR0912
         """Align all tasks in a single ``mfa align`` invocation."""
         if not tasks:
             return []
@@ -344,7 +344,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             )
             task.data["ctm_filepath"] = str(ctm_path)
 
-    def _run_mfa_align(
+    def _run_mfa_align(  # noqa: C901, PLR0912
         self, corpus_dir: Path, textgrid_output_dir: Path
     ) -> None:
         env = os.environ.copy()
@@ -368,7 +368,8 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                     f"Could not remove MFA history file: {history_file}"
                 )
 
-        cmd = mfa_cmd_parts + [
+        cmd = [
+            *mfa_cmd_parts,
             "align",
             str(corpus_dir),
             self.dictionary,
@@ -417,11 +418,10 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
         logger.info(f"Running MFA align: {' '.join(cmd)}")
 
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603 -- fixed mfa binary invocation, args built internally
             cmd,
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             check=False,
         )
@@ -436,11 +436,12 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             )
 
         if result.returncode != 0:
-            raise RuntimeError(
+            msg = (
                 f"mfa align failed (exit code {result.returncode}).\n"
                 f"STDOUT:\n{result.stdout}\n"
                 f"STDERR:\n{result.stderr}"
             )
+            raise RuntimeError(msg)
 
     def _get_word_alignment_tier(self, tg: Any, textgrid_path: Path) -> Any:  # noqa: ANN401
         """Select the word-level tier, avoiding phone-level tiers when possible."""
@@ -514,12 +515,9 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         merged = self._merge_intervals(speech_intervals)
 
         with open(rttm_path, "w", encoding="utf-8") as f:
-            for iv in merged:
-                f.write(
-                    f"SPEAKER {file_stem} 1 "
+            f.writelines(f"SPEAKER {file_stem} 1 "
                     f"{iv['start']:.3f} {iv['duration']:.3f} "
-                    f"<NA> <NA> {speaker} <NA> <NA>\n"
-                )
+                    f"<NA> <NA> {speaker} <NA> <NA>\n" for iv in merged)
 
     def _textgrid_to_ctm(
         self,
@@ -586,10 +584,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             return
         word_dur = duration / len(words)
         with open(ctm_path, "w", encoding="utf-8") as f:
-            for i, word in enumerate(words):
-                f.write(
-                    f"{file_stem} 1 {i * word_dur:.3f} {word_dur:.3f} {word}\n"
-                )
+            f.writelines(f"{file_stem} 1 {i * word_dur:.3f} {word_dur:.3f} {word}\n" for i, word in enumerate(words))
 
     def _setup_local_mfa(self, shared_mfa_root: str, hostname: str) -> str:
         local_mfa_root = Path(self._effective_local_base) / f"mfa_models_{hostname}"
