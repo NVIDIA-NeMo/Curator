@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _AUDIO_PATH_RESOLUTION_MODES,
     _MANIFEST_SHARD_EXT,
@@ -100,7 +101,7 @@ def _check_duplicate_audio_basename(
 
 
 @dataclass
-class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
+class ReadLongFormManifestStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
     """Read a JSONL manifest of long-form audios; emit one AudioTask per row.
 
     Each line in ``input_manifest`` is parsed as JSON and re-emitted as
@@ -154,6 +155,12 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, "id", "segments"]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            writes=IOSpec(data_keys=[self.audio_filepath_key, "id", "segments"]),
+            cardinality="1:N fan-out",
+        )
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
@@ -229,7 +236,7 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
 
 
 @dataclass
-class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
+class SnippetManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Append each (non-stub) snippet's ``data`` as a JSONL line.
 
     Single-replica writer; the file is truncated once on driver setup
@@ -252,6 +259,9 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def describe(self) -> StageContract:
+        return StageContract(gates=Gates(writes_to_disk=True, lifecycle_side_effects=True))
 
     def setup_on_node(
         self,
@@ -284,7 +294,7 @@ class SnippetManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
-class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
+class PretrainMetricsAggregatorStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Per-replica metrics aggregator.
 
     Each ``process()`` call appends one JSONL record to a per-replica
@@ -330,6 +340,12 @@ class PretrainMetricsAggregatorStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            metadata_reads=[_PRETRAIN_META_KEY],
+            gates=Gates(writes_to_disk=True, lifecycle_side_effects=True),
+        )
 
     def setup_on_node(
         self,

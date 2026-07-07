@@ -34,6 +34,7 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 from transformers import AutoTokenizer
 
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _MAX_FILTERED_TEXT_EXAMPLES,
     _PLAN_DATA_KEY,
@@ -328,7 +329,7 @@ def _format_red(text: str, ranges: list[tuple[int, int]]) -> str:
 
 
 @dataclass
-class OverlapFilterStage(ProcessingStage[AudioTask, AudioTask]):
+class OverlapFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Drop empty segments and overlapping segment pairs.
 
     First filters segments that have neither text nor words.  Then drops
@@ -353,6 +354,13 @@ class OverlapFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], ["segments"]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=["segments"]),
+            writes=IOSpec(data_keys=["segments"]),
+            metadata_writes=[_PRETRAIN_META_KEY],
+        )
 
     def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
@@ -400,7 +408,7 @@ class OverlapFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
-class SnippetCutPlannerStage(ProcessingStage[AudioTask, AudioTask]):
+class SnippetCutPlannerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Compute snippet cut boundaries for one input audio.
 
     Pure planning -- no audio I/O.  Produces a list of snippet specs
@@ -442,6 +450,13 @@ class SnippetCutPlannerStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [_PLAN_DATA_KEY]
 
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=["segments"]),
+            writes=IOSpec(data_keys=[_PLAN_DATA_KEY]),
+            metadata_writes=[_PRETRAIN_META_KEY],
+        )
+
     def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
         segments = list(task.data.get("segments") or [])
@@ -479,7 +494,7 @@ class SnippetCutPlannerStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
-class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
+class SnippetRepetitionFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Drop planned snippets whose text shows suspicious n-gram repetition.
 
     Whisper-style ASR sometimes degenerates into repeating the same
@@ -534,6 +549,14 @@ class SnippetRepetitionFilterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [_PLAN_DATA_KEY]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[_PLAN_DATA_KEY]),
+            writes=IOSpec(data_keys=[_PLAN_DATA_KEY]),
+            metadata_writes=[_PRETRAIN_META_KEY],
+            gates=Gates(requires_internet_first_run=not os.path.isdir(self.tokenizer_path)),
+        )
 
     def setup_on_node(
         self,
