@@ -25,13 +25,14 @@ import torchaudio
 from fsspec.core import url_to_fs
 from loguru import logger
 
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
+class SplitLongAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that splits long audio files into smaller segments.
 
@@ -46,23 +47,48 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
     # Split parameters
     suggested_max_len: float = 3600.0
     min_len: float = 1.0
+    duration_key: str = "duration"
+    segments_key: str = "segments"
+    audio_filepath_key: str = "resampled_audio_filepath"
+    audio_item_id_key: str = "audio_item_id"
+    split_filepaths_key: str = "split_filepaths"
+    split_metadata_key: str = "split_metadata"
+    split_offsets_key: str = "split_offsets"
+    split_timestamps_key: str = "split_timestamps"
 
     # Stage metadata
     name: str = "SplitLongAudio"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["duration", "segments", "resampled_audio_filepath"]
+        return [], [self.duration_key, self.segments_key, self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [
-            "duration",
-            "segments",
-            "resampled_audio_filepath",
-            "split_filepaths",
-            "split_metadata",
-            "split_offsets",
-            "split_timestamps",
+            self.duration_key,
+            self.segments_key,
+            self.audio_filepath_key,
+            self.split_filepaths_key,
+            self.split_metadata_key,
+            self.split_offsets_key,
+            self.split_timestamps_key,
         ]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.duration_key, self.segments_key, self.audio_filepath_key]),
+            writes=IOSpec(
+                data_keys=[
+                    self.split_filepaths_key,
+                    self.split_metadata_key,
+                    self.split_offsets_key,
+                    self.split_timestamps_key,
+                ],
+                produces=["disk"],
+            ),
+            cardinality="1:1 nested-list",
+            iteration_key=self.split_metadata_key,
+            gates=Gates(writes_to_disk=True),
+        )
 
     def get_split_points(self, metadata: dict) -> list[float]:
         """Get the split points for the audio file based on segments."""
@@ -70,7 +96,7 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
         split_start = 0
         prev_end = 0
 
-        segments = sorted(metadata.get("segments", []), key=lambda s: s.get("start", 0))
+        segments = sorted(metadata.get(self.segments_key, []), key=lambda s: s.get("start", 0))
         for segment in segments:
             end = segment.get("end", 0)
 
@@ -90,25 +116,25 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
     def _do_split(self, task: AudioTask) -> AudioTask:
         """Core splitting logic, separated to keep statement count within limits."""
         data_entry = task.data
-        duration = data_entry["duration"]
+        duration = data_entry[self.duration_key]
 
         if duration < self.suggested_max_len:
-            data_entry["split_filepaths"] = [data_entry["resampled_audio_filepath"]]
-            data_entry["split_metadata"] = [
+            data_entry[self.split_filepaths_key] = [data_entry[self.audio_filepath_key]]
+            data_entry[self.split_metadata_key] = [
                 {
-                    "audio_item_id": data_entry.get("audio_item_id", "unknown"),
-                    "resampled_audio_filepath": data_entry["resampled_audio_filepath"],
-                    "duration": duration,
+                    self.audio_item_id_key: data_entry.get(self.audio_item_id_key, "unknown"),
+                    self.audio_filepath_key: data_entry[self.audio_filepath_key],
+                    self.duration_key: duration,
                 }
             ]
-            data_entry["split_offsets"] = [0.0]
-            data_entry["split_timestamps"] = [0.0]
+            data_entry[self.split_offsets_key] = [0.0]
+            data_entry[self.split_timestamps_key] = [0.0]
             self._log_metrics({"input_duration": duration, "splits_produced": 1})
             return task
 
         splits = self.get_split_points(data_entry)
 
-        audio_path = data_entry["resampled_audio_filepath"]
+        audio_path = data_entry[self.audio_filepath_key]
         _fs, resolved_path = url_to_fs(audio_path)
 
         # parent_url preserves protocol prefix (e.g. "s3://bucket/dir") for stored paths;
@@ -147,7 +173,7 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
             split_durations.append(remaining_frames / sr)
             actual_splits.append(split_start / sr)
 
-        audio_item_id, split_filepaths_before = data_entry.get("audio_item_id", "unknown"), bool(split_filepaths)
+        audio_item_id, split_filepaths_before = data_entry.get(self.audio_item_id_key, "unknown"), bool(split_filepaths)
 
         if not split_filepaths:
             logger.warning(
@@ -159,20 +185,20 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
             split_durations = [duration]
             actual_splits = [0.0]
 
-        data_entry["split_metadata"] = self._build_split_metadata(
+        data_entry[self.split_metadata_key] = self._build_split_metadata(
             audio_item_id,
             split_filepaths,
             split_durations,
             fallback=not split_filepaths_before,
         )
-        data_entry["split_filepaths"] = split_filepaths
-        data_entry["split_offsets"] = actual_splits
-        data_entry["split_timestamps"] = splits
+        data_entry[self.split_filepaths_key] = split_filepaths
+        data_entry[self.split_offsets_key] = actual_splits
+        data_entry[self.split_timestamps_key] = splits
         self._log_metrics({"input_duration": duration, "splits_produced": len(split_filepaths)})
         return task
 
-    @staticmethod
     def _build_split_metadata(
+        self,
         audio_item_id: str,
         split_filepaths: list[str],
         split_durations: list[float],
@@ -183,23 +209,23 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
         if fallback:
             return [
                 {
-                    "audio_item_id": audio_item_id,
-                    "resampled_audio_filepath": split_filepaths[0],
-                    "duration": split_durations[0],
+                    self.audio_item_id_key: audio_item_id,
+                    self.audio_filepath_key: split_filepaths[0],
+                    self.duration_key: split_durations[0],
                 }
             ]
         return [
             {
-                "audio_item_id": f"{audio_item_id}_{idx}",
-                "resampled_audio_filepath": path,
-                "duration": split_durations[idx],
+                self.audio_item_id_key: f"{audio_item_id}_{idx}",
+                self.audio_filepath_key: path,
+                self.duration_key: split_durations[idx],
             }
             for idx, path in enumerate(split_filepaths)
         ]
 
 
 @dataclass
-class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
+class JoinSplitAudioMetadataStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Stage for joining metadata of previously split audio files.
 
@@ -213,13 +239,36 @@ class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     text_key: str = "text"
+    split_filepaths_key: str = "split_filepaths"
+    split_metadata_key: str = "split_metadata"
+    split_offsets_key: str = "split_offsets"
+    split_timestamps_key: str = "split_timestamps"
+    alignment_key: str = "alignment"
     name: str = "JoinSplitAudioMetadata"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["split_filepaths", "split_metadata", "split_offsets", "split_timestamps"]
+        return [], [
+            self.split_filepaths_key,
+            self.split_metadata_key,
+            self.split_offsets_key,
+            self.split_timestamps_key,
+        ]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.text_key, "alignment"]
+        return [], [self.text_key, self.alignment_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(
+                data_keys=[
+                    self.split_filepaths_key,
+                    self.split_metadata_key,
+                    self.split_offsets_key,
+                    self.split_timestamps_key,
+                ]
+            ),
+            writes=IOSpec(data_keys=[self.text_key, self.alignment_key]),
+        )
 
     def process(self, task: AudioTask) -> AudioTask:
         """
@@ -234,13 +283,13 @@ class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
         words_aligned = 0
 
         # Check if this is a meta-entry with split information
-        if "split_filepaths" in data_entry:
-            if data_entry["split_filepaths"] is None:
-                del data_entry["split_filepaths"]
+        if self.split_filepaths_key in data_entry:
+            if data_entry[self.split_filepaths_key] is None:
+                del data_entry[self.split_filepaths_key]
             else:
-                splits_joined = len(data_entry.get("split_metadata", []))
+                splits_joined = len(data_entry.get(self.split_metadata_key, []))
                 self._join_split_metadata(data_entry)
-                words_aligned = len(data_entry.get("alignment", []))
+                words_aligned = len(data_entry.get(self.alignment_key, []))
 
         self._log_metrics(
             {
@@ -253,11 +302,11 @@ class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
 
     def _join_split_metadata(self, meta_entry: dict) -> None:
         """Join metadata from split audio files."""
-        split_metadata = meta_entry.get("split_metadata", [])
-        split_offsets = meta_entry.get("split_offsets", [])
+        split_metadata = meta_entry.get(self.split_metadata_key, [])
+        split_offsets = meta_entry.get(self.split_offsets_key, [])
 
         if not split_metadata:
-            del meta_entry["split_filepaths"]
+            del meta_entry[self.split_filepaths_key]
             return
 
         transcripts = []
@@ -269,7 +318,7 @@ class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
             if text:
                 transcripts.append(text)
 
-            alignment = split_entry.get("alignment", [])
+            alignment = split_entry.get(self.alignment_key, [])
             offset = split_offsets[idx] if idx < len(split_offsets) else 0
 
             for word in alignment:
@@ -280,15 +329,15 @@ class JoinSplitAudioMetadataStage(ProcessingStage[AudioTask, AudioTask]):
 
         # Create joined entry
         meta_entry[self.text_key] = " ".join(transcripts)
-        meta_entry["alignment"] = alignments
+        meta_entry[self.alignment_key] = alignments
 
         # Remove split-related fields
-        for key in ["split_filepaths", "split_metadata"]:
+        for key in [self.split_filepaths_key, self.split_metadata_key]:
             meta_entry.pop(key, None)
 
 
 @dataclass
-class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
+class SplitASRAlignJoinStage(AgentReady, CompositeStage[AudioTask, AudioTask]):
     """Composite stage: Split long audio -> ASR align -> Join results.
 
     Decomposes into three sequential stages that always run together:
@@ -352,6 +401,9 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
 
     def __post_init__(self) -> None:
         super().__init__()
+
+    def describe(self) -> StageContract:
+        return StageContract(wrappable=False)
 
     def decompose(self) -> list[ProcessingStage]:
         return [

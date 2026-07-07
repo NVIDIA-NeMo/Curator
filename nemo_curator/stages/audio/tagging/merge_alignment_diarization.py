@@ -21,12 +21,13 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from nemo_curator.stages.audio._agent_ready import AgentReady, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
+class MergeAlignmentDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that merges alignment and diarization information.
 
@@ -51,15 +52,23 @@ class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
     # Output keys
     text_key: str = "text"
     words_key: str = "words"
+    alignment_key: str = "alignment"
+    segments_key: str = "segments"
 
     # Stage metadata
     name: str = "MergeAlignmentDiarization"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["alignment", "segments"]
+        return [], [self.alignment_key, self.segments_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["alignment", "segments"]
+        return [], [self.alignment_key, self.segments_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.alignment_key, self.segments_key]),
+            writes=IOSpec(segment_data_keys=[self.text_key, self.words_key]),
+        )
 
     @staticmethod
     def align_words_to_segments(
@@ -183,8 +192,8 @@ class MergeAlignmentDiarizationStage(ProcessingStage[AudioTask, AudioTask]):
         """Process entry to merge alignment and diarization."""
         t0 = time.perf_counter()
         data_entry = task.data
-        alignment = data_entry.get("alignment", [])
-        segments = data_entry.get("segments", [])
+        alignment = data_entry.get(self.alignment_key, [])
+        segments = data_entry.get(self.segments_key, [])
 
         if alignment and segments:
             self.align_words_to_segments(alignment, segments, self.text_key, self.words_key)
