@@ -26,13 +26,14 @@ from loguru import logger
 from torchaudio.pipelines import SQUIM_OBJECTIVE
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
+class TorchSquimQualityMetricsStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that calculates Squim quality metrics for audio files.
 
@@ -55,9 +56,11 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
     batch_size: int = 32
     compute_batch_size: int = 32
     segments_key: str = "segments"
+    metrics_key: str = "metrics"
 
     # Stage metadata
     name: str = "TorchSquimQualityMetrics"
+    BATCH_ONLY = True  # process() raises; only process_batch is implemented (agent-discovery hint)
     resources: Resources = field(default_factory=lambda: Resources(gpus=1.0))
 
     model: Any = field(default=None, repr=False)
@@ -66,18 +69,29 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+        return [], [self.metrics_key]
+
+    def describe(self) -> StageContract:
+        # process_batch always loads from the audio file; segments only refine
+        # WHERE metrics are attached. The filepath is therefore required in
+        # every read shape (segments alone are NOT sufficient).
+        return StageContract(
+            reads_one_of=[
+                IOSpec(data_keys=[self.audio_filepath_key, self.segments_key], accepts=["file"]),
+                IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"]),
+            ],
+            writes=IOSpec(data_keys=[self.metrics_key], segment_data_keys=[self.metrics_key]),
+            gates=Gates(requires_gpu=self.resources.gpus > 0, requires_internet_first_run=True),
+        )
 
     def validate_input(self, task: AudioTask) -> bool:
-        """OR-shaped validation: segments OR top-level audio_filepath keys must be present."""
+        """The audio filepath is always required; segments are optional refinement."""
         data = task.data
-        if hasattr(data, self.segments_key):
-            return True
-        if hasattr(data, self.audio_filepath_key):
+        if self.audio_filepath_key in data:
             return True
         logger.error(
-            f"Task {task.task_id} missing required attributes: "
-            f"need '{self.segments_key}' OR '{self.audio_filepath_key}'"
+            f"Task {task.task_id} missing required attribute '{self.audio_filepath_key}' "
+            f"(segments alone are not sufficient — SQUIM loads the audio file)"
         )
         return False
 
@@ -184,11 +198,11 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         self, audio_segment: dict[str, Any], pesq_val: float, stoi_val: float, sisdr_val: float
     ) -> None:
         """Update the metrics for an audio segment."""
-        if "metrics" not in audio_segment:
-            audio_segment["metrics"] = {}
-        audio_segment["metrics"]["pesq_squim"] = pesq_val
-        audio_segment["metrics"]["stoi_squim"] = stoi_val
-        audio_segment["metrics"]["sisdr_squim"] = sisdr_val
+        if self.metrics_key not in audio_segment:
+            audio_segment[self.metrics_key] = {}
+        audio_segment[self.metrics_key]["pesq_squim"] = pesq_val
+        audio_segment[self.metrics_key]["stoi_squim"] = stoi_val
+        audio_segment[self.metrics_key]["sisdr_squim"] = sisdr_val
 
     def process(self, task: AudioTask) -> AudioTask:
         """Delegate single-task processing to process_batch."""
