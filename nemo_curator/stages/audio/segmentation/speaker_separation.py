@@ -45,7 +45,8 @@ except ImportError:
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
-from nemo_curator.stages.audio.common import resolve_waveform_from_item
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._residency import resolve_audio
 from nemo_curator.stages.audio.segmentation.speaker_separation_module.speaker_sep import SpeakerSeparator
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -62,7 +63,7 @@ def _pydub_to_waveform_sr(seg: AudioSegment) -> tuple[torch.Tensor, int]:
 
 
 @dataclass
-class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
+class SpeakerSeparationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Speaker separation stage using NeMo SortFormer diarization model.
 
@@ -76,8 +77,21 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
         min_duration: Minimum segment duration in seconds
         gap_threshold: Gap threshold for merging speaker segments
         buffer_time: Buffer time around speaker segments
+        audio_filepath_key: Key in data dict for the input audio file path.
+        waveform_key: Key in data dict for the in-memory waveform tensor.
+        sample_rate_key: Key in data dict for the waveform sample rate.
+        speaker_id_key: Key where each child task's speaker id is written.
+        num_speakers_key: Key where the detected speaker count is written.
+        duration_key: Key where each child's speech duration in seconds is written.
+        diar_segments_key: Key where each child's diarization segments are written.
+        input_residency: Which input to use — "waveform" (in-memory only), "file"
+            (audio_filepath only), or "auto" (waveform first, file fallback; default).
 
     Note:
+        Per-speaker child tasks DROP the parent's audio_filepath (it points at the
+        full multi-speaker file) and carry ``original_file`` for provenance instead;
+        downstream stages consume the per-speaker waveform.
+
         GPU assignment is handled by the executor via _resources.
         Use .with_(resources=Resources(gpus=X)) to configure GPU allocation.
     """
@@ -87,6 +101,14 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
     min_duration: float = 0.8
     gap_threshold: float = 0.1
     buffer_time: float = 0.5
+    audio_filepath_key: str = "audio_filepath"
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
+    speaker_id_key: str = "speaker_id"
+    num_speakers_key: str = "num_speakers"
+    duration_key: str = "duration"
+    diar_segments_key: str = "diar_segments"
+    input_residency: str = "auto"
 
     name: str = "SpeakerSeparation"
     batch_size: int = 1
@@ -100,7 +122,41 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["waveform", "sample_rate", "speaker_id", "num_speakers", "duration"]
+        return [], [
+            self.waveform_key,
+            self.sample_rate_key,
+            self.speaker_id_key,
+            self.num_speakers_key,
+            self.duration_key,
+            self.diar_segments_key,
+        ]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads_one_of=[
+                IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"]),
+                IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"]),
+            ],
+            writes=IOSpec(
+                data_keys=[
+                    self.waveform_key,
+                    self.sample_rate_key,
+                    self.speaker_id_key,
+                    self.num_speakers_key,
+                    self.duration_key,
+                    self.diar_segments_key,
+                    "original_file",
+                ],
+                produces=["tensor"],
+            ),
+            # children drop the parent's audio_filepath (and blob keys)
+            preserves_upstream_keys=False,
+            cardinality="1:N fan-out",
+            # One child per detected speaker; speaker_id is the per-child key that
+            # identifies which slice of the iteration a child is (role-resolvable).
+            iteration_key=self.speaker_id_key,
+            gates=Gates(requires_gpu=self.resources.gpus > 0, requires_internet_first_run=True),
+        )
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
@@ -178,21 +234,39 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
                 logger.debug(f"Skipping {speaker_id}: duration {result.duration:.2f}s < {self.min_duration}s")
                 continue
             spk_waveform, spk_sr = _pydub_to_waveform_sr(result.audio)
+            # Drop the parent's file path(s) too: they point at the FULL
+            # multi-speaker file, so a file-preferring downstream stage would
+            # process the whole file per speaker instead of this speaker's
+            # extracted waveform. With the path gone, downstream resolves the
+            # per-speaker waveform (input_residency="auto") instead.
+            drop_keys = {
+                *self._INHERITED_DROP_KEYS,
+                self.waveform_key,
+                self.duration_key,
+                self.audio_filepath_key,
+                "audio_filepath",
+            }
             speaker_data = {
-                **{k: v for k, v in item.items() if k not in self._INHERITED_DROP_KEYS},
-                "waveform": spk_waveform,
-                "sample_rate": spk_sr,
-                "speaker_id": speaker_id,
-                "num_speakers": num_speakers,
-                "duration": result.duration,
-                "diar_segments": result.diar_segments,
+                **{k: v for k, v in item.items() if k not in drop_keys},
+                self.waveform_key: spk_waveform,
+                self.sample_rate_key: spk_sr,
+                self.speaker_id_key: speaker_id,
+                self.num_speakers_key: num_speakers,
+                self.duration_key: result.duration,
+                self.diar_segments_key: result.diar_segments,
+                # Source identity must survive the audio_filepath drop above —
+                # TimestampMapper (and any provenance consumer) reads original_file.
+                "original_file": item.get("original_file")
+                or item.get(self.audio_filepath_key)
+                or item.get("audio_filepath")
+                or "unknown",
             }
             spk_task = AudioTask(
                 data=speaker_data,
                 dataset_name=task.dataset_name,
+                _metadata=dict(task._metadata or {}),
+                _stage_perf=list(task._stage_perf),
             )
-            if task._metadata:
-                spk_task._metadata = dict(task._metadata)
             results.append(spk_task)
         return results
 
@@ -212,7 +286,13 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
         results: list[AudioTask] = []
 
         try:
-            audio_result = resolve_waveform_from_item(item, task.task_id)
+            audio_result = resolve_audio(
+                item,
+                residency=self.input_residency,  # type: ignore[arg-type]
+                audio_filepath_key=self.audio_filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            )
             if audio_result is None:
                 return []
             waveform, sample_rate = audio_result
