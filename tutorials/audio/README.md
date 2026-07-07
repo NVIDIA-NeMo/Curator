@@ -52,6 +52,7 @@ python tutorials/audio/fleurs/main.py \
 | Filter a manifest to keep only single-speaker audio | [**single_speaker_filter/**](single_speaker_filter/) | Yes (~8 GB VRAM) | Requires a pre-existing JSONL manifest |
 | Quality-filter raw audio (MOS, VAD, bandwidth, noise) | [**readspeech/**](readspeech/) | Recommended (~4 GB VRAM) | Auto-downloads DNS Challenge (4.88 GB) |
 | Synthesise multi-speaker conversation audio from text (Chatterbox TTS) | [**tts/**](tts/) | Yes (~4 GB VRAM) | Bring your own turn manifest + reference voices |
+| Produce word-level forced alignment (TextGrid, RTTM, CTM) with Montreal Forced Aligner | [**alignment/**](alignment/) | No (CPU-only) | Bring your own audio + text manifest |
 
 ## Data availability
 
@@ -64,6 +65,7 @@ python tutorials/audio/fleurs/main.py \
 | `single_speaker_filter/` | No | Varies | Bring your own NeMo-style JSONL manifest |
 | `readspeech/` | Yes | 4.88 GB compressed | Downloads DNS Challenge Read Speech (14,279 WAV files) |
 | `tts/` | No | Varies | Bring your own turn manifest + reference voices dataset |
+| `alignment/` | No | Varies | Bring your own audio + text JSONL manifest |
 
 ## System dependencies
 
@@ -83,6 +85,7 @@ sudo apt-get install -y ffmpeg
 | `single_speaker_filter/` | `ffmpeg` | `audio_cuda12` |
 | `readspeech/` | `ffmpeg` | `audio_cuda12` (recommended) or `audio_cpu` |
 | `tts/` | `ffmpeg` | `audio_cuda12` |
+| `alignment/` | `ffmpeg`, Montreal Forced Aligner (`conda install -c conda-forge montreal-forced-aligner`) | `audio_cpu` |
 
 Install pip extras from the repo root:
 

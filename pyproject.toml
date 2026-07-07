@@ -112,6 +112,7 @@ audio_common = [
     "librosa",
     "scipy",
     "pydub>=0.25.1",
+    "praatio>=6.0",
     "transformers",
     "accelerate",
     "nemo_text_processing; platform_machine == 'x86_64' and platform_system != 'Darwin'",  # pulls pynini, which ships x86_64-only wheels and fails to build on aarch64
