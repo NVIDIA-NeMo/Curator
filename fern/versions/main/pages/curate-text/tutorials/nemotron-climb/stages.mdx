@@ -17,6 +17,7 @@ The examples use this directory layout:
 ```text
 /data/climb/
 ├── source/
+├── source_split/  # if split_large_files was needed
 ├── computed_embeddings/
 ├── centroids/
 ├── clusters/
@@ -24,6 +25,10 @@ The examples use this directory layout:
 ├── domains/
 ├── mixtures_1/
 ├── lm_eval_results_1/
+├── mixtures_2/
+├── lm_eval_results_2/
+├── mixtures_3/
+├── lm_eval_results_3/
 └── optimal_mixture/
 ```
 
@@ -78,7 +83,7 @@ The default `--output-filetype parquet` produces partitioned files in `computed_
 
 **Completion and restart check**
 
-Confirm output files are readable and contain all three selected fields. The stage does not expose an append/resume protocol: if a run leaves an incomplete output directory, move or remove that directory and rerun stage 1. Generated IDs include each batch task ID and can change on a new run, so rerun all dependent stages rather than combining old and new stage 1 outputs.
+Confirm output files are readable and contain all three selected fields. The tutorial scripts call `pipeline.run()` without a checkpoint directory. To make embedding resumable after an interruption, pass a durable checkpoint path when invoking the pipeline, for example `pipeline.run(checkpoint_path="/data/climb/checkpoints/stage1")`. See [Resumable Processing](/reference/infra/resumable-processing) for checkpoint behavior and recovery. If a run leaves an incomplete output directory and you are not using checkpoints, move or remove that directory and rerun stage 1. Generated IDs include each batch task ID and can change on a new run, so rerun all dependent stages rather than combining old and new stage 1 outputs.
 
 ## 2. Cluster Embeddings
 
@@ -109,7 +114,7 @@ python 2_cluster.py \
 
 - `--n-clusters 1000` is the full recipe default. Use fewer clusters for a small smoke-test corpus.
 - Stella produces 1024-dimensional embeddings by default, but the recipe deliberately passes the 3× estimate `--embedding-dim 3072`. K-means uses this value only to estimate safe Parquet subgroup sizes around cuDF limits; it does not reshape or validate the embeddings. A larger estimate creates smaller groups and can reduce memory pressure. Lower it toward the actual width only when the available GPU memory can safely hold larger groups.
-- `--fit-data-fraction` fits centroids on a sample while assigning all documents.
+- `--fit-data-fraction` fits centroids on a sample while assigning all documents. Use this when the embedding data cannot fit into GPU memory.
 - Tune `--max-samples-per-batch`, `--max-iter`, and `--tol` for memory, runtime, and convergence.
 - `--init`, `--n-init`, and `--random-state` control initialization and repeatability.
 
@@ -188,7 +193,7 @@ python 4_tokenize.py \
 **Inputs**
 
 - Stage 3 `centroid=<id>/` directories containing JSONL by default.
-- A Hugging Face tokenizer identifier or local path. The default Llama 2 model is gated.
+- A Hugging Face tokenizer identifier or local path. The default Llama 2 model is gated. Use the same tokenizer in stages 4, 6, and 7. If you fine-tune the published [62M or 350M Nemotron-CLIMB proxy checkpoints](https://huggingface.co/nvidia/nemotron-climb-proxy-models), use the Llama 2 tokenizer to match those base models. For training from scratch with a different architecture, choose any compatible tokenizer and keep it consistent through stages 4, 6, and 7.
 
 **Outputs and merge behavior**
 
@@ -228,7 +233,7 @@ python 5_mixture.py \
 
 **Inputs**
 
-Stage 4 domain pairs. At least one `.bin` must exist and the combined `.bin` size must be nonzero.
+Stage 4 domain pairs. At least two `.bin` files must exist; a single domain pair would not require mixture weighting.
 
 **Outputs**
 
@@ -267,7 +272,7 @@ bash 6_train.sh \
     /models/Llama-2-7b/tokenizer.model
 ```
 
-To fine-tune a compatible proxy checkpoint, add the optional fifth positional argument:
+To fine-tune a compatible proxy checkpoint, add the optional fifth positional argument. Use a checkpoint from [Nemotron-CLIMB proxy models](https://huggingface.co/nvidia/nemotron-climb-proxy-models) and update the Megatron-LM width, depth, and related architecture flags in a local copy of `6_train.sh` to match the chosen 62M or 350M model. The model card on Hugging Face lists the appropriate values.
 
 ```bash
 bash 6_train.sh \
@@ -292,7 +297,7 @@ The work path contains `checkpoint/`, `tensorboard/`, and `data_cache/`. Keep th
 
 **Key configuration**
 
-The supplied script configures a 12-layer, hidden-size 1,344, 12-head model with sequence length 1,024, BF16, micro batch 64, global batch 4,096, and tensor/pipeline parallel sizes of 1. It uses all visible GPUs and trains up to 10,000 iterations or approximately 110 minutes. Edit a local script copy to change these values.
+The supplied script configures a 12-layer, hidden-size 1,344, 12-head model with sequence length 1,024, BF16, micro batch 64, global batch 4,096, and tensor/pipeline parallel sizes of 1. It uses all visible GPUs and trains up to 10,000 iterations or approximately 110 minutes, whichever comes first. In practice, the timeout usually stops training well before 10,000 iterations. Edit a local script copy to change these values.
 
 Ensure:
 
@@ -307,7 +312,7 @@ Without a pretrained path, `--load` points to the work path's own `checkpoint/`,
 
 ## 7. Evaluate Proxy Models
 
-`7_evaluate.sh` discovers all `n<integer>` work directories under one training-round directory and evaluates their checkpoints on ARC-Easy, HellaSwag, and PIQA.
+`7_evaluate.sh` discovers all `n<integer>` work directories under one training-round directory and evaluates their checkpoints on ARC-Easy, HellaSwag, and PIQA. You can override the benchmark list in a local copy of the script, but stage 8 expects those three task names in the harness JSON unless you also update `8_predict.py`, which hardcodes `arc_easy`, `hellaswag`, and `piqa`.
 
 ```bash
 bash 7_evaluate.sh \

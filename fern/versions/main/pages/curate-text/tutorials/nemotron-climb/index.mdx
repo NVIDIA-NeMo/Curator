@@ -46,7 +46,7 @@ Stages 1–5 create reusable semantic domains and an initial set of mixtures. St
 - Stage 4 tokenizes on Ray workers. Stages 5 and 8 are CPU-only; stage 8 requires enough evaluated mixtures to form nonempty training and validation splits.
 - `6_train.sh`, `7_evaluate.sh`, and `e2e.sh` use GNU/Linux shell features such as `mapfile`, `readarray`, and GNU `find` options.
 
-The supplied proxy configuration is single-node. Adapt the launch command and Megatron parallelism settings before using multiple nodes. The default proxy run exits after approximately 110 minutes, saves every 1,000 iterations, and targets 10,000 iterations.
+The supplied proxy configuration is single-node. Adapt the launch command and Megatron parallelism settings before using multiple nodes. The default proxy run exits after approximately 110 minutes, saves every 1,000 iterations, and caps training at 10,000 iterations. In practice, the 110-minute timeout usually stops the run well before 10,000 iterations; the actual iteration count depends on GPU count, GPU type, and model width and depth.
 
 ### Storage
 
@@ -54,13 +54,15 @@ Plan space for several durable copies of the corpus plus model outputs:
 
 | Location | Contents | Retain for restart? |
 | --- | --- | --- |
-| `computed_embeddings/` | Text, generated unique IDs, and embedding vectors | Yes, through clustering |
-| `clusters/` and `centroids/` | Documents partitioned by centroid and fitted K-means centroids | Yes, through pruning |
-| `pruned_clusters/` | Quality-scored JSONL grouped into retained or merged domains | Yes, through tokenization |
+| `computed_embeddings/` | Text, generated unique IDs, and embedding vectors | Yes, through clustering; optional after `domains/` exists |
+| `clusters/` and `centroids/` | Documents partitioned by centroid and fitted K-means centroids | Yes, through pruning; optional after `domains/` exists |
+| `pruned_clusters/` | Quality-scored JSONL grouped into retained or merged domains | Yes, through tokenization; optional after `domains/` exists |
 | `domains/` | One merged `.bin`/`.idx` pair per domain | Yes, for every search round and final training |
 | `mixtures_*/` | Shell-readable mixture files containing weight and extensionless data-prefix pairs | Yes, paired with evaluation results |
-| `megatron_exp_*/` | Proxy checkpoints, data cache, and TensorBoard logs | Yes, until evaluation succeeds |
+| `megatron_exp_*/` | Proxy checkpoints, data cache, and TensorBoard logs | Yes, until evaluation succeeds; optional afterward unless you need the checkpoints for other work |
 | `lm_eval_results_*/` | LM Evaluation Harness JSON results | Yes, for predictor fitting |
+
+Once `domains/` is complete, stages 6–8 no longer read embeddings, clusters, or pruned clusters. You can archive or delete those earlier directories to reclaim space if you do not plan to rerun stages 1–4. Likewise, proxy checkpoints under `megatron_exp_*/` can consume a large share of disk space; delete them after stage 7 succeeds unless you want to run additional evaluations or analysis on those models.
 
 Embedding output can exceed the source corpus because every document includes a dense vector. Proxy checkpoints and Megatron data caches can dominate total storage when many models run concurrently. Put Ray temporary storage, outputs, and checkpoint directories on filesystems with adequate capacity and I/O throughput.
 
@@ -165,7 +167,7 @@ To execute the supplied serial workflow after editing its variables:
 bash e2e.local.sh
 ```
 
-The script treats the existence of each top-level output directory as a completed stage. This makes clean restarts inexpensive, but a directory left by an interrupted process is also skipped.
+The script treats the existence of each top-level output directory as a completed stage. This makes clean restarts inexpensive, but a directory left by an interrupted process is also skipped. That behavior applies to `e2e.sh`; if you run stages manually, you decide whether to keep or remove each output directory before rerunning a step.
 
 Before restarting:
 
