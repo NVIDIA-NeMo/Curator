@@ -118,6 +118,7 @@ audio_common = [
     "opencc-python-reimplemented",
     "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "whisperx>=3.8.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    "chatterbox-tts>=0.1.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",

@@ -1,0 +1,87 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Chatterbox TTS Synthesis
+  ########################
+
+  This config synthesises per-turn conversation audio from a JSONL manifest
+  using ChatterboxTTS (English) or ChatterboxMultilingualTTS (23 languages),
+  cloning speaker voices from a reference audio dataset.
+
+  **Required arguments**:
+
+  * **input_manifest**: JSONL manifest of conversation turns. Each line has
+    ``conversation_id``, ``speaker``, and ``utterance`` (or ``text``).
+  * **reference_voices_dataset**: Root directory of reference audio
+    (``wavs/<dialog>/<speaker>.wav`` or MLS ``<spk>/<book>/<seg>.flac``).
+  * **output_dir**: Root directory for generated audio and the result manifest.
+
+  Set **language** to an ISO 639-1 code (e.g. ``fr``) to use the multilingual
+  model; leave it ``null`` for the English-only model.
+
+  **Output format**
+
+  Output manifest contains the following additional keys:
+
+  * **audio_filepath (str)**: path to the generated WAV file.
+  * **duration (float)**: duration of the generated audio in seconds.
+  * **reference_voice (str)**: identifier of the reference voice used.
+
+input_manifest: ???
+output_dir: ???
+reference_voices_dataset: ???
+
+backend: xenna
+language: null
+device: cuda
+cache_dir: null
+sample_rate: 24000
+cfg_weight: 0.5
+exaggeration: 0.5
+temperature: 0.8
+max_reference_duration: 60.0
+
+processors:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+
+  - _target_: nemo_curator.stages.audio.tts.chatterbox_tts.ChatterboxTTSStage
+    output_audio_dir: ${output_dir}/audio
+    reference_voices_dataset: ${reference_voices_dataset}
+    language: ${language}
+    device: ${device}
+    cache_dir: ${cache_dir}
+    sample_rate: ${sample_rate}
+    cfg_weight: ${cfg_weight}
+    exaggeration: ${exaggeration}
+    temperature: ${temperature}
+    max_reference_duration: ${max_reference_duration}
+
+  - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
+
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
+    path: ${output_dir}/result
+    write_kwargs:
+      force_ascii: false
