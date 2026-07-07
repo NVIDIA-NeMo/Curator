@@ -78,6 +78,18 @@ class XennaExecutor(BaseExecutor):
         for stage in stages:
             # Get stage configuration
             stage_config = stage.xenna_stage_spec()
+            if "num_workers" in stage_config:
+                msg = f"Stage {stage.name} sets num_workers in xenna_stage_spec(). Use num_workers() instead."
+                raise ValueError(msg)
+
+            num_workers = stage.num_workers()
+            num_workers_per_node = stage_config.get("num_workers_per_node")
+            if num_workers is not None and num_workers_per_node is not None:
+                msg = (
+                    f"Stage {stage.name} sets both num_workers() and "
+                    "xenna_stage_spec()['num_workers_per_node']. Use only one worker sizing option."
+                )
+                raise ValueError(msg)
 
             # Create Xenna stage adapter with the original stage's name
             xenna_stage = create_named_xenna_stage_adapter(
@@ -87,8 +99,8 @@ class XennaExecutor(BaseExecutor):
             # Create stage spec with configuration from stage
             stage_spec = pipelines_v1.StageSpec(
                 stage=xenna_stage,
-                num_workers=stage_config.get("num_workers"),
-                num_workers_per_node=stage_config.get("num_workers_per_node"),
+                num_workers=num_workers,
+                num_workers_per_node=num_workers_per_node,
                 num_setup_attempts_python=stage_config.get("num_setup_attempts_python"),
                 num_run_attempts_python=stage_config.get("num_run_attempts_python"),
                 ignore_failures=stage_config.get("ignore_failures"),

@@ -82,7 +82,6 @@ class TestCaptionPreparationStage:
             sampling_fps=1.0,
             window_size=128,
             remainder_threshold=64,
-            model_does_preprocess=True,
             preprocess_dtype="float16",
             generate_previews=False,
         )
@@ -97,7 +96,6 @@ class TestCaptionPreparationStage:
         assert stage.sampling_fps == 2.0
         assert stage.window_size == 256
         assert stage.remainder_threshold == 128
-        assert stage.model_does_preprocess is False
         assert stage.preprocess_dtype == "float32"
         assert stage.generate_previews is True
         assert stage.name == "caption_preparation"
@@ -195,7 +193,6 @@ class TestCaptionPreparationStage:
             assert first_call[1]["window_size"] == 128
             assert first_call[1]["remainder_threshold"] == 64
             assert first_call[1]["sampling_fps"] == 1.0
-            assert first_call[1]["model_does_preprocess"] is True
             assert first_call[1]["preprocess_dtype"] == "float16"
             assert first_call[1]["return_bytes"] is False
             assert first_call[1]["num_threads"] == 4

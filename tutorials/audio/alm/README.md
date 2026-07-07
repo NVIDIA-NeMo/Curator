@@ -483,7 +483,7 @@ tests/stages/audio/
 | `test_handles_unicode_content` | Japanese and accented characters survive write/read |
 | `test_preserves_nested_structures` | `windows[].segments[]` and `stats` dict survive serialization |
 | `test_num_workers_returns_one` | `num_workers()` returns 1 (single-writer constraint) |
-| `test_xenna_stage_spec` | Returns `{"num_workers": 1}` |
+| `test_xenna_stage_spec` | Returns `{}`; worker sizing comes from `num_workers()` |
 
 **`TestManifestWriterRoundTrip`**:
 

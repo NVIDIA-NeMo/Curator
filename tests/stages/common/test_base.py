@@ -51,6 +51,21 @@ class ConcreteProcessingStage(ProcessingStage[MockTask, MockTask]):
         return [], []
 
 
+class BackendConfiguredStage(ConcreteProcessingStage):
+    """Stage with backend configuration for testing with_ overrides."""
+
+    name = "BackendConfiguredStage"
+
+    def ray_stage_spec(self) -> dict[str, object]:
+        return {"base_only": "ray", "shared": "stage"}
+
+    def xenna_stage_spec(self) -> dict[str, object]:
+        return {"base_only": "xenna", "shared": "stage"}
+
+    def num_workers(self) -> int | None:
+        return 2
+
+
 class TestProcessingStageWith:
     """Test the with_ method for ProcessingStage."""
 
@@ -267,6 +282,51 @@ class TestProcessingStageWith:
         assert stage_with_custom.resources == Resources(cpus=5.0)
         assert stage_with_custom2.resources == Resources(cpus=7.0)
 
+    def test_backend_stage_spec_overrides_merge_with_user_values_winning(self):
+        """Test with_ overrides Ray and Xenna stage specs without mutating the original stage."""
+        stage = BackendConfiguredStage()
+
+        stage_new = stage.with_(
+            ray_stage_spec={"shared": "override", "ray_only": True},
+            xenna_stage_spec={"shared": "override", "xenna_only": True},
+        )
+
+        assert stage.ray_stage_spec() == {"base_only": "ray", "shared": "stage"}
+        assert stage.xenna_stage_spec() == {"base_only": "xenna", "shared": "stage"}
+        assert stage_new.ray_stage_spec() == {"base_only": "ray", "shared": "override", "ray_only": True}
+        assert stage_new.xenna_stage_spec() == {"base_only": "xenna", "shared": "override", "xenna_only": True}
+
+    def test_xenna_stage_spec_override_rejects_num_workers(self):
+        """Test with_ rejects Xenna num_workers overrides in favor of the generic num_workers hook."""
+        stage = BackendConfiguredStage()
+
+        with pytest.raises(ValueError, match="with_\\(num_workers="):
+            stage.with_(xenna_stage_spec={"num_workers": 4})
+
+    def test_backend_stage_spec_overrides_chain_as_shallow_merges(self):
+        """Test later with_ stage spec overrides win while preserving previous override keys."""
+        stage = BackendConfiguredStage()
+
+        stage_new = stage.with_(ray_stage_spec={"shared": "first", "first_only": 1}).with_(
+            ray_stage_spec={"shared": "second", "second_only": 2}
+        )
+
+        assert stage_new.ray_stage_spec() == {
+            "base_only": "ray",
+            "shared": "second",
+            "first_only": 1,
+            "second_only": 2,
+        }
+
+    def test_num_workers_override_accepts_none_as_explicit_override(self):
+        """Test num_workers can be overridden, including None for executor default behavior."""
+        stage = BackendConfiguredStage()
+
+        stage_new = stage.with_(num_workers=None)
+
+        assert stage.num_workers() == 2
+        assert stage_new.num_workers() is None
+
 
 class TestProcessingStageOverriddenProperties:
     """Test that ProcessingStage raises an error if a derived class overrides the _name, _resources, or _batch_size property."""
@@ -379,6 +439,18 @@ class TestProcessingStageOverriddenProperties:
                 @property
                 def batch_size(self) -> int:
                     return 1
+
+                def process(self, task: MockTask) -> MockTask:
+                    return task
+
+    def test_num_workers_attribute(self):
+        """Test that ProcessingStage raises an error if a derived class defines 'num_workers' as an attribute."""
+        with pytest.raises(TypeError, match="must not define 'num_workers' as a stage attribute"):
+
+            class MockStageNumWorkersAttribute(ProcessingStage[MockTask, MockTask]):
+                name = "MockStageNumWorkersAttribute"
+                resources = Resources(cpus=1.0)
+                num_workers: int = 1
 
                 def process(self, task: MockTask) -> MockTask:
                     return task
@@ -655,3 +727,28 @@ class TestCompositeStageWith:
 
         # outputs() should return the last stage's outputs
         assert composite.outputs() == composite.decompose()[-1].outputs()
+
+    def test_apply_with_backend_config_overrides(self):
+        """Test composite with_ can override backend configuration for decomposed stages."""
+        composite = ConcreteCompositeStage()
+        stages = [BackendConfiguredStage(), MockStageB(), MockStageC()]
+
+        composite.with_(
+            {
+                "BackendConfiguredStage": {
+                    "ray_stage_spec": {"shared": "override", "ray_only": True},
+                    "xenna_stage_spec": {"shared": "override", "xenna_only": True},
+                    "num_workers": 4,
+                }
+            }
+        )
+
+        modified_stages = composite._apply_with_(stages)
+
+        assert modified_stages[0].ray_stage_spec() == {"base_only": "ray", "shared": "override", "ray_only": True}
+        assert modified_stages[0].xenna_stage_spec() == {
+            "base_only": "xenna",
+            "shared": "override",
+            "xenna_only": True,
+        }
+        assert modified_stages[0].num_workers() == 4

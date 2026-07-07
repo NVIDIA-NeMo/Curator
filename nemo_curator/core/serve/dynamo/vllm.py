@@ -181,6 +181,11 @@ def aggregated_model_uses_exact_kv_events(
     return router_kv_events
 
 
+def explicit_hybrid_kv_cache_manager_enabled(engine_kwargs: dict[str, Any]) -> bool:
+    """True when vLLM should receive ``--no-disable-hybrid-kv-cache-manager``."""
+    return engine_kwargs.get("disable_hybrid_kv_cache_manager") is False
+
+
 def build_worker_kv_events_config(
     model_config: DynamoVLLMModelConfig,
     *,
@@ -189,13 +194,7 @@ def build_worker_kv_events_config(
     port_seed: int,
     enabled: bool,
 ) -> str:
-    """JSON blob for ``--kv-events-config``.
-
-    Always passed explicitly. Without this, Dynamo's ``args.py`` auto-creates
-    a ``KVEventsConfig`` bound to ``tcp://*:20080`` when ``prefix_caching`` is
-    enabled (vLLM >=0.16 default), causing every worker on the same node to
-    fight over the same port.
-    """
+    """JSON blob for ``--kv-events-config`` when Curator chooses to pass one."""
     template = dict(model_config.kv_events_config)
 
     if not enabled:
@@ -321,13 +320,17 @@ def _launch_vllm_worker(  # noqa: PLR0913
     kv_events_enabled = is_rank_zero and aggregated_model_uses_exact_kv_events(
         model_config, router_mode=router_mode, router_kv_events=router_kv_events
     )
-    kv_events_config = build_worker_kv_events_config(
-        model_config,
-        pg=pg,
-        bundle_index=node_rank,
-        port_seed=20080 + replica_index + node_rank,
-        enabled=kv_events_enabled,
-    )
+    kv_events_config = None
+    # vLLM treats any non-None kv_events_config as incompatible with explicitly
+    # enabled hybrid KV cache manager.
+    if not explicit_hybrid_kv_cache_manager_enabled(model_config.engine_kwargs):
+        kv_events_config = build_worker_kv_events_config(
+            model_config,
+            pg=pg,
+            bundle_index=node_rank,
+            port_seed=20080 + replica_index + node_rank,
+            enabled=kv_events_enabled,
+        )
 
     python_args: list[str] = [
         "-m",
@@ -351,7 +354,8 @@ def _launch_vllm_worker(  # noqa: PLR0913
     else:
         python_args.append("--headless")
 
-    python_args += ["--kv-events-config", kv_events_config]
+    if kv_events_config is not None:
+        python_args += ["--kv-events-config", kv_events_config]
 
     if spec.is_multi_node:
         assert master_addr is not None, "master_addr must be set for multi-node replicas"  # noqa: S101
@@ -397,9 +401,10 @@ def launch_disagg_replicas(  # noqa: PLR0913
 
     Each role (prefill/decode) becomes its own pool of single-bundle PGs
     so roles can scale independently. Only the prefill pool publishes KV
-    events (decode reads them via Nixl). KV transfer defaults to
-    NixlConnector with ``kv_both`` unless the user overrides via
-    ``DynamoVLLMModelConfig.kv_transfer_config``.
+    events (decode reads them via Nixl), and no role receives a KV-events
+    config when vLLM's hybrid KV cache manager is explicitly enabled. KV
+    transfer defaults to NixlConnector with ``kv_both`` unless the user
+    overrides via ``DynamoVLLMModelConfig.kv_transfer_config``.
 
     ``worker_index_offset`` lets the caller thread a global counter across
     multiple disagg models so their port seeds don't overlap — without it,
@@ -492,18 +497,15 @@ def _launch_disagg_role(  # noqa: PLR0913
         # Global-enough seed so concurrent workers on one node don't collide.
         nixl_port = get_free_port_in_bundle(pg, 0, _DISAGG_NIXL_PORT_SEED + worker_index)
 
-        # Always pass an explicit ``--kv-events-config``. Decode workers set
-        # ``enable_kv_cache_events=False`` — without the flag, Dynamo's
-        # args.py auto-creates a KVEventsConfig bound to ``tcp://*:20080``
-        # when ``prefix_caching`` is enabled (vLLM >=0.16 default), causing
-        # every decode worker on the same node to fight over that port.
-        kv_events_config = build_worker_kv_events_config(
-            model_config,
-            pg=pg,
-            bundle_index=0,
-            port_seed=_DISAGG_KV_EVENTS_PORT_SEED + worker_index,
-            enabled=publishes_kv_events,
-        )
+        kv_events_config = None
+        if not explicit_hybrid_kv_cache_manager_enabled(engine_kwargs):
+            kv_events_config = build_worker_kv_events_config(
+                model_config,
+                pg=pg,
+                bundle_index=0,
+                port_seed=_DISAGG_KV_EVENTS_PORT_SEED + worker_index,
+                enabled=publishes_kv_events,
+            )
 
         python_args: list[str] = [
             "-m",
@@ -524,9 +526,9 @@ def _launch_disagg_role(  # noqa: PLR0913
             role,
             "--kv-transfer-config",
             kv_transfer_config,
-            "--kv-events-config",
-            kv_events_config,
         ]
+        if kv_events_config is not None:
+            python_args += ["--kv-events-config", kv_events_config]
         python_args += engine_kwargs_to_cli_flags(engine_kwargs)
         python_args += engine_kwargs_to_cli_flags(model_config.dynamo_kwargs)
 

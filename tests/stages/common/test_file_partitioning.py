@@ -122,6 +122,13 @@ class TestFilePartitioningStage:
         spec = stage.ray_stage_spec()
         assert spec["is_fanout_stage"] is True
 
+    def test_worker_defaults(self):
+        """Test worker defaults for source partitioning."""
+        stage = FilePartitioningStage(file_paths="/test/path")
+
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
+
     def test_process_with_file_list(self, empty_task: EmptyTask, tmp_path: Path):
         """Test processing with a list of files."""
         # Create these files in the tmp_path:

@@ -158,8 +158,8 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers": 1}
+    def num_workers(self) -> int | None:
+        return 1
 
     def process(self, _: EmptyTask) -> list[AudioTask]:
         t0 = time.perf_counter()

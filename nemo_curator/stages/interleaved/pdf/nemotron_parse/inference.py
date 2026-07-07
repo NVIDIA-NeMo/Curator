@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import contextlib
 import io
+import time
 from dataclasses import dataclass, field
+from typing import Any
 
 import pyarrow as pa
 import torch
@@ -69,6 +71,9 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         Pages per GPU forward pass (HF backend only).
     max_num_seqs
         Maximum concurrent sequences (vLLM backend only).
+    engine_kwargs
+        Extra keyword arguments forwarded to the vLLM engine (e.g.
+        ``gpu_memory_utilization``, ``max_num_batched_tokens``). vLLM backend only.
     """
 
     model_path: str = DEFAULT_MODEL_PATH
@@ -78,6 +83,7 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
     inference_batch_size: int = 4
     max_num_seqs: int = 64
     enforce_eager: bool = False
+    engine_kwargs: dict[str, Any] | None = None
     name: str = "nemotron_parse_inference"
     resources: Resources = field(default_factory=lambda: Resources(cpus=4.0, gpus=1.0))
 
@@ -134,11 +140,12 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
         from nemo_curator.utils.vllm_utils import create_vllm_llm, resolve_local_model_path
 
         resolved_path = resolve_local_model_path(self.model_path)
-        self._llm = create_vllm_llm(
-            resolved_path,
-            max_num_seqs=self.max_num_seqs,
-            enforce_eager=self.enforce_eager,
-        )
+        engine_kwargs = {
+            "max_num_seqs": self.max_num_seqs,
+            "enforce_eager": self.enforce_eager,
+            **(self.engine_kwargs or {}),
+        }
+        self._llm = create_vllm_llm(resolved_path, **engine_kwargs)
         self._sampling_params = SamplingParams(
             temperature=0,
             top_k=1,
@@ -188,23 +195,80 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
             torch.cuda.empty_cache()
         self._setup_vllm()
 
-    def _infer_vllm(self, images: list[Image.Image]) -> list[str]:
+    @staticmethod
+    def _vllm_metrics_from_outputs(  # noqa: PLR0913
+        outputs: list[Any],
+        *,
+        inference_time_s: float,
+        num_input_pages: int,
+        num_valid_pages: int,
+        num_skipped_pages: int,
+        vllm_retries: int = 0,
+    ) -> dict[str, float]:
+        """Build additive per-task vLLM metrics for TaskPerfUtils aggregation."""
+        total_prompt_tokens = 0
+        total_output_tokens = 0
+        total_output_chars = 0
+        num_length_truncated = 0
+        num_empty_outputs = 0
+
+        for req_out in outputs:
+            prompt_ids = getattr(req_out, "prompt_token_ids", None)
+            if prompt_ids is not None:
+                total_prompt_tokens += len(prompt_ids)
+
+            if not req_out.outputs:
+                num_empty_outputs += 1
+                continue
+
+            completion = req_out.outputs[0]
+            token_ids = getattr(completion, "token_ids", None)
+            if token_ids is not None:
+                total_output_tokens += len(token_ids)
+
+            text = getattr(completion, "text", "") or ""
+            total_output_chars += len(text)
+            if not text.strip():
+                num_empty_outputs += 1
+
+            if getattr(completion, "finish_reason", None) == "length":
+                num_length_truncated += 1
+
+        return {
+            "vllm_inference_time": inference_time_s,
+            "num_input_pages": float(num_input_pages),
+            "num_valid_pages": float(num_valid_pages),
+            "num_skipped_pages": float(num_skipped_pages),
+            "total_prompt_tokens": float(total_prompt_tokens),
+            "total_output_tokens": float(total_output_tokens),
+            "total_output_chars": float(total_output_chars),
+            "num_output_length_truncated": float(num_length_truncated),
+            "num_empty_outputs": float(num_empty_outputs),
+            "vllm_retries": float(vllm_retries),
+        }
+
+    def _infer_vllm(self, images: list[Image.Image]) -> tuple[list[str], list[Any], int]:
         if not images:
-            return []
+            return [], [], 0
         prompts = [{"prompt": self.task_prompt, "multi_modal_data": {"image": img}} for img in images]
 
         max_retries = 3
+        vllm_retries = 0
         for attempt in range(1, max_retries + 1):
             try:
                 outputs = self._llm.generate(prompts, self._sampling_params)
-                return [output.outputs[0].text for output in outputs]
             except Exception as e:
                 logger.warning(f"[vLLM] Inference failed (attempt {attempt}/{max_retries}): {e}")
                 if attempt < max_retries:
+                    vllm_retries += 1
                     self._reset_vllm()
                 else:
                     raise
-        return []
+            else:
+                texts = [output.outputs[0].text if output.outputs else "" for output in outputs]
+                return texts, outputs, vllm_retries
+        msg = "unreachable"
+        raise RuntimeError(msg)
 
     def _infer_hf(self, images: list[Image.Image]) -> list[str]:
         all_outputs: list[str] = []
@@ -233,19 +297,42 @@ class NemotronParseInferenceStage(ProcessingStage[InterleavedBatch, InterleavedB
     def process(self, task: InterleavedBatch) -> InterleavedBatch | None:
         task_df = task.to_pandas()
         images = []
+        image_t0 = time.perf_counter()
         for idx, b in enumerate(task_df["binary_content"]):
             try:
                 images.append(Image.open(io.BytesIO(b)))
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"Skipping page {idx} in {task.task_id}: {e}")
                 images.append(None)
-
+        self._log_metrics({"image_load_time": time.perf_counter() - image_t0})
         valid_mask = [img is not None for img in images]
         valid_images = [img for img in images if img is not None]
         if not valid_images:
             return None
 
-        valid_outputs = self._infer_vllm(valid_images) if self.backend == "vllm" else self._infer_hf(valid_images)
+        if self.backend == "vllm":
+            t0 = time.perf_counter()
+            valid_outputs, raw_outputs, vllm_retries = self._infer_vllm(valid_images)
+            inference_time_s = time.perf_counter() - t0
+            self._log_metrics(
+                self._vllm_metrics_from_outputs(
+                    raw_outputs,
+                    inference_time_s=inference_time_s,
+                    num_input_pages=len(images),
+                    num_valid_pages=len(valid_images),
+                    num_skipped_pages=len(images) - len(valid_images),
+                    vllm_retries=vllm_retries,
+                )
+            )
+        else:
+            valid_outputs = self._infer_hf(valid_images)
+            self._log_metrics(
+                {
+                    "num_input_pages": float(len(images)),
+                    "num_valid_pages": float(len(valid_images)),
+                    "num_skipped_pages": float(len(images) - len(valid_images)),
+                }
+            )
 
         all_outputs = []
         valid_iter = iter(valid_outputs)

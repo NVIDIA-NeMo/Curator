@@ -15,12 +15,14 @@
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import VideoTask
@@ -100,6 +102,9 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     decoder_mode: str = "pynvc"
     verbose: bool = False
     name: str = "video_frame_extraction"
+    ray_data_num_cpus: float | None = (
+        None  # CPU reservation for Ray Data scheduler; set to 1.0 on CPU path to enable stage fusion
+    )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -130,6 +135,16 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
             self.resources = Resources(gpu_memory_gb=10)
         else:
             self.resources = Resources(cpus=4.0)
+            if self.ray_data_num_cpus is None:
+                # Default to 1.0 so Ray Data fuses this stage with VideoReaderStage.
+                # Kept separate from resources.cpus so Xenna scheduling is unaffected.
+                self.ray_data_num_cpus = 1.0
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        """Ray stage specification for this stage."""
+        if self.ray_data_num_cpus is not None:
+            return {RayStageSpecKeys.RAY_NUM_CPUS: self.ray_data_num_cpus}
+        return {}
 
     def process(self, task: VideoTask) -> VideoTask:
         width, height = self.output_hw

@@ -307,7 +307,7 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
         batch_size: Entries per processing chunk in ASR.
         transcribe_batch_size: Batch size passed to the ASR model's transcribe call.
         split_batch_size: Max entries/paths per batch when chunking segments.
-        num_workers: Data-loading workers for ASR inference.
+        dataloader_num_workers: Data-loading workers for ASR inference.
         infer_segment_only: If True, run ASR only on individual segments
             rather than full audio / meta-entries.
         compute_timestamps: Whether to compute word-level timestamps.
@@ -335,7 +335,7 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
     batch_size: int = 100
     transcribe_batch_size: int = 32
     split_batch_size: int = 5000
-    num_workers: int = 10
+    dataloader_num_workers: int = 10
     infer_segment_only: bool = False
 
     # ASR timestamp settings
@@ -369,7 +369,7 @@ class SplitASRAlignJoinStage(CompositeStage[AudioTask, AudioTask]):
                 batch_size=self.batch_size,
                 transcribe_batch_size=self.transcribe_batch_size,
                 split_batch_size=self.split_batch_size,
-                num_workers=self.num_workers,
+                dataloader_num_workers=self.dataloader_num_workers,
                 infer_segment_only=self.infer_segment_only,
                 compute_timestamps=self.compute_timestamps,
                 timestamp_type=self.timestamp_type,

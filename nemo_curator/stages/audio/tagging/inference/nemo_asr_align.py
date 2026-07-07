@@ -50,7 +50,7 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
     Args:
         min_len: Minimum length of audio segments to process (seconds).
         max_len: Maximum length of audio segments to process (seconds).
-        num_workers: Number of workers for data loading.
+        dataloader_num_workers: Number of workers for data loading.
         split_batch_size: Max entries/paths per batch when chunking.
         infer_segment_only: If True, process segments only; else full audio / meta-entries.
         text_key: Key for predicted text in manifest.
@@ -65,7 +65,7 @@ class BaseASRProcessorStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Processing parameters
     batch_size: int = 32
-    num_workers: int = 10
+    dataloader_num_workers: int = 10
     split_batch_size: int = 5000
     infer_segment_only: bool = False
 
@@ -176,7 +176,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
     # Processing parameters
     transcribe_batch_size: int = 32
-    num_workers: int = 10
+    dataloader_num_workers: int = 10
     batch_size: int = 100
 
     # Timestamp settings
@@ -256,7 +256,7 @@ class NeMoASRAlignerStage(BaseASRProcessorStage):
 
         self._override_cfg = self._asr_model.get_transcribe_config()
         self._override_cfg.batch_size = self.transcribe_batch_size
-        self._override_cfg.num_workers = self.num_workers
+        self._override_cfg.num_workers = self.dataloader_num_workers
         self._override_cfg.return_hypotheses = True
         self._override_cfg.timestamps = self.compute_timestamps
 

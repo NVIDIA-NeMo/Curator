@@ -13,6 +13,9 @@
 # limitations under the License.
 
 import argparse
+import datetime as dt
+import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from ruamel.yaml import YAML
@@ -25,6 +28,8 @@ yaml.preserve_quotes = True
 # Fallbacks used only when nightly-benchmark.yaml omits the corresponding key; the YAML config
 # is the source of truth for these timeout knobs.
 DEFAULT_TIMEOUT_S = 7200  # mirrors Session.default_timeout_s in runner/session.py
+# Slurm caps CI jobs at 4h, so this default leaves room for the 60s cleanup buffer.
+DEFAULT_MAX_TIMEOUT_S = 14340  # mirrors Session.max_timeout_s in runner/session.py
 DEFAULT_CLEANUP_TIMEOUT_S = 60
 DEFAULT_MIN_TIMEOUT_S = 600
 
@@ -44,9 +49,36 @@ def seconds_to_time(seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def _pipeline_timestamp(created_at: str | None) -> str:
+    """Return a path-safe UTC timestamp for generated nightly session names."""
+    if created_at:
+        try:
+            parsed = dt.datetime.fromisoformat(created_at)
+            return parsed.astimezone(dt.UTC).strftime("%Y_%m_%d__%H_%M_%S_UTC")
+        except ValueError:
+            pass
+    return dt.datetime.now(dt.UTC).strftime("%Y_%m_%d__%H_%M_%S_UTC")
 
-def generate_job(
-    entry: dict, scope: str, default_timeout_s: int, cleanup_timeout_s: int, min_timeout_s: int
+
+def session_name_from_env(env: Mapping[str, str] = os.environ) -> str | None:
+    """Return the generated-pipeline session name, if this run should define one."""
+    explicit = env.get("NEMO_CI_SESSION_NAME", "").strip()
+    if explicit:
+        return explicit
+
+    if env.get("CI_PIPELINE_SOURCE") == "schedule" or env.get("PARENT_PIPELINE_SOURCE") == "schedule":
+        return f"nightly-{_pipeline_timestamp(env.get('CI_PIPELINE_CREATED_AT'))}"
+
+    return None
+
+
+def generate_job(  # noqa: PLR0913
+    entry: dict,
+    scope: str,
+    default_timeout_s: int,
+    cleanup_timeout_s: int,
+    min_timeout_s: int,
+    max_timeout_s: int,
 ) -> dict:
     """
     Generate a GitLab CI job for a single benchmark entry.
@@ -57,14 +89,20 @@ def generate_job(
         default_timeout_s: Timeout used for entries that omit "timeout_s"
         cleanup_timeout_s: Buffer added on top of every entry's timeout for post-run cleanup
         min_timeout_s: Floor on the generated job time to cover container setup overhead
+        max_timeout_s: Maximum allowed effective entry timeout before cleanup time is added
 
     Returns:
         job: Dictionary defining the GitLab CI job
     """
     ray = entry.get("ray", {})
+    entry_timeout_s = entry.get("timeout_s", default_timeout_s)
+    if entry_timeout_s > max_timeout_s:
+        msg = f"Entry '{entry['name']}' has timeout_s={entry_timeout_s}, which exceeds max_timeout_s={max_timeout_s}"
+        raise ValueError(msg)
+
     # SLURM wall-clock = entry's effective timeout + a fixed cleanup buffer, floored at
     # min_timeout_s so short entries get enough time for container setup before their run starts.
-    timeout_s = max(entry.get("timeout_s", default_timeout_s) + cleanup_timeout_s, min_timeout_s)
+    timeout_s = max(entry_timeout_s + cleanup_timeout_s, min_timeout_s)
     time_str = seconds_to_time(timeout_s)
 
     return {
@@ -79,13 +117,14 @@ def generate_job(
     }
 
 
-def generate_pipeline(curator_dir: str, scope: str) -> dict:
+def generate_pipeline(curator_dir: str, scope: str, session_name: str | None = None) -> dict:
     """
     Generate a GitLab CI pipeline from Curator benchmark entries.
 
     Args:
         curator_dir: Path to the Curator repository
         scope: Scope of the testing (nightly, release, test)
+        session_name: Optional session name to set for all generated benchmark jobs
 
     Returns:
         pipeline: Dictionary defining the GitLab CI pipeline
@@ -100,10 +139,13 @@ def generate_pipeline(curator_dir: str, scope: str) -> dict:
     default_timeout_s = config.get("default_timeout_s", DEFAULT_TIMEOUT_S)
     cleanup_timeout_s = config.get("cleanup_timeout_s", DEFAULT_CLEANUP_TIMEOUT_S)
     min_timeout_s = config.get("min_timeout_s", DEFAULT_MIN_TIMEOUT_S)
+    max_timeout_s = config.get("max_timeout_s", DEFAULT_MAX_TIMEOUT_S)
 
     pipeline = {
         "include": ["curator/curator_ci_template.yml"],
     }
+    if session_name:
+        pipeline["variables"] = {"NEMO_CI_SESSION_NAME": session_name}
 
     entries = config.get("entries", [])
     job_count = 0
@@ -111,7 +153,9 @@ def generate_pipeline(curator_dir: str, scope: str) -> dict:
         if not entry.get("enabled", True):
             continue
 
-        pipeline[entry["name"]] = generate_job(entry, scope, default_timeout_s, cleanup_timeout_s, min_timeout_s)
+        pipeline[entry["name"]] = generate_job(
+            entry, scope, default_timeout_s, cleanup_timeout_s, min_timeout_s, max_timeout_s
+        )
         job_count += 1
 
     if job_count == 0:
@@ -122,9 +166,7 @@ def generate_pipeline(curator_dir: str, scope: str) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Generate GitLab CI jobs for Curator benchmarks"
-    )
+    parser = argparse.ArgumentParser(description="Generate GitLab CI jobs for Curator benchmarks")
     parser.add_argument(
         "--curator-dir",
         type=str,
@@ -140,14 +182,17 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    pipeline = generate_pipeline(args.curator_dir, args.scope)
+    session_name = session_name_from_env()
+    pipeline = generate_pipeline(args.curator_dir, args.scope, session_name=session_name)
 
     output_file = "generated_curator_benchmark_tests.yml"
     with open(output_file, "w") as f:
         yaml.dump(pipeline, f)
 
-    job_count = len([k for k in pipeline if k != "include"])
+    job_count = len([k for k in pipeline if k not in {"include", "variables"}])
     print(f"Generated pipeline with {job_count} jobs -> {output_file}")
+    if session_name:
+        print(f"Using benchmark session name: {session_name}")
 
 
 if __name__ == "__main__":

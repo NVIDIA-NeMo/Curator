@@ -39,6 +39,15 @@ FILETYPE_TO_DEFAULT_EXTENSIONS = {
 }
 
 
+def get_default_file_extensions(input_filetype: str) -> list[str]:
+    """Return default file extensions for an input file type."""
+    file_extensions = FILETYPE_TO_DEFAULT_EXTENSIONS.get(input_filetype)
+    if file_extensions is None:
+        msg = f"Unsupported filetype: {input_filetype}"
+        raise ValueError(msg)
+    return file_extensions
+
+
 def get_fs(path: str, storage_options: dict[str, str] | None = None) -> fsspec.AbstractFileSystem:
     if not storage_options:
         storage_options = {}

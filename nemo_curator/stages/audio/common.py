@@ -174,8 +174,8 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_fanout_stage": True}
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers": 1}
+    def num_workers(self) -> int | None:
+        return 1
 
 
 @dataclass
@@ -289,9 +289,6 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def num_workers(self) -> int | None:
         return 1
-
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers": 1}
 
 
 def load_audio_file(audio_path: str, mono: bool = True) -> tuple[torch.Tensor, int]:

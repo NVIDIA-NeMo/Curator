@@ -94,6 +94,32 @@ class TestLaunchReplicas:
         assert "--headless" not in python_args
         assert "--nnodes" not in python_args
 
+    def test_explicit_hma_omits_disabled_kv_events_config(self, captured_spawn: list[dict[str, Any]]) -> None:
+        mc = DynamoVLLMModelConfig(
+            model_identifier="Qwen/Qwen3-0.6B",
+            engine_kwargs={"disable_hybrid_kv_cache_manager": False},
+            num_replicas=1,
+        )
+        self._launch(mc, topology=_SINGLE_NODE_1GPU)
+
+        python_args = captured_spawn[0]["python_args"]
+        assert "--no-disable-hybrid-kv-cache-manager" in python_args
+        assert "--kv-events-config" not in python_args
+
+    def test_explicit_hma_omits_kv_events_config_when_router_events_requested(
+        self, captured_spawn: list[dict[str, Any]]
+    ) -> None:
+        mc = DynamoVLLMModelConfig(
+            model_identifier="Qwen/Qwen3-0.6B",
+            engine_kwargs={"disable_hybrid_kv_cache_manager": False},
+            num_replicas=1,
+        )
+        self._launch(mc, topology=_SINGLE_NODE_1GPU, router_mode="kv", router_kv_events=True)
+
+        python_args = captured_spawn[0]["python_args"]
+        assert "--no-disable-hybrid-kv-cache-manager" in python_args
+        assert "--kv-events-config" not in python_args
+
     def test_kv_router_enables_exact_kv_events(self, captured_spawn: list[dict[str, Any]]) -> None:
         mc = DynamoVLLMModelConfig(model_identifier="Qwen/Qwen3-0.6B", num_replicas=1)
         self._launch(mc, topology=_SINGLE_NODE_1GPU, router_mode="kv", router_kv_events=True)
@@ -142,6 +168,20 @@ class TestLaunchReplicas:
         python_args = captured_spawn[0]["python_args"]
         assert python_args[python_args.index("--tool-call-parser") + 1] == "hermes"
         assert python_args[python_args.index("--reasoning-parser") + 1] == "deepseek-r1"
+
+    def test_false_dynamo_kwargs_emit_no_flags_when_parser_supports_them(
+        self, captured_spawn: list[dict[str, Any]]
+    ) -> None:
+        mc = DynamoVLLMModelConfig(
+            model_identifier="Qwen/Qwen3-0.6B",
+            dynamo_kwargs={"enable_multimodal": False},
+            num_replicas=1,
+        )
+        self._launch(mc, topology=_SINGLE_NODE_1GPU)
+
+        python_args = captured_spawn[0]["python_args"]
+        assert "--enable-multimodal" not in python_args
+        assert "--no-enable-multimodal" in python_args
 
     def test_num_replicas_fans_out_worker_spawns(self, captured_spawn: list[dict[str, Any]]) -> None:
         mc = DynamoVLLMModelConfig(model_identifier="Qwen/Qwen3-0.6B", num_replicas=3)
@@ -251,10 +291,8 @@ class TestLaunchDisaggReplicas:
             assert "VLLM_NIXL_SIDE_CHANNEL_PORT" in call["subprocess_env"]
             assert call["subprocess_env"]["PYTHONHASHSEED"] == "0"
 
-        # Every disagg worker always receives ``--kv-events-config`` — even
-        # decode, which sets ``enable_kv_cache_events=False`` — so Dynamo's
-        # args.py does not auto-bind port 20080 and cause per-node
-        # collisions between decode workers.
+        # Every disagg worker receives ``--kv-events-config``: prefill publishes
+        # events, while decode explicitly stays non-publishing.
         decode_args = captured_spawn[0]["python_args"]
         prefill_args = captured_spawn[1]["python_args"]
 
@@ -266,6 +304,25 @@ class TestLaunchDisaggReplicas:
         decode_kv = json.loads(decode_args[decode_args.index("--kv-events-config") + 1])
         assert decode_kv["enable_kv_cache_events"] is False
         assert "endpoint" not in decode_kv
+
+    def test_explicit_hma_omits_disagg_kv_events_config(self, captured_spawn: list[dict[str, Any]]) -> None:
+        mc = DynamoVLLMModelConfig(
+            model_identifier="Qwen/Qwen3-0.6B",
+            mode="disagg",
+            engine_kwargs={"disable_hybrid_kv_cache_manager": False},
+            prefill=DynamoRoleConfig(num_replicas=1),
+            decode=DynamoRoleConfig(num_replicas=1),
+        )
+        self._launch(mc, topology=_SINGLE_NODE_8GPU)
+
+        decode_args = captured_spawn[0]["python_args"]
+        prefill_args = captured_spawn[1]["python_args"]
+
+        assert "--no-disable-hybrid-kv-cache-manager" in decode_args
+        assert "--kv-events-config" not in decode_args
+
+        assert "--no-disable-hybrid-kv-cache-manager" in prefill_args
+        assert "--kv-events-config" not in prefill_args
 
     def test_role_level_engine_kwargs_override_base(self, captured_spawn: list[dict[str, Any]]) -> None:
         mc = DynamoVLLMModelConfig(

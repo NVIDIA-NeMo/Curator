@@ -322,9 +322,6 @@ class SegmentExtractionStage(ProcessingStage[AudioTask, AudioTask]):
     def num_workers(self) -> int | None:
         return 1
 
-    def xenna_stage_spec(self) -> dict[str, Any]:
-        return {"num_workers": 1}
-
     def process(self, task: AudioTask) -> AudioTask:
         msg = "SegmentExtractionStage only supports process_batch"
         raise NotImplementedError(msg)

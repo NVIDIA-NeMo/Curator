@@ -274,6 +274,11 @@ class TestSegmentExtractionStageInit:
         assert stage.inputs() == ([], ["original_file"])
         assert stage.outputs() == ([], ["extracted_path"])
 
+    def test_worker_defaults(self, tmp_path: Path) -> None:
+        stage = SegmentExtractionStage(output_dir=str(tmp_path))
+        assert stage.num_workers() == 1
+        assert stage.xenna_stage_spec() == {}
+
 
 # ------------------------------------------------------------------
 # SegmentExtractionStage — process_batch
