@@ -32,6 +32,9 @@ from whisperx.audio import SAMPLE_RATE
 from whisperx.vads.pyannote import Pyannote, load_vad_model
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._residency import cleanup_temp_files, resolve_audio_path
 from nemo_curator.stages.audio.common import get_audio_duration
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -103,7 +106,7 @@ class WhisperXVADModel:
 
 
 @dataclass
-class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
+class WhisperXVADStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Stage that performs Voice Activity Detection (VAD) using WhisperX's VAD model.
 
@@ -117,6 +120,17 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
     vad_offset: float = 0.363
     segments_key: str = "vad_segments"
     audio_filepath_key: str = "resampled_audio_filepath"
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
+    input_residency: str = "file"
+    fanout: bool = False
+    start_key: str = "start"
+    end_key: str = "end"
+    start_ms_key: str = "start_ms"
+    end_ms_key: str = "end_ms"
+    duration_key: str = "duration"
+    segment_num_key: str = "segment_num"
+    original_file_key: str = "original_file"
 
     name: str = "WhisperXVAD"
     resources: Resources = field(default_factory=lambda: Resources(gpus=1))
@@ -127,7 +141,95 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
+        if self.fanout:
+            return [], [
+                self.audio_filepath_key,
+                self.start_key,
+                self.end_key,
+                self.start_ms_key,
+                self.end_ms_key,
+                self.duration_key,
+                self.segment_num_key,
+                self.original_file_key,
+            ]
         return [], [self.audio_filepath_key, self.segments_key]
+
+    def describe(self) -> StageContract:
+        if self.fanout:
+            writes = [
+                self.audio_filepath_key,
+                self.start_key,
+                self.end_key,
+                self.start_ms_key,
+                self.end_ms_key,
+                self.duration_key,
+                self.segment_num_key,
+                self.original_file_key,
+            ]
+            cardinality = "1:N fan-out"
+        else:
+            writes = [self.segments_key]
+            cardinality = "1:1"
+        return StageContract(
+            reads=IOSpec(data_keys=[self.audio_filepath_key], accepts=["file", "waveform"]),
+            writes=IOSpec(data_keys=writes),
+            cardinality=cardinality,
+            cardinality_options=["passthrough", "fan_out"],
+            iteration_key=self.segments_key if self.fanout else None,
+            gates=Gates(requires_gpu=self.resources.gpus > 0),
+        )
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        if self.fanout:
+            return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+        return {}
+
+    def _segment_child_data(
+        self,
+        item: dict[str, Any],
+        segment: dict[str, Any],
+        segment_num: int,
+    ) -> dict[str, Any]:
+        child = {k: v for k, v in item.items() if k != self.segments_key}
+        start = float(segment.get("start", 0.0))
+        end = float(segment.get("end", start))
+        # copy segment extras but never whisperx's raw internal keys: 'segments'
+        # (a list of (start, end) tuples) collides with the semantic segments
+        # role and crashes dict-shaped consumers; raw start/end are re-emitted
+        # under the configured keys below.
+        child.update({k: v for k, v in segment.items() if k not in {"start", "end", "segments"}})
+        child[self.start_key] = start
+        child[self.end_key] = end
+        child[self.start_ms_key] = round(start * 1000)
+        child[self.end_ms_key] = round(end * 1000)
+        child[self.duration_key] = max(0.0, end - start)
+        child[self.segment_num_key] = segment_num
+        # Resolve source provenance from the configured key, then fall back to the
+        # canonical ``audio_filepath`` (mirrors the composability fallback in
+        # ``process()``) before the legacy resampled path. This keeps fan-out
+        # children's ``original_file`` correct when audio came in under the
+        # canonical key rather than ``resampled_audio_filepath``.
+        original_file = item.get(
+            self.original_file_key,
+            item.get(
+                self.audio_filepath_key,
+                item.get("audio_filepath", item.get("resampled_audio_filepath", "unknown")),
+            ),
+        )
+        child.setdefault(self.original_file_key, original_file)
+        return child
+
+    def _fanout_segments(self, task: AudioTask, segments: list[dict[str, Any]]) -> list[AudioTask]:
+        return [
+            AudioTask(
+                dataset_name=task.dataset_name,
+                filepath_key=task.filepath_key or self.audio_filepath_key,
+                data=self._segment_child_data(task.data, segment, index),
+                _metadata=dict(task._metadata or {}),
+                _stage_perf=list(task._stage_perf),
+            )
+            for index, segment in enumerate(segments)
+        ]
 
     @property
     def _device(self) -> str:
@@ -155,34 +257,61 @@ class WhisperXVADStage(ProcessingStage[AudioTask, AudioTask]):
         self._vad_model.to(self._device)
         logger.info(f"[{self.name}] Initialized WhisperX VAD on {self._device}")
 
-    def process(self, task: AudioTask) -> AudioTask:
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         t0 = time.perf_counter()
         data_entry = task.data
-        file_path = data_entry[self.audio_filepath_key]
-        duration = data_entry.get("duration", get_audio_duration(file_path))
-        if duration < self.min_length:
-            logger.warning(f"Skipping {file_path} because it is less than {self.min_length} seconds")
-            data_entry[self.segments_key] = []
+        temp_paths: list[str] = []
+        file_path = resolve_audio_path(
+            data_entry,
+            residency=self.input_residency,  # type: ignore[arg-type]
+            audio_filepath_key=self.audio_filepath_key,
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
+            register_temp=temp_paths,
+        )
+        if file_path is None and self.audio_filepath_key == "resampled_audio_filepath":
+            # Composability fallback: pipelines that did not run ResampleAudioStage
+            # only have the original audio_filepath.
+            file_path = resolve_audio_path(
+                data_entry,
+                residency=self.input_residency,  # type: ignore[arg-type]
+                audio_filepath_key="audio_filepath",
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+                register_temp=temp_paths,
+            )
+        if file_path is None:
+            msg = f"[{self.name}] Missing audio input for key '{self.audio_filepath_key}'"
+            raise ValueError(msg)
+        try:
+            duration = data_entry.get("duration", get_audio_duration(file_path))
+            if duration < self.min_length:
+                logger.warning(f"Skipping {file_path} because it is less than {self.min_length} seconds")
+                data_entry[self.segments_key] = []
+                self._log_metrics(
+                    {
+                        "process_time": time.perf_counter() - t0,
+                        "audio_duration": duration,
+                        "vad_segments_detected": 0,
+                        "skipped_short": 1.0,
+                    }
+                )
+                return [] if self.fanout else task
+
+            data, sr = sf.read(file_path, dtype="float32")
+            audio = np.expand_dims(data, axis=0) if data.ndim == 1 else data.T
+            vad_segments = self._vad_model.get_vad_segments(audio, self.max_length, sample_rate=sr)
+            data_entry[self.segments_key] = vad_segments
             self._log_metrics(
                 {
                     "process_time": time.perf_counter() - t0,
                     "audio_duration": duration,
-                    "vad_segments_detected": 0,
-                    "skipped_short": 1.0,
+                    "vad_segments_detected": len(vad_segments),
+                    "skipped_short": 0.0,
                 }
             )
+            if self.fanout:
+                return self._fanout_segments(task, vad_segments)
             return task
-
-        data, sr = sf.read(file_path, dtype="float32")
-        audio = np.expand_dims(data, axis=0) if data.ndim == 1 else data.T
-        vad_segments = self._vad_model.get_vad_segments(audio, self.max_length, sample_rate=sr)
-        data_entry[self.segments_key] = vad_segments
-        self._log_metrics(
-            {
-                "process_time": time.perf_counter() - t0,
-                "audio_duration": duration,
-                "vad_segments_detected": len(vad_segments),
-                "skipped_short": 0.0,
-            }
-        )
-        return task
+        finally:
+            cleanup_temp_files(temp_paths)

@@ -22,6 +22,9 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 from nemo.collections.asr.models import SortformerEncLabelModel
 
+from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._residency import cleanup_temp_files, resolve_audio_path
 from nemo_curator.stages.base import ProcessingStage
 
 if TYPE_CHECKING:
@@ -82,7 +85,7 @@ def _write_rttm(segments: list[dict[str, Any]], sess_name: str, rttm_out_dir: st
 
 
 @dataclass
-class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
+class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Speaker diarization inference using Streaming Sortformer (NeMo).
 
     Uses the NeMo SortformerEncLabelModel for end-to-end neural speaker
@@ -112,7 +115,19 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
     cache_dir: str | None = None
     diar_model: Any | None = None
     filepath_key: str = "audio_filepath"
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
     diar_segments_key: str = "diar_segments"
+    input_residency: str = "file"
+    fanout: bool = False
+    start_key: str = "start"
+    end_key: str = "end"
+    start_ms_key: str = "start_ms"
+    end_ms_key: str = "end_ms"
+    duration_key: str = "duration"
+    segment_num_key: str = "segment_num"
+    speaker_key: str = "speaker"
+    original_file_key: str = "original_file"
     rttm_out_dir: str | None = None
     chunk_len: int = 340
     chunk_left_context: int = 1
@@ -194,10 +209,111 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         sm.spkcache_len = self.spkcache_len
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return [], [self.filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
+        if self.fanout:
+            return ["data"], [
+                self.filepath_key,
+                self.start_key,
+                self.end_key,
+                self.start_ms_key,
+                self.end_ms_key,
+                self.duration_key,
+                self.segment_num_key,
+                self.speaker_key,
+                self.original_file_key,
+            ]
         return ["data"], [self.filepath_key, self.diar_segments_key]
+
+    def describe(self) -> StageContract:
+        if self.fanout:
+            writes = [
+                self.filepath_key,
+                self.start_key,
+                self.end_key,
+                self.start_ms_key,
+                self.end_ms_key,
+                self.duration_key,
+                self.segment_num_key,
+                self.speaker_key,
+                self.original_file_key,
+            ]
+            cardinality = "1:N fan-out"
+        else:
+            writes = [self.filepath_key, self.diar_segments_key]
+            cardinality = "1:1"
+        return StageContract(
+            reads=IOSpec(data_keys=[self.filepath_key], accepts=["file", "waveform"]),
+            writes=IOSpec(data_keys=writes),
+            cardinality=cardinality,
+            cardinality_options=["passthrough", "fan_out"],
+            iteration_key=self.diar_segments_key if self.fanout else None,
+            gates=Gates(
+                requires_gpu=True,
+                writes_to_disk=self.rttm_out_dir is not None,
+                requires_internet_first_run=self.model_path is None,
+            ),
+        )
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        if self.fanout:
+            return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+        return {}
+
+    def _segment_child_data(
+        self,
+        item: dict[str, Any],
+        segment: dict[str, Any],
+        segment_num: int,
+        file_path: str,
+        file_path_is_temp: bool = False,
+    ) -> dict[str, Any]:
+        child = {k: v for k, v in item.items() if k != self.diar_segments_key}
+        child.update({k: v for k, v in segment.items() if k not in {"start", "end", "speaker"}})
+        start = float(segment.get("start", 0.0))
+        end = float(segment.get("end", start))
+        child[self.start_key] = start
+        child[self.end_key] = end
+        child[self.start_ms_key] = int(round(start * 1000))
+        child[self.end_ms_key] = int(round(end * 1000))
+        child[self.duration_key] = max(0.0, end - start)
+        child[self.segment_num_key] = segment_num
+        if "speaker" in segment:
+            child[self.speaker_key] = segment["speaker"]
+        # Never pin a fan-out child to a materialized temp WAV: process()'s
+        # `finally` deletes it, which would leave every child referencing a
+        # missing file. Only carry a real (non-temp) source path forward; when
+        # only an in-memory waveform exists, children rely on the copied waveform.
+        if not file_path_is_temp:
+            child.setdefault(self.filepath_key, file_path)
+        original_file = (
+            item.get(self.original_file_key)
+            or item.get(self.filepath_key)
+            or item.get("audio_filepath")
+            or (None if file_path_is_temp else file_path)
+        )
+        if original_file is not None:
+            child.setdefault(self.original_file_key, original_file)
+        return child
+
+    def _fanout_segments(
+        self,
+        task: AudioTask,
+        segments: list[dict[str, Any]],
+        file_path: str,
+        file_path_is_temp: bool = False,
+    ) -> list[AudioTask]:
+        return [
+            AudioTask(
+                dataset_name=task.dataset_name,
+                filepath_key=task.filepath_key or self.filepath_key,
+                data=self._segment_child_data(task.data, segment, index, file_path, file_path_is_temp),
+                _metadata=dict(task._metadata or {}),
+                _stage_perf=list(task._stage_perf),
+            )
+            for index, segment in enumerate(segments)
+        ]
 
     def diarize(self, audio_paths: list[str]) -> list[list[dict[str, Any]]]:
         """Run Sortformer on a list of audio files.
@@ -210,29 +326,50 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         )
         return [_parse_sortformer_segments(segs) for segs in predicted_segments]
 
-    def process(self, task: AudioTask) -> AudioTask:
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         """Run speaker diarization on the audio file in the task."""
-        if not self.validate_input(task):
+        has_file = self.filepath_key in task.data
+        has_waveform = self.waveform_key in task.data and self.sample_rate_key in task.data
+        if not (has_file or has_waveform):
             msg = f"Task {task!s} failed validation for stage {self}"
             raise ValueError(msg)
 
-        file_path = task.data[self.filepath_key]
-        sess_name = task.data.get("session_name")
-        resolved_sess_name = sess_name if sess_name is not None else os.path.splitext(os.path.basename(file_path))[0]
-
-        all_segments = self.diarize([file_path])
-        segments = all_segments[0]
-
-        if self.rttm_out_dir is not None:
-            _write_rttm(segments, resolved_sess_name, self.rttm_out_dir)
-
-        output_data = dict(task.data)
-        output_data[self.diar_segments_key] = segments
-
-        return AudioTask(
-            dataset_name=task.dataset_name,
-            filepath_key=task.filepath_key or self.filepath_key,
-            data=output_data,
-            _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
+        temp_paths: list[str] = []
+        file_path = resolve_audio_path(
+            task.data,
+            residency=self.input_residency,  # type: ignore[arg-type]
+            audio_filepath_key=self.filepath_key,
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
+            register_temp=temp_paths,
         )
+        if file_path is None:
+            msg = f"Task {task!s} missing audio input for {self.filepath_key}"
+            raise ValueError(msg)
+        try:
+            sess_name = task.data.get("session_name")
+            resolved_sess_name = (
+                sess_name if sess_name is not None else os.path.splitext(os.path.basename(file_path))[0]
+            )
+
+            all_segments = self.diarize([file_path])
+            segments = all_segments[0]
+
+            if self.rttm_out_dir is not None:
+                _write_rttm(segments, resolved_sess_name, self.rttm_out_dir)
+
+            if self.fanout:
+                return self._fanout_segments(task, segments, file_path, file_path in temp_paths)
+
+            output_data = dict(task.data)
+            output_data[self.diar_segments_key] = segments
+
+            return AudioTask(
+                dataset_name=task.dataset_name,
+                filepath_key=task.filepath_key or self.filepath_key,
+                data=output_data,
+                _metadata=dict(task._metadata or {}),
+                _stage_perf=list(task._stage_perf),
+            )
+        finally:
+            cleanup_temp_files(temp_paths)

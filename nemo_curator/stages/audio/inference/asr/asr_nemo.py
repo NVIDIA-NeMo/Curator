@@ -20,13 +20,15 @@ import nemo.collections.asr as nemo_asr
 import torch
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._residency import cleanup_temp_files, resolve_audio_path
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
-class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
+class InferenceAsrNemoStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Speech recognition inference using a NeMo ASR model.
 
     Overrides ``process_batch`` for batched GPU inference.
@@ -42,10 +44,14 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     name: str = "ASR_inference"
+    BATCH_ONLY = True  # process() raises; only process_batch is implemented (agent-discovery hint)
     model_name: str = ""
     cache_dir: str | None = None
     asr_model: Any | None = field(default=None, repr=False)
     filepath_key: str = "audio_filepath"
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
+    input_residency: str = "file"
     pred_text_key: str = "pred_text"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     batch_size: int = 16
@@ -92,6 +98,16 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.filepath_key, self.pred_text_key]
 
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.filepath_key], accepts=["file", "waveform"]),
+            writes=IOSpec(data_keys=[self.pred_text_key]),
+            gates=Gates(
+                requires_gpu=self.resources.gpus > 0,
+                requires_internet_first_run=self.asr_model is None,
+            ),
+        )
+
     def transcribe(self, files: list[str]) -> list[str]:
         outputs = self.asr_model.transcribe(files)
 
@@ -114,17 +130,37 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
             return []
         t0 = time.perf_counter()
         for task in tasks:
-            if not self.validate_input(task):
+            has_file = self.filepath_key in task.data
+            has_waveform = self.waveform_key in task.data and self.sample_rate_key in task.data
+            if not (has_file or has_waveform):
                 msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
                 raise ValueError(msg)
-        files = [t.data[self.filepath_key] for t in tasks]
-        texts = self.transcribe(files)
-        for task, text in zip(tasks, texts, strict=True):
-            task.data[self.pred_text_key] = text
-        self._log_metrics(
-            {
-                "process_time": time.perf_counter() - t0,
-                "files_transcribed": len(files),
-            }
-        )
-        return tasks
+        temp_paths: list[str] = []
+        files = []
+        for task in tasks:
+            path = resolve_audio_path(
+                task.data,
+                residency=self.input_residency,  # type: ignore[arg-type]
+                audio_filepath_key=self.filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+                register_temp=temp_paths,
+            )
+            if path is None:
+                cleanup_temp_files(temp_paths)
+                msg = f"Task {task.task_id} missing audio input for {type(self).__name__}: {self.inputs()}"
+                raise ValueError(msg)
+            files.append(path)
+        try:
+            texts = self.transcribe(files)
+            for task, text in zip(tasks, texts, strict=True):
+                task.data[self.pred_text_key] = text
+            self._log_metrics(
+                {
+                    "process_time": time.perf_counter() - t0,
+                    "files_transcribed": len(files),
+                }
+            )
+            return tasks
+        finally:
+            cleanup_temp_files(temp_paths)
