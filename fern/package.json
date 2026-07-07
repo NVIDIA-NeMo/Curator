@@ -7,7 +7,7 @@
     "dev": "npx -y fern-api@latest docs dev",
     "generate": "npx -y fern-api@latest generate --docs",
     "generate:library": "npx -y fern-api@latest docs md generate --library nemo-curator",
-    "generate:library:local": "npx -y fern-api@latest docs md generate --local --library nemo-curator-local"
+    "generate:library:local": "bash scripts/generate-library-local.sh"
   },
   "engines": {
     "node": ">=20"

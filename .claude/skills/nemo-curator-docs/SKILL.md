@@ -320,10 +320,10 @@ This is a temporary maneuver — track the change so it gets reverted.
 
 ## Library Reference (Autodocs) and the Fern Cross-Ref Bug
 
-`fern/docs.yml` declares two `libraries:` entries that write to the same output folder (`fern/product-docs/nemo-curator/Full-Library-Reference/`, gitignored):
+`fern/docs.yml` declares one `libraries:` entry, and a script provides a second, temporary one (both write to `fern/product-docs/nemo-curator/Full-Library-Reference/`, gitignored):
 
-- **`nemo-curator`** (`input.git`) — used by CI/publish/preview; requires `fern login` or `FERN_TOKEN`. Workflows run `fern docs md generate --library nemo-curator`.
-- **`nemo-curator-local`** (`input.path: ../nemo_curator`) — local dev without Fern auth; requires Docker. Run `npm run generate:library:local` from `fern/`.
+- **`nemo-curator`** (`input.git`, committed in `docs.yml`) — used by CI/publish/preview; requires `fern login` or `FERN_TOKEN`. Workflows run `fern docs md generate --library nemo-curator`.
+- **`nemo-curator-local`** (`input.path: ../nemo_curator`, injected temporarily by `fern/scripts/generate-library-local.sh`) — local dev without Fern auth; requires Docker. Run `npm run generate:library:local` from `fern/`. The entry must NOT be committed to `docs.yml`: `fern docs dev` rejects path-input libraries ("'path' input which is not yet supported") and renders a blank page, while `--local` generation only accepts `path` inputs.
 
 For a full API reference locally (424 pages), use `npm run generate:library`. The local Docker parser is beta and currently produces fewer pages — fine for testing the no-auth flow, not a substitute for CI generation.
 

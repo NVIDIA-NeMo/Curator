@@ -92,8 +92,10 @@ fern docs md generate --library nemo-curator
 For local generation without Fern authentication (requires Docker):
 
 ```bash
-fern docs md generate --local --library nemo-curator-local
+npm run generate:library:local   # runs scripts/generate-library-local.sh
 ```
+
+The script temporarily injects a path-input `nemo-curator-local` entry into `docs.yml`, runs `fern docs md generate --local`, and restores `docs.yml`. The entry cannot be committed: `fern docs dev` rejects any `input.path` library and renders a blank page, while `--local` generation only accepts `path` inputs.
 
 Fern will generate markdown under the output path you configured, for example:
 

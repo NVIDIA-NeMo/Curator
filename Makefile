@@ -45,7 +45,7 @@ docs-generate-library:
 
 docs-generate-library-local:
 	@echo "Generating Python API reference locally under $(FERN_DIR)/product-docs/ (Docker; no Fern auth)..."
-	cd $(FERN_DIR) && $(FERN) docs md generate --local --library nemo-curator-local
+	bash $(FERN_DIR)/scripts/generate-library-local.sh
 
 docs-substitute:
 	@echo "Substituting {{ variables }} in versions/v$(DOCS_VERSION) MDX..."
