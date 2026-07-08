@@ -1,0 +1,67 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  MLS + MFA Pipeline with ASR WER Filtering (no MFA adaptation)
+  ##############################################################
+
+  **Stages**:
+     1  Download and extract MLS data
+     2  Prepare Lhotse recordings + supervisions
+     3  Download MFA models
+     4  Create Lhotse cutsets
+     5  Resample audio; write stage5_tasks.jsonl
+     6  Transcript normalization + num2words; write stage6_tasks.jsonl
+     7  ASR transcription + WER filtering; write stage7_tasks.jsonl
+     8  MFA forced alignment; write stage8_tasks.jsonl
+     9  Merge TextGrids into Lhotse aligned cutsets
+    10  Rewrite recording paths
+
+# ── Required paths ────────────────────────────────────────────────────────
+mls_src_dir: ???
+data_dir: ???
+manifests_dir: ???
+
+# ── Language ──────────────────────────────────────────────────────────────
+language: french
+splits:
+  - train
+
+# ── MFA models ────────────────────────────────────────────────────────────
+mfa_acoustic: "french_mfa"
+mfa_dict: "french_mfa"
+mfa_g2p: "french_mfa"
+mfa_tokenizer: ""
+mfa_root_dir: "/home/ttimofeeva/MFA_models"
+
+# ── MFA alignment parameters ─────────────────────────────────────────────
+beam: 100
+retry_beam: 400
+output_format: long_textgrid
+
+# ── ASR backend ──────────────────────────────────────────────────────────
+asr_backend: "nemo"
+asr_model_name: "nvidia/stt_fr_conformer_transducer_large"
+whisper_model_size: "large-v3"
+whisper_language: "french"
+
+# ── Processing ────────────────────────────────────────────────────────────
+num_jobs: 16
+stage: 1
+target_sample_rate: 16000
+opus: false
+
+# ── Silence markers ──────────────────────────────────────────────────────
+silence_markers:
+  - ""
+  - sp
+  - sil
+  - spn
+  - "<eps>"
