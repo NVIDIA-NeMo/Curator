@@ -168,9 +168,21 @@ navigation:
           - page: Overview
             path: ./main/pages/curate-text/index.mdx
             slug: ""
-          - page: Tutorials
-            path: ./main/pages/curate-text/tutorials/index.mdx
+          - section: Tutorials
             slug: tutorials
+            contents:
+              - page: Overview
+                path: ./main/pages/curate-text/tutorials/index.mdx
+                slug: ""
+              - section: Nemotron-CLIMB
+                slug: nemotron-climb
+                contents:
+                  - page: Recipe
+                    path: ./main/pages/curate-text/tutorials/nemotron-climb/index.mdx
+                    slug: ""
+                  - page: Stage Reference
+                    path: ./main/pages/curate-text/tutorials/nemotron-climb/stages.mdx
+                    slug: stages
           - section: Load Data
             slug: load-data
             contents:
