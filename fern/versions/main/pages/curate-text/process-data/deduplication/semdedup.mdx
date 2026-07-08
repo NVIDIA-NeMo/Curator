@@ -58,6 +58,7 @@ workflow = TextSemanticDeduplicationWorkflow(
     output_path="./results",
     cache_path="./sem_cache",
     n_clusters=100,
+    kmeans_fit_data_fraction=0.1,  # Fit centroids on about 10% of input files
     eps=0.07,  # Similarity threshold
     id_field="doc_id",
     perform_removal=True,  # Complete deduplication
@@ -109,6 +110,7 @@ semantic_workflow = SemanticDeduplicationWorkflow(
     input_path=embedding_output_path,
     output_path=semantic_workflow_path,
     n_clusters=100,
+    fit_data_fraction=0.1,
     id_field="_curator_dedup_id",
     embedding_field="embeddings",
     eps=None,  # Skip duplicate identification for analysis
@@ -148,6 +150,7 @@ Compare semantic deduplication with other methods:
 | `model_cache_dir` | str | `None` | Directory to cache model weights |
 | `n_clusters` | int | `100` | Number of clusters for k-means clustering |
 | `kmeans_max_iter` | int | `300` | Maximum iterations for clustering |
+| `kmeans_fit_data_fraction` | float \| None | `None` | Fraction of files used to fit K-means in `TextSemanticDeduplicationWorkflow`; enables the memory-efficient two-pass path |
 | `eps` | float | `0.01` | Threshold for deduplication (higher = more aggressive) |
 | `which_to_keep` | str | `"hard"` | Strategy for keeping duplicates ("hard", "easy", or "random") |
 | `pairwise_batch_size` | int | `1024` | Batch size for similarity computation |
@@ -156,7 +159,88 @@ Compare semantic deduplication with other methods:
 | `text_field` | str | `"text"` | Name of the text field in input data |
 | `id_field` | str | `"_curator_dedup_id"` | Name of the ID field in the data |
 
+| `id_field` | str | `"_curator_dedup_id"` | Name of the ID field in the data |
+
 The same discovery rules apply to `TextSemanticDeduplicationWorkflow`, the pre-computed-embedding `SemanticDeduplicationWorkflow`, and `TextDuplicatesRemovalWorkflow`. The extension filter does not infer the reader format: keep `input_filetype="parquet"` when reading a custom Parquet suffix such as `.pq`. See [Input File Discovery](/curate-text/process-data/deduplication#input-file-discovery) for examples and recursion details.
+
+The lower-level `SemanticDeduplicationWorkflow` and `KMeansStage` use the parameter name `fit_data_fraction` for the same behavior.
+
+### Reduce K-means fitting memory
+
+By default, `fit_data_fraction=None` uses the original single-pass path: each K-means actor loads all of its assigned groups, fits centroids on every row, predicts cluster assignments, and writes the results. This produces the highest-fidelity fit but requires the actor's full assigned embedding data to fit in GPU memory.
+
+Set a fraction strictly between `0` and `1` to enable a two-pass path:
+
+1. **Fit pass:** Each actor samples `round(fit_data_fraction * number_of_actor_files)` files, with a minimum of one file. It reads only the embedding column from those files and cooperatively fits the centroids.
+2. **Predict and write pass:** Each actor reads every original file group, one group at a time, assigns every row to a centroid, computes centroid distances, writes the partitioned result, and releases the group before reading the next one.
+
+Because sampling is file-based rather than row-based, the realized row fraction can differ from the configured value when file sizes vary. Every actor contributes at least one file, so very small fractions can also sample more data than expected on highly parallel runs. Choose a fraction that leaves enough representative rows for at least `n_clusters` centroids, and use `random_state` or `kmeans_random_state` to make file selection repeatable.
+
+<Note>
+The two-pass path lowers peak GPU memory from roughly all actor rows to the larger of the sampled fit data or one prediction group. The tradeoff is additional I/O: sampled files are read once for embeddings during fitting and again with their full requested columns during prediction. All input rows still receive cluster assignments; the fraction affects only centroid fitting.
+</Note>
+
+<Tabs>
+<Tab title="Text workflow">
+
+```python
+from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
+
+workflow = TextSemanticDeduplicationWorkflow(
+    input_path="input_data/",
+    output_path="results/",
+    cache_path="semdedup_cache/",
+    n_clusters=1000,
+    kmeans_fit_data_fraction=0.1,
+)
+workflow.run()
+```
+
+</Tab>
+<Tab title="Embeddings workflow">
+
+```python
+from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
+
+workflow = SemanticDeduplicationWorkflow(
+    input_path="embeddings/",
+    output_path="results/",
+    cache_path="semdedup_cache/",
+    n_clusters=1000,
+    fit_data_fraction=0.1,
+)
+workflow.run()
+```
+
+</Tab>
+<Tab title="KMeansStage with saved centroids">
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.deduplication.semantic.kmeans import KMeansStage
+
+pipeline = Pipeline(
+    name="fit_kmeans",
+    stages=[
+        KMeansStage(
+            input_path="embeddings/",
+            output_path="clustered_embeddings/",
+            n_clusters=1000,
+            id_field="_curator_dedup_id",
+            embedding_field="embeddings",
+            fit_data_fraction=0.1,
+            cache_path="kmeans_cache/",
+        )
+    ],
+)
+pipeline.run()
+# Centroids: kmeans_cache/kmeans_centroids.npy
+```
+
+</Tab>
+</Tabs>
+
+`KMeansStage.cache_path` controls only centroid persistence. When it is set, actor 0 writes `kmeans_centroids.npy` after fitting; when it is `None`, centroids are not saved. This differs from `SemanticDeduplicationWorkflow.cache_path`, which stores the workflow's K-means and pairwise intermediate results. The workflow intentionally does not forward its cache path to `KMeansStage.cache_path`, so use `KMeansStage` directly when you need the centroid array.
 
 ### Similarity Threshold
 
@@ -253,6 +337,7 @@ workflow = TextSemanticDeduplicationWorkflow(
     # K-means
     kmeans_max_iter=300,
     kmeans_tol=1e-4,
+    kmeans_fit_data_fraction=0.1,
     pairwise_batch_size=1024,
 
     perform_removal=True,
@@ -270,7 +355,6 @@ cache_path/
 │   └── *.parquet                         # Parquet files containing document embeddings
 ├── semantic_dedup/                       # Semantic deduplication cache
 │   ├── kmeans_results/                   # K-means clustering outputs
-│   │   ├── kmeans_centroids.npy         # Cluster centroids
 │   │   └── embs_by_nearest_center/      # Embeddings organized by cluster
 │   │       └── nearest_cent={0..n-1}/   # Subdirectories for each cluster
 │   │           └── *.parquet            # Cluster member embeddings
@@ -292,9 +376,10 @@ The workflow produces these output files:
    - Format: Parquet files with columns: `[id_column, embedding_column]`
 
 2. **Cluster Assignments** (`semantic_dedup/kmeans_results/`):
-   - `kmeans_centroids.npy`: NumPy array of cluster centers
    - `embs_by_nearest_center/`: Parquet files containing cluster members
    - Format: Parquet files with columns: `[id_column, embedding_column, cluster_id]`
+
+   A direct `KMeansStage(cache_path="kmeans_cache/")` additionally writes the fitted cluster centers to `kmeans_cache/kmeans_centroids.npy`. The workflow wrappers do not save this file.
 
 3. **Duplicate IDs** (`output_path/duplicates/*.parquet`):
    - IDs of documents identified as duplicates for removal
