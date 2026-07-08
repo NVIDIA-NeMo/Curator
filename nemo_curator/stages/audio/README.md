@@ -551,7 +551,7 @@ of entry size.  All memory is in `task.data`:
 
 | Entry type | JSON on disk | `dict` in memory | `AudioTask` total | Wrapper overhead |
 |---|---|---|---|---|
-| Simple FLEURS (2 keys) | ~120 B | 394 B | 741 B | 347 B |
+| Simple FLEURS (3 keys) | ~170 B | ~525 B | ~872 B | ~347 B |
 | Median ALM manifest row | ~1.2 MB | ~4 MB | ~4 MB | 347 B |
 | Largest ALM manifest row | 10.8 MB | 39.3 MB | 39.3 MB | 349 B |
 
@@ -614,7 +614,7 @@ memory (soundfile, editdistance, etc. are lightweight).
 dominated by **model VRAM**, not task data.  A NeMo ASR
 FastConformer-TDT model uses ~2–4 GB of VRAM.  The task data
 (`batch_size × entry_size`) is negligible in comparison — 16 FLEURS
-entries is 16 × 741 B ≈ 12 KB, while even 16 large ALM entries is
+entries is 16 × 872 B ≈ 14 KB, while even 16 large ALM entries is
 16 × 4 MB ≈ 64 MB (still small vs the model).
 
 ## End-to-end `AudioTask` trace (FLEURS pipeline)
@@ -631,21 +631,29 @@ Pipeline: download → ASR → WER → duration → filter → convert → write
 Downloads the FLEURS `dev` split, parses the TSV transcript, and emits
 one `AudioTask` per line (394 entries for `en_us` dev).
 
+`raw_data_dir` is a parent directory: the stage reads and writes this split
+under `<raw_data_dir>/en_us/`. If `<split>.tsv` and the extracted `<split>/`
+directory are already present there, the stage reuses them without network
+access. Set `auto_download=False` to require that pre-staged layout.
+
 **Output** (one of 394 entries):
 
 ```
 AudioTask(
-  task_id      = "task_id_/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav",
+  task_id      = "task_id_/home/user/example_audio/fleurs_en/en_us/dev/10146705666908229607.wav",
   dataset_name = "Fleurs_en_us_dev_./example_audio/fleurs_en",
   filepath_key = "audio_filepath",
   data = {
-    "audio_filepath": "/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav",
+    "audio_filepath": "/home/user/example_audio/fleurs_en/en_us/dev/10146705666908229607.wav",
+    "audio_item_id": "10146705666908229607",
     "text": "The major religion in Moldova is Orthodox Christian."
   }
 )
 ```
 
-*(Only 2 keys: `audio_filepath` and `text`.)*
+*(`audio_item_id` is the deterministic FLEURS filename stem. It is
+stable across reruns and staging roots; namespace it with language and
+split before combining sources where filename stems may collide.)*
 
 ### Stage 2: `InferenceAsrNemoStage` (GPU)
 
@@ -657,13 +665,14 @@ of 16 `AudioTask`s, extracts file paths, runs one batched
 
 ```json
 {
-  "audio_filepath": "/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav",
+  "audio_filepath": "/home/user/example_audio/fleurs_en/en_us/dev/10146705666908229607.wav",
+  "audio_item_id": "10146705666908229607",
   "text": "The major religion in Moldova is Orthodox Christian.",
   "pred_text": "The major religion in Moldova is Orthodox Christian."
 }
 ```
 
-*(3 keys now.  `pred_text` is the model's hypothesis — perfect match here.)*
+*(4 keys now.  `pred_text` is the model's hypothesis — perfect match here.)*
 
 ### Stage 3: `GetPairwiseWerStage`
 
@@ -674,13 +683,14 @@ Computes word-error-rate between `text` and `pred_text`.
 ```json
 {
   "audio_filepath": "...",
+  "audio_item_id": "10146705666908229607",
   "text": "The major religion in Moldova is Orthodox Christian.",
   "pred_text": "The major religion in Moldova is Orthodox Christian.",
   "wer": 0.0
 }
 ```
 
-*(4 keys.  WER is in percent — 0.0% means a perfect transcription.)*
+*(5 keys.  WER is in percent — 0.0% means a perfect transcription.)*
 
 ### Stage 4: `GetAudioDurationStage`
 
@@ -691,6 +701,7 @@ Opens the WAV file with `soundfile`, reads `shape[0] / samplerate`.
 ```json
 {
   "audio_filepath": "...",
+  "audio_item_id": "10146705666908229607",
   "text": "The major religion in Moldova is Orthodox Christian.",
   "pred_text": "The major religion in Moldova is Orthodox Christian.",
   "wer": 0.0,
@@ -698,7 +709,7 @@ Opens the WAV file with `soundfile`, reads `shape[0] / samplerate`.
 }
 ```
 
-*(5 keys.  Duration is 4.92 seconds.)*
+*(6 keys.  Duration is 4.92 seconds.)*
 
 ### Stage 5: `PreserveByValueStage`
 
@@ -723,7 +734,8 @@ DocumentBatch(
   task_id      = "task_id_/home/user/.../10146705666908229607.wav,...",
   dataset_name = "Fleurs_en_us_dev_./example_audio/fleurs_en",
   data = pd.DataFrame({
-    "audio_filepath": ["/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav"],
+    "audio_filepath": ["/home/user/example_audio/fleurs_en/en_us/dev/10146705666908229607.wav"],
+    "audio_item_id":  ["10146705666908229607"],
     "text":           ["The major religion in Moldova is Orthodox Christian."],
     "pred_text":      ["The major religion in Moldova is Orthodox Christian."],
     "wer":            [0.0],
@@ -738,19 +750,19 @@ Writes each row of the DataFrame as one JSON line to
 `./example_audio/fleurs_en/result/`:
 
 ```json
-{"audio_filepath": "/home/user/example_audio/fleurs_en/dev/10146705666908229607.wav", "text": "The major religion in Moldova is Orthodox Christian.", "pred_text": "The major religion in Moldova is Orthodox Christian.", "wer": 0.0, "duration": 4.92}
+{"audio_filepath": "/home/user/example_audio/fleurs_en/en_us/dev/10146705666908229607.wav", "audio_item_id": "10146705666908229607", "text": "The major religion in Moldova is Orthodox Christian.", "pred_text": "The major religion in Moldova is Orthodox Christian.", "wer": 0.0, "duration": 4.92}
 ```
 
 ### Summary table
 
 | Stage | Keys in `data` | Type out |
 |---|---|---|
-| `CreateInitialManifestFleursStage` | `audio_filepath`, `text` | `AudioTask` |
+| `CreateInitialManifestFleursStage` | `audio_filepath`, `text`, `audio_item_id` | `AudioTask` |
 | `InferenceAsrNemoStage` | + `pred_text` | `AudioTask` |
 | `GetPairwiseWerStage` | + `wer` | `AudioTask` |
 | `GetAudioDurationStage` | + `duration` | `AudioTask` |
 | `PreserveByValueStage` | (unchanged or dropped) | `AudioTask` |
-| `AudioToDocumentStage` | (all 5 keys) | `DocumentBatch` |
+| `AudioToDocumentStage` | (all 6 keys) | `DocumentBatch` |
 | `JsonlWriter` | — | file on disk |
 
 ### Contrast: high-WER entry
@@ -759,6 +771,8 @@ For comparison, here is a real entry where the model struggled (WER = 50%):
 
 ```json
 {
+  "audio_filepath": "/home/user/example_audio/fleurs_en/en_us/dev/10004088536354799741.wav",
+  "audio_item_id": "10004088536354799741",
   "text": "The Tibetan Buddhism is based on the teachings of Buddha, but were extended by the mahayana path of love and by a lot of techniques from Indian Yoga.",
   "pred_text": "The Tibetan Buddhism is based on the teachings of Buddha but were extended by Mahayana by the Mahayana Deputy Buddha.",
   "wer": 50.0,

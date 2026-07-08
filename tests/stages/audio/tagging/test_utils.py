@@ -16,10 +16,30 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nemo_curator.stages.audio.tagging.utils import add_non_speaker_segments, load_vocab_file
+import pytest
+
+from nemo_curator.stages.audio.tagging.utils import (
+    add_non_speaker_segments,
+    load_vocab_file,
+    validate_tagging_outputs,
+)
+from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def _valid_prepared_segment(start: object = 0.0, end: object = 2.0, **overrides: object) -> dict[str, object]:
+    segment: dict[str, object] = {
+        "speaker": "speaker_0",
+        "start": start,
+        "end": end,
+        "text": "hello",
+        "words": [{"word": "hello", "start": 0.0, "end": 1.0}],
+        "metrics": {"bandwidth": [8000]},
+    }
+    segment.update(overrides)
+    return segment
 
 
 class TestAddNonSpeakerSegments:
@@ -98,3 +118,84 @@ class TestLoadVocabFile:
         assert "a" in result
         assert "b" in result
         assert "c" in result
+
+
+class TestValidateTaggingOutputs:
+    @staticmethod
+    def _task(duration: object = 10.0, segments: object = None) -> AudioTask:
+        if segments is None:
+            segments = [_valid_prepared_segment()]
+        return AudioTask(data={"duration": duration, "segments": segments})
+
+    def test_returns_output_metrics(self) -> None:
+        metrics = validate_tagging_outputs(
+            [
+                self._task(
+                    duration=10.0,
+                    segments=[
+                        _valid_prepared_segment(start=0.0, end=2.0),
+                        _valid_prepared_segment(start=2.0, end=4.0),
+                    ],
+                ),
+                self._task(duration=20.0, segments=[]),
+            ]
+        )
+
+        assert metrics == {
+            "num_tasks_processed": 2,
+            "num_tasks_with_segments": 1,
+            "num_segments_processed": 2,
+            "segment_task_coverage_ratio": 0.5,
+            "total_audio_duration_hours": 30.0 / 3600,
+            "tagged_audio_duration_hours": 4.0 / 3600,
+        }
+
+    def test_rejects_empty_outputs(self) -> None:
+        with pytest.raises(RuntimeError, match="no output tasks"):
+            validate_tagging_outputs([])
+
+    @pytest.mark.parametrize("duration", [None, 0, -1, float("nan")])
+    def test_rejects_invalid_duration(self, duration: object) -> None:
+        with pytest.raises(RuntimeError, match="duration"):
+            validate_tagging_outputs([self._task(duration=duration)])
+
+    def test_rejects_missing_segments(self) -> None:
+        with pytest.raises(TypeError, match="segments list"):
+            validate_tagging_outputs([AudioTask(data={"duration": 10.0})])
+
+    def test_rejects_zero_segments(self) -> None:
+        with pytest.raises(RuntimeError, match="no tagged segments"):
+            validate_tagging_outputs([self._task(segments=[])])
+
+    @pytest.mark.parametrize(
+        ("segment", "error_match"),
+        [
+            pytest.param(None, "must be a mapping", id="null"),
+            pytest.param("not-a-segment", "must be a mapping", id="non-mapping"),
+            pytest.param({}, "missing required fields", id="missing-fields"),
+            pytest.param(_valid_prepared_segment(start=float("nan")), "finite number", id="non-finite-start"),
+            pytest.param(_valid_prepared_segment(end=float("inf")), "finite number", id="non-finite-end"),
+            pytest.param(_valid_prepared_segment(start=2.0, end=2.0), "start < end", id="empty-range"),
+            pytest.param(_valid_prepared_segment(start=3.0, end=2.0), "start < end", id="reversed-range"),
+        ],
+    )
+    def test_rejects_malformed_segments(self, segment: object, error_match: str) -> None:
+        with pytest.raises((RuntimeError, TypeError), match=error_match):
+            validate_tagging_outputs([self._task(segments=[segment])])
+
+    @pytest.mark.parametrize(
+        "field",
+        ["speaker", "text", "words", "metrics"],
+    )
+    def test_rejects_missing_prepared_segment_fields(self, field: str) -> None:
+        segment = _valid_prepared_segment()
+        segment.pop(field)
+
+        with pytest.raises(RuntimeError, match=field):
+            validate_tagging_outputs([self._task(segments=[segment])])
+
+    def test_rejects_malformed_word_entries(self) -> None:
+        segment = _valid_prepared_segment(words=[None])
+
+        with pytest.raises(TypeError, match="word 0 must be a mapping"):
+            validate_tagging_outputs([self._task(segments=[segment])])

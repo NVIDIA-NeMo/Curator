@@ -23,13 +23,14 @@ The pipeline is YAML-driven via Hydra and supports both TTS and ASR
 modalities by switching the configuration file.
 
 Usage:
+    Set ``HF_TOKEN`` in the environment before running either pipeline.
+
     # TTS pipeline with bundled sample data (from Curator repo root)
     python tutorials/audio/tagging/main.py \\
         --config-path . \\
         --config-name tts_pipeline \\
         input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
-        final_manifest=/tmp/tts_output.jsonl \\
-        hf_token=<your_hf_token>
+        final_manifest=/tmp/tts_output.jsonl
 
     # Override backend
     python tutorials/audio/tagging/main.py \\
@@ -37,7 +38,6 @@ Usage:
         --config-name tts_pipeline \\
         input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
         final_manifest=/tmp/tts_output.jsonl \\
-        hf_token=<your_hf_token> \\
         backend=ray_data
 
     # Override parameters
@@ -46,7 +46,6 @@ Usage:
         --config-name tts_pipeline \\
         input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \\
         final_manifest=/tmp/output.jsonl \\
-        hf_token=<your_hf_token> \\
         max_segment_length=30 \\
         stages.4.batch_size=16
 """
@@ -58,6 +57,7 @@ from loguru import logger
 from omegaconf import DictConfig
 
 from nemo_curator.config.run import create_pipeline_from_yaml
+from nemo_curator.stages.audio.tagging.utils import validate_tagging_outputs
 from nemo_curator.tasks.utils import TaskPerfUtils
 
 _EXECUTOR_FACTORIES = {
@@ -92,12 +92,23 @@ def main(cfg: DictConfig) -> None:
     logger.info("Starting audio tagging pipeline...")
     results = pipeline.run(executor)
 
-    num_tasks = len(results) if results else 0
+    try:
+        output_metrics = validate_tagging_outputs(results)
+    except (RuntimeError, TypeError) as e:
+        logger.error(f"PIPELINE OUTPUT VALIDATION FAILED: {e}")
+        logger.error(
+            "Use a non-trivial audio dataset and inspect diarization/alignment output; "
+            "successful completion requires at least one structurally valid prepared segment."
+        )
+        raise
 
     logger.info("\n" + "=" * 50)
     logger.info("PIPELINE COMPLETE")
     logger.info("=" * 50)
-    logger.info(f"  Tasks processed: {num_tasks}")
+    logger.info(f"  Tasks processed: {output_metrics['num_tasks_processed']}")
+    logger.info(f"  Tasks with segments: {output_metrics['num_tasks_with_segments']}")
+    logger.info(f"  Tagged segments: {output_metrics['num_segments_processed']}")
+    logger.info(f"  Audio duration: {output_metrics['total_audio_duration_hours']:.2f} hours")
     logger.info(f"  Output manifest: {cfg.final_manifest}")
 
     stage_metrics = TaskPerfUtils.collect_stage_metrics(results)

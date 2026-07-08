@@ -113,15 +113,20 @@ datasets:
     formats:
     - type: "wav"
       path: "{datasets_path}/read_speech"
-  # Persistent on-disk location for the FLEURS dataset (transcript <split>.tsv +
+  # Persistent on-disk location for FLEURS datasets (transcript <split>.tsv +
   # extracted <split>/ audio). The nightly entries below run with
   # --no-auto-download, so this must be pre-staged once on the benchmark machine
   # via:
   #   python benchmarking/data_prep/prepare_fleurs_data.py \
-  #       --output-path {datasets_path}/fleurs
-  # (downloads from Hugging Face once; defaults to --lang hy_am --split train).
+  #       --output-path {datasets_path}/fleurs --lang hy_am --split train
+  #   python benchmarking/data_prep/prepare_fleurs_data.py \
+  #       --output-path {datasets_path}/fleurs --lang en_us --split dev
   # Every subsequent run then reuses it and never re-fetches (avoids HTTP 429).
   - name: "fleurs_hy_am"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/fleurs"
+  - name: "fleurs_en_us"
     formats:
     - type: "files"
       path: "{datasets_path}/fleurs"
@@ -1187,19 +1192,33 @@ entries:
     ray:
       num_gpus: 0
 
+  # FLEURS en_us dev contains 394 clips and approximately 1.05 hours of audio.
   - name: audio_tagging_tts_xenna
     enabled: true
     script: audio_tagging_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={session_entry_dir}/input.jsonl
-      --hf-token=${HF_SECRET_KEY}
+      --raw-data-dir={dataset:fleurs_en_us,files}
+      --lang=en_us
+      --split=dev
+      --no-auto-download
       --max-segment-length=40
       --asr-batch-size=50
       --executor=xenna
     timeout_s: 3600
     sink_data:
       - name: slack
+        additional_metrics:
+          - num_tasks_processed
+          - num_tasks_with_segments
+          - num_segments_processed
+          - segment_task_coverage_ratio
+          - num_segments_with_second_pass_asr
+          - num_segments_with_wer
+          - stage_execution_coverage_ratio
+          - total_audio_duration_hours
+          - tagged_audio_duration_hours
+          - throughput_audio_hours_per_hour
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
     ray:
@@ -1209,21 +1228,61 @@ entries:
     requirements:
       - metric: is_success
         exact_value: true
+      - metric: num_tasks_processed
+        exact_value: 394
+      - metric: num_tasks_with_segments
+        min_value: 197
+      - metric: segment_task_coverage_ratio
+        min_value: 0.5
+      - metric: num_segments_processed
+        min_value: 197
+      - metric: num_segments_with_second_pass_asr
+        min_value: 197
+      - metric: second_pass_asr_segment_coverage_ratio
+        exact_value: 1.0
+      - metric: num_segments_with_wer
+        min_value: 197
+      - metric: wer_segment_coverage_ratio
+        exact_value: 1.0
+      - metric: num_required_stages
+        exact_value: 12
+      - metric: num_executed_required_stages
+        exact_value: 12
+      - metric: stage_execution_coverage_ratio
+        exact_value: 1.0
+      - metric: total_audio_duration_hours
+        min_value: 1.0
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
 
+  # The repeat entry processes 788 clips and approximately 2.09 hours of audio.
   - name: audio_tagging_tts_xenna_repeat
     enabled: true
     script: audio_tagging_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={session_entry_dir}/input.jsonl
+      --raw-data-dir={dataset:fleurs_en_us,files}
+      --lang=en_us
+      --split=dev
+      --no-auto-download
       --repeat-factor=2
-      --hf-token=${HF_SECRET_KEY}
       --max-segment-length=40
       --asr-batch-size=50
       --executor=xenna
     timeout_s: 3600
     sink_data:
       - name: slack
+        additional_metrics:
+          - num_tasks_processed
+          - num_tasks_with_segments
+          - num_segments_processed
+          - segment_task_coverage_ratio
+          - num_segments_with_second_pass_asr
+          - num_segments_with_wer
+          - stage_execution_coverage_ratio
+          - total_audio_duration_hours
+          - tagged_audio_duration_hours
+          - throughput_audio_hours_per_hour
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
     ray:
@@ -1233,6 +1292,32 @@ entries:
     requirements:
       - metric: is_success
         exact_value: true
+      - metric: num_tasks_processed
+        exact_value: 788
+      - metric: num_tasks_with_segments
+        min_value: 394
+      - metric: segment_task_coverage_ratio
+        min_value: 0.5
+      - metric: num_segments_processed
+        min_value: 394
+      - metric: num_segments_with_second_pass_asr
+        min_value: 394
+      - metric: second_pass_asr_segment_coverage_ratio
+        exact_value: 1.0
+      - metric: num_segments_with_wer
+        min_value: 394
+      - metric: wer_segment_coverage_ratio
+        exact_value: 1.0
+      - metric: num_required_stages
+        exact_value: 12
+      - metric: num_executed_required_stages
+        exact_value: 12
+      - metric: stage_execution_coverage_ratio
+        exact_value: 1.0
+      - metric: total_audio_duration_hours
+        min_value: 2.0
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
 
   - name: interleaved_filter_xenna
     enabled: false

@@ -45,7 +45,7 @@ The audio tagging pipeline is a generic processing framework that takes raw audi
                                                  └────────────────┘
 ```
 
-The dashed path shows that `ManifestWriter` can follow directly after `PrepareModuleSegments` (e.g. the default TTS config) or after the optional second-pass ASR + WER stages (e.g. the ASR config).
+The dashed path shows that `ManifestWriter` can follow directly after `PrepareModuleSegments` (the default TTS tutorial config) or after the second-pass ASR + WER stages (the ASR tutorial config). The nightly TTS benchmark deliberately follows the full second-pass path so stage coverage cannot regress silently.
 
 ### Pipeline Stages
 
@@ -108,40 +108,65 @@ source .venv/bin/activate
 
 ### TTS Pipeline
 
-The TTS config runs the core stages with `module: tts` in `PrepareModuleSegmentsStage` (`full_utterance_ratio: 1.0`). The output segments are single-speaker utterances, each annotated with quality metrics such as `bandwidth`, `stoi_squim`, `si_sdr`, and `pesq_squim`. These metrics can be used downstream to filter for high-quality audio — for example, keeping only segments where `bandwidth >= 8000 && si_sdr >= 15 && stoi_squim >= 0.9`.
+The TTS config runs the core stages with `module: tts` in `PrepareModuleSegmentsStage` (`full_utterance_ratio: 1.0`). The output segments are single-speaker utterances, each annotated with quality metrics such as `bandwidth`, `stoi_squim`, `sisdr_squim`, and `pesq_squim`. These metrics can be used downstream to filter for high-quality audio — for example, keeping only segments where `bandwidth >= 8000 && sisdr_squim >= 15 && stoi_squim >= 0.9`.
 
 A small toy dataset is bundled in `tests/fixtures/audio/tagging/` so you can run end-to-end without providing your own audio:
 
 ```bash
+read -rsp "Hugging Face token: " HF_TOKEN && export HF_TOKEN
+echo
 python tutorials/audio/tagging/main.py \
   --config-path . \
   --config-name tts_pipeline \
   input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \
-  final_manifest=/tmp/tts_output.jsonl \
-  hf_token=<your_hf_token>
+  final_manifest=/tmp/tts_output.jsonl
 ```
 
 ### ASR Pipeline
 
-The ASR config runs the same core stages with `module: asr` (`full_utterance_ratio: 0.8` to allow partial utterances), then adds second-pass ASR and WER computation. The per-segment `wer` field can be used to filter for reliable transcripts — for example, keeping only segments where `wer <= 10%`.
+The ASR config runs the same core stages with `module: asr` (`full_utterance_ratio: 0.8` to allow partial utterances), then adds second-pass ASR and WER computation. The per-segment `metrics.wer.wer` ratio can be used to filter for reliable transcripts, for example by keeping only segments where `metrics.wer.wer <= 0.10`.
 
 ```bash
 python tutorials/audio/tagging/main.py \
   --config-path . \
   --config-name asr_pipeline \
   input_manifest=/data/input.jsonl \
-  final_manifest=/data/asr_output.jsonl \
-  hf_token=<your_hf_token>
+  final_manifest=/data/asr_output.jsonl
 ```
 
 #### Improving ASR Training Data Quality
 
 For ASR training data, combine these optional blocks to maximise transcript quality:
 
-1. **Filter by WER**: After the second-pass ASR and `ComputeWERStage`, filter segments with `wer <= 10%` to keep only samples where the two ASR passes agree closely. This is a strong signal that the transcript is correct.
+1. **Filter by WER**: After the second-pass ASR and `ComputeWERStage`, filter segments with `metrics.wer.wer <= 0.10` to keep only samples where the two ASR passes agree closely. This is a strong signal that the transcript is correct.
 2. **Apply ITN**: Insert `InverseTextNormalizationStage` to convert spoken-form text (e.g. "twenty three") to written form (e.g. "23") for training data that requires normalised text.
 
 These blocks compose naturally — ITN and WER filtering each address a different axis of data quality and can both be enabled in a single pipeline run.
+
+### Nightly TTS Benchmark
+
+`benchmarking/scripts/audio_tagging_benchmark.py` is stricter than the minimal
+TTS tutorial config. It uses `module: tts` but always executes the second-pass
+`ASRAlignment2` and `ComputeWER` stages before `ManifestWriter`:
+
+```text
+FLEURS or ManifestReader -> ResampleAudio -> PyAnnoteDiarization
+  -> SplitLongAudio -> ASRAlignment -> JoinSplitMetadata
+  -> MergeAlignmentDiar -> BandwidthEstimation -> SquimMetrics
+  -> PrepareModuleSegments -> ASRAlignment2 -> ComputeWER -> ManifestWriter
+```
+
+The nightly input is the complete English FLEURS development split: 394 clips
+and approximately 1.05 hours of audio. The repeated entry processes 788 tasks
+and approximately 2.09 source audio hours. Both entries use a pre-staged copy
+and pass `--no-auto-download`, so dataset download time is outside the measured
+run.
+
+The benchmark reports success only after validating non-empty prepared output,
+100% second-pass ASR and WER coverage across valid segments, nonzero work from
+all 12 processing stages, and a persisted JSONL row for every output task. See
+the [benchmarking guide](../../../benchmarking/README.md#audio-tagging-benchmark)
+for staging, direct-run, metric, and pass/fail details.
 
 ## Input Format
 
@@ -165,6 +190,8 @@ The input manifest should be a JSONL file where each line contains:
 
 The output manifest is a JSONL file where each line contains the fully processed entry:
 
+The runner validates its result before printing `PIPELINE COMPLETE`. At least one output task and one structurally valid prepared segment are required; each counted segment must contain `speaker`, finite ordered `start`/`end`, non-empty `text` and `words`, and a `metrics` mapping.
+
 ```json
 {
   "audio_filepath": "/path/to/audio.wav",
@@ -179,25 +206,29 @@ The output manifest is a JSONL file where each line contains the fully processed
       "text": "Hello, how are you today?",
       "words": [
         {"word": "Hello", "start": 1.23, "end": 1.55},
-        {"word": "how", "start": 1.60, "end": 1.72} ...
+        {"word": "how", "start": 1.60, "end": 1.72}
       ],
-      "metrics":
-        {
-          "bandwidth": [8000, 8400, 7200, ...],
-          "pesq_squim": [3.4, 3.5, 3.6, ...],
-          "stoi_squim": [0.91, 0.92, 0.90, ...],
-          "si_sdr": [19.8, 20.4, 21.0, ...],
-        }
+      "text_2": "Hello, how are you today?",
+      "metrics": {
+        "bandwidth": [8000, 8400],
+        "pesq_squim": [3.4, 3.5],
+        "stoi_squim": [0.91, 0.92],
+        "sisdr_squim": [19.8, 20.4],
+        "wer": {"wer": 0.0, "tokens": 5, "ins_rate": 0.0, "del_rate": 0.0, "sub_rate": 0.0}
+      }
     }
   ],
   "overlap_segments": [],
   "text": "Hello, how are you today? Let's get started with the tutorial.",
   "alignment": [
     {"word": "Hello", "start": 1.23, "end": 1.55},
-    {"word": "how", "start": 1.60, "end": 1.72}, ...
-  ],
+    {"word": "how", "start": 1.60, "end": 1.72}
+  ]
 }
 ```
+
+`text_2` and the WER metrics are present only when the second-pass stages are
+configured. The nightly benchmark requires both on every prepared segment.
 
 ### Output Fields
 
@@ -209,12 +240,12 @@ The output manifest is a JSONL file where each line contains the fully processed
 | `overlap_segments`        | Core                    | Speaker turns with detected overlap (excluded from `segments`)       |
 | `text`                    | Core                    | Full transcript text for the audio entry                             |
 | `alignment`               | Core                    | List of word-level alignment objects (`word`, `start`, `end`)        |
-| `segments[].bandwidth`    | Core                    | Estimated spectral bandwidth                                         |
-| `segments[].pesq_squim`   | Core                    | PESQ quality score (via TorchSQUIM)                                  |
-| `segments[].stoi_squim`   | Core                    | STOI quality score (via TorchSQUIM)                                  |
-| `segments[].si_sdr`       | Core                    | SI-SDR quality score (via TorchSQUIM)                                |
+| `segments[].metrics.bandwidth`    | Core                    | Per-word estimated spectral bandwidth values                         |
+| `segments[].metrics.pesq_squim`   | Core                    | Per-word PESQ quality scores (via TorchSQUIM)                         |
+| `segments[].metrics.stoi_squim`   | Core                    | Per-word STOI quality scores (via TorchSQUIM)                         |
+| `segments[].metrics.sisdr_squim`  | Core                    | Per-word SI-SDR quality scores (via TorchSQUIM)                       |
 | `segments[].text_2`       | Optional (2nd-pass ASR) | Second-pass ASR transcript (e.g. CTC Conformer)                     |
-| `segments[].wer`          | Optional (ComputeWER)   | Word error rate between first and second ASR transcripts             |
+| `segments[].metrics.wer.wer` | Optional (ComputeWER) | Word error rate between first and second ASR transcripts             |
 
 ## Configuration
 
@@ -226,7 +257,6 @@ python tutorials/audio/tagging/main.py \
   --config-name tts_pipeline \
   input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \
   final_manifest=/tmp/output.jsonl \
-  hf_token=<your_hf_token> \
   language_short=de \
   max_segment_length=30
 ```
@@ -237,7 +267,7 @@ python tutorials/audio/tagging/main.py \
 |-----------|-------------|---------|
 | `input_manifest` | Path to input JSONL manifest | **Required** |
 | `final_manifest` | Path for output JSONL manifest | **Required** |
-| `hf_token` | HuggingFace token for PyAnnote access (see [HuggingFace Access](#huggingface-access) below) | `""` |
+| `HF_TOKEN` | Environment variable for PyAnnote access (see [HuggingFace Access](#huggingface-access) below) | **Required** |
 | `sample_rate` | Target sample rate in Hz | `16000` |
 | `max_segment_length` | Maximum segment duration in seconds | `40` |
 | `workspace_dir` | Directory for intermediate files | `/tmp/tagging_workspace` |
@@ -404,7 +434,8 @@ tests/stages/audio/tagging/e2e/
 > Export the variable before running the test:
 >
 > ```bash
-> export HF_TOKEN=your_hf_token
+> read -rsp "Hugging Face token: " HF_TOKEN && export HF_TOKEN
+> echo
 > ```
 
 See the test file for detailed comments on the pipeline steps and configuration overrides.
@@ -420,11 +451,16 @@ The pipeline requires a HuggingFace token with accepted user agreements for the 
    - [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) — speaker segmentation model
    - [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) — community diarization model
    - [pyannote/voice-activity-detection](https://huggingface.co/pyannote/voice-activity-detection) — voice activity detection
-4. Pass the token via `hf_token=<your_token>` in the pipeline config or export it as an environment variable:
+4. Read the token into `HF_TOKEN` without putting it in shell history or the process command line:
 
 ```bash
-export HF_TOKEN=your_hf_token
+read -rsp "Hugging Face token: " HF_TOKEN && export HF_TOKEN
+echo
 ```
+
+The tutorial YAML reads `HF_TOKEN` through OmegaConf. Avoid overriding
+`hf_token` on the command line because process listings and shell history may
+retain the credential.
 
 > **Note:** Without accepted agreements, the pipeline will fail with a 401/403 error when attempting to download the PyAnnote models.
 
@@ -432,9 +468,11 @@ export HF_TOKEN=your_hf_token
 
 ### No Segments Produced
 
-- Ensure `hf_token` is set and has access to the PyAnnote models (see [HuggingFace Access](#huggingface-access))
+- Ensure `HF_TOKEN` is set and has access to the PyAnnote models (see [HuggingFace Access](#huggingface-access))
 - Verify input audio files exist at the paths in the manifest
 - Check that `audio_item_id` is unique per entry
+- Use a non-trivial audio sample long enough to satisfy `PrepareModuleSegmentsStage.min_duration`; zero valid prepared segments is a failed run and will not print `PIPELINE COMPLETE`
+- Inspect diarization and ASR alignment output before `PrepareModuleSegmentsStage` when the validation error reports empty or malformed segments
 
 ### GPU Out of Memory
 

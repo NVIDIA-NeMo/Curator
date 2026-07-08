@@ -25,6 +25,8 @@ SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-""}
 GDRIVE_FOLDER_ID=${GDRIVE_FOLDER_ID:-""}
 GDRIVE_SERVICE_ACCOUNT_FILE=${GDRIVE_SERVICE_ACCOUNT_FILE:-""}
 NVIDIA_API_KEY=${NVIDIA_API_KEY:-""}
+HF_TOKEN=${HF_TOKEN:-${HF_SECRET_KEY:-""}}
+export HF_TOKEN
 
 # get the following vars from the command line, config file(s), etc. and
 # set them in this environment:
@@ -83,6 +85,7 @@ docker run \
   --env=CURATOR_BENCHMARKING_DEBUG=${CURATOR_BENCHMARKING_DEBUG} \
   --env=HOST_HOSTNAME=$(hostname) \
   --env=NVIDIA_API_KEY=${NVIDIA_API_KEY} \
+  --env=HF_TOKEN \
   \
   ${BASH_ENTRYPOINT_OVERRIDE} \
   ${CURATOR_BENCHMARKING_IMAGE} \

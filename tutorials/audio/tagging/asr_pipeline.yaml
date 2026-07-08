@@ -38,8 +38,7 @@
 #     --config-path . \
 #     --config-name asr_pipeline \
 #     input_manifest=/data/input.jsonl \
-#     final_manifest=/data/asr_output.jsonl \
-#     hf_token=<your_hf_token>
+#     final_manifest=/data/asr_output.jsonl
 
 defaults:
   - _self_
@@ -68,7 +67,7 @@ documentation: |
   * **input_manifest**: Path to input JSONL manifest with raw audio entries.
     Each line must contain ``audio_filepath`` and ``audio_item_id``.
   * **final_manifest**: Path for the output JSONL manifest.
-  * **hf_token**: HuggingFace token for PyAnnote model access.
+  * **HF_TOKEN**: Environment variable for PyAnnote model access.
 
   **Output format**:
 
@@ -84,7 +83,7 @@ final_manifest: ???
 workspace_dir: /tmp/tagging_workspace
 resampled_audio_dir: ${workspace_dir}/audio_resampled
 language_short: en
-hf_token: ""
+hf_token: ${oc.env:HF_TOKEN,""}
 sample_rate: 16000
 max_segment_length: 40
 execution_mode: streaming

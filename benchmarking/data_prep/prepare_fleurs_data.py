@@ -38,6 +38,10 @@ Example usage::
     python prepare_fleurs_data.py --output-path /path/to/datasets/fleurs \\
         --lang hy_am --split test
 
+    # Stage the English dev split used by the audio-tagging benchmarks
+    python prepare_fleurs_data.py --output-path /path/to/datasets/fleurs \\
+        --lang en_us --split dev
+
     # Verify an existing staged dataset without downloading
     python prepare_fleurs_data.py --output-path /path/to/datasets/fleurs \\
         --lang hy_am --split train --verify-only
