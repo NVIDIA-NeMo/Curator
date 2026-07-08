@@ -138,6 +138,9 @@ Compare semantic deduplication with other methods:
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
+| `input_path` | str \| list[str] | Required | Input file, directory, glob, or list of paths. A single directory is scanned recursively; listed directories are scanned only at their top level. |
+| `input_filetype` | str | `"parquet"` | Reader format. Supported values are `"parquet"` and `"jsonl"`. |
+| `input_file_extensions` | list[str] \| None | `None` | Extensions to discover. `None` or `[]` uses `[".parquet"]` for Parquet and `[".jsonl", ".json"]` for JSONL. A non-empty list replaces those defaults. |
 | `model_identifier` | str | `"google/embeddinggemma-300m"` | Pre-trained model for embedding generation (vLLM backend) |
 | `embedding_pretokenize` | bool | `False` | Whether to pre-tokenize input before passing to vLLM |
 | `embedding_vllm_init_kwargs` | dict | `None` | Additional keyword arguments passed to the vLLM `LLM` initializer |
@@ -152,6 +155,8 @@ Compare semantic deduplication with other methods:
 | `perform_removal` | bool | `True` | Whether to perform duplicate removal |
 | `text_field` | str | `"text"` | Name of the text field in input data |
 | `id_field` | str | `"_curator_dedup_id"` | Name of the ID field in the data |
+
+The same discovery rules apply to `TextSemanticDeduplicationWorkflow`, the pre-computed-embedding `SemanticDeduplicationWorkflow`, and `TextDuplicatesRemovalWorkflow`. The extension filter does not infer the reader format: keep `input_filetype="parquet"` when reading a custom Parquet suffix such as `.pq`. See [Input File Discovery](/curate-text/process-data/deduplication#input-file-discovery) for examples and recursion details.
 
 ### Similarity Threshold
 
@@ -230,6 +235,7 @@ workflow = TextSemanticDeduplicationWorkflow(
     input_path="input_data/",
     output_path="results/",
     cache_path="semdedup_cache",
+    input_filetype="jsonl",  # Discovers .jsonl and .json by default
 
     # Embedding generation (vLLM backend)
     text_field="text",
