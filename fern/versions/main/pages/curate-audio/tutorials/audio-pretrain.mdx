@@ -98,9 +98,9 @@ Create one JSON object per source recording. The following schema preserves the 
 
 | Field | Requirement | Behavior |
 | --- | --- | --- |
-| `id` | Required, nonempty, unique | Forms snippet IDs and per-source metrics keys. Missing, empty, and duplicate IDs are skipped with a warning. Numeric IDs are converted to strings. |
+| `id` | Required, nonempty, unique after tar-key normalization | Forms snippet IDs and per-source metrics keys. Missing, empty, and duplicate IDs are skipped with a warning. Numeric IDs are converted to strings. Snippet ID generation replaces `.`, `/`, and `\` with `_`, so IDs that differ only in those characters—such as `session.1` and `session_1`—collide into the same tar member name. Ensure IDs remain distinct after that normalization, not only in their original form. |
 | `audio_filepath` | Required by default | Resolved according to `--audio-path-resolution`. Change the key with `--audio-filepath-key`. |
-| `segments` | Required for useful output | Each segment needs numeric `start` and `end`. Input order does not matter; filtering sorts by `(start, end)`. |
+| `segments` | Required | The key must be present; a missing key fails `OverlapFilterStage` input validation and can fail the pipeline. An empty list (`[]`) is accepted and produces zero snippets. Each segment needs numeric `start` and `end`. Input order does not matter; filtering sorts by `(start, end)`. |
 | `segments[].text` | Required for a surviving snippet | Planning and repetition filtering use `text` only. `text_ITN` is preserved but does not drive decisions. |
 | `segments[].speaker` | Recommended | Preserved for diarization-aware downstream tasks. It does not affect cutting decisions. |
 | `segments[].words` | Optional | Word timestamps are shifted and clamped when present. A segment with words but no text passes the empty-segment filter, but its snippet can still be dropped as `no_text`. |
@@ -134,6 +134,10 @@ uv run python -m tutorials.audio.audio_pretrain.run \
 ```
 
 The preview manifest's `audio_filepath` still contains the tar member name that a real run would create, but `snippets.tar` does not exist. Preview duration is the planned `end - start`; a real run records the resampled frame-count duration, which can differ by at most one target-rate frame.
+
+<Warning>
+Point `--output-audio-tar-path` at a fresh, nonexistent tar path for every dry run. A dry run writes no tar shards, but finalization still runs: if a final tar from an earlier full run already exists at that path, the preview manifest is reconciled against that stale archive. Rows whose member names are absent from the old tar are silently removed, and matching rows are validated against unrelated audio. Use a new output directory for each preview, as shown above.
+</Warning>
 
 Review `metrics.json` for yield, duration distribution, overlap loss, and transcript repetition before paying the audio I/O and storage cost of a full run.
 
@@ -344,8 +348,7 @@ The final metrics file includes aggregate and per-source values:
     "too_short": 12,
     "no_text": 8,
     "repetition": 6,
-    "missing_audio": 1,
-    "corrupted_audio": 0
+    "missing_audio": 1
   },
   "snippet_duration_histogram_30s": {"0-30": 810, "30-60": 10},
   "dropped_repetition_examples": ["repeated transcript example"],
@@ -365,7 +368,7 @@ The final metrics file includes aggregate and per-source values:
 
 Input duration is the wall-clock span from the earliest segment start to the latest segment end, not decoded file duration or summed speech duration. Output duration is also a snippet span and therefore includes silence between packed segments. Histogram bins are fixed 30-second ranges, and a duration exactly on a boundary enters the higher bin. Consequently, a snippet of exactly 30 seconds appears in `30-60` even when `max_duration_sec=30`; that bin does not indicate that the configured cap was exceeded.
 
-`missing_audio` and `corrupted_audio` appear only when final reconciliation removes manifest rows. After such removals, output totals, histogram values, and each per-source `out_*` field are rebuilt from the authoritative manifest.
+The `missing_audio` and `corrupted_audio` counters are sparse: each key is written only when its own reconciliation count is nonzero. The example above shows `missing_audio` but omits `corrupted_audio` because no members were unreadable. Read these keys defensively—for example `dropped.get("corrupted_audio", 0)`—rather than indexing them directly, which raises `KeyError` when the count was zero. After reconciliation removes rows, output totals, histogram values, and each per-source `out_*` field are rebuilt from the authoritative manifest.
 
 ## Retry, cleanup, and partial-output behavior
 
