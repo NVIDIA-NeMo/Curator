@@ -192,7 +192,7 @@ def main() -> int:
 
         lex_cmd = [
             sys.executable,
-            str(Path(__file__).with_name("preprocess_build_lexicon.py")),
+            str(Path(__file__).resolve().parent.parent / "lexicon" / "preprocess_build_lexicon.py"),
             "--data-root",
             str(data_root),
             "--lexicon-dir",

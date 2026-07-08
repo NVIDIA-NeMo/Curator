@@ -2,12 +2,7 @@
 
 Segment-constrained [Montreal Forced Aligner (MFA)](https://montreal-forced-aligner.readthedocs.io/) pipeline for David AI redelivered English conversational audio. Each transcript segment is aligned independently, then results are concatenated into per-session TextGrids and downstream deliverables (Lhotse cutset, mixed-session RTTM).
 
-Two orchestration modes are supported:
-
-| Mode | When to use |
-|------|-------------|
-| **RAM-by-session** (recommended) | Large cluster runs; no normalized JSON manifests on lustre; one pass per session in RAM |
-| **Multi-stage** (legacy) | Local debugging, partial re-runs by stage, or when you need saved `*_norm.jsonl` manifests |
+The **RAM-by-session** pipeline processes each session end-to-end in RAM from original audio + transcript (no normalized JSON manifests on lustre).
 
 ## Input data layout
 
@@ -68,7 +63,13 @@ SESSION=<session_id> WORKERS=4 bash run_david_ai_mfa_ram_session.sh
 Build the merged MFA dictionary in parallel before the main pipeline:
 
 ```bash
-python3 preprocess_build_lexicon.py \
+cd tutorials/audio/david_ai_redelivered_mfa
+
+export PATH="$HOME/miniconda3/envs/curator_pain_1/bin:$PATH"
+export MFA_ROOT_DIR="$HOME/MFA_models"
+export PYTHONPATH="$PWD:$PWD/pipeline_ram:$PWD/lexicon"
+
+python3 lexicon/preprocess_build_lexicon.py \
   --data-root /path/to/sessions \
   --lexicon-dir workdir_ram_session/lexicon \
   --workers 16
@@ -77,7 +78,7 @@ python3 preprocess_build_lexicon.py \
 From existing normalized manifests instead of raw transcripts:
 
 ```bash
-python3 preprocess_build_lexicon.py \
+python3 lexicon/preprocess_build_lexicon.py \
   --manifests-dir workdir/manifests \
   --lexicon-dir workdir_ram_session/lexicon \
   --workers 16
@@ -98,7 +99,7 @@ cd /lustre/fsw/portfolios/nemotron/users/ttimofeeva/Curator/tutorials/audio/davi
 
 # Step 1: lexicon (optional but recommended)
 SLURM_ACCOUNT=nemotron_speechprod_asr SLURM_PARTITION=cpu_long CPUS=64 WORKERS=64 \
-  bash run_preprocess_lexicon_cluster.sh
+  bash lexicon/run_preprocess_lexicon_cluster.sh
 
 # Step 2: RAM pipeline
 SKIP_LEXICON=1 \
@@ -160,65 +161,27 @@ Per session, in order:
 Re-merge Lhotse only after a partial run:
 
 ```bash
-python3 stage_ram_merge_lhotse.py --lhotse-dir workdir_ram_session/lhotse
+export PYTHONPATH="$PWD:$PWD/pipeline_ram:$PWD/lexicon"
+python3 pipeline_ram/stage_ram_merge_lhotse.py --lhotse-dir workdir_ram_session/lhotse
 ```
 
 ---
 
-## Multi-stage pipeline (legacy)
+## Glued OOV repair (optional)
 
-Staged workflow with persisted manifests and `.done` markers. Useful for partial re-runs.
+Detect high-confidence glued OOV tokens and build repair TSVs under `lexicon/`:
 
 ```bash
 cd tutorials/audio/david_ai_redelivered_mfa
+export PYTHONPATH="$PWD:$PWD/pipeline_ram:$PWD/lexicon"
 
-export PATH="$HOME/miniconda3/envs/curator_pain_1/bin:$PATH"
-export MFA_ROOT_DIR="$HOME/MFA_models"
+python3 lexicon/detect_glued_oov_heuristic.py \
+  --oov workdir/lexicon/oov_words.txt \
+  --dictionary workdir/lexicon/english_mfa_davidai_eng.dict
 
-# Full pipeline (stages 0–7)
-bash run_david_ai_mfa.sh
-
-# Re-run alignment + outputs only
-FORCE=1 STAGE=2 STAGE_END=7 bash run_david_ai_mfa.sh
-
-# RAM-disk MFA scratch (stage 2 on /dev/shm)
-WORKERS=16 FORCE=1 STAGE=2 STAGE_END=7 bash run_david_ai_mfa_ram.sh
+# Install repairs on draco
+bash lexicon/copy_unglue_repairs_to_draco.sh
 ```
-
-### Draco cluster (multi-stage)
-
-```bash
-SLURM_ACCOUNT=nemotron_speechprod_asr SLURM_PARTITION=cpu_long CPUS=64 \
-  bash run_david_ai_mfa_cluster.sh
-```
-
-Stage 0 writes manifests to `/tmp/david_ai_manifests` on the compute node to avoid lustre small-file stalls, then archives to `manifests.tar.gz` at the end.
-
-### Pipeline stages
-
-| Stage | Script | Description |
-|-------|--------|-------------|
-| **0** | `stage0_build_manifests.py` | Per-session JSONL manifests; normalize transcript text |
-| **0b** | `stage0_build_lexicon.py` | Merge MFA dictionary + G2P for OOV words |
-| **1** | `stage1_resample_audio.py` | Encode per-speaker **16 kHz mono Opus** |
-| **2** | `stage2_mfa_align_textgrids.py` / `stage2_mfa_align_ramdisk.py` | MFA per segment → session TextGrids + `alignments.jsonl` |
-| **3** | `stage3_build_recording_rttm.py` | *(legacy)* per-recording RTTM — only if `WRITE_TEXTGRIDS=1` |
-| **4** | `stage4_build_final_outputs.py` | Lhotse cutset + session RTTM for mixed audio |
-| **5** | `stage5_merge_session_rttm.py` | *(legacy)* — skipped; stage 4 writes session RTTM |
-| **6** | `stage6_mix_session_audio.py` | Pause=white noise per speaker RTTM; mix → `{session_id}.opus` |
-| **7** | `stage7_export_deliverables.py` | Index deliverables in `deliverables/manifest.jsonl` |
-
-### Multi-stage outputs (`workdir/`)
-
-| Artifact | Path |
-|----------|------|
-| Manifests | `manifests/{session_id}_norm.jsonl`, `all_norm.jsonl` |
-| Per-speaker 16 kHz Opus | `audio_16k/{speaker}_{session}_postprocessed.opus` |
-| Session TextGrids | `textgrids/{session_id}.TextGrid`, `{session_id}_fastmss.TextGrid` |
-| Alignments cache | `alignments.jsonl` |
-| Mixed session audio + RTTM | `audio_mixed/{session_id}.opus`, `{session_id}.rttm` |
-| Lhotse | `lhotse/david_ai_aligned_cuts.jsonl.gz` |
-| Deliverables index | `deliverables/manifest.jsonl` |
 
 ---
 
@@ -248,8 +211,7 @@ MFA requires PCM WAV + text in its corpus directory. This pipeline stores per-sp
 |-------|---------|--------|
 | Sessions | `WORKERS` | Parallel sessions (RAM pipeline or stage 2 workers) |
 | MFA jobs | `MFA_NUM_JOBS` | Threads inside each `mfa align` call |
-| Lexicon | `WORKERS` in `preprocess_build_lexicon.py` | Parallel text normalization for vocabulary |
-| Final outputs | `FINAL_WORKERS` | Stage 4 Lhotse + RTTM build (multi-stage only) |
+| Lexicon | `WORKERS` in `lexicon/preprocess_build_lexicon.py` | Parallel text normalization for vocabulary |
 
 Each MFA worker uses an **isolated MFA root** (copied dictionary + acoustic model) to avoid SQLite / model races.
 
@@ -270,17 +232,7 @@ Total MFA concurrency ≈ `WORKERS × MFA_NUM_JOBS`. Size workers to CPU count a
 | `SESSION` | *(empty)* | Process one session only |
 | `FORCE` | `0` | Re-run and ignore `.done` markers |
 
-### Multi-stage only
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WORK_DIR` | `./workdir` | All outputs |
-| `STAGE` / `STAGE_END` | `0` / `7` | Inclusive stage range |
-| `RAM_DISK` | `0` | Stage 2 scratch on tmpfs |
-| `FINAL_WORKERS` | `2` | Stage 4 parallelism |
-| `WRITE_TEXTGRIDS` | `0` | Enable legacy stages 3/5 |
-
-### RAM-by-session only
+### RAM-by-session
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -288,64 +240,46 @@ Total MFA concurrency ≈ `WORKERS × MFA_NUM_JOBS`. Size workers to CPU count a
 | `RAM_DIR` | `/dev/shm/david_ai_ram_session` | Per-session MFA scratch |
 | `SKIP_LEXICON` | `0` | Skip lexicon build if already done |
 | `MERGE_LHOTSE` | `1` | Merge per-session cuts into global Lhotse file |
-| `LINK_WORK_DIR` | draco old workdir | Where `data_links` symlinks live |
+| `LINK_WORK_DIR` | draco `david_ai_mfa_workdir` | Where `data_links` symlinks live |
 
 ## Project layout
 
 ```
 david_ai_redelivered_mfa/
-├── run_david_ai_mfa.sh                    # Multi-stage orchestrator
-├── run_david_ai_mfa_ram.sh                # Multi-stage with RAM-disk stage 2
-├── run_david_ai_mfa_cluster.sh            # Draco multi-stage
 ├── run_david_ai_mfa_ram_session.sh        # RAM-by-session (local)
 ├── run_david_ai_mfa_ram_session_cluster.sh
-├── run_preprocess_lexicon_cluster.sh      # Draco lexicon preprocessing
-├── preprocess_build_lexicon.py            # Parallel vocab + G2P
+├── submit_ram_200nodes.sh
+├── sync_to_draco.sh
 ├── david_ai_common.py                     # Shared helpers
-├── david_ai_ram_session.py                # Per-session RAM worker logic
-├── david_ai_ram_lhotse.py                 # Lhotse cuts + manifest merge for RAM pipeline
-├── stage_ram_session_pipeline.py          # RAM pipeline orchestrator
-├── stage_ram_merge_lhotse.py              # Standalone Lhotse merge step
-├── stage0_build_manifests.py
-├── stage0_build_lexicon.py
-├── stage1_resample_audio.py
-├── stage2_mfa_align_textgrids.py
-├── stage2_mfa_align_ramdisk.py
-├── stage2_mfa_worker.py
-├── stage4_build_final_outputs.py
-├── stage6_mix_session_audio.py
-├── stage7_export_deliverables.py
-├── backup_pre_ram_session/                # Snapshot before RAM pipeline
+├── david_ai_glued_words.py                # Glued-token repair helpers
+├── pipeline_ram/                          # Current RAM pipeline
+│   ├── stage_ram_session_pipeline.py
+│   ├── david_ai_ram_session.py
+│   ├── david_ai_ram_lhotse.py
+│   ├── stage_ram_merge_lhotse.py
+│   ├── stage0_build_manifests.py
+│   ├── stage2_mfa_align_textgrids.py
+│   ├── stage2_mfa_worker.py
+│   ├── stage4_build_final_outputs.py
+│   └── stage4_build_lhotse.py
+├── lexicon/                               # Dictionary + glued OOV tools
+│   ├── preprocess_build_lexicon.py
+│   ├── stage0_build_lexicon.py
+│   ├── run_preprocess_lexicon_cluster.sh
+│   ├── detect_glued_oov_heuristic.py
+│   ├── detect_glued_oov_llm.py
+│   └── copy_unglue_repairs_to_draco.sh
+├── cluster/                               # Draco conda / miniconda setup
+│   ├── install_curator_pain_1_draco.sh
+│   ├── pack_and_upload_curator_env_draco.sh
+│   └── miniconda_problem.md
+├── tests/
+│   ├── conftest.py
+│   └── test_*.py
 └── requirements.txt
 ```
 
-## Resuming after time limit (stage 2)
-
-Stage 2 tracks completed sessions in three places:
-
-| Marker | Location |
-|--------|----------|
-| Per-session flag | `textgrids/.done/{session_id}.done` |
-| Session TextGrids | `textgrids/{session_id}.TextGrid`, `{session_id}_fastmss.TextGrid` |
-| Alignment cache | `alignments.jsonl` (one JSON line per session) |
-
-On restart, already-finished sessions are **skipped automatically**. The stage-level `.done/stage2_textgrid.done` is written only when **all** sessions are aligned.
-
-**Resubmit after a partial stage 2 run:**
-
-```bash
-# Draco — skip completed stages 0–1, resume MFA from where it stopped
-STAGE=2 STAGE_END=7 bash run_david_ai_mfa_cluster.sh
-
-# Local RAM-disk variant
-STAGE=2 STAGE_END=7 RAM_DISK=1 bash run_david_ai_mfa_ram.sh
-```
-
-Do **not** set `FORCE=1` unless you want to re-align everything (clears `alignments.jsonl` and `textgrids/.done/`).
-
-If the job exits while stage 2 is still partial, later stages (4–7) are not marked done and will not run on incomplete alignments.
-
-### Resuming the RAM-by-session pipeline
+## Resuming the RAM-by-session pipeline
 
 Each fully finished session is marked in `workdir_ram_session/.done/sessions/{session_id}.done`. A session is considered done only when **all** of these exist:
 
@@ -376,12 +310,12 @@ Use `FORCE=1` only to reprocess specific sessions (`SESSION=... FORCE=1`) or the
 
 ## Troubleshooting
 
-**Lustre small-file stalls** — The multi-stage pipeline writes manifests to `/tmp` on draco and archives to a tarball. Prefer the RAM-by-session pipeline for full runs (no per-session norm JSON on lustre).
+**Lustre small-file stalls** — Prefer the RAM-by-session pipeline for full runs (no per-session norm JSON on lustre). Use fewer `WORKERS` if jobs stall on lustre I/O.
 
-**`mfa_temp/` not empty during a run** — Expected. Up to `WORKERS` active temp dirs hold segment WAV/TXT while MFA runs. Use `run_david_ai_mfa_ram.sh` or the RAM session pipeline to keep scratch on tmpfs.
+**`mfa_temp/` not empty during a run** — Expected. Up to `WORKERS` active temp dirs hold segment WAV/TXT while MFA runs. The RAM session pipeline keeps scratch on tmpfs via `RAM_DIR`.
 
 **Empty `text_norm` for filler segments** (`"Um..."`, `"..."`) — Normalization may produce empty strings; those segments are skipped for MFA.
 
-**`spn` in normalized text** — Token not in MFA dictionary/alphabet; rebuild lexicon (`preprocess_build_lexicon.py`) or fix source transcript.
+**`spn` in normalized text** — Token not in MFA dictionary/alphabet; rebuild lexicon (`lexicon/preprocess_build_lexicon.py`) or fix source transcript.
 
 **No Lhotse cut for a session** — RAM pipeline writes Lhotse only when at least one speaker has MFA alignment. RTTM/mix still proceed with fallbacks.

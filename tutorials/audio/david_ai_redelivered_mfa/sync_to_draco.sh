@@ -14,7 +14,8 @@
 #
 # On draco (after sync):
 #   cd $REMOTE_BASE/Curator/tutorials/audio/david_ai_redelivered_mfa
-#   CLUSTER_BASE=$REMOTE_BASE bash setup_draco_cluster.sh
+#   bash lexicon/run_preprocess_lexicon_cluster.sh
+#   SKIP_LEXICON=1 bash run_david_ai_mfa_ram_session_cluster.sh
 
 set -euo pipefail
 
@@ -63,4 +64,5 @@ rsync -av --progress \
 log "Sync done. On draco:"
 log "  ssh ${DRACO_USER}@${DRACO_HOST}"
 log "  cd $REMOTE_DIR"
-log "  CLUSTER_BASE=$REMOTE_BASE bash setup_draco_cluster.sh"
+log "  bash lexicon/run_preprocess_lexicon_cluster.sh"
+log "  SKIP_LEXICON=1 bash run_david_ai_mfa_ram_session_cluster.sh"

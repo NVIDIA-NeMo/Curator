@@ -15,6 +15,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TUTORIAL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+export PYTHONPATH="$TUTORIAL_DIR:$TUTORIAL_DIR/pipeline_ram:$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 CLUSTER_BASE="${CLUSTER_BASE:-/lustre/fs12/portfolios/nemotron/projects/nemotron_speechprod_asr/users/ttimofeeva}"
 LINK_WORK_DIR="${LINK_WORK_DIR:-$CLUSTER_BASE/david_ai_mfa_workdir}"

@@ -23,6 +23,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CURATOR_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+export PYTHONPATH="$SCRIPT_DIR:$SCRIPT_DIR/pipeline_ram:$SCRIPT_DIR/lexicon${PYTHONPATH:+:$PYTHONPATH}"
 
 DATA_ROOT="${DATA_ROOT:-/home/ttimofeeva/FastMSS/DavidAI/d12/subser_251spk}"
 WORK_DIR="${WORK_DIR:-$SCRIPT_DIR/workdir_ram_session}"
@@ -84,7 +85,7 @@ log() {
 }
 
 CMD=(
-    "$PYTHON" "$SCRIPT_DIR/stage_ram_session_pipeline.py"
+    "$PYTHON" "$SCRIPT_DIR/pipeline_ram/stage_ram_session_pipeline.py"
     --data-root "$DATA_ROOT"
     --work-dir "$WORK_DIR"
     --audio-16k-dir "$AUDIO_16K_DIR"

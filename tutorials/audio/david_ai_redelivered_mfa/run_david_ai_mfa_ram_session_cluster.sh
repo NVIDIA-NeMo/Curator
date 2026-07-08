@@ -13,7 +13,7 @@
 # Container (same pyxis image as the lexicon punct-repair try). Draco's sbatch
 # rejects --container-image, so we submit a plain batch job and enter the image
 # with `srun --container-image` inside the allocation. MFA is not in the image,
-# so the prebuilt lustre conda env (setup_draco_cluster.sh) is reused via mounts:
+# so the packed lustre conda env (cluster/install_curator_pain_1_draco.sh) is reused via mounts:
 #   SLURM_ACCOUNT=... SLURM_PARTITION=... bash run_david_ai_mfa_ram_session_cluster.sh
 #   RAM_USE_CONTAINER=0 ...   # disable container, provision conda on the node
 
@@ -207,7 +207,7 @@ install_unglue_repairs() {
     elif [[ -f "$LEXICON_DIR/unglue_repairs.tsv" || -f "$LEXICON_DIR/unglue_repairs_heuristic.tsv" ]]; then
         log "Using existing unglue repairs in $LEXICON_DIR"
     else
-        log "WARN: no unglue repairs in $LEXICON_DIR (copy with copy_unglue_repairs_to_draco.sh)"
+        log "WARN: no unglue repairs in $LEXICON_DIR (copy with lexicon/copy_unglue_repairs_to_draco.sh)"
     fi
 }
 

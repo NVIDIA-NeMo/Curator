@@ -17,10 +17,12 @@ export RAM_SCRIPT_DIR="$SCRIPT"
 export CLUSTER_BASE=/lustre/fs12/portfolios/nemotron/projects/nemotron_speechprod_asr/users/ttimofeeva
 export WORK_DIR="$CLUSTER_BASE/david_ai_mfa_workdir"
 export LINK_WORK_DIR="$WORK_DIR"
-export RAM_ARRAY_COUNT="${RAM_ARRAY_COUNT:-200}"
+export RAM_ARRAY_COUNT="${RAM_ARRAY_COUNT:-15}"
 export SLURM_ACCOUNT="${SLURM_ACCOUNT:-nemotron_speechprod_asr}"
 export SLURM_PARTITION="${SLURM_PARTITION:-cpu_short}"
-export CPUS="${CPUS:-16}"
+export CPUS="${CPUS:-96}"
+export WORKERS=96
+export MFA_NUM_JOBS=1     # 96 slots, oversubscribes hyperthreads to hide Lustre I/O waits
 export TIME_LIMIT="${TIME_LIMIT:-04:00:00}"
 export JOB_NAME="${JOB_NAME:-david_ai_ram_session}"
 
