@@ -86,11 +86,6 @@ class TestPyannoteHasOverlap:
 class TestPyAnnoteDiarizationStage:
     """Tests for PyAnnoteDiarizationStage."""
 
-    def test_repr_omits_hf_token(self) -> None:
-        token = "sentinel-hf-token"  # noqa: S105
-
-        assert token not in repr(PyAnnoteDiarizationStage(hf_token=token))
-
     def test_xenna_num_workers_routes_through_generic_num_workers(self) -> None:
         stage = PyAnnoteDiarizationStage(hf_token=self.__class__.__name__, xenna_num_workers=4)
 

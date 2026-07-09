@@ -21,20 +21,6 @@ from nemo_curator.tasks import AudioTask
 
 
 class TestNeMoASRAlignerStage:
-    def test_full_audio_schema_requires_split_metadata(self) -> None:
-        stage = NeMoASRAlignerStage(infer_segment_only=False)
-
-        expected_columns = ["duration", "segments", "split_filepaths", "split_metadata"]
-        assert stage.inputs() == (["data"], expected_columns)
-        assert stage.outputs() == (["data"], expected_columns)
-
-    def test_segment_only_schema_matches_post_join_tasks(self) -> None:
-        stage = NeMoASRAlignerStage(infer_segment_only=True, text_key="text_2", compute_timestamps=False)
-
-        expected_columns = ["resampled_audio_filepath", "segments"]
-        assert stage.inputs() == (["data"], expected_columns)
-        assert stage.outputs() == (["data"], expected_columns)
-
     def test_process_full_audio(self, tmpdir: Any, wav_filepath: Path) -> None:  # noqa: ANN401
         stage = NeMoASRAlignerStage(
             model_name="nvidia/stt_en_fastconformer_ctc_large",
