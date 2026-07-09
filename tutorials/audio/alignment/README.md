@@ -141,7 +141,7 @@ JsonlWriter -> Output JSONL Manifest
 | `--no-rttm` | `false` | Skip RTTM generation |
 | `--no-ctm` | `false` | Skip CTM generation |
 | `--backend` | `ray_data` | Execution backend (`ray_data` or `xenna`) |
-| `--clean` | `false` | Overwrite existing result directory |
+| `--overwrite-results` | `false` | Delete/overwrite the existing result manifest directory (distinct from the MFA stage's own `--clean`/temp cleanup) |
 | `--verbose` | `false` | Enable DEBUG logging |
 
 ## Output Format

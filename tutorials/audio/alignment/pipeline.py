@@ -77,10 +77,10 @@ def create_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
 
     result_dir = os.path.join(args.output_dir, "result")
-    if args.clean and os.path.isdir(result_dir):
+    if args.overwrite_results and os.path.isdir(result_dir):
         shutil.rmtree(result_dir)
-    elif not args.clean and os.path.exists(result_dir):
-        msg = f"Result directory {result_dir} already exists. Use --clean to overwrite."
+    elif not args.overwrite_results and os.path.exists(result_dir):
+        msg = f"Result directory {result_dir} already exists. Use --overwrite-results to overwrite."
         raise ValueError(msg)
 
     pipeline.add_stage(
@@ -210,9 +210,12 @@ if __name__ == "__main__":
         help="Skip CTM generation (only produce TextGrids)",
     )
     parser.add_argument(
-        "--clean",
+        "--overwrite-results",
         action="store_true",
-        help="Delete existing result directory before writing outputs",
+        help=(
+            "Delete the existing result manifest directory before writing "
+            "outputs. Distinct from the MFA stage's own --clean/temp cleanup."
+        ),
     )
     parser.add_argument(
         "--backend",

@@ -30,8 +30,14 @@ Node-level isolation
     multiple distributed nodes share the same model directory.
 
 Worker scheduling
-    ``xenna_stage_spec()`` returns ``{"num_workers_per_node": 1}`` to
-    guarantee exactly one MFA worker per node.
+    MFA/Kaldi is not safe to run concurrently against a shared model directory,
+    so each backend is constrained to avoid overlapping workers:
+
+    * Xenna: ``xenna_stage_spec()`` returns ``{"num_workers_per_node": 1}`` to
+      guarantee exactly one MFA worker per node.
+    * Ray Data: the backend has no per-node worker cap, so ``num_workers()``
+      returns ``1`` and ``ray_stage_spec()`` marks this as an actor stage,
+      yielding a single MFA actor cluster-wide (concurrency=1).
 """
 
 from __future__ import annotations
@@ -51,6 +57,7 @@ import soundfile as sf
 from loguru import logger
 from praatio import textgrid as praatio_textgrid
 
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -153,7 +160,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key, self.text_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        data_keys = ["textgrid_filepath"]
+        data_keys = ["textgrid_filepath", "mfa_skipped"]
         if self.create_rttm:
             data_keys.append("rttm_filepath")
         if self.create_ctm:
@@ -164,6 +171,19 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         # Current implementation is meant to run with one worker per node. because the MFA library has issues when running in parallel.
         # We are copying the MFA models to node-local storage to avoid race conditions and Kaldi errors when multiple distributed nodes share the same model directory.
         return {"num_workers_per_node": 1}
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        # Ray Data has no per-node worker cap, so run MFA as a single actor
+        # (see num_workers() -> 1). Without this the backend would launch
+        # multiple MFA workers per node, re-introducing the Kaldi/NFS races and
+        # shared-model corruption that this stage is designed to avoid.
+        return {RayStageSpecKeys.IS_ACTOR_STAGE: True}
+
+    def num_workers(self) -> int | None:
+        # Force a single MFA worker cluster-wide on the Ray Data backend
+        # (Xenna instead honours xenna_stage_spec()'s num_workers_per_node=1).
+        # MFA/Kaldi is not safe to run concurrently against a shared model dir.
+        return 1
 
     def setup_on_node(
         self,
@@ -217,48 +237,40 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         msg = "MFAAlignmentStage only supports process_batch"
         raise NotImplementedError(msg)
 
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        """Align all tasks in a single ``mfa align`` invocation."""
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:  # noqa: C901
+        """Align all tasks in a single ``mfa align`` invocation.
+
+        Per-task pre-flight failures (failed validation, empty text, or a
+        missing audio file) degrade gracefully: the offending task is marked
+        ``mfa_skipped=True`` with empty outputs and kept in the returned list,
+        so a single malformed row never discards the rest of the batch. This
+        mirrors the graceful handling of files MFA silently drops (see
+        ``_handle_missing_textgrid``).  Batch-level failures (the ``mfa align``
+        subprocess itself failing) still propagate.
+
+        The returned list has the same length and order as ``tasks``; every
+        task is mutated in place, so cardinality is preserved.
+        """
         if not tasks:
             return []
 
         stem_to_task: dict[str, AudioTask] = {}
         for task in tasks:
-            if not self.validate_input(task):
-                msg = f"Task {task!s} failed validation for stage {self}"
-                raise ValueError(msg)
-            audio_filepath = task.data[self.audio_filepath_key]
-            text = task.data[self.text_key].strip()
-            if not text:
-                msg = (
-                    f"Empty text for {audio_filepath} "
-                    f"(key={self.text_key!r})"
-                )
-                raise ValueError(msg)
-            audio_path = Path(audio_filepath)
-            if not audio_path.exists():
-                msg = f"Audio file not found: {audio_path}"
-                raise FileNotFoundError(msg)
-
-            file_stem = audio_path.stem
-            if file_stem in stem_to_task:
-                original_stem = file_stem
-                file_stem = f"{file_stem}_{uuid.uuid4().hex[:8]}"
-                logger.warning(
-                    f"Duplicate stem '{original_stem}' — renamed to "
-                    f"'{file_stem}' to avoid silent data loss"
-                )
-            if not task.data.get(self.duration_key):
-                task.data[self.duration_key] = self._get_audio_duration(
-                    str(audio_path)
-                )
+            try:
+                file_stem = self._preflight_task(task, stem_to_task)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"Skipping task that failed MFA pre-flight: {exc}")
+                self._mark_task_skipped(task)
+                continue
             stem_to_task[file_stem] = task
+
+        # All tasks failed pre-flight; nothing to align.
+        if not stem_to_task:
+            return tasks
 
         batch_uuid = uuid.uuid4().hex[:12]
         tg_out_path = self._textgrid_dir / batch_uuid
         tg_out_path.mkdir(parents=True, exist_ok=True)
-
-        results: list[AudioTask] = []
 
         with tempfile.TemporaryDirectory(prefix="mfa_corpus_") as corpus_dir:
             corpus_path = Path(corpus_dir)
@@ -295,14 +307,63 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                     self._handle_successful_textgrid(
                         file_stem, task, all_tg[file_stem]
                     )
-                results.append(task)
 
-        return results
+        return tasks
+
+    def _preflight_task(
+        self, task: AudioTask, stem_to_task: dict[str, AudioTask]
+    ) -> str:
+        """Validate one task and return its unique corpus stem.
+
+        Raises ``ValueError``/``FileNotFoundError`` if the task cannot be
+        aligned (failed validation, empty text, or a missing audio file);
+        :meth:`process_batch` treats any such failure as a per-row skip.
+        """
+        if not self.validate_input(task):
+            msg = f"Task {task!s} failed validation for stage {self}"
+            raise ValueError(msg)
+        audio_filepath = task.data[self.audio_filepath_key]
+        text = task.data[self.text_key].strip()
+        if not text:
+            msg = f"Empty text for {audio_filepath} (key={self.text_key!r})"
+            raise ValueError(msg)
+        audio_path = Path(audio_filepath)
+        if not audio_path.exists():
+            msg = f"Audio file not found: {audio_path}"
+            raise FileNotFoundError(msg)
+
+        file_stem = audio_path.stem
+        if file_stem in stem_to_task:
+            original_stem = file_stem
+            file_stem = f"{file_stem}_{uuid.uuid4().hex[:8]}"
+            logger.warning(
+                f"Duplicate stem '{original_stem}' — renamed to "
+                f"'{file_stem}' to avoid silent data loss"
+            )
+        if not task.data.get(self.duration_key):
+            task.data[self.duration_key] = self._get_audio_duration(
+                str(audio_path)
+            )
+        return file_stem
+
+    def _mark_task_skipped(self, task: AudioTask) -> None:
+        """Mark a task as skipped with empty outputs.
+
+        Used for tasks that fail pre-flight so the batch can continue while
+        preserving cardinality and the declared output keys.
+        """
+        task.data["textgrid_filepath"] = ""
+        task.data["mfa_skipped"] = True
+        if self.create_rttm:
+            task.data["rttm_filepath"] = ""
+        if self.create_ctm:
+            task.data["ctm_filepath"] = ""
 
     def _handle_successful_textgrid(
         self, file_stem: str, task: AudioTask, tg_path: Path
     ) -> None:
         task.data["textgrid_filepath"] = str(tg_path)
+        task.data["mfa_skipped"] = False
         speaker = task.data.get(self.speaker_key, "unknown")
 
         if self.create_rttm:
@@ -344,7 +405,7 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             )
             task.data["ctm_filepath"] = str(ctm_path)
 
-    def _run_mfa_align(
+    def _run_mfa_align(  # noqa: C901, PLR0912
         self, corpus_dir: Path, textgrid_output_dir: Path
     ) -> None:
         env = os.environ.copy()
@@ -368,7 +429,8 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
                     f"Could not remove MFA history file: {history_file}"
                 )
 
-        cmd = mfa_cmd_parts + [
+        cmd = [
+            *mfa_cmd_parts,
             "align",
             str(corpus_dir),
             self.dictionary,
@@ -417,11 +479,10 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
 
         logger.info(f"Running MFA align: {' '.join(cmd)}")
 
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             cmd,
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             check=False,
         )
@@ -436,11 +497,12 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             )
 
         if result.returncode != 0:
-            raise RuntimeError(
+            msg = (
                 f"mfa align failed (exit code {result.returncode}).\n"
                 f"STDOUT:\n{result.stdout}\n"
                 f"STDERR:\n{result.stderr}"
             )
+            raise RuntimeError(msg)
 
     def _get_word_alignment_tier(self, tg: Any, textgrid_path: Path) -> Any:  # noqa: ANN401
         """Select the word-level tier, avoiding phone-level tiers when possible."""
@@ -514,12 +576,12 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
         merged = self._merge_intervals(speech_intervals)
 
         with open(rttm_path, "w", encoding="utf-8") as f:
-            for iv in merged:
-                f.write(
-                    f"SPEAKER {file_stem} 1 "
-                    f"{iv['start']:.3f} {iv['duration']:.3f} "
-                    f"<NA> <NA> {speaker} <NA> <NA>\n"
-                )
+            f.writelines(
+                f"SPEAKER {file_stem} 1 "
+                f"{iv['start']:.3f} {iv['duration']:.3f} "
+                f"<NA> <NA> {speaker} <NA> <NA>\n"
+                for iv in merged
+            )
 
     def _textgrid_to_ctm(
         self,
@@ -586,10 +648,10 @@ class MFAAlignmentStage(ProcessingStage[AudioTask, AudioTask]):
             return
         word_dur = duration / len(words)
         with open(ctm_path, "w", encoding="utf-8") as f:
-            for i, word in enumerate(words):
-                f.write(
-                    f"{file_stem} 1 {i * word_dur:.3f} {word_dur:.3f} {word}\n"
-                )
+            f.writelines(
+                f"{file_stem} 1 {i * word_dur:.3f} {word_dur:.3f} {word}\n"
+                for i, word in enumerate(words)
+            )
 
     def _setup_local_mfa(self, shared_mfa_root: str, hostname: str) -> str:
         local_mfa_root = Path(self._effective_local_base) / f"mfa_models_{hostname}"

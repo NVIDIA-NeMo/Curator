@@ -19,12 +19,16 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from nemo_curator.stages.audio.alignment.mfa_alignment import MFAAlignmentStage
 from nemo_curator.tasks import AudioTask
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 MODULE = "nemo_curator.stages.audio.alignment.mfa_alignment"
 
@@ -76,7 +80,7 @@ def _fake_textgrid(
     tier = _fake_tier(entries)
     return SimpleNamespace(
         tierNames=[tier_name],
-        getTier=lambda _name: tier,  # noqa: ARG005
+        getTier=lambda _name: tier,
     )
 
 
@@ -107,7 +111,7 @@ def _setup_stage(
     return fake_tg_mod
 
 
-def _mock_mfa_writes_textgrid(wav: Path):
+def _mock_mfa_writes_textgrid(wav: Path) -> Callable[..., subprocess.CompletedProcess]:
     def _run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess:  # noqa: ARG001
         tg_dir = _align_textgrid_output_dir(cmd)
         (tg_dir / f"{wav.stem}.TextGrid").write_text("fake textgrid")
@@ -131,7 +135,7 @@ class TestMFAAlignmentStage:
         _, data_tg_only = _make_stage(
             tmp_path, create_rttm=False, create_ctm=False
         ).outputs()
-        assert data_tg_only == ["textgrid_filepath"]
+        assert data_tg_only == ["textgrid_filepath", "mfa_skipped"]
 
     def test_process_batch_empty(self, tmp_path: Path) -> None:
         stage = _make_stage(tmp_path)
@@ -192,6 +196,52 @@ class TestMFAAlignmentStage:
         assert len(ctm_lines) == 2
         assert "hello" in ctm_lines[0]
         assert "world" in ctm_lines[1]
+
+    def test_process_batch_skips_bad_task_and_continues(self, tmp_path: Path) -> None:
+        """A single bad row is marked skipped without aborting the batch."""
+        good_wav = _make_wav(tmp_path, name="good.wav")
+        stage = _make_stage(tmp_path)
+        _setup_stage(
+            stage, textgrid=_fake_textgrid([_fake_textgrid_entry(0.0, 1.0, "hello")])
+        )
+
+        bad = _make_task(tmp_path / "does_not_exist.wav", text="hello")
+        good = _make_task(good_wav, text="hello")
+
+        with patch(
+            f"{MODULE}.subprocess.run",
+            side_effect=_mock_mfa_writes_textgrid(good_wav),
+        ):
+            results = stage.process_batch([bad, good])
+
+        assert len(results) == 2
+        assert results[0] is bad
+        assert results[1] is good
+        assert results[0].data["mfa_skipped"] is True
+        assert results[0].data["textgrid_filepath"] == ""
+        assert results[1].data["mfa_skipped"] is False
+        assert results[1].data["textgrid_filepath"] != ""
+
+    def test_process_batch_all_invalid_skips_without_running_mfa(
+        self, tmp_path: Path
+    ) -> None:
+        """When every task fails pre-flight, MFA is never invoked."""
+        stage = _make_stage(tmp_path)
+        _setup_stage(stage)
+
+        missing_file = _make_task(tmp_path / "missing.wav", text="hello")
+        empty_text = _make_task(_make_wav(tmp_path, name="ok.wav"), text="   ")
+
+        with patch(f"{MODULE}.subprocess.run") as run_mock:
+            results = stage.process_batch([missing_file, empty_text])
+
+        run_mock.assert_not_called()
+        assert len(results) == 2
+        for task in results:
+            assert task.data["mfa_skipped"] is True
+            assert task.data["textgrid_filepath"] == ""
+            assert task.data["rttm_filepath"] == ""
+            assert task.data["ctm_filepath"] == ""
 
     def test_process_batch_create_rttm_false(self, tmp_path: Path) -> None:
         wav = _make_wav(tmp_path)
@@ -353,9 +403,12 @@ class TestMFAAlignmentStage:
             stage.process_batch([task])
 
         assert "align" in captured_cmd
-        assert "--beam" in captured_cmd and "200" in captured_cmd
-        assert "--retry_beam" in captured_cmd and "800" in captured_cmd
-        assert "--output_format" in captured_cmd and "short_textgrid" in captured_cmd
+        assert "--beam" in captured_cmd
+        assert "200" in captured_cmd
+        assert "--retry_beam" in captured_cmd
+        assert "800" in captured_cmd
+        assert "--output_format" in captured_cmd
+        assert "short_textgrid" in captured_cmd
         assert "--single_speaker" not in captured_cmd
         assert "--clean" not in captured_cmd
         assert "--use_mp" not in captured_cmd
