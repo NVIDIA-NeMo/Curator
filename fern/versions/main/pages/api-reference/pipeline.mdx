@@ -83,7 +83,9 @@ def run(
         initial_tasks: Initial tasks to start the pipeline.
         checkpoint_path: Optional resumability directory. Completed source
             partitions are recorded under `.nemo_curator_metadata` and skipped
-            when the pipeline runs again with the same path.
+            when the pipeline runs again with the same path. In multi-node or
+            distributed runs, this must resolve to the same durable shared
+            filesystem location on every worker and node.
 
     Returns:
         List of output tasks from the final stage, or None.
