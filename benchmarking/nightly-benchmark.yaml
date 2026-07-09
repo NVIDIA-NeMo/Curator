@@ -122,7 +122,11 @@ datasets:
     - type: "files"
       path: "{datasets_path}/fleurs"
   # Three real AMI SDM meetings (1.563 hours total) with multiple speakers and
-  # overlap. Copy the audio and manifest once to the EOS-backed datasets_path.
+  # overlap. Pre-stage this dataset and the local PyAnnote snapshot once via:
+  #   python benchmarking/data_prep/prepare_audio_tagging_data.py \
+  #       --output-path {datasets_path}/audio_tagging_ami_sdm \
+  #       --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1 \
+  #       --hf-repo-id <token-free-audio-tagging-assets-repo>
   - name: "audio_tagging_ami_sdm"
     formats:
     - type: "files"
@@ -1189,15 +1193,17 @@ entries:
     ray:
       num_gpus: 0
 
-  # The manifest contains three pre-staged AMI SDM meetings (1.563 audio hours).
-  # Clone pyannote/speaker-diarization-community-1 once under model_weights_path;
-  # nightly runs use the local clone and do not require HF_TOKEN or network access.
+  # Consumes the pre-staged AMI data and local PyAnnote snapshot produced by
+  # benchmarking/data_prep/prepare_audio_tagging_data.py. Nightly passes
+  # --no-auto-download and does not require HF_TOKEN or network access.
   - name: audio_tagging_tts_xenna
     enabled: true
     script: audio_tagging_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:audio_tagging_ami_sdm,files}/manifest.jsonl
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:audio_tagging_ami_sdm,files}
+      --no-auto-download
       --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
       --max-segment-length=40
       --asr-batch-size=50
@@ -1253,7 +1259,9 @@ entries:
     script: audio_tagging_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={dataset:audio_tagging_ami_sdm,files}/manifest.jsonl
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:audio_tagging_ami_sdm,files}
+      --no-auto-download
       --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
       --repeat-factor=2
       --max-segment-length=40

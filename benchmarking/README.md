@@ -8,6 +8,7 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 - [Concepts](#concepts)
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
+- [Audio Benchmark Data Setup](#audio-benchmark-data-setup)
 - [Audio Tagging Benchmark](#audio-tagging-benchmark)
 - [Writing Benchmark Scripts](#writing-benchmark-scripts)
 - [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
@@ -467,37 +468,121 @@ For more details, refer to the `--help` output for `run.sh`
 
 ---
 
+## Audio Benchmark Data Setup
+
+Audio benchmarks that depend on external corpora use the same two-layer setup:
+
+1. Run a `benchmarking/data_prep/prepare_*_data.py` script once on the benchmark
+   machine to populate persistent paths under `{datasets_path}` and, when
+   needed, `{model_weights_path}`.
+2. Run nightly entries with `--raw-data-dir` and `--no-auto-download` so the
+   benchmark itself never downloads the corpus during the scheduled run.
+
+The benchmark scripts keep their standalone auto-download path for ad hoc local
+debugging only. That fallback stages into `{session_entry_dir}/scratch` or a
+local scratch path and uses a stable Hugging Face cache to avoid re-fetching
+blobs across reruns, but it is not the nightly path.
+
+Current audio setup commands:
+
+```bash
+python benchmarking/data_prep/prepare_fleurs_data.py \
+  --output-path {datasets_path}/fleurs
+
+python benchmarking/data_prep/prepare_audio_tagging_data.py \
+  --output-path {datasets_path}/audio_tagging_ami_sdm \
+  --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1 \
+  --hf-repo-id <token-free-audio-tagging-assets-repo>
+```
+
+After preparation, the nightly YAML mounts `{datasets_path}/fleurs` as
+`fleurs_hy_am` and `{datasets_path}/audio_tagging_ami_sdm` as
+`audio_tagging_ami_sdm`. Both nightly benchmark commands pass `--no-auto-download`.
+
+---
+
 ## Audio Tagging Benchmark
 
 The nightly entries process three real AMI single-distant-microphone meetings:
-1.563 hours of long, multi-speaker audio with overlap. Copy the audio and a
-three-row JSONL manifest once to the EOS-backed
-`{datasets_path}/audio_tagging_ami_sdm` directory. Each row needs stable IDs and
-the container-visible audio path:
+1.563 hours of long, multi-speaker audio with overlap. Stage this corpus and
+the local PyAnnote diarization snapshot once on the benchmark machine:
 
-```json
-{"audio_filepath":"/datasets/audio_tagging_ami_sdm/audio/EN2002b.Array1-01.wav","audio_item_id":"EN2002b.Array1-01"}
+```bash
+python benchmarking/data_prep/prepare_audio_tagging_data.py \
+  --output-path /path/to/datasets/audio_tagging_ami_sdm \
+  --model-output-path /path/to/model_weights/audio_tagging/pyannote-speaker-diarization-community-1 \
+  --hf-repo-id <token-free-audio-tagging-assets-repo>
 ```
 
-Also clone `pyannote/speaker-diarization-community-1` once to the EOS-backed
-`{model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1`
-directory. Nightly runs load that local pipeline and need neither `HF_TOKEN`
-nor network access.
+The prep script does not take an HF token. It expects a token-free assets repo
+containing `manifest.jsonl`, the three AMI WAV files, and a
+`pyannote-speaker-diarization-community-1/` snapshot. If the PyAnnote snapshot
+already exists locally, pass `--model-source-path` to copy it instead of reading
+the model files from the assets repo. Benchmark runs do not download or modify
+these staged inputs. The expected data layout is:
+
+```text
+{datasets_path}/audio_tagging_ami_sdm/
+|-- manifest.jsonl
+`-- audio/
+    |-- EN2002b.Array1-01.wav
+    |-- ES2004c.Array1-01.wav
+    `-- TS3003a.Array1-01.wav
+```
+
+`manifest.jsonl` must contain these three rows. `audio_item_id` must be unique
+and stable. The benchmark rewrites a per-run manifest from `--raw-data-dir` so
+`audio_filepath` points at `<raw-data-dir>/audio/<filename>` in the active
+environment rather than relying on hand-authored container paths:
+
+```jsonl
+{"audio_filepath":"/datasets/audio_tagging_ami_sdm/audio/EN2002b.Array1-01.wav","audio_item_id":"EN2002b.Array1-01"}
+{"audio_filepath":"/datasets/audio_tagging_ami_sdm/audio/ES2004c.Array1-01.wav","audio_item_id":"ES2004c.Array1-01"}
+{"audio_filepath":"/datasets/audio_tagging_ami_sdm/audio/TS3003a.Array1-01.wav","audio_item_id":"TS3003a.Array1-01"}
+```
+
+The model output directory must include `config.yaml` and its `segmentation/`,
+`embedding/`, and `plda/` artifacts. The diarization stage loads only this local
+snapshot and requires neither `HF_TOKEN` nor network access. Other model stages
+continue to use their standard NeMo and Torch cache locations.
+
+The benchmark executes the production tagging graph end to end: manifest read,
+optional row repetition, resampling, speaker diarization, long-audio splitting,
+first-pass ASR alignment, split metadata join, alignment/diarization merge,
+bandwidth and SQUIM metrics, TTS-segment preparation, second-pass ASR, WER, and
+manifest write. This follows the same split as the FLEURS benchmark: use the
+data-prep script for persistent nightly inputs, then run the benchmark with
+`--raw-data-dir` and `--no-auto-download`. Use the same pre-staged paths for a
+local benchmark run:
 
 ```bash
 python benchmarking/scripts/audio_tagging_benchmark.py \
   --benchmark-results-path /tmp/audio-tagging-results \
-  --input-manifest /path/to/audio_tagging_ami_sdm/manifest.jsonl \
+  --scratch-output-path /tmp/audio-tagging-scratch \
+  --raw-data-dir /path/to/audio_tagging_ami_sdm \
+  --no-auto-download \
   --diarization-model-path /path/to/pyannote-speaker-diarization-community-1 \
   --executor xenna
 ```
 
+For ad hoc standalone debugging only, the benchmark also mirrors FLEURS'
+runtime auto-download fallback: if `--raw-data-dir` is omitted, it stages under
+`<scratch-output-path>/audio_tagging_ami_sdm`, reuses that staging if present,
+or downloads `manifest.jsonl` and the three `audio/*.wav` files from
+`--hf-repo-id` or `$CURATOR_AUDIO_TAGGING_HF_REPO_ID` with blobs cached under
+`--cache-dir`, `$CURATOR_AUDIO_TAGGING_CACHE_DIR`, or
+`/tmp/curator/audio_tagging_cache`. Nightly does not use this fallback.
+
 Every downstream stage preserves outer task rows, so success requires
 `input manifest rows * repeat factor == returned tasks == output manifest rows`.
-It also requires complete second-pass ASR and finite WER output, nonzero work
-from all 12 processing stages, and at least 1.5 source audio hours (3.0 for the
-repeated entry). Incomplete prepared segments are reported but are not counted
-as successfully processed output.
+Nested segments may still be rejected when a model does not produce the fields
+needed by the following stage; those segments remain visible in the emitted and
+skipped metrics but do not count as successfully tagged output. Success also
+requires complete second-pass ASR and finite WER output, nonzero work from all
+12 measured processing stages, at least 70 percent segment-output coverage,
+and at least 1.5 source audio hours (3.0 for the repeated entry). The nightly
+configuration additionally requires at least 100 complete segments and 0.2
+tagged audio hours (200 segments and 0.4 hours for the repeated entry).
 
 ---
 

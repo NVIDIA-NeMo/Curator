@@ -12,16 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Benchmark the complete audio-tagging pipeline on pre-staged meeting audio."""
+"""Benchmark the complete audio-tagging pipeline on AMI meeting audio."""
 
 import argparse
 import json
 import math
+import os
+import shutil
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from huggingface_hub import hf_hub_download
 from loguru import logger
 from utils import RepeatEntriesStage, setup_executor, write_benchmark_results
 
@@ -38,6 +41,16 @@ from nemo_curator.stages.audio.tagging.resample_audio import ResampleAudioStage
 from nemo_curator.stages.audio.tagging.split import JoinSplitAudioMetadataStage, SplitLongAudioStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
+
+DEFAULT_AUDIO_TAGGING_CACHE_DIR = "/tmp/curator/audio_tagging_cache"  # noqa: S108
+DATASET_DIR_NAME = "audio_tagging_ami_sdm"
+AUDIO_TAGGING_HF_FILENAMES = (
+    "manifest.jsonl",
+    "audio/EN2002b.Array1-01.wav",
+    "audio/ES2004c.Array1-01.wav",
+    "audio/TS3003a.Array1-01.wav",
+)
+EXPECTED_AUDIO_BASENAMES = {Path(filename).name for filename in AUDIO_TAGGING_HF_FILENAMES[1:]}
 
 _REQUIRED_STAGE_NAMES = (
     "ResampleAudio",
@@ -67,12 +80,12 @@ def _finite_float(value: object, label: str) -> float:
     return number
 
 
-def _count_jsonl_rows(path: Path, label: str) -> int:
+def _load_jsonl_rows(path: Path, label: str) -> list[dict[str, Any]]:
     if not path.is_file() or path.stat().st_size == 0:
         msg = f"{label} is missing or empty: {path}"
         raise RuntimeError(msg)
 
-    rows = 0
+    rows: list[dict[str, Any]] = []
     with path.open(encoding="utf-8") as jsonl_file:
         for line_number, line in enumerate(jsonl_file, start=1):
             if not line.strip():
@@ -85,12 +98,183 @@ def _count_jsonl_rows(path: Path, label: str) -> int:
             if not isinstance(row, Mapping):
                 msg = f"{label} line {line_number} is not a JSON object"
                 raise TypeError(msg)
-            rows += 1
+            rows.append(dict(row))
 
-    if rows == 0:
+    if not rows:
         msg = f"{label} contains no data rows: {path}"
         raise RuntimeError(msg)
     return rows
+
+
+def _count_jsonl_rows(path: Path, label: str) -> int:
+    return len(_load_jsonl_rows(path, label))
+
+
+def _validate_manifest_contract(rows: list[dict[str, Any]], label: str) -> None:
+    if len(rows) != len(EXPECTED_AUDIO_BASENAMES):
+        msg = f"{label} must contain exactly {len(EXPECTED_AUDIO_BASENAMES)} rows, found {len(rows)}"
+        raise RuntimeError(msg)
+
+    seen_audio_basenames: set[str] = set()
+    seen_audio_item_ids: set[str] = set()
+    for line_number, row in enumerate(rows, start=1):
+        audio_filepath = row.get("audio_filepath")
+        if not isinstance(audio_filepath, str) or not audio_filepath:
+            msg = f"{label} line {line_number} must contain audio_filepath"
+            raise RuntimeError(msg)
+
+        audio_basename = Path(audio_filepath).name
+        if audio_basename not in EXPECTED_AUDIO_BASENAMES:
+            msg = (
+                f"{label} line {line_number} references unexpected audio file {audio_basename!r}; "
+                f"expected one of {sorted(EXPECTED_AUDIO_BASENAMES)}"
+            )
+            raise RuntimeError(msg)
+        if audio_basename in seen_audio_basenames:
+            msg = f"{label} contains duplicate audio file {audio_basename!r}"
+            raise RuntimeError(msg)
+        seen_audio_basenames.add(audio_basename)
+
+        audio_item_id = row.get("audio_item_id")
+        if not isinstance(audio_item_id, str) or not audio_item_id:
+            msg = f"{label} line {line_number} must contain a nonempty audio_item_id"
+            raise RuntimeError(msg)
+        if audio_item_id in seen_audio_item_ids:
+            msg = f"{label} contains duplicate audio_item_id {audio_item_id!r}"
+            raise RuntimeError(msg)
+        seen_audio_item_ids.add(audio_item_id)
+
+    if seen_audio_basenames != EXPECTED_AUDIO_BASENAMES:
+        missing = sorted(EXPECTED_AUDIO_BASENAMES - seen_audio_basenames)
+        msg = f"{label} is missing expected audio files: {missing}"
+        raise RuntimeError(msg)
+
+
+def _prestaged_paths(data_dir: Path) -> tuple[Path, Path]:
+    return data_dir / "manifest.jsonl", data_dir / "audio"
+
+
+def _missing_expected_audio(audio_dir: Path) -> list[Path]:
+    return [
+        audio_dir / Path(filename).name
+        for filename in AUDIO_TAGGING_HF_FILENAMES[1:]
+        if not (audio_dir / Path(filename).name).is_file()
+    ]
+
+
+def _is_prestaged(data_dir: Path) -> bool:
+    try:
+        _locate_prestaged_data(data_dir)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _locate_prestaged_data(data_dir: Path) -> tuple[Path, Path]:
+    manifest_path, audio_dir = _prestaged_paths(data_dir)
+    if not manifest_path.is_file():
+        msg = (
+            f"Pre-staged audio-tagging manifest not found at {manifest_path}. "
+            "Stage the dataset under <raw-data-dir>/manifest.jsonl and <raw-data-dir>/audio/, "
+            "or run standalone with auto_download=True and an HF dataset repo."
+        )
+        raise FileNotFoundError(msg)
+    if not audio_dir.is_dir():
+        msg = (
+            f"Pre-staged audio-tagging audio directory not found at {audio_dir}. "
+            "Stage the dataset under <raw-data-dir>/manifest.jsonl and <raw-data-dir>/audio/, "
+            "or run standalone with auto_download=True and an HF dataset repo."
+        )
+        raise FileNotFoundError(msg)
+    missing_audio = _missing_expected_audio(audio_dir)
+    if missing_audio:
+        msg = (
+            f"Pre-staged audio-tagging audio files are missing from {audio_dir}: "
+            f"{', '.join(str(path) for path in missing_audio)}. "
+            "Stage the expected AMI SDM WAV files or run standalone with auto_download=True."
+        )
+        raise FileNotFoundError(msg)
+    _validate_manifest_contract(
+        _load_jsonl_rows(manifest_path, "Pre-staged audio-tagging manifest"),
+        "Pre-staged audio-tagging manifest",
+    )
+    return manifest_path, audio_dir
+
+
+def _write_staged_manifest(source_manifest: Path, target_manifest: Path, target_audio_dir: Path) -> None:
+    rows = _load_jsonl_rows(source_manifest, "Source audio-tagging manifest")
+    _validate_manifest_contract(rows, "Source audio-tagging manifest")
+    target_manifest.parent.mkdir(parents=True, exist_ok=True)
+    with target_manifest.open("w", encoding="utf-8") as target_file:
+        for line_number, row in enumerate(rows, start=1):
+            staged_audio_path = target_audio_dir / Path(row["audio_filepath"]).name
+            if not staged_audio_path.is_file():
+                msg = f"Staged audio file missing for source manifest line {line_number}: {staged_audio_path}"
+                raise FileNotFoundError(msg)
+            row["audio_filepath"] = str(staged_audio_path)
+            target_file.write(json.dumps(row) + "\n")
+
+
+def _download_stage_data(hf_repo_id: str | None, cache_dir: Path, data_dir: Path) -> tuple[Path, Path]:
+    """Download a HF-hosted AMI benchmark payload into scratch for standalone runs."""
+    if not hf_repo_id:
+        msg = (
+            "Standalone audio-tagging auto-download requires --hf-repo-id or "
+            "CURATOR_AUDIO_TAGGING_HF_REPO_ID. Nightly should pass --raw-data-dir "
+            "and --no-auto-download instead."
+        )
+        raise ValueError(msg)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    target_manifest, target_audio_dir = _prestaged_paths(data_dir)
+    target_audio_dir.mkdir(parents=True, exist_ok=True)
+
+    downloaded_files = {
+        filename: Path(
+            hf_hub_download(
+                repo_id=hf_repo_id,
+                repo_type="dataset",
+                filename=filename,
+                cache_dir=str(cache_dir),
+            )
+        )
+        for filename in AUDIO_TAGGING_HF_FILENAMES
+    }
+
+    source_manifest = downloaded_files["manifest.jsonl"]
+    for filename in AUDIO_TAGGING_HF_FILENAMES[1:]:
+        downloaded_audio_path = downloaded_files[filename]
+        shutil.copy2(downloaded_audio_path, target_audio_dir / downloaded_audio_path.name)
+    _write_staged_manifest(source_manifest, target_manifest, target_audio_dir)
+    return _locate_prestaged_data(data_dir)
+
+
+def _resolve_data_dir(
+    scratch_output_path: Path,
+    raw_data_dir: str | None,
+    auto_download: bool,
+    cache_dir: str | None,
+    hf_repo_id: str | None,
+) -> tuple[Path, Path, Path | None]:
+    if raw_data_dir:
+        data_dir = Path(raw_data_dir)
+        source_manifest, audio_dir = _locate_prestaged_data(data_dir)
+        run_manifest = scratch_output_path / DATASET_DIR_NAME / "manifest.jsonl"
+        _write_staged_manifest(source_manifest, run_manifest, audio_dir)
+        return data_dir, run_manifest, None
+
+    data_dir = scratch_output_path / DATASET_DIR_NAME
+    cache_path = Path(
+        cache_dir or os.environ.get("CURATOR_AUDIO_TAGGING_CACHE_DIR") or DEFAULT_AUDIO_TAGGING_CACHE_DIR
+    )
+    if _is_prestaged(data_dir):
+        manifest_path, _audio_dir = _locate_prestaged_data(data_dir)
+        return data_dir, manifest_path, cache_path
+    if auto_download:
+        repo_id = hf_repo_id or os.environ.get("CURATOR_AUDIO_TAGGING_HF_REPO_ID")
+        manifest_path, _audio_dir = _download_stage_data(repo_id, cache_path, data_dir)
+        return data_dir, manifest_path, cache_path
+    manifest_path, _audio_dir = _locate_prestaged_data(data_dir)
+    return data_dir, manifest_path, cache_path
 
 
 def _validate_segment(segment: object, label: str) -> tuple[float, bool, bool]:
@@ -210,12 +394,16 @@ def _validate_outputs(  # noqa: C901
 
 def run_audio_tagging_benchmark(  # noqa: PLR0913
     benchmark_results_path: str,
-    input_manifest: str,
+    scratch_output_path: str,
     diarization_model_path: str,
     repeat_factor: int,
     max_segment_length: float,
     asr_batch_size: int,
     executor: str,
+    raw_data_dir: str | None = None,
+    auto_download: bool = True,
+    cache_dir: str | None = None,
+    hf_repo_id: str | None = None,
     asr_transcribe_batch_size: int = 32,
     squim_compute_batch_size: int = 32,
     use_cuda_graphs: bool = True,
@@ -223,7 +411,14 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
 ) -> dict[str, Any]:
     """Run the full audio-tagging pipeline on pre-staged audio and models."""
     benchmark_results_path = Path(benchmark_results_path)
-    input_manifest_path = Path(input_manifest)
+    scratch_output_path = Path(scratch_output_path)
+    data_dir, input_manifest_path, data_cache_dir = _resolve_data_dir(
+        scratch_output_path=scratch_output_path,
+        raw_data_dir=raw_data_dir,
+        auto_download=auto_download,
+        cache_dir=cache_dir,
+        hf_repo_id=hf_repo_id,
+    )
     diarization_model = Path(diarization_model_path)
     if repeat_factor < 1:
         msg = "repeat_factor must be at least 1"
@@ -231,6 +426,12 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     if not diarization_model.exists():
         msg = f"Pre-staged PyAnnote model not found: {diarization_model}"
         raise FileNotFoundError(msg)
+
+    logger.info(f"Data dir: {data_dir}")
+    logger.info(f"Auto download: {auto_download}")
+    logger.info(f"HF cache dir: {data_cache_dir}")
+    logger.info(f"Input manifest: {input_manifest_path}")
+    logger.info(f"Diarization model: {diarization_model}")
 
     num_input_rows = _count_jsonl_rows(input_manifest_path, "Input manifest") * repeat_factor
     results_dir = benchmark_results_path / "results"
@@ -240,7 +441,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     run_start_time = time.perf_counter()
     pipeline = Pipeline(name="audio_tagging_benchmark", description="AMI meetings -> full audio tagging")
 
-    pipeline.add_stage(ManifestReader(manifest_path=input_manifest))
+    pipeline.add_stage(ManifestReader(manifest_path=str(input_manifest_path)))
     if repeat_factor > 1:
         pipeline.add_stage(RepeatEntriesStage(repeat_factor=repeat_factor, unique_id_key="audio_item_id"))
 
@@ -350,9 +551,48 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Audio tagging benchmark on pre-staged meeting audio")
-    parser.add_argument("--input-manifest", required=True, help="Pre-staged input JSONL manifest")
     parser.add_argument("--diarization-model-path", required=True, help="Pre-staged local PyAnnote pipeline directory")
     parser.add_argument("--benchmark-results-path", required=True, help="Path to write benchmark results")
+    parser.add_argument(
+        "--scratch-output-path",
+        required=True,
+        help="Path to scratch output directory (standalone data staging + temp files)",
+    )
+    parser.add_argument(
+        "--raw-data-dir",
+        default=None,
+        help=(
+            "Parent workspace directory for audio-tagging staging. Pre-staged data lives under "
+            "<raw-data-dir>/manifest.jsonl and <raw-data-dir>/audio/. Use with --no-auto-download "
+            "to avoid standalone HF downloads."
+        ),
+    )
+    parser.add_argument(
+        "--no-auto-download",
+        dest="auto_download",
+        action="store_false",
+        help=(
+            "Disable standalone data staging; read pre-staged data from "
+            "<raw-data-dir>/ or <scratch-output-path>/audio_tagging_ami_sdm/."
+        ),
+    )
+    parser.set_defaults(auto_download=True)
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help=(
+            "Hugging Face cache directory used only for standalone auto-download runs so repeated "
+            f"runs reuse it. Defaults to $CURATOR_AUDIO_TAGGING_CACHE_DIR or {DEFAULT_AUDIO_TAGGING_CACHE_DIR}."
+        ),
+    )
+    parser.add_argument(
+        "--hf-repo-id",
+        default=None,
+        help=(
+            "Hugging Face dataset repo containing manifest.jsonl and audio/*.wav for standalone "
+            "auto-download. Defaults to $CURATOR_AUDIO_TAGGING_HF_REPO_ID."
+        ),
+    )
     parser.add_argument("--repeat-factor", type=int, default=1, help="Repeat each input row this many times")
     parser.add_argument("--max-segment-length", type=float, default=40.0, help="Maximum segment duration in seconds")
     parser.add_argument("--asr-batch-size", type=int, default=100, help="First-pass ASR batch size")
