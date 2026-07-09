@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -107,8 +108,9 @@ class Pipeline:
         # 3. Source / sink defaults: at most one stage may be explicitly
         # marked; if none, the first stage is the source and the last is
         # the sink. The source flag activates content-based ids in the
-        # default ``process_batch``; the sink flag is used by the
-        # resumability layer in a follow-up PR.
+        # default ``process_batch``; the sink flag tells the resumability
+        # counters that a sink consumes its outputs (see
+        # ``BaseStageAdapter._apply_resumability_counters``).
         self._assign_source_sink_roles()
 
     def _assign_source_sink_roles(self) -> None:
@@ -222,17 +224,40 @@ class Pipeline:
 
         return "\n".join(lines)
 
-    def run(self, executor: BaseExecutor | None = None, initial_tasks: list[Task] | None = None) -> list[Task] | None:
+    def run(  # noqa: C901, PLR0912
+        self,
+        executor: BaseExecutor | None = None,
+        initial_tasks: list[Task] | None = None,
+        checkpoint_path: str | Path | None = None,
+    ) -> list[Task] | None:
         """Run the pipeline.
 
         Args:
             executor (BaseExecutor): Executor to use
             initial_tasks (list[Task], optional): Initial tasks to start the pipeline with. Defaults to None.
+            checkpoint_path (str | Path, optional): Resumability directory. Must
+                be a LOCAL filesystem path (the LMDB state is written locally),
+                not a remote/cloud URI. When set, completed source partitions are
+                tracked (in a ``.nemo_curator_metadata`` subdir) and skipped on
+                rerun. Multiple runs (e.g. a SLURM array) may share the directory
+                — each writes its own LMDB file, so there is no contention.
 
         Returns:
             list[Task] | None: List of tasks
         """
         self.build()
+
+        if checkpoint_path is not None:
+            non_resumable = [s.name for s in self.stages if not s.is_resumable]
+            if non_resumable:
+                msg = (
+                    f"checkpoint_path was set, but these stages are not marked resumable: "
+                    f"{non_resumable}. Set is_resumable=True on a stage only once you've "
+                    f"confirmed its input→output mapping is resumability-safe."
+                )
+                raise ValueError(msg)
+            checkpoint_path = Path(checkpoint_path).absolute()
+            checkpoint_path.mkdir(parents=True, exist_ok=True)
 
         if executor is None:
             from nemo_curator.backends.xenna import XennaExecutor
@@ -263,4 +288,83 @@ class Pipeline:
         if initial_tasks:
             assign_root_task_ids(initial_tasks)
 
-        return executor.execute(self.stages, initial_tasks)
+        from nemo_curator.backends.failed_task_markers import (
+            configure_slurm_array_failed_task_manifest_dir,
+            failed_task_manifest_exists,
+        )
+        from nemo_curator.backends.slurm_array import (
+            SlurmArrayConfig,
+            build_slurm_array_completion_manifest,
+            is_slurm_array_driver_process,
+        )
+
+        slurm_array = SlurmArrayConfig.from_env()
+        completion_manifest = None
+        if slurm_array is not None:
+            is_driver = is_slurm_array_driver_process()
+            if checkpoint_path is not None:
+                configure_slurm_array_failed_task_manifest_dir(checkpoint_path, slurm_array.shard_index)
+            completion_manifest = build_slurm_array_completion_manifest(
+                checkpoint_path=checkpoint_path if is_driver else None,
+                shard_index=slurm_array.shard_index,
+                total_shards=slurm_array.total_shards,
+                minimum_shard_index=slurm_array.minimum_shard_index,
+            )
+
+        if checkpoint_path is None:
+            result = executor.execute(self.stages, initial_tasks)
+        else:
+            result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+
+        if completion_manifest is not None:
+            if failed_task_manifest_exists():
+                logger.warning(
+                    "Pipeline completed without raising, but a FailedTask manifest exists. "
+                    "The shard remains incomplete and will be selected for retry."
+                )
+            else:
+                manifest_file = completion_manifest.mark_completed()
+                logger.info(f"Wrote Slurm array completion manifest to {manifest_file}")
+
+        return result
+
+    def _run_with_resumability(
+        self,
+        executor: BaseExecutor,
+        initial_tasks: list[Task] | None,
+        checkpoint_path: Path,
+    ) -> list[Task] | None:
+        """Run with resumability around a pre-existing Ray cluster (e.g. one
+        started by ``RayClient``).
+
+        We briefly connect with ``with ray.init()`` to spawn the detached
+        checkpoint actor, then disconnect *before* ``executor.execute`` so the
+        executor's own ``ray.init`` runs un-nested — a nested
+        ``ray.init(runtime_env=...)`` is silently dropped, so the executor's env
+        vars wouldn't propagate otherwise. The detached actor lives in the
+        cluster across the executor's separate Ray session; a final
+        ``with ray.init()`` closes and kills it. The cluster must pre-exist: had
+        we started it, the first ``with``-exit shutdown would tear it down and
+        take the actor with it.
+        """
+        import os
+
+        import ray
+
+        from nemo_curator.utils.resumability_actor import create_resumability_actor, shutdown_resumability_actor
+
+        if not os.environ.get("RAY_ADDRESS"):
+            msg = (
+                "Resumability (checkpoint_path) requires a Ray cluster started before pipeline.run() — "
+                "start one with RayClient().start() (or the SLURM Ray client). Without a pre-existing "
+                "cluster the checkpoint actor would be torn down with this run's Ray session."
+            )
+            raise RuntimeError(msg)
+
+        with ray.init(ignore_reinit_error=True):
+            create_resumability_actor(str(checkpoint_path))
+        try:
+            return executor.execute(self.stages, initial_tasks)
+        finally:
+            with ray.init(ignore_reinit_error=True):
+                shutdown_resumability_actor()

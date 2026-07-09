@@ -13,9 +13,18 @@
 # limitations under the License.
 """Payload-less marker tasks.
 
-``EmptyTask`` seeds a pipeline (the implicit root id ``"0"``). All markers
-share the :class:`SentinelTask` base and carry no payload (``data is None``).
-Construct one with ``EmptyTask()``.
+``EmptyTask`` seeds a pipeline (the implicit root id ``"0"``). The resumability
+layer adds two more markers on the same :class:`SentinelTask` base:
+
+- ``NoneTask`` — this slot was intentionally filtered. The resumability counter
+  treats it as a consumed branch (decrements). The adapter auto-wraps a
+  returned ``None`` as a ``NoneTask``.
+- ``FailedTask`` — this slot failed and should be retried on resume. The counter
+  is NOT decremented, so its source stays pending and reruns.
+
+All carry no payload (``data is None``) and get their ``task_id`` assigned by
+the executor adapter; sentinels are stripped before the next stage. Construct
+with ``EmptyTask()`` / ``NoneTask()`` / ``FailedTask()``.
 """
 
 from dataclasses import dataclass, field
@@ -25,8 +34,7 @@ from nemo_curator.tasks.tasks import Task
 
 @dataclass
 class SentinelTask(Task[None]):
-    """Base for payload-less marker tasks. Always carries no data; ``task_id``
-    is framework-assigned like any other task."""
+    """Base for payload-less marker tasks: no data, framework-assigned ``task_id``."""
 
     data: None = None
 
@@ -44,11 +52,22 @@ class SentinelTask(Task[None]):
 
 @dataclass
 class EmptyTask(SentinelTask):
-    """Payload-less task that seeds a pipeline. Its ``task_id`` is fixed to
-    ``"0"`` — the implicit root every task in a run descends from, so all
-    ``task_id``s share the ``"0"`` prefix (source partitions become
-    ``"0_<id>"``, user-provided initial tasks become ``"0_0"``, ``"0_1"``, …).
-    """
+    """Seeds a pipeline with ``task_id="0"`` — the implicit root every task
+    descends from (so all ids share the ``"0"`` prefix)."""
 
     dataset_name: str = "empty"
     task_id: str = field(init=False, default="0")
+
+
+@dataclass
+class NoneTask(SentinelTask):
+    """Marks a slot as intentionally filtered (resumability counter decrements)."""
+
+    dataset_name: str = "none"
+
+
+@dataclass
+class FailedTask(SentinelTask):
+    """Marks a slot as failed → retried on resume (counter does NOT decrement)."""
+
+    dataset_name: str = "failed"

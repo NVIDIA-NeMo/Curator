@@ -374,6 +374,7 @@ class TextSemanticDeduplicationWorkflow:
             output_kwargs=self.write_kwargs,
             output_fields=self.output_fields,
             output_mode="ignore",
+            drop_id_field=self.use_id_generator and self.output_fields is None,
         )
 
         return workflow.run(executor=executor)
