@@ -14,24 +14,20 @@
 
 """One-time data preparation for the audio-tagging benchmark.
 
-Stages the AMI SDM benchmark input and the local PyAnnote diarization snapshot
-once so nightly runs can use ``--raw-data-dir`` and ``--no-auto-download`` with
-no Hugging Face token or network dependency.
+Downloads three AMI SDM test meetings and the local PyAnnote diarization
+snapshot once so nightly runs can use ``--raw-data-dir`` and
+``--no-auto-download`` with no Hugging Face token or network dependency.
 
-The source Hugging Face dataset repo is expected to be token-free and contain::
+The default sources are token-free Hugging Face repos:
 
-    manifest.jsonl
-    audio/EN2002b.Array1-01.wav
-    audio/ES2004c.Array1-01.wav
-    audio/TS3003a.Array1-01.wav
-    pyannote-speaker-diarization-community-1/...
+    diarizers-community/ami, config sdm, split test
+    pyannote-community/speaker-diarization-community-1
 
 Example usage::
 
     python prepare_audio_tagging_data.py \\
         --output-path /path/to/datasets/audio_tagging_ami_sdm \\
-        --model-output-path /path/to/model_weights/audio_tagging/pyannote-speaker-diarization-community-1 \\
-        --hf-repo-id <token-free-audio-tagging-assets-repo>
+        --model-output-path /path/to/model_weights/audio_tagging/pyannote-speaker-diarization-community-1
 
 If the model snapshot already exists locally, copy it without any HF model
 download by passing ``--model-source-path``.
@@ -47,11 +43,17 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from huggingface_hub import hf_hub_download, snapshot_download
+import soundfile as sf
+from datasets import load_dataset
+from huggingface_hub import snapshot_download
 from loguru import logger
 
 DEFAULT_AUDIO_TAGGING_CACHE_DIR = "/tmp/curator/audio_tagging_cache"  # noqa: S108
 DEFAULT_CONTAINER_DATA_PATH = "/datasets/audio_tagging_ami_sdm"
+DEFAULT_AMI_HF_REPO_ID = "diarizers-community/ami"
+DEFAULT_AMI_CONFIG = "sdm"
+DEFAULT_AMI_SPLIT = "test"
+DEFAULT_MODEL_HF_REPO_ID = "pyannote-community/speaker-diarization-community-1"
 MODEL_DIR_NAME = "pyannote-speaker-diarization-community-1"
 MODEL_MARKERS = ("config.yaml", "segmentation", "embedding", "plda")
 AUDIO_FILENAMES = (
@@ -60,6 +62,17 @@ AUDIO_FILENAMES = (
     "audio/TS3003a.Array1-01.wav",
 )
 EXPECTED_AUDIO_BASENAMES = {Path(filename).name for filename in AUDIO_FILENAMES}
+AMI_TEST_MEETINGS = (
+    (1, "EN2002b.Array1-01"),
+    (6, "ES2004c.Array1-01"),
+    (12, "TS3003a.Array1-01"),
+)
+MODEL_ALLOW_PATTERNS = (
+    "config.yaml",
+    "embedding/**",
+    "plda/**",
+    "segmentation/**",
+)
 
 
 def _expected_audio_paths(output_path: Path) -> list[Path]:
@@ -143,6 +156,13 @@ def _rewrite_manifest(source_manifest: Path, target_manifest: Path, container_da
     return len(rows)
 
 
+def _write_manifest(rows: list[dict[str, str]], target_manifest: Path) -> None:
+    target_manifest.parent.mkdir(parents=True, exist_ok=True)
+    with target_manifest.open("w", encoding="utf-8") as target_file:
+        for row in rows:
+            target_file.write(json.dumps(row) + "\n")
+
+
 def _copy_tree_contents(source_dir: Path, target_dir: Path) -> None:
     if not source_dir.is_dir():
         msg = f"Model source directory not found: {source_dir}"
@@ -203,45 +223,83 @@ def verify_model(model_output_path: Path) -> bool:
     return True
 
 
-def stage_dataset(output_path: Path, hf_repo_id: str, cache_dir: str, container_data_path: str) -> None:
+def _write_audio_row(audio: object, target_path: Path) -> None:
+    if not hasattr(audio, "get_all_samples"):
+        msg = f"Expected a datasets AudioDecoder, got {type(audio).__name__}"
+        raise TypeError(msg)
+
+    samples = audio.get_all_samples()
+    waveform = samples.data
+    if waveform.ndim == 2 and waveform.shape[0] <= waveform.shape[1]:
+        waveform = waveform.transpose(0, 1)
+    audio_array = waveform.cpu().numpy()
+    sf.write(target_path, audio_array, samples.sample_rate, subtype="PCM_16")
+
+
+def stage_dataset(
+    output_path: Path,
+    ami_hf_repo_id: str,
+    ami_config: str,
+    ami_split: str,
+    cache_dir: str,
+    container_data_path: str,
+) -> None:
     output_path.mkdir(parents=True, exist_ok=True)
     audio_dir = output_path / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("=" * 60)
-    logger.info("Audio Tagging Dataset Download")
-    logger.info(f"Repo:       {hf_repo_id}")
+    logger.info("Audio Tagging AMI Dataset Download")
+    logger.info(f"Repo:       {ami_hf_repo_id}")
+    logger.info(f"Config:     {ami_config}")
+    logger.info(f"Split:      {ami_split}")
     logger.info(f"Staging to: {output_path}")
     logger.info("=" * 60)
 
-    manifest_download = Path(
-        hf_hub_download(
-            repo_id=hf_repo_id,
-            repo_type="dataset",
-            filename="manifest.jsonl",
-            cache_dir=cache_dir,
-        )
+    dataset = load_dataset(
+        ami_hf_repo_id,
+        ami_config,
+        split=ami_split,
+        cache_dir=cache_dir,
+        streaming=True,
     )
-    for filename in AUDIO_FILENAMES:
-        downloaded_audio = Path(
-            hf_hub_download(
-                repo_id=hf_repo_id,
-                repo_type="dataset",
-                filename=filename,
-                cache_dir=cache_dir,
-            )
-        )
-        shutil.copy2(downloaded_audio, audio_dir / downloaded_audio.name)
+    meeting_by_index = {index: audio_item_id for index, audio_item_id in AMI_TEST_MEETINGS}
+    manifest_rows: list[dict[str, str]] = []
+    audio_container_dir = Path(container_data_path) / "audio"
 
-    num_rows = _rewrite_manifest(manifest_download, output_path / "manifest.jsonl", container_data_path)
-    logger.success(f"Dataset ready: {num_rows} manifest rows and {len(AUDIO_FILENAMES)} WAV files")
+    for row_index, row in enumerate(dataset):
+        audio_item_id = meeting_by_index.get(row_index)
+        if audio_item_id is None:
+            continue
+
+        target_audio_path = audio_dir / f"{audio_item_id}.wav"
+        logger.info(f"Staging {audio_item_id} from {ami_hf_repo_id}/{ami_config}/{ami_split} row {row_index}")
+        _write_audio_row(row["audio"], target_audio_path)
+        manifest_rows.append(
+            {
+                "audio_filepath": str(audio_container_dir / target_audio_path.name),
+                "audio_item_id": audio_item_id,
+            }
+        )
+
+        if len(manifest_rows) == len(AMI_TEST_MEETINGS):
+            break
+
+    if len(manifest_rows) != len(AMI_TEST_MEETINGS):
+        msg = (
+            f"Expected to stage {len(AMI_TEST_MEETINGS)} AMI meetings from {ami_hf_repo_id}/{ami_config}/{ami_split}, "
+            f"but staged {len(manifest_rows)}"
+        )
+        raise RuntimeError(msg)
+
+    _write_manifest(manifest_rows, output_path / "manifest.jsonl")
+    logger.success(f"Dataset ready: {len(manifest_rows)} manifest rows and {len(AUDIO_FILENAMES)} WAV files")
 
 
 def stage_model(
     model_output_path: Path,
-    hf_repo_id: str | None,
+    model_hf_repo_id: str | None,
     cache_dir: str,
-    model_repo_subdir: str,
     model_source_path: Path | None,
 ) -> None:
     logger.info("=" * 60)
@@ -254,25 +312,28 @@ def stage_model(
         _copy_tree_contents(model_source_path, model_output_path)
         return
 
-    if not hf_repo_id:
-        msg = "Model staging requires --hf-repo-id/CURATOR_AUDIO_TAGGING_HF_REPO_ID or --model-source-path"
+    if not model_hf_repo_id:
+        msg = "Model staging requires --model-hf-repo-id/CURATOR_AUDIO_TAGGING_MODEL_HF_REPO_ID or --model-source-path"
         raise ValueError(msg)
 
     snapshot_path = Path(
         snapshot_download(
-            repo_id=hf_repo_id,
-            repo_type="dataset",
-            allow_patterns=[f"{model_repo_subdir}/**"],
+            repo_id=model_hf_repo_id,
+            repo_type="model",
+            allow_patterns=list(MODEL_ALLOW_PATTERNS),
             cache_dir=cache_dir,
         )
     )
-    source_model_dir = snapshot_path / model_repo_subdir
-    logger.info(f"Copying model snapshot from {source_model_dir}")
-    _copy_tree_contents(source_model_dir, model_output_path)
+    logger.info(f"Copying model snapshot from {snapshot_path}")
+    _copy_tree_contents(snapshot_path, model_output_path)
 
 
-def _resolve_hf_repo_id(value: str | None) -> str | None:
+def _resolve_ami_hf_repo_id(value: str | None) -> str | None:
     return value or os.environ.get("CURATOR_AUDIO_TAGGING_HF_REPO_ID")
+
+
+def _resolve_model_hf_repo_id(value: str | None) -> str | None:
+    return value or os.environ.get("CURATOR_AUDIO_TAGGING_MODEL_HF_REPO_ID") or DEFAULT_MODEL_HF_REPO_ID
 
 
 def _has_dataset_artifacts(output_path: Path) -> bool:
@@ -303,9 +364,19 @@ def main() -> int:
     )
     parser.add_argument(
         "--hf-repo-id",
-        default=None,
-        help="Token-free HF dataset repo containing the AMI data and model snapshot. "
-        "Defaults to $CURATOR_AUDIO_TAGGING_HF_REPO_ID.",
+        default=DEFAULT_AMI_HF_REPO_ID,
+        help="Token-free HF dataset repo containing AMI SDM audio. "
+        "Defaults to $CURATOR_AUDIO_TAGGING_HF_REPO_ID or diarizers-community/ami.",
+    )
+    parser.add_argument(
+        "--ami-config",
+        default=DEFAULT_AMI_CONFIG,
+        help="HF dataset config for AMI audio staging. Default: sdm.",
+    )
+    parser.add_argument(
+        "--ami-split",
+        default=DEFAULT_AMI_SPLIT,
+        help="HF dataset split containing the benchmark meetings. Default: test.",
     )
     parser.add_argument(
         "--cache-dir",
@@ -320,7 +391,13 @@ def main() -> int:
     parser.add_argument(
         "--model-repo-subdir",
         default=MODEL_DIR_NAME,
-        help="Subdirectory inside the HF dataset repo containing the PyAnnote snapshot.",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--model-hf-repo-id",
+        default=DEFAULT_MODEL_HF_REPO_ID,
+        help="Token-free HF model repo containing the PyAnnote snapshot. "
+        "Defaults to $CURATOR_AUDIO_TAGGING_MODEL_HF_REPO_ID or pyannote-community/speaker-diarization-community-1.",
     )
     parser.add_argument(
         "--model-source-path",
@@ -338,7 +415,8 @@ def main() -> int:
     output_path = args.output_path.resolve()
     model_output_path = args.model_output_path.resolve()
     model_source_path = args.model_source_path.resolve() if args.model_source_path else None
-    hf_repo_id = _resolve_hf_repo_id(args.hf_repo_id)
+    ami_hf_repo_id = _resolve_ami_hf_repo_id(args.hf_repo_id)
+    model_hf_repo_id = _resolve_model_hf_repo_id(args.model_hf_repo_id)
 
     logger.remove()
     logger.add(sys.stderr, level="INFO")
@@ -350,10 +428,17 @@ def main() -> int:
 
     dataset_ready = _has_dataset_artifacts(output_path) and verify_dataset(output_path)
     if not dataset_ready:
-        if not hf_repo_id:
+        if not ami_hf_repo_id:
             logger.error("Dataset staging requires --hf-repo-id or CURATOR_AUDIO_TAGGING_HF_REPO_ID")
             return 1
-        stage_dataset(output_path, hf_repo_id, args.cache_dir, args.container_data_path)
+        stage_dataset(
+            output_path=output_path,
+            ami_hf_repo_id=ami_hf_repo_id,
+            ami_config=args.ami_config,
+            ami_split=args.ami_split,
+            cache_dir=args.cache_dir,
+            container_data_path=args.container_data_path,
+        )
         dataset_ready = verify_dataset(output_path)
 
     model_ready = _has_model_artifacts(model_output_path) and verify_model(model_output_path)
@@ -361,9 +446,8 @@ def main() -> int:
         try:
             stage_model(
                 model_output_path=model_output_path,
-                hf_repo_id=hf_repo_id,
+                model_hf_repo_id=model_hf_repo_id,
                 cache_dir=args.cache_dir,
-                model_repo_subdir=args.model_repo_subdir,
                 model_source_path=model_source_path,
             )
         except Exception as e:

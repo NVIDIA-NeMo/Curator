@@ -491,8 +491,7 @@ python benchmarking/data_prep/prepare_fleurs_data.py \
 
 python benchmarking/data_prep/prepare_audio_tagging_data.py \
   --output-path {datasets_path}/audio_tagging_ami_sdm \
-  --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1 \
-  --hf-repo-id <token-free-audio-tagging-assets-repo>
+  --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
 ```
 
 After preparation, the nightly YAML mounts `{datasets_path}/fleurs` as
@@ -510,16 +509,18 @@ the local PyAnnote diarization snapshot once on the benchmark machine:
 ```bash
 python benchmarking/data_prep/prepare_audio_tagging_data.py \
   --output-path /path/to/datasets/audio_tagging_ami_sdm \
-  --model-output-path /path/to/model_weights/audio_tagging/pyannote-speaker-diarization-community-1 \
-  --hf-repo-id <token-free-audio-tagging-assets-repo>
+  --model-output-path /path/to/model_weights/audio_tagging/pyannote-speaker-diarization-community-1
 ```
 
-The prep script does not take an HF token. It expects a token-free assets repo
-containing `manifest.jsonl`, the three AMI WAV files, and a
-`pyannote-speaker-diarization-community-1/` snapshot. If the PyAnnote snapshot
-already exists locally, pass `--model-source-path` to copy it instead of reading
-the model files from the assets repo. Benchmark runs do not download or modify
-these staged inputs. The expected data layout is:
+The prep script does not take an HF token. By default it downloads the three
+benchmark AMI SDM meetings from `diarizers-community/ami` (`sdm` config,
+`test` split) and the local diarization snapshot from the token-free
+`pyannote-community/speaker-diarization-community-1` mirror. Override the
+defaults only when debugging with `--hf-repo-id`, `--ami-config`, `--ami-split`,
+or `--model-hf-repo-id`. If the PyAnnote snapshot already exists locally, pass
+`--model-source-path` to copy it instead of downloading the model files.
+Benchmark runs do not download or modify these staged inputs. The expected data
+layout is:
 
 ```text
 {datasets_path}/audio_tagging_ami_sdm/

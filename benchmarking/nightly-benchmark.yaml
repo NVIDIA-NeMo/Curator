@@ -125,8 +125,7 @@ datasets:
   # overlap. Pre-stage this dataset and the local PyAnnote snapshot once via:
   #   python benchmarking/data_prep/prepare_audio_tagging_data.py \
   #       --output-path {datasets_path}/audio_tagging_ami_sdm \
-  #       --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1 \
-  #       --hf-repo-id <token-free-audio-tagging-assets-repo>
+  #       --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
   - name: "audio_tagging_ami_sdm"
     formats:
     - type: "files"
