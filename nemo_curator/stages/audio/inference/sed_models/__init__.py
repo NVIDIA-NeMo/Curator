@@ -12,12 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio inference stages.
+"""Vendored AudioSet-tagging CNN models (PANNs) for sound event detection.
 
-Model-backed stages that run neural inference over audio:
-- SEDInferenceStage: Sound Event Detection framewise probabilities via CNN14 (PANNs)
+Based on https://github.com/qiuqiangkong/audioset_tagging_cnn
+Requires ``torchlibrosa`` (pip install torchlibrosa).
 """
 
-from .sed import SEDInferenceStage
+from nemo_curator.stages.audio.inference.sed_models.cnn14 import (
+    MODEL_REGISTRY,
+    Cnn14DecisionLevelAtt,
+    Cnn14DecisionLevelAvg,
+    Cnn14DecisionLevelMax,
+)
 
-__all__ = ["SEDInferenceStage"]
+__all__ = [
+    "MODEL_REGISTRY",
+    "Cnn14DecisionLevelAtt",
+    "Cnn14DecisionLevelAvg",
+    "Cnn14DecisionLevelMax",
+]

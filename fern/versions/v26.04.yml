@@ -531,6 +531,9 @@ navigation:
                   - page: AudioDataFilterStage Composite
                     path: ./v26.04/pages/curate-audio/process-data/quality-filtering/audio-data-filter-stage.mdx
                     slug: audio-data-filter-stage
+                  - page: Sound Event Detection
+                    path: ./v26.04/pages/curate-audio/process-data/quality-filtering/sound-event-detection.mdx
+                    slug: sound-event-detection
               - section: Audio Analysis
                 slug: audio-analysis
                 contents:
