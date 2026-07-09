@@ -327,7 +327,6 @@ index-strategy = "unsafe-best-match"
 # prerelease marker (ai-dynamo==1.3.0.dev20260615) or when every version in range is a
 # prerelease. Avoids blanket prereleases elsewhere.
 prerelease = "if-necessary-or-explicit"
-no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43

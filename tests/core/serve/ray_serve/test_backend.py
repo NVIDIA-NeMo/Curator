@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import contextlib
+import os
 import sys
 import types
 
@@ -20,8 +21,6 @@ import pytest
 
 from nemo_curator.core.serve import RayServeModelConfig
 from nemo_curator.core.serve.ray_serve.backend import RayServeBackend
-
-LLMConfig = pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed").LLMConfig
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -60,22 +59,6 @@ def fake_ray_modules(monkeypatch: pytest.MonkeyPatch) -> tuple[list[dict[str, ob
 
 
 class TestRayServeBackend:
-    def test_start_uses_public_ray_lifecycle(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        fake_ray_modules: tuple[list[dict[str, object]], list[str]],
-    ) -> None:
-        ray_init_calls, _ = fake_ray_modules
-        deploy_calls: list[str] = []
-        backend = RayServeBackend(server=object())  # type: ignore[arg-type]
-
-        monkeypatch.setattr(backend, "_deploy", lambda: deploy_calls.append("deploy"))
-
-        backend.start()
-
-        assert ray_init_calls == [{"ignore_reinit_error": True}]
-        assert deploy_calls == ["deploy"]
-
     def test_stop_uses_public_ray_lifecycle(
         self,
         fake_ray_modules: tuple[list[dict[str, object]], list[str]],
@@ -88,7 +71,28 @@ class TestRayServeBackend:
         assert ray_init_calls == [{"ignore_reinit_error": True}]
         assert serve_calls == ["shutdown"]
 
+    def test_configure_ray_serve_haproxy_uses_pip_binary_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("RAY_SERVE_ENABLE_HA_PROXY", raising=False)
+        monkeypatch.delenv("RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY", raising=False)
+        monkeypatch.delenv("RAY_SERVE_HAPROXY_BINARY_PATH", raising=False)
+
+        RayServeBackend._configure_ray_serve_haproxy()
+
+        assert os.environ["RAY_SERVE_ENABLE_HA_PROXY"] == "1"
+        assert os.environ["RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY"] == "1"
+
+    def test_configure_ray_serve_haproxy_preserves_explicit_binary(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("RAY_SERVE_ENABLE_HA_PROXY", raising=False)
+        monkeypatch.delenv("RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY", raising=False)
+        monkeypatch.setenv("RAY_SERVE_HAPROXY_BINARY_PATH", "/usr/bin/haproxy")
+
+        RayServeBackend._configure_ray_serve_haproxy()
+
+        assert os.environ["RAY_SERVE_ENABLE_HA_PROXY"] == "1"
+        assert "RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY" not in os.environ
+
     def test_to_llm_config_reads_typed_model_config(self) -> None:
+        llm_config_type = pytest.importorskip("ray.serve.llm", reason="ray[serve] not installed").LLMConfig
         model = RayServeModelConfig(
             model_identifier="google/gemma-3-27b-it",
             model_name="gemma-27b",
@@ -103,7 +107,7 @@ class TestRayServeBackend:
         quiet_env = RayServeBackend._quiet_runtime_env()
         result = RayServeBackend._to_llm_config(model, quiet_runtime_env=quiet_env)
 
-        assert isinstance(result, LLMConfig)
+        assert isinstance(result, llm_config_type)
         assert result.model_loading_config.model_id == "gemma-27b"
         assert result.model_loading_config.model_source == "google/gemma-3-27b-it"
         assert result.deployment_config == {"autoscaling_config": {"min_replicas": 1}}

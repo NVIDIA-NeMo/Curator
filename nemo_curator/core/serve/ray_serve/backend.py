@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -34,6 +35,8 @@ class RayServeBackend(InferenceBackend):
 
     def start(self) -> None:
         """Connect to Ray, deploy the models, and detach the driver."""
+        self._configure_ray_serve_haproxy()
+
         import ray
 
         with ray.init(ignore_reinit_error=True):
@@ -103,6 +106,13 @@ class RayServeBackend(InferenceBackend):
                 "RAY_SERVE_LOG_TO_STDERR": "0",
             },
         }
+
+    @staticmethod
+    def _configure_ray_serve_haproxy() -> None:
+        """Set Ray Serve HAProxy defaults before importing Ray Serve."""
+        os.environ.setdefault("RAY_SERVE_ENABLE_HA_PROXY", "1")
+        if not os.environ.get("RAY_SERVE_HAPROXY_BINARY_PATH"):
+            os.environ.setdefault("RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY", "1")
 
     @staticmethod
     def _to_llm_config(model: RayServeModelConfig, quiet_runtime_env: dict[str, Any] | None = None) -> "LLMConfig":
