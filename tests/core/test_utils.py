@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import shutil
+import os
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -48,38 +47,49 @@ def test_ignore_ray_head_node_env_parsing(monkeypatch: pytest.MonkeyPatch, value
     assert ignore_ray_head_node() is expected
 
 
-def test_init_cluster_enables_ray_serve_pip_haproxy_without_system_binary_checks(
+def _patch_cluster_start_side_effects(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    popen_calls: list[list[str]] = []
+) -> tuple[list[list[str]], list[tuple[int, bool, str]]]:
+    popen_commands: list[list[str]] = []
     free_port_calls: list[tuple[int, bool, str]] = []
+    free_ports = {
+        core_utils.DEFAULT_RAY_DASHBOARD_METRIC_PORT: 8266,
+        core_utils.DEFAULT_RAY_AUTOSCALER_METRIC_PORT: 8267,
+        core_utils.DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT: 9111,
+        core_utils.DEFAULT_RAY_SERVE_HAPROXY_STATS_PORT: 8414,
+    }
 
-    class FakePopen:
-        def __init__(self, command: list[str], **_: object) -> None:
-            popen_calls.append(command)
+    def fake_popen(command: list[str], **_: object) -> object:
+        popen_commands.append(command)
+        return object()
 
     def fake_get_free_port(start_port: int, get_next_free_port: bool = True, bind_host: str = "localhost") -> int:
         free_port_calls.append((start_port, get_next_free_port, bind_host))
-        return start_port + 10
+        return free_ports[start_port]
 
-    def fail_system_binary_lookup(binary_name: str) -> str | None:
-        msg = f"system binary lookup should not run for Ray Serve HAProxy: {binary_name}"
-        raise AssertionError(msg)
-
-    env: dict[str, str] = {}
-    monkeypatch.setattr(core_utils.os, "environ", env)
-    monkeypatch.setattr(
-        core_utils.importlib.util,
-        "find_spec",
-        lambda name: SimpleNamespace() if name == "ray_haproxy" else None,
-    )
-    monkeypatch.setattr(shutil, "which", fail_system_binary_lookup)
     monkeypatch.setattr(core_utils.ray.util, "register_serializer", lambda *_, **__: None)
     monkeypatch.setattr(core_utils.socket, "gethostbyname", lambda _hostname: "127.0.0.1")
     monkeypatch.setattr(core_utils.socket, "gethostname", lambda: "localhost")
-    monkeypatch.setattr(core_utils.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(core_utils.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(core_utils, "get_free_port", fake_get_free_port)
+    return popen_commands, free_port_calls
+
+
+def test_ray_serve_haproxy_source_prefers_packaged_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("RAY_SERVE_HAPROXY_BINARY_PATH", raising=False)
+    monkeypatch.setattr(
+        core_utils.importlib.util, "find_spec", lambda name: object() if name == "ray_haproxy" else None
+    )
+
+    assert core_utils._ray_serve_haproxy_source() == "ray-haproxy package"
+
+
+def test_init_cluster_enables_ray_serve_haproxy_env_vars(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("RAY_SERVE_HAPROXY_BINARY_PATH", "/opt/ray-haproxy")
+    popen_calls, free_port_calls = _patch_cluster_start_side_effects(monkeypatch)
 
     core_utils.init_cluster(
         ray_port=6379,
@@ -93,8 +103,7 @@ def test_init_cluster_enables_ray_serve_pip_haproxy_without_system_binary_checks
     assert popen_calls
     assert (core_utils.DEFAULT_RAY_SERVE_HAPROXY_METRICS_PORT, True, _ALL_INTERFACES) in free_port_calls
     assert (core_utils.DEFAULT_RAY_SERVE_HAPROXY_STATS_PORT, True, _ALL_INTERFACES) in free_port_calls
-    assert env["RAY_SERVE_ENABLE_HA_PROXY"] == "1"
-    assert env["RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY"] == "1"
-    assert env["RAY_SERVE_HAPROXY_METRICS_PORT"] == "9111"
-    assert env["RAY_SERVE_HAPROXY_STATS_PORT"] == "8414"
-    assert "RAY_SERVE_HAPROXY_BINARY_PATH" not in env
+    assert os.environ["RAY_SERVE_ENABLE_HA_PROXY"] == "1"
+    assert os.environ["RAY_SERVE_EXPERIMENTAL_PIP_HAPROXY"] == "1"
+    assert os.environ["RAY_SERVE_HAPROXY_METRICS_PORT"] == "9111"
+    assert os.environ["RAY_SERVE_HAPROXY_STATS_PORT"] == "8414"

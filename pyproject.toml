@@ -68,7 +68,7 @@ dependencies = [
     "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]>=2.56.0",  # release wheel routed per (python, arch) via [tool.uv.sources]
+    "ray[default,data]>=2.56.0",
     "torch",
     "transformers",
 ]
@@ -400,14 +400,6 @@ torchvision = [
 torchcodec = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
-]
-# Ray 2.56 release-bucket wheels on x86_64 (the CUDA-12.9 stack's only arch):
-# one immutable wheel per python tag. aarch64/other resolve ray from PyPI via
-# the >= floor (avoids dragging ray[llm]'s default cu130 vllm onto aarch64).
-ray = [
-    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/releases/2.56.0/45194d5f4b2afdfead53dc4e1a7dba2f2205d50f/ray-2.56.0-cp311-cp311-manylinux2014_x86_64.whl", marker = "python_version == '3.11' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/releases/2.56.0/45194d5f4b2afdfead53dc4e1a7dba2f2205d50f/ray-2.56.0-cp312-cp312-manylinux2014_x86_64.whl", marker = "python_version == '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { url = "https://s3-us-west-2.amazonaws.com/ray-wheels/releases/2.56.0/45194d5f4b2afdfead53dc4e1a7dba2f2205d50f/ray-2.56.0-cp313-cp313-manylinux2014_x86_64.whl", marker = "python_version == '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 ai-dynamo = { index = "nvidia" }
 ai-dynamo-runtime = { index = "nvidia" }
