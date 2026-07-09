@@ -38,6 +38,7 @@ from typing import Any
 import torch
 from loguru import logger
 
+from nemo_curator.stages.audio._agent_ready import AgentReady, IOSpec, StageContract
 from nemo_curator.stages.audio.common import ensure_waveform_2d
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -67,7 +68,7 @@ class SegmentMapping:
 
 
 @dataclass
-class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
+class SegmentConcatenationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Concatenate nested VAD segments into a single combined waveform.
 
@@ -84,6 +85,12 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     silence_duration_sec: float = 0.5
+    segments_key: str = "segments"
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
+    original_file_key: str = "original_file"
+    num_segments_key: str = "num_segments"
+    total_duration_sec_key: str = "total_duration_sec"
 
     name: str = "SegmentConcatenation"
     batch_size: int = 1
@@ -96,13 +103,37 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["waveform", "sample_rate", "num_segments", "total_duration_sec", "original_file"]
+        return [], [
+            self.waveform_key,
+            self.sample_rate_key,
+            self.num_segments_key,
+            self.total_duration_sec_key,
+            self.original_file_key,
+        ]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.segments_key]),
+            writes=IOSpec(
+                data_keys=[
+                    self.waveform_key,
+                    self.sample_rate_key,
+                    self.original_file_key,
+                    self.num_segments_key,
+                    self.total_duration_sec_key,
+                ],
+                produces=["tensor"],
+            ),
+            metadata_writes=["segment_mappings"],
+            cardinality="N:1",
+            iteration_key=self.segments_key,
+        )
 
     def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
         """Concatenate segments from ``task.data["segments"]``."""
-        segments = task.data.get("segments")
+        segments = task.data.get(self.segments_key)
         if segments is None:
-            msg = "SegmentConcatenationStage requires task.data['segments'] (nested VAD mode)"
+            msg = f"SegmentConcatenationStage requires task.data[{self.segments_key!r}] (nested VAD mode)"
             raise ValueError(msg)
 
         if not segments:
@@ -111,7 +142,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
         segments_sorted = sorted(segments, key=self._seg_sort_key)
         original_file = segments_sorted[0].get("original_file", "unknown")
 
-        combined = self._concatenate(original_file, segments_sorted, task.dataset_name)
+        combined = self._concatenate(original_file, segments_sorted, task)
         if combined is None:
             return []
         return combined
@@ -127,12 +158,15 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
             return (0, int(start), 0)
         return (0, 0, 0)
 
-    @staticmethod
-    def _validate_segment(seg: dict[str, Any]) -> tuple[torch.Tensor, int] | None:
+    def _validate_segment(self, seg: dict[str, Any]) -> tuple[torch.Tensor, int] | None:
         """Validate and return (waveform, sample_rate) or None if invalid."""
-        waveform = seg.get("waveform")
-        sr = seg.get("sample_rate")
+        waveform = seg.get(self.waveform_key)
+        sr = seg.get(self.sample_rate_key)
         if waveform is None:
+            logger.warning(
+                f"[SegmentConcat] Skipping segment {seg.get('segment_num', '?')}: no "
+                f"{self.waveform_key!r} (was VAD run with keep_segment_waveform_in_task=False?)"
+            )
             return None
         seg_id = seg.get("segment_num", "?")
         if sr is None:
@@ -147,7 +181,7 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
         self,
         original_file: str,
         segments: list[dict[str, Any]],
-        dataset_name: str,
+        parent_task: AudioTask,
     ) -> AudioTask | None:
         """Concatenate a list of segment dicts from the same source file."""
         parts: list[torch.Tensor] = []
@@ -214,19 +248,18 @@ class SegmentConcatenationStage(ProcessingStage[AudioTask, AudioTask]):
         total_duration_sec = current_pos_ms / 1000.0
 
         output_data = {
-            "waveform": combined,
-            "sample_rate": sample_rate,
-            "original_file": original_file,
-            "num_segments": len(mappings),
-            "total_duration_sec": total_duration_sec,
+            self.waveform_key: combined,
+            self.sample_rate_key: sample_rate,
+            self.original_file_key: original_file,
+            self.num_segments_key: len(mappings),
+            self.total_duration_sec_key: total_duration_sec,
         }
 
         logger.info(f"[SegmentConcat] {original_file}: {len(mappings)} segments -> {total_duration_sec:.2f}s combined")
 
-        result_task = AudioTask(
+        return AudioTask(
             data=output_data,
-            dataset_name=dataset_name,
+            dataset_name=parent_task.dataset_name,
+            _metadata={**(parent_task._metadata or {}), "segment_mappings": mappings},
+            _stage_perf=list(parent_task._stage_perf),
         )
-        result_task._metadata = {"segment_mappings": mappings}
-
-        return result_task
