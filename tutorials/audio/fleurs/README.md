@@ -41,30 +41,7 @@ uv sync --extra audio_cpu
 | **Format** | WAV audio + text transcriptions |
 | **Size** | ~50 MB per language split (auto-downloaded) |
 | **License** | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| **Auto-download** | On first use only; a complete `<raw_data_dir>/<lang>/` layout is reused without network access |
-
-For offline or repeatable runs, use the same one-time staging helper as the
-benchmark suite:
-
-```bash
-python benchmarking/data_prep/prepare_fleurs_data.py \
-  --output-path ./example_audio/fleurs \
-  --lang en_us \
-  --split dev
-```
-
-On later runs, verify the local copy without downloading it again:
-
-```bash
-python benchmarking/data_prep/prepare_fleurs_data.py \
-  --output-path ./example_audio/fleurs \
-  --lang en_us \
-  --split dev \
-  --verify-only
-```
-
-Pass `stages.0.auto_download=false` to make the pipeline fail instead of
-downloading when the requested staged split is incomplete.
+| **Auto-download** | Yes — handled by `CreateInitialManifestFleursStage` |
 
 ## Quick start
 
@@ -122,7 +99,7 @@ Both backends run on top of Ray. `main.py` uses `RayClient` to manage the Ray cl
 
 ### 1. `CreateInitialManifestFleursStage`
 
-Reuses the FLEURS split under `<raw_data_dir>/<lang>/`, downloading and extracting it only when that layout is missing and `auto_download=True`. It emits one `AudioTask` per utterance with an absolute `audio_filepath`, `text`, and `audio_item_id`. The identifier is the source WAV filename stem, so it is deterministic across reruns and staging roots. It is not automatically prefixed with the language or split; namespace it before combining sources where filename stems may collide.
+Downloads the FLEURS split from HuggingFace (if not cached under `<raw_data_dir>/<lang>/`) and emits one `AudioTask` per utterance with `audio_filepath` and `text`.
 
 ### 2. `InferenceAsrNemoStage`
 
@@ -176,8 +153,7 @@ Results are written as JSONL to `${raw_data_dir}/result/${lang}/`. Each line con
 
 ```json
 {
-  "audio_filepath": "/absolute/path/to/fleurs/en_us/dev/10004088536354799741.wav",
-  "audio_item_id": "10004088536354799741",
+  "audio_filepath": "relative/path/to/audio.wav",
   "text": "reference transcription from FLEURS",
   "pred_text": "predicted transcription from ASR model",
   "wer_pct": 12.5,
@@ -187,8 +163,7 @@ Results are written as JSONL to `${raw_data_dir}/result/${lang}/`. Each line con
 
 | Field | Type | Description |
 |---|---|---|
-| `audio_filepath` | string | Absolute path to the extracted WAV file |
-| `audio_item_id` | string | Stable identifier derived from the source WAV filename stem |
+| `audio_filepath` | string | Relative path to the WAV file |
 | `text` | string | Ground-truth transcription from the FLEURS dataset |
 | `pred_text` | string | ASR model's predicted transcription |
 | `wer_pct` | float | Word Error Rate (0–100) between `text` and `pred_text` |
@@ -232,12 +207,7 @@ from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 pipeline = Pipeline(
     name="fleurs-custom",
     stages=[
-        CreateInitialManifestFleursStage(
-            lang="en_us",
-            split="dev",
-            raw_data_dir="./data",
-            audio_item_id_key="audio_item_id",
-        ),
+        CreateInitialManifestFleursStage(lang="en_us", split="dev", raw_data_dir="./data"),
         InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2"),
         GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer_pct"),
     ],

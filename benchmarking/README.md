@@ -383,7 +383,7 @@ This command:
 - Reads the configuration file and extracts `results_path` and `datasets_path`
 - Automatically creates volume mounts to map these paths into the container
 - Runs the benchmarking framework with the Curator code built into the Docker image
-- Passes environment variables like `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `MLFLOW_TRACKING_URI`, and `HF_TOKEN` to the container
+- Passes environment variables like `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, and `MLFLOW_TRACKING_URI` to the container
 
 ### Using Host Curator Sources
 
@@ -469,113 +469,35 @@ For more details, refer to the `--help` output for `run.sh`
 
 ## Audio Tagging Benchmark
 
-`benchmarking/scripts/audio_tagging_benchmark.py` exercises the complete TTS
-tagging graph, including the second ASR pass and WER validation:
+The nightly entries process three real AMI single-distant-microphone meetings:
+1.563 hours of long, multi-speaker audio with overlap. Copy the audio and a
+three-row JSONL manifest once to the EOS-backed
+`{datasets_path}/audio_tagging_ami_sdm` directory. Each row needs stable IDs and
+the container-visible audio path:
 
-```text
-ManifestReader or CreateInitialManifestFleurs
-  -> ResampleAudio
-  -> PyAnnoteDiarization
-  -> SplitLongAudio
-  -> ASRAlignment
-  -> JoinSplitMetadata
-  -> MergeAlignmentDiar
-  -> BandwidthEstimation
-  -> SquimMetrics
-  -> PrepareModuleSegments
-  -> ASRAlignment2
-  -> ComputeWER
-  -> ManifestWriter
+```json
+{"audio_filepath":"/datasets/audio_tagging_ami_sdm/audio/EN2002b.Array1-01.wav","audio_item_id":"EN2002b.Array1-01"}
 ```
 
-The second ASR pass and `ComputeWER` are mandatory benchmark stages. They are
-not omitted just because the segment preparation mode is `tts`. This differs
-from the minimal TTS tutorial configuration, which writes immediately after
-`PrepareModuleSegments`.
-
-### Stage FLEURS once
-
-The nightly entries use all 394 clips in the English (`en_us`) development
-split, approximately 1.05 hours of source audio. Stage that split once on each
-benchmark machine:
+Also clone `pyannote/speaker-diarization-community-1` once to the EOS-backed
+`{model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1`
+directory. Nightly runs load that local pipeline and need neither `HF_TOKEN`
+nor network access.
 
 ```bash
-python benchmarking/data_prep/prepare_fleurs_data.py \
-  --output-path /path/to/datasets/fleurs \
-  --lang en_us \
-  --split dev
-```
-
-This produces the following reusable layout:
-
-```text
-/path/to/datasets/fleurs/
-└── en_us/
-    ├── dev.tsv
-    └── dev/
-        └── *.wav
-```
-
-Verify an existing copy without downloading anything:
-
-```bash
-python benchmarking/data_prep/prepare_fleurs_data.py \
-  --output-path /path/to/datasets/fleurs \
-  --lang en_us \
-  --split dev \
-  --verify-only
-```
-
-Nightly runs pass `--no-auto-download`. A missing transcript or audio directory
-therefore fails immediately instead of fetching data during the timed run.
-
-### Run directly
-
-Set `HF_TOKEN` in the environment for PyAnnote access. Do not pass credentials
-as command-line arguments; command lines, logs, and benchmark parameters are
-retained as artifacts.
-
-```bash
-read -rsp "Hugging Face token: " HF_TOKEN && export HF_TOKEN
-echo
 python benchmarking/scripts/audio_tagging_benchmark.py \
   --benchmark-results-path /tmp/audio-tagging-results \
-  --raw-data-dir /path/to/datasets/fleurs \
-  --lang en_us \
-  --split dev \
-  --no-auto-download \
+  --input-manifest /path/to/audio_tagging_ami_sdm/manifest.jsonl \
+  --diarization-model-path /path/to/pyannote-speaker-diarization-community-1 \
   --executor xenna
 ```
 
-`--raw-data-dir` is the parent of the automatically selected `<lang>/`
-directory. For local debugging, `--input-manifest` can be used instead; the two
-input options are mutually exclusive. `--repeat-factor 2` duplicates each
-source task after loading and gives every copy a distinct `audio_item_id`.
-
-### Success contract
-
-A zero-work or partially skipped run is a failure even when the executor exits
-normally. The script validates all of the following before reporting
-`is_success: true`:
-
-| Check | Required result |
-|---|---|
-| Source tasks | Exactly 394 tasks, or 788 with `--repeat-factor 2`, in the nightly entries |
-| Prepared output | At least one structurally valid segment overall; nightly also requires segments on at least 50% of tasks |
-| Second-pass ASR | `text_2` on every valid prepared segment |
-| WER | A finite `metrics.wer.wer` value on every valid prepared segment |
-| Stage execution | All 12 processing stages report nonzero `StagePerfStats.num_items_processed` |
-| Persisted output | A non-empty JSONL manifest with one JSON object per returned task |
-| Source volume | At least 1.0 audio hour, or 2.0 hours for the repeated entry |
-
-The corresponding metrics are
-`num_tasks_processed`, `num_tasks_with_segments`, `num_segments_processed`,
-`segment_task_coverage_ratio`, `num_segments_with_second_pass_asr`,
-`second_pass_asr_segment_coverage_ratio`, `num_segments_with_wer`,
-`wer_segment_coverage_ratio`, `num_required_stages`,
-`num_executed_required_stages`, `stage_execution_coverage_ratio`,
-`total_audio_duration_hours`, `tagged_audio_duration_hours`, and
-`throughput_audio_hours_per_hour`.
+Every downstream stage preserves outer task rows, so success requires
+`input manifest rows * repeat factor == returned tasks == output manifest rows`.
+It also requires complete second-pass ASR and finite WER output, nonzero work
+from all 12 processing stages, and at least 1.5 source audio hours (3.0 for the
+repeated entry). Incomplete prepared segments are reported but are not counted
+as successfully processed output.
 
 ---
 
@@ -607,7 +529,6 @@ Your script **must** write three JSON/pickle files to the `--benchmark-results-p
 
 See existing scripts in `scripts/` for complete examples:
 - `alm_pipeline_benchmark.py` - ALM audio pipeline benchmark
-- `audio_tagging_benchmark.py` - Full audio tagging benchmark with offline FLEURS input and stage/output validation
 - `domain_classification_benchmark.py` - Domain classification with model inference
 - `embedding_generation_benchmark.py` - Embedding generation benchmark
 - `removal_benchmark.py` - Data removal operations benchmark

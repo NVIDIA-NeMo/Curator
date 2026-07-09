@@ -52,6 +52,12 @@ class TestPrepareModuleSegmentsStageIsValidSegment:
         segment = {"speaker": "s1", "words": []}
         assert stage.is_valid_segment(segment) is False
 
+    def test_invalid_zero_duration_word(self) -> None:
+        stage = PrepareModuleSegmentsStage(module="tts")
+        segment = {"speaker": "s1", "words": [{"word": "hello", "start": 1.0, "end": 1.0}]}
+
+        assert stage.is_valid_segment(segment) is False
+
 
 class TestPrepareModuleSegmentsStageSplitSegmentByDuration:
     """Tests for PrepareModuleSegmentsStage.split_segment_by_duration."""

@@ -113,23 +113,20 @@ datasets:
     formats:
     - type: "wav"
       path: "{datasets_path}/read_speech"
-  # Persistent on-disk location for FLEURS datasets (transcript <split>.tsv +
-  # extracted <split>/ audio). The nightly entries below run with
-  # --no-auto-download, so this must be pre-staged once on the benchmark machine
-  # via:
+  # Persistent on-disk location for the FLEURS dataset (transcript <split>.tsv +
+  # extracted <split>/ audio). Pre-stage it once on the benchmark machine via:
   #   python benchmarking/data_prep/prepare_fleurs_data.py \
-  #       --output-path {datasets_path}/fleurs --lang hy_am --split train
-  #   python benchmarking/data_prep/prepare_fleurs_data.py \
-  #       --output-path {datasets_path}/fleurs --lang en_us --split dev
-  # Every subsequent run then reuses it and never re-fetches (avoids HTTP 429).
+  #       --output-path {datasets_path}/fleurs
   - name: "fleurs_hy_am"
     formats:
     - type: "files"
       path: "{datasets_path}/fleurs"
-  - name: "fleurs_en_us"
+  # Three real AMI SDM meetings (1.563 hours total) with multiple speakers and
+  # overlap. Copy the audio and manifest once to the EOS-backed datasets_path.
+  - name: "audio_tagging_ami_sdm"
     formats:
     - type: "files"
-      path: "{datasets_path}/fleurs"
+      path: "{datasets_path}/audio_tagging_ami_sdm"
 # Timeout knobs consumed by tools/generate_ci_tests.py to compute each SLURM job's wall-clock:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -1192,16 +1189,16 @@ entries:
     ray:
       num_gpus: 0
 
-  # FLEURS en_us dev contains 394 clips and approximately 1.05 hours of audio.
+  # The manifest contains three pre-staged AMI SDM meetings (1.563 audio hours).
+  # Clone pyannote/speaker-diarization-community-1 once under model_weights_path;
+  # nightly runs use the local clone and do not require HF_TOKEN or network access.
   - name: audio_tagging_tts_xenna
     enabled: true
     script: audio_tagging_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --raw-data-dir={dataset:fleurs_en_us,files}
-      --lang=en_us
-      --split=dev
-      --no-auto-download
+      --input-manifest={dataset:audio_tagging_ami_sdm,files}/manifest.jsonl
+      --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
       --max-segment-length=40
       --asr-batch-size=50
       --executor=xenna
@@ -1209,12 +1206,13 @@ entries:
     sink_data:
       - name: slack
         additional_metrics:
+          - num_input_rows
+          - num_output_rows
+          - input_output_row_count_match
           - num_tasks_processed
           - num_tasks_with_segments
           - num_segments_processed
-          - segment_task_coverage_ratio
-          - num_segments_with_second_pass_asr
-          - num_segments_with_wer
+          - segment_output_coverage_ratio
           - stage_execution_coverage_ratio
           - total_audio_duration_hours
           - tagged_audio_duration_hours
@@ -1228,43 +1226,35 @@ entries:
     requirements:
       - metric: is_success
         exact_value: true
-      - metric: num_tasks_processed
-        exact_value: 394
+      - metric: input_output_row_count_match
+        exact_value: true
+      - metric: num_input_rows
+        exact_value: 3
+      - metric: num_output_rows
+        exact_value: 3
       - metric: num_tasks_with_segments
-        min_value: 197
-      - metric: segment_task_coverage_ratio
-        min_value: 0.5
+        exact_value: 3
       - metric: num_segments_processed
-        min_value: 197
-      - metric: num_segments_with_second_pass_asr
-        min_value: 197
-      - metric: second_pass_asr_segment_coverage_ratio
-        exact_value: 1.0
-      - metric: num_segments_with_wer
-        min_value: 197
-      - metric: wer_segment_coverage_ratio
-        exact_value: 1.0
-      - metric: num_required_stages
-        exact_value: 12
-      - metric: num_executed_required_stages
-        exact_value: 12
+        min_value: 100
+      - metric: segment_output_coverage_ratio
+        min_value: 0.7
       - metric: stage_execution_coverage_ratio
         exact_value: 1.0
       - metric: total_audio_duration_hours
-        min_value: 1.0
+        min_value: 1.5
+      - metric: tagged_audio_duration_hours
+        min_value: 0.2
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
-  # The repeat entry processes 788 clips and approximately 2.09 hours of audio.
+  # The repeat entry exercises 3.126 source-audio hours while reading EOS once.
   - name: audio_tagging_tts_xenna_repeat
     enabled: true
     script: audio_tagging_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --raw-data-dir={dataset:fleurs_en_us,files}
-      --lang=en_us
-      --split=dev
-      --no-auto-download
+      --input-manifest={dataset:audio_tagging_ami_sdm,files}/manifest.jsonl
+      --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
       --repeat-factor=2
       --max-segment-length=40
       --asr-batch-size=50
@@ -1273,12 +1263,13 @@ entries:
     sink_data:
       - name: slack
         additional_metrics:
+          - num_input_rows
+          - num_output_rows
+          - input_output_row_count_match
           - num_tasks_processed
           - num_tasks_with_segments
           - num_segments_processed
-          - segment_task_coverage_ratio
-          - num_segments_with_second_pass_asr
-          - num_segments_with_wer
+          - segment_output_coverage_ratio
           - stage_execution_coverage_ratio
           - total_audio_duration_hours
           - tagged_audio_duration_hours
@@ -1292,30 +1283,24 @@ entries:
     requirements:
       - metric: is_success
         exact_value: true
-      - metric: num_tasks_processed
-        exact_value: 788
+      - metric: input_output_row_count_match
+        exact_value: true
+      - metric: num_input_rows
+        exact_value: 6
+      - metric: num_output_rows
+        exact_value: 6
       - metric: num_tasks_with_segments
-        min_value: 394
-      - metric: segment_task_coverage_ratio
-        min_value: 0.5
+        exact_value: 6
       - metric: num_segments_processed
-        min_value: 394
-      - metric: num_segments_with_second_pass_asr
-        min_value: 394
-      - metric: second_pass_asr_segment_coverage_ratio
-        exact_value: 1.0
-      - metric: num_segments_with_wer
-        min_value: 394
-      - metric: wer_segment_coverage_ratio
-        exact_value: 1.0
-      - metric: num_required_stages
-        exact_value: 12
-      - metric: num_executed_required_stages
-        exact_value: 12
+        min_value: 200
+      - metric: segment_output_coverage_ratio
+        min_value: 0.7
       - metric: stage_execution_coverage_ratio
         exact_value: 1.0
       - metric: total_audio_duration_hours
-        min_value: 2.0
+        min_value: 3.0
+      - metric: tagged_audio_duration_hours
+        min_value: 0.4
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 

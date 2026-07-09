@@ -399,8 +399,8 @@ class RepeatEntriesStage(ProcessingStage[AudioTask, AudioTask]):
     """Multiply each AudioTask N times for scale testing.
 
     Duplicates entries in-memory after reading so the file is only read once.
-    ``unique_id_key`` can be supplied when downstream stages derive output paths
-    from a manifest identifier; each copy then receives a deterministic suffix.
+    When ``unique_id_key`` is set, every copy receives a deterministic identifier
+    so downstream writers do not overwrite repeated inputs.
     """
 
     name = "repeat_entries"
@@ -425,7 +425,6 @@ class RepeatEntriesStage(ProcessingStage[AudioTask, AudioTask]):
 
             results.append(
                 AudioTask(
-                    task_id=f"{task.task_id}_repeat_{repeat_index}" if task.task_id else "",
                     dataset_name=task.dataset_name,
                     data=data,
                     filepath_key=task.filepath_key,

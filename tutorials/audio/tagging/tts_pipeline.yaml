@@ -36,7 +36,8 @@
 #     --config-path . \
 #     --config-name tts_pipeline \
 #     input_manifest=/data/input.jsonl \
-#     final_manifest=/data/tts_output.jsonl
+#     final_manifest=/data/tts_output.jsonl \
+#     hf_token=<your_hf_token>
 
 defaults:
   - _self_
@@ -61,7 +62,7 @@ documentation: |
   * **input_manifest**: Path to input JSONL manifest with raw audio entries.
     Each line must contain ``audio_filepath`` and ``audio_item_id``.
   * **final_manifest**: Path for the output JSONL manifest.
-  * **HF_TOKEN**: Environment variable for PyAnnote model access.
+  * **hf_token**: HuggingFace token for PyAnnote model access.
 
   **Output format**:
 
@@ -78,7 +79,7 @@ backend: xenna
 workspace_dir: /tmp/tagging_workspace
 resampled_audio_dir: ${workspace_dir}/audio_resampled
 language_short: en
-hf_token: ${oc.env:HF_TOKEN,""}
+hf_token: ""
 sample_rate: 16000
 max_segment_length: 40
 execution_mode: streaming

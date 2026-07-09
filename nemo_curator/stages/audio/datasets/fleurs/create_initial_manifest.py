@@ -45,8 +45,8 @@ class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
 
     Dataset link: https://huggingface.co/datasets/google/fleurs
 
-    Reuses or downloads the requested transcript and audio archive, extracts
-    the audio when needed, and emits one ``AudioTask`` per transcript line.
+    Downloads all files, extracts them, and emits one ``AudioTask`` per
+    transcript line keyed by ``filepath_key`` and ``text_key``.
 
     Args:
         lang: Language code (e.g. ``"hy_am"`` for Armenian).
@@ -58,8 +58,6 @@ class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
             produced by ``benchmarking/data_prep/prepare_fleurs_data.py``.
         filepath_key: Key name used for the audio file path in each emitted entry.
         text_key: Key name used for the transcript text in each emitted entry.
-        audio_item_id_key: Key name used for the stable audio identifier derived
-            from the FLEURS filename.
         cache_dir: Optional Hugging Face cache directory for the downloaded files.
             When ``None`` the default Hugging Face cache (``HF_HOME``) is used.
             Only used on the one-time download path.
@@ -78,7 +76,6 @@ class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
     raw_data_dir: str = ""
     filepath_key: str = "audio_filepath"
     text_key: str = "text"
-    audio_item_id_key: str = "audio_item_id"
     batch_size: int = 1
     cache_dir: str | None = None
     auto_download: bool = True
@@ -93,7 +90,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.filepath_key, self.text_key, self.audio_item_id_key]
+        return [], [self.filepath_key, self.text_key]
 
     def language_data_dir(self) -> str:
         """Return the per-language download directory under ``raw_data_dir``.
@@ -122,15 +119,10 @@ class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
 
                 file_name, transcript_text = parts[1], parts[2]
                 abs_wav = os.path.abspath(os.path.join(audio_root, file_name))
-                audio_item_id = os.path.splitext(os.path.basename(file_name))[0]
 
                 entries.append(
                     AudioTask(
-                        data={
-                            self.filepath_key: abs_wav,
-                            self.text_key: transcript_text,
-                            self.audio_item_id_key: audio_item_id,
-                        },
+                        data={self.filepath_key: abs_wav, self.text_key: transcript_text},
                         dataset_name=f"Fleurs_{self.lang}_{self.split}_{self.raw_data_dir}",
                         filepath_key=self.filepath_key,
                     )

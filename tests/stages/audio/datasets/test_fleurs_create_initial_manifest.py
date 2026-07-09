@@ -71,7 +71,7 @@ def test_inputs_outputs(tmp_path: Path) -> None:
     stage_cls, _ = _import_stage_module()
     stage = stage_cls(lang="en_us", split="dev", raw_data_dir=str(tmp_path))
     assert stage.inputs() == ([], [])
-    assert stage.outputs() == ([], ["audio_filepath", "text", "audio_item_id"])
+    assert stage.outputs() == ([], ["audio_filepath", "text"])
 
 
 def test_language_data_dir_is_namespaced_per_language(tmp_path: Path) -> None:
@@ -271,7 +271,5 @@ def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
     b0, b1 = batches
     assert b0.data[stage.filepath_key].endswith(os.path.join(split, "file1.wav"))
     assert b0.data[stage.text_key] == "hello world"
-    assert b0.data[stage.audio_item_id_key] == "file1"
     assert b1.data[stage.filepath_key].endswith(os.path.join(split, "file2.wav"))
     assert b1.data[stage.text_key] == "second"
-    assert b1.data[stage.audio_item_id_key] == "file2"

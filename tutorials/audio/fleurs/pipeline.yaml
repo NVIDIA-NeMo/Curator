@@ -33,8 +33,8 @@ documentation: |
 
   **Output format**:
 
-  JSONL at ``${output_dir}`` with keys ``audio_filepath``, ``audio_item_id``,
-  ``text``, ``pred_text``, ``wer_pct``, and ``duration``.
+  JSONL at ``${output_dir}`` with keys ``audio_filepath``, ``text``,
+  ``pred_text``, ``wer_pct``, and ``duration``.
 
 raw_data_dir: ???
 lang: hy_am
@@ -48,7 +48,6 @@ stages:
     lang: ${lang}
     split: ${data_split}
     raw_data_dir: ${raw_data_dir}
-    audio_item_id_key: audio_item_id
     batch_size: 4
 
   - _target_: nemo_curator.stages.audio.inference.asr.asr_nemo.InferenceAsrNemoStage
