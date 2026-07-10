@@ -62,6 +62,9 @@ def print_help(script_name: str) -> None:
       --shell                  Start an interactive bash shell instead of running benchmarks. ARGS, if specified, will be passed to 'bash -c'.
                                For example: '--shell uv pip list | grep cugraph' will run 'uv pip list | grep cugraph' to display the version of cugraph installed in the container.
       --config <path>          Path to a YAML config file. Can be specified multiple times to merge configs. This arg is required if not using --shell.
+      --data-setup-config <path>
+                               Path to a YAML config file describing data-prep scripts to run before benchmark entries.
+                               Can be specified multiple times to merge setup configs.
       -h, --help               Show this help message and exit.
 
       ARGS, if specified, are passed to the container entrypoint, either the default benchmarking entrypoint or the --shell bash entrypoint.
@@ -118,6 +121,7 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
     parser.add_argument("--use-host-curator-benchmarking", action="store_true")
     parser.add_argument("--shell", action="store_true")
     parser.add_argument("--config", action="append", type=Path, default=[])
+    parser.add_argument("--data-setup-config", action="append", type=Path, default=[])
 
     args, unknown_args = parser.parse_known_args(argv[1:])
 
@@ -167,6 +171,15 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
         # bash shell entrypoint.
         if not args.shell:
             entrypoint_args.append(f"--config={container_dir_path}")
+
+    # Add volume mounts for each data setup config file so the script in the
+    # container can read each one, mirroring normal benchmark config handling.
+    for config_file in args.data_setup_config:
+        config_file_host = config_file.absolute().expanduser().resolve()
+        container_dir_path = combine_dir_paths(DEFAULT_CONTAINER_PATH_PREFIX, config_file_host)
+        volume_mounts.append(f"--volume {config_file_host}:{container_dir_path}")
+        if not args.shell:
+            entrypoint_args.append(f"--data-setup-config={container_dir_path}")
 
     # The total available container memory will be the total host memory, but no more
     # than _max_container_memory_bytes.

@@ -1,0 +1,19 @@
+# Data setup entries for benchmark inputs that are prepared once and reused by
+# nightly benchmark entries.
+#
+# Pass this file to benchmarking/tools/run.sh with:
+#   --data-setup-config benchmarking/nightly-data-setup.yaml
+
+data_setups:
+  - name: fleurs_hy_am
+    enabled: true
+    script: prepare_fleurs_data.py
+    args: >-
+      --output-path {datasets_path}/fleurs
+
+  - name: audio_tagging_ami_sdm
+    enabled: true
+    script: prepare_audio_tagging_data.py
+    args: >-
+      --output-path {datasets_path}/audio_tagging_ami_sdm
+      --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1

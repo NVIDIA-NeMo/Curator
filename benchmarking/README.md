@@ -21,7 +21,7 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 
 Assuming the working directory is the NeMo Curator repo root dir:
 ```bash
-./benchmarking/tools/build_docker.sh
+./benchmarking/tools/build_docker.sh --tag-as-latest
 ```
 
 This builds the `curator_benchmarking` image with:
@@ -55,12 +55,17 @@ pre-staged model snapshots or caches, such as audio tagging.
 **3. Run benchmarks:**
 
 ```bash
-./benchmarking/tools/run.sh --config ./benchmarking/nightly-benchmark.yaml
+./benchmarking/tools/run.sh \
+  --config ./benchmarking/nightly-benchmark.yaml \
+  --data-setup-config ./benchmarking/nightly-data-setup.yaml
 ```
 
 To run using the Curator sources on the host instead of those in the image, pass the `--use-host-curator` option:
 ```bash
-./benchmarking/tools/run.sh --config ./benchmarking/nightly-benchmark.yaml --use-host-curator
+./benchmarking/tools/run.sh \
+  --config ./benchmarking/nightly-benchmark.yaml \
+  --data-setup-config ./benchmarking/nightly-data-setup.yaml \
+  --use-host-curator
 ```
 This is especially useful during active development and debugging since it avoids a costly rebuild step.
 
@@ -488,6 +493,12 @@ The benchmark scripts keep their standalone auto-download path for ad hoc local
 debugging only. That fallback stages into `{session_entry_dir}/scratch` or a
 local scratch path and uses a stable Hugging Face cache to avoid re-fetching
 blobs across reruns, but it is not the nightly path.
+
+To run the checked-in audio setup before the benchmark session, pass
+`--data-setup-config benchmarking/nightly-data-setup.yaml` to
+`benchmarking/tools/run.sh`. The setup entries verify and reuse existing staged
+data when present, or download and stage it into the configured paths before the
+nightly benchmark entries start.
 
 Current audio setup commands:
 

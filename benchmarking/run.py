@@ -33,6 +33,7 @@ from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
 _this_script_dir = Path(__file__).parent
+_data_setup_script_base_path = _this_script_dir / "data_prep"
 
 # TODO: How do we want to package this tool? Perhaps a package extra for
 #  nemo-curator, i.e. nemo-curator[benchmarking]?
@@ -148,6 +149,126 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
 
     result_data["requirements_not_met"] = requirements_data
     return meets_requirements
+
+
+def load_data_setup_entries(config_files: list[Path], default_timeout_s: int, *, strict_env: bool) -> list[Entry]:
+    """Load data-prep entries from one or more setup config files."""
+    if not config_files:
+        return []
+
+    setup_config = merge_config_files(config_files)
+    setup_config = remove_disabled_blocks(setup_config)
+    setup_config = resolve_env_vars(setup_config, strict=strict_env)
+    data_setups = setup_config.get("data_setups", [])
+    if not isinstance(data_setups, list):
+        msg = "Invalid data setup config: 'data_setups' must be a list"
+        raise ValueError(msg)
+
+    setup_default_timeout_s = int(setup_config.get("default_timeout_s", default_timeout_s))
+    entries: list[Entry] = []
+    names: set[str] = set()
+    for setup_data in data_setups:
+        if not isinstance(setup_data, dict):
+            msg = f"Invalid data setup entry: expected dict, got {type(setup_data).__name__}"
+            raise TypeError(msg)
+        missing = [field for field in ("name", "script") if field not in setup_data]
+        if missing:
+            msg = f"Invalid data setup entry: missing required fields {missing}"
+            raise ValueError(msg)
+        if setup_data["name"] in names:
+            msg = f"Duplicate data setup name: {setup_data['name']}"
+            raise ValueError(msg)
+        names.add(setup_data["name"])
+
+        entry_data = {**setup_data, "script_base_path": _data_setup_script_base_path}
+        entry = Entry.from_dict(entry_data)
+        if entry.timeout_s is None:
+            entry.timeout_s = setup_default_timeout_s
+        entries.append(entry)
+    return entries
+
+
+def run_data_setup_entry(
+    setup_entry: Entry,
+    path_resolver: PathResolver,
+    dataset_resolver: DatasetResolver,
+    setup_root_path: Path,
+) -> bool:
+    """Run one data-prep command before benchmark entries."""
+    setup_path = (setup_root_path / setup_entry.name).absolute()
+    logs_path = setup_path / "logs"
+    stdouterr_path = logs_path / "stdouterr.log"
+    create_or_overwrite_dir(setup_path)
+    ensure_dir(logs_path)
+
+    cmd = setup_entry.get_command_to_run(setup_path, path_resolver, dataset_resolver)
+    logger.info(f"🔧 Running data setup {setup_entry.name}")
+    logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+    started_exec = time.time()
+    result_data: dict[str, Any] = {
+        "name": setup_entry.name,
+        "success": False,
+        "cmd": cmd,
+        "exec_started_at": started_exec,
+        "logs_dir": logs_path,
+    }
+    try:
+        run_data = run_command_with_timeout(
+            command=cmd,
+            timeout=setup_entry.timeout_s,
+            stdouterr_path=stdouterr_path,
+            run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
+            fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
+        )
+        duration = time.time() - started_exec
+        success = run_data["returncode"] == 0 and not run_data["timed_out"]
+        result_data.update(
+            {
+                "exec_time_s": duration,
+                "exit_code": run_data["returncode"],
+                "timed_out": run_data["timed_out"],
+                "success": success,
+            }
+        )
+        if success:
+            logger.info(f"\tData setup {setup_entry.name} completed in {duration:.1f}s")
+        else:
+            logger.error(f"\tData setup {setup_entry.name} failed in {duration:.1f}s")
+            if run_data["timed_out"]:
+                logger.warning(f"\t⏰ Timed out after {setup_entry.timeout_s}s")
+            logger.error(f"\t➡️  Full output here: {stdouterr_path}")
+        return success
+    finally:
+        (setup_path / "results.json").write_text(json.dumps(get_obj_for_json(result_data)))
+
+
+def run_data_setups(
+    setup_entries: list[Entry],
+    path_resolver: PathResolver,
+    dataset_resolver: DatasetResolver,
+    session_path: Path,
+) -> bool:
+    """Run all configured data setup entries before benchmark execution."""
+    if not setup_entries:
+        return True
+
+    setup_root_path = session_path / "data_setup"
+    create_or_overwrite_dir(setup_root_path)
+    logger.info("Data setup entries to be run before benchmarks:")
+    for idx, setup_entry in enumerate(setup_entries, start=1):
+        logger.info(f"\t{idx}. {setup_entry.name}")
+
+    overall_success = True
+    for setup_entry in setup_entries:
+        overall_success &= run_data_setup_entry(
+            setup_entry=setup_entry,
+            path_resolver=path_resolver,
+            dataset_resolver=dataset_resolver,
+            setup_root_path=setup_root_path,
+        )
+        if not overall_success:
+            break
+    return overall_success
 
 
 def run_entry(  # noqa: PLR0913
@@ -308,6 +429,16 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
         ),
     )
     parser.add_argument(
+        "--data-setup-config",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Path to a YAML config describing data-prep scripts to run before benchmark "
+            "entries. Can be specified multiple times to merge setup configs."
+        ),
+    )
+    parser.add_argument(
         "--session-name",
         default=None,
         help=("Optional human-readable session name. Default is benchmark-run__<timestamp>."),
@@ -410,6 +541,16 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
             logger.info(f"\t{entry.name}")
         return 0
 
+    try:
+        data_setup_entries = load_data_setup_entries(
+            args.data_setup_config,
+            session.default_timeout_s,
+            strict_env=args.strict_config_check,
+        )
+    except (TypeError, ValueError) as e:
+        logger.error(str(e))
+        return 1
+
     # Create session folder under results_dir
     session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d_%H-%M-%S_UTC")
     session_path = (session.results_path / session_name).absolute()
@@ -423,6 +564,18 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
     # Appears in env.json and the Slack environment block. No-op when unset.
     if args.reason:
         env_dict["run_reason"] = args.reason
+
+    if args.data_setup_config:
+        env_dict["data_setup_config"] = [str(path) for path in args.data_setup_config]
+
+    if not run_data_setups(
+        setup_entries=data_setup_entries,
+        path_resolver=session.path_resolver,
+        dataset_resolver=session.dataset_resolver,
+        session_path=session_path,
+    ):
+        logger.error("Data setup failed; benchmark entries will not be run.")
+        return 1
 
     # Surface an optional run-viewer URL in the Slack sink. Patch sink_config in-process
     # so we don't have to teach the YAML config loader about a per-launch viewer URL.
