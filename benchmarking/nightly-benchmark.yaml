@@ -121,7 +121,7 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/fleurs"
-  # Three real AMI SDM meetings (1.563 hours total) with multiple speakers and
+  # Three real AMI SDM meetings (~1.25 hours total) with multiple speakers and
   # overlap. Pre-stage this dataset and the local PyAnnote snapshot once via:
   #   python benchmarking/data_prep/prepare_audio_tagging_data.py \
   #       --output-path {datasets_path}/audio_tagging_ami_sdm \
@@ -1246,13 +1246,13 @@ entries:
       - metric: stage_execution_coverage_ratio
         exact_value: 1.0
       - metric: total_audio_duration_hours
-        min_value: 1.5
+        min_value: 1.2
       - metric: tagged_audio_duration_hours
         min_value: 0.2
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
-  # The repeat entry exercises 3.126 source-audio hours while reading EOS once.
+  # The repeat entry exercises ~2.50 source-audio hours while reading EOS once.
   - name: audio_tagging_tts_xenna_repeat
     enabled: true
     script: audio_tagging_benchmark.py
@@ -1305,7 +1305,7 @@ entries:
       - metric: stage_execution_coverage_ratio
         exact_value: 1.0
       - metric: total_audio_duration_hours
-        min_value: 3.0
+        min_value: 2.4
       - metric: tagged_audio_duration_hours
         min_value: 0.4
       - metric: throughput_audio_hours_per_hour

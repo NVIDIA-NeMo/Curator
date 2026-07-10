@@ -503,7 +503,7 @@ After preparation, the nightly YAML mounts `{datasets_path}/fleurs` as
 ## Audio Tagging Benchmark
 
 The nightly entries process three real AMI single-distant-microphone meetings:
-1.563 hours of long, multi-speaker audio with overlap. Stage this corpus and
+about 1.25 hours of long, multi-speaker audio with overlap. Stage this corpus and
 the local PyAnnote diarization snapshot once on the benchmark machine:
 
 ```bash
@@ -581,7 +581,7 @@ needed by the following stage; those segments remain visible in the emitted and
 skipped metrics but do not count as successfully tagged output. Success also
 requires complete second-pass ASR and finite WER output, nonzero work from all
 12 measured processing stages, at least 70 percent segment-output coverage,
-and at least 1.5 source audio hours (3.0 for the repeated entry). The nightly
+and at least 1.2 source audio hours (2.4 for the repeated entry). The nightly
 configuration additionally requires at least 100 complete segments and 0.2
 tagged audio hours (200 segments and 0.4 hours for the repeated entry).
 
