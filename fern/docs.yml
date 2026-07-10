@@ -183,6 +183,11 @@ libraries:
     output:
       path: ./product-docs/nemo-curator/Full-Library-Reference
     lang: python
+  # NOTE: do not add a path-input library entry here. `fern docs dev` and
+  # `fern generate --docs` reject any `input.path` library ("'path' input
+  # which is not yet supported") and render a blank page. Local no-auth
+  # generation injects a temporary path entry via
+  # scripts/generate-library-local.sh instead.
 
 experimental:
   mdx-components:
