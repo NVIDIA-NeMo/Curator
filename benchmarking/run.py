@@ -162,7 +162,7 @@ def load_data_setup_entries(config_files: list[Path], default_timeout_s: int, *,
     data_setups = setup_config.get("data_setups", [])
     if not isinstance(data_setups, list):
         msg = "Invalid data setup config: 'data_setups' must be a list"
-        raise ValueError(msg)
+        raise TypeError(msg)
 
     setup_default_timeout_s = int(setup_config.get("default_timeout_s", default_timeout_s))
     entries: list[Entry] = []
@@ -416,7 +416,7 @@ def run_entry(  # noqa: PLR0913
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:  # noqa: C901, PLR0912, PLR0915
+def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",

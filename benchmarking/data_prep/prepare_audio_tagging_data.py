@@ -40,6 +40,7 @@ import json
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,7 @@ DEFAULT_AMI_SPLIT = "test"
 DEFAULT_MODEL_HF_REPO_ID = "pyannote-community/speaker-diarization-community-1"
 MODEL_DIR_NAME = "pyannote-speaker-diarization-community-1"
 MODEL_MARKERS = ("config.yaml", "segmentation", "embedding", "plda")
+AUDIO_WAVEFORM_DIMENSIONS = 2
 AUDIO_FILENAMES = (
     "audio/EN2002b.Array1-01.wav",
     "audio/ES2004c.Array1-01.wav",
@@ -73,6 +75,16 @@ MODEL_ALLOW_PATTERNS = (
     "plda/**",
     "segmentation/**",
 )
+
+
+@dataclass(frozen=True)
+class DatasetStagingConfig:
+    output_path: Path
+    ami_hf_repo_id: str
+    ami_config: str
+    ami_split: str
+    cache_dir: str
+    container_data_path: str
 
 
 def _expected_audio_paths(output_path: Path) -> list[Path]:
@@ -230,42 +242,35 @@ def _write_audio_row(audio: object, target_path: Path) -> None:
 
     samples = audio.get_all_samples()
     waveform = samples.data
-    if waveform.ndim == 2 and waveform.shape[0] <= waveform.shape[1]:
+    if waveform.ndim == AUDIO_WAVEFORM_DIMENSIONS and waveform.shape[0] <= waveform.shape[1]:
         waveform = waveform.transpose(0, 1)
     audio_array = waveform.cpu().numpy()
     sf.write(target_path, audio_array, samples.sample_rate, subtype="PCM_16")
 
 
-def stage_dataset(
-    output_path: Path,
-    ami_hf_repo_id: str,
-    ami_config: str,
-    ami_split: str,
-    cache_dir: str,
-    container_data_path: str,
-) -> None:
-    output_path.mkdir(parents=True, exist_ok=True)
-    audio_dir = output_path / "audio"
+def stage_dataset(config: DatasetStagingConfig) -> None:
+    config.output_path.mkdir(parents=True, exist_ok=True)
+    audio_dir = config.output_path / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("=" * 60)
     logger.info("Audio Tagging AMI Dataset Download")
-    logger.info(f"Repo:       {ami_hf_repo_id}")
-    logger.info(f"Config:     {ami_config}")
-    logger.info(f"Split:      {ami_split}")
-    logger.info(f"Staging to: {output_path}")
+    logger.info(f"Repo:       {config.ami_hf_repo_id}")
+    logger.info(f"Config:     {config.ami_config}")
+    logger.info(f"Split:      {config.ami_split}")
+    logger.info(f"Staging to: {config.output_path}")
     logger.info("=" * 60)
 
     dataset = load_dataset(
-        ami_hf_repo_id,
-        ami_config,
-        split=ami_split,
-        cache_dir=cache_dir,
+        config.ami_hf_repo_id,
+        config.ami_config,
+        split=config.ami_split,
+        cache_dir=config.cache_dir,
         streaming=True,
     )
-    meeting_by_index = {index: audio_item_id for index, audio_item_id in AMI_TEST_MEETINGS}
+    meeting_by_index = dict(AMI_TEST_MEETINGS)
     manifest_rows: list[dict[str, str]] = []
-    audio_container_dir = Path(container_data_path) / "audio"
+    audio_container_dir = Path(config.container_data_path) / "audio"
 
     for row_index, row in enumerate(dataset):
         audio_item_id = meeting_by_index.get(row_index)
@@ -273,7 +278,10 @@ def stage_dataset(
             continue
 
         target_audio_path = audio_dir / f"{audio_item_id}.wav"
-        logger.info(f"Staging {audio_item_id} from {ami_hf_repo_id}/{ami_config}/{ami_split} row {row_index}")
+        logger.info(
+            f"Staging {audio_item_id} from "
+            f"{config.ami_hf_repo_id}/{config.ami_config}/{config.ami_split} row {row_index}"
+        )
         _write_audio_row(row["audio"], target_audio_path)
         manifest_rows.append(
             {
@@ -287,12 +295,13 @@ def stage_dataset(
 
     if len(manifest_rows) != len(AMI_TEST_MEETINGS):
         msg = (
-            f"Expected to stage {len(AMI_TEST_MEETINGS)} AMI meetings from {ami_hf_repo_id}/{ami_config}/{ami_split}, "
+            f"Expected to stage {len(AMI_TEST_MEETINGS)} AMI meetings from "
+            f"{config.ami_hf_repo_id}/{config.ami_config}/{config.ami_split}, "
             f"but staged {len(manifest_rows)}"
         )
         raise RuntimeError(msg)
 
-    _write_manifest(manifest_rows, output_path / "manifest.jsonl")
+    _write_manifest(manifest_rows, config.output_path / "manifest.jsonl")
     logger.success(f"Dataset ready: {len(manifest_rows)} manifest rows and {len(AUDIO_FILENAMES)} WAV files")
 
 
@@ -432,12 +441,14 @@ def main() -> int:
             logger.error("Dataset staging requires --hf-repo-id or CURATOR_AUDIO_TAGGING_HF_REPO_ID")
             return 1
         stage_dataset(
-            output_path=output_path,
-            ami_hf_repo_id=ami_hf_repo_id,
-            ami_config=args.ami_config,
-            ami_split=args.ami_split,
-            cache_dir=args.cache_dir,
-            container_data_path=args.container_data_path,
+            DatasetStagingConfig(
+                output_path=output_path,
+                ami_hf_repo_id=ami_hf_repo_id,
+                ami_config=args.ami_config,
+                ami_split=args.ami_split,
+                cache_dir=args.cache_dir,
+                container_data_path=args.container_data_path,
+            )
         )
         dataset_ready = verify_dataset(output_path)
 
