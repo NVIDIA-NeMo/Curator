@@ -13,9 +13,20 @@
 # limitations under the License.
 
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
+from nemo_curator.stages.text.io.writer.lancedb import (
+    LanceFragmentTask,
+    LanceFragmentWriterStage,
+    lance_commit_fragments,
+)
 from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
+from nemo_curator.stages.text.io.writer.utils import s3_credentials_from_env, s3_storage_options_from_env
 
 __all__ = [
     "JsonlWriter",
+    "LanceFragmentTask",
+    "LanceFragmentWriterStage",
     "ParquetWriter",
+    "lance_commit_fragments",
+    "s3_credentials_from_env",
+    "s3_storage_options_from_env",
 ]

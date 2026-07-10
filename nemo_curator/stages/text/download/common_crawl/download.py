@@ -43,21 +43,51 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
     Downloads WARC files from the Common Crawl to a local directory
     """
 
-    def __init__(self, download_dir: str, use_aws_to_download: bool = False, verbose: bool = False):
+    def __init__(  # noqa: PLR0913
+        self,
+        download_dir: str,
+        use_aws_to_download: bool = False,
+        verbose: bool = False,
+        s3_bucket: str = "commoncrawl",
+        s3_endpoint_url: str | None = None,
+        s3_key_id: str | None = None,
+        s3_secret: str | None = None,
+    ):
         """
         Creates a downloader
 
         Args:
           download_dir: Path to store raw compressed WARC files
-          use_aws_to_download: If True, uses the s5cmd command to download from the Common Crawl's S3 bucket.
-            If False, uses wget.
+          use_aws_to_download: If True, uses the s5cmd command to download from S3.
+            If False, uses wget with the HTTPS URL.
           verbose: If True, logs stdout and stderr of the download command (s5cmd/wget)
+          s3_bucket: S3 bucket name. Defaults to "commoncrawl" (public CC).
+            Override to "crawl-data" for PBSS/SwiftStack mirrors.
+          s3_endpoint_url: Custom S3 endpoint for non-AWS stores (e.g. PBSS).
+            Passed to s5cmd via --endpoint-url. None = use standard AWS.
+          s3_key_id: Explicit AWS_ACCESS_KEY_ID for s5cmd. When set, overrides the
+            ambient AWS_ACCESS_KEY_ID for the download subprocess only — useful when
+            read and write credentials are different accounts on the same endpoint.
+          s3_secret: Explicit AWS_SECRET_ACCESS_KEY for s5cmd (paired with s3_key_id).
         """
         super().__init__(download_dir, verbose)
         self.use_aws_to_download = use_aws_to_download
+        self.s3_bucket = s3_bucket
+        self.s3_endpoint_url = s3_endpoint_url
+        self.s3_key_id = s3_key_id
+        self.s3_secret = s3_secret
         if self.use_aws_to_download and not check_s5cmd_installed():
             msg = "s5cmd is not installed. Please install it from https://github.com/peak/s5cmd"
             raise RuntimeError(msg)
+        # Build the credential-override env once; reused for every download call.
+        if self.use_aws_to_download and (self.s3_key_id or self.s3_secret):
+            self._run_env: dict | None = {
+                **os.environ,
+                **({"AWS_ACCESS_KEY_ID": self.s3_key_id} if self.s3_key_id else {}),
+                **({"AWS_SECRET_ACCESS_KEY": self.s3_secret} if self.s3_secret else {}),
+            }
+        else:
+            self._run_env = None
 
     def _get_output_filename(self, url: str) -> str:
         """Generate output filename from URL."""
@@ -76,14 +106,25 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
         """
         urlpath = urlparse(url).path[1:]
 
-        url_to_download = os.path.join("s3://commoncrawl/", urlpath) if self.use_aws_to_download else url
+        if self.use_aws_to_download:
+            # The public CC URL path starts with the bucket name as a prefix
+            # (e.g. "crawl-data/CC-MAIN-..."). Strip it when the bucket already
+            # IS that prefix so we don't produce s3://crawl-data/crawl-data/...
+            bucket_prefix = f"{self.s3_bucket}/"
+            key = urlpath.removeprefix(bucket_prefix)
+            url_to_download = f"s3://{self.s3_bucket}/{key}"
+        else:
+            url_to_download = url
 
         if self._verbose:
             logger.info(f"Downloading {url_to_download} to {path}")
 
         # Download with either wget or s5cmd (aws) to temporary file
         if self.use_aws_to_download:
-            cmd = ["s5cmd", "cp", url_to_download, path]
+            cmd = ["s5cmd"]
+            if self.s3_endpoint_url:
+                cmd += ["--endpoint-url", self.s3_endpoint_url]
+            cmd += ["cp", url_to_download, path]
         else:
             # We don't use -c (for continue resume) because we want to download file to temp path using -O
             # but -c and -O don't work well together
@@ -99,6 +140,7 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
             cmd,
             stdout=stdout,
             stderr=stderr,
+            env=self._run_env,
         )
 
         if result.returncode == 0:

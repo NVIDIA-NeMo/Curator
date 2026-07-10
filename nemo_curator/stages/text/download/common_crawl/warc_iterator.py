@@ -25,7 +25,18 @@ from nemo_curator.stages.text.download import DocumentIterator
 
 
 class CommonCrawlWarcIterator(DocumentIterator):
-    """Processes downloaded WARC files."""
+    """Processes downloaded WARC files.
+
+    Args:
+        snapshot_id: Optional CC snapshot identifier (e.g. ``"CC-MAIN-2025-26"``).
+            When set, every yielded record includes a ``snapshot_id`` field.
+            Injecting it here preserves Ray Data's operator fusion of
+            ``DocumentIterateExtractStage → HtmlExtractActor``; a separate
+            downstream stage would break that fusion.
+    """
+
+    def __init__(self, snapshot_id: str | None = None) -> None:
+        self.snapshot_id = snapshot_id
 
     def iterate(self, file_path: str) -> Iterator[dict[str, Any]]:
         """Process a task containing WARC files and extract their contents."""
@@ -42,16 +53,22 @@ class CommonCrawlWarcIterator(DocumentIterator):
                         content = rec.content_stream().read()
                         warc_id = rec.rec_headers.get_header("WARC-Record-ID")[10:-1]
                         url = rec.rec_headers.get_header("WARC-Target-URI")
-                        yield {"url": url, "warc_id": warc_id, "source_id": filename, "content": content}
+                        record: dict[str, Any] = {
+                            "snapshot_id": self.snapshot_id,
+                            "url": url,
+                            "warc_id": warc_id,
+                            "source_id": filename,
+                            "content": content,
+                        }
+                        yield record
                         num_records += 1
                 except StopIteration:
-                    # End of file reached normally
                     break
                 except Exception as e:  # noqa: BLE001
-                    # Handle corruption or other errors
                     logger.error(f"Error processing record {num_records} in {filename}: {e!s}")
-                    # Try to continue with next record
                     continue
 
     def output_columns(self) -> list[str]:
-        return ["url", "warc_id", "source_id", "content"]
+        # snapshot_id is always included so downstream schema is stable regardless
+        # of whether the iterator was constructed with a snapshot_id value.
+        return ["snapshot_id", "url", "warc_id", "source_id", "content"]
