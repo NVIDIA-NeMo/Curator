@@ -53,10 +53,9 @@ class TestEmptyTask:
         assert EmptyTask().task_id == "0"
         assert EmptyTask().dataset_name == "empty"
 
-    def test_task_id_is_not_user_settable(self) -> None:
-        # ``task_id`` is init=False, so it cannot be passed positionally/kw.
-        with pytest.raises(TypeError):
-            EmptyTask(task_id="5")  # type: ignore[call-arg]
+    def test_user_task_id_cannot_override_root_id(self) -> None:
+        # Retain constructor compatibility while keeping the root framework-owned.
+        assert EmptyTask(task_id="5").task_id == "0"
 
 
 class TestResumabilityMarkers:

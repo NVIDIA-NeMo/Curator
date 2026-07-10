@@ -119,6 +119,14 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     # resumability layer to mark the counter-decrement boundary.
     is_source_stage: bool = False
     is_sink_stage: bool = False
+    # Opt-in diagnostics used by benchmark pipelines. Existing stages retain
+    # main's performance record shape and avoid background GPU sampling.
+    extended_performance_metrics: bool = False
+    # Framework-owned execution identity. Pipeline.run() stamps instance
+    # values after resolving the concrete executor.
+    _curator_run_id: str = ""
+    _curator_executor: str = ""
+    _curator_pipeline_metadata: dict[str, Any] | None = None
     # Whether this stage is safe to run under resumability (``checkpoint_path``).
     # Defaults to True; set False only on stages whose input→output mapping isn't
     # source-attributable (shuffle / fan-in, e.g. the dedup shuffle/LSH/connected-
@@ -172,6 +180,14 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     def num_workers(self) -> int | None:
         """Number of workers required. If None, then executor will determine the number of workers."""
         return None
+
+    def runtime_metadata(self) -> dict[str, Any]:
+        """Return JSON-safe stage settings needed to interpret run artifacts.
+
+        The pipeline records this once in the terminal performance summary. It
+        is observational only: executors never use it for scheduling.
+        """
+        return {}
 
     def validate_input(self, task: Task) -> bool:
         """Validate input task meets requirements.
@@ -259,6 +275,19 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
 
+    def setup_on_node_resources(self) -> Resources:
+        """Resources needed by the per-node setup task.
+
+        Most stages need the same placement resources for setup as for steady
+        state processing. Stages that only prefetch/download per-node assets can
+        override this to avoid reserving GPUs during setup.
+        """
+        if isinstance(self.resources, Resources):
+            return self.resources
+        if isinstance(self.resources, dict):
+            return Resources(**self.resources)
+        return Resources()
+
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup method called once before processing begins.
         Override this method to perform any initialization that should
@@ -321,6 +350,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         ray_stage_spec: dict[str, Any] | None = None,
         xenna_stage_spec: dict[str, Any] | None = None,
         num_workers: int | None | _UnsetType = _UNSET,
+        extended_performance_metrics: bool | None = None,
     ) -> ProcessingStage:
         """Apply configuration changes to this stage with overridden properties.
 
@@ -335,6 +365,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             xenna_stage_spec: Merge overrides into the Xenna stage spec. User-provided keys win.
                 Use num_workers instead of setting num_workers in xenna_stage_spec.
             num_workers: Override the num_workers() result. Passing None explicitly resets to executor default behavior.
+            extended_performance_metrics: Override extended performance metric collection for this stage.
         """
         new_instance = copy.deepcopy(self)
 
@@ -370,6 +401,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         if num_workers is not _UNSET:
             new_instance.num_workers = _num_workers_method(cast("int | None", num_workers))
+        if extended_performance_metrics is not None:
+            new_instance.extended_performance_metrics = extended_performance_metrics
 
         return new_instance
 

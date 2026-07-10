@@ -11,8 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ruff: noqa: ANN401
 
 from collections.abc import Mapping
+from typing import Any
 
 from loguru import logger
 from ray.data import ActorPoolStrategy
@@ -25,6 +27,22 @@ ACTOR_POOL_SIZING_KEYS = (
     RayStageSpecKeys.MAX_WORKERS,
     RayStageSpecKeys.INITIAL_WORKERS,
 )
+
+
+def coerce_batch_tasks(batch_items: Any) -> list[Any]:
+    """Normalize a Ray Data ``map_batches`` column to a Python ``list``.
+
+    Ray Data delivers batches as column arrays; coercing to ``list[Task]`` keeps
+    stage code backend-agnostic.
+    """
+    if batch_items is None:
+        return []
+    if isinstance(batch_items, list):
+        return batch_items
+    try:
+        return list(batch_items)
+    except TypeError:
+        return [batch_items]
 
 
 def get_configured_actor_pool_sizing_keys(ray_stage_spec: Mapping[str, object]) -> list[str]:

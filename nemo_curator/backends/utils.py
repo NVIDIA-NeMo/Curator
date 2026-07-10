@@ -22,6 +22,7 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.perf_identity import build_ray_perf_identity, stamp_worker_metadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.utils.ray_utils import get_head_node_id, submit_on_each_node
 
@@ -143,6 +144,18 @@ def get_worker_metadata_and_node_id() -> tuple[NodeInfo, WorkerMetadata]:
     return NodeInfo(node_id=ray_context.get_node_id()), WorkerMetadata(worker_id=ray_context.get_worker_id())
 
 
+def get_worker_metadata_and_node_id_with_perf(
+    stage_name: str,
+    *,
+    requires_gpu: bool = False,
+) -> tuple[NodeInfo, WorkerMetadata]:
+    """Get worker metadata with opt-in Ray-resolved performance identity."""
+    node_info, worker_metadata = get_worker_metadata_and_node_id()
+    identity = build_ray_perf_identity(stage_name, requires_gpu=requires_gpu)
+    stamp_worker_metadata(worker_metadata, identity)
+    return node_info, worker_metadata
+
+
 def get_available_cpu_gpu_resources(
     init_and_shutdown: bool = False, ignore_head_node: bool = False
 ) -> tuple[int, int]:
@@ -223,13 +236,14 @@ def execute_setup_on_node(stages: list[ProcessingStage], ignore_head_node: bool 
 
     refs: list = []
     for stage in stages:
+        setup_resources = stage.setup_on_node_resources()
         refs.extend(
             submit_on_each_node(
                 _setup_stage_on_node,
                 stage,
                 ignore_head_node=ignore_head_node,
-                num_cpus=stage.resources.cpus if stage.resources is not None else 1,
-                num_gpus=stage.resources.gpus if stage.resources is not None else 0,
+                num_cpus=setup_resources.cpus,
+                num_gpus=setup_resources.gpus,
             )
         )
     ray.get(refs)

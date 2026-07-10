@@ -203,8 +203,8 @@ class TorchSquimQualityMetricsStage(ProcessingStage[AudioTask, AudioTask]):
         in batches on GPU, then scatters results back to the originating
         task's segment.
         """
-        if not tasks:
-            return tasks
+        if len(tasks) == 0:
+            return []
 
         # Collect all valid waveforms with their origin (task_idx, segment_idx)
         all_waveform_metadata: list[tuple[int, int, torch.Tensor]] = []

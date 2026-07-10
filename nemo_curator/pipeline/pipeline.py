@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -66,8 +68,16 @@ class Pipeline:
         """
         self.name = name
         self.description = description
-        self.stages: list[ProcessingStage] = stages or []
+        self._logical_stages: list[ProcessingStage] = stages or []
+        self.stages: list[ProcessingStage] = self._logical_stages
+        # Preserve main's public config identity and never inject framework
+        # state into the caller's mapping. Expansion receives an ephemeral copy.
         self.config = config or {}
+        self._built = False
+        self._default_source_stage: ProcessingStage | None = None
+        self._default_sink_stage: ProcessingStage | None = None
+        self._planned_stage_snapshot: list[ProcessingStage] = []
+        self._curator_pipeline_run_id = os.environ.get("PIPELINE_RUN_ID", "").strip() or uuid.uuid4().hex
 
     def add_stage(self, stage: ProcessingStage) -> "Pipeline":
         """Add a stage to the pipeline.
@@ -82,7 +92,12 @@ class Pipeline:
             msg = f"Stage must be a ProcessingStage, got {type(stage)}"
             raise TypeError(msg)
 
-        self.stages.append(stage)
+        self._sync_public_stage_mutations()
+        self._clear_default_source_sink_roles()
+        self._logical_stages.append(stage)
+        self.stages = self._logical_stages
+        self._built = False
+        self._planned_stage_snapshot = []
         logger.info(f"Added stage '{stage.name}' to pipeline '{self.name}'")
         return self
 
@@ -92,28 +107,109 @@ class Pipeline:
         Raises:
             ValueError: If the pipeline has no stages
         """
+        self._sync_public_stage_mutations()
+        if self._built:
+            logger.info(f"Pipeline '{self.name}' is already planned; reusing execution graph")
+            return
+
         logger.info(f"Planning pipeline: {self.name}")
+        self._clear_default_source_sink_roles()
 
         # 1. Validate pipeline has stages
-        if not self.stages:
+        if not self._logical_stages:
             msg = f"Pipeline '{self.name}' has no stages"
             raise ValueError(msg)
 
-        # 2. Decompose composite stages into execution stages
-        execution_stages, decomposition_info = self._decompose_stages(self.stages)
+        # 2. Expand pipeline-level graph rules before composite decomposition.
+        planned_stages = self._expand_pipeline_graph(list(self._logical_stages))
+
+        # 3. Decompose composite stages into execution stages
+        execution_stages, decomposition_info = self._decompose_stages(planned_stages)
 
         self.stages = execution_stages
         self.decomposition_info = decomposition_info
 
-        # 3. Source / sink defaults: at most one stage may be explicitly
+        # 4. Source / sink defaults: at most one stage may be explicitly
         # marked; if none, the first stage is the source and the last is
         # the sink. The source flag activates content-based ids in the
         # default ``process_batch``; the sink flag tells the resumability
         # counters that a sink consumes its outputs (see
         # ``BaseStageAdapter._apply_resumability_counters``).
         self._assign_source_sink_roles()
+        self._built = True
+        self._planned_stage_snapshot = list(self.stages)
+
+    def _expand_pipeline_graph(self, stages: list[ProcessingStage]) -> list[ProcessingStage]:
+        """Apply generic pipeline-level graph expansion rules."""
+        for stage in stages:
+            stage_state = getattr(stage, "__dict__", None)
+            if stage_state is not None:
+                stage_state.pop("_curator_tracks_payload_refs", None)
+                stage_state.pop("_curator_preserves_terminal_tasks", None)
+        payload_cfg = self.config.get("payload_lifecycle")
+        payload_cfg_get = getattr(payload_cfg, "get", None)
+        if not callable(payload_cfg_get) or not bool(payload_cfg_get("enabled", False)):
+            required = [
+                stage.name for stage in stages if bool(getattr(stage, "_curator_requires_payload_lifecycle", False))
+            ]
+            if required:
+                msg = f"Stage(s) {required} require payload_lifecycle.enabled=true"
+                raise ValueError(msg)
+            return stages
+        from nemo_curator.pipeline.payload_lifecycle import expand_payload_lifecycle_stages
+
+        expansion_config = dict(self.config)
+        expansion_config["_curator_pipeline_run_id"] = self._curator_pipeline_run_id
+        return expand_payload_lifecycle_stages(stages, expansion_config)
+
+    def _sync_public_stage_mutations(self) -> None:
+        """Preserve the historical public ``stages`` list mutation behavior.
+
+        ``_logical_stages`` is the canonical source for graph expansion, but
+        existing user code may still mutate ``pipeline.stages`` directly. Treat
+        those mutations as logical graph edits before planning instead of
+        silently ignoring them.
+        """
+        if self._built:
+            if self.stages == self._planned_stage_snapshot:
+                return
+            logger.warning(
+                "Pipeline.stages was mutated after build(); treating the current public stages list "
+                "as the new logical graph. Prefer Pipeline.add_stage() for future code."
+            )
+            self._clear_default_source_sink_roles()
+            self._logical_stages = list(self.stages)
+            self._built = False
+            self._planned_stage_snapshot = []
+            return
+
+        if self.stages != self._logical_stages:
+            logger.warning(
+                "Pipeline.stages was mutated directly; syncing it into the logical graph. "
+                "Prefer Pipeline.add_stage() for future code."
+            )
+            self._clear_default_source_sink_roles()
+            self._logical_stages = list(self.stages)
+            self._planned_stage_snapshot = []
+
+    def _clear_default_source_sink_roles(self) -> None:
+        """Clear source/sink roles that were assigned by a previous build.
+
+        Stage instances are reused when a pipeline is replanned. Without
+        clearing defaults, a role assigned to the previous execution graph can
+        look like an explicit user mark on the next build.
+        """
+        if self._default_source_stage is not None:
+            self._default_source_stage.is_source_stage = False
+            self._default_source_stage = None
+        if self._default_sink_stage is not None:
+            self._default_sink_stage.is_sink_stage = False
+            self._default_sink_stage = None
 
     def _assign_source_sink_roles(self) -> None:
+        self._default_source_stage = None
+        self._default_sink_stage = None
+
         explicit_sources = [s for s in self.stages if s.is_source_stage]
         if len(explicit_sources) > 1:
             names = [s.name for s in explicit_sources]
@@ -121,6 +217,7 @@ class Pipeline:
             raise ValueError(msg)
         if not explicit_sources:
             self.stages[0].is_source_stage = True
+            self._default_source_stage = self.stages[0]
 
         explicit_sinks = [s for s in self.stages if s.is_sink_stage]
         if len(explicit_sinks) > 1:
@@ -129,6 +226,77 @@ class Pipeline:
             raise ValueError(msg)
         if not explicit_sinks:
             self.stages[-1].is_sink_stage = True
+            self._default_sink_stage = self.stages[-1]
+
+    def _set_execution_context(self, executor: BaseExecutor) -> None:
+        """Stamp one read-only execution description onto every planned stage."""
+        executor_name = type(executor).__name__
+        backend = {
+            "RayDataExecutor": "ray_data",
+            "XennaExecutor": "xenna",
+        }.get(executor_name, f"{type(executor).__module__}.{executor_name}")
+        execution_mode = None
+        if backend == "xenna":
+            execution_mode = str(getattr(executor, "config", {}).get("execution_mode", "streaming"))
+
+        stage_metadata = []
+        for stage in self.stages:
+            metadata_provider = getattr(stage, "runtime_metadata", None)
+            details = metadata_provider() if callable(metadata_provider) else {}
+            if not isinstance(details, dict):
+                details = {}
+            batch_size = getattr(stage, "batch_size", None)
+            batch_size = batch_size if isinstance(batch_size, int) and not isinstance(batch_size, bool) else None
+            num_workers_provider = getattr(stage, "num_workers", None)
+            num_workers = num_workers_provider() if callable(num_workers_provider) else None
+            num_workers = num_workers if isinstance(num_workers, int) and not isinstance(num_workers, bool) else None
+            resources = getattr(stage, "resources", None)
+            cpus = getattr(resources, "cpus", None)
+            gpus = getattr(resources, "gpus", None)
+            cpus = cpus if isinstance(cpus, (int, float)) and not isinstance(cpus, bool) else None
+            gpus = gpus if isinstance(gpus, (int, float)) and not isinstance(gpus, bool) else None
+            stage_metadata.append(
+                {
+                    "name": str(stage.name),
+                    "stage_id": str(getattr(stage, "_curator_stage_id", "") or ""),
+                    "type": f"{type(stage).__module__}.{type(stage).__name__}",
+                    "batch_size": batch_size,
+                    "num_workers": num_workers,
+                    "resources": {
+                        "cpus": cpus,
+                        "gpus": gpus,
+                    },
+                    "settings": details,
+                }
+            )
+
+        source_ref = os.environ.get("CURATOR_SOURCE_REF", "").strip()
+        if not source_ref:
+            source_ref_path = Path("/opt/Curator/.curator_source_ref")
+            if source_ref_path.is_file():
+                source_ref = source_ref_path.read_text(encoding="utf-8").strip()
+        pipeline_metadata = {
+            "schema_version": 1,
+            "pipeline_name": self.name,
+            "executor": executor_name,
+            "backend": backend,
+            "execution_mode": execution_mode,
+            "curator_source_ref": source_ref,
+            "runtime_config_name": self.config.get("runtime_config_name")
+            or os.environ.get("CURATOR_RUNTIME_CONFIG_NAME", ""),
+            "pipeline_to_run": self.config.get("pipeline_to_run")
+            or os.environ.get("CURATOR_PIPELINE_TO_RUN", ""),
+            "source_dataset_uri": os.environ.get("DATA_CONFIG_SWIFT_PATH", ""),
+            "dataset_name": os.environ.get("CURATOR_DATASET_NAME", ""),
+            "num_nodes": os.environ.get("CURATOR_NUM_NODES", ""),
+            "gpus_per_node": os.environ.get("CURATOR_GPUS_PER_NODE", ""),
+            "output_run_id": os.environ.get("CURATOR_OUTPUT_RUN_ID", ""),
+            "stages": stage_metadata,
+        }
+        for stage in self.stages:
+            stage._curator_run_id = self._curator_pipeline_run_id
+            stage._curator_executor = executor_name
+            stage._curator_pipeline_metadata = pipeline_metadata
 
     def _decompose_stages(
         self, stages: list[ProcessingStage | CompositeStage]
@@ -263,6 +431,8 @@ class Pipeline:
             from nemo_curator.backends.xenna import XennaExecutor
 
             executor = XennaExecutor()
+
+        self._set_execution_context(executor)
 
         from nemo_curator.core.serve import is_inference_server_active
 
