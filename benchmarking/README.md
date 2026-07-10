@@ -44,7 +44,13 @@ paths:
   - name: datasets_path
     host_path: /path/to/datasets
     container_path: /datasets
+  - name: model_weights_path
+    host_path: /path/to/model_weights
+    container_path: /model_weights
 ```
+
+Keep `model_weights_path` configured when running benchmarks that consume
+pre-staged model snapshots or caches, such as audio tagging.
 
 **3. Run benchmarks:**
 
