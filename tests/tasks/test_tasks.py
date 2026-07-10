@@ -61,6 +61,13 @@ def _sample_task() -> SimpleTask:
     return SimpleTask(dataset_name="test", data=[1, 2, 3])
 
 
+def test_task_constructor_accepts_existing_task_id_keyword() -> None:
+    """Existing Curator code may pass task_id=; execution still rewrites it."""
+    task = SimpleTask(task_id="legacy", dataset_name="test", data=[1, 2, 3])
+
+    assert task.task_id == "legacy"
+
+
 def test_default_process_batch_does_not_assign_task_id():
     """``process_batch`` (and ``process``) do not touch ``task_id`` — that's
     the executor adapter's job (``BaseStageAdapter._post_process_task_ids``).

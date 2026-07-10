@@ -133,6 +133,19 @@ audio_cuda12 = [
     "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 
+# Qwen-Omni/Qwen-ASR is an opt-in CUDA stack. Keeping it separate preserves
+# the existing audio_cuda12 environment for every other audio pipeline.
+audio_qwen = [
+    "nemo_curator[audio_cuda12]",
+    "nemo_curator[vllm]",
+    # Latest Qwen-compatible releases inside Curator's vLLM 0.18 / HF Hub
+    # compatibility envelope. vLLM 0.18.x does not support Transformers 5.x.
+    "accelerate>=1.12.0",
+    "qwen-omni-utils>=0.0.9",
+    "transformers>=4.57.6,<5.0",
+    "vllm>=0.18.1,<0.19; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
 image_cpu = [
     "Pillow",
     "torchvision"

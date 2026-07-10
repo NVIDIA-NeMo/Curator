@@ -290,5 +290,5 @@ def test_parquet_reader_with_blocksize_limit(tmp_path: Path, caplog: pytest.LogC
     # Since the storage size is larger than 10_000 bytes, the FilePartitioningStage should warn
     file_partitioning_stage = stage.decompose()[0]
     with caplog.at_level("WARNING"):
-        file_partitioning_stage.process(EmptyTask)
+        file_partitioning_stage.process(EmptyTask())
     assert "File group task has exceeded the storage limit per partition" in caplog.text

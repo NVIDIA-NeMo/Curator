@@ -27,7 +27,7 @@ the executor adapter; sentinels are stripped before the next stage. Construct
 with ``EmptyTask()`` / ``NoneTask()`` / ``FailedTask()``.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from nemo_curator.tasks.tasks import Task
 
@@ -56,7 +56,11 @@ class EmptyTask(SentinelTask):
     descends from (so all ids share the ``"0"`` prefix)."""
 
     dataset_name: str = "empty"
-    task_id: str = field(init=False, default="0")
+    task_id: str = "0"
+
+    def __post_init__(self) -> None:
+        self.task_id = "0"
+        super().__post_init__()
 
 
 @dataclass

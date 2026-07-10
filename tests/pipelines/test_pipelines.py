@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from nemo_curator.pipeline.pipeline import Pipeline, assign_root_task_ids
-from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -35,6 +35,17 @@ class _NoopStage(ProcessingStage[Task, Task]):
 
     def process(self, task: Task) -> Task:
         return task
+
+
+@dataclass
+class _SingleStageComposite(CompositeStage[Task, Task]):
+    name: str = "single"
+
+    def __post_init__(self) -> None:
+        super().__init__()
+
+    def decompose(self) -> list[ProcessingStage]:
+        return [_NoopStage(name="leaf")]
 
 
 @dataclass
@@ -60,6 +71,58 @@ def test_pipeline_uses_xenna_executor_by_default():
 
         mock_xenna_class.assert_called_once_with()
         mock_xenna_instance.execute.assert_called_once()
+
+
+def test_pipeline_stamps_run_and_executor_context_on_planned_stages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PIPELINE_RUN_ID", "kratos-run-123")
+    monkeypatch.setenv("CURATOR_RUNTIME_CONFIG_NAME", "legacy_env_config.yaml")
+    monkeypatch.setenv("CURATOR_PIPELINE_TO_RUN", "legacy_env_pipeline")
+    monkeypatch.setenv("DATA_CONFIG_SWIFT_PATH", "swift://datasets/input.yaml")
+    monkeypatch.setenv("CURATOR_DATASET_NAME", "wer-ready-600h")
+    monkeypatch.setenv("CURATOR_NUM_NODES", "2")
+    monkeypatch.setenv("CURATOR_GPUS_PER_NODE", "4")
+    stage = _NoopStage()
+    executor = Mock()
+    executor.execute.return_value = []
+    pipeline = Pipeline(
+        name="test",
+        stages=[stage],
+        config={
+            "runtime_config_name": "qwen_local.yaml",
+            "pipeline_to_run": "qwen_omni_raw_inprocess",
+        },
+    )
+
+    pipeline.run(executor=executor)
+
+    assert stage._curator_run_id == "kratos-run-123"
+    assert stage._curator_executor == "Mock"
+    assert stage._curator_pipeline_metadata == {
+        "schema_version": 1,
+        "pipeline_name": "test",
+        "executor": "Mock",
+        "backend": "unittest.mock.Mock",
+        "execution_mode": None,
+        "curator_source_ref": "",
+        "runtime_config_name": "qwen_local.yaml",
+        "pipeline_to_run": "qwen_omni_raw_inprocess",
+        "source_dataset_uri": "swift://datasets/input.yaml",
+        "dataset_name": "wer-ready-600h",
+        "num_nodes": "2",
+        "gpus_per_node": "4",
+        "output_run_id": "",
+        "stages": [
+            {
+                "name": "noop",
+                "stage_id": "",
+                "type": f"{_NoopStage.__module__}._NoopStage",
+                "batch_size": 1,
+                "num_workers": None,
+                "resources": {"cpus": 1.0, "gpus": 0.0},
+                "settings": {},
+            }
+        ],
+    }
 
 
 def test_logs_info_when_ray_serve_active_with_gpu_stages_non_xenna() -> None:
@@ -113,6 +176,34 @@ class TestPipelineBuild:
         assert lone.is_source_stage is True
         assert lone.is_sink_stage is True
 
+    def test_add_stage_after_build_reassigns_default_sink(self) -> None:
+        s0, s1, s2 = _NoopStage(name="s0"), _NoopStage(name="s1"), _NoopStage(name="s2")
+        pipeline = Pipeline(name="t", stages=[s0, s1])
+
+        pipeline.build()
+        assert [s.is_source_stage for s in (s0, s1)] == [True, False]
+        assert [s.is_sink_stage for s in (s0, s1)] == [False, True]
+
+        pipeline.add_stage(s2)
+        pipeline.build()
+
+        assert [s.is_source_stage for s in (s0, s1, s2)] == [True, False, False]
+        assert [s.is_sink_stage for s in (s0, s1, s2)] == [False, False, True]
+
+    def test_direct_stage_append_after_build_replans_and_reassigns_sink(self) -> None:
+        s0, s1, s2 = _NoopStage(name="s0"), _NoopStage(name="s1"), _NoopStage(name="s2")
+        pipeline = Pipeline(name="t", stages=[s0, s1])
+
+        pipeline.build()
+        assert [s.is_source_stage for s in (s0, s1)] == [True, False]
+        assert [s.is_sink_stage for s in (s0, s1)] == [False, True]
+
+        pipeline.stages.append(s2)
+        pipeline.build()
+
+        assert [s.is_source_stage for s in (s0, s1, s2)] == [True, False, False]
+        assert [s.is_sink_stage for s in (s0, s1, s2)] == [False, False, True]
+
     def test_explicit_marks_override_defaults(self) -> None:
         s0, s1, s2 = _NoopStage(name="s0"), _NoopStage(name="s1"), _NoopStage(name="s2")
         s1.is_source_stage = True
@@ -135,6 +226,13 @@ class TestPipelineBuild:
         with pytest.raises(ValueError, match="multiple sink stages marked"):
             Pipeline(name="t", stages=[t0, t1]).build()
 
+    def test_single_stage_composite_preserves_main_behavior(self) -> None:
+        pipeline = Pipeline(name="t", stages=[_SingleStageComposite()])
+        pipeline.build()
+
+        assert [type(stage) for stage in pipeline.stages] == [_SingleStageComposite]
+        assert pipeline.decomposition_info == {}
+
 
 class TestRootTaskIds:
     """``assign_root_task_ids`` roots user-provided initial tasks under the
@@ -143,6 +241,14 @@ class TestRootTaskIds:
     def test_empty_task_id_is_zero(self) -> None:
         assert EmptyTask().task_id == "0"
         assert EmptyTask(dataset_name="d", data=None).task_id == "0"
+        assert EmptyTask(task_id="legacy", dataset_name="d", data=None).task_id == "0"
+
+    def test_rewrites_existing_internal_task_ids(self) -> None:
+        tasks = [_SimpleTask(dataset_name="d", data=[1]) for _ in range(3)]
+        for i, task in enumerate(tasks):
+            task.task_id = f"t{i}"
+        assign_root_task_ids(tasks)
+        assert [t.task_id for t in tasks] == ["0_0", "0_1", "0_2"]
 
     def test_roots_user_tasks_at_zero(self) -> None:
         tasks = [_SimpleTask(dataset_name="d", data=[1]) for _ in range(3)]

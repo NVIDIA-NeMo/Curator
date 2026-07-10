@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from omegaconf import OmegaConf
 
+from nemo_curator.config import run as run_config
 from nemo_curator.config.run import create_pipeline_from_yaml
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
@@ -253,6 +255,46 @@ def test_pipeline_with_empty_stages_list():
     assert pipeline.name == "yaml_pipeline"
 
 
+def test_pipeline_stage_metadata_selectors_and_stage_with():
+    cfg = OmegaConf.create(
+        {
+            "stages_to_run": ["reader"],
+            "stages_to_skip": ["disabled_reader"],
+            "stages": [
+                {
+                    "stage_id": "reader",
+                    "_target_": "nemo_curator.stages.text.io.reader.JsonlReader",
+                    "file_paths": "./data",
+                    "files_per_partition": None,
+                    "blocksize": None,
+                    "fields": None,
+                    "stage_with": {
+                        "batch_size": 7,
+                        "extended_performance_metrics": True,
+                    },
+                },
+                {
+                    "stage_id": "disabled_reader",
+                    "enabled": False,
+                    "_target_": "nemo_curator.stages.text.io.reader.JsonlReader",
+                    "file_paths": "./other",
+                    "files_per_partition": None,
+                    "blocksize": None,
+                    "fields": None,
+                },
+            ],
+        }
+    )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+
+    assert len(pipeline.stages) == 1
+    assert isinstance(pipeline.stages[0], JsonlReader)
+    assert pipeline.stages[0]._curator_stage_id == "reader"
+    assert pipeline.stages[0].batch_size == 7
+    assert pipeline.stages[0].extended_performance_metrics is True
+
+
 @patch("hydra.utils.instantiate")
 def test_workflow_creation_single_workflow(mock_instantiate: MagicMock):
     mock_workflow = MagicMock()
@@ -334,3 +376,24 @@ def test_both_stages_and_workflow_raises_error():
 
     with pytest.raises(RuntimeError, match="Both stages and workflow"):
         create_pipeline_from_yaml(cfg)
+
+
+def test_run_pipeline_from_yaml_uses_declared_executor_and_records_duration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = OmegaConf.create({"backend": "ray_data", "output_dir": str(tmp_path)})
+    pipeline = MagicMock()
+    results = [MagicMock()]
+    pipeline.run.return_value = results
+    executor = MagicMock()
+
+    monkeypatch.setattr(run_config, "apply_process_env_defaults_from_yaml", MagicMock())
+    monkeypatch.setattr(run_config, "create_pipeline_from_yaml", MagicMock(return_value=pipeline))
+    monkeypatch.setattr(run_config, "create_executor_from_yaml", MagicMock(return_value=executor))
+    record_duration = MagicMock()
+    monkeypatch.setattr(run_config, "_record_pipeline_duration", record_duration)
+    monkeypatch.setattr(run_config.time, "time", MagicMock(side_effect=[10.0, 12.5]))
+
+    assert run_config.run_pipeline_from_yaml(cfg) == results
+    pipeline.run.assert_called_once_with(executor=executor)
+    record_duration.assert_called_once_with(str(tmp_path), 2.5)

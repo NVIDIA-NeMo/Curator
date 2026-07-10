@@ -20,10 +20,19 @@ from loguru import logger
 from ray.data import Dataset, TaskPoolStrategy
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
+from nemo_curator.backends.utils import (
+    RayStageSpecKeys,
+    get_worker_metadata_and_node_id,
+    get_worker_metadata_and_node_id_with_perf,
+)
 from nemo_curator.stages.base import ProcessingStage
 
-from .utils import get_actor_compute_strategy_for_stage, get_configured_actor_pool_sizing_keys, is_actor_stage
+from .utils import (
+    coerce_batch_tasks,
+    get_actor_compute_strategy_for_stage,
+    get_configured_actor_pool_sizing_keys,
+    is_actor_stage,
+)
 
 CURATOR_MANAGED_MAP_BATCHES_KWARGS = {"compute", "max_calls", "num_cpus", "num_gpus"}
 
@@ -67,7 +76,7 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dictionary with arrays/lists representing processed Task objects
         """
-        tasks = batch["item"]
+        tasks = coerce_batch_tasks(batch["item"])
         results = self.process_batch(tasks)
         # Return the results as Ray Data expects them
         # For Task objects, we return them in the 'item' column
@@ -164,7 +173,13 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
             """Initialize the stage processor."""
             super().__init__(stage)
             self.setup_done = False
-            node_info, worker_metadata = get_worker_metadata_and_node_id()
+            requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
+            if bool(getattr(stage, "extended_performance_metrics", False)):
+                node_info, worker_metadata = get_worker_metadata_and_node_id_with_perf(
+                    str(stage.name), requires_gpu=requires_gpu
+                )
+            else:
+                node_info, worker_metadata = get_worker_metadata_and_node_id()
             self.setup_on_node(node_info, worker_metadata)
             self.setup(worker_metadata)
 
