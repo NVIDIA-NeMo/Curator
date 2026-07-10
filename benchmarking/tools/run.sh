@@ -70,16 +70,6 @@ if [ "${GPUS}" != "none" ]; then
   GPUS_FLAG="--gpus=\"${GPUS}\""
 fi
 
-EXTRA_DOCKER_ENV_FLAGS=()
-for env_name in NVIDIA_DISABLE_REQUIRE LD_PRELOAD PYTORCH_CUDA_ALLOC_CONF PYTORCH_ALLOC_CONF; do
-  if [ "${!env_name+x}" = "x" ]; then
-    EXTRA_DOCKER_ENV_FLAGS+=("--env=${env_name}=${!env_name}")
-  fi
-done
-if [ "${CURATOR_BENCHMARKING_CLEAR_LD_LIBRARY_PATH:-0}" = "1" ]; then
-  EXTRA_DOCKER_ENV_FLAGS+=("--env=LD_LIBRARY_PATH=")
-fi
-
 # --net=host allows the container to use the host's network stack, which Ray requires to
 # communicate between the container and the host. When running multiple benchmarks in parallel,
 # remove this flag so each container uses its own network namespace — this ensures each Ray
@@ -107,7 +97,6 @@ docker run \
   --env=CURATOR_BENCHMARKING_DEBUG=${CURATOR_BENCHMARKING_DEBUG} \
   --env=HOST_HOSTNAME=$(hostname) \
   --env=NVIDIA_API_KEY=${NVIDIA_API_KEY} \
-  "${EXTRA_DOCKER_ENV_FLAGS[@]}" \
   \
   ${BASH_ENTRYPOINT_OVERRIDE} \
   ${CURATOR_BENCHMARKING_IMAGE} \

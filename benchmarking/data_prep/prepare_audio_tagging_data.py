@@ -329,7 +329,7 @@ def stage_model(
 
 
 def _resolve_ami_hf_repo_id(value: str | None) -> str | None:
-    return value or os.environ.get("CURATOR_AUDIO_TAGGING_HF_REPO_ID")
+    return value or os.environ.get("CURATOR_AUDIO_TAGGING_HF_REPO_ID") or DEFAULT_AMI_HF_REPO_ID
 
 
 def _resolve_model_hf_repo_id(value: str | None) -> str | None:
@@ -364,7 +364,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--hf-repo-id",
-        default=DEFAULT_AMI_HF_REPO_ID,
+        default=None,
         help="Token-free HF dataset repo containing AMI SDM audio. "
         "Defaults to $CURATOR_AUDIO_TAGGING_HF_REPO_ID or diarizers-community/ami.",
     )
@@ -395,7 +395,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--model-hf-repo-id",
-        default=DEFAULT_MODEL_HF_REPO_ID,
+        default=None,
         help="Token-free HF model repo containing the PyAnnote snapshot. "
         "Defaults to $CURATOR_AUDIO_TAGGING_MODEL_HF_REPO_ID or pyannote-community/speaker-diarization-community-1.",
     )
