@@ -10,10 +10,12 @@ data_setups:
     script: prepare_fleurs_data.py
     args: >-
       --output-path {datasets_path}/fleurs
+      --cache-dir {datasets_path}/_hf_cache/fleurs
 
   - name: audio_tagging_ami_sdm
     enabled: true
     script: prepare_audio_tagging_data.py
     args: >-
       --output-path {datasets_path}/audio_tagging_ami_sdm
+      --cache-dir {datasets_path}/_hf_cache/audio_tagging
       --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
