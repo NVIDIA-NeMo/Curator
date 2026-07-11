@@ -20,7 +20,7 @@ from cosmos_xenna.utils.verbosity import VerbosityLevel
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
-from nemo_curator.backends.utils import register_loguru_serializer
+from nemo_curator.backends.utils import get_stage_num_workers_per_node, register_loguru_serializer
 from nemo_curator.backends.xenna.adapter import create_named_xenna_stage_adapter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
@@ -83,11 +83,21 @@ class XennaExecutor(BaseExecutor):
                 raise ValueError(msg)
 
             num_workers = stage.num_workers()
-            num_workers_per_node = stage_config.get("num_workers_per_node")
+            stage_num_workers_per_node = get_stage_num_workers_per_node(stage)
+            spec_num_workers_per_node = stage_config.get("num_workers_per_node")
+            if stage_num_workers_per_node is not None and spec_num_workers_per_node is not None:
+                msg = (
+                    f"Stage {stage.name} sets both num_workers_per_node() and "
+                    "xenna_stage_spec()['num_workers_per_node']. Use only one worker sizing option."
+                )
+                raise ValueError(msg)
+            num_workers_per_node = (
+                stage_num_workers_per_node if stage_num_workers_per_node is not None else spec_num_workers_per_node
+            )
             if num_workers is not None and num_workers_per_node is not None:
                 msg = (
                     f"Stage {stage.name} sets both num_workers() and "
-                    "xenna_stage_spec()['num_workers_per_node']. Use only one worker sizing option."
+                    "num_workers_per_node(). Use only one worker sizing option."
                 )
                 raise ValueError(msg)
 

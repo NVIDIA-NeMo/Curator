@@ -58,6 +58,36 @@ def _num_workers_method(num_workers: int | None) -> Callable[[], int | None]:
     return get_num_workers
 
 
+def _num_workers_per_node_method(num_workers_per_node: float | None) -> Callable[[], float | None]:
+    def get_num_workers_per_node() -> float | None:
+        return num_workers_per_node
+
+    return get_num_workers_per_node
+
+
+def _get_num_workers_per_node_value(stage: ProcessingStage) -> float | None:
+    value_or_method = stage.num_workers_per_node
+    return value_or_method() if callable(value_or_method) else value_or_method
+
+
+def _set_num_workers_per_node_override(stage: ProcessingStage, num_workers_per_node: float | None) -> None:
+    if callable(stage.num_workers_per_node):
+        stage.num_workers_per_node = _num_workers_per_node_method(num_workers_per_node)
+    else:
+        stage.num_workers_per_node = num_workers_per_node
+
+
+def _check_worker_sizing_options(stage: ProcessingStage) -> None:
+    effective_num_workers = stage.num_workers()
+    effective_num_workers_per_node = _get_num_workers_per_node_value(stage)
+    if effective_num_workers is not None and effective_num_workers_per_node is not None:
+        msg = (
+            "Use only one worker sizing option: num_workers or num_workers_per_node. "
+            "Set one of them to None before configuring the other."
+        )
+        raise ValueError(msg)
+
+
 class StageMeta(ABCMeta):
     """Metaclass that automatically registers concrete Stage subclasses.
     A class is considered *concrete* if it directly inherits from
@@ -171,6 +201,10 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
     def num_workers(self) -> int | None:
         """Number of workers required. If None, then executor will determine the number of workers."""
+        return None
+
+    def num_workers_per_node(self) -> float | None:
+        """Number of workers required per Ray node. If None, executor default sizing is used."""
         return None
 
     def validate_input(self, task: Task) -> bool:
@@ -321,6 +355,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         ray_stage_spec: dict[str, Any] | None = None,
         xenna_stage_spec: dict[str, Any] | None = None,
         num_workers: int | None | _UnsetType = _UNSET,
+        num_workers_per_node: float | None | _UnsetType = _UNSET,
     ) -> ProcessingStage:
         """Apply configuration changes to this stage with overridden properties.
 
@@ -335,6 +370,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             xenna_stage_spec: Merge overrides into the Xenna stage spec. User-provided keys win.
                 Use num_workers instead of setting num_workers in xenna_stage_spec.
             num_workers: Override the num_workers() result. Passing None explicitly resets to executor default behavior.
+            num_workers_per_node: Override the num_workers_per_node() result. Passing None explicitly resets to
+                executor default behavior.
         """
         new_instance = copy.deepcopy(self)
 
@@ -370,6 +407,10 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         if num_workers is not _UNSET:
             new_instance.num_workers = _num_workers_method(cast("int | None", num_workers))
+        if num_workers_per_node is not _UNSET:
+            _set_num_workers_per_node_override(new_instance, cast("float | None", num_workers_per_node))
+
+        _check_worker_sizing_options(new_instance)
 
         return new_instance
 

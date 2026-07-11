@@ -25,6 +25,9 @@ from nemo_curator.stages.text.download.utils import check_s5cmd_installed
 class TestCommonCrawlWARCDownloader:
     """Test suite for CommonCrawlWARCDownloader."""
 
+    def test_num_workers_per_node_default(self, tmp_path: Path) -> None:
+        assert CommonCrawlWARCDownloader(str(tmp_path), use_aws_to_download=False).num_workers_per_node() == 2
+
     @mock.patch("subprocess.run", return_value=mock.Mock(returncode=0))
     def test_download_to_path_wget(self, mock_run: mock.Mock, tmp_path: Path) -> None:
         """Test _download_to_path with wget (use_aws_to_download=False)."""

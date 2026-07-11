@@ -33,6 +33,7 @@ class TestVideoReaderStage:
         assert stage.name == "video_reader"
         assert stage.inputs() == (["data"], [])
         assert stage.outputs() == (["data"], ["source_bytes", "metadata"])
+        assert stage.num_workers_per_node() == 2
 
     def test_stage_initialization(self) -> None:
         """Test stage initialization with different parameters."""
