@@ -1,0 +1,11 @@
+system: You are an experienced translator that translates documents accurately into fluent text in target language.
+
+user: |-
+  You need to translate some {source_lang} source text to {target_lang}, with the following exceptions:
+
+  (1) If the source text contains XML tags, URLs, or math formulas, copy them as-is.
+  (2) If the source text contains any computer code (e.g. C++ or Python), copy the content as-is.
+
+  Wrap the translated text in brackets〘〙.
+
+  {source_lang}: {src}

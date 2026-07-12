@@ -1,0 +1,43 @@
+# CODEOWNERS - defines required reviewers for pull requests
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: all PRs require review from the curator_reviewers team (round-robin assignment)
+* @NVIDIA-NeMo/curator_reviewers
+
+# Deduplication
+nemo_curator/stages/deduplication/ @ayushdg @praateekmahajan
+tests/stages/deduplication/ @ayushdg @praateekmahajan
+
+# Documentation
+docs/ @NVIDIA-NeMo/docs_team
+
+# CI/CD and Build Configuration
+.github/ @NVIDIA-NeMo/automation
+codecov.yml @NVIDIA-NeMo/automation
+docker/ @NVIDIA-NeMo/automation
+pyproject.toml @NVIDIA-NeMo/automation
+uv.lock @NVIDIA-NeMo/automation
+
+# Text Embedders and Classifiers
+nemo_curator/stages/text/embedders/ @sarahyurick @praateekmahajan @VibhuJawa
+tests/stages/text/embedders/ @sarahyurick @praateekmahajan @VibhuJawa
+nemo_curator/stages/text/classifiers/ @sarahyurick @praateekmahajan @VibhuJawa
+tests/stages/text/classifiers/ @sarahyurick @praateekmahajan @VibhuJawa
+
+# Backends
+nemo_curator/backends/ @oyilmaz-nvidia @praateekmahajan @abhinavg4 @ayushdg
+tests/backends/ @oyilmaz-nvidia @praateekmahajan @abhinavg4 @ayushdg
+
+# Synthetic Data Generation (SDG)
+nemo_curator/stages/synthetic/ @huvunvidia
+tests/stages/synthetic/ @huvunvidia
+
+# Video
+nemo_curator/stages/video/ @suiyoubi @abhinavg4
+tests/stages/video/ @suiyoubi @abhinavg4
+
+# Benchmarking
+benchmarking/ @rlratzel @praateekmahajan @sarahyurick @ayushdg
+# Exclude scripts and nightly-benchmark.yaml from Rick's review
+benchmarking/scripts/ @NVIDIA-NeMo/curator_reviewers
+benchmarking/nightly-benchmark.yaml @NVIDIA-NeMo/curator_reviewers

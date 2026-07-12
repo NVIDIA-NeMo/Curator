@@ -1,0 +1,78 @@
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  FLEURS ASR curation pipeline
+  ############################
+  Download a `FLEURS <https://huggingface.co/datasets/google/fleurs>`_ split,
+  transcribe with a NeMo ASR model, score WER, filter by threshold, and write
+  a JSONL manifest.
+
+  Stages:
+
+  0. ``CreateInitialManifestFleursStage`` — Hugging Face download (once per
+     language under ``<raw_data_dir>/<lang>/``) and manifest emission
+  1. ``InferenceAsrNemoStage`` — GPU ASR inference (adds ``pred_text``)
+  2. ``GetPairwiseWerStage`` — pairwise WER (adds ``wer_pct``)
+  3. ``GetAudioDurationStage`` — audio duration in seconds
+  4. ``PreserveByValueStage`` — keep samples with ``wer_pct <= wer_threshold``
+  5. ``AudioToDocumentStage`` + ``JsonlWriter`` — write JSONL output
+
+  **Required arguments**:
+
+  * **raw_data_dir**: Parent workspace folder. Each language is staged under
+    ``<raw_data_dir>/<lang>/``; filtered output is written to
+    ``<raw_data_dir>/result/<lang>/``.
+
+  **Output format**:
+
+  JSONL at ``${output_dir}`` with keys ``audio_filepath``, ``text``,
+  ``pred_text``, ``wer_pct``, and ``duration``.
+
+raw_data_dir: ???
+lang: hy_am
+data_split: dev
+wer_threshold: 5.5
+output_dir: ${raw_data_dir}/result/${lang}
+backend: xenna
+
+stages:
+  - _target_: nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.CreateInitialManifestFleursStage
+    lang: ${lang}
+    split: ${data_split}
+    raw_data_dir: ${raw_data_dir}
+    batch_size: 4
+
+  - _target_: nemo_curator.stages.audio.inference.asr.asr_nemo.InferenceAsrNemoStage
+    model_name: nvidia/stt_hy_fastconformer_hybrid_large_pc
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: 1.0
+
+  - _target_: nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage
+    text_key: "text"
+    pred_text_key: "pred_text"
+    wer_key: "wer_pct"
+
+  - _target_: nemo_curator.stages.audio.common.GetAudioDurationStage
+    audio_filepath_key: audio_filepath
+    duration_key: duration
+
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueStage
+    input_value_key: "wer_pct"
+    target_value: ${wer_threshold}
+    operator: "le"
+
+  - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
+
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
+    path: ${output_dir}
+    write_kwargs:
+      "force_ascii": False

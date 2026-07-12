@@ -1,0 +1,2 @@
+*.ipynb linguist-language=Python
+*.tar.gz filter=lfs diff=lfs merge=lfs -text

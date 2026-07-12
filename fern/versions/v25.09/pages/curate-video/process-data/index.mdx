@@ -1,0 +1,75 @@
+---
+title: Process Data
+description: "Process video data by splitting into clips, encoding, generating embeddings and captions, and removing duplicates"
+---
+
+Use NeMo Curator stages to split videos into clips, encode them, generate embeddings or captions, and remove duplicates.
+
+## How it Works
+
+Create a `Pipeline` and add stages for clip extraction, optional re-encoding and filtering, embeddings or captions, previews, and writing outputs. Each stage is modular and configurable to match your quality and performance needs.
+
+## Processing Options
+
+Choose from the following stages to split, encode, filter, embed, caption, preview, and remove duplicates in your videos:
+
+<Cards>
+
+<Card title="Clip Videos" href="/curate-video/process-data/clipping">
+Split long videos into shorter clips using fixed stride or scene-change detection.
+</Card>
+
+<Card title="Encode Clips" href="/curate-video/process-data/transcoding">
+Encode clips to H.264 using CPU or GPU encoders and tune performance.
+</Card>
+
+<Card title="Filter Clips and Frames" href="/curate-video/process-data/filtering">
+Apply motion-based filtering and aesthetic filtering to improve dataset quality.
+</Card>
+
+<Card title="Extract Frames" href="/curate-video/process-data/frame-extraction">
+Extract frames from clips or full videos for embeddings, filtering, and analysis.
+</Card>
+
+<Card title="Create Embeddings" href="/curate-video/process-data/embeddings">
+Generate clip-level embeddings with InternVideo2 or Cosmos-Embed1 for search and duplicate removal.
+</Card>
+
+<Card title="Create Captions & Preview" href="/curate-video/process-data/captions-preview">
+Produce clip captions and optional preview images for review workflows.
+</Card>
+
+<Card title="Remove Duplicate Embeddings" href="/curate-video/process-data/dedup">
+Remove near-duplicates using semantic clustering and similarity with generated embeddings.
+</Card>
+
+</Cards>
+## Write Outputs
+
+Persist clips, embeddings, previews, and metadata at the end of the pipeline using `ClipWriterStage`. Refer to [Save & Export](/curate-video/save-export) for directory layout and examples.
+
+Example (place as the final stage):
+
+```python
+from nemo_curator.stages.video.io.clip_writer import ClipWriterStage
+
+pipeline.add_stage(
+    ClipWriterStage(
+        output_path=OUT_DIR,
+        input_path=VIDEO_DIR,
+        upload_clips=True,
+        dry_run=False,
+        generate_embeddings=True,
+        generate_previews=False,
+        generate_captions=False,
+        embedding_algorithm="internvideo2",
+        caption_models=[],
+        enhanced_caption_models=[],
+        verbose=True,
+    )
+)
+```
+
+Path helpers are available to resolve common locations (such as `clips/`, `filtered_clips/`, `previews/`, `metas/v0/`, and `iv2_embd_parquet/`).
+
+

@@ -1,0 +1,62 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  NeMo Curator Pipeline Fuzzy Deduplication Configuration File
+  ############################################################
+  This configuration file can be used to build a NeMo Curator pipeline that performs fuzzy deduplication.
+  This example reads the input files, runs the fuzzy deduplication workflow, and saves the results.
+
+input_path: ???
+output_path: ???
+cache_path: ???
+input_filetype: jsonl
+text_field: "text"
+
+ray_client:
+  _target_: nemo_curator.core.client.RayClient
+  num_cpus: null  # if null, will use all available CPUs
+  num_gpus: 4  # deduplication workflow requires at least 1 GPU
+
+workflow:
+  - _target_: nemo_curator.stages.deduplication.fuzzy.workflow.FuzzyDeduplicationWorkflow
+    input_path: ${input_path}
+    output_path: ${output_path}
+    cache_path: ${cache_path}
+    input_filetype: ${input_filetype}
+    input_blocksize: "1GiB"
+    input_file_extensions: null
+    read_kwargs: null
+    cache_kwargs: null
+    write_kwargs: null
+    text_field: ${text_field}
+    perform_removal: False
+    # Minhash + LSH Config
+    seed: 42
+    char_ngrams: 24
+    num_bands: 20
+    minhashes_per_band: 13
+    use_64_bit_hash: False
+    bands_per_iteration: 5
+    env_vars: null

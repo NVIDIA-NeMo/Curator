@@ -1,0 +1,14 @@
+{
+  "name": "nemo-curator-docs",
+  "private": true,
+  "description": "Fern documentation site for NeMo Curator. Run `npm run dev` to preview locally.",
+  "scripts": {
+    "check": "npx -y fern-api@latest check",
+    "dev": "npx -y fern-api@latest docs dev",
+    "generate": "npx -y fern-api@latest generate --docs",
+    "generate:library": "npx -y fern-api@latest docs md generate"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

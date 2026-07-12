@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Fern docs publish workflow (NeMo Curator)
+# Publishes the Fern documentation site when a docs tag is pushed or manually triggered.
+#
+# To publish:  git tag docs/v1.2.0 && git push origin docs/v1.2.0
+# Or use the "Run workflow" button in the Actions tab.
+#
+# Required configuration:
+# - Organization secret: DOCS_FERN_TOKEN (from `fern token` for the nvidia Fern org)
+
+name: Publish Fern Docs
+
+on:
+  push:
+    tags:
+      - 'docs/v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install Fern CLI
+        run: npm install -g fern-api
+
+      # Libraries in docs.yml write under fern/product-docs/ (gitignored).
+      # Run before publish so the Full Library Reference is included in the site.
+      - name: Generate library reference MDX (autodocs)
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        working-directory: ./fern
+        run: fern docs md generate
+
+      - name: Publish Docs
+        env:
+          FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
+        working-directory: ./fern
+        run: fern generate --docs

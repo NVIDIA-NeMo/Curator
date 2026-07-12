@@ -1,0 +1,189 @@
+# Variables (replaced at sync time by convert_curator_specific.py):
+#   {current_release}, {{ current_release }}, <release/> -> version from file path (e.g. 26.02)
+#   Use in source: # NeMo Curator Release Notes: {{ current_release }}  or  <release/>
+#
+# Version display names pair NeMo calendar trains (YY.MM) with git release tags (vMAJOR.MINOR.PATCH).
+# Update both when you cut a new docs version. See CHANGELOG.md / GitHub releases for tag ↔ release alignment.
+
+instances:
+  - url: nemo-curator.docs.buildwithfern.com/nemo/curator
+    custom-domain: docs.nvidia.com/nemo/curator
+    multi-source: true
+
+redirects:
+  - source: "/nemo/curator/home"
+    destination: "/nemo/curator/home/welcome"
+  # Sphinx HTML used .../path/to/page/index.html; Fern canonical URLs omit index.html.
+  # Add a pair here when you add a new `versions:` slug. See also the catch-all below.
+  # https://www.buildwithfern.com/learn/docs/configuration/site-level-settings#redirects-configuration
+  - source: "/nemo/curator/index.html"
+    destination: "/nemo/curator/home/welcome"
+  # Version-root index.html: explicit because :path* does not match the empty-path case.
+  - source: "/nemo/curator/latest/index.html"
+    destination: "/nemo/curator/latest"
+  - source: "/nemo/curator/main/index.html"
+    destination: "/nemo/curator/main"
+  - source: "/nemo/curator/v26.04/index.html"
+    destination: "/nemo/curator/v26.04"
+  - source: "/nemo/curator/v26.02/index.html"
+    destination: "/nemo/curator/v26.02"
+  - source: "/nemo/curator/v25.09/index.html"
+    destination: "/nemo/curator/v25.09"
+  - source: "/nemo/curator/26.04/index.html"
+    destination: "/nemo/curator/v26.04"
+  - source: "/nemo/curator/26.02/index.html"
+    destination: "/nemo/curator/v26.02"
+  - source: "/nemo/curator/25.09/index.html"
+    destination: "/nemo/curator/v25.09"
+  - source: "/nemo/curator/latest/:path*/index.html"
+    destination: "/nemo/curator/latest/:path*"
+  - source: "/nemo/curator/26.04/:path*/index.html"
+    destination: "/nemo/curator/v26.04/:path*"
+  - source: "/nemo/curator/26.02/:path*/index.html"
+    destination: "/nemo/curator/v26.02/:path*"
+  - source: "/nemo/curator/25.09/:path*/index.html"
+    destination: "/nemo/curator/v25.09/:path*"
+  # Legacy: calendar-train paths (YY.MM) without v- → Fern `versions:` slugs (vYY.MM)
+  - source: "/nemo/curator/25.09"
+    destination: "/nemo/curator/v25.09"
+  - source: "/nemo/curator/25.09/:path*"
+    destination: "/nemo/curator/v25.09/:path*"
+  - source: "/nemo/curator/26.02"
+    destination: "/nemo/curator/v26.02"
+  - source: "/nemo/curator/26.02/:path*"
+    destination: "/nemo/curator/v26.02/:path*"
+  - source: "/nemo/curator/26.04"
+    destination: "/nemo/curator/v26.04"
+  - source: "/nemo/curator/26.04/:path*"
+    destination: "/nemo/curator/v26.04/:path*"
+  # Unversioned paths and any slug not listed above (e.g. new version before redirects are updated)
+  - source: "/nemo/curator/:path*/index.html"
+    destination: "/nemo/curator/:path*"
+  # Sphinx-style page URLs (foo.html); :path*.html must follow all :path*/index.html rules above
+  - source: "/nemo/curator/25.09/:path*.html"
+    destination: "/nemo/curator/v25.09/:path*"
+  - source: "/nemo/curator/26.02/:path*.html"
+    destination: "/nemo/curator/v26.02/:path*"
+  - source: "/nemo/curator/26.04/:path*.html"
+    destination: "/nemo/curator/v26.04/:path*"
+  - source: "/nemo/curator/:path*.html"
+    destination: "/nemo/curator/:path*"
+  # Audio concepts: legacy nested nav URLs → flat slugs (aligned with Sphinx filenames)
+  - source: "/about/concepts/audio/curation/pipeline"
+    destination: "/about/concepts/audio/curation-pipeline"
+  - source: "/about/concepts/audio/audio/batch"
+    destination: "/about/concepts/audio/audio-task"
+  - source: "/about/concepts/audio/audio-batch"
+    destination: "/about/concepts/audio/audio-task"
+  - source: "/about/concepts/audio/asr/pipeline"
+    destination: "/about/concepts/audio/asr-pipeline"
+  - source: "/about/concepts/audio/quality/metrics"
+    destination: "/about/concepts/audio/quality-metrics"
+  - source: "/about/concepts/audio/manifests/ingest"
+    destination: "/about/concepts/audio/manifests-ingest"
+  - source: "/about/concepts/audio/text/integration"
+    destination: "/about/concepts/audio/text-integration"
+  - source: "/nemo/curator/about/concepts/audio/curation/pipeline"
+    destination: "/nemo/curator/about/concepts/audio/curation-pipeline"
+  - source: "/nemo/curator/about/concepts/audio/audio/batch"
+    destination: "/nemo/curator/about/concepts/audio/audio-task"
+  - source: "/nemo/curator/about/concepts/audio/audio-batch"
+    destination: "/nemo/curator/about/concepts/audio/audio-task"
+  - source: "/nemo/curator/about/concepts/audio/asr/pipeline"
+    destination: "/nemo/curator/about/concepts/audio/asr-pipeline"
+  - source: "/nemo/curator/about/concepts/audio/quality/metrics"
+    destination: "/nemo/curator/about/concepts/audio/quality-metrics"
+  - source: "/nemo/curator/about/concepts/audio/manifests/ingest"
+    destination: "/nemo/curator/about/concepts/audio/manifests-ingest"
+  - source: "/nemo/curator/about/concepts/audio/text/integration"
+    destination: "/nemo/curator/about/concepts/audio/text-integration"
+  # Reference / Infra: legacy nested nav URLs → flat slugs
+  - source: "/nemo/curator/reference/infra/memory/management"
+    destination: "/nemo/curator/reference/infra/memory-management"
+  - source: "/nemo/curator/reference/infra/gpu/processing"
+    destination: "/nemo/curator/reference/infra/gpu-processing"
+  - source: "/nemo/curator/reference/infra/resumable/processing"
+    destination: "/nemo/curator/reference/infra/resumable-processing"
+  - source: "/nemo/curator/reference/infra/container/environments"
+    destination: "/nemo/curator/reference/infra/container-environments"
+  # Text / video concepts & deployment: legacy nested nav → flat slugs
+  - source: "/nemo/curator/about/concepts/text/data/curation/pipeline"
+    destination: "/nemo/curator/about/concepts/text/data/data-curation-pipeline"
+  - source: "/nemo/curator/about/concepts/video/data/flow"
+    destination: "/nemo/curator/about/concepts/video/data-flow"
+  - source: "/nemo/curator/admin/deployment/slurm/image"
+    destination: "/nemo/curator/admin/deployment/slurm-image"
+  # API reference: AudioBatch was renamed to AudioTask in v26.04
+  - source: "/nemo/curator/api/reference/api-reference/tasks/audio-batch"
+    destination: "/nemo/curator/v26.04/api/reference/api-reference/tasks/audio-task"
+  # Library reference: experimental backend was promoted to stable in v26.04.
+  # RayDataExecutor moved from backends.experimental.ray_data → backends.ray_data;
+  # ray_actor_pool was likewise promoted out of experimental.
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_data"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/utils"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_data/utils"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/adapter"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/adapter"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/executor"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/executor"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/raft_adapter"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/raft_adapter"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/shuffle_adapter"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/shuffle_adapter"
+  - source: "/nemo/curator/nemo-curator/nemo_curator/backends/experimental/ray_actor_pool/utils"
+    destination: "/nemo/curator/v26.04/nemo-curator/nemo_curator/backends/ray_actor_pool/utils"
+  # Install moved from Setup & Deployment into Get Started (26.04)
+  - source: "/nemo/curator/latest/admin/installation"
+    destination: "/nemo/curator/latest/get-started/installation"
+  - source: "/nemo/curator/v26.04/admin/installation"
+    destination: "/nemo/curator/v26.04/get-started/installation"
+  - source: "/nemo/curator/admin/installation"
+    destination: "/nemo/curator/get-started/installation"
+
+title: NeMo Curator
+
+global-theme: nvidia
+
+# Local override attempt: the `nvidia` global theme hardcodes `right-text: Documentation`.
+# Testing whether a partial child-side `logo:` block can override just the right-text
+# while inheriting the SVGs/height/href from the theme.
+logo:
+  right-text: NeMo Curator
+
+versions:
+  - display-name: "Latest · v1.2.0 (26.04)"
+    path: versions/latest.yml
+    slug: latest
+    availability: stable
+  - display-name: "Main · preview"
+    path: versions/main.yml
+    slug: main
+    availability: beta
+  - display-name: "26.04 · v1.2.0"
+    path: versions/v26.04.yml
+    slug: v26.04
+    availability: stable
+  - display-name: "26.02 · v1.1.0"
+    path: versions/v26.02.yml
+    slug: v26.02
+    availability: stable
+  - display-name: "25.09 · v1.0.0"
+    path: versions/v25.09.yml
+    slug: v25.09
+    availability: stable
+
+libraries:
+  nemo-curator:
+    input:
+      git: https://github.com/NVIDIA-NeMo/Curator
+      subpath: nemo_curator
+    output:
+      path: ./product-docs/nemo-curator/Full-Library-Reference
+    lang: python
+
+experimental:
+  mdx-components:
+    - ./components
