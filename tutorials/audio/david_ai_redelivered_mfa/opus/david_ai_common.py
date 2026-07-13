@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shared helpers for the David AI MFA pipeline."""
 
 from __future__ import annotations
@@ -11,10 +10,12 @@ import shutil
 import subprocess
 import threading
 import traceback
-from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 MFA_ROOT_DIR_DEFAULT = "~/MFA_models"
 
@@ -73,7 +74,8 @@ def resolve_mfa_dict(mfa_dict: str) -> Path:
     ):
         if candidate.is_file():
             return candidate.resolve()
-    raise FileNotFoundError(f"MFA dictionary not found for {mfa_dict!r}")
+    msg = f"MFA dictionary not found for {mfa_dict!r}"
+    raise FileNotFoundError(msg)
 
 
 def resolve_mfa_acoustic_model(mfa_acoustic: str) -> str:
@@ -272,9 +274,10 @@ def _extract_acoustic_zip(
     with zipfile.ZipFile(zip_path) as zf:
         zf.extractall(extracted_root)
 
-    for path in extracted_root.rglob("final.mdl"):
+    for _path in extracted_root.rglob("final.mdl"):
         return
-    raise PipelineError(f"acoustic zip did not contain final.mdl: {zip_path}")
+    msg = f"acoustic zip did not contain final.mdl: {zip_path}"
+    raise PipelineError(msg)
 
 
 def resolve_mfa_g2p_model(mfa_g2p: str) -> Path:
@@ -290,9 +293,12 @@ def resolve_mfa_g2p_model(mfa_g2p: str) -> Path:
     ):
         if candidate.is_file() or candidate.is_dir():
             return candidate.resolve()
-    raise FileNotFoundError(
+    msg = (
         f"MFA G2P model not found for {mfa_g2p!r} under "
         f"{root / 'pretrained_models' / 'g2p'} or {root / 'extracted_models' / 'g2p'}"
+    )
+    raise FileNotFoundError(
+        msg
     )
 
 
@@ -305,16 +311,18 @@ def load_jsonl(path: Path) -> list[dict]:
     rows: list[dict] = []
     try:
         with path.open(encoding="utf-8") as f:
-            for line_no, line in enumerate(f, start=1):
-                line = line.strip()
+            for line_no, raw_line in enumerate(f, start=1):
+                line = raw_line.strip()
                 if not line:
                     continue
                 try:
                     rows.append(json.loads(line))
                 except json.JSONDecodeError as exc:
-                    raise ValueError(f"{path}:{line_no}: invalid JSON: {exc}") from exc
+                    msg = f"{path}:{line_no}: invalid JSON: {exc}"
+                    raise ValueError(msg) from exc
     except OSError as exc:
-        raise PipelineError(f"cannot read {path}: {exc}") from exc
+        msg = f"cannot read {path}: {exc}"
+        raise PipelineError(msg) from exc
     return rows
 
 
@@ -325,7 +333,8 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
             for row in rows:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
     except OSError as exc:
-        raise PipelineError(f"cannot write {path}: {exc}") from exc
+        msg = f"cannot write {path}: {exc}"
+        raise PipelineError(msg) from exc
 
 
 def append_jsonl(path: Path, row: dict, *, lock: threading.Lock | None = None) -> None:
@@ -335,7 +344,8 @@ def append_jsonl(path: Path, row: dict, *, lock: threading.Lock | None = None) -
             with path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
         except OSError as exc:
-            raise PipelineError(f"cannot append to {path}: {exc}") from exc
+            msg = f"cannot append to {path}: {exc}"
+            raise PipelineError(msg) from exc
 
     if lock is not None:
         with lock:
@@ -389,13 +399,16 @@ def ffprobe_duration(path: Path) -> float:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     except OSError as exc:
-        raise RuntimeError(f"ffprobe not available for {path}: {exc}") from exc
+        msg = f"ffprobe not available for {path}: {exc}"
+        raise RuntimeError(msg) from exc
     if result.returncode != 0 or not result.stdout.strip():
-        raise RuntimeError(f"ffprobe failed for {path}: {result.stderr[-300:]}")
+        msg = f"ffprobe failed for {path}: {result.stderr[-300:]}"
+        raise RuntimeError(msg)
     try:
         return float(result.stdout.strip())
     except ValueError as exc:
-        raise RuntimeError(f"ffprobe returned non-numeric duration for {path}") from exc
+        msg = f"ffprobe returned non-numeric duration for {path}"
+        raise RuntimeError(msg) from exc
 
 
 def extract_segment_wav(
@@ -443,6 +456,7 @@ def extract_segment_wav(
             stderr=subprocess.PIPE,
             text=True,
             timeout=FFMPEG_TIMEOUT_S,
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("ffmpeg segment extract failed to start for %s: %s", src, exc)
@@ -487,7 +501,8 @@ def parse_textgrid_words(tg_path: Path) -> list[tuple[float, float, str]]:
         tg = textgrid.TextGrid.fromFile(str(tg_path))
         tier = tg.getFirst("words")
     except Exception as exc:
-        raise ValueError(f"failed to parse TextGrid {tg_path}: {exc}") from exc
+        msg = f"failed to parse TextGrid {tg_path}: {exc}"
+        raise ValueError(msg) from exc
 
     words: list[tuple[float, float, str]] = []
     for iv in tier.intervals:
@@ -501,9 +516,12 @@ def safe_parse_textgrid_words(tg_path: Path) -> list[tuple[float, float, str]]:
     try:
         return parse_textgrid_words(tg_path)
     except ImportError as exc:
-        raise PipelineError(
+        msg = (
             "textgrid package is required to parse MFA TextGrids "
             f"(pip install textgrid): {exc}"
+        )
+        raise PipelineError(
+            msg
         ) from exc
     except Exception as exc:
         log_exception(f"TextGrid parse failed for {tg_path}", exc)
@@ -628,8 +646,8 @@ def load_speaker_count_tsv(path: Path) -> dict[str, int]:
     counts: dict[str, int] = {}
     if not path.is_file():
         return counts
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
         parts = line.split()
@@ -647,8 +665,8 @@ def load_session_id_list(path: Path) -> list[str]:
     if not path.is_file():
         return []
     ids: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
         ids.append(line.split()[0])
@@ -932,8 +950,8 @@ def merge_session_rttm(
         except OSError as exc:
             log_exception(f"cannot read RTTM {path}", exc)
             continue
-        for line in content.splitlines():
-            line = line.strip()
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
             if not line or line.startswith(";"):
                 continue
             parts = line.split()
@@ -982,8 +1000,8 @@ def group_segments_by_recording(rows: list[dict]) -> dict[str, list[dict]]:
     grouped: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         grouped[row["recording_id"]].append(row)
-    for rec_id in grouped:
-        grouped[rec_id].sort(key=lambda r: (r["start"], r["segment_index"]))
+    for segments in grouped.values():
+        segments.sort(key=lambda r: (r["start"], r["segment_index"]))
     return grouped
 
 
@@ -993,8 +1011,8 @@ def group_segments_by_session(rows: list[dict]) -> dict[str, list[dict]]:
     grouped: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         grouped[row["session_id"]].append(row)
-    for session_id in grouped:
-        grouped[session_id].sort(key=lambda r: (r["start"], r["segment_index"]))
+    for segments in grouped.values():
+        segments.sort(key=lambda r: (r["start"], r["segment_index"]))
     return grouped
 
 
@@ -1016,8 +1034,8 @@ def group_recordings_by_session(rows: list[dict]) -> dict[str, list[dict]]:
                 "audio_path": Path(row["audio_filepath_16k"]),
             }
         )
-    for session_id in grouped:
-        grouped[session_id].sort(key=lambda e: e["recording_id"])
+    for recordings in grouped.values():
+        recordings.sort(key=lambda e: e["recording_id"])
     return grouped
 
 
@@ -1203,8 +1221,8 @@ def merge_session_rttm_from_line_lists(
 ) -> list[str]:
     parsed: list[tuple[float, str]] = []
     for lines in line_lists:
-        for line in lines:
-            line = line.strip()
+        for raw_line in lines:
+            line = raw_line.strip()
             if not line or line.startswith(";"):
                 continue
             parts = line.split()
@@ -1292,8 +1310,8 @@ def parse_rttm_speech_intervals(
 ) -> list[tuple[float, float]]:
     """Speech intervals from RTTM lines (<NA> and speech subtype labels)."""
     raw: list[tuple[float, float]] = []
-    for line in lines:
-        line = line.strip()
+    for raw_line in lines:
+        line = raw_line.strip()
         if not line or line.startswith(";"):
             continue
         parts = line.split()
@@ -1321,8 +1339,8 @@ def parse_session_rttm_by_speaker(
     from collections import defaultdict
 
     by_speaker: dict[str, list[tuple[float, float]]] = defaultdict(list)
-    for line in lines:
-        line = line.strip()
+    for raw_line in lines:
+        line = raw_line.strip()
         if not line or line.startswith(";"):
             continue
         parts = line.split()
@@ -1401,7 +1419,8 @@ def decode_audio_mono_f32(path: Path, *, target_sr: int = 16000) -> tuple:
         raise
     if result.returncode != 0:
         msg = result.stderr.decode(errors="replace")[-400:]
-        raise RuntimeError(f"ffmpeg decode failed for {path}: {msg}")
+        msg_0 = f"ffmpeg decode failed for {path}: {msg}"
+        raise RuntimeError(msg_0)
     audio = np.frombuffer(result.stdout, dtype=np.float32)
     return audio, target_sr
 
@@ -1500,7 +1519,7 @@ def apply_white_noise_in_pause_intervals(
     audio = np.array(audio, dtype=np.float32, copy=True)
     n = len(audio)
     rng = np.random.default_rng(seed)
-    stitch = max(0, int(round(stitch_ms * sr / 1000.0))) if preserve_speech else 0
+    stitch = max(0, round(stitch_ms * sr / 1000.0)) if preserve_speech else 0
 
     for start, end in pause_intervals:
         i0 = max(0, int(start * sr))
@@ -1625,6 +1644,7 @@ def mix_audio_files(audio_paths: list[Path], output_path: Path, *, opus_bitrate:
             stderr=subprocess.PIPE,
             text=True,
             timeout=FFMPEG_TIMEOUT_S,
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("ffmpeg mix failed to start for %s: %s", output_path.name, exc)
@@ -1640,12 +1660,11 @@ def run_main(main_fn) -> None:
     try:
         raise SystemExit(main_fn())
     except PipelineError as exc:
-        logger.error("%s", exc)
+        logger.exception("Pipeline failed")
         raise SystemExit(1) from exc
     except KeyboardInterrupt:
-        logger.error("Interrupted")
-        raise SystemExit(130)
+        logger.exception("Interrupted")
+        raise SystemExit(130) from None
     except Exception as exc:
-        logger.error("Unhandled error: %s", exc)
-        logger.debug(traceback.format_exc())
+        logger.exception("Unhandled error")
         raise SystemExit(1) from exc

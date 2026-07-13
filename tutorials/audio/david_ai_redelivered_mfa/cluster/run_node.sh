@@ -22,7 +22,11 @@ MIX_PREP_WORKERS="${MIX_PREP_WORKERS:-4}"
 FFMPEG_TIMEOUT_S="${FFMPEG_TIMEOUT_S:-2400}"
 SESSIONS_FILE="${SESSIONS_FILE:-}"
 CONTAINER_IMAGE="${CONTAINER_IMAGE:-}"
-CONTAINER_MOUNTS="${CONTAINER_MOUNTS:-}"
+CONTAINER_MOUNTS_B64="${CONTAINER_MOUNTS_B64:-}"
+CONTAINER_MOUNTS=""
+if [[ -n "$CONTAINER_MOUNTS_B64" ]]; then
+    CONTAINER_MOUNTS="$(printf "%s" "$CONTAINER_MOUNTS_B64" | base64 --decode)"
+fi
 FFMPEG_BIN="${FFMPEG_BIN:-}"
 
 if [[ -n "$CONTAINER_IMAGE" && "${IN_CONTAINER:-0}" != "1" ]]; then
@@ -63,6 +67,7 @@ if [[ -n "$FFMPEG_BIN" ]]; then
         exit 1
     fi
     export FFMPEG_BIN
+    export PATH="$(dirname "$FFMPEG_BIN"):$PATH"
 elif [[ ! -x "$MFA_ENV/bin/ffmpeg" ]]; then
     echo "ERROR: ffmpeg is missing from MFA_ENV and FFMPEG_BIN is unset" >&2
     exit 1
@@ -77,9 +82,48 @@ cleanup() {
 }
 trap cleanup EXIT
 
+SHARED_MFA_ROOT_DIR="$MFA_ROOT_DIR"
+NODE_MFA_ROOT_DIR="$RAM_DIR/model_source"
+mkdir -p \
+    "$NODE_MFA_ROOT_DIR/pretrained_models/dictionary" \
+    "$NODE_MFA_ROOT_DIR/pretrained_models/acoustic" \
+    "$NODE_MFA_ROOT_DIR/pretrained_models/g2p"
+
+stage_model() {
+    local destination_dir="$1"
+    shift
+    local candidate
+    for candidate in "$@"; do
+        if [[ -e "$candidate" ]]; then
+            cp -a "$candidate" "$destination_dir/"
+            return 0
+        fi
+    done
+    echo "ERROR: no model candidate found: $*" >&2
+    return 1
+}
+
+stage_model \
+    "$NODE_MFA_ROOT_DIR/pretrained_models/dictionary" \
+    "$SHARED_MFA_ROOT_DIR/pretrained_models/dictionary/english_us_arpa.dict" \
+    "$SHARED_MFA_ROOT_DIR/pretrained_models/dictionary/english_us_arpa.txt"
+stage_model \
+    "$NODE_MFA_ROOT_DIR/pretrained_models/acoustic" \
+    "$SHARED_MFA_ROOT_DIR/pretrained_models/acoustic/english_us_arpa.zip" \
+    "$SHARED_MFA_ROOT_DIR/pretrained_models/acoustic/english_us_arpa"
+stage_model \
+    "$NODE_MFA_ROOT_DIR/pretrained_models/g2p" \
+    "$SHARED_MFA_ROOT_DIR/pretrained_models/g2p/english_us_arpa.zip" \
+    "$SHARED_MFA_ROOT_DIR/pretrained_models/g2p/english_us_arpa" \
+    "$SHARED_MFA_ROOT_DIR/extracted_models/g2p/english_us_arpa_g2p"
+
+export MFA_ROOT_DIR="$NODE_MFA_ROOT_DIR"
+
 echo "[$(date -Is)] Node=$(hostname) job=$SLURM_JOB_ID shard=$SHARD_INDEX/$SHARD_COUNT"
 echo "Variant=$VARIANT workers=$WORKERS_PER_NODE MFA_jobs=$MFA_NUM_JOBS"
 echo "Scratch=$RAM_DIR"
+echo "Shared model source=$SHARED_MFA_ROOT_DIR"
+echo "Shard-local model source=$MFA_ROOT_DIR"
 
 env \
     DATA_ROOT="$DATA_ROOT" \

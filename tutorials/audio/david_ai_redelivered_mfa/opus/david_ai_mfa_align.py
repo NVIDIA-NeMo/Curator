@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Ephemeral MFA alignment used only by the on-the-fly RAM E2E pipeline."""
 
 from __future__ import annotations
@@ -8,9 +7,9 @@ import os
 import shutil
 import subprocess
 import tempfile
-import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from david_ai_common import (
     PipelineError,
@@ -31,6 +30,9 @@ from david_ai_common import (
     words_to_json,
     write_textgrid,
 )
+
+if TYPE_CHECKING:
+    import threading
 
 logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -346,13 +348,14 @@ def _align_recording_impl(
                 text=True,
                 env=mfa_env,
                 timeout=MFA_ALIGN_TIMEOUT_S,
+                check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            logger.error("%s: mfa align timed out after %ds", recording_id, MFA_ALIGN_TIMEOUT_S)
+            logger.exception("%s: mfa align timed out after %ds", recording_id, MFA_ALIGN_TIMEOUT_S)
             mfa_failed_globally = True
             detail = f"mfa align timed out after {MFA_ALIGN_TIMEOUT_S}s: {exc}"
         except OSError as exc:
-            logger.error("%s: mfa align failed to start: %s", recording_id, exc)
+            logger.exception("%s: mfa align failed to start", recording_id)
             mfa_failed_globally = True
             detail = str(exc)
         else:

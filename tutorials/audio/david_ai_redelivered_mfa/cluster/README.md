@@ -98,15 +98,18 @@ Isolation hierarchy:
 ```text
 <node-local-scratch>/
 └── david_ai_<variant>_<slurm-job>_<array-task>/
+    ├── model_source/         # one shard-local copy from shared storage
     └── mfa_workers/
         └── worker_<process-pid>/
-            ├── models/       # private dictionary/acoustic/G2P copies
+            ├── models/       # private worker model copies
             ├── mfa_root/     # private MFA config/database root
             └── align_temp/
                 └── <session-id>/
 ```
 
 - Every array shard has a unique scratch root based on job and task IDs.
+- Every shard stages the shared dictionary, acoustic, and G2P source once into
+  its own node-local `model_source`.
 - Every session worker process has a private MFA root and private model copies.
 - A worker processes its speaker recordings sequentially.
 - Every session uses a separate alignment temp directory.

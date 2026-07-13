@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import logging
 import shutil
+import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,7 +101,11 @@ def main() -> int:
     ap.add_argument("--mfa-dict-name", default="english_us_arpa")
     ap.add_argument("--mfa-acoustic", default="english_us_arpa")
     ap.add_argument("--mfa-g2p", default="english_us_arpa")
-    ap.add_argument("--ram-dir", type=Path, default=Path("/tmp/david_ai_ram_session"))
+    ap.add_argument(
+        "--ram-dir",
+        type=Path,
+        default=Path(tempfile.gettempdir()) / "david_ai_ram_session",
+    )
     ap.add_argument("--num2words-lang", default="en")
     ap.add_argument("--mfa-num-jobs", type=int, default=2)
     ap.add_argument("--segment-padding", type=float, default=0.5)
@@ -116,10 +121,12 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.shard_count < 1:
-        raise PipelineError(f"--shard-count must be >= 1, got {args.shard_count}")
+        msg = f"--shard-count must be >= 1, got {args.shard_count}"
+        raise PipelineError(msg)
     if not 0 <= args.shard_index < args.shard_count:
+        msg = f"--shard-index must be in [0, {args.shard_count}), got {args.shard_index}"
         raise PipelineError(
-            f"--shard-index must be in [0, {args.shard_count}), got {args.shard_index}"
+            msg
         )
 
     work_dir = args.work_dir.resolve()
@@ -141,11 +148,13 @@ def main() -> int:
     if args.sessions_file is not None:
         sessions_file = args.sessions_file.resolve()
         if not sessions_file.is_file():
-            raise PipelineError(f"sessions file does not exist: {sessions_file}")
+            msg = f"sessions file does not exist: {sessions_file}"
+            raise PipelineError(msg)
         sessions = filter_sessions_from_file(sessions, sessions_file)
         logger.info("Restricted run to %d sessions from %s", len(sessions), sessions_file)
     if not sessions:
-        raise PipelineError(f"No sessions under {data_root}")
+        msg = f"No sessions under {data_root}"
+        raise PipelineError(msg)
     if args.shard_count > 1:
         total = len(sessions)
         sessions = [

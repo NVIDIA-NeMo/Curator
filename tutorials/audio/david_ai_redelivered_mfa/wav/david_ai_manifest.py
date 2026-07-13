@@ -19,13 +19,16 @@ from __future__ import annotations
 import json
 import logging
 import re
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from david_ai_common import (
     PipelineError,
     log_exception,
     recording_id,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +110,8 @@ def normalize_text(text: str, *, num2words_lang: str = "en") -> str:
             resolve_alphabet,
         )
     except ImportError as exc:
-        raise PipelineError("nemo_curator is required for text normalization") from exc
+        msg = "nemo_curator is required for text normalization"
+        raise PipelineError(msg) from exc
 
     lang = (num2words_lang or "").strip()
     alphabet = resolve_alphabet("english", None, lowercase=True)
@@ -127,7 +131,8 @@ def normalize_text(text: str, *, num2words_lang: str = "en") -> str:
             num2words_lowercase_output=True,
         )
     except Exception as exc:
-        raise ValueError(f"normalization failed for text snippet: {text[:80]!r}") from exc
+        msg = f"normalization failed for text snippet: {text[:80]!r}"
+        raise ValueError(msg) from exc
 
 
 def resolve_speaker_audio_path(session_dir: Path, speaker_id: str) -> Path:
@@ -142,7 +147,8 @@ def resolve_speaker_audio_path(session_dir: Path, speaker_id: str) -> Path:
         if candidate.is_file():
             return candidate.resolve()
     expected = ", ".join(path.name for path in candidates)
-    raise FileNotFoundError(f"no speaker audio for {speaker_id}; tried: {expected}")
+    msg = f"no speaker audio for {speaker_id}; tried: {expected}"
+    raise FileNotFoundError(msg)
 
 
 def build_session_rows(
@@ -154,18 +160,22 @@ def build_session_rows(
     session_id = session_dir.name
     transcript_path = session_dir / "machine_generated_transcript.json"
     if not transcript_path.is_file():
-        raise FileNotFoundError(f"missing transcript: {transcript_path}")
+        msg = f"missing transcript: {transcript_path}"
+        raise FileNotFoundError(msg)
     try:
         with transcript_path.open(encoding="utf-8") as stream:
             payload = json.load(stream)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid JSON in {transcript_path}: {exc}") from exc
+        msg = f"invalid JSON in {transcript_path}: {exc}"
+        raise ValueError(msg) from exc
     except OSError as exc:
-        raise PipelineError(f"cannot read {transcript_path}: {exc}") from exc
+        msg = f"cannot read {transcript_path}: {exc}"
+        raise PipelineError(msg) from exc
 
     segments = payload.get("transcript") if isinstance(payload, dict) else None
     if not isinstance(segments, list):
-        raise ValueError(f"expected transcript list in {transcript_path}")
+        msg = f"expected transcript list in {transcript_path}"
+        raise TypeError(msg)
 
     speaker_ids = {
         str(segment["speaker"])

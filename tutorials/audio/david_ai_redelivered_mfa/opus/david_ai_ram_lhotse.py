@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from david_ai_common import (
@@ -28,6 +27,8 @@ from david_ai_common import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from david_ai_mfa_align import SessionAlignResult
 
 

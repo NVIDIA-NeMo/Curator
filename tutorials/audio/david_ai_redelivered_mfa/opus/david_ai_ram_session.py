@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import shutil
 from dataclasses import dataclass
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from david_ai_common import (
     PipelineError,
@@ -44,6 +44,9 @@ from david_ai_common import (
 from david_ai_manifest import build_session_rows
 from david_ai_mfa_align import align_session
 from david_ai_ram_lhotse import write_all_textgrids
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _PROCESS_MFA: dict | None = None
 
@@ -127,7 +130,8 @@ def _validate_session_outputs(
         )
     missing = [str(path) for path in required if not _nonempty(path)]
     if missing:
-        raise PipelineError(f"missing or empty session outputs: {missing}")
+        msg = f"missing or empty session outputs: {missing}"
+        raise PipelineError(msg)
 
 
 def _mark_session_done(work_dir: Path, session_id: str) -> None:
@@ -191,11 +195,13 @@ def _prepare_speaker_tracks_for_mix(
         speaker_id = entry["speaker_id"]
         src = entry["audio_path"]
         if not src.is_file():
-            raise FileNotFoundError(f"missing source audio {src}")
+            msg = f"missing source audio {src}"
+            raise FileNotFoundError(msg)
 
         speech = manifest_speech.get(rec_id)
         if not speech:
-            raise PipelineError(f"no original manifest boundaries for {rec_id}")
+            msg = f"no original manifest boundaries for {rec_id}"
+            raise PipelineError(msg)
         duration = rec_durations.get(rec_id, 0.0)
         if duration <= 0:
             try:
@@ -224,7 +230,8 @@ def _prepare_speaker_tracks_for_mix(
             stitch_ms=stitch_ms,
             boundary_indent=boundary_offset,
         ):
-            raise PipelineError(f"pause noise prep failed for {rec_id}")
+            msg = f"pause noise prep failed for {rec_id}"
+            raise PipelineError(msg)
         return local_dst, persistent_dst
 
     return run_thread_pool(specs, _prepare_one, workers=_mix_prep_workers(len(specs)))
@@ -256,7 +263,8 @@ def _mix_session_from_manifest(
 ) -> None:
     entries = group_recordings_by_session(norm_rows).get(session_id, [])
     if not entries:
-        raise PipelineError("no speaker recordings to mix")
+        msg = "no speaker recordings to mix"
+        raise PipelineError(msg)
 
     session_scratch = session_ram / "mix"
     if session_scratch.exists():
@@ -277,7 +285,8 @@ def _mix_session_from_manifest(
     )
     local_mixed = session_scratch / f"{session_id}.opus"
     if not mix_audio_files([local for local, _ in prepared_tracks], local_mixed, opus_bitrate=opus_bitrate):
-        raise PipelineError("session mix failed")
+        msg = "session mix failed"
+        raise PipelineError(msg)
 
     for local_path, persistent_path in prepared_tracks:
         _publish_audio(local_path, persistent_path)

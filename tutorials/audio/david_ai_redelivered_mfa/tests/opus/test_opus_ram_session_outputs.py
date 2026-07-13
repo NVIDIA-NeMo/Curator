@@ -47,7 +47,7 @@ def _manifest_row(tmp_path: Path, session_id: str, speaker_id: str, start: float
     }
 
 
-def test_speaker_audio_resolution_priority_and_fallback(tmp_path: Path):
+def test_speaker_audio_resolution_priority_and_fallback(tmp_path: Path) -> None:
     speaker_id = "speaker"
     preprocessed = tmp_path / f"{speaker_id}_preprocessed.wav"
     ordinary = tmp_path / f"{speaker_id}.wav"
@@ -66,7 +66,7 @@ def test_speaker_audio_resolution_priority_and_fallback(tmp_path: Path):
     assert resolve_speaker_audio_path(tmp_path, speaker_id) == postprocess
 
 
-def test_mix_uses_manifest_boundaries_and_persists_speaker_tracks(tmp_path: Path, monkeypatch):
+def test_mix_uses_manifest_boundaries_and_persists_speaker_tracks(tmp_path: Path, monkeypatch) -> None:
     session_id = "session"
     rows = [
         _manifest_row(tmp_path, session_id, "speaker-a", 1.0, 2.0),
@@ -107,7 +107,7 @@ def test_mix_uses_manifest_boundaries_and_persists_speaker_tracks(tmp_path: Path
     assert session_mixed_audio_path(audio_mixed_dir, session_id).is_file()
 
 
-def test_write_all_textgrids_writes_both_variants_when_fastmss_is_empty(tmp_path: Path):
+def test_write_all_textgrids_writes_both_variants_when_fastmss_is_empty(tmp_path: Path) -> None:
     session_id = "session"
     rec_id = recording_id("speaker", session_id)
     result = SessionAlignResult(
@@ -133,7 +133,7 @@ def test_write_all_textgrids_writes_both_variants_when_fastmss_is_empty(tmp_path
     assert recording_textgrid_path(tmp_path, rec_id, variant="ordinary").is_file()
 
 
-def test_done_flag_is_written_only_after_all_outputs_exist(tmp_path: Path):
+def test_done_flag_is_written_only_after_all_outputs_exist(tmp_path: Path) -> None:
     session_id = "session"
     speaker_id = "speaker"
     row = _manifest_row(tmp_path, session_id, speaker_id, 1.0, 2.0)
@@ -175,7 +175,7 @@ def test_done_flag_is_written_only_after_all_outputs_exist(tmp_path: Path):
     assert ram_session.session_done_path(work_dir, session_id).read_text() == "ok\n"
 
 
-def test_parallel_resume_selects_only_sessions_without_done_flags(tmp_path: Path):
+def test_parallel_resume_selects_only_sessions_without_done_flags(tmp_path: Path) -> None:
     work_dir = tmp_path / "work"
     sessions = [tmp_path / "session-a", tmp_path / "session-b"]
     ram_session._mark_session_done(work_dir, "session-a")
@@ -185,7 +185,7 @@ def test_parallel_resume_selects_only_sessions_without_done_flags(tmp_path: Path
     assert [session.name for session in pending] == ["session-b"]
 
 
-def test_session_list_restricts_discovered_sessions(tmp_path: Path):
+def test_session_list_restricts_discovered_sessions(tmp_path: Path) -> None:
     sessions = [tmp_path / name for name in ("session-a", "session-b", "session-c")]
     sessions_file = tmp_path / "sessions.txt"
     sessions_file.write_text("# subset\nsession-c\n\nsession-a\nmissing-session\n", encoding="utf-8")
