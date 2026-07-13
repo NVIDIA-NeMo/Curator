@@ -292,7 +292,7 @@ today's file:
 .cursor/skills/review-curator-audio-pr/scripts/pull_audio_pr_corpus.sh --since 1608
 
 # 2) render one consolidated reviewer-comment corpus
-.cursor/skills/review-curator-audio-pr/scripts/build_corpus.py
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh build-corpus
 ```
 
 `pull_audio_pr_corpus.sh` lists PRs with number greater than `--since`
@@ -314,15 +314,22 @@ the review and fix the failure before writing findings.
 
 ## 5. GitHub data + scripts reference
 
-Generic scripts live under `.cursor/skills/review-curator-pr/scripts/`; the audio
-skill wraps them with the audio path filter. From the audio skill directory,
-`scripts/` forwards to those helpers.
+Modality-agnostic implementations live once under
+`.cursor/scripts/curator-pr-review/`. The audio skill exposes one entry point,
+`scripts/review_audio_pr.sh`, which supplies the audio path filter and corpus
+labels:
 
-`scripts/ensure_repo.sh [CLONE_DIR]` - reuse an existing Curator checkout or
-shallow-clone one; prints `CURATOR_REPO=<path>` on its last line.
+```bash
+scripts/review_audio_pr.sh ensure-repo [CLONE_DIR]
+scripts/review_audio_pr.sh pull <N> [--outdir DIR] [--repo OWNER/REPO]
+scripts/review_audio_pr.sh digest <N> [--outdir DIR] [--today YYYY-MM-DD] \
+  [--prev-head SHA] [--baseline-ts TS]
+scripts/review_audio_pr.sh build-corpus [--outdir DIR] [--today YYYY-MM-DD]
+```
 
-`scripts/pr_review_pull.sh <N> [--outdir DIR] [--repo OWNER/REPO]` pulls into the
-scratch outdir (audio-only guard applied automatically):
+`ensure-repo` reuses an existing Curator checkout or shallow-clones one and
+prints `CURATOR_REPO=<path>` on its last line. `pull` writes these files into the
+scratch outdir and rejects PRs that touch no audio path:
 
 | File | Endpoint |
 |------|----------|
@@ -335,17 +342,12 @@ scratch outdir (audio-only guard applied automatically):
 | `pr<N>_review_threads_latest.json` | GraphQL `pullRequest.reviewThreads` (isResolved/isOutdated) |
 
 The REST inline-comments endpoint does not expose resolve/outdate state; the
-GraphQL thread payload does. The builder joins them by comment `databaseId`
-(== REST `id`), falling back to a `(path, body-prefix)` match when an older
-thread dump lacks `databaseId`.
+GraphQL thread payload does. The digest builder joins them by comment
+`databaseId` (== REST `id`), falling back to a `(path, body-prefix)` match when
+an older thread dump lacks `databaseId`.
 
-`scripts/build_digest.py <N> [--outdir DIR] [--today YYYY-MM-DD] [--prev-head SHA] [--baseline-ts TS]`
-renders the working digest + the prior-open-threads context file (you add your
-own findings).
-
-`scripts/pull_audio_pr_corpus.sh [--since N] [--outdir DIR] [--repo OWNER/REPO] [--limit N] [--refresh]`
-(incremental - skips PRs already on disk; `--refresh` re-pulls) and
-`scripts/build_corpus.py [--outdir DIR] [--today YYYY-MM-DD]` **must** run before
+`scripts/pull_audio_pr_corpus.sh [--since N] [--outdir DIR] [--repo OWNER/REPO]
+[--limit N] [--refresh]` and `review_audio_pr.sh build-corpus` **must** run before
 every review to build the post-#1608 corpus (section 4; SKILL.md step 3).
 
 Default outdir: `.curator-pr-review/` (scratch; gitignored, safe to delete).

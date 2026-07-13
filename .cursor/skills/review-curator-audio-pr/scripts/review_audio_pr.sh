@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Audio-specific entry point for the shared Curator PR review helpers.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SHARED_DIR="${SCRIPT_DIR}/../../../scripts/curator-pr-review"
+# shellcheck source=../audio_paths.sh
+source "${SCRIPT_DIR}/../audio_paths.sh"
+
+usage() {
+    cat <<'USAGE'
+Usage: review_audio_pr.sh <command> [args]
+
+Commands:
+  ensure-repo [CLONE_DIR]
+  pull <PR_NUMBER> [--outdir DIR] [--repo OWNER/REPO]
+  digest <PR_NUMBER> [--outdir DIR] [--today YYYY-MM-DD]
+         [--prev-head SHA] [--baseline-ts TS]
+  build-corpus [--outdir DIR] [--today YYYY-MM-DD]
+USAGE
+}
+
+[[ $# -gt 0 ]] || { usage >&2; exit 2; }
+command="$1"
+shift
+
+case "${command}" in
+    ensure-repo)
+        exec "${SHARED_DIR}/ensure_repo.sh" "$@"
+        ;;
+    pull)
+        exec "${SHARED_DIR}/pr_review_pull.sh" "$@" \
+            --path-regex "${AUDIO_PATH_REGEX}" \
+            --modality-label "${AUDIO_MODALITY_LABEL}"
+        ;;
+    digest)
+        exec "${SHARED_DIR}/build_digest.py" "$@" \
+            --path-regex "${AUDIO_PATH_REGEX}" \
+            --modality-label "${AUDIO_MODALITY_LABEL}"
+        ;;
+    build-corpus)
+        exec "${SHARED_DIR}/build_corpus.py" "$@" \
+            --title "Audio PR review corpus (post-#1608)" \
+            --intro "Consolidated reviewer feedback on audio PRs opened after the #1608 AudioTask framework redesign (open + closed/merged). Read-only pre-review context: recognise patterns reviewers repeatedly raise, and check the PR in front of you against them." \
+            --output-prefix "audio_pr_corpus"
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        echo "error: unknown command: ${command}" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

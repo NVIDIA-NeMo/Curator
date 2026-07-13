@@ -1,29 +1,33 @@
 # Scripts - review-curator-audio-pr
 
-Audio-specific wrappers and corpus tooling. Generic pull/digest/corpus logic
-lives in `.cursor/skills/review-curator-pr/scripts/`; this folder forwards to
-those helpers with the audio path filter from `../audio_paths.sh`.
+The audio skill has one entry point for shared PR-review operations and one
+audio-specific corpus discovery script. Modality-agnostic implementations live
+once under `.cursor/scripts/curator-pr-review/`.
 
-## ensure_repo.sh / pr_review_pull.sh / build_digest.py
+## review_audio_pr.sh
 
-Thin wrappers that call the generic scripts with the audio path regex. **Audio-only:**
-abort if the PR touches no audio path.
+```bash
+review_audio_pr.sh ensure-repo [CLONE_DIR]
+review_audio_pr.sh pull <PR_NUMBER> [--outdir DIR] [--repo OWNER/REPO]
+review_audio_pr.sh digest <PR_NUMBER> [--outdir DIR] [--today YYYY-MM-DD]
+review_audio_pr.sh build-corpus [--outdir DIR] [--today YYYY-MM-DD]
+```
 
-## pull_audio_pr_corpus.sh + build_corpus.py (required pre-review corpus)
+The entry point supplies the audio path filter from `../audio_paths.sh` and
+rejects non-audio PRs. `pull` gathers PR metadata and review activity; `digest`
+renders the working digest and open-thread queue; `build-corpus` renders the
+audio corpus.
 
-Run before every audio PR review (SKILL.md step 3):
+## pull_audio_pr_corpus.sh
+
+Run the corpus pull and build before every audio PR review:
 
 ```bash
 .cursor/skills/review-curator-audio-pr/scripts/pull_audio_pr_corpus.sh --since 1608
-.cursor/skills/review-curator-audio-pr/scripts/build_corpus.py --today <YYYY-MM-DD>
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh build-corpus --today <YYYY-MM-DD>
 ```
 
-`pull_audio_pr_corpus.sh` discovers audio PRs after #1608, pulls reviewer comments
-(incremental by default; `--refresh` to re-pull), and writes into
-`.curator-pr-review/audio-corpus/`. `build_corpus.py` renders
-`audio_pr_corpus_<date>.md`.
-
-The diff baseline for the PR under review is always `main`; the corpus is
-separate read-only context from post-#1608 audio PR reviews. The cutoff excludes
-feedback about the pre-`AudioTask` architecture that #1608 replaced. See
-`../knowledge-sources.md` section 4.
+The puller discovers audio PRs after #1608 and incrementally stores reviewer
+comments in `.curator-pr-review/audio-corpus/` (`--refresh` re-pulls them). The
+diff baseline for the target PR remains `main`; the corpus is separate context
+from reviews of the post-#1608 architecture.

@@ -27,8 +27,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../audio_paths.sh
 source "${SCRIPT_DIR}/../audio_paths.sh"
-# shellcheck source=../../review-curator-pr/scripts/lib/gh_paginate.sh
-source "${SCRIPT_DIR}/../../review-curator-pr/scripts/lib/gh_paginate.sh"
+# shellcheck source=../../../scripts/curator-pr-review/lib/gh_paginate.sh
+source "${SCRIPT_DIR}/../../../scripts/curator-pr-review/lib/gh_paginate.sh"
 
 REPO="NVIDIA-NeMo/Curator"
 SINCE=1608

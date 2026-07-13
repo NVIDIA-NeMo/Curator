@@ -1,6 +1,6 @@
 # Output templates
 
-You are the reviewer. `scripts/build_digest.py` generates files A and B as
+You are the reviewer. `scripts/review_audio_pr.sh digest` generates files A and B as
 context; you author the findings (section C) and post them as your review.
 The digest **leads with a PR overview** that you must complete and present
 before any review comments. Replace `<...>` placeholders. Keep the structure

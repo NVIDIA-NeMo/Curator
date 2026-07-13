@@ -116,7 +116,7 @@ Curator checkout, searches the current directory tree for one, and only then
 shallow-clones (`--depth 1`, no full history):
 
 ```bash
-eval "$(scripts/ensure_repo.sh | tail -1)"   # sets CURATOR_REPO=<path>
+eval "$(scripts/review_audio_pr.sh ensure-repo | tail -1)"   # sets CURATOR_REPO=<path>
 cd "$CURATOR_REPO"
 ```
 
@@ -133,7 +133,7 @@ PR is out of scope for this skill, so stop and do not review it here.
 ### Step 2 - Pull fresh GitHub data
 
 ```bash
-.cursor/skills/review-curator-audio-pr/scripts/pr_review_pull.sh <N>
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh pull <N>
 ```
 
 Pulls six REST endpoints (`pr view`, `reviews`, inline `comments`, issue
@@ -155,7 +155,7 @@ default) and render a fresh consolidated file for today's review:
 
 ```bash
 .cursor/skills/review-curator-audio-pr/scripts/pull_audio_pr_corpus.sh --since 1608
-.cursor/skills/review-curator-audio-pr/scripts/build_corpus.py --today <YYYY-MM-DD>
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh build-corpus --today <YYYY-MM-DD>
 ```
 
 Confirm `.curator-pr-review/audio-corpus/audio_pr_corpus_<date>.md` exists and
@@ -194,7 +194,7 @@ do you write the overview (step 7).
 ### Step 6 - Generate the context files
 
 ```bash
-.cursor/skills/review-curator-audio-pr/scripts/build_digest.py <N> --today <YYYY-MM-DD>
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh digest <N> --today <YYYY-MM-DD>
 ```
 
 The builder joins the pulled JSON and classifies each existing comment by thread

@@ -1,7 +1,7 @@
-# Scripts - review-curator-pr (generic)
+# Shared Curator PR review scripts
 
 Modality-agnostic helpers for reviewing NVIDIA-NeMo/Curator pull requests.
-Modality skills (e.g. `review-curator-audio-pr`) wrap these with a path filter.
+Modality skills call these through one modality-specific entry point and path filter.
 
 All scripts require the GitHub CLI (`gh`) authenticated against github.com.
 
@@ -13,7 +13,7 @@ on the last line.
 ## pr_review_pull.sh
 
 ```bash
-.cursor/skills/review-curator-pr/scripts/pr_review_pull.sh <PR_NUMBER> \
+.cursor/scripts/curator-pr-review/pr_review_pull.sh <PR_NUMBER> \
   [--outdir DIR] [--repo OWNER/REPO] [--path-regex REGEX] [--modality-label LABEL]
 ```
 
@@ -26,7 +26,7 @@ When `--path-regex` is set, aborts (exit 3) if the PR touches no matching path.
 ## build_digest.py
 
 ```bash
-.cursor/skills/review-curator-pr/scripts/build_digest.py <PR_NUMBER> \
+.cursor/scripts/curator-pr-review/build_digest.py <PR_NUMBER> \
   [--outdir DIR] [--today YYYY-MM-DD] [--prev-head SHA] [--baseline-ts TS] \
   [--path-regex REGEX] [--modality-label LABEL]
 ```
@@ -37,7 +37,7 @@ Builds `curator_pr<N>_fresh_review_<date>.md` and
 ## build_corpus.py
 
 ```bash
-.cursor/skills/review-curator-pr/scripts/build_corpus.py \
+.cursor/scripts/curator-pr-review/build_corpus.py \
   [--outdir DIR] [--today YYYY-MM-DD] [--title TITLE] [--intro INTRO] \
   [--output-prefix PREFIX]
 ```
