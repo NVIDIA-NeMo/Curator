@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""Stage 2: MFA align per segment, concatenate to per-session TextGrids + alignments cache."""
+"""Ephemeral MFA alignment used only by the on-the-fly RAM E2E pipeline."""
 
 from __future__ import annotations
 
-import argparse
-import json
 import logging
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
 from dataclasses import dataclass, field
@@ -19,34 +16,66 @@ from david_ai_common import (
     PipelineError,
     append_jsonl,
     append_mfa_g2p_args,
-    clear_all_alignment_done,
     extract_segment_wav,
     ffprobe_duration,
-    finish_stage,
     group_segments_by_recording,
-    group_segments_by_session,
-    load_alignment_ids,
-    load_norm_manifest_rows,
     log_exception,
     map_segment_words_to_recording,
-    maybe_skip_done_stage,
-    mfa_models_root,
     mfa_subprocess_env,
-    partition_list,
-    plan_sessions_needing_alignment,
     resolve_mfa_acoustic_model,
     resolve_mfa_g2p_model,
-    run_main,
+    run_thread_pool,
     safe_parse_textgrid_words,
     segment_fallback_log_entry,
     session_textgrid_path,
-    setup_mfa_worker_root,
     words_to_json,
     write_textgrid,
 )
 
 logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Guard against a wedged `mfa align` (e.g. SQLite/pynini lock contention seen when
+# many run in a worker pool) blocking its caller forever and hanging the whole shard,
+# mirroring the FFMPEG_TIMEOUT_S protection already used for ffmpeg subprocesses.
+MFA_ALIGN_TIMEOUT_S = 3600
+
+
+def _segment_extract_workers(num_segments: int) -> int:
+    raw = os.environ.get("SEG_EXTRACT_WORKERS", "").strip()
+    if raw:
+        try:
+            return max(1, min(int(raw), num_segments))
+        except ValueError:
+            pass
+    return max(1, min(num_segments, 8))
+
+
+def _export_segment_for_mfa(
+    seg: dict,
+    *,
+    audio_path: Path,
+    corpus_dir: Path,
+    segment_padding: float,
+    audio_duration: float,
+) -> tuple[dict, Path, float] | None:
+    seg_idx = int(seg["segment_index"])
+    seg_wav = corpus_dir / f"seg_{seg_idx:05d}.wav"
+    seg_txt = corpus_dir / f"seg_{seg_idx:05d}.txt"
+    seg_start = float(seg["start"])
+    seg_end = float(seg["end"])
+    extract_start = extract_segment_wav(
+        audio_path,
+        seg_wav,
+        seg_start,
+        seg_end,
+        padding=segment_padding,
+        max_duration=audio_duration,
+    )
+    if extract_start is None:
+        return None
+    seg_txt.write_text(seg["text_norm"].strip(), encoding="utf-8")
+    return seg, seg_wav, extract_start
 
 
 @dataclass
@@ -236,46 +265,38 @@ def _align_recording_impl(
     mfa_segments = 0
 
     seg_meta: list[tuple[dict, Path, float]] = []
-    for seg in usable:
-        seg_idx = int(seg["segment_index"])
-        seg_wav = corpus_dir / f"seg_{seg_idx:05d}.wav"
-        seg_txt = corpus_dir / f"seg_{seg_idx:05d}.txt"
-        seg_start = float(seg["start"])
-        seg_end = float(seg["end"])
+
+    def _export_one(seg: dict) -> tuple[dict, Path, float] | None:
         try:
-            extract_start = extract_segment_wav(
-                audio_path,
-                seg_wav,
-                seg_start,
-                seg_end,
-                padding=segment_padding,
-                max_duration=audio_duration,
+            return _export_segment_for_mfa(
+                seg,
+                audio_path=audio_path,
+                corpus_dir=corpus_dir,
+                segment_padding=segment_padding,
+                audio_duration=audio_duration,
             )
-            if extract_start is None:
-                _segment_miss_or_fallback(
-                    seg,
-                    recording_id,
-                    reason="segment_export_failed",
-                    detail="ffmpeg extract failed",
-                    fb_words=fb_words,
-                    fallback_entries=fallback_entries,
-                    use_fallback=use_fallback,
-                )
-                continue
-            seg_txt.write_text(seg["text_norm"].strip(), encoding="utf-8")
         except OSError as exc:
-            log_exception(f"{recording_id} segment {seg_idx} export", exc)
+            log_exception(f"{recording_id} segment {seg.get('segment_index')} export", exc)
+            return None
+
+    extract_results = run_thread_pool(
+        usable,
+        _export_one,
+        workers=_segment_extract_workers(len(usable)),
+    )
+    for seg, exported in zip(usable, extract_results, strict=True):
+        if exported is None:
             _segment_miss_or_fallback(
                 seg,
                 recording_id,
                 reason="segment_export_failed",
-                detail=str(exc),
+                detail="ffmpeg extract failed",
                 fb_words=fb_words,
                 fallback_entries=fallback_entries,
                 use_fallback=use_fallback,
             )
             continue
-        seg_meta.append((seg, seg_wav, extract_start))
+        seg_meta.append(exported)
 
     mfa_failed_globally = False
     if seg_meta:
@@ -319,7 +340,17 @@ def _align_recording_impl(
         logger.info("%s: running MFA on %d segments", recording_id, len(seg_meta))
         mfa_env = mfa_subprocess_env(temp_root=temp_root, mfa_root=mfa_root)
         try:
-            result = subprocess.run(align_cmd, capture_output=True, text=True, env=mfa_env)
+            result = subprocess.run(
+                align_cmd,
+                capture_output=True,
+                text=True,
+                env=mfa_env,
+                timeout=MFA_ALIGN_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired as exc:
+            logger.error("%s: mfa align timed out after %ds", recording_id, MFA_ALIGN_TIMEOUT_S)
+            mfa_failed_globally = True
+            detail = f"mfa align timed out after {MFA_ALIGN_TIMEOUT_S}s: {exc}"
         except OSError as exc:
             logger.error("%s: mfa align failed to start: %s", recording_id, exc)
             mfa_failed_globally = True
@@ -429,6 +460,7 @@ def align_session(
     mfa_g2p: str | None = None,
     keep_temp: bool = False,
     use_fallback: bool = True,
+    write_textgrids: bool = True,
 ) -> SessionAlignResult:
     by_recording = group_segments_by_recording(segments)
     session_merged: list[tuple[float, float, str, str]] = []
@@ -494,26 +526,34 @@ def align_session(
         [(s, e, w) for s, e, w, _ in session_merged] + [(s, e, w) for s, e, w, _ in session_fb],
         key=lambda x: x[0],
     )
-    write_textgrid(
-        fastmss_words,
-        session_textgrid_path(textgrid_dir, session_id, variant="fastmss"),
-        xmin=0.0,
-        xmax=xmax,
-    )
-    write_textgrid(
-        ordinary_words,
-        session_textgrid_path(textgrid_dir, session_id, variant="ordinary"),
-        xmin=0.0,
-        xmax=xmax,
-    )
-
-    logger.info(
-        "%s: session TextGrids (%d MFA words, %d fallback, %d speakers)",
-        session_id,
-        len(session_merged),
-        len(session_fb),
-        len(recording_rows),
-    )
+    if write_textgrids:
+        write_textgrid(
+            fastmss_words,
+            session_textgrid_path(textgrid_dir, session_id, variant="fastmss"),
+            xmin=0.0,
+            xmax=xmax,
+        )
+        write_textgrid(
+            ordinary_words,
+            session_textgrid_path(textgrid_dir, session_id, variant="ordinary"),
+            xmin=0.0,
+            xmax=xmax,
+        )
+        logger.info(
+            "%s: session TextGrids (%d MFA words, %d fallback, %d speakers)",
+            session_id,
+            len(session_merged),
+            len(session_fb),
+            len(recording_rows),
+        )
+    else:
+        logger.info(
+            "%s: MFA alignment (%d words, %d fallback, %d speakers; TextGrids skipped)",
+            session_id,
+            len(session_merged),
+            len(session_fb),
+            len(recording_rows),
+        )
     return SessionAlignResult(
         ok=True,
         mfa_segments=mfa_segments,
@@ -523,301 +563,3 @@ def align_session(
         audio_duration=xmax,
         recordings=recording_rows,
     )
-
-
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--manifests-dir", type=Path, required=True)
-    ap.add_argument("--mfa-dict", type=Path, required=True)
-    ap.add_argument("--mfa-acoustic", default="english_us_arpa")
-    ap.add_argument("--mfa-g2p", default="english_us_arpa", help="MFA G2P model for OOV at align time")
-    ap.add_argument(
-        "--textgrid-dir",
-        type=Path,
-        required=True,
-        help="Per-session TextGrid output ({session_id}.TextGrid and {session_id}_fastmss.TextGrid)",
-    )
-    ap.add_argument(
-        "--alignments-jsonl",
-        type=Path,
-        default=None,
-        help="Compact per-session alignment cache (default: <workdir>/alignments.jsonl)",
-    )
-    ap.add_argument("--mfa-temp-dir", type=Path, required=True)
-    ap.add_argument(
-        "--mfa-workers-dir",
-        type=Path,
-        default=None,
-        help="Per-worker MFA roots with copied models (default: <mfa-temp-dir>/workers)",
-    )
-    ap.add_argument(
-        "--run-rttm",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Write per-recording RTTM files (legacy)",
-    )
-    ap.add_argument("--rttm-dir", type=Path, default=None, help="Shared RTTM output dir for worker stage 3")
-    ap.add_argument(
-        "--rttm-merge-gap",
-        type=float,
-        default=0.2,
-        help="RTTM merge gap when --run-rttm is enabled",
-    )
-    ap.add_argument(
-        "--mfa-fallback-log",
-        type=Path,
-        default=None,
-        help="JSONL log for segments where MFA failed and manifest boundaries were used",
-    )
-    ap.add_argument("--num-jobs", type=int, default=4, help="MFA parallel jobs per speaker recording")
-    ap.add_argument(
-        "--workers",
-        type=int,
-        default=1,
-        help="Parallel sessions (each worker uses its own MFA root)",
-    )
-    ap.add_argument(
-        "--segment-padding",
-        type=float,
-        default=0.5,
-        help="Seconds of audio context to include before/after each manifest segment for MFA",
-    )
-    ap.add_argument("--recording", action="append", default=[], help="Optional recording_id filter")
-    ap.add_argument("--session", action="append", default=[], help="Optional session_id filter")
-    ap.add_argument("--work-dir", type=Path, default=None, help="Work dir for .done marker")
-    ap.add_argument("--stage-done-name", default=None, help="Stage name for .done marker")
-    ap.add_argument("--force", action="store_true", help="Re-run even if alignment already cached")
-    ap.add_argument("--keep-temp", action="store_true", help="Keep per-speaker MFA temp dirs")
-    args = ap.parse_args()
-
-    if maybe_skip_done_stage(args.work_dir, args.stage_done_name, force=args.force):
-        return 0
-
-    manifests_dir = args.manifests_dir.resolve()
-    mfa_dict = args.mfa_dict.resolve()
-    textgrid_dir = args.textgrid_dir.resolve()
-    alignments_jsonl = (
-        args.alignments_jsonl.resolve()
-        if args.alignments_jsonl
-        else (manifests_dir.parent / "alignments.jsonl")
-    )
-    mfa_temp_dir = args.mfa_temp_dir.resolve()
-    fallback_log = (
-        args.mfa_fallback_log.resolve()
-        if args.mfa_fallback_log
-        else (manifests_dir.parent / "logs" / "mfa_segment_fallback.jsonl")
-    )
-
-    if not mfa_dict.is_file():
-        raise PipelineError(f"MFA dictionary not found: {mfa_dict}")
-
-    rows, manifest_errors = load_norm_manifest_rows(manifests_dir, sessions=args.session or None)
-    grouped = group_segments_by_session(rows)
-
-    if args.session:
-        wanted_sessions = set(args.session)
-        grouped = {k: v for k, v in grouped.items() if k in wanted_sessions}
-
-    if args.recording:
-        wanted_recs = set(args.recording)
-        grouped = {
-            session_id: [s for s in segs if s["recording_id"] in wanted_recs]
-            for session_id, segs in grouped.items()
-        }
-        grouped = {k: v for k, v in grouped.items() if v}
-
-    if not grouped:
-        raise PipelineError("No sessions to align")
-
-    textgrid_dir.mkdir(parents=True, exist_ok=True)
-    mfa_temp_dir.mkdir(parents=True, exist_ok=True)
-    alignments_jsonl.parent.mkdir(parents=True, exist_ok=True)
-    fallback_log.parent.mkdir(parents=True, exist_ok=True)
-    if args.force:
-        if fallback_log.is_file():
-            fallback_log.unlink()
-        if alignments_jsonl.is_file():
-            alignments_jsonl.unlink()
-        clear_all_alignment_done(textgrid_dir)
-
-    workers = max(1, args.workers)
-    mfa_workers_dir = (
-        args.mfa_workers_dir.resolve()
-        if args.mfa_workers_dir
-        else (mfa_temp_dir / "workers")
-    )
-    rttm_dir = (
-        args.rttm_dir.resolve()
-        if args.rttm_dir
-        else (manifests_dir.parent / "rttm")
-    )
-
-    to_process, skip = plan_sessions_needing_alignment(
-        grouped,
-        textgrid_dir=textgrid_dir,
-        alignments_jsonl=alignments_jsonl,
-        force=args.force,
-    )
-
-    if not to_process and skip == len(grouped):
-        logger.info("Stage 2 done: all %d session alignments already cached", len(grouped))
-        return finish_stage(args.work_dir, args.stage_done_name, 0)
-
-    ok, fail = _run_worker_subprocesses(
-        to_process,
-        workers=workers,
-        mfa_workers_dir=mfa_workers_dir,
-        manifests_dir=manifests_dir,
-        mfa_dict=mfa_dict,
-        mfa_acoustic=args.mfa_acoustic,
-        mfa_g2p=args.mfa_g2p,
-        textgrid_dir=textgrid_dir,
-        alignments_jsonl=alignments_jsonl,
-        mfa_temp_dir=mfa_temp_dir,
-        fallback_log=fallback_log,
-        num_jobs=args.num_jobs,
-        segment_padding=args.segment_padding,
-        keep_temp=args.keep_temp,
-        force=args.force,
-        run_rttm=args.run_rttm,
-        rttm_dir=rttm_dir,
-        rttm_merge_gap=args.rttm_merge_gap,
-    )
-
-    logger.info(
-        "Stage 2 done: ok=%d fail=%d skip=%d total=%d manifest_errors=%d "
-        "alignments=%s textgrids=%s fallback_log=%s workers=%d",
-        ok,
-        fail,
-        skip,
-        len(grouped),
-        manifest_errors,
-        alignments_jsonl,
-        textgrid_dir,
-        fallback_log,
-        workers,
-    )
-    exit_code = 1 if (fail or manifest_errors) else 0
-    if exit_code == 0:
-        remaining, _ = plan_sessions_needing_alignment(
-            grouped,
-            textgrid_dir=textgrid_dir,
-            alignments_jsonl=alignments_jsonl,
-            force=False,
-        )
-        if remaining:
-            logger.info(
-                "Stage 2 partial resume point: %d/%d sessions still need alignment "
-                "(resubmit with STAGE=2 STAGE_END=7; completed sessions are skipped)",
-                len(remaining),
-                len(grouped),
-            )
-            return 1
-    return finish_stage(args.work_dir, args.stage_done_name, exit_code)
-
-
-def _run_worker_subprocesses(
-    items: list[tuple[str, list[dict]]],
-    *,
-    workers: int,
-    mfa_workers_dir: Path,
-    manifests_dir: Path,
-    mfa_dict: Path,
-    mfa_acoustic: str,
-    mfa_g2p: str | None,
-    textgrid_dir: Path,
-    alignments_jsonl: Path,
-    mfa_temp_dir: Path,
-    fallback_log: Path,
-    num_jobs: int,
-    segment_padding: float,
-    keep_temp: bool,
-    force: bool,
-    run_rttm: bool,
-    rttm_dir: Path,
-    rttm_merge_gap: float,
-) -> tuple[int, int]:
-    mfa_workers_dir.mkdir(parents=True, exist_ok=True)
-    source_root = mfa_models_root()
-    shards = partition_list(items, workers)
-    worker_script = Path(__file__).with_name("stage2_mfa_worker.py")
-    procs: list[subprocess.Popen] = []
-
-    for worker_id, shard in enumerate(shards):
-        worker_dir = mfa_workers_dir / f"worker_{worker_id:02d}"
-        setup_mfa_worker_root(
-            worker_dir,
-            mfa_dict=mfa_dict,
-            mfa_acoustic=mfa_acoustic,
-            mfa_g2p=mfa_g2p,
-            source_mfa_root=source_root,
-            force=force,
-        )
-        shard_path = worker_dir / "sessions.json"
-        shard_path.write_text(
-            json.dumps([session_id for session_id, _ in shard]),
-            encoding="utf-8",
-        )
-        cmd = [
-            sys.executable,
-            str(worker_script),
-            "--worker-id",
-            str(worker_id),
-            "--worker-dir",
-            str(worker_dir),
-            "--sessions-file",
-            str(shard_path),
-            "--manifests-dir",
-            str(manifests_dir),
-            "--mfa-dict",
-            str(mfa_dict),
-            "--mfa-acoustic",
-            mfa_acoustic,
-            "--mfa-g2p",
-            mfa_g2p or "",
-            "--textgrid-dir",
-            str(textgrid_dir),
-            "--alignments-jsonl",
-            str(alignments_jsonl),
-            "--mfa-temp-dir",
-            str(mfa_temp_dir),
-            "--mfa-fallback-log",
-            str(fallback_log),
-            "--num-jobs",
-            str(num_jobs),
-            "--segment-padding",
-            str(segment_padding),
-            "--rttm-merge-gap",
-            str(rttm_merge_gap),
-        ]
-        if keep_temp:
-            cmd.append("--keep-temp")
-        if force:
-            cmd.append("--force")
-        if run_rttm:
-            cmd.extend(["--rttm-dir", str(rttm_dir)])
-        logger.info("worker %02d: %d sessions", worker_id, len(shard))
-        procs.append(subprocess.Popen(cmd))
-
-    for proc in procs:
-        rc = proc.wait()
-        if rc != 0:
-            logger.error("worker subprocess failed (exit %d)", rc)
-
-    ok = fail = 0
-    for worker_id in range(len(shards)):
-        worker_dir = mfa_workers_dir / f"worker_{worker_id:02d}"
-        result_path = worker_dir / "result.json"
-        if not result_path.is_file():
-            logger.error("worker %02d: missing result.json", worker_id)
-            fail += len(shards[worker_id])
-            continue
-        data = json.loads(result_path.read_text(encoding="utf-8"))
-        ok += int(data.get("ok", 0))
-        fail += int(data.get("fail", 0))
-
-    return ok, fail
-
-
-if __name__ == "__main__":
-    run_main(main)

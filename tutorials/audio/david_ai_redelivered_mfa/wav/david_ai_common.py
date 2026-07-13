@@ -16,7 +16,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 from typing import TypeVar
 
-MFA_ROOT_DIR_DEFAULT = "/home/ttimofeeva/MFA_models"
+MFA_ROOT_DIR_DEFAULT = "~/MFA_models"
 
 POSTPROCESSED_RE = re.compile(r"^(.+)_postprocessed\.wav$")
 SILENCE_TOKENS = {"", "sil", "sp", "spn", "<eps>"}
@@ -27,7 +27,31 @@ logger = logging.getLogger(__name__)
 # ffmpeg (e.g. an internal futex deadlock seen when many run in a worker pool)
 # blocks its caller forever and hangs the whole shard. On timeout, subprocess
 # kills the child and raises TimeoutExpired, which callers treat as a failure.
-FFMPEG_TIMEOUT_S = 600
+# Configurable via FFMPEG_TIMEOUT_S: the final multi-speaker `amix` of long
+# sessions can exceed the default when all node CPUs are saturated (mix reruns
+# use a higher value and lower concurrency).
+def _ffmpeg_timeout_s() -> int:
+    raw = os.environ.get("FFMPEG_TIMEOUT_S", "").strip()
+    if raw:
+        try:
+            value = int(float(raw))
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return 600
+
+
+FFMPEG_TIMEOUT_S = _ffmpeg_timeout_s()
+
+
+def ffmpeg_executable() -> str:
+    """Return ffmpeg binary path; honors FFMPEG_BIN for cluster static builds."""
+    env_bin = os.environ.get("FFMPEG_BIN", "").strip()
+    if env_bin:
+        return env_bin
+    return shutil.which("ffmpeg") or "ffmpeg"
+
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -156,27 +180,16 @@ def setup_mfa_worker_root(
     mfa_acoustic: str,
     mfa_g2p: str | None = None,
     source_mfa_root: Path | None = None,
-    force: bool = False,
 ) -> tuple[Path, Path, str, str | None]:
     """Prepare an isolated MFA root with local copies of lexicon and acoustic model.
 
     Returns (mfa_root, local_dict_path, acoustic_model_arg, g2p_model_arg) for ``mfa align``.
     """
-    import zipfile
-
     worker_dir = worker_dir.resolve()
+    if worker_dir.exists():
+        shutil.rmtree(worker_dir, ignore_errors=True)
     mfa_root = worker_dir / "mfa_root"
     models_dir = worker_dir / "models"
-    marker = worker_dir / ".setup_done"
-
-    if marker.is_file() and not force:
-        local_dict = models_dir / mfa_dict.name
-        acoustic_arg = _worker_acoustic_arg(models_dir, mfa_acoustic)
-        g2p_arg = _worker_g2p_arg(models_dir, mfa_g2p) if mfa_g2p else None
-        return mfa_root, local_dict, acoustic_arg, g2p_arg
-
-    if force and worker_dir.exists():
-        shutil.rmtree(worker_dir, ignore_errors=True)
 
     models_dir.mkdir(parents=True, exist_ok=True)
     mfa_root.mkdir(parents=True, exist_ok=True)
@@ -191,7 +204,10 @@ def setup_mfa_worker_root(
         acoustic_arg = str(local_zip)
         _extract_acoustic_zip(local_zip, mfa_root, source_mfa_root=source_mfa_root)
     elif acoustic_src.is_dir():
-        acoustic_arg = str(acoustic_src)
+        local_acoustic = models_dir / "acoustic" / acoustic_src.name
+        local_acoustic.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(acoustic_src, local_acoustic)
+        acoustic_arg = str(local_acoustic)
     else:
         acoustic_arg = resolve_mfa_acoustic_model(mfa_acoustic)
 
@@ -228,17 +244,7 @@ def setup_mfa_worker_root(
         cmd_hist.unlink(missing_ok=True)
     cmd_hist.symlink_to("/dev/null")
 
-    marker.write_text("ok\n", encoding="utf-8")
     return mfa_root, local_dict, acoustic_arg, g2p_arg
-
-
-def _worker_acoustic_arg(models_dir: Path, mfa_acoustic: str) -> str:
-    acoustic_src = Path(resolve_mfa_acoustic_model(mfa_acoustic))
-    if acoustic_src.is_file():
-        local = models_dir / acoustic_src.name
-        if local.is_file():
-            return str(local)
-    return resolve_mfa_acoustic_model(mfa_acoustic)
 
 
 def _extract_acoustic_zip(
@@ -392,55 +398,6 @@ def ffprobe_duration(path: Path) -> float:
         raise RuntimeError(f"ffprobe returned non-numeric duration for {path}") from exc
 
 
-def resample_opus(
-    src: Path,
-    dst: Path,
-    *,
-    target_sr: int = 16000,
-    bitrate: str = "32k",
-) -> bool:
-    """Resample *src* to mono Opus at *target_sr* (default 16 kHz)."""
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if dst.exists():
-        return True
-    cmd = [
-        "ffmpeg",
-        "-nostdin",
-        "-y",
-        "-i",
-        str(src),
-        "-ar",
-        str(target_sr),
-        "-ac",
-        "1",
-        "-c:a",
-        "libopus",
-        "-b:a",
-        bitrate,
-        "-application",
-        "voip",
-        "-vbr",
-        "on",
-        str(dst),
-    ]
-    try:
-        result = subprocess.run(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=FFMPEG_TIMEOUT_S,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        logger.warning("ffmpeg opus encode failed to start for %s: %s", src, exc)
-        return False
-    if result.returncode != 0:
-        logger.warning("ffmpeg opus encode failed for %s: %s", src, result.stderr[-300:])
-        return False
-    return True
-
-
 def extract_segment_wav(
     src: Path,
     dst: Path,
@@ -463,7 +420,7 @@ def extract_segment_wav(
         extract_end = min(max_duration, extract_end)
     duration = max(extract_end - extract_start, 0.01)
     cmd = [
-        "ffmpeg",
+        ffmpeg_executable(),
         "-nostdin",
         "-y",
         "-ss",
@@ -666,12 +623,77 @@ def discover_sessions(data_root: Path) -> list[Path]:
     return sorted(sessions)
 
 
+def load_speaker_count_tsv(path: Path) -> dict[str, int]:
+    """Load ``<count> <session_id>`` lines from a speaker-count TSV."""
+    counts: dict[str, int] = {}
+    if not path.is_file():
+        return counts
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            counts[parts[1]] = int(parts[0])
+        except ValueError:
+            continue
+    return counts
+
+
+def load_session_id_list(path: Path) -> list[str]:
+    """Load one session id per line (comments and blanks ignored)."""
+    if not path.is_file():
+        return []
+    ids: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        ids.append(line.split()[0])
+    return ids
+
+
+def filter_sessions_by_ids(sessions: list[Path], session_ids: list[str]) -> list[Path]:
+    wanted = set(session_ids)
+    if not wanted:
+        return sessions
+    by_name = {session.name: session for session in sessions}
+    missing = sorted(wanted - set(by_name))
+    if missing:
+        logger.warning("sessions-file: %d id(s) not found under data root (first: %s)", len(missing), missing[0])
+    return [by_name[sid] for sid in session_ids if sid in by_name]
+
+
+def order_sessions_by_speaker_priority(
+    sessions: list[Path],
+    speaker_counts: dict[str, int],
+    *,
+    min_priority_speakers: int,
+) -> list[Path]:
+    """Put sessions with at least *min_priority_speakers* first (higher counts earlier)."""
+    if min_priority_speakers <= 1 or not speaker_counts:
+        return sessions
+
+    def sort_key(session_dir: Path) -> tuple[int, int, str]:
+        count = speaker_counts.get(session_dir.name, 0)
+        priority_bucket = 0 if count >= min_priority_speakers else 1
+        return (priority_bucket, -count, session_dir.name)
+
+    return sorted(sessions, key=sort_key)
+
+
 def recording_id(speaker_id: str, session_id: str) -> str:
     return f"{speaker_id}_{session_id}_postprocessed"
 
 
-def audio_16k_path(audio_16k_dir: Path, speaker_id: str, session_id: str) -> Path:
-    return audio_16k_dir / f"{speaker_id}_{session_id}_postprocessed.opus"
+def masked_speaker_audio_path(audio_masked_dir: Path, speaker_id: str, session_id: str) -> Path:
+    return audio_masked_dir / f"{recording_id(speaker_id, session_id)}.wav"
+
+
+def masked_speaker_rttm_path(audio_masked_dir: Path, speaker_id: str, session_id: str) -> Path:
+    return audio_masked_dir / f"{recording_id(speaker_id, session_id)}.rttm"
 
 
 def recording_textgrid_path(
@@ -686,11 +708,13 @@ def recording_textgrid_path(
 
 def recording_textgrid_paths(textgrid_dir: Path, recording_id: str) -> list[Path]:
     ordinary = recording_textgrid_path(textgrid_dir, recording_id, variant="ordinary")
+    fb_path = recording_textgrid_path(textgrid_dir, recording_id, variant="fb")
+    if ordinary.is_file() and fb_path.is_file():
+        return [ordinary, fb_path]
     if ordinary.is_file():
         return [ordinary]
-    fb_path = recording_textgrid_path(textgrid_dir, recording_id, variant="fb")
     if fb_path.is_file():
-        return [ordinary, fb_path]
+        return [fb_path]
     return [ordinary]
 
 
@@ -706,74 +730,6 @@ def session_textgrid_path(
 ) -> Path:
     suffix = {"ordinary": "", "fastmss": "_fastmss"}.get(variant, "")
     return textgrid_dir / f"{session_id}{suffix}.TextGrid"
-
-
-def alignment_done_path(textgrid_dir: Path, session_id: str) -> Path:
-    return textgrid_dir / ".done" / f"{session_id}.done"
-
-
-def is_alignment_done(textgrid_dir: Path, session_id: str) -> bool:
-    return alignment_done_path(textgrid_dir, session_id).is_file()
-
-
-def mark_alignment_done(textgrid_dir: Path, session_id: str) -> None:
-    path = alignment_done_path(textgrid_dir, session_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("ok\n", encoding="utf-8")
-
-
-def clear_alignment_done(textgrid_dir: Path, session_id: str) -> None:
-    path = alignment_done_path(textgrid_dir, session_id)
-    if path.is_file():
-        path.unlink()
-
-
-def clear_all_alignment_done(textgrid_dir: Path) -> None:
-    done_dir = textgrid_dir / ".done"
-    if done_dir.is_dir():
-        shutil.rmtree(done_dir, ignore_errors=True)
-
-
-def session_alignment_textgrids_exist(textgrid_dir: Path, session_id: str) -> bool:
-    return session_textgrid_path(textgrid_dir, session_id).is_file() and session_textgrid_path(
-        textgrid_dir,
-        session_id,
-        variant="fastmss",
-    ).is_file()
-
-
-def is_session_alignment_done(
-    session_id: str,
-    *,
-    textgrid_dir: Path,
-    alignments_jsonl: Path | None = None,
-) -> bool:
-    if not session_alignment_textgrids_exist(textgrid_dir, session_id):
-        return False
-    if is_alignment_done(textgrid_dir, session_id):
-        return True
-    if alignments_jsonl is not None and alignments_jsonl.is_file():
-        return session_id in load_alignment_ids(alignments_jsonl)
-    return False
-
-
-def plan_sessions_needing_alignment(
-    grouped: dict[str, list[dict]],
-    *,
-    textgrid_dir: Path,
-    alignments_jsonl: Path,
-    force: bool = False,
-) -> tuple[list[tuple[str, list[dict]]], int]:
-    items = sorted(grouped.items())
-    if force:
-        return items, 0
-    to_process = [
-        (sid, segs)
-        for sid, segs in items
-        if not is_session_alignment_done(sid, textgrid_dir=textgrid_dir, alignments_jsonl=alignments_jsonl)
-    ]
-    skip = len(items) - len(to_process)
-    return to_process, skip
 
 
 def interval_overlaps(start: float, end: float, intervals: list[tuple[float, float]]) -> bool:
@@ -1297,77 +1253,6 @@ def build_recording_rttm_lines(
     ]
 
 
-def stage_done_path(work_dir: Path, stage_name: str) -> Path:
-    return work_dir / ".done" / f"{stage_name}.done"
-
-
-def is_stage_done(work_dir: Path, stage_name: str) -> bool:
-    return stage_done_path(work_dir, stage_name).is_file()
-
-
-def mark_stage_done(work_dir: Path, stage_name: str) -> None:
-    path = stage_done_path(work_dir, stage_name)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("ok\n", encoding="utf-8")
-
-
-def clear_stage_done(work_dir: Path, stage_name: str) -> None:
-    path = stage_done_path(work_dir, stage_name)
-    if path.is_file():
-        path.unlink()
-
-
-def clear_stage_done_from(work_dir: Path, stage_name: str, stage_names: list[str]) -> None:
-    try:
-        start = stage_names.index(stage_name)
-    except ValueError:
-        return
-    for name in stage_names[stage:]:
-        clear_stage_done(work_dir, name)
-
-
-def maybe_skip_done_stage(work_dir: Path | None, stage_name: str | None, *, force: bool) -> bool:
-    if work_dir is None or not stage_name:
-        return False
-    if force:
-        clear_stage_done(work_dir, stage_name)
-        return False
-    if is_stage_done(work_dir, stage_name):
-        logger.info("Stage %s already done (%s), skipping", stage_name, stage_done_path(work_dir, stage_name))
-        return True
-    return False
-
-
-def finish_stage(work_dir: Path | None, stage_name: str | None, exit_code: int) -> int:
-    if exit_code == 0 and work_dir is not None and stage_name:
-        mark_stage_done(work_dir, stage_name)
-    return exit_code
-
-
-def mixed_audio_done_path(audio_mixed_dir: Path, session_id: str) -> Path:
-    return audio_mixed_dir / ".done" / f"{session_id}.done"
-
-
-def is_mixed_audio_done(audio_mixed_dir: Path, session_id: str) -> bool:
-    return mixed_audio_done_path(audio_mixed_dir, session_id).is_file()
-
-
-def mark_mixed_audio_done(audio_mixed_dir: Path, session_id: str) -> None:
-    path = mixed_audio_done_path(audio_mixed_dir, session_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("ok\n", encoding="utf-8")
-
-
-def clear_mixed_audio_done(audio_mixed_dir: Path, session_id: str) -> None:
-    path = mixed_audio_done_path(audio_mixed_dir, session_id)
-    if path.is_file():
-        path.unlink()
-
-
-def all_mixed_audio_done(audio_mixed_dir: Path, session_ids: list[str]) -> bool:
-    return bool(session_ids) and all(is_mixed_audio_done(audio_mixed_dir, sid) for sid in session_ids)
-
-
 def pad_speech_intervals(
     speech_intervals: list[tuple[float, float]],
     pad: float,
@@ -1494,7 +1379,7 @@ def decode_audio_mono_f32(path: Path, *, target_sr: int = 16000) -> tuple:
     import numpy as np
 
     cmd = [
-        "ffmpeg",
+        ffmpeg_executable(),
         "-nostdin",
         "-i",
         str(path),
@@ -1524,16 +1409,15 @@ def decode_audio_mono_f32(path: Path, *, target_sr: int = 16000) -> tuple:
     return audio, target_sr
 
 
-def encode_audio_mono_f32_to_opus(
+def encode_audio_mono_f32_to_wav(
     audio,
     dst: Path,
     *,
     sample_rate: int = 16000,
-    opus_bitrate: str = "32k",
 ) -> bool:
     dst.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
-        "ffmpeg",
+        ffmpeg_executable(),
         "-y",
         "-f",
         "f32le",
@@ -1544,13 +1428,7 @@ def encode_audio_mono_f32_to_opus(
         "-i",
         "pipe:0",
         "-c:a",
-        "libopus",
-        "-b:a",
-        opus_bitrate,
-        "-application",
-        "voip",
-        "-vbr",
-        "on",
+        "pcm_s16le",
         str(dst),
     ]
     try:
@@ -1562,11 +1440,11 @@ def encode_audio_mono_f32_to_opus(
             timeout=FFMPEG_TIMEOUT_S,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        logger.warning("ffmpeg opus encode failed to start for %s: %s", dst, exc)
+        logger.warning("ffmpeg WAV encode failed to start for %s: %s", dst, exc)
         return False
     if result.returncode != 0:
         logger.warning(
-            "ffmpeg opus encode failed for %s: %s",
+            "ffmpeg WAV encode failed for %s: %s",
             dst,
             result.stderr.decode(errors="replace")[-400:],
         )
@@ -1581,7 +1459,6 @@ def apply_white_noise_in_pause_intervals(
     *,
     target_sr: int = 16000,
     noise_level: float = 0.0002,
-    opus_bitrate: str = "32k",
     seed: int | None = None,
     preserve_speech: bool = True,
     stitch_ms: float = 5.0,
@@ -1598,16 +1475,6 @@ def apply_white_noise_in_pause_intervals(
     with no crossfade.
     """
     import numpy as np
-
-    if not pause_intervals:
-        import shutil
-
-        try:
-            shutil.copy2(src, dst)
-            return True
-        except OSError as exc:
-            log_exception(f"cannot copy audio to {dst}", exc)
-            return False
 
     try:
         audio, sr = decode_audio_mono_f32(src, target_sr=target_sr)
@@ -1640,7 +1507,7 @@ def apply_white_noise_in_pause_intervals(
 
         audio[i0:i1] = noise
 
-    return encode_audio_mono_f32_to_opus(audio, dst, sample_rate=sr, opus_bitrate=opus_bitrate)
+    return encode_audio_mono_f32_to_wav(audio, dst, sample_rate=sr)
 
 
 def prepare_speaker_audio_for_session_mix(
@@ -1649,18 +1516,17 @@ def prepare_speaker_audio_for_session_mix(
     *,
     speech_intervals: list[tuple[float, float]],
     audio_duration: float | None = None,
-    opus_bitrate: str = "32k",
     noise_level: float = 0.0002,
     seed: int | None = None,
     preserve_speech: bool = True,
     stitch_ms: float = 5.0,
-    boundary_indent: float = 0.2,
+    boundary_indent: float = 0.5,
 ) -> bool:
     """Fill non-speech (pause) regions with white noise before session mixing.
 
     *boundary_indent* keeps that many seconds of original audio on each side of a
-    speech interval untouched (pause noise starts 0.2s after speech ends and stops
-    0.2s before speech begins by default).
+    speech interval untouched (pause noise starts 0.5s after speech ends and stops
+    0.5s before speech begins by default).
     """
     if audio_duration is None:
         try:
@@ -1674,7 +1540,6 @@ def prepare_speaker_audio_for_session_mix(
         audio_path,
         dst,
         pause_intervals,
-        opus_bitrate=opus_bitrate,
         noise_level=noise_level,
         seed=seed,
         preserve_speech=preserve_speech,
@@ -1683,10 +1548,10 @@ def prepare_speaker_audio_for_session_mix(
 
 
 def session_mixed_audio_path(audio_mixed_dir: Path, session_id: str) -> Path:
-    return audio_mixed_dir / f"{session_id}.opus"
+    return audio_mixed_dir / f"{session_id}.wav"
 
 
-def mix_audio_files(audio_paths: list[Path], output_path: Path, *, opus_bitrate: str = "32k") -> bool:
+def mix_audio_files(audio_paths: list[Path], output_path: Path) -> bool:
     existing = [p for p in audio_paths if p.is_file()]
     if not existing:
         return False
@@ -1701,40 +1566,23 @@ def mix_audio_files(audio_paths: list[Path], output_path: Path, *, opus_bitrate:
             log_exception(f"cannot copy mixed audio to {output_path}", exc)
             return False
 
-    cmd = ["ffmpeg", "-nostdin", "-y"]
+    cmd = [ffmpeg_executable(), "-nostdin", "-y"]
     for path in existing:
         cmd.extend(["-i", str(path)])
     n = len(existing)
-    if output_path.suffix.lower() == ".opus":
-        cmd.extend(
-            [
-                "-filter_complex",
-                f"amix=inputs={n}:duration=longest:dropout_transition=0",
-                "-ac",
-                "1",
-                "-c:a",
-                "libopus",
-                "-b:a",
-                opus_bitrate,
-                "-application",
-                "voip",
-                "-vbr",
-                "on",
-                str(output_path),
-            ]
-        )
-    else:
-        cmd.extend(
-            [
-                "-filter_complex",
-                f"amix=inputs={n}:duration=longest:dropout_transition=0",
-                "-ac",
-                "1",
-                "-acodec",
-                "pcm_s16le",
-                str(output_path),
-            ]
-        )
+    cmd.extend(
+        [
+            "-filter_complex",
+            f"amix=inputs={n}:duration=longest:dropout_transition=0",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-acodec",
+            "pcm_s16le",
+            str(output_path),
+        ]
+    )
     try:
         result = subprocess.run(
             cmd,

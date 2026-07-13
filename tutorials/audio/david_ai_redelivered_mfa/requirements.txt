@@ -1,12 +1,3 @@
-hydra-core
-omegaconf
-lhotse
-textgrid
-praatio>=6.0
-soundfile
-tqdm
-pyloudnorm
+numpy
 num2words>=0.5.12
-openai-whisper
-nemo-curator[audio_alignment]
-nemo_toolkit[asr]
+textgrid

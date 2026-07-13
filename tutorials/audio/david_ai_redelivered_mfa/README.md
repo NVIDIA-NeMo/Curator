@@ -1,321 +1,360 @@
-# David AI redelivered — MFA alignment pipeline
+# David AI redelivered MFA tutorial
 
-Segment-constrained [Montreal Forced Aligner (MFA)](https://montreal-forced-aligner.readthedocs.io/) pipeline for David AI redelivered English conversational audio. Each transcript segment is aligned independently, then results are concatenated into per-session TextGrids and downstream deliverables (Lhotse cutset, mixed-session RTTM).
+This tutorial provides two independent, on-the-fly end-to-end pipelines for
+multi-speaker David AI sessions:
 
-The **RAM-by-session** pipeline processes each session end-to-end in RAM from original audio + transcript (no normalized JSON manifests on lustre).
+- [`opus/`](opus/README.md): writes per-speaker and mixed-session Opus audio.
+- [`wav/`](wav/README.md): writes masked per-speaker and mixed-session mono
+  16 kHz PCM WAV audio.
 
-## Input data layout
+Both variants:
 
-```
-${DATA_ROOT}/${session_id}/
-├── machine_generated_transcript.json   # segment list with speaker, start, end, text
-├── ${speaker_id}_postprocessed.wav     # one full-track WAV per speaker
-└── ...
-```
+1. Read raw source WAVs and `machine_generated_transcript.json`.
+2. Normalize transcript text in memory.
+3. Run Montreal Forced Aligner (MFA) with the `english_us_arpa` acoustic model,
+   base dictionary, and runtime G2P for OOV words.
+4. Generate session RTTM.
+5. Preserve speech inside the original manifest boundaries ±0.5 seconds.
+6. Replace pauses outside those boundaries with white noise at amplitude
+   `0.0002`, using a 5 ms boundary crossfade.
+7. Mix all speakers on the common session timeline.
+8. Write ordinary TextGrids (MFA + fallback) and FastMSS TextGrids (MFA only).
+9. Validate all required outputs before writing
+   `.done/sessions/<session_id>.done`.
 
-Segment `start` / `end` times are on a **shared session timeline** (multi-speaker).
+The pipelines do not reuse persisted normalized manifests, shared lexicons, or
+partial RTTM/TextGrid/audio outputs. A validated session done flag is the only
+resume state: sessions with a done flag are skipped, while unfinished sessions
+are rebuilt from raw inputs.
 
-## Prerequisites
+## Data privacy
 
-| Tool | Used in |
-|------|---------|
-| **ffmpeg** | Opus encode, segment extract for MFA, mixed audio |
-| **MFA** (`mfa align`, `mfa g2p`) | Lexicon build, alignment |
-| **Python 3.10+** with `nemo-curator`, `lhotse`, `textgrid`, `num2words` | All stages |
+No David AI dataset content is included in this tutorial. All paths, IDs, and
+transcript values in the documentation and tests are synthetic placeholders.
 
-Pretrained MFA models under `MFA_ROOT_DIR` (default `~/MFA_models`):
+Do not commit or publish raw manifests, audio, RTTM, TextGrid, logs, archives,
+or generated outputs. The tutorial `.gitignore` excludes these artifact types,
+but generated changes must still be reviewed before committing.
+
+## Requirements
+
+### Supported environment
+
+- Linux x86_64
+- Python 3.11–3.13 (Python 3.12 is recommended and tested)
+- ffmpeg and ffprobe
+- Montreal Forced Aligner 3.3.9
+- NeMo Curator from this repository
+- Approximately 1–2 GB of node-local scratch per concurrent session
+
+GPU access is not required for this pipeline.
+
+### Required MFA models
+
+The following English US ARPA models must be installed:
 
 - Dictionary: `english_us_arpa`
-- Acoustic: `english_us_arpa`
-- G2P: `english_us_arpa`
+- Acoustic model: `english_us_arpa`
+- G2P model: `english_us_arpa`
 
-**Parallel MFA tip:** symlink `command_history.yaml` to `/dev/null` to avoid YAML corruption when running many workers:
+The pipeline expects this layout under `$MFA_ROOT_DIR`:
 
-```bash
-ln -sf /dev/null ~/MFA_models/command_history.yaml
+```text
+MFA_ROOT_DIR/
+└── pretrained_models/
+    ├── acoustic/english_us_arpa.zip
+    ├── dictionary/english_us_arpa.dict
+    └── g2p/english_us_arpa.zip
 ```
 
----
+## Environment setup
 
-## RAM-by-session pipeline (recommended)
-
-Each session runs end-to-end in RAM from original audio + transcript. **No `*_norm.jsonl` manifests are written.**
-
-Per session (in memory): normalize text → 16 kHz Opus per speaker → MFA → TextGrids → Lhotse cuts (MFA words only) → mixed Opus + session RTTM (with fallbacks).
-
-### Local quick start
+From the repository root:
 
 ```bash
-cd tutorials/audio/david_ai_redelivered_mfa
+cd ~/Curator_my_fork
 
-export PATH="$HOME/miniconda3/envs/curator_pain_1/bin:$PATH"
+conda env create \
+  -f tutorials/audio/david_ai_redelivered_mfa/environment.yml
+
+conda activate david-ai-mfa
+
+python -m pip install -e .
+python -m pip install \
+  -r tutorials/audio/david_ai_redelivered_mfa/requirements.txt
+```
+
+Download the MFA models:
+
+```bash
 export MFA_ROOT_DIR="$HOME/MFA_models"
+mkdir -p "$MFA_ROOT_DIR"
 
-# Full RAM pipeline (builds lexicon if missing)
-WORKERS=16 bash run_david_ai_mfa_ram_session.sh
-
-# Single session
-SESSION=<session_id> WORKERS=4 bash run_david_ai_mfa_ram_session.sh
+mfa model download dictionary english_us_arpa
+mfa model download acoustic english_us_arpa
+mfa model download g2p english_us_arpa
 ```
 
-### Lexicon preprocessing (optional, run once)
-
-Build the merged MFA dictionary in parallel before the main pipeline:
+Confirm the tools:
 
 ```bash
-cd tutorials/audio/david_ai_redelivered_mfa
-
-export PATH="$HOME/miniconda3/envs/curator_pain_1/bin:$PATH"
-export MFA_ROOT_DIR="$HOME/MFA_models"
-export PYTHONPATH="$PWD:$PWD/pipeline_ram:$PWD/lexicon"
-
-python3 lexicon/preprocess_build_lexicon.py \
-  --data-root /path/to/sessions \
-  --lexicon-dir workdir_ram_session/lexicon \
-  --workers 16
+python --version
+mfa version
+ffmpeg -version
+ffprobe -version
 ```
 
-From existing normalized manifests instead of raw transcripts:
+For development and tests:
 
 ```bash
-python3 lexicon/preprocess_build_lexicon.py \
-  --manifests-dir workdir/manifests \
-  --lexicon-dir workdir_ram_session/lexicon \
-  --workers 16
+python -m pip install \
+  -r tutorials/audio/david_ai_redelivered_mfa/requirements-dev.txt
 ```
 
-Then run the RAM pipeline with lexicon rebuild skipped:
+## Input layout
+
+`DATA_ROOT` must contain one directory per session:
+
+```text
+<data-root>/
+└── <session-id>/
+    ├── machine_generated_transcript.json
+    ├── <speaker-id-1>_postprocess.wav
+    ├── <speaker-id-2>.wav
+    └── ...
+```
+
+The transcript JSON must contain a `transcript` list:
+
+```json
+{
+  "transcript": [
+    {
+      "text": "Example utterance.",
+      "start": 1.25,
+      "end": 2.85,
+      "speaker": "<speaker-id-1>"
+    }
+  ]
+}
+```
+
+Segment times use the shared session timeline. Speaker IDs must match the source
+WAV filename prefixes.
+
+For each speaker, the pipeline selects the first existing WAV in this order:
+
+1. `<speaker-id>_postprocess.wav`
+2. `<speaker-id>_postprocessed.wav`
+3. `<speaker-id>.wav`
+4. `<speaker-id>_preprocessed.wav`
+
+The session fails explicitly if none of these files exists for a speaker named
+in the transcript.
+
+## Choose an output format
+
+### Opus
 
 ```bash
-SKIP_LEXICON=1 WORKERS=16 bash run_david_ai_mfa_ram_session.sh
+cd ~/Curator_my_fork/tutorials/audio/david_ai_redelivered_mfa/opus
+
+DATA_ROOT=/path/to/raw/sessions \
+WORK_DIR=/path/to/opus-output \
+MFA_ROOT_DIR="$HOME/MFA_models" \
+MFA_ENV="$CONDA_PREFIX" \
+WORKERS=16 \
+MFA_NUM_JOBS=2 \
+SEG_EXTRACT_WORKERS=8 \
+bash run_david_ai_mfa_ram_session.sh
 ```
 
-### Draco cluster
+See [`opus/README.md`](opus/README.md) for the complete output layout.
 
-Uses existing `data_links` symlinks from the old cluster job (no linking step in the RAM script).
+### WAV
 
 ```bash
-cd /lustre/fsw/portfolios/nemotron/users/ttimofeeva/Curator/tutorials/audio/david_ai_redelivered_mfa
+cd ~/Curator_my_fork/tutorials/audio/david_ai_redelivered_mfa/wav
 
-# Step 1: lexicon (optional but recommended)
-SLURM_ACCOUNT=nemotron_speechprod_asr SLURM_PARTITION=cpu_long CPUS=64 WORKERS=64 \
-  bash lexicon/run_preprocess_lexicon_cluster.sh
-
-# Step 2: RAM pipeline
-SKIP_LEXICON=1 \
-SLURM_ACCOUNT=nemotron_speechprod_asr SLURM_PARTITION=cpu_long CPUS=64 \
-WORKERS=16 MFA_NUM_JOBS=4 \
-  bash run_david_ai_mfa_ram_session_cluster.sh
+DATA_ROOT=/path/to/raw/sessions \
+WORK_DIR=/path/to/wav-output \
+MFA_ROOT_DIR="$HOME/MFA_models" \
+MFA_ENV="$CONDA_PREFIX" \
+WORKERS=16 \
+MFA_NUM_JOBS=2 \
+SEG_EXTRACT_WORKERS=8 \
+bash run_david_ai_mfa_ram_session.sh
 ```
 
-Default paths on draco:
+The WAV variant writes:
 
-| Variable | Default |
-|----------|---------|
-| `DATA_ROOT` | `.../david_ai_mfa_workdir/data_links` (existing symlinks) |
-| `WORK_DIR` | `.../david_ai_mfa_ram_workdir` (RAM pipeline outputs) |
-| `RAM_DIR` | `/dev/shm/david_ai_ram_session` |
-
-### RAM pipeline outputs (`workdir_ram_session/`)
-
-| Artifact | Path |
-|----------|------|
-| Merged MFA dictionary | `lexicon/english_mfa_davidai_eng.dict` |
-| Per-speaker 16 kHz Opus | `audio_16k/{speaker}_{session}_postprocessed.opus` |
-| Session TextGrids | `textgrids/{session_id}.TextGrid`, `{session_id}_fastmss.TextGrid` |
-| Per-recording TextGrids | `textgrids/{recording_id}.TextGrid`, `{recording_id}_fastmss.TextGrid` |
-| Lhotse (per session, word-aligned) | `lhotse/sessions/{session_id}_cuts.jsonl.gz` |
-| Lhotse (merged, if `MERGE_LHOTSE=1`) | `lhotse/david_ai_recordings.jsonl.gz`, `david_ai_supervisions.jsonl.gz`, `david_ai_cuts.jsonl.gz`, `david_ai_aligned_cuts.jsonl.gz` |
-| Mixed session audio | `audio_mixed/{session_id}.opus` |
-| Session RTTM | `audio_mixed/{session_id}.rttm` |
-
-### Fallback behavior (RAM pipeline)
-
-| Output | Fallback segments |
-|--------|-------------------|
-| **RTTM + mixed audio** | Yes — manifest boundaries used when MFA fails |
-| **Lhotse cuts** | No — only MFA-aligned words (`merged_words`); speakers with no MFA alignment are skipped |
-
-### RAM pipeline flow
-
-```mermaid
-flowchart LR
-    A[Source audio + transcript] --> B[Norm in RAM]
-    B --> C[16 kHz Opus per speaker]
-    C --> D[MFA per segment]
-    D --> E[Session + recording TextGrids]
-    E --> F[Lhotse cuts with word alignment]
-    F --> G[Session RTTM + mixed Opus]
-    G --> H[Merge global Lhotse manifests]
+```text
+<work-dir>/
+├── audio_16k_masked/
+│   ├── <speaker>_<session>_postprocessed.wav
+│   └── <speaker>_<session>_postprocessed.rttm
+├── audio_mixed/
+│   ├── <session>.wav
+│   └── <session>.rttm
+├── textgrids/
+├── logs/
+└── .done/sessions/
 ```
 
-Per session, in order:
+All WAV outputs are mono, 16 kHz, signed 16-bit PCM.
 
-1. **Normalize** transcript text in memory (no `*_norm.jsonl` written)
-2. **Encode** 16 kHz Opus per speaker (`audio_16k/`)
-3. **MFA align** each segment → session TextGrids + per-recording TextGrids
-4. **Lhotse** — `MonoCut` per speaker with `supervision.alignment["word"]` from MFA (`merged_words` only)
-5. **RTTM + mix** — session RTTM with fallbacks; mixed Opus with pause noise
-6. **Merge** (end of run) — global `david_ai_{recordings,supervisions,cuts,aligned_cuts}.jsonl.gz`
+## Multi-node cluster run
 
-Re-merge Lhotse only after a partial run:
+Cluster submission scripts are kept separately in [`cluster/`](cluster/README.md).
+They support both output variants through `VARIANT=opus` or `VARIANT=wav`.
+
+Example:
 
 ```bash
-export PYTHONPATH="$PWD:$PWD/pipeline_ram:$PWD/lexicon"
-python3 pipeline_ram/stage_ram_merge_lhotse.py --lhotse-dir workdir_ram_session/lhotse
+VARIANT=wav \
+DATA_ROOT=/shared/data/david_ai_sessions \
+WORK_DIR=/shared/output/david_ai_wav \
+MFA_ENV=/shared/envs/david-ai-mfa \
+MFA_ROOT_DIR=/shared/models/MFA_models \
+NUM_NODES=8 \
+CPUS_PER_NODE=64 \
+WORKERS_PER_NODE=16 \
+MFA_NUM_JOBS=2 \
+SLURM_ACCOUNT=my-account \
+SLURM_PARTITION=cpu \
+bash cluster/run_multinode.sh
 ```
 
----
+The launcher uses one SLURM array task per node and exports only explicitly
+required variables. It does not copy data to or from the cluster.
 
-## Glued OOV repair (optional)
+## Runtime configuration
 
-Detect high-confidence glued OOV tokens and build repair TSVs under `lexicon/`:
+| Variable | Default | Purpose |
+|---|---:|---|
+| `DATA_ROOT` | variant-specific example path | Raw session root |
+| `WORK_DIR` | local variant workdir | Persistent output root |
+| `SESSIONS_FILE` | unset | Optional absolute session-ID list |
+| `MFA_ROOT_DIR` | `~/MFA_models` | MFA model root |
+| `MFA_ENV` | `~/miniconda3/envs/curator_pain_1` | Environment containing MFA |
+| `WORKERS` | `4` | Concurrent sessions |
+| `MFA_NUM_JOBS` | `2` | MFA jobs per speaker recording |
+| `SEG_EXTRACT_WORKERS` | `8` | Parallel ffmpeg segment extraction |
+| `MIX_PREP_WORKERS` | number of session speakers | Parallel speaker masking |
+| `RAM_DIR` | unique `/tmp` directory | Node-local ephemeral scratch |
+| `FFMPEG_BIN` | `ffmpeg` from `PATH` | Explicit ffmpeg executable |
+| `FFMPEG_TIMEOUT_S` | `600` | Per-ffmpeg timeout |
+
+Approximate peak MFA parallelism is `WORKERS × MFA_NUM_JOBS`. Keep that value
+near or below the available CPU count when other stages need CPU concurrently.
+
+Scratch must be node-local (`/tmp` or equivalent), not a shared network
+filesystem.
+
+## Run a session subset
+
+Create a text file containing one session directory name per line. Empty lines
+and lines beginning with `#` are ignored:
+
+```text
+# validation subset
+session-a
+session-b
+```
+
+Pass it to either local variant:
 
 ```bash
-cd tutorials/audio/david_ai_redelivered_mfa
-export PYTHONPATH="$PWD:$PWD/pipeline_ram:$PWD/lexicon"
-
-python3 lexicon/detect_glued_oov_heuristic.py \
-  --oov workdir/lexicon/oov_words.txt \
-  --dictionary workdir/lexicon/english_mfa_davidai_eng.dict
-
-# Install repairs on draco
-bash lexicon/copy_unglue_repairs_to_draco.sh
+SESSIONS_FILE=/absolute/path/to/sessions.txt \
+DATA_ROOT=/path/to/raw/sessions \
+WORK_DIR=/path/to/output \
+bash run_david_ai_mfa_ram_session.sh
 ```
 
----
+For a cluster run, pass the same shared absolute `SESSIONS_FILE` path to
+`cluster/run_multinode.sh`. The subset is applied before deterministic sharding
+and done-flag filtering.
 
-## Text normalization
+## Success and restart behavior
 
-Transcripts are normalized for MFA lexicon compatibility:
+A done flag is written only after all expected outputs for the current session
+exist and are non-empty:
 
-1. Strip digit grouping commas (`2,000` → `2000`)
-2. Verbalize numbers (`3` → `three`, decades, feet/inches, etc.)
-3. Lowercase, map punctuation/symbols to spaces, keep `'` and `-`
-4. Unknown tokens → `spn` (MFA unknown-word placeholder)
-
-Whisper normalization is **not** used.
-
-## TextGrid variants
-
-- **Ordinary** (`{session_id}.TextGrid`): MFA words + `speech` placeholders for fallback segments.
-- **FastMSS** (`{session_id}_fastmss.TextGrid`): MFA words only; failed segments are empty gaps.
-
-## MFA and Opus
-
-MFA requires PCM WAV + text in its corpus directory. This pipeline stores per-speaker audio as **Opus** on disk. Stage 2 (or the RAM session worker) decodes each segment to temporary `seg_*.wav` via ffmpeg before calling `mfa align`.
-
-## Parallelism
-
-| Level | Setting | Effect |
-|-------|---------|--------|
-| Sessions | `WORKERS` | Parallel sessions (RAM pipeline or stage 2 workers) |
-| MFA jobs | `MFA_NUM_JOBS` | Threads inside each `mfa align` call |
-| Lexicon | `WORKERS` in `lexicon/preprocess_build_lexicon.py` | Parallel text normalization for vocabulary |
-
-Each MFA worker uses an **isolated MFA root** (copied dictionary + acoustic model) to avoid SQLite / model races.
-
-Total MFA concurrency ≈ `WORKERS × MFA_NUM_JOBS`. Size workers to CPU count and available `/dev/shm` when using RAM-disk mode.
-
-## Environment variables
-
-### Shared
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATA_ROOT` | local test path / draco `data_links` | Input sessions |
-| `MFA_ROOT_DIR` | `~/MFA_models` | MFA pretrained models |
-| `NUM2WORDS_LANG` | `en` | Digit verbalization language |
-| `WORKERS` | `4` | Parallel session workers |
-| `MFA_NUM_JOBS` | `4` | MFA `-j` per alignment |
-| `SEGMENT_PADDING` | `0.5` | Audio context around each segment for MFA |
-| `SESSION` | *(empty)* | Process one session only |
-| `FORCE` | `0` | Re-run and ignore `.done` markers |
-
-### RAM-by-session
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WORK_DIR` | `./workdir_ram_session` | RAM pipeline outputs |
-| `RAM_DIR` | `/dev/shm/david_ai_ram_session` | Per-session MFA scratch |
-| `SKIP_LEXICON` | `0` | Skip lexicon build if already done |
-| `MERGE_LHOTSE` | `1` | Merge per-session cuts into global Lhotse file |
-| `LINK_WORK_DIR` | draco `david_ai_mfa_workdir` | Where `data_links` symlinks live |
-
-## Project layout
-
-```
-david_ai_redelivered_mfa/
-├── run_david_ai_mfa_ram_session.sh        # RAM-by-session (local)
-├── run_david_ai_mfa_ram_session_cluster.sh
-├── submit_ram_200nodes.sh
-├── sync_to_draco.sh
-├── david_ai_common.py                     # Shared helpers
-├── david_ai_glued_words.py                # Glued-token repair helpers
-├── pipeline_ram/                          # Current RAM pipeline
-│   ├── stage_ram_session_pipeline.py
-│   ├── david_ai_ram_session.py
-│   ├── david_ai_ram_lhotse.py
-│   ├── stage_ram_merge_lhotse.py
-│   ├── stage0_build_manifests.py
-│   ├── stage2_mfa_align_textgrids.py
-│   ├── stage2_mfa_worker.py
-│   ├── stage4_build_final_outputs.py
-│   └── stage4_build_lhotse.py
-├── lexicon/                               # Dictionary + glued OOV tools
-│   ├── preprocess_build_lexicon.py
-│   ├── stage0_build_lexicon.py
-│   ├── run_preprocess_lexicon_cluster.sh
-│   ├── detect_glued_oov_heuristic.py
-│   ├── detect_glued_oov_llm.py
-│   └── copy_unglue_repairs_to_draco.sh
-├── cluster/                               # Draco conda / miniconda setup
-│   ├── install_curator_pain_1_draco.sh
-│   ├── pack_and_upload_curator_env_draco.sh
-│   └── miniconda_problem.md
-├── tests/
-│   ├── conftest.py
-│   └── test_*.py
-└── requirements.txt
+```text
+<work-dir>/.done/sessions/<session-id>.done
 ```
 
-## Resuming the RAM-by-session pipeline
+Done flags are the parallel resume authority. Starting the same local or
+multi-node command again skips sessions that already have a validated flag and
+processes only sessions without one.
 
-Each fully finished session is marked in `workdir_ram_session/.done/sessions/{session_id}.done`. A session is considered done only when **all** of these exist:
-
-| Output | Location |
-|--------|----------|
-| Per-session done flag | `.done/sessions/{session_id}.done` |
-| Speaker 16 kHz Opus | `audio_16k/{speaker}_{session}_postprocessed.opus` |
-| MFA TextGrids | `textgrids/{session_id}.TextGrid`, `{session_id}_fastmss.TextGrid` |
-| Session RTTM + mixed audio | `audio_mixed/{session_id}.rttm`, `{session_id}.opus` |
-
-On restart, completed sessions are **skipped automatically**. Partial sessions resume from the first missing step (e.g. skip MFA if TextGrids exist, skip mix if RTTM exists).
-
-The pipeline-level `.done/ram_session_pipeline.done` is written only when **all** sessions succeed.
-
-**Resubmit after a partial RAM run:**
+To intentionally rebuild a completed session, remove only its flag:
 
 ```bash
-# Draco
-SKIP_LEXICON=1 bash run_david_ai_mfa_ram_session_cluster.sh
-
-# Local
-SKIP_LEXICON=1 bash run_david_ai_mfa_ram_session.sh
+rm <work-dir>/.done/sessions/<session-id>.done
 ```
 
-Use `FORCE=1` only to reprocess specific sessions (`SESSION=... FORCE=1`) or the full dataset (clears the pipeline `.done` marker and per-session flags for forced sessions).
+## Tests
 
----
+Tests are separated by output variant:
+
+```bash
+cd ~/Curator_my_fork/tutorials/audio/david_ai_redelivered_mfa
+
+pytest tests/opus
+pytest tests/wav
+pytest tests/cluster
+```
+
+Run lint checks:
+
+```bash
+ruff check opus wav tests
+```
 
 ## Troubleshooting
 
-**Lustre small-file stalls** — Prefer the RAM-by-session pipeline for full runs (no per-session norm JSON on lustre). Use fewer `WORKERS` if jobs stall on lustre I/O.
+### `mfa` not found
 
-**`mfa_temp/` not empty during a run** — Expected. Up to `WORKERS` active temp dirs hold segment WAV/TXT while MFA runs. The RAM session pipeline keeps scratch on tmpfs via `RAM_DIR`.
+Activate the environment and confirm:
 
-**Empty `text_norm` for filler segments** (`"Um..."`, `"..."`) — Normalization may produce empty strings; those segments are skipped for MFA.
+```bash
+conda activate david-ai-mfa
+which mfa
+mfa version
+```
 
-**`spn` in normalized text** — Token not in MFA dictionary/alphabet; rebuild lexicon (`lexicon/preprocess_build_lexicon.py`) or fix source transcript.
+### MFA model not found
 
-**No Lhotse cut for a session** — RAM pipeline writes Lhotse only when at least one speaker has MFA alignment. RTTM/mix still proceed with fallbacks.
+Verify `$MFA_ROOT_DIR/pretrained_models/` matches the required model layout
+above.
+
+### ffmpeg not found
+
+Install ffmpeg in the conda environment or set an explicit executable:
+
+```bash
+export FFMPEG_BIN=/path/to/ffmpeg
+```
+
+### A session has no done flag
+
+Search its ID in `<work-dir>/logs/run_e2e_*.log`. A missing flag means the
+session failed or at least one required output was missing/empty.
+
+### Unexpectedly high memory or CPU use
+
+Reduce `WORKERS`, `MFA_NUM_JOBS`, or `SEG_EXTRACT_WORKERS`. Start with:
+
+```bash
+WORKERS=4 MFA_NUM_JOBS=2 SEG_EXTRACT_WORKERS=4
+```
+
+## Security and cluster use
+
+The local pipeline requires no outbound network access after dependencies and
+MFA models are installed. Do not pass credentials, `.env` files, or unnecessary
+shell environment variables to the pipeline.
+
+Cluster runners should receive only explicitly required variables. This
+tutorial does not require or perform data-copy operations to a cluster.
