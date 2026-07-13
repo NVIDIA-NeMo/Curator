@@ -23,6 +23,7 @@ Reads the pr<N>_*_latest.json files written by pr_review_pull.sh from --outdir
   curator_pr<N>_fresh_review_<date>.md          full digest
   curator_pr<N>_github_comment_queue_<date>.md  open-thread paste queue
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,21 +31,24 @@ import datetime as dt
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 BODY_KEY_LEN = 120
+AUDIO_AREA_PARTS = 4
+TUTORIAL_AREA_PARTS = 3
 
 
 def load(path: Path) -> object:
     return json.loads(path.read_text())
 
 
-def load_baseline_ids(baseline, key):
+def load_baseline_ids(baseline: Path | None, key: str) -> set[Any]:
     if baseline is None or not baseline.exists():
         return set()
     return {entry[key] for entry in load(baseline) if key in entry}
 
 
-def build_thread_index(threads_payload):
+def build_thread_index(threads_payload: dict[str, Any]) -> dict[str, Any]:
     idx = {"by_dbid": {}, "by_pathbody": {}, "nthreads": 0}
     try:
         nodes = threads_payload["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
@@ -71,7 +75,7 @@ def build_thread_index(threads_payload):
     return idx
 
 
-def thread_meta(idx, c):
+def thread_meta(idx: dict[str, Any], c: dict[str, Any]) -> dict[str, Any] | None:
     m = idx["by_dbid"].get(c["id"])
     if m is not None:
         return m
@@ -79,14 +83,14 @@ def thread_meta(idx, c):
     return idx["by_pathbody"].get((c.get("path"), body[:BODY_KEY_LEN]))
 
 
-def shorten(body, n=600):
+def shorten(body: str | None, n: int = 600) -> str:
     body = (body or "").strip()
     if len(body) <= n:
         return body
     return body[:n].rstrip() + "\n[...truncated...]"
 
 
-def status_of(meta):
+def status_of(meta: dict[str, Any] | None) -> str:
     if meta is None:
         return "ORPHAN"
     if meta["is_resolved"]:
@@ -96,17 +100,17 @@ def status_of(meta):
     return "OPEN"
 
 
-def p(parts, *lines):
+def p(parts: list[str], *lines: str) -> None:
     parts.extend(lines)
 
 
-def area_of(path):
+def area_of(path: str) -> str:  # noqa: PLR0911
     parts = path.split("/")
-    if path.startswith("nemo_curator/stages/audio/") and len(parts) >= 4:
+    if path.startswith("nemo_curator/stages/audio/") and len(parts) >= AUDIO_AREA_PARTS:
         return f"stages/audio/{parts[3]}"
     if path.startswith("nemo_curator/tasks/"):
         return "tasks"
-    if path.startswith("tutorials/audio/") and len(parts) >= 3:
+    if path.startswith("tutorials/audio/") and len(parts) >= TUTORIAL_AREA_PARTS:
         return f"tutorials/audio/{parts[2]}"
     if path.startswith("tests/"):
         return "tests"
@@ -117,12 +121,20 @@ def area_of(path):
     return parts[0] if parts else path
 
 
-def login_of(obj) -> str:
+def login_of(obj: dict[str, Any]) -> str:
     return (obj.get("user") or {}).get("login", "?")
 
 
-def build(pr, outdir, today, baseline_ts, prev_head, path_regex, modality_label):
-    def latest(kind):
+def build(  # noqa: C901, PLR0912, PLR0913, PLR0915
+    pr: int,
+    outdir: Path,
+    today: str,
+    baseline_ts: str | None,
+    prev_head: str | None,
+    path_regex: str | None,
+    modality_label: str | None,
+) -> None:
+    def latest(kind: str) -> Path:
         return outdir / f"pr{pr}_{kind}_latest.json"
 
     gh = load(latest("gh"))
@@ -136,14 +148,13 @@ def build(pr, outdir, today, baseline_ts, prev_head, path_regex, modality_label)
         rx = re.compile(path_regex)
         if files and not any(rx.search(f.get("filename", "")) for f in files):
             label = modality_label or "matching"
-            raise SystemExit(
-                f"PR {pr} touches no {label} path; aborting."
-            )
+            msg = f"PR {pr} touches no {label} path; aborting."
+            raise SystemExit(msg)
 
     threads_path = latest("review_threads")
     idx = build_thread_index(load(threads_path)) if threads_path.exists() else build_thread_index({})
 
-    def base(kind):
+    def base(kind: str) -> Path | None:
         return outdir / f"pr{pr}_{kind}_{baseline_ts}.json" if baseline_ts else None
 
     base_comment_ids = load_baseline_ids(base("review_comments"), "id")
@@ -170,9 +181,13 @@ def build(pr, outdir, today, baseline_ts, prev_head, path_regex, modality_label)
 
     author = (gh.get("author") or {}).get("login", "?")
     p(d, "## What this PR does (overview)", "")
-    p(d, f"**{gh.get('title','')}** - by @{author}  "
-         f"({gh.get('state')}, +{gh.get('additions')}/-{gh.get('deletions')} "
-         f"across {gh.get('changedFiles')} files, {len(commits)} commits)", "")
+    p(
+        d,
+        f"**{gh.get('title', '')}** - by @{author}  "
+        f"({gh.get('state')}, +{gh.get('additions')}/-{gh.get('deletions')} "
+        f"across {gh.get('changedFiles')} files, {len(commits)} commits)",
+        "",
+    )
 
     p(d, "### Author's description", "")
     pr_body = (gh.get("body") or "").strip()
@@ -192,8 +207,12 @@ def build(pr, outdir, today, baseline_ts, prev_head, path_regex, modality_label)
     p(d, "")
 
     p(d, "### Plain-language summary (reviewer writes this BEFORE any findings)", "")
-    p(d, "_After reading the knowledge sources, explain in detail what this PR "
-         "changes and why before moving to findings._", "")
+    p(
+        d,
+        "_After reading the knowledge sources, explain in detail what this PR "
+        "changes and why before moving to findings._",
+        "",
+    )
 
     p(d, "## PR state at review time", "")
     p(d, "| Field | Value |", "|---|---|")
@@ -230,8 +249,11 @@ def build(pr, outdir, today, baseline_ts, prev_head, path_regex, modality_label)
     for r in sorted(reviews, key=lambda x: x.get("submitted_at") or ""):
         marker = " (NEW)" if base_review_ids and r["id"] not in base_review_ids else ""
         commit = (r.get("commit_id") or "")[:8] or "n/a"
-        p(d, f"### #{r['id']} by @{login_of(r)}  state={r['state']}  "
-             f"commit={commit}  submitted={r.get('submitted_at')}{marker}")
+        p(
+            d,
+            f"### #{r['id']} by @{login_of(r)}  state={r['state']}  "
+            f"commit={commit}  submitted={r.get('submitted_at')}{marker}",
+        )
         body = (r.get("body") or "").strip()
         if body:
             p(d, "", shorten(body, 1500))
@@ -262,9 +284,12 @@ def build(pr, outdir, today, baseline_ts, prev_head, path_regex, modality_label)
             reply_marker = f"  reply->{in_reply}" if in_reply else ""
             tcount = meta["thread_comment_count"] if meta else 1
             tpos = " (root)" if meta and meta["is_first_in_thread"] else (" (reply)" if meta else "")
-            p(d, f"- **#{c['id']}** @{login_of(c)} {c['created_at']}  "
-                 f"line={line} commit={commit} status=**{status}**{new}  "
-                 f"thread_comments={tcount}{tpos} review_state={review.get('state', '?')}{reply_marker}")
+            p(
+                d,
+                f"- **#{c['id']}** @{login_of(c)} {c['created_at']}  "
+                f"line={line} commit={commit} status=**{status}**{new}  "
+                f"thread_comments={tcount}{tpos} review_state={review.get('state', '?')}{reply_marker}",
+            )
             p(d, f"  url: {c['html_url']}")
             body = shorten(c.get("body") or "", 700).replace("\n", "\n  > ")
             p(d, f"  > {body}", "")
@@ -277,8 +302,12 @@ def build(pr, outdir, today, baseline_ts, prev_head, path_regex, modality_label)
         p(d, shorten(c.get("body") or "", 1500), "")
 
     p(d, "## My findings (your review)", "")
-    p(d, "_Add your findings here as you review. Classify each P0-P3, cite "
-         "path:line on the current head, and propose a concrete fix._", "")
+    p(
+        d,
+        "_Add your findings here as you review. Classify each P0-P3, cite "
+        "path:line on the current head, and propose a concrete fix._",
+        "",
+    )
     p(d, "## Verdict", "")
     p(d, "_APPROVE / COMMENT / REQUEST CHANGES + blockers._", "")
 
@@ -290,10 +319,14 @@ def build(pr, outdir, today, baseline_ts, prev_head, path_regex, modality_label)
     p(q, f"# Curator PR {pr} Open Review Threads - {today}", "")
     p(q, f"Review target: https://github.com/NVIDIA-NeMo/Curator/pull/{pr}", "")
     p(q, f"Current PR head: `{head_oid}`", "")
-    p(q, "Threads other reviewers left that are still unresolved on the current "
-         "head. Scan these before adding your own comments.", "")
+    p(
+        q,
+        "Threads other reviewers left that are still unresolved on the current "
+        "head. Scan these before adding your own comments.",
+        "",
+    )
 
-    def is_root(c):
+    def is_root(c: dict[str, Any]) -> bool:
         return (thread_meta(idx, c) or {}).get("is_first_in_thread", True)
 
     open_root = [c for c in review_comments if status_of(thread_meta(idx, c)) == "OPEN" and is_root(c)]
@@ -312,14 +345,12 @@ def build(pr, outdir, today, baseline_ts, prev_head, path_regex, modality_label)
         p(q, "```text", (c.get("body") or "").strip(), "```", "")
 
     p(q, "## Stale (outdated/resolved) comments", "")
-    stale = [c for c in review_comments
-             if status_of(thread_meta(idx, c)) in ("OUTDATED", "RESOLVED") and is_root(c)]
+    stale = [c for c in review_comments if status_of(thread_meta(idx, c)) in ("OUTDATED", "RESOLVED") and is_root(c)]
     stale.sort(key=lambda c: (status_of(thread_meta(idx, c)), c["path"], c.get("original_line") or 0))
     for c in stale:
         line = c.get("line") or c.get("original_line")
         body = shorten((c.get("body") or "").strip(), 200).replace("\n", " ")
-        p(q, f"- [{status_of(thread_meta(idx, c))}] `{c['path']}:{line}` "
-             f"@{login_of(c)} ({c['html_url']}): {body}")
+        p(q, f"- [{status_of(thread_meta(idx, c))}] `{c['path']}:{line}` @{login_of(c)} ({c['html_url']}): {body}")
     p(q, "")
 
     queue_path = outdir / f"curator_pr{pr}_github_comment_queue_{date_us}.md"
@@ -327,7 +358,7 @@ def build(pr, outdir, today, baseline_ts, prev_head, path_regex, modality_label)
     print(f"wrote {queue_path}  ({queue_path.stat().st_size} bytes)")
 
 
-def main():
+def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("pr", type=int, help="PR number")
     ap.add_argument("--outdir", default=".curator-pr-review")
@@ -337,9 +368,8 @@ def main():
     ap.add_argument("--path-regex", default=None)
     ap.add_argument("--modality-label", default=None)
     args = ap.parse_args()
-    today = args.today or dt.datetime.now(dt.timezone.utc).date().isoformat()
-    build(args.pr, Path(args.outdir), today, args.baseline_ts, args.prev_head,
-          args.path_regex, args.modality_label)
+    today = args.today or dt.datetime.now(dt.UTC).date().isoformat()
+    build(args.pr, Path(args.outdir), today, args.baseline_ts, args.prev_head, args.path_regex, args.modality_label)
     return 0
 
 

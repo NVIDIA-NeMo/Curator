@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Audio wrapper around the generic review-curator-pr digest builder."""
+
 from __future__ import annotations
 
 import runpy

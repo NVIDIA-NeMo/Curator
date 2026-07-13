@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Audio wrapper around the generic review-curator-pr corpus builder."""
+
 from __future__ import annotations
 
 import runpy
@@ -21,12 +22,14 @@ from pathlib import Path
 
 generic = Path(__file__).resolve().parents[2] / "review-curator-pr" / "scripts" / "build_corpus.py"
 sys.argv[1:1] = [
-    "--title", "Audio PR review corpus (post-#1608)",
+    "--title",
+    "Audio PR review corpus (post-#1608)",
     "--intro",
     "Consolidated reviewer feedback on audio PRs opened after the #1608 "
     "AudioTask framework redesign (open + closed/merged). "
     "Read-only pre-review context: recognise patterns reviewers repeatedly raise, "
     "and check the PR in front of you against them.",
-    "--output-prefix", "audio_pr_corpus",
+    "--output-prefix",
+    "audio_pr_corpus",
 ]
 runpy.run_path(str(generic), run_name="__main__")
