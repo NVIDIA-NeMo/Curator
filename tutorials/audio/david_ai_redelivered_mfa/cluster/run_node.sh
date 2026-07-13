@@ -38,7 +38,7 @@ if [[ -n "$CONTAINER_IMAGE" && "${IN_CONTAINER:-0}" != "1" ]]; then
     [[ -n "$CONTAINER_MOUNTS" ]] &&
         SRUN_ARGS+=(--container-mounts "$CONTAINER_MOUNTS")
     exec srun "${SRUN_ARGS[@]}" \
-        env IN_CONTAINER=1 bash "$SCRIPT_DIR/run_node.sh"
+        env IN_CONTAINER=1 bash "$TUTORIAL_ROOT/cluster/run_node.sh"
 fi
 
 PIPELINE_DIR="$TUTORIAL_ROOT/$VARIANT"

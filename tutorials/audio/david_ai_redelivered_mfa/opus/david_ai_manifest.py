@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from typing import TYPE_CHECKING
 
 from david_ai_common import (
@@ -37,6 +38,25 @@ _DIGIT_FEET_INCHES_RE = re.compile(r"\b(\d+)'(\d+)\"?")
 _DIGIT_HYPHEN_PREFIX_RE = re.compile(r"\b(\d+)(-\w+)")
 _DIGIT_GROUP_COMMA_RE = re.compile(r"(?<=\d),(?=\d)")
 _DIGIT_GENERAL_RE = re.compile(r"\d+")
+_NUM2WORDS_PUNCT_RE = re.compile(r"[,;]")
+_ENGLISH_ALPHABET = frozenset("abcdefghijklmnopqrstuvwxyz")
+_PERMITTED_SYMBOLS = frozenset("'-")
+_SMART_QUOTE_TRANSLATION = str.maketrans(
+    {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201a": ",",
+        "\u201b": "'",
+        "\u2032": "'",
+        "\u2035": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u201e": '"',
+        "\u201f": '"',
+        "\u00ab": " ",
+        "\u00bb": " ",
+    }
+)
 
 
 def separate_gluing_punctuation(text: str) -> str:
@@ -49,10 +69,12 @@ def strip_digit_grouping_commas(text: str) -> str:
     return _DIGIT_GROUP_COMMA_RE.sub("", text)
 
 
+def _split_verbalized_num2words(spoken: str) -> list[str]:
+    spoken = _NUM2WORDS_PUNCT_RE.sub(" ", spoken)
+    return [word for word in spoken.split() if word]
+
+
 def verbalize_digit_string(num_str: str, *, num2words_lang: str) -> str:
-    from nemo_curator.stages.audio.preprocessing.transcript_num2words import (
-        _split_verbalized_num2words,
-    )
     from num2words import num2words
 
     spoken = num2words(int(num_str), lang=num2words_lang)
@@ -103,33 +125,39 @@ def preprocess_spoken_numbers(text: str, *, num2words_lang: str) -> str:
 
 
 def normalize_text(text: str, *, num2words_lang: str = "en") -> str:
-    """Normalize one transcript string for MFA without reading repair/cache files."""
-    try:
-        from nemo_curator.stages.audio.preprocessing.transcript_normalization import (
-            normalize_audio_transcript,
-            resolve_alphabet,
-        )
-    except ImportError as exc:
-        msg = "nemo_curator is required for text normalization"
-        raise PipelineError(msg) from exc
-
+    """Normalize English transcript text using only tutorial-local helpers."""
     lang = (num2words_lang or "").strip()
-    alphabet = resolve_alphabet("english", None, lowercase=True)
     try:
         prepared = separate_gluing_punctuation(strip_digit_grouping_commas(text))
         prepared = preprocess_spoken_numbers(prepared, num2words_lang=lang) if lang else prepared
-        return normalize_audio_transcript(
-            prepared,
-            alphabet=alphabet,
-            permitted_symbols="'-",
-            lowercase=True,
-            remove_punctuation=True,
-            map_symbols_to_space=True,
-            unknown_word_replacement="spn",
-            allow_digits=False,
-            num2words_lang=None,
-            num2words_lowercase_output=True,
-        )
+        prepared = "".join(
+            character
+            for character in unicodedata.normalize("NFC", prepared).translate(_SMART_QUOTE_TRANSLATION)
+            if not unicodedata.category(character).startswith("C")
+        ).casefold()
+        rebuilt: list[str] = []
+        allowed = _ENGLISH_ALPHABET | _PERMITTED_SYMBOLS
+        for character in prepared:
+            category = unicodedata.category(character)
+            if character in allowed:
+                rebuilt.append(character)
+            elif character.isspace() or category.startswith(("Z", "P", "S")):
+                rebuilt.append(" ")
+            else:
+                rebuilt.append(character)
+
+        normalized: list[str] = []
+        for token in "".join(rebuilt).split():
+            if all(character in allowed for character in token):
+                normalized.append(token)
+                continue
+            folded = "".join(
+                character
+                for character in unicodedata.normalize("NFKD", token)
+                if unicodedata.category(character) != "Mn"
+            )
+            normalized.append(folded if folded and all(character in allowed for character in folded) else "spn")
+        return " ".join(normalized)
     except Exception as exc:
         msg = f"normalization failed for text snippet: {text[:80]!r}"
         raise ValueError(msg) from exc

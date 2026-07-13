@@ -52,6 +52,8 @@ def test_both_pipeline_variants_are_supported() -> None:
 
     assert "opus | wav" in submit
     assert 'PIPELINE_DIR="$TUTORIAL_ROOT/$VARIANT"' in node
+    assert 'bash "$TUTORIAL_ROOT/cluster/run_node.sh"' in node
+    assert 'bash "$SCRIPT_DIR/run_node.sh"' not in node
 
 
 def test_mfa_scratch_and_model_copies_are_isolated_per_shard_and_worker() -> None:

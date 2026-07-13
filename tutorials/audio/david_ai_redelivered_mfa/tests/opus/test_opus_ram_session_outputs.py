@@ -25,7 +25,7 @@ from david_ai_common import (
     session_rttm_path,
     session_textgrid_path,
 )
-from david_ai_manifest import resolve_speaker_audio_path
+from david_ai_manifest import normalize_text, resolve_speaker_audio_path
 from david_ai_mfa_align import SessionAlignResult
 from david_ai_ram_lhotse import write_all_textgrids
 from stage_ram_session_pipeline import filter_sessions_from_file, sessions_without_done_flags
@@ -64,6 +64,10 @@ def test_speaker_audio_resolution_priority_and_fallback(tmp_path: Path) -> None:
     assert resolve_speaker_audio_path(tmp_path, speaker_id) == postprocessed
     postprocess.touch()
     assert resolve_speaker_audio_path(tmp_path, speaker_id) == postprocess
+
+
+def test_transcript_normalization_is_self_contained() -> None:
+    assert normalize_text("Café costs 2 dollars — okay!") == "cafe costs two dollars okay"
 
 
 def test_mix_uses_manifest_boundaries_and_persists_speaker_tracks(tmp_path: Path, monkeypatch) -> None:
