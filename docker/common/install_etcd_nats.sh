@@ -18,7 +18,7 @@ set -xeuo pipefail
 # Versions pinned to match upstream ai-dynamo/dynamo container/context.yaml,
 # so Dynamo-Curator integration runs the same etcd/nats-server binaries as
 # Dynamo's own runtime images.
-ETCD_VERSION=3.5.21
+ETCD_VERSION=3.5.30
 NATS_VERSION=2.10.28
 
 for i in "$@"; do
