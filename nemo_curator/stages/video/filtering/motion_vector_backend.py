@@ -185,7 +185,7 @@ def decode_for_motion(  # noqa: C901
         stream = input_container.streams.video[0]
         ctx = stream.codec_context
         # Set this flag to return motion vectors
-        ctx.flags2 |= av.codec.context.Flags2.EXPORT_MVS
+        ctx.flags2 |= av.codec.context.Flags2.export_mvs
         ctx.thread_type = av.codec.context.ThreadType.AUTO
         ctx.thread_count = thread_count
         mv_data = []
