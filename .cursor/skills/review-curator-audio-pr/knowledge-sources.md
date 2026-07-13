@@ -23,13 +23,12 @@ the GitHub CLI (`gh`). Scope: the **audio** modality.
 | Source | What it gives you |
 |--------|-------------------|
 | `nemo_curator/stages/audio/README.md` | The audio stage **developer guide** (1000+ lines): CPU vs GPU stages, `process` / `process_batch`, `batch_size`, call chains, per-stage memory characteristics, end-to-end FLEURS & ALM traces, new-stage checklist. Read first. |
-| Audio curation developer guide (slides): <https://docs.google.com/presentation/d/15lJHyAoRTbNFDWq8UJ6czMaUFck3WYPCRaMYPfO_qew/edit?slide=id.g3be823d0e3d_0_0#slide=id.g3be823d0e3d_0_0> | Design intent and pipeline overviews behind the audio modality (the deck the README operationalizes). |
 | `nemo_curator/tasks/audio_task.py` | `AudioTask(Task[dict])` + `_AttrDict` task model (one manifest entry per task; dict keys exposed as attributes for `validate_input`). |
 | `nemo_curator/stages/base.py` | `ProcessingStage` contract: `inputs()`/`outputs()`, `process`/`process_batch`, `setup_on_node`/`setup`/`teardown`, `validate_input`. |
 | `CONTRIBUTING.md` | DCO sign-off, PR process, required tests, coverage threshold, copyright header. |
 | `.cursor/rules/*.mdc` | Always-on engineering contracts (table below). |
 | `tutorials/audio/README.md` + per-pipeline READMEs | Runnable reference pipelines (alm, audio_pretrain, callhome_diar, fleurs, readspeech, single_speaker_filter, tagging). |
-| `benchmarking/README.md`, `benchmarking/AUDIO_PROFILING.md`, `benchmarking/ALM_BENCHMARK.md` | How audio/ALM benchmarks are wired and the perf expectations to hold a PR to. |
+| `benchmarking/README.md`, `benchmarking/scripts/alm_pipeline_benchmark.py`, `benchmarking/scripts/audio_fleurs_benchmark.py` | How audio/ALM benchmarks are wired and the perf expectations to hold a PR to. |
 | `tests/stages/audio/` | Test layout that mirrors `nemo_curator/stages/audio/`; the coverage bar. |
 
 ### `.cursor/rules/` contracts
@@ -77,30 +76,24 @@ needs updating in the same PR - docs drift is a common review finding.
 
 ## 1. Audio code map (diff ground truth)
 
-`nemo_curator/stages/audio/` is organized as:
+Use the live tree under `nemo_curator/stages/audio/` as the source of truth -
+do not maintain a hand-curated file list here. The developer guide
+(`nemo_curator/stages/audio/README.md`) and directory layout tell you where each
+stage lives. Top-level subdirectories mirror stage categories:
 
-| Area | Path(s) |
-|------|---------|
-| Task model | `nemo_curator/tasks/audio_task.py` |
-| Base contract | `nemo_curator/stages/base.py` |
-| Common CPU stages (duration, value filter) | `nemo_curator/stages/audio/common.py` |
-| I/O (convert to DocumentBatch, segment extraction) | `nemo_curator/stages/audio/io/convert.py`, `nemo_curator/stages/audio/io/extract_segments.py` |
-| Preprocessing | `nemo_curator/stages/audio/preprocessing/mono_conversion.py`, `nemo_curator/stages/audio/preprocessing/concatenation.py` |
-| Inference - ASR | `nemo_curator/stages/audio/inference/asr/asr_nemo.py` |
-| Inference - VAD | `nemo_curator/stages/audio/inference/vad/whisperx_vad.py` |
-| Inference - speaker diarization | `nemo_curator/stages/audio/inference/speaker_diarization/sortformer.py`, `nemo_curator/stages/audio/inference/speaker_diarization/pyannote.py` |
-| Filtering (band, SigMOS, UTMOS) | `nemo_curator/stages/audio/filtering/band.py`, `nemo_curator/stages/audio/filtering/sigmos.py`, `nemo_curator/stages/audio/filtering/utmos.py` |
-| Segmentation | `nemo_curator/stages/audio/segmentation/vad_segmentation.py`, `nemo_curator/stages/audio/segmentation/speaker_separation.py` |
-| Tagging (inference + text) | `nemo_curator/stages/audio/tagging/inference/nemo_asr_align.py`, `nemo_curator/stages/audio/tagging/merge_alignment_diarization.py`, `nemo_curator/stages/audio/tagging/resample_audio.py`, `nemo_curator/stages/audio/tagging/split.py`, `nemo_curator/stages/audio/tagging/text/itn.py` |
-| Postprocessing | `nemo_curator/stages/audio/postprocessing/timestamp_mapper.py` |
-| Metrics / throughput | `nemo_curator/stages/audio/metrics/wer.py`, `nemo_curator/stages/audio/metrics/bandwidth.py`, `nemo_curator/stages/audio/metrics/squim.py` |
-| Datasets (FLEURS, ReadSpeech) | `nemo_curator/stages/audio/datasets/fleurs/create_initial_manifest.py`, `nemo_curator/stages/audio/datasets/readspeech/create_initial_manifest.py`, `nemo_curator/stages/audio/datasets/file_utils.py` |
-| ALM (audio-language model data) | `nemo_curator/stages/audio/alm/alm_data_builder.py`, `nemo_curator/stages/audio/alm/alm_data_overlap.py`, `nemo_curator/stages/audio/alm/pretrain/pipeline.py`, `nemo_curator/stages/audio/alm/pretrain/io.py` |
-| Composite pipelines | `nemo_curator/stages/audio/advanced_pipelines/audio_data_filter/audio_data_filter.py` |
+- `io/`, `preprocessing/`, `inference/`, `filtering/`, `segmentation/`,
+  `tagging/`, `postprocessing/`, `metrics/`, `datasets/`, `alm/`,
+  `advanced_pipelines/`
 
-Backends (how stages run): `nemo_curator/backends/` (`base.py`, `xenna/`,
-`ray_data/`, `ray_actor_pool/`); pipeline assembly:
-`nemo_curator/pipeline/pipeline.py`; task types: `nemo_curator/tasks/`.
+Related code outside that tree:
+
+- Task model: `nemo_curator/tasks/audio_task.py`
+- Base contract: `nemo_curator/stages/base.py`
+- Backends: `nemo_curator/backends/` (`base.py`, `xenna/`, `ray_data/`,
+  `ray_actor_pool/`)
+- Pipeline assembly: `nemo_curator/pipeline/pipeline.py`
+- Tutorials: `tutorials/audio/` (per-pipeline READMEs + notebooks)
+- Tests: `tests/stages/audio/` (mirrors stage layout)
 
 ---
 
@@ -216,7 +209,7 @@ canonical sources to cite.
   totals/averages.
 - Standalone audio benchmark scripts belong in the `benchmarking/` flow with
   config entries and comparable parameters - not freestanding.
-- **References:** `nemo_curator/stages/audio/metrics/{wer,bandwidth,squim}.py`; `benchmarking/AUDIO_PROFILING.md`, `benchmarking/ALM_BENCHMARK.md`, `benchmarking/README.md`; rules `executors.mdc`; fern `reference/infrastructure/{execution-backends,per-stage-runtime,monitoring,gpu-processing}.mdx`.
+- **References:** `nemo_curator/stages/audio/metrics/{wer,bandwidth,squim}.py`; `benchmarking/README.md`, `benchmarking/scripts/alm_pipeline_benchmark.py`, `benchmarking/scripts/audio_fleurs_benchmark.py`; rules `executors.mdc`; fern `reference/infrastructure/{execution-backends,per-stage-runtime,monitoring,gpu-processing}.mdx`.
 
 ### 2.8 Tutorials and docs
 
@@ -274,47 +267,62 @@ canonical sources to cite.
 
 ## 4. Pre-review corpus (required): learn from post-#1608 audio PRs
 
-PR [#1608](https://github.com/NVIDIA-NeMo/Curator/pull/1608) (`AudioBatch ->
-AudioTask` redesign) reset the audio stage contracts. Reviewer feedback on audio
-PRs **after** #1608 is the best predictor of what to flag next. **Before every
-audio PR review**, build (or refresh) the consolidated corpus of that feedback.
-Do not skip this step, even when a prior `audio_pr_corpus_*.md` already exists
-on disk - rerun the pull (incremental by default) and render today's file:
+**Diff baseline:** always compare the PR under review against `main`
+(`gh pr diff <N>` or `git diff origin/main...HEAD`). That is separate from the
+corpus below.
+
+**Corpus boundary:** PR [#1608](https://github.com/NVIDIA-NeMo/Curator/pull/1608)
+replaced the list-of-dicts `AudioBatch` model with one-entry-per-task
+`AudioTask`, removed the audio-specific intermediate stage class, aligned audio
+stages directly with `ProcessingStage`, and added the developer guide that
+defines the current lifecycle, validation, batching, and resource contracts.
+Reviews before that redesign discuss a materially different and intentionally
+broken-away-from audio architecture, so including them would pollute future
+review context with obsolete assumptions.
+
+Before every audio PR review, build (or refresh) a consolidated file of reviewer
+comments from *other* post-#1608 audio PRs. This is read-only context for
+recurring review patterns - it does not replace diffing against `main`. Do
+not skip this step, even when a prior `audio_pr_corpus_*.md` already exists on
+disk - rerun the pull (incremental by default) and render
+today's file:
 
 ```bash
-# 1) discover audio PRs after #1608 (open + closed/merged) and pull their
-#    reviews + inline comments into .curator-pr-review/audio-corpus/
+# 1) discover post-#1608 audio PRs and pull reviews + inline comments
 .cursor/skills/review-curator-audio-pr/scripts/pull_audio_pr_corpus.sh --since 1608
 
-# 2) render one consolidated, reviewer-comment corpus
+# 2) render one consolidated reviewer-comment corpus
 .cursor/skills/review-curator-audio-pr/scripts/build_corpus.py
 ```
 
-`pull_audio_pr_corpus.sh` lists every PR with number > `--since` (PR numbers are
-monotonic in time, so number > 1608 == opened after #1608), keeps the ones whose
-changed files touch audio paths, and pulls each one's reviews, inline comments,
-and issue comments. It is incremental - reruns skip PRs already on disk and only
-fetch new ones (use `--refresh` to re-pull, e.g. to refresh open PRs).
+`pull_audio_pr_corpus.sh` lists PRs with number greater than `--since`
+(default: `1608`), keeps the ones whose changed files touch audio paths, and
+pulls each one's reviews, inline comments, and issue comments.
+It is incremental - reruns skip PRs already on disk and only fetch new ones (use
+`--refresh` to re-pull open PRs with new comments).
 `build_corpus.py` writes
 `.curator-pr-review/audio-corpus/audio_pr_corpus_<date>.md`: one section per
-audio PR (number, title, state, author, link) with every reviewer comment
-verbatim, anchored to `path:line`, plus a recurring-themes tally.
+audio PR with every reviewer comment verbatim, anchored to `path:line`, plus a
+recurring-themes tally.
 
-Use the corpus to (a) recognize patterns reviewers repeatedly raise (the lenses
-in section 2 came from exactly this), and (b) check whether the PR in front of
-you repeats a mistake already called out elsewhere. It is read-only context; it
-never auto-posts anything. If the corpus scripts fail or the consolidated file
-is missing, stop the review and fix the failure before writing findings.
+Use the corpus to (a) recognize patterns reviewers repeatedly raise, and (b)
+check whether the PR in front of you repeats a mistake already called out
+elsewhere. If the corpus scripts fail or the consolidated file is missing, stop
+the review and fix the failure before writing findings.
 
 ---
 
 ## 5. GitHub data + scripts reference
 
+Generic scripts live under `.cursor/skills/review-curator-pr/scripts/`; the audio
+skill wraps them with the audio path filter. From the audio skill directory,
+`scripts/` forwards to those helpers.
+
 `scripts/ensure_repo.sh [CLONE_DIR]` - reuse an existing Curator checkout or
 shallow-clone one; prints `CURATOR_REPO=<path>` on its last line.
 
 `scripts/pr_review_pull.sh <N> [--outdir DIR] [--repo OWNER/REPO]` pulls into the
-scratch outdir:
+scratch outdir (audio-only guard applied automatically):
 
 | File | Endpoint |
 |------|----------|

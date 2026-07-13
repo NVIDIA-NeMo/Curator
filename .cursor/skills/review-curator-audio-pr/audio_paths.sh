@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 # Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,5 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "${SCRIPT_DIR}/../../review-curator-pr/scripts/ensure_repo.sh" "$@"
+
+# Audio-modality path filter shared by review-curator-audio-pr scripts.
+AUDIO_PATH_REGEX='^(nemo_curator/stages/audio/|nemo_curator/tasks/audio_task\.py|tutorials/audio/|tests/stages/audio/|tests/tasks/test_audio|benchmarking/.*([Aa]udio|ALM|alm))'
+AUDIO_MODALITY_LABEL='audio'

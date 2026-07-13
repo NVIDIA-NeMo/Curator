@@ -144,7 +144,12 @@ to see prior review activity, not because you own the PR.
 ### Step 3 - Build the post-#1608 audio review corpus (required)
 
 Before you explain or judge anything, build the consolidated reviewer-comment
-corpus so you can spot cross-PR repeated mistakes. Do **not** skip this step,
+corpus from audio PRs opened after #1608 so you can spot repeated mistakes
+against the current framework. PR #1608 replaced `AudioBatch` with the
+single-entry `AudioTask`, removed the audio-specific intermediate stage class,
+and established the lifecycle, validation, batching, and developer-guide
+contracts used today; feedback from earlier PRs targets a materially different
+audio architecture. Do **not** skip this step,
 even if a prior corpus file exists on disk - rerun the pull (incremental by
 default) and render a fresh consolidated file for today's review:
 
@@ -176,11 +181,10 @@ Before you explain or judge anything, read
 grounded in the canonical material, not guesswork:
 
 - **section 0** - canonical docs: the audio stage developer guide
-  (`nemo_curator/stages/audio/README.md`), the developer-guide slides, the
-  published fern audio docs, `.cursor/rules/*.mdc`, and `CONTRIBUTING.md`.
+  (`nemo_curator/stages/audio/README.md`) and the published fern audio docs, `.cursor/rules/*.mdc`, and `CONTRIBUTING.md`.
 - **section 1** - the audio code map, so you know where each changed file sits.
 - **section 2** - the review lenses (you apply these in step 8).
-- **section 4 + corpus file** - the post-#1608 reviewer-comment corpus from step 3.
+- **section 4 + corpus file** - the post-#1608 audio PR reviewer-comment corpus from step 3.
 
 Open the specific sources the diff touches (e.g. the fern page and the code for
 the stage being changed). Check the corpus for recurring themes and whether this
@@ -252,6 +256,6 @@ A compliant audio PR must satisfy these; flag any that are missing:
 ## Knowledge sources
 
 [knowledge-sources.md](knowledge-sources.md) is the single index: canonical docs
-(audio README, developer-guide slides, `.cursor/rules`, tutorials, benchmarks),
+(audio README, published fern docs, `.cursor/rules`, tutorials, benchmarks),
 the audio code map, the review lenses with per-concept code references, the
-post-#1608 PR corpus workflow, and the GitHub/`gh` data reference.
+post-#1608 audio review corpus workflow, and the GitHub/`gh` data reference.

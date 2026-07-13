@@ -1,19 +1,34 @@
 #!/usr/bin/env bash
-# Discover audio-modality PRs opened AFTER a baseline PR (#1608 by default),
-# open or closed/merged, and pull each one's reviews + comments into a corpus
-# directory. Consolidate with build_corpus.py.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
-# PR numbers are monotonic in time, so "number > --since" == "opened after that
-# PR". We then keep only PRs whose changed files touch audio paths.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Incremental by default: PRs already pulled into OUTDIR are skipped, so reruns
-# only fetch PRs that are new since last time. Pass --refresh to re-pull
-# everything (e.g. to pick up new comments on open PRs).
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Discover audio-modality PRs opened after the AudioTask framework redesign
+# (#1608 by default), open or closed/merged, and pull each one's reviews +
+# comments into a corpus directory. Consolidate with build_corpus.py.
+#
+# Incremental by default: PRs already pulled into OUTDIR are skipped.
 #
 # Usage: pull_audio_pr_corpus.sh [--since N] [--outdir DIR] [--repo OWNER/REPO] [--limit N] [--refresh]
 #
 # Requires the GitHub CLI (`gh`) authenticated against github.com.
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../audio_paths.sh
+source "${SCRIPT_DIR}/../audio_paths.sh"
+# shellcheck source=../../review-curator-pr/scripts/lib/gh_paginate.sh
+source "${SCRIPT_DIR}/../../review-curator-pr/scripts/lib/gh_paginate.sh"
 
 REPO="NVIDIA-NeMo/Curator"
 SINCE=1608
@@ -37,22 +52,16 @@ done
 command -v gh >/dev/null || { echo "error: gh (GitHub CLI) not found" >&2; exit 2; }
 mkdir -p "${OUTDIR}"
 
-# Cache of candidate PRs already classified as non-audio, so reruns don't
-# re-fetch their file lists. Audio PRs are remembered by their pr<N>_gh.json.
 NONAUDIO_CACHE="${OUTDIR}/_non_audio_prs.txt"
 touch "${NONAUDIO_CACHE}"
 declare -A IS_NONAUDIO=()
 while IFS= read -r x; do [[ -n "${x}" ]] && IS_NONAUDIO["${x}"]=1; done < "${NONAUDIO_CACHE}"
-
-# Audio-path test (extended regex over a PR's changed-file list).
-AUDIO_RE='^(nemo_curator/stages/audio/|nemo_curator/tasks/audio_task\.py|tutorials/audio/|tests/stages/audio/|tests/tasks/test_audio|benchmarking/.*([Aa]udio|ALM|alm))'
 
 echo "=== corpus discovery: ${REPO} PRs > #${SINCE} (state=all, limit=${LIMIT}) ===" >&2
 gh pr list --repo "${REPO}" --state all --limit "${LIMIT}" \
     --json number,title,state,author,createdAt,updatedAt,url \
     > "${OUTDIR}/_all_prs.json"
 
-# Candidate PR numbers (> SINCE), newest first.
 mapfile -t CANDIDATES < <(python3 - "${OUTDIR}/_all_prs.json" "${SINCE}" <<'PY'
 import json, sys
 prs = json.load(open(sys.argv[1])); since = int(sys.argv[2])
@@ -64,7 +73,6 @@ echo "candidates after #${SINCE}: ${#CANDIDATES[@]}" >&2
 
 AUDIO_NUMS=()
 for n in "${CANDIDATES[@]}"; do
-    # Incremental: reuse prior classification unless --refresh.
     if [[ ${REFRESH} -eq 0 ]]; then
         if [[ -f "${OUTDIR}/pr${n}_gh.json" ]]; then
             AUDIO_NUMS+=("${n}"); echo "  pr${n}: AUDIO (on disk, skip)" >&2; continue
@@ -74,12 +82,14 @@ for n in "${CANDIDATES[@]}"; do
         fi
     fi
     files_json="${OUTDIR}/pr${n}_files.json"
-    gh api --paginate "repos/${REPO}/pulls/${n}/files" --jq '[.[].filename]' \
-        > "${files_json}" 2>/dev/null || { echo "  pr${n}: files fetch failed, skip" >&2; continue; }
-    if AUDIO_RE="${AUDIO_RE}" python3 - "${files_json}" <<'PY'
+    if ! pull_paginated_json "pulls/${n}/files" "${files_json}" \
+        "repos/${REPO}/pulls/${n}/files" 2>/dev/null; then
+        echo "  pr${n}: files fetch failed, skip" >&2; continue
+    fi
+    if AUDIO_PATH_REGEX="${AUDIO_PATH_REGEX}" python3 - "${files_json}" <<'PY'
 import json, os, re, sys
-files = json.load(open(sys.argv[1]))
-rx = re.compile(os.environ["AUDIO_RE"])
+files = [f.get("filename", "") for f in json.load(open(sys.argv[1]))]
+rx = re.compile(os.environ["AUDIO_PATH_REGEX"])
 sys.exit(0 if any(rx.search(f) for f in files) else 1)
 PY
     then
@@ -93,13 +103,12 @@ PY
     fi
 done
 
-echo "audio PRs after #${SINCE}: ${#AUDIO_NUMS[@]}" >&2
+echo "audio PRs in scope: ${#AUDIO_NUMS[@]}" >&2
 printf '%s\n' "${AUDIO_NUMS[@]}" > "${OUTDIR}/_audio_pr_numbers.txt"
 
 pulled=0
 skipped=0
 for n in "${AUDIO_NUMS[@]}"; do
-    # Incremental: skip PRs whose data is already on disk unless --refresh.
     if [[ ${REFRESH} -eq 0 && -f "${OUTDIR}/pr${n}_gh.json" \
           && -f "${OUTDIR}/pr${n}_reviews.json" \
           && -f "${OUTDIR}/pr${n}_review_comments.json" \
@@ -111,9 +120,12 @@ for n in "${AUDIO_NUMS[@]}"; do
     gh pr view "${n}" --repo "${REPO}" \
         --json number,title,state,author,createdAt,updatedAt,mergedAt,closedAt,url,body \
         > "${OUTDIR}/pr${n}_gh.json"
-    gh api --paginate "repos/${REPO}/pulls/${n}/reviews"  > "${OUTDIR}/pr${n}_reviews.json"
-    gh api --paginate "repos/${REPO}/pulls/${n}/comments" > "${OUTDIR}/pr${n}_review_comments.json"
-    gh api --paginate "repos/${REPO}/issues/${n}/comments" > "${OUTDIR}/pr${n}_issue_comments.json"
+    pull_paginated_json "pulls/${n}/reviews" "${OUTDIR}/pr${n}_reviews.json" \
+        "repos/${REPO}/pulls/${n}/reviews"
+    pull_paginated_json "pulls/${n}/comments" "${OUTDIR}/pr${n}_review_comments.json" \
+        "repos/${REPO}/pulls/${n}/comments"
+    pull_paginated_json "issues/${n}/comments" "${OUTDIR}/pr${n}_issue_comments.json" \
+        "repos/${REPO}/issues/${n}/comments"
     pulled=$((pulled + 1))
 done
 
