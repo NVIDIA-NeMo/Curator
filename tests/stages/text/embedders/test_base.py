@@ -134,7 +134,6 @@ class TestEmbeddingModelStage:
 
         # Create sample data with tokenized inputs
         sample_data = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=pd.DataFrame(
                 {
@@ -212,7 +211,7 @@ class TestEmbeddingCreatorStage:
         """Create sample text data for testing."""
         texts = ["Hello world", "Test text"]
         data = pd.DataFrame({"text": texts})
-        return DocumentBatch(task_id="test_batch", dataset_name="test_dataset", data=data)
+        return DocumentBatch(dataset_name="test_dataset", data=data)
 
     def test_embedding_creator_stage_initialization_and_decomposition(self) -> None:
         """Test initialization, decomposition, and parameter passing to decomposed stages."""

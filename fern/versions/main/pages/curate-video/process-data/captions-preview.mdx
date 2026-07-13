@@ -51,7 +51,6 @@ pipe.add_stage(
         window_size=256,
         remainder_threshold=128,
         preprocess_dtype="float16",
-        model_does_preprocess=False,
         generate_previews=True,
         verbose=True,
     )
@@ -64,7 +63,6 @@ pipe.add_stage(
         caption_batch_size=8,
         fp8=False,
         max_output_tokens=512,
-        model_does_preprocess=False,
         generate_stage2_caption=False,
         stage2_prompt_text=None,
         disable_mmcache=True,
@@ -116,7 +114,6 @@ python tutorials/video/getting-started/video_split_clip_example.py \
        window_size=256,
        remainder_threshold=128,
        preprocess_dtype="float16",
-       model_does_preprocess=False,
        generate_previews=True,
        verbose=True,
    )
@@ -145,8 +142,7 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | `sampling_fps` | float | 2.0 | Source sampling rate for creating per‑window inputs. |
 | `window_size` | int | 256 | Number of frames per window before captioning. |
 | `remainder_threshold` | int | 128 | Minimum leftover frames required to create a final shorter window. |
-| `model_does_preprocess` | bool | `False` | Whether the downstream model performs its own preprocessing. |
-| `preprocess_dtype` | str | `"float32"` | Data type for any preprocessing performed here. |
+| `preprocess_dtype` | str | `"float32"` | Raw frame dtype used before passing video frames to the vLLM multimodal processor. |
 | `generate_previews` | bool | `True` | When `True`, return per‑window `mp4` bytes to enable preview generation. |
 | `verbose` | bool | `False` | Log additional setup and per‑clip details. |
 
@@ -180,7 +176,6 @@ python tutorials/video/getting-started/video_split_clip_example.py \
        caption_batch_size=8,
        fp8=False,
        max_output_tokens=512,
-       model_does_preprocess=False,
        generate_stage2_caption=False,
        stage2_prompt_text=None,
        disable_mmcache=True,
@@ -215,7 +210,6 @@ python tutorials/video/getting-started/video_split_clip_example.py \
 | `caption_batch_size` | int | 16 | Batch size for caption generation. |
 | `fp8` | bool | `False` | Use FP8 weights when available. |
 | `max_output_tokens` | int | 512 | Maximum number of tokens to generate per caption. |
-| `model_does_preprocess` | bool | `False` | Whether the model performs its own preprocessing. |
 | `disable_mmcache` | bool | `False` | Disable multimodal cache for generation backends that support it. |
 | `generate_stage2_caption` | bool | `False` | Enable a second‑pass caption for refinement. |
 | `stage2_prompt_text` | str \| None | `None` | Custom prompt for stage‑2 caption refinement. |

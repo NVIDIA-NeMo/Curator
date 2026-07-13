@@ -114,6 +114,70 @@ class TestCreateVllmLlm:
         with pytest.raises(RuntimeError, match="address already in use"):
             _vllm_utils.create_vllm_llm("fake/model", max_port_retries=2)
 
+    def test_wrapped_engine_startup_failure_retries(self, monkeypatch: pytest.MonkeyPatch):
+        """In vLLM v1 the bind error is wrapped; the generic startup message must still retry."""
+        call_count = 0
+        # This is what the parent process actually sees in v1 (EADDRINUSE is buried
+        # in the EngineCore subprocess and never reaches here).
+        err_msg = "Engine core initialization failed. See root cause above. Failed core proc(s): {}"
+
+        class FakeLLM:
+            def __init__(self, **_kw):
+                nonlocal call_count
+                call_count += 1
+                if call_count < 3:
+                    raise RuntimeError(err_msg)
+
+        self._inject_fake_vllm(monkeypatch, FakeLLM)
+        monkeypatch.setattr(_vllm_utils, "pick_free_port", lambda: 12345)
+        monkeypatch.setattr("time.sleep", lambda _: None)
+
+        result = _vllm_utils.create_vllm_llm("fake/model", max_port_retries=5)
+        assert isinstance(result, FakeLLM)
+        assert call_count == 3
+
+    def test_wrapped_non_retryable_startup_failure_raises_without_retry(self, monkeypatch: pytest.MonkeyPatch):
+        """Fatal EngineCore failures should fail fast when the exception chain exposes the cause."""
+        call_count = 0
+
+        class FakeLLM:
+            def __init__(self, **_kw):
+                nonlocal call_count
+                call_count += 1
+                outer_msg = "Engine core initialization failed"
+                cause_msg = "CUDA out of memory"
+                raise RuntimeError(outer_msg) from RuntimeError(cause_msg)
+
+        self._inject_fake_vllm(monkeypatch, FakeLLM)
+        monkeypatch.setattr(_vllm_utils, "pick_free_port", lambda: 12345)
+        monkeypatch.setattr("time.sleep", lambda _: None)
+
+        with pytest.raises(RuntimeError, match="Engine core initialization failed"):
+            _vllm_utils.create_vllm_llm("fake/model", max_port_retries=3)
+
+        assert call_count == 1
+
+    def test_extra_engine_kwargs_forwarded(self, monkeypatch: pytest.MonkeyPatch):
+        """Extra engine kwargs (e.g. gpu_memory_utilization) reach vllm.LLM."""
+        captured_kwargs: dict = {}
+
+        class FakeLLM:
+            def __init__(self, **kw):
+                captured_kwargs.update(kw)
+
+        self._inject_fake_vllm(monkeypatch, FakeLLM)
+        monkeypatch.setattr(_vllm_utils, "pick_free_port", lambda: 12345)
+
+        _vllm_utils.create_vllm_llm(
+            "fake/model",
+            max_num_seqs=128,
+            gpu_memory_utilization=0.95,
+            max_num_batched_tokens=16384,
+        )
+        assert captured_kwargs.get("max_num_seqs") == 128
+        assert captured_kwargs.get("gpu_memory_utilization") == 0.95
+        assert captured_kwargs.get("max_num_batched_tokens") == 16384
+
     def test_non_eaddrinuse_raises_immediately(self, monkeypatch: pytest.MonkeyPatch):
         """A non-port-collision RuntimeError should propagate without retry."""
         call_count = 0

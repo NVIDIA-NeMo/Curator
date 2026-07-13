@@ -73,8 +73,8 @@ class TestAsrNeMoStage:
             stage.setup()
 
             tasks = [
-                AudioTask(data={"audio_filepath": "/test/audio1.wav"}, task_id="t1"),
-                AudioTask(data={"audio_filepath": "/test/audio2.mp3"}, task_id="t2"),
+                AudioTask(data={"audio_filepath": "/test/audio1.wav"}),
+                AudioTask(data={"audio_filepath": "/test/audio2.mp3"}),
             ]
             results = stage.process_batch(tasks)
 

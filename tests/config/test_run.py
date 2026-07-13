@@ -178,6 +178,31 @@ def test_pipeline_with_hydra_instantiated_stage():
     assert pipeline.stages[0].score_field == [None]  # ScoreFilter converts score_field to list
 
 
+def test_pipeline_with_hydra_instantiated_resources():
+    from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
+
+    cfg = OmegaConf.create(
+        {
+            "stages": [
+                {
+                    "_target_": "nemo_curator.stages.audio.metrics.wer.GetPairwiseWerStage",
+                    "resources": {
+                        "_target_": "nemo_curator.stages.resources.Resources",
+                        "gpus": 2.0,
+                    },
+                }
+            ]
+        }
+    )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+
+    assert isinstance(pipeline, Pipeline)
+    assert len(pipeline.stages) == 1
+    assert isinstance(pipeline.stages[0], GetPairwiseWerStage)
+    assert pipeline.stages[0].resources.gpus == 2.0
+
+
 def test_pipeline_with_multiple_stages():
     from nemo_curator.stages.text.modifiers import Modify
     from nemo_curator.stages.text.modifiers.string import UrlRemover

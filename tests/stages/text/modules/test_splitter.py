@@ -29,7 +29,6 @@ class TestDocumentSplitter:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -69,7 +68,6 @@ class TestDocumentSplitter:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -92,7 +90,6 @@ class TestDocumentSplitter:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -115,7 +112,6 @@ class TestDocumentSplitter:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -138,7 +134,6 @@ class TestDocumentSplitter:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -158,7 +153,6 @@ class TestDocumentSplitter:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -183,7 +177,6 @@ class TestDocumentSplitter:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
             _metadata={"source": "test_source"},
@@ -221,7 +214,6 @@ class TestDocumentSplitter:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -236,7 +228,6 @@ class TestDocumentSplitter:
             }
         )
         batch_missing = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df_missing,
         )
@@ -251,7 +242,6 @@ class TestDocumentSplitter:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )

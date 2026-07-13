@@ -57,9 +57,11 @@ dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
     "cosmos-xenna==0.2.0",
+    "datasets>=4.0.0",
     "fsspec",
     "hydra-core",
     "jieba==0.42.1",
+    "lmdb>=1.4",
     "loguru",
     "mecab-python3",
     "omegaconf",
@@ -112,7 +114,7 @@ audio_common = [
     "pydub>=0.25.1",
     "transformers",
     "accelerate",
-    "nemo_text_processing",
+    "nemo_text_processing; platform_machine == 'x86_64' and platform_system != 'Darwin'",  # pulls pynini, which ships x86_64-only wheels and fails to build on aarch64
     "opencc-python-reimplemented",
     "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "whisperx>=3.8.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
@@ -215,8 +217,8 @@ text_cuda12 = [
 
 # Video Curation Dependencies
 video_cpu = [
-    "av==13.1.0",
-    "opencv-python",
+    "av==17.1.0",  # ffmpeg 8.1.1 (CVE: was 7.0.2)
+    "opencv-python-headless",  # dedupe with vllm's headless
     "torchvision",
     "einops",
     "easydict",
@@ -227,11 +229,15 @@ video_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
     "cvcuda_cu12",
-    "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
-    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.10.0",
     "torchaudio",
+]
+
+# NVDEC HW decode; opt-in, kept off `all` (wheel vendors CVE ffmpeg). CPU-decode fallback exists.
+video_media = [
+    "nemo_curator[video_cuda12]",
+    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # Math Curation Dependencies
@@ -249,10 +255,9 @@ math_cuda12 = [
 
 # Multimodal / Interleaved Dependencies
 interleaved_cpu = [
-    "albumentations",
     "matplotlib",
     "open_clip_torch",
-    "opencv-python",
+    "opencv-python-headless",  # dedupe with vllm's headless
     "Pillow",
     "pypdfium2",
     "s3fs>=2024.12.0",
@@ -317,7 +322,6 @@ package = true
 managed = true
 default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
-no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
@@ -329,6 +333,7 @@ constraint-dependencies = [
     "python-multipart>=0.0.22", # Address CVE GHSA-wp53-j4wj-2cfg
     "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
     "urllib3>=2.6.3", # Address CVE GHSA-38jv-5279-wg99
+    "wandb>=0.28.0", # prebuilt wandb-core drops apache/thrift and ships grpc 1.81.1 (replaces docker go-rebuild patch)
     "wheel>=0.46.2", # Address CVE GHSA-8rrh-rw8j-w5fx
     "transformers>=4.56.0,<5.0", # tranfomers>5 breaks with hf_hub<1.0 added in override
 ]
@@ -348,6 +353,7 @@ override-dependencies = [
     "torchcodec~=0.10.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # pin to torchcodec 0.10.x for torch 2.10 ABI compatibility — torchcodec doesn't declare a torch dep, so the resolver can't enforce the match; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  # Override ray[llm]'s unconditional nixl dep for ARM
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
+    "sqlfluff>=4.2.0", # Address CVE-2026-46373/46374 (parser DoS); overrides data-designer-engine==0.5.5 sqlfluff<4 cap
 ]
 
 
@@ -500,4 +506,5 @@ ignore = [
   "**/test_*.py",
   "**/*.bat",
   "**/.gitkeep",
+  "eval/**",
 ]

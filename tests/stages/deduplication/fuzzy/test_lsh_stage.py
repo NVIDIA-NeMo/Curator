@@ -59,7 +59,6 @@ class TestLSHStage:
 
         # Create FileGroupTask
         return FileGroupTask(
-            task_id="test_minhash_0",
             dataset_name="test_dataset",
             data=[minhash_file],
             _metadata={
@@ -193,7 +192,6 @@ class TestLSHStage:
 
         # Create FileGroupTask
         minhash_data = FileGroupTask(
-            task_id="test_custom_cols_0",
             dataset_name="test_dataset",
             data=[minhash_file],
             _metadata={
@@ -262,7 +260,6 @@ class TestLSHStage:
 
         # Create FileGroupTask
         minhash_data = FileGroupTask(
-            task_id="test_minhash_no_dup_0",
             dataset_name="test_dataset",
             data=[minhash_file],
             _metadata={
@@ -321,7 +318,6 @@ class TestLSHStage:
 
         # Create FileGroupTask
         minhash_data = FileGroupTask(
-            task_id="test_minhash_partial_0",
             dataset_name="test_dataset",
             data=[minhash_file],
             _metadata={

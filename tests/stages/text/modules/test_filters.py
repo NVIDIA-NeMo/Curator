@@ -170,7 +170,6 @@ def list_to_dataset(documents: list[str], col_name: str = "text") -> DocumentBat
 
     return DocumentBatch(
         data=pdf,
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -179,7 +178,6 @@ def list_to_dataset(documents: list[str], col_name: str = "text") -> DocumentBat
 def letter_count_data() -> DocumentBatch:
     return DocumentBatch(
         data=pd.DataFrame({"documents": ["Two aa", "a a Three a", "Five aaa aa", "aaaSeven aaaa"]}),
-        task_id="batch_1",
         dataset_name="test_1",
     )
 
@@ -193,7 +191,6 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"documents": ["Five aaa aa", "aaaSeven aaaa"]}),
-            task_id="batch_1_letter_count",
             dataset_name="test_1",
         )
 
@@ -238,7 +235,6 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"documents": ["Five aaa aa", "aaaSeven aaaa"]}),
-            task_id="batch_1_letter_count",
             dataset_name="test_1",
         )
         expected_data.data[score_field] = pd.Series([5, 7])
@@ -261,7 +257,6 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"documents": ["Five aaa aa", "aaaSeven aaaa"]}),
-            task_id="batch_1_score_fn_filter_fn",
             dataset_name="test_1",
         )
         expected_data.data[score_field] = pd.Series([5, 7])
@@ -284,7 +279,6 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"documents": ["Five aaa aa", "aaaSeven aaaa"]}),
-            task_id="batch_1_letter_count_letter_count",
             dataset_name="test_1",
         )
         expected_data.data[score_field] = pd.Series([5, 7])
@@ -298,7 +292,6 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"documents": ["Two aa", "a a Three a"]}),
-            task_id="batch_1_letter_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -329,7 +322,6 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=expected_df,
-            task_id="batch_1_score_filter_chain_of_letter_count_letter_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -363,7 +355,6 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=expected_df,
-            task_id="batch_1_score_chain_of_letter_count_letter_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -378,7 +369,6 @@ class TestFilterModule:
                     "e_count": [0, 2, 1, 2],
                 }
             ),
-            task_id="batch_1",
             dataset_name="test_1",
         )
 
@@ -407,7 +397,6 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=expected_df,
-            task_id="batch_1_filter_chain_of_letter_count_letter_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -432,7 +421,6 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=expected_df,
-            task_id="batch_1_letter_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -451,7 +439,6 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=expected_df,
-            task_id="batch_1_score_filter_chain_of_letter_count_letter_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -490,7 +477,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["This is a test case.", "$aaa"]}),
-            task_id="batch_1_alpha_numeric",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -510,7 +496,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["full of words", "barely ok 3 4 5 6 7 8 9 #"]}),
-            task_id="batch_1_symbol_to_word",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -523,7 +508,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["purely letters", "$!@$@!$!@", "abcdefghi1"]}),
-            task_id="batch_1_numbers_ratio",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -552,7 +536,6 @@ class TestHeuristicFilters:
                     ]
                 }
             ),
-            task_id="batch_1_urls_ratio",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -596,7 +579,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["no urls here!", "https://www.nvidia.com/en-us/"]}),
-            task_id="batch_1_urls_ratio",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -633,7 +615,6 @@ class TestHeuristicFilters:
                     ]
                 }
             ),
-            task_id="batch_1_bullet_ratio",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -646,7 +627,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["good", "123\b"]}),
-            task_id="batch_1_white_space",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -659,7 +639,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["this is completely absolutely fine", "123456789("]}),
-            task_id="batch_1_parentheses_ratio",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -672,7 +651,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["tiny"]}),
-            task_id="batch_1_max_word_length",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -685,7 +663,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["two words", "$#@$ %$@$#@ !#@!"]}),
-            task_id="batch_1_word_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -698,7 +675,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["你好。", "我喜欢学习中文。"]}),
-            task_id="batch_1_word_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -712,7 +688,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["猫が寝ます。", "私は日本語のテキストを分割します。"]}),
-            task_id="batch_1_word_count_ja",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -738,7 +713,6 @@ class TestHeuristicFilters:
                     ]
                 }
             ),
-            task_id="batch_1_boilerplate_string_ratio",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -759,7 +733,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["superlongword short", "evenly balanced"]}),
-            task_id="batch_1_mean_word_length",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -772,7 +745,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["totally unique"]}),
-            task_id="batch_1_repeated_lines",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -785,7 +757,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["totally unique"]}),
-            task_id="batch_1_repeated_paragraphs",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -805,7 +776,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["totally unique", "a.\na.\nvery very very short duplicate."]}),
-            task_id="batch_1_repeated_lines_char",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -825,7 +795,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["totally unique", "a.\n\n  a.\n\n  very very very short duplicate."]}),
-            task_id="batch_1_repeated_paragraphs_char",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -852,7 +821,6 @@ class TestHeuristicFilters:
                     ]
                 }
             ),
-            task_id="batch_1_repeating_top_2grams",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -865,7 +833,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["totally fine", "a a a a this should be fine as well"]}),
-            task_id="batch_1_repeating_dup_2gram",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -878,7 +845,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["good.", "just\n barely\n fine\n ok\n yep."]}),
-            task_id="batch_1_punctuation",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -891,7 +857,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["good.", "just...\n barely...\n fine...\n ok...\n yep."]}),
-            task_id="batch_1_ellipsis",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -904,7 +869,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["the and", "the and and of to"]}),
-            task_id="batch_1_common_english_words",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -917,7 +881,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["totally fine", "good good good good !"]}),
-            task_id="batch_1_words_without_alphabets",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -936,7 +899,6 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["no url", "fine url https://www.nvidia.com/en-us/"]}),
-            task_id="batch_1_PornographicUrlsFilter",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -968,7 +930,6 @@ class TestHeuristicFilters:
                     ]
                 }
             ),
-            task_id="batch_1_histogram",
             dataset_name="test_1",
         )
         expected_data2 = DocumentBatch(
@@ -981,7 +942,6 @@ class TestHeuristicFilters:
                     ]
                 }
             ),
-            task_id="batch_1_histogram",
             dataset_name="test_1",
         )
         assert all_equal(expected_data1, filtered_data1), f"Expected {expected_data1} but got {filtered_data1}"
@@ -1025,7 +985,6 @@ class TestTokenCountFilter:
         # We expect to keep only the documents with exactly 2 or 3 tokens.
         expected_dataset = DocumentBatch(
             data=pd.DataFrame({"text": ["hello world", "another test case"]}),
-            task_id="batch_1_token_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_dataset, filtered_dataset)
@@ -1050,7 +1009,6 @@ class TestTokenCountFilter:
         # We expect to keep all documents.
         expected_dataset = DocumentBatch(
             data=pd.DataFrame({"text": docs}),
-            task_id="batch_1_token_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_dataset, filtered_dataset)
@@ -1112,7 +1070,6 @@ class TestSubstringFilter:
         # Expect only those records where the text starts with "Hello".
         expected_dataset = DocumentBatch(
             data=pd.DataFrame({"text": ["Hello world", "Hello everyone"]}),
-            task_id="batch_1_SubstringFilter",
             dataset_name="test_1",
         )
 
@@ -1135,7 +1092,6 @@ class TestSubstringFilter:
         # Expect only those records that end with "end".
         expected_dataset = DocumentBatch(
             data=pd.DataFrame({"text": ["This is the end", "Not matching end", "The end"]}),
-            task_id="batch_1_SubstringFilter",
             dataset_name="test_1",
         )
 
@@ -1152,7 +1108,6 @@ class TestSubstringFilter:
         # Expect documents that contain "test" anywhere.
         expected_dataset = DocumentBatch(
             data=pd.DataFrame({"text": ["test case", "This is a testcase", "another test"]}),
-            task_id="batch_1_SubstringFilter",
             dataset_name="test_1",
         )
 
@@ -1171,7 +1126,6 @@ class TestCodeFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": [doc_1, doc_4]}),
-            task_id="batch_1_python_comment_ratio",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -1188,7 +1142,6 @@ class TestCodeFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": [doc_1, doc_4]}),
-            task_id="batch_1_comment_ratio",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -1208,7 +1161,6 @@ class TestCodeFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": [doc_2]}),
-            task_id="batch_1_num_lines",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -1221,7 +1173,6 @@ class TestCodeFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["no header"]}),
-            task_id="batch_1_xml_header",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -1234,7 +1185,6 @@ class TestCodeFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["full of alphabet", "mixed <>"]}),
-            task_id="batch_1_alpha_filter",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -1282,7 +1232,6 @@ class TestCodeFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": [good_doc]}),
-            task_id="batch_1_html_boilerplate",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -1320,7 +1269,6 @@ class TestCodeFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": [good_cpp]}),
-            task_id="batch_1_per_extension_filter",
             dataset_name="test_1",
         )
 
@@ -1351,7 +1299,6 @@ class TestClassifierFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["b", "c", "d"]}),
-            task_id="batch_1_FakeQualityFilter",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -1364,7 +1311,6 @@ class TestClassifierFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["a", "b", "d"]}),
-            task_id="batch_1_FakeLangId",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"

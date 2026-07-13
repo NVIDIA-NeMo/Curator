@@ -238,7 +238,6 @@ class PDFPreprocessStage(ProcessingStage[FileGroupTask, InterleavedBatch]):
 
         pages_df = pd.DataFrame(rows)
         return InterleavedBatch(
-            task_id=f"{task.task_id}_preprocessed",
             dataset_name=task.dataset_name,
             data=pa.Table.from_pandas(pages_df, preserve_index=False),
             _metadata=task._metadata,

@@ -41,6 +41,7 @@ class WikipediaParaphrasingStage(BaseSyntheticStage):
     output_field: str = "rephrased"
     name: str = "WikipediaParaphrasing"
 
+
 @dataclass
 class DiverseQAStage(BaseSyntheticStage):
     system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
@@ -114,10 +115,10 @@ class DiverseQAPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]
         return DocumentBatch(
             data=df,
             dataset_name=batch.dataset_name,
-            task_id=f"{batch.task_id}_{self.name}",
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
+
 
 @dataclass
 class DistillStage(BaseSyntheticStage):
@@ -127,6 +128,7 @@ class DistillStage(BaseSyntheticStage):
     output_field: str = "distill"
     name: str = "Distill"
 
+
 @dataclass
 class ExtractKnowledgeStage(BaseSyntheticStage):
     system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
@@ -135,6 +137,7 @@ class ExtractKnowledgeStage(BaseSyntheticStage):
     output_field: str = "extract_knowledge"
     name: str = "ExtractKnowledge"
 
+
 @dataclass
 class KnowledgeListStage(BaseSyntheticStage):
     system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT
@@ -142,6 +145,7 @@ class KnowledgeListStage(BaseSyntheticStage):
     input_field: str = "text"
     output_field: str = "knowledge_list"
     name: str = "KnowledgeList"
+
 
 @dataclass
 class KnowledgeListPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -173,7 +177,6 @@ class KnowledgeListPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBa
         return DocumentBatch(
             data=df,
             dataset_name=batch.dataset_name,
-            task_id=f"{batch.task_id}_{self.name}",
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )

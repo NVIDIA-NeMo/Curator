@@ -59,7 +59,7 @@ from nemo_curator.stages.text.filters.heuristic import (
 from nemo_curator.stages.text.filters.heuristic.repetition import RepeatedLinesFilter, RepeatingTopNGramsFilter
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 from nemo_curator.stages.text.modules.add_id import AddId
-from nemo_curator.tasks import DocumentBatch, _EmptyTask
+from nemo_curator.tasks import DocumentBatch, EmptyTask
 from nemo_curator.tasks.utils import TaskPerfUtils
 
 # Default filter parameters
@@ -94,7 +94,7 @@ class LocalTarUrlGenerator(URLGenerator):
 
 
 @dataclass
-class LocalArxivExtractStage(CompositeStage[_EmptyTask, DocumentBatch]):
+class LocalArxivExtractStage(CompositeStage[EmptyTask, DocumentBatch]):
     """Composite stage for processing local ArXiv tar files.
 
     This stage:

@@ -189,7 +189,6 @@ class SpeakerSeparationStage(ProcessingStage[AudioTask, AudioTask]):
             }
             spk_task = AudioTask(
                 data=speaker_data,
-                task_id=f"{task.task_id}_{speaker_id}",
                 dataset_name=task.dataset_name,
             )
             if task._metadata:

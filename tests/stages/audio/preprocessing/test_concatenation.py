@@ -34,7 +34,6 @@ def _make_segment_dict(duration_ms: int = 1000, sample_rate: int = 48000, segmen
 def _make_nested_task(segments: list[dict]) -> AudioTask:
     return AudioTask(
         data={"segments": segments, "original_file": "test.wav"},
-        task_id="test_task",
         dataset_name="ds",
     )
 
@@ -92,7 +91,6 @@ class TestSegmentConcatenationStage:
     def test_no_waveform_in_tasks(self) -> None:
         task = AudioTask(
             data={"segments": [{"other_key": "value"}]},
-            task_id="empty",
             dataset_name="ds",
         )
         stage = SegmentConcatenationStage()
@@ -100,7 +98,7 @@ class TestSegmentConcatenationStage:
         assert result == []
 
     def test_missing_segments_key_raises(self) -> None:
-        task = AudioTask(data={"other_key": "value"}, task_id="empty", dataset_name="ds")
+        task = AudioTask(data={"other_key": "value"}, dataset_name="ds")
         stage = SegmentConcatenationStage()
         with pytest.raises(ValueError):  # noqa: PT011
             stage.process(task)

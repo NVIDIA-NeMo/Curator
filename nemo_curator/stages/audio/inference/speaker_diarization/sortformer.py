@@ -230,7 +230,6 @@ class InferenceSortformerStage(ProcessingStage[AudioTask, AudioTask]):
         output_data[self.diar_segments_key] = segments
 
         return AudioTask(
-            task_id=f"{task.task_id}_sortformer",
             dataset_name=task.dataset_name,
             filepath_key=task.filepath_key or self.filepath_key,
             data=output_data,

@@ -22,7 +22,6 @@ from nemo_curator.tasks import DocumentBatch
 class TestSortByLengthStage:
     def test_process(self):
         batch = DocumentBatch(
-            task_id="test",
             dataset_name="test",
             data=pd.DataFrame({"attention_mask": [[1, 1, 1, 1, 0], [1, 1, 1, 1, 1], [1, 1, 1, 0, 0]]}),
         )
@@ -33,7 +32,6 @@ class TestSortByLengthStage:
 
     def test_process_no_op(self):
         batch = DocumentBatch(
-            task_id="test",
             dataset_name="test",
             data=pd.DataFrame(
                 # Set the SEQ_ORDER_FIELD to a random order

@@ -31,7 +31,6 @@ class TestDocumentJoiner:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -63,7 +62,6 @@ class TestDocumentJoiner:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -85,7 +83,6 @@ class TestDocumentJoiner:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -112,7 +109,6 @@ class TestDocumentJoiner:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -136,7 +132,6 @@ class TestDocumentJoiner:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -165,7 +160,6 @@ class TestDocumentJoiner:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -191,7 +185,6 @@ class TestDocumentJoiner:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -218,7 +211,6 @@ class TestDocumentJoiner:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -234,7 +226,6 @@ class TestDocumentJoiner:
         """Test handling of empty batch."""
         df = pd.DataFrame(columns=["id", "segment_id", "text"])
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -254,7 +245,6 @@ class TestDocumentJoiner:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
         )
@@ -320,7 +310,6 @@ class TestDocumentJoiner:
             }
         )
         batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=df,
             _metadata={"source": "test_source", "version": "1.0"},
@@ -344,7 +333,6 @@ class TestDocumentJoiner:
             }
         )
         original_batch = DocumentBatch(
-            task_id="test_batch",
             dataset_name="test_dataset",
             data=original_df,
         )

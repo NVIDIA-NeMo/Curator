@@ -24,7 +24,7 @@ class MockTask(Task[int]):
     """Simple Task subclass for testing the decorator."""
 
     def __init__(self, value: int = 0):
-        super().__init__(task_id="mock", dataset_name="test", data=value)
+        super().__init__(dataset_name="test", data=value)
 
     @property
     def num_items(self) -> int:

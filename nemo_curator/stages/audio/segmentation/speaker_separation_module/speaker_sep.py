@@ -29,6 +29,7 @@ class SpeakerResult(NamedTuple):
     duration: float
     diar_segments: list[tuple[float, float]]
 
+
 try:
     from nemo.collections.asr.models import SortformerEncLabelModel
 except ImportError:

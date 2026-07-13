@@ -95,7 +95,7 @@ def sample_batch() -> DocumentBatch:
             "id": [1, 2],
         }
     )
-    return DocumentBatch(data=df, dataset_name="test", task_id="1")
+    return DocumentBatch(data=df, dataset_name="test")
 
 
 @pytest.fixture
@@ -127,7 +127,7 @@ def messages_batch() -> DocumentBatch:
             "id": [10, 20],
         }
     )
-    return DocumentBatch(data=df, dataset_name="messages-test", task_id="1")
+    return DocumentBatch(data=df, dataset_name="messages-test")
 
 
 @pytest.fixture
@@ -155,4 +155,4 @@ def batch_with_existing_translations() -> DocumentBatch:
             "id": [100, 200, 300],
         }
     )
-    return DocumentBatch(data=df, dataset_name="resume-test", task_id="1")
+    return DocumentBatch(data=df, dataset_name="resume-test")

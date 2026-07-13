@@ -174,7 +174,7 @@ class TestLLMCleanupStage:
         stage.setup()
 
         df = pd.DataFrame({"text": ["Original text here"]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -189,7 +189,7 @@ class TestLLMCleanupStage:
         stage.setup()
 
         df = pd.DataFrame({"text": ["Some text to classify"]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -203,7 +203,7 @@ class TestLLMCleanupStage:
         stage.setup()
 
         df = pd.DataFrame({"text": ["First text", "Second text", "Third text"]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -224,7 +224,7 @@ class TestLLMCleanupStage:
                 "metadata": ["extra info"],
             }
         )
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -239,7 +239,7 @@ class TestLLMCleanupStage:
         stage.setup()
 
         df = pd.DataFrame({"text": [None, pd.NA, "Valid text"]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -266,7 +266,7 @@ class TestLLMCleanupStage:
                 "n_tokens": [100, 900],  # Second exceeds 80% of 1000 = 800
             }
         )
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -289,7 +289,7 @@ class TestLLMCleanupStage:
                 "n_tokens": [900, 950],
             }
         )
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -313,7 +313,7 @@ class TestLLMCleanupStage:
                 "n_tokens": [300, 100, 200],
             }
         )
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 
@@ -328,7 +328,7 @@ class TestLLMCleanupStage:
         stage.setup()
 
         df = pd.DataFrame({"text": ["Input text"]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         # Mock the generate method to capture prompts
         original_generate = stage._model.generate
@@ -361,7 +361,7 @@ class TestLLMCleanupStage:
         stage._model.generate = failing_generate
 
         df = pd.DataFrame({"text": ["Some text"]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         with pytest.raises(RuntimeError, match="LLM generation failed"):
             stage.process(batch)
@@ -378,7 +378,7 @@ class TestLLMCleanupStage:
         stage._model.generate = empty_generate
 
         df = pd.DataFrame({"text": ["Some text"]})
-        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+        batch = DocumentBatch(data=df, dataset_name="test")
 
         result = stage.process(batch)
 

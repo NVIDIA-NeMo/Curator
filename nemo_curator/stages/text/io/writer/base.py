@@ -20,11 +20,11 @@ from typing import Any, Literal
 from fsspec.core import url_to_fs
 from loguru import logger
 
-import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import check_output_mode
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 
 @dataclass
@@ -74,7 +74,7 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
         """
         # Get source files from metadata for deterministic naming
         if source_files := task._metadata.get("source_files"):
-            filename = writer_utils.get_deterministic_hash(source_files, task.task_id)
+            filename = get_deterministic_hash(source_files, task.task_id)
         else:
             logger.warning("The task does not have source_files in metadata, using UUID for base filename")
             filename = uuid.uuid4().hex
@@ -94,7 +94,6 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
 
         # Create FileGroupTask with written files using the full protocol-prefixed path
         return FileGroupTask(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=[file_path_with_protocol],
             _metadata={

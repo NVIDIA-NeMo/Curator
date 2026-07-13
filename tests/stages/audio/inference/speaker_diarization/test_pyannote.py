@@ -86,6 +86,12 @@ class TestPyannoteHasOverlap:
 class TestPyAnnoteDiarizationStage:
     """Tests for PyAnnoteDiarizationStage."""
 
+    def test_xenna_num_workers_routes_through_generic_num_workers(self) -> None:
+        stage = PyAnnoteDiarizationStage(hf_token=self.__class__.__name__, xenna_num_workers=4)
+
+        assert stage.num_workers() == 4
+        assert stage.xenna_stage_spec() == {}
+
     @pytest.mark.gpu
     @pytest.mark.skipif(not hf_token, reason="HF_TOKEN not set")
     def test_process(self, wav_filepath: Path) -> None:
