@@ -97,49 +97,41 @@ class RayDataStageAdapter(BaseStageAdapter):
             kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
         return kwargs
 
-    def _get_per_node_pool_size(self, ray_stage_spec: dict, num_workers: int | None) -> int | None:
+    def _per_node_pool_size(self) -> int | None:
+        """Actor/task pool size derived from ``num_workers_per_node()``, or None if unset.
+
+        Mutual exclusion with ``num_workers()`` and actor-pool sizing keys is enforced at
+        stage construction (``ProcessingStage._validate_worker_sizing``).
+        """
         num_workers_per_node = get_stage_num_workers_per_node(self.stage)
         if num_workers_per_node is None:
             return None
-
-        if num_workers is not None:
-            msg = (
-                f"Stage {self.stage.name} defines both num_workers()={num_workers} and "
-                f"num_workers_per_node()={num_workers_per_node}. "
-                "Use only one worker sizing option."
-            )
-            raise ValueError(msg)
-
-        actor_pool_sizing_keys = get_configured_actor_pool_sizing_keys(ray_stage_spec)
-        if actor_pool_sizing_keys:
-            msg = (
-                f"Stage {self.stage.name} defines num_workers_per_node() "
-                f"and actor-pool sizing keys {actor_pool_sizing_keys}. Use only one worker sizing option."
-            )
-            raise ValueError(msg)
-
         node_count = get_alive_ray_node_count(ignore_head_node=self.ignore_head_node)
         if node_count <= 0:
             msg = f"No alive Ray nodes available for num_workers_per_node sizing on stage {self.stage.name}."
             raise ValueError(msg)
         return max(1, math.ceil(num_workers_per_node * node_count))
 
-    def _build_actor_compute_kwargs(self, per_node_pool_size: int | None) -> dict[str, object]:
-        if per_node_pool_size is not None:
-            return {"compute": ActorPoolStrategy(size=per_node_pool_size)}
-        return {"compute": get_actor_compute_strategy_for_stage(self.stage)}
+    def _compute_kwargs(self, ray_stage_spec: dict, stage_is_actor: bool, per_node_pool_size: int | None) -> dict:
+        """Select the Ray Data compute strategy (actor pool vs task pool) and its sizing."""
+        if stage_is_actor:
+            compute = (
+                ActorPoolStrategy(size=per_node_pool_size)
+                if per_node_pool_size is not None
+                else get_actor_compute_strategy_for_stage(self.stage)
+            )
+            return {"compute": compute}
 
-    def _build_task_compute_kwargs(
-        self, ray_stage_spec: dict, per_node_pool_size: int | None, num_workers: int | None
-    ) -> dict[str, object]:
-        actor_pool_sizing_keys = get_configured_actor_pool_sizing_keys(ray_stage_spec)
-        if actor_pool_sizing_keys:
+        # Task stages: actor-pool sizing keys don't apply, so surface them if present.
+        sizing_keys = get_configured_actor_pool_sizing_keys(ray_stage_spec)
+        if sizing_keys:
             logger.warning(
-                f"Ignoring ray_stage_spec worker sizing keys {actor_pool_sizing_keys} "
+                f"Ignoring ray_stage_spec worker sizing keys {sizing_keys} "
                 f"for Ray Data task stage {self.stage.name}; these keys only apply to actor stages."
             )
 
         map_batches_kwargs: dict[str, object] = {}
+        num_workers = self.stage.num_workers()
         if per_node_pool_size is not None:
             map_batches_kwargs["compute"] = TaskPoolStrategy(size=per_node_pool_size)
         elif num_workers is not None and num_workers > 0:
@@ -161,15 +153,11 @@ class RayDataStageAdapter(BaseStageAdapter):
         """
         ray_stage_spec = self.stage.ray_stage_spec()
         stage_is_actor = ray_stage_spec.get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
-        num_workers = self.stage.num_workers()
-        per_node_pool_size = self._get_per_node_pool_size(ray_stage_spec, num_workers)
+        per_node_pool_size = self._per_node_pool_size()
 
-        if stage_is_actor:
-            map_batches_fn = create_actor_from_stage(self.stage, ignore_head_node=self.ignore_head_node)
-            map_batches_kwargs = self._build_actor_compute_kwargs(per_node_pool_size)
-        else:
-            map_batches_fn = create_task_from_stage(self.stage, ignore_head_node=self.ignore_head_node)
-            map_batches_kwargs = self._build_task_compute_kwargs(ray_stage_spec, per_node_pool_size, num_workers)
+        stage_factory = create_actor_from_stage if stage_is_actor else create_task_from_stage
+        map_batches_fn = stage_factory(self.stage, ignore_head_node=self.ignore_head_node)
+        map_batches_kwargs = self._compute_kwargs(ray_stage_spec, stage_is_actor, per_node_pool_size)
 
         map_batches_kwargs.update(self._build_resource_kwargs(ray_stage_spec))
 

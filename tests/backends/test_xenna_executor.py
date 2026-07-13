@@ -71,37 +71,23 @@ def test_xenna_executor_accepts_num_workers_per_node_when_stage_num_workers_is_u
     assert captured["num_workers_per_node"] == 0.5
 
 
-def test_xenna_executor_accepts_legacy_spec_num_workers_per_node_when_stage_method_is_unset(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    stage = ConfigurableStage(xenna_stage_spec={"num_workers_per_node": 0.5})
-
-    captured = _execute_and_capture_stage_spec(monkeypatch, stage)
-
-    assert captured["num_workers"] is None
-    assert captured["num_workers_per_node"] == 0.5
-
-
-def test_xenna_executor_rejects_num_workers_with_num_workers_per_node(monkeypatch: pytest.MonkeyPatch) -> None:
-    stage = ConfigurableStage(num_workers=3, num_workers_per_node=0.5)
-
-    with pytest.raises(ValueError, match=r"num_workers\(\).*num_workers_per_node"):
-        _execute_and_capture_stage_spec(monkeypatch, stage)
-
-
-def test_xenna_executor_rejects_conflicting_num_workers_per_node_sources(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    stage = ConfigurableStage(num_workers_per_node=0.5, xenna_stage_spec={"num_workers_per_node": 1.0})
-
-    with pytest.raises(ValueError, match=r"num_workers_per_node\(\).*xenna_stage_spec"):
-        _execute_and_capture_stage_spec(monkeypatch, stage)
+def test_xenna_executor_rejects_num_workers_with_num_workers_per_node() -> None:
+    # Mutual exclusion is enforced at stage construction (ProcessingStage._validate_worker_sizing).
+    with pytest.raises(ValueError, match=r"num_workers.*num_workers_per_node"):
+        ConfigurableStage(num_workers=3, num_workers_per_node=0.5)
 
 
 def test_xenna_executor_rejects_num_workers_in_xenna_stage_spec(monkeypatch: pytest.MonkeyPatch) -> None:
     stage = ConfigurableStage(xenna_stage_spec={"num_workers": 3})
 
     with pytest.raises(ValueError, match="Use num_workers\\(\\) instead"):
+        _execute_and_capture_stage_spec(monkeypatch, stage)
+
+
+def test_xenna_executor_rejects_num_workers_per_node_in_xenna_stage_spec(monkeypatch: pytest.MonkeyPatch) -> None:
+    stage = ConfigurableStage(xenna_stage_spec={"num_workers_per_node": 0.5})
+
+    with pytest.raises(ValueError, match="Use num_workers_per_node\\(\\) instead"):
         _execute_and_capture_stage_spec(monkeypatch, stage)
 
 

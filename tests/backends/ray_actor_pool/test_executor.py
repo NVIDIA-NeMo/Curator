@@ -95,20 +95,9 @@ class TestRayActorPoolExecutor:
             mock_warning.assert_called_once()
             assert expected_warning in mock_warning.call_args.args[0]
 
-    @pytest.mark.parametrize("num_workers", [0, 4])
-    def test_calculate_optimal_actors_rejects_num_workers_with_num_workers_per_node(self, num_workers: int) -> None:
-        stage = _stage_with_worker_sizing(num_workers=num_workers, num_workers_per_node=2, cpus=1.0, batch_size=10)
 
-        with (
-            mock.patch(
-                "nemo_curator.backends.ray_actor_pool.utils.get_available_cpu_gpu_resources",
-                return_value=(8.0, 0.0),
-            ),
-            pytest.raises(ValueError, match=r"num_workers\(\).*num_workers_per_node\(\)"),
-        ):
-            calculate_optimal_actors_for_stage(stage, num_tasks=1)
-
-
+# Mutual exclusion of num_workers() and num_workers_per_node() is enforced at stage
+# construction (ProcessingStage._validate_worker_sizing); see tests/stages/common/test_base.py.
 def _stage_with_worker_sizing(
     *, num_workers: int | None, num_workers_per_node: float | None, cpus: float, batch_size: int
 ) -> mock.Mock:

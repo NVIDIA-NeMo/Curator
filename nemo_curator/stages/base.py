@@ -65,29 +65,6 @@ def _num_workers_per_node_method(num_workers_per_node: float | None) -> Callable
     return get_num_workers_per_node
 
 
-def _get_num_workers_per_node_value(stage: ProcessingStage) -> float | None:
-    value_or_method = stage.num_workers_per_node
-    return value_or_method() if callable(value_or_method) else value_or_method
-
-
-def _set_num_workers_per_node_override(stage: ProcessingStage, num_workers_per_node: float | None) -> None:
-    if callable(stage.num_workers_per_node):
-        stage.num_workers_per_node = _num_workers_per_node_method(num_workers_per_node)
-    else:
-        stage.num_workers_per_node = num_workers_per_node
-
-
-def _check_worker_sizing_options(stage: ProcessingStage) -> None:
-    effective_num_workers = stage.num_workers()
-    effective_num_workers_per_node = _get_num_workers_per_node_value(stage)
-    if effective_num_workers is not None and effective_num_workers_per_node is not None:
-        msg = (
-            "Use only one worker sizing option: num_workers or num_workers_per_node. "
-            "Set one of them to None before configuring the other."
-        )
-        raise ValueError(msg)
-
-
 class StageMeta(ABCMeta):
     """Metaclass that automatically registers concrete Stage subclasses.
     A class is considered *concrete* if it directly inherits from
@@ -110,6 +87,12 @@ class StageMeta(ABCMeta):
             _STAGE_REGISTRY[cls.__name__] = cls  # type: ignore[assignment]
 
         return cls
+
+    def __call__(cls, *args, **kwargs):
+        """Validate worker sizing once every stage instance is fully constructed."""
+        instance = super().__call__(*args, **kwargs)
+        instance._validate_worker_sizing()
+        return instance
 
 
 def get_stage_class(name: str) -> type[ProcessingStage]:
@@ -179,16 +162,17 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
                 msg = f"{cls.__name__} must not override '{attr}'"
                 raise TypeError(msg)
 
-        num_workers = cls.__dict__.get("num_workers")
-        if (num_workers is not None and not callable(num_workers)) or (
-            num_workers is None and "num_workers" in cls.__dict__.get("__annotations__", {})
-        ):
-            msg = (
-                f"{cls.__name__} must not define 'num_workers' as a stage attribute. "
-                "Override num_workers() for backend worker sizing, or use a different field name "
-                "for stage-specific worker counts."
-            )
-            raise TypeError(msg)
+        for worker_attr in ("num_workers", "num_workers_per_node"):
+            value = cls.__dict__.get(worker_attr)
+            if (value is not None and not callable(value)) or (
+                value is None and worker_attr in cls.__dict__.get("__annotations__", {})
+            ):
+                msg = (
+                    f"{cls.__name__} must not define '{worker_attr}' as a stage attribute. "
+                    f"Override {worker_attr}() for backend worker sizing, or use a different field name "
+                    "for stage-specific worker counts."
+                )
+                raise TypeError(msg)
 
         for attr in ("name", "resources", "batch_size", "runtime_env"):
             if isinstance(cls.__dict__.get(attr), property):
@@ -206,6 +190,38 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     def num_workers_per_node(self) -> float | None:
         """Number of workers required per Ray node. If None, executor default sizing is used."""
         return None
+
+    def _validate_worker_sizing(self) -> None:
+        """Enforce that at most one worker-sizing mechanism is configured.
+
+        A stage may size its worker pool with exactly one of ``num_workers()``,
+        ``num_workers_per_node()``, or the Ray Data actor-pool sizing keys
+        (``min_workers``/``max_workers``/``initial_workers``) in ``ray_stage_spec()``.
+        Combining them is ambiguous, so we reject it once here — at construction and in
+        ``with_()`` — rather than defensively re-checking in every backend.
+        """
+        configured = [
+            name
+            for name, value in (
+                ("num_workers()", self.num_workers()),
+                ("num_workers_per_node()", self.num_workers_per_node()),
+            )
+            if value is not None
+        ]
+        ray_stage_spec = self.ray_stage_spec()
+        if ray_stage_spec:
+            # Lazy import: only stages that populate ray_stage_spec touch the Ray Data backend.
+            from nemo_curator.backends.ray_data.utils import get_configured_actor_pool_sizing_keys
+
+            if get_configured_actor_pool_sizing_keys(ray_stage_spec):
+                configured.append("actor-pool sizing keys (min/max/initial_workers)")
+
+        if len(configured) > 1:
+            msg = (
+                f"Stage {self.name} sets multiple worker-sizing options ({', '.join(configured)}); "
+                "use only one of num_workers, num_workers_per_node, or actor-pool sizing keys."
+            )
+            raise ValueError(msg)
 
     def validate_input(self, task: Task) -> bool:
         """Validate input task meets requirements.
@@ -408,9 +424,11 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         if num_workers is not _UNSET:
             new_instance.num_workers = _num_workers_method(cast("int | None", num_workers))
         if num_workers_per_node is not _UNSET:
-            _set_num_workers_per_node_override(new_instance, cast("float | None", num_workers_per_node))
+            new_instance.num_workers_per_node = _num_workers_per_node_method(
+                cast("float | None", num_workers_per_node)
+            )
 
-        _check_worker_sizing_options(new_instance)
+        new_instance._validate_worker_sizing()
 
         return new_instance
 

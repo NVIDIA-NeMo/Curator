@@ -96,22 +96,27 @@ class TestRayDataStageAdapter:
             assert "concurrency" not in kwargs
 
     def test_task_stage_uses_task_pool_strategy_for_num_workers(self):
+        stage = ConfigurableTaskStage(num_workers=3)
+
+        task_kwargs = _map_batches_kwargs(stage)
+
+        assert task_kwargs["compute"] == TaskPoolStrategy(size=3)
+
+    def test_task_stage_warns_on_actor_pool_sizing_keys(self):
         stage = ConfigurableTaskStage(
             ray_stage_spec={
                 RayStageSpecKeys.MIN_WORKERS: 2,
                 RayStageSpecKeys.MAX_WORKERS: 8,
                 RayStageSpecKeys.INITIAL_WORKERS: 4,
             },
-            num_workers=3,
         )
 
         with mock.patch("nemo_curator.backends.ray_data.adapter.logger.warning") as mock_warning:
             task_kwargs = _map_batches_kwargs(stage)
 
-        assert task_kwargs["compute"] == TaskPoolStrategy(size=3)
+        assert "compute" not in task_kwargs
         assert mock_warning.call_count == 1
-        warning_messages = [call.args[0] for call in mock_warning.call_args_list]
-        assert "Ignoring ray_stage_spec worker sizing keys" in warning_messages[0]
+        assert "Ignoring ray_stage_spec worker sizing keys" in mock_warning.call_args_list[0].args[0]
 
     def test_task_stage_uses_task_pool_strategy_for_num_workers_per_node(self):
         stage = ConfigurableTaskStage().with_(num_workers_per_node=2)
@@ -158,10 +163,9 @@ class TestRayDataStageAdapter:
 
     @pytest.mark.parametrize("num_workers", [0, 3])
     def test_num_workers_per_node_rejects_explicit_stage_num_workers(self, num_workers: int):
-        stage = ConflictingWorkerSizingTaskStage(num_workers=num_workers)
-
+        # Mutual exclusion is enforced at stage construction, not in the adapter.
         with pytest.raises(ValueError, match=r"num_workers.*num_workers_per_node"):
-            _map_batches_kwargs(stage)
+            ConflictingWorkerSizingTaskStage(num_workers=num_workers)
 
     def test_source_fanout_task_stage_uses_task_pool_strategy_for_single_worker_default(self):
         stage = ConfigurableTaskStage(

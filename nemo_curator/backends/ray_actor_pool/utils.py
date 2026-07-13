@@ -61,12 +61,6 @@ def calculate_optimal_actors_for_stage(
 
     num_workers = stage.num_workers()
     num_workers_per_node = get_stage_num_workers_per_node(stage)
-    if num_workers is not None and num_workers_per_node is not None:
-        msg = (
-            f"Stage {stage.name} defines both num_workers()={num_workers} and "
-            f"num_workers_per_node()={num_workers_per_node}. Use only one worker sizing option."
-        )
-        raise ValueError(msg)
 
     if num_workers is not None and num_workers > 0:
         if num_workers > max_actors_resources:

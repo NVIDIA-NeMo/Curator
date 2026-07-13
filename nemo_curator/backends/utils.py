@@ -16,7 +16,7 @@ import os
 import time
 from copy import deepcopy
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import ray
 from loguru import logger
@@ -138,14 +138,8 @@ class RayStageSpecKeys(str, Enum):
 
 
 def get_stage_num_workers_per_node(stage: ProcessingStage) -> int | float | None:
-    """Return a stage's generic per-node worker request.
-
-    Prefer ``ProcessingStage.num_workers_per_node()``. For older stages that still expose
-    a plain ``num_workers_per_node`` field, accept the field value so backend sizing stays
-    compatible while stages migrate to the method form.
-    """
-    value_or_method: Any = getattr(stage, "num_workers_per_node", None)
-    value = value_or_method() if callable(value_or_method) else value_or_method
+    """Return a stage's validated per-node worker request from ``num_workers_per_node()``."""
+    value = stage.num_workers_per_node()
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
