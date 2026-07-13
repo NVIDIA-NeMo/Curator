@@ -157,6 +157,29 @@ def mfa_subprocess_env(
     return env
 
 
+def _extract_g2p_archive(g2p_src: Path, extract_root: Path) -> Path:
+    import zipfile
+
+    extract_root.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(g2p_src) as archive:
+        for member in archive.infolist():
+            relative = Path(member.filename)
+            if relative.is_absolute() or ".." in relative.parts:
+                msg = f"unsafe path in G2P archive: {member.filename}"
+                raise PipelineError(msg)
+            if member.is_dir():
+                continue
+            destination = extract_root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as source, destination.open("wb") as target:
+                shutil.copyfileobj(source, target)
+    fst_paths = list(extract_root.rglob("model.fst"))
+    if len(fst_paths) != 1 or fst_paths[0].stat().st_size == 0:
+        msg = f"invalid G2P archive contents: {g2p_src}"
+        raise PipelineError(msg)
+    return fst_paths[0].parent
+
+
 def _worker_g2p_arg(models_dir: Path, mfa_g2p: str) -> str | None:
     g2p_src = resolve_mfa_g2p_model(mfa_g2p)
     if g2p_src.is_dir():
@@ -168,6 +191,8 @@ def _worker_g2p_arg(models_dir: Path, mfa_g2p: str) -> str | None:
             shutil.copytree(g2p_src, local_dir)
         return str(local_dir)
     if g2p_src.is_file():
+        if g2p_src.suffix == ".zip":
+            return str(_extract_g2p_archive(g2p_src, models_dir / "g2p"))
         local = models_dir / g2p_src.name
         if not local.is_file():
             shutil.copy2(g2p_src, local)

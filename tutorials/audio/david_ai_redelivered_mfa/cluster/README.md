@@ -111,6 +111,8 @@ Isolation hierarchy:
 - Every shard stages the shared dictionary, acoustic, and G2P source once into
   its own node-local `model_source`.
 - Every session worker process has a private MFA root and private model copies.
+- Every worker pre-extracts the G2P archive and validates that it contains one
+  non-empty `model.fst` before launching MFA, avoiding concurrent MFA extraction.
 - A worker processes its speaker recordings sequentially.
 - Every session uses a separate alignment temp directory.
 - MFA subprocesses receive the private worker root through `MFA_ROOT_DIR`.

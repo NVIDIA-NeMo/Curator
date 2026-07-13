@@ -70,6 +70,7 @@ def test_mfa_scratch_and_model_copies_are_isolated_per_shard_and_worker() -> Non
 
         assert 'ram_dir / "mfa_workers" / f"worker_{os.getpid()}"' in ram_session
         assert "temp_parent=temp_parent / session_id" in ram_session
+        assert "align_result.mfa_segments == 0" in ram_session
         assert 'models_dir = worker_dir / "models"' in common
         assert "shutil.copy2(mfa_dict, local_dict)" in common
         assert "shutil.copytree(acoustic_src, local_acoustic)" in common

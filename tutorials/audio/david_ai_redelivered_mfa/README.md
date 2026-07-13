@@ -22,6 +22,10 @@ Both variants:
 9. Validate all required outputs before writing
    `.done/sessions/<session_id>.done`.
 
+A session with zero MFA-aligned segments is treated as failed even when manifest
+fallback intervals exist, preventing infrastructure/model failures from being
+marked complete.
+
 The pipelines do not reuse persisted normalized manifests, shared lexicons, or
 partial RTTM/TextGrid/audio outputs. A validated session done flag is the only
 resume state: sessions with a done flag are skipped, while unfinished sessions

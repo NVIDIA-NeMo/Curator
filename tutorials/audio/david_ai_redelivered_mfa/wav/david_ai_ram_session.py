@@ -388,6 +388,12 @@ def process_session_ram(
         )
         if not align_result.ok:
             return SessionRamResult(session_id=session_id, ok=False, error="MFA alignment failed")
+        if align_result.mfa_segments == 0:
+            return SessionRamResult(
+                session_id=session_id,
+                ok=False,
+                error="MFA produced zero aligned segments; refusing fallback-only completion",
+            )
 
         rttm_lines = build_session_rttm_lines_from_words(
             session_id,

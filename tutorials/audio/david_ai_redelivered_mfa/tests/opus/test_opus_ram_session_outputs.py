@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import zipfile
 from pathlib import Path
 
+import david_ai_common as common
 import david_ai_ram_session as ram_session
 import pytest
 from david_ai_common import (
@@ -68,6 +70,20 @@ def test_speaker_audio_resolution_priority_and_fallback(tmp_path: Path) -> None:
 
 def test_transcript_normalization_is_self_contained() -> None:
     assert normalize_text("Café costs 2 dollars — okay!") == "cafe costs two dollars okay"
+
+
+def test_g2p_zip_is_preextracted_into_worker_private_models(tmp_path: Path, monkeypatch) -> None:
+    archive_path = tmp_path / "g2p.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("model/meta.json", "{}")
+        archive.writestr("model/model.fst", b"fst-data")
+        archive.writestr("model/phones.sym", "1 a")
+    monkeypatch.setattr(common, "resolve_mfa_g2p_model", lambda _: archive_path)
+
+    model_dir = Path(common._worker_g2p_arg(tmp_path / "worker-models", "test-model"))
+
+    assert model_dir == tmp_path / "worker-models" / "g2p" / "model"
+    assert (model_dir / "model.fst").read_bytes() == b"fst-data"
 
 
 def test_mix_uses_manifest_boundaries_and_persists_speaker_tracks(tmp_path: Path, monkeypatch) -> None:
