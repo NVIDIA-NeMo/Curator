@@ -37,11 +37,15 @@ The primary container includes comprehensive support for all curation modalities
 
 **Container registry:** `nvcr.io/nvidia/nemo-curator:{{ container_version }}`
 
-**Supported modalities:**
+**Supported modalities (amd64/x86_64):**
 - ✅ Text curation (CPU/GPU)
 - ✅ Image curation (GPU required)
 - ✅ Video curation (GPU required, FFmpeg included)
-- ✅ Audio curation (GPU required for ASR)
+- ✅ Audio curation (GPU required for ASR; x86_64 Linux only)
+
+<Note>
+**arm64/aarch64 containers:** Text, image, and video curation are supported on arm64 builds. Audio curation is **not supported** on arm64 because key dependencies (NeMo ASR, diarization, and related packages) are gated to x86_64 Linux in `pyproject.toml`. Missing audio packages on the arm64 image are expected, not a packaging defect. Use an amd64 container or host for audio workflows.
+</Note>
 
 **Pre-installed components:**
 - NeMo Curator with all optional dependencies (`[all]` extras)
