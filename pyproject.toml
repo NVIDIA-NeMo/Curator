@@ -217,8 +217,8 @@ text_cuda12 = [
 
 # Video Curation Dependencies
 video_cpu = [
-    "av==13.1.0",
-    "opencv-python",
+    "av==17.1.0",  # ffmpeg 8.1.1 (CVE: was 7.0.2)
+    "opencv-python-headless",  # dedupe with vllm's headless
     "torchvision",
     "einops",
     "easydict",
@@ -230,9 +230,14 @@ video_cuda12 = [
     "nemo_curator[vllm]",
     "cvcuda_cu12",
     "pycuda",
-    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.10.0",
     "torchaudio",
+]
+
+# NVDEC HW decode; opt-in, kept off `all` (wheel vendors CVE ffmpeg). CPU-decode fallback exists.
+video_media = [
+    "nemo_curator[video_cuda12]",
+    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # Math Curation Dependencies
@@ -250,10 +255,9 @@ math_cuda12 = [
 
 # Multimodal / Interleaved Dependencies
 interleaved_cpu = [
-    "albumentations",
     "matplotlib",
     "open_clip_torch",
-    "opencv-python",
+    "opencv-python-headless",  # dedupe with vllm's headless
     "Pillow",
     "pypdfium2",
     "s3fs>=2024.12.0",
