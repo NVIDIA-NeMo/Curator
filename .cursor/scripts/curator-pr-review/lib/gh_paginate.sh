@@ -20,7 +20,11 @@
 
 pull_paginated_json() {
     local label="$1" outfile="$2"; shift 2
-    echo "--- ${label} -> ${outfile} ---" | tee -a "${LOG:-/dev/stderr}"
+    if [[ -n "${LOG:-}" ]]; then
+        echo "--- ${label} -> ${outfile} ---" | tee -a "${LOG}"
+    else
+        echo "--- ${label} -> ${outfile} ---" >&2
+    fi
     gh api --paginate --jq '.[]' "$@" \
         | python3 -c "import json,sys; print(json.dumps(list(map(json.loads, sys.stdin))))" \
         > "${outfile}"

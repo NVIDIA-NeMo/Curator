@@ -82,13 +82,14 @@ LOG="${LOG}" pull_paginated_json "pulls/${PR}/files" "${FILES_JSON}" \
 
 if [[ -n "${PATH_REGEX}" ]]; then
     label="${MODALITY_LABEL:-modality}"
-    if ! PATH_REGEX="${PATH_REGEX}" python3 - "${FILES_JSON}" <<'PY'
-import json, os, re, sys
-files = [f.get("filename", "") for f in json.load(open(sys.argv[1]))]
-rx = re.compile(os.environ["PATH_REGEX"])
-sys.exit(0 if any(rx.search(f) for f in files) else 1)
-PY
-    then
+    if "${SCRIPT_DIR}/path_matches.py" "${FILES_JSON}" --regex "${PATH_REGEX}"; then
+        :
+    else
+        status=$?
+        if [[ ${status} -ne 1 ]]; then
+            echo "error: path matching failed for PR ${PR}" >&2
+            exit "${status}"
+        fi
         echo "error: PR ${PR} touches no ${label} path; aborting." >&2
         exit 3
     fi
@@ -103,12 +104,8 @@ LOG="${LOG}" pull_paginated_json "issues/${PR}/comments (top-level)" "${OUTDIR}/
 LOG="${LOG}" pull_paginated_json "pulls/${PR}/commits" "${OUTDIR}/pr${PR}_commits_${TS}.json" \
     "repos/${REPO}/pulls/${PR}/commits"
 
-OWNER="${REPO%%/*}"
-NAME="${REPO##*/}"
 pull_endpoint "graphql reviewThreads" "${OUTDIR}/pr${PR}_review_threads_${TS}.json" \
-    gh api graphql \
-      -f query='query($owner:String!,$repo:String!,$pr:Int!){ repository(owner:$owner,name:$repo){ pullRequest(number:$pr){ reviewThreads(first:100){ nodes{ id isResolved isOutdated isCollapsed line originalLine path comments(first:50){ nodes{ databaseId } } } } } } }' \
-      -f owner="${OWNER}" -f repo="${NAME}" -F pr="${PR}"
+    "${SCRIPT_DIR}/pull_review_threads.py" --repo "${REPO}" --pr "${PR}"
 
 for kind in gh reviews review_comments issue_comments files commits review_threads; do
     cp -f "${OUTDIR}/pr${PR}_${kind}_${TS}.json" "${OUTDIR}/pr${PR}_${kind}_latest.json"

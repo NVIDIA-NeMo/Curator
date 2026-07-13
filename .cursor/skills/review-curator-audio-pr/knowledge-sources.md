@@ -1,7 +1,7 @@
 # Audio PR review knowledge sources
 
 Read this before reviewing. It is the single index for an audio Curator review
-and has five parts:
+and has six parts:
 
 0. **Canonical docs** - the authoritative references to ground every finding.
 1. **Audio code map** - where each audio stage lives.
@@ -284,8 +284,8 @@ Before every audio PR review, build (or refresh) a consolidated file of reviewer
 comments from *other* post-#1608 audio PRs. This is read-only context for
 recurring review patterns - it does not replace diffing against `main`. Do
 not skip this step, even when a prior `audio_pr_corpus_*.md` already exists on
-disk - rerun the pull (incremental by default) and render
-today's file:
+disk. Rerun the pull; it reuses unchanged PRs and automatically refreshes
+entries whose `updatedAt` changed. Then render today's file:
 
 ```bash
 # 1) discover post-#1608 audio PRs and pull reviews + inline comments
@@ -298,17 +298,21 @@ today's file:
 `pull_audio_pr_corpus.sh` lists PRs with number greater than `--since`
 (default: `1608`), keeps the ones whose changed files touch audio paths, and
 pulls each one's reviews, inline comments, and issue comments.
-It is incremental - reruns skip PRs already on disk and only fetch new ones (use
-`--refresh` to re-pull open PRs with new comments).
+Fern-only documentation PRs are intentionally out of scope; a PR that also
+touches an audio path remains in scope and its Fern changes remain visible.
+It paginates the complete PR history. Reruns reuse cached PRs only while their
+GitHub `updatedAt` value is unchanged; `--refresh` forces every in-scope PR to be
+re-fetched.
 `build_corpus.py` writes
 `.curator-pr-review/audio-corpus/audio_pr_corpus_<date>.md`: one section per
-audio PR with every reviewer comment verbatim, anchored to `path:line`, plus a
-recurring-themes tally.
+audio PR with every reviewer comment verbatim and anchored to `path:line`.
 
-Use the corpus to (a) recognize patterns reviewers repeatedly raise, and (b)
-check whether the PR in front of you repeats a mistake already called out
-elsewhere. If the corpus scripts fail or the consolidated file is missing, stop
-the review and fix the failure before writing findings.
+Read the corpus as evidence to recognize patterns reviewers repeatedly raise
+and check whether the PR in front of you repeats a mistake already called out
+elsewhere. The corpus does not guess or rank themes; apply the review lenses in
+section 2 to the complete comments. If the corpus scripts fail or the
+consolidated file is missing, stop the review and fix the failure before writing
+findings.
 
 ---
 
@@ -316,15 +320,15 @@ the review and fix the failure before writing findings.
 
 Modality-agnostic implementations live once under
 `.cursor/scripts/curator-pr-review/`. The audio skill exposes one entry point,
-`scripts/review_audio_pr.sh`, which supplies the audio path filter and corpus
-labels:
+`.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh`, which
+supplies the audio path filter, area rules, and corpus labels:
 
 ```bash
-scripts/review_audio_pr.sh ensure-repo [CLONE_DIR]
-scripts/review_audio_pr.sh pull <N> [--outdir DIR] [--repo OWNER/REPO]
-scripts/review_audio_pr.sh digest <N> [--outdir DIR] [--today YYYY-MM-DD] \
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh ensure-repo [CLONE_DIR]
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh pull <N> [--outdir DIR] [--repo OWNER/REPO]
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh digest <N> [--outdir DIR] [--repo OWNER/REPO] [--today YYYY-MM-DD] \
   [--prev-head SHA] [--baseline-ts TS]
-scripts/review_audio_pr.sh build-corpus [--outdir DIR] [--today YYYY-MM-DD]
+.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh build-corpus [--outdir DIR] [--repo OWNER/REPO] [--today YYYY-MM-DD]
 ```
 
 `ensure-repo` reuses an existing Curator checkout or shallow-clones one and
@@ -346,8 +350,9 @@ GraphQL thread payload does. The digest builder joins them by comment
 `databaseId` (== REST `id`), falling back to a `(path, body-prefix)` match when
 an older thread dump lacks `databaseId`.
 
-`scripts/pull_audio_pr_corpus.sh [--since N] [--outdir DIR] [--repo OWNER/REPO]
-[--limit N] [--refresh]` and `review_audio_pr.sh build-corpus` **must** run before
+`.cursor/skills/review-curator-audio-pr/scripts/pull_audio_pr_corpus.sh
+[--since N] [--outdir DIR] [--repo OWNER/REPO] [--refresh]` and the full-path
+`review_audio_pr.sh build-corpus` command above **must** run before
 every review to build the post-#1608 corpus (section 4; SKILL.md step 3).
 
 Default outdir: `.curator-pr-review/` (scratch; gitignored, safe to delete).

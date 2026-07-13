@@ -28,9 +28,9 @@ Usage: review_audio_pr.sh <command> [args]
 Commands:
   ensure-repo [CLONE_DIR]
   pull <PR_NUMBER> [--outdir DIR] [--repo OWNER/REPO]
-  digest <PR_NUMBER> [--outdir DIR] [--today YYYY-MM-DD]
+  digest <PR_NUMBER> [--outdir DIR] [--repo OWNER/REPO] [--today YYYY-MM-DD]
          [--prev-head SHA] [--baseline-ts TS]
-  build-corpus [--outdir DIR] [--today YYYY-MM-DD]
+  build-corpus [--outdir DIR] [--repo OWNER/REPO] [--today YYYY-MM-DD]
 USAGE
 }
 
@@ -50,13 +50,18 @@ case "${command}" in
     digest)
         exec "${SHARED_DIR}/build_digest.py" "$@" \
             --path-regex "${AUDIO_PATH_REGEX}" \
-            --modality-label "${AUDIO_MODALITY_LABEL}"
+            --modality-label "${AUDIO_MODALITY_LABEL}" \
+            --area-rules "${SCRIPT_DIR}/../area_rules.json"
         ;;
     build-corpus)
-        exec "${SHARED_DIR}/build_corpus.py" "$@" \
+        exec "${SHARED_DIR}/build_corpus.py" \
+            --outdir ".curator-pr-review/audio-corpus" \
+            --numbers-file "_audio_pr_numbers.txt" \
+            --repo "NVIDIA-NeMo/Curator" \
             --title "Audio PR review corpus (post-#1608)" \
             --intro "Consolidated reviewer feedback on audio PRs opened after the #1608 AudioTask framework redesign (open + closed/merged). Read-only pre-review context: recognise patterns reviewers repeatedly raise, and check the PR in front of you against them." \
-            --output-prefix "audio_pr_corpus"
+            --output-prefix "audio_pr_corpus" \
+            "$@"
         ;;
     -h|--help|help)
         usage

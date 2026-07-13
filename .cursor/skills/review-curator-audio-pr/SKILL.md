@@ -24,11 +24,13 @@ Scope: the **audio** modality only - code under `nemo_curator/stages/audio/`,
 `nemo_curator/tasks/audio_task.py`, `tutorials/audio/`, audio tests under
 `tests/stages/audio/`, and audio benchmarks. This skill is **audio-only**: if a
 PR touches no audio path, the pull step refuses to run (step 2) - review it
-with a modality-appropriate tool instead.
+with a modality-appropriate tool instead. Fern-only documentation PRs are out of
+scope; Fern changes are included only when the same PR also touches an audio path.
 
-Requirements: an environment with `git` and the GitHub CLI (`gh`) **already
-authenticated** against `github.com`. Everything the skill does goes through
-`gh`/`git`, so a working `gh` is the only credential you need. Verify with `gh
+Requirements: Python 3.10+, `git`, and the GitHub CLI (`gh`) **already
+authenticated** against `github.com`. GitHub API access goes through `gh`;
+`git` is used to locate or clone the checkout. A working `gh` login is the only
+credential you need. Verify with `gh
 auth status`; if it is not green, give it an authenticated environment one of
 these ways before invoking the skill:
 
@@ -105,7 +107,7 @@ review comments. The review lenses and every doc/code reference live in
 - [ ] 4. Read the diff
 - [ ] 5. Read the knowledge sources (canonical docs + review lenses + corpus) to ground yourself
 - [ ] 6. Generate the digest + prior-threads file for context
-- [ ] 7. Write the detailed PR overview - only after steps 4-5 - present this first
+- [ ] 7. Write the detailed PR overview - only after steps 4-6 - present this first
 - [ ] 8. Review through the lenses, write up findings (P0-P3), and post them after the overview
 ```
 
@@ -116,7 +118,8 @@ Curator checkout, searches the current directory tree for one, and only then
 shallow-clones (`--depth 1`, no full history):
 
 ```bash
-eval "$(scripts/review_audio_pr.sh ensure-repo | tail -1)"   # sets CURATOR_REPO=<path>
+eval "$(.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh \
+  ensure-repo | tail -1)"   # sets CURATOR_REPO=<path>
 cd "$CURATOR_REPO"
 ```
 
@@ -127,8 +130,9 @@ If you are already in the checkout that contains this skill, you can skip this.
 `gh pr view <N> --repo NVIDIA-NeMo/Curator`. This skill is **audio-only**: the
 pull step (step 2) aborts if the PR touches no audio path
 (`nemo_curator/stages/audio/`, `nemo_curator/tasks/audio_task.py`,
-`tutorials/audio/`, `tests/stages/audio/`, audio benchmarks). If it aborts, the
-PR is out of scope for this skill, so stop and do not review it here.
+`tutorials/audio/`, `tests/stages/audio/`, audio benchmarks). Fern-only PRs
+are intentionally out of scope. If the pull aborts, stop and do not review the PR
+with this skill.
 
 ### Step 2 - Pull fresh GitHub data
 
@@ -150,8 +154,9 @@ single-entry `AudioTask`, removed the audio-specific intermediate stage class,
 and established the lifecycle, validation, batching, and developer-guide
 contracts used today; feedback from earlier PRs targets a materially different
 audio architecture. Do **not** skip this step,
-even if a prior corpus file exists on disk - rerun the pull (incremental by
-default) and render a fresh consolidated file for today's review:
+even if a prior corpus file exists on disk. The pull reuses unchanged PRs,
+automatically refreshes cached PRs whose `updatedAt` changed, and renders a fresh
+consolidated file for today's review:
 
 ```bash
 .cursor/skills/review-curator-audio-pr/scripts/pull_audio_pr_corpus.sh --since 1608
@@ -181,15 +186,16 @@ Before you explain or judge anything, read
 grounded in the canonical material, not guesswork:
 
 - **section 0** - canonical docs: the audio stage developer guide
-  (`nemo_curator/stages/audio/README.md`) and the published fern audio docs, `.cursor/rules/*.mdc`, and `CONTRIBUTING.md`.
+  (`nemo_curator/stages/audio/README.md`), the published fern audio docs,
+  `.cursor/rules/*.mdc`, and `CONTRIBUTING.md`.
 - **section 1** - the audio code map, so you know where each changed file sits.
 - **section 2** - the review lenses (you apply these in step 8).
 - **section 4 + corpus file** - the post-#1608 audio PR reviewer-comment corpus from step 3.
 
 Open the specific sources the diff touches (e.g. the fern page and the code for
-the stage being changed). Check the corpus for recurring themes and whether this
-PR repeats feedback already raised on other audio PRs. Only after this grounding
-do you write the overview (step 7).
+the stage being changed). Check the corpus for repeated review patterns and
+whether this PR repeats feedback already raised on other audio PRs. Only after
+this grounding do you write the overview (step 7).
 
 ### Step 6 - Generate the context files
 
@@ -204,7 +210,8 @@ already made.
 
 ### Step 7 - Summarize the PR in detail (present this first)
 
-Now that you have read the diff (step 4) and the knowledge sources (step 5),
+Now that you have read the diff and knowledge sources and generated the digest
+(steps 4-6),
 write the **"What this PR does (overview)"** section of the digest so a reader
 understands the change end to end: the problem it solves; the
 main audio stages/files it adds or modifies (use the "Areas touched" table the

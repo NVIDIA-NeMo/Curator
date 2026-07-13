@@ -1,6 +1,6 @@
 # Output templates
 
-You are the reviewer. `scripts/review_audio_pr.sh digest` generates files A and B as
+You are the reviewer. `.cursor/skills/review-curator-audio-pr/scripts/review_audio_pr.sh digest` generates files A and B as
 context; you author the findings (section C) and post them as your review.
 The digest **leads with a PR overview** that you must complete and present
 before any review comments. Replace `<...>` placeholders. Keep the structure
@@ -82,7 +82,7 @@ Total: <n> comments across <m> threads.
 
 - **#<id>** @<login> <iso>  line=<L> status=**<OPEN/OUTDATED/RESOLVED>**  ...
   url: <html_url>
-  > <body, truncated>
+  > <verbatim comment body>
 
 ## My findings (your review)
 

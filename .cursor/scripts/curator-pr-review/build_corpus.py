@@ -15,9 +15,10 @@
 """Consolidate a modality PR review corpus pulled by a corpus-pull script.
 
 Reads per-PR JSON in the corpus dir and writes one markdown file with reviewer
-comments grouped by PR plus a recurring-themes keyword tally.
+comments grouped by pull request and file.
 
-Usage: build_corpus.py [--outdir DIR] [--today YYYY-MM-DD]
+Usage: build_corpus.py [--outdir DIR] [--numbers-file FILE]
+                        [--repo OWNER/REPO] [--today YYYY-MM-DD]
                         [--title TITLE] [--intro INTRO] [--output-prefix PREFIX]
 """
 
@@ -26,39 +27,28 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import re
 from pathlib import Path
 
-BOT_LOGINS = {"greptile-apps[bot]", "copy-pr-bot[bot]", "github-actions[bot]"}
+UTC = dt.timezone.utc  # noqa: UP017 - Python 3.10 compatibility
 
-THEMES = [
-    ("setup/teardown lifecycle", r"setup_on_node|\bsetup\(|teardown|_setup_done"),
-    ("optional/lazy imports", r"top[- ]level import|lazy import|import .* fails|optional (dep|extra)"),
-    ("dependency declaration/pins", r"pyproject|optional[- ]?group|==|version pin|requirement"),
-    ("stage contract inputs/outputs", r"inputs\(\)|outputs\(\)|validate_input|NotImplementedError"),
-    ("batch_size / process_batch", r"batch_size|process_batch"),
-    ("memory / serialization", r"ndarray|json\.dumps|serializ|waveform|tensor|OOM|memory"),
-    ("fsspec / cloud I/O", r"fsspec|url_to_fs|s3|gcs|http"),
-    ("secrets / logging", r"token|secret|credential|password|redact"),
-    ("tests / coverage", r"\btest|coverage|pytest|fixture"),
-    ("copyright / lint", r"copyright|header|ruff|lint"),
-    ("naming / convention", r"naming|rename|convention|AudioTask|AudioBatch"),
-    ("trust_remote_code", r"trust_remote_code"),
-]
+BOT_LOGINS = {"greptile-apps[bot]", "copy-pr-bot[bot]", "github-actions[bot]"}
 
 
 def load(p: Path) -> object:
     return json.loads(p.read_text()) if p.exists() else []
 
 
-def shorten(s: str, n: int = 1200) -> str:
-    s = (s or "").strip()
-    return s if len(s) <= n else s[:n] + " […]"
+def blockquote(s: str | None) -> str:
+    """Render a complete comment body as an indented Markdown blockquote."""
+    lines = (s or "").strip().splitlines()
+    return "\n".join(f"  > {line}" for line in lines)
 
 
-def main() -> None:  # noqa: C901, PLR0912, PLR0915
+def main() -> None:  # noqa: C901, PLR0915
     ap = argparse.ArgumentParser()
-    ap.add_argument("--outdir", default=".curator-pr-review/audio-corpus")
+    ap.add_argument("--outdir", default=".curator-pr-review/corpus")
+    ap.add_argument("--numbers-file", default="_pr_numbers.txt")
+    ap.add_argument("--repo", default="NVIDIA-NeMo/Curator")
     ap.add_argument("--today", default=None)
     ap.add_argument("--title", default="PR review corpus")
     ap.add_argument(
@@ -72,9 +62,11 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     ap.add_argument("--output-prefix", default="pr_corpus")
     args = ap.parse_args()
 
-    today = args.today or dt.datetime.now(dt.UTC).date().isoformat()
+    today = args.today or dt.datetime.now(UTC).date().isoformat()
     outdir = Path(args.outdir)
-    nums_file = outdir / "_audio_pr_numbers.txt"
+    nums_file = Path(args.numbers_file)
+    if not nums_file.is_absolute():
+        nums_file = outdir / nums_file
     if not nums_file.exists():
         msg = f"no {nums_file}; run the corpus pull script first"
         raise SystemExit(msg)
@@ -82,9 +74,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     numbers.sort(reverse=True)
 
     date_us = today.replace("-", "_")
-    theme_counts = {label: 0 for label, _ in THEMES}
-    theme_rx = [(label, re.compile(rx, re.IGNORECASE)) for label, rx in THEMES]
-
     out: list[str] = []
     out.append(f"# {args.title} - {today}\n")
     out.append(f"{args.intro} Bot reviewers are marked `[bot]`.\n")
@@ -103,7 +92,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         author = (gh.get("author") or {}).get("login", "?")
         state = gh.get("state", "?")
         title = gh.get("title", "")
-        url = gh.get("url", f"https://github.com/NVIDIA-NeMo/Curator/pull/{n}")
+        url = gh.get("url", f"https://github.com/{args.repo}/pull/{n}")
 
         sec: list[str] = []
         sec.append(f"## PR #{n} - {title}\n")
@@ -116,10 +105,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 login = (r.get("user") or {}).get("login", "?")
                 bot = " `[bot]`" if login in BOT_LOGINS else ""
                 sec.append(f"- **@{login}{bot}** [{r.get('state', '')}] {r.get('submitted_at', '')}:\n")
-                sec.append(f"  > {shorten(r.get('body'))}\n")
-                for label, rx in theme_rx:
-                    if rx.search(r.get("body") or ""):
-                        theme_counts[label] += 1
+                sec.append(f"{blockquote(r.get('body'))}\n")
 
         by_file: dict[str, list] = {}
         for c in rcomments:
@@ -135,10 +121,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                     body = c.get("body") or ""
                     total_comments += 1
                     sec.append(f"- **@{login}{bot}** line {line} ([link]({c.get('html_url', '')})):\n")
-                    sec.append(f"  > {shorten(body)}\n")
-                    for label, rx in theme_rx:
-                        if rx.search(body):
-                            theme_counts[label] += 1
+                    sec.append(f"{blockquote(body)}\n")
 
         human_ic = [
             c
@@ -149,16 +132,12 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             sec.append("### Discussion (top-level)\n")
             for c in human_ic:
                 login = (c.get("user") or {}).get("login", "?")
-                sec.append(f"- **@{login}** {c.get('created_at', '')}: {shorten(c.get('body'), 600)}\n")
+                sec.append(f"- **@{login}** {c.get('created_at', '')}:\n")
+                sec.append(f"{blockquote(c.get('body'))}\n")
 
         per_pr_sections.append("\n".join(sec))
 
-    out.append("## Recurring themes (comment hits across the corpus)\n")
-    out.append("| Theme | Comments mentioning it |")
-    out.append("|-------|------------------------|")
-    for label, _ in THEMES:
-        out.append(f"| {label} | {theme_counts[label]} |")
-    out.append(f"\nTotal inline review comments scanned: **{total_comments}**\n")
+    out.append(f"Total inline review comments included: **{total_comments}**\n")
     out.append("---\n")
     out.extend(per_pr_sections)
 

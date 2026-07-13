@@ -14,9 +14,10 @@
 # limitations under the License.
 """Build a Curator PR fresh-review digest + open-comment queue.
 
-Usage: build_digest.py <PR_NUMBER> [--outdir DIR] [--today YYYY-MM-DD]
-                        [--prev-head SHA] [--baseline-ts TS]
-                        [--path-regex REGEX] [--modality-label LABEL]
+Usage: build_digest.py <PR_NUMBER> [--outdir DIR] [--repo OWNER/REPO]
+                        [--today YYYY-MM-DD] [--prev-head SHA]
+                        [--baseline-ts TS] [--path-regex REGEX]
+                        [--modality-label LABEL] [--area-rules FILE]
 
 Reads the pr<N>_*_latest.json files written by pr_review_pull.sh from --outdir
 (default .curator-pr-review) and writes into the same directory:
@@ -33,9 +34,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from path_matches import matches_file_payload
+
+UTC = dt.timezone.utc  # noqa: UP017 - Python 3.10 compatibility
 BODY_KEY_LEN = 120
-AUDIO_AREA_PARTS = 4
-TUTORIAL_AREA_PARTS = 3
 
 
 def load(path: Path) -> object:
@@ -83,13 +85,6 @@ def thread_meta(idx: dict[str, Any], c: dict[str, Any]) -> dict[str, Any] | None
     return idx["by_pathbody"].get((c.get("path"), body[:BODY_KEY_LEN]))
 
 
-def shorten(body: str | None, n: int = 600) -> str:
-    body = (body or "").strip()
-    if len(body) <= n:
-        return body
-    return body[:n].rstrip() + "\n[...truncated...]"
-
-
 def status_of(meta: dict[str, Any] | None) -> str:
     if meta is None:
         return "ORPHAN"
@@ -104,20 +99,25 @@ def p(parts: list[str], *lines: str) -> None:
     parts.extend(lines)
 
 
-def area_of(path: str) -> str:  # noqa: PLR0911
+def load_area_rules(path: Path | None) -> list[tuple[re.Pattern[str], str]]:
+    if path is None:
+        return []
+    if not path.is_file():
+        msg = f"area-rules file does not exist: {path}"
+        raise SystemExit(msg)
+    rules = load(path)
+    if not isinstance(rules, list):
+        msg = f"{path} must contain a JSON array of area rules"
+        raise SystemExit(msg)
+    return [(re.compile(rule["pattern"]), rule["label"]) for rule in rules]
+
+
+def area_of(path: str, rules: list[tuple[re.Pattern[str], str]]) -> str:
+    for pattern, label in rules:
+        match = pattern.search(path)
+        if match:
+            return label.format(*match.groups())
     parts = path.split("/")
-    if path.startswith("nemo_curator/stages/audio/") and len(parts) >= AUDIO_AREA_PARTS:
-        return f"stages/audio/{parts[3]}"
-    if path.startswith("nemo_curator/tasks/"):
-        return "tasks"
-    if path.startswith("tutorials/audio/") and len(parts) >= TUTORIAL_AREA_PARTS:
-        return f"tutorials/audio/{parts[2]}"
-    if path.startswith("tests/"):
-        return "tests"
-    if path.startswith("benchmarking/"):
-        return "benchmarking"
-    if path.startswith("fern/"):
-        return "docs (fern)"
     return parts[0] if parts else path
 
 
@@ -133,6 +133,8 @@ def build(  # noqa: C901, PLR0912, PLR0913, PLR0915
     prev_head: str | None,
     path_regex: str | None,
     modality_label: str | None,
+    repo: str,
+    area_rules_path: Path | None,
 ) -> None:
     def latest(kind: str) -> Path:
         return outdir / f"pr{pr}_{kind}_latest.json"
@@ -144,12 +146,10 @@ def build(  # noqa: C901, PLR0912, PLR0913, PLR0915
     files = load(latest("files"))
     commits = load(latest("commits"))
 
-    if path_regex is not None:
-        rx = re.compile(path_regex)
-        if files and not any(rx.search(f.get("filename", "")) for f in files):
-            label = modality_label or "matching"
-            msg = f"PR {pr} touches no {label} path; aborting."
-            raise SystemExit(msg)
+    if path_regex is not None and not matches_file_payload(files, path_regex):
+        label = modality_label or "matching"
+        msg = f"PR {pr} touches no {label} path; aborting."
+        raise SystemExit(msg)
 
     threads_path = latest("review_threads")
     idx = build_thread_index(load(threads_path)) if threads_path.exists() else build_thread_index({})
@@ -169,10 +169,11 @@ def build(  # noqa: C901, PLR0912, PLR0913, PLR0915
     base_oid = gh.get("baseRefOid", "")
     prev8 = (prev_head or "")[:8] or "(none)"
     date_us = today.replace("-", "_")
+    area_rules = load_area_rules(area_rules_path)
 
     d = []
     p(d, f"# Curator PR {pr} Fresh Review - {today}", "")
-    p(d, f"Review target: https://github.com/NVIDIA-NeMo/Curator/pull/{pr}", "")
+    p(d, f"Review target: https://github.com/{repo}/pull/{pr}", "")
     p(d, f"Current PR head reviewed: `{head_oid}`", "")
     p(d, f"Base recorded by GitHub metadata: `{base_oid}`", "")
     if prev_head:
@@ -196,7 +197,7 @@ def build(  # noqa: C901, PLR0912, PLR0913, PLR0915
     p(d, "### Areas touched", "")
     areas = {}
     for f in files:
-        e = areas.setdefault(area_of(f["filename"]), {"n": 0, "add": 0, "dele": 0})
+        e = areas.setdefault(area_of(f["filename"], area_rules), {"n": 0, "add": 0, "dele": 0})
         e["n"] += 1
         e["add"] += f.get("additions", 0)
         e["dele"] += f.get("deletions", 0)
@@ -256,7 +257,7 @@ def build(  # noqa: C901, PLR0912, PLR0913, PLR0915
         )
         body = (r.get("body") or "").strip()
         if body:
-            p(d, "", shorten(body, 1500))
+            p(d, "", body)
         p(d, "")
 
     p(d, "## Existing inline comments (by other reviewers)", "")
@@ -291,7 +292,7 @@ def build(  # noqa: C901, PLR0912, PLR0913, PLR0915
                 f"thread_comments={tcount}{tpos} review_state={review.get('state', '?')}{reply_marker}",
             )
             p(d, f"  url: {c['html_url']}")
-            body = shorten(c.get("body") or "", 700).replace("\n", "\n  > ")
+            body = (c.get("body") or "").strip().replace("\n", "\n  > ")
             p(d, f"  > {body}", "")
     p(d, "")
 
@@ -299,7 +300,7 @@ def build(  # noqa: C901, PLR0912, PLR0913, PLR0915
     for c in sorted(issue_comments, key=lambda x: x["created_at"]):
         new = " NEW" if base_issue_ids and c["id"] not in base_issue_ids else ""
         p(d, f"### #{c['id']} by @{login_of(c)}  {c['created_at']}{new}", "")
-        p(d, shorten(c.get("body") or "", 1500), "")
+        p(d, (c.get("body") or "").strip(), "")
 
     p(d, "## My findings (your review)", "")
     p(
@@ -317,7 +318,7 @@ def build(  # noqa: C901, PLR0912, PLR0913, PLR0915
 
     q = []
     p(q, f"# Curator PR {pr} Open Review Threads - {today}", "")
-    p(q, f"Review target: https://github.com/NVIDIA-NeMo/Curator/pull/{pr}", "")
+    p(q, f"Review target: https://github.com/{repo}/pull/{pr}", "")
     p(q, f"Current PR head: `{head_oid}`", "")
     p(
         q,
@@ -349,7 +350,7 @@ def build(  # noqa: C901, PLR0912, PLR0913, PLR0915
     stale.sort(key=lambda c: (status_of(thread_meta(idx, c)), c["path"], c.get("original_line") or 0))
     for c in stale:
         line = c.get("line") or c.get("original_line")
-        body = shorten((c.get("body") or "").strip(), 200).replace("\n", " ")
+        body = (c.get("body") or "").strip().replace("\n", " ")
         p(q, f"- [{status_of(thread_meta(idx, c))}] `{c['path']}:{line}` @{login_of(c)} ({c['html_url']}): {body}")
     p(q, "")
 
@@ -367,9 +368,21 @@ def main() -> int:
     ap.add_argument("--prev-head", default=None)
     ap.add_argument("--path-regex", default=None)
     ap.add_argument("--modality-label", default=None)
+    ap.add_argument("--repo", default="NVIDIA-NeMo/Curator")
+    ap.add_argument("--area-rules", type=Path, default=None)
     args = ap.parse_args()
-    today = args.today or dt.datetime.now(dt.UTC).date().isoformat()
-    build(args.pr, Path(args.outdir), today, args.baseline_ts, args.prev_head, args.path_regex, args.modality_label)
+    today = args.today or dt.datetime.now(UTC).date().isoformat()
+    build(
+        args.pr,
+        Path(args.outdir),
+        today,
+        args.baseline_ts,
+        args.prev_head,
+        args.path_regex,
+        args.modality_label,
+        args.repo,
+        args.area_rules,
+    )
     return 0
 
 
