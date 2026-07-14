@@ -75,7 +75,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
         if not shutil.which("ffmpeg"):
-            msg = "ClipTranscodingStage requires 'ffmpeg'. Install with: sudo apt-get install -y ffmpeg"
+            msg = "ClipTranscodingStage requires 'ffmpeg' built with libopenh264/NVENC support. See docker/common/install_ffmpeg.sh."
             raise RuntimeError(msg)
         if self.encoder not in {"libopenh264", "libx264", "h264_nvenc"}:
             error_msg = f"Expected encoder of `libopenh264`, `libx264`, or `h264_nvenc`. Got {self.encoder}"

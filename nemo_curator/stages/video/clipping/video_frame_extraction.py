@@ -122,7 +122,7 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         """
         uses_ffmpeg = self.decoder_mode != "pynvc" or not _PYNVC_AVAILABLE
         if uses_ffmpeg and not shutil.which("ffmpeg"):
-            msg = "VideoFrameExtractionStage requires 'ffmpeg'. Install with: sudo apt-get install -y ffmpeg"
+            msg = "VideoFrameExtractionStage requires 'ffmpeg' built with libopenh264/NVENC support. See docker/common/install_ffmpeg.sh."
             raise RuntimeError(msg)
         if self.decoder_mode == "pynvc":
             if _PYNVC_AVAILABLE:

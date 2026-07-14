@@ -140,7 +140,7 @@ def split_video_into_windows(  # noqa: PLR0913
 
         if return_bytes:
             if not shutil.which("ffmpeg"):
-                msg = "split_video_into_windows with return_bytes=True requires 'ffmpeg'. Install with: sudo apt-get install -y ffmpeg"
+                msg = "split_video_into_windows with return_bytes=True requires 'ffmpeg' built with libopenh264/NVENC support. See docker/common/install_ffmpeg.sh."
                 raise RuntimeError(msg)
             if len(windows) == 1:
                 return [mp4_bytes], video_frames, windows
