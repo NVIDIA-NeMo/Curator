@@ -6,6 +6,9 @@ multi-speaker David AI sessions:
 - [`opus/`](opus/README.md): writes per-speaker and mixed-session Opus audio.
 - [`wav/`](wav/README.md): writes masked per-speaker and mixed-session mono
   16 kHz PCM WAV audio.
+- [`parakeet_wer/`](parakeet_wer/README.md): runs segment-level Parakeet ASR,
+  computes WER distributions, filters high-WER segments, and writes aligned
+  per-speaker manifests.
 
 Both variants:
 
@@ -308,6 +311,7 @@ cd ~/Curator_my_fork/tutorials/audio/david_ai_redelivered_mfa
 pytest tests/opus
 pytest tests/wav
 pytest tests/cluster
+pytest tests/parakeet_wer
 ```
 
 Run lint checks:

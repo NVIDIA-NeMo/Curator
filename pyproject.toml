@@ -442,6 +442,48 @@ fixable = ["ALL"]
     "INP001", # no __init__.py is required
     "PLE2515", # ignore \u200b complaint
 ]
+"tutorials/audio/david_ai_redelivered_mfa/tests/**/*.py" = [
+    "ANN001", # pytest fixtures and local fakes do not need public API annotations
+    "ANN201", # tests do not need return annotations
+    "ARG001", # fake callback signatures intentionally mirror production callables
+    "PLR2004", # expected numeric values are clearer inline in tests
+    "S101", # assertions are required in tests
+]
+"tutorials/audio/david_ai_redelivered_mfa/*/david_ai_common.py" = [
+    "ANN001", # numpy audio arrays intentionally avoid a hard runtime annotation dependency
+    "BLE001", # file/subprocess boundaries convert arbitrary failures into pipeline errors
+    "PLR0913", # audio/MFA helpers expose explicit configuration rather than opaque dictionaries
+    "PLR2004", # audio formats and RTTM parsing use domain constants
+    "S603", # subprocess argument lists use resolved executables and no shell
+    "TRY300", # compact pipeline helpers keep success returns beside subprocess checks
+    "TRY301", # parse failures are translated at the narrow file boundary
+]
+"tutorials/audio/david_ai_redelivered_mfa/*/david_ai_manifest.py" = [
+    "BLE001", # one malformed segment must be logged without aborting manifest construction
+    "PLR2004", # transcript timing and number normalization use domain constants
+]
+"tutorials/audio/david_ai_redelivered_mfa/*/david_ai_mfa_align.py" = [
+    "BLE001", # alignment failures are isolated per segment/recording
+    "C901", # the alignment function intentionally owns one complete MFA subprocess lifecycle
+    "PLR0912", # explicit fallback branches document alignment failure modes
+    "PLR0913", # MFA options remain explicit at the process boundary
+    "PLR0915", # one lifecycle function guarantees cleanup and fallback consistency
+    "S603", # MFA is invoked with an argument list and resolved executable
+]
+"tutorials/audio/david_ai_redelivered_mfa/*/david_ai_ram_session.py" = [
+    "BLE001", # process workers must return structured failures instead of crashing the pool
+    "PLR0913", # session resources and output paths remain explicit
+    "PLR2004", # PCM and masking parameters are domain constants
+    "PLW0603", # the process-local MFA model cache is intentionally initialized once per worker
+]
+"tutorials/audio/david_ai_redelivered_mfa/*/stage_ram_session_pipeline.py" = [
+    "C901", # CLI validation, sharding, resume filtering, and worker orchestration are kept together
+    "PLR0915", # the CLI entry point owns the complete process-pool lifecycle
+]
+"tutorials/audio/david_ai_redelivered_mfa/opus/convert_opus_to_wav.py" = [
+    "PLR0913", # conversion controls are explicit CLI options
+    "S603", # ffmpeg is invoked with an argument list and resolved executable
+]
 "fern/**/*.py" = [
     "INP001", # Fern CLI helper scripts; not an installable package
 ]
