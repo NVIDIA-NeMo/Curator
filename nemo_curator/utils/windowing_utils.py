@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import math
+import shutil
 import subprocess
 from dataclasses import dataclass
 
@@ -138,6 +139,9 @@ def split_video_into_windows(  # noqa: PLR0913
                 index += count
 
         if return_bytes:
+            if not shutil.which("ffmpeg"):
+                msg = "split_video_into_windows with return_bytes=True requires 'ffmpeg'. Install with: sudo apt-get install -y ffmpeg"
+                raise RuntimeError(msg)
             if len(windows) == 1:
                 return [mp4_bytes], video_frames, windows
 

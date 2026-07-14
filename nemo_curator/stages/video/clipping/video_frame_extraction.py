@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +39,9 @@ def get_frames_from_ffmpeg(
     use_gpu: bool = False,
 ) -> npt.NDArray[np.uint8] | None:
     """Fetch resized frames for video."""
+    if not shutil.which("ffmpeg"):
+        msg = "get_frames_from_ffmpeg requires 'ffmpeg'. Install with: sudo apt-get install -y ffmpeg"
+        raise RuntimeError(msg)
     if use_gpu:
         command = [
             "ffmpeg",
