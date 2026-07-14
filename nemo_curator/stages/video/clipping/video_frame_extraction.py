@@ -39,9 +39,6 @@ def get_frames_from_ffmpeg(
     use_gpu: bool = False,
 ) -> npt.NDArray[np.uint8] | None:
     """Fetch resized frames for video."""
-    if not shutil.which("ffmpeg"):
-        msg = "get_frames_from_ffmpeg requires 'ffmpeg'. Install with: sudo apt-get install -y ffmpeg"
-        raise RuntimeError(msg)
     if use_gpu:
         command = [
             "ffmpeg",
@@ -123,6 +120,10 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
+        uses_ffmpeg = self.decoder_mode != "pynvc" or not _PYNVC_AVAILABLE
+        if uses_ffmpeg and not shutil.which("ffmpeg"):
+            msg = "VideoFrameExtractionStage requires 'ffmpeg'. Install with: sudo apt-get install -y ffmpeg"
+            raise RuntimeError(msg)
         if self.decoder_mode == "pynvc":
             if _PYNVC_AVAILABLE:
                 self.pynvc_frame_extractor = PyNvcFrameExtractor(
