@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -119,6 +120,10 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
+        uses_ffmpeg = self.decoder_mode != "pynvc" or not _PYNVC_AVAILABLE
+        if uses_ffmpeg and not shutil.which("ffmpeg"):
+            msg = "VideoFrameExtractionStage requires 'ffmpeg' built with libopenh264/NVENC support. See docker/common/install_ffmpeg.sh."
+            raise RuntimeError(msg)
         if self.decoder_mode == "pynvc":
             if _PYNVC_AVAILABLE:
                 self.pynvc_frame_extractor = PyNvcFrameExtractor(

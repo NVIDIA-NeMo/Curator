@@ -24,6 +24,13 @@ mkdir -p "/tmp/curator/results/${BRANCH_NAME}"
 # discarded with the container.
 apt-get update -qq && apt-get install -y --no-install-recommends lynx
 
+# ffmpeg not in image (CVE removal); install at runtime per modality
+if [[ "${ENTRY_NAME}" == audio_* ]]; then
+    apt-get install -y --no-install-recommends ffmpeg
+elif [[ "${ENTRY_NAME}" == video_* ]]; then
+    bash /opt/Curator/docker/common/install_ffmpeg.sh
+fi
+
 cd /opt/Curator
 uv pip install GitPython pynvml pyyaml rich
 
