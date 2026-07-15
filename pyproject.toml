@@ -78,6 +78,10 @@ cuda12 = [
     "gpustat",
     "nvidia-ml-py",
 ]
+# Opt-in cv2 features; kept off `[all]` — wheel vendors CVE-flagged ffmpeg.
+cv2 = [
+    "opencv-python-headless",
+]
 vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
@@ -260,13 +264,6 @@ interleaved_cpu = [
     "pypdfium2",
     "s3fs>=2024.12.0",
     "timm",
-]
-
-# OpenCV-based image processing (opt-in, kept off `all` — wheel vendors CVE
-# ffmpeg). Required for interleaved blur/qrcode filters, Nemotron-Parse PDF
-# processing, video motion-vector filter, and target-resolution frame resize.
-cv2 = [
-    "opencv-python-headless",
 ]
 
 interleaved_cuda12 = [
