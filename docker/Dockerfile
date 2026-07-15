@@ -62,11 +62,6 @@ RUN uv venv ${UV_PROJECT_ENVIRONMENT} --python /usr/bin/python3.13 --system-site
 
 FROM build AS nemo_curator_dep
 
-# Install FFmpeg
-COPY docker/common/install_ffmpeg.sh .
-RUN bash install_ffmpeg.sh && \
-    rm install_ffmpeg.sh
-
 # Install etcd + nats-server (required by the Dynamo inference backend)
 COPY docker/common/install_etcd_nats.sh .
 RUN bash install_etcd_nats.sh && \

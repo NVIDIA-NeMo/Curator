@@ -56,12 +56,12 @@ class FastTextQualityFilter(DocumentFilter):
 
 
 class FastTextLangId(DocumentFilter):
-    def __init__(self, model_path: str | None = None, min_langid_score: float = 0.3):
+    def __init__(self, model_path: str | None = None, min_langid_score: float = 0.3, lang: str | None = None):
         if model_path is None:
             msg = "Must provide a valid path to a FastText model to identify languages with this filter"
             raise ValueError(msg)
         self._model_path = model_path
-        self._lang_code = None
+        self._lang_code = lang.upper() if lang else None
         self._cutoff = min_langid_score
         self._name = "lang_id"
 
@@ -87,6 +87,12 @@ class FastTextLangId(DocumentFilter):
 
     def keep_document(self, score: float | str) -> bool:
         if isinstance(score, str):
-            score = eval(score)  # noqa: S307
-
-        return score[0] >= self._cutoff
+            score_lang = eval(score)  # noqa: S307
+            score = score_lang[0]
+            lang = score_lang[1].upper()
+        else :
+            msg = "score must be a string convertible to list"
+            raise TypeError(msg)
+        if self._lang_code:
+            return score >= self._cutoff and lang == self._lang_code
+        return score >= self._cutoff

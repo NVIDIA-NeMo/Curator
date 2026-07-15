@@ -74,17 +74,25 @@ def run(
     self,
     executor: BaseExecutor | None = None,
     initial_tasks: list[Task] | None = None,
+    checkpoint_path: str | Path | None = None,
 ) -> list[Task] | None:
     """Execute the pipeline.
 
     Args:
         executor: Executor to use. Defaults to XennaExecutor.
         initial_tasks: Initial tasks to start the pipeline.
+        checkpoint_path: Optional resumability directory. Completed source
+            partitions are recorded under `.nemo_curator_metadata` and skipped
+            when the pipeline runs again with the same path. In multi-node or
+            distributed runs, this must resolve to the same durable shared
+            filesystem location on every worker and node.
 
     Returns:
         List of output tasks from the final stage, or None.
     """
 ```
+
+Refer to [Resumable Processing](/reference/infra/resumable-processing) for checkpoint storage, replay semantics, task identity, and concurrency limitations.
 
 ### `describe()`
 
@@ -139,6 +147,14 @@ from nemo_curator.backends.xenna import XennaExecutor
 executor = XennaExecutor(config={"execution_mode": "streaming"})
 results = pipeline.run(executor=executor)
 ```
+
+### Resume an Interrupted Run
+
+```python
+results = pipeline.run(checkpoint_path="./checkpoints/text-curation")
+```
+
+Run the same pipeline with the same path after an interruption. Sources recorded as completed are skipped; incomplete sources restart from the source stage.
 
 ### Pipeline Configuration
 
