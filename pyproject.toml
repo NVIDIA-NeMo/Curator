@@ -218,7 +218,6 @@ text_cuda12 = [
 # Video Curation Dependencies
 video_cpu = [
     "av==17.1.0",  # ffmpeg 8.1.1 (CVE: was 7.0.2)
-    "opencv-python-headless",  # dedupe with vllm's headless
     "torchvision",
     "einops",
     "easydict",
@@ -257,11 +256,17 @@ math_cuda12 = [
 interleaved_cpu = [
     "matplotlib",
     "open_clip_torch",
-    "opencv-python-headless",  # dedupe with vllm's headless
     "Pillow",
     "pypdfium2",
     "s3fs>=2024.12.0",
     "timm",
+]
+
+# OpenCV-based image processing (opt-in, kept off `all` — wheel vendors CVE
+# ffmpeg). Required for interleaved blur/qrcode filters, Nemotron-Parse PDF
+# processing, video motion-vector filter, and target-resolution frame resize.
+cv2 = [
+    "opencv-python-headless",
 ]
 
 interleaved_cuda12 = [

@@ -17,7 +17,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import cv2
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -25,16 +24,27 @@ from loguru import logger
 from nemo_curator.stages.interleaved.stages import BaseInterleavedFilterStage
 from nemo_curator.stages.interleaved.utils import image_bytes_to_array
 
+try:
+    import cv2
+except ImportError:
+    cv2 = None  # type: ignore[assignment]
+
 if TYPE_CHECKING:
     from collections.abc import Hashable
 
     from nemo_curator.tasks import InterleavedBatch
 
 DEFAULT_QRCODE_SCORE_THRESHOLD: float = 0.05
+_CV2_INSTALL_HINT = (
+    "opencv-python-headless is required for the interleaved QR code filter. "
+    "Install with: pip install nemo_curator[cv2]"
+)
 
 
 def _qr_code_ratio(image: np.ndarray, row_index: Hashable | None = None) -> float:
     """Return the ratio of image area covered by all detected QR code(s), in [0, 1]."""
+    if cv2 is None:
+        raise ImportError(_CV2_INSTALL_HINT)
     img_shape = image.shape
     height, width = img_shape[:2]
     img_area = float(height * width)

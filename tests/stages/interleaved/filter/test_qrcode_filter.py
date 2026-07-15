@@ -16,16 +16,18 @@ from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import cv2
 import numpy as np
 import pandas as pd
+import pytest
 
-from nemo_curator.stages.interleaved.filter.qrcode_filter import (
+cv2 = pytest.importorskip("cv2")
+
+from nemo_curator.stages.interleaved.filter.qrcode_filter import (  # noqa: E402
     InterleavedQRCodeFilterStage,
     _qr_code_ratio,
 )
 
-from .conftest import interleaved_task, make_jpeg_bytes
+from .conftest import interleaved_task, make_jpeg_bytes  # noqa: E402
 
 
 def test_qr_code_ratio_no_qr_returns_zero() -> None:

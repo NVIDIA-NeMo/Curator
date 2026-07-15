@@ -17,15 +17,23 @@ from dataclasses import dataclass
 from typing import cast
 
 import av
-import cv2
 import numpy.typing as npt
 import torch
 from numpy.lib.recfunctions import structured_to_unstructured
 from torch import Tensor
 
+try:
+    import cv2
+except ImportError:
+    cv2 = None  # type: ignore[assignment]
+
 # We error on any video with a width or height less than this.
 # The motion detection algorithm can't handle any resolutions less than this.
 _MIN_SIDE_RESOLUTION = 256
+_CV2_INSTALL_HINT = (
+    "opencv-python-headless is required for the motion vector backend. "
+    "Install with: pip install nemo_curator[cv2]"
+)
 
 
 class VideoResolutionTooSmallError(Exception):
@@ -270,6 +278,8 @@ def check_if_small_motion(  # noqa: PLR0913
         MotionInfo object containing the results of the motion detection.
 
     """
+    if cv2 is None:
+        raise ImportError(_CV2_INSTALL_HINT)
     device = torch.device("cuda" if use_gpu else "cpu")
 
     global_sum_tensor = torch.tensor(0.0, device=device)
