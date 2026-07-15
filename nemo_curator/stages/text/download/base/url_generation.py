@@ -14,7 +14,6 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -75,11 +74,6 @@ class URLGenerationStage(ProcessingStage[EmptyTask, FileGroupTask]):
             )
             for i, url in enumerate(urls)
         ]
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {
-            "is_fanout_stage": True,
-        }
 
     def num_workers(self) -> int | None:
         return 1

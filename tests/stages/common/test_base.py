@@ -532,6 +532,20 @@ class MockStageC(ProcessingStage[MockTask, MockTask]):
         return [], []
 
 
+class MockFanoutStage(ProcessingStage[MockTask, MockTask]):
+    name = "MockFanoutStage"
+
+    def process(self, task: MockTask) -> list[MockTask]:
+        return [task]
+
+
+class MockOptionalFanoutStage(ProcessingStage[MockTask, MockTask]):
+    name = "MockOptionalFanoutStage"
+
+    def process(self, task: MockTask) -> MockTask | list[MockTask]:
+        return task
+
+
 class ConcreteCompositeStage(CompositeStage[MockTask, MockTask]):
     """Concrete implementation of CompositeStage for testing."""
 
@@ -752,3 +766,23 @@ class TestCompositeStageWith:
             "xenna_only": True,
         }
         assert modified_stages[0].num_workers() == 4
+
+
+class TestProcessingStageFanoutDetection:
+    def test_base_ray_stage_spec_marks_non_list_outputs_as_non_fanout(self):
+        stage = MockStageA()
+
+        assert stage.is_fanout_stage() is False
+        assert stage.ray_stage_spec()["is_fanout_stage"] is False
+
+    def test_base_ray_stage_spec_marks_list_outputs_as_fanout(self):
+        stage = MockFanoutStage()
+
+        assert stage.is_fanout_stage() is True
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True
+
+    def test_base_ray_stage_spec_marks_union_list_outputs_as_fanout(self):
+        stage = MockOptionalFanoutStage()
+
+        assert stage.is_fanout_stage() is True
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True
