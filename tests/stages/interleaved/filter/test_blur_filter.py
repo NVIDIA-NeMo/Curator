@@ -18,9 +18,6 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-import pytest
-
-pytest.importorskip("cv2")
 
 from nemo_curator.stages.interleaved.filter.blur_filter import (
     InterleavedBlurFilterStage,

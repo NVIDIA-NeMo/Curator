@@ -19,8 +19,6 @@ import numpy as np
 import pytest
 import torch
 
-pytest.importorskip("cv2")
-
 from nemo_curator.stages.video.filtering.motion_vector_backend import (
     DecodedData,
     MotionInfo,

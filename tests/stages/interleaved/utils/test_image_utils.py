@@ -14,12 +14,10 @@
 
 from unittest.mock import MagicMock, patch
 
+import cv2
 import numpy as np
-import pytest
 
-cv2 = pytest.importorskip("cv2")
-
-from nemo_curator.stages.interleaved.utils.image_utils import image_bytes_to_array  # noqa: E402
+from nemo_curator.stages.interleaved.utils.image_utils import image_bytes_to_array
 
 
 @patch("nemo_curator.stages.interleaved.utils.image_utils.cv2.imdecode")
