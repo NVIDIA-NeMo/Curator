@@ -474,6 +474,9 @@ navigation:
               - page: ALM Tutorial
                 path: ./main/pages/curate-audio/tutorials/alm.mdx
                 slug: alm
+              - page: Long-Form Audio Cutting for ALM Pretraining
+                path: ./main/pages/curate-audio/tutorials/audio-pretrain.mdx
+                slug: audio-pretrain
               - page: ReadSpeech Tutorial
                 path: ./main/pages/curate-audio/tutorials/readspeech.mdx
                 slug: readspeech

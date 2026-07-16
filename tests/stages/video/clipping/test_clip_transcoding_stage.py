@@ -37,6 +37,11 @@ class MockGpuInfo:
 class TestClipTranscodingStage:
     """Test cases for ClipTranscodingStage."""
 
+    @pytest.fixture(autouse=True)
+    def _ffmpeg_available(self) -> None:
+        with patch("shutil.which", return_value="/usr/bin/ffmpeg"):
+            yield
+
     @classmethod
     def setup_class(cls) -> None:
         """Set up class-level fixtures."""
