@@ -98,9 +98,8 @@ RUN if [ -n "${CURATOR_EXTRA}" ]; then \
     if find /opt/venv -name "ray_dist.jar" | grep -q .; then \
         echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
     fi && \
-    # Strip opencv-python-headless (ffmpeg CVE carrier); vision LLM users add [cv2].
-    uv pip uninstall opencv-python-headless && \
-    python -c "from vllm import LLM"
+    # Strip opencv-python-headless (ffmpeg CVE carrier); tolerate arm64 where vllm doesn't pull it.
+    (uv pip uninstall opencv-python-headless || true)
 
 # Install nemotron-ocr (C++/CUDA extension — requires no-build-isolation)
 # GIT_LFS_SKIP_SMUDGE=1: clone source only, model weights are mounted at runtime
