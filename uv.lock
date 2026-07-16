@@ -5088,7 +5088,6 @@ all = [
     { name = "onnxruntime-gpu", marker = "platform_machine == 'x86_64'" },
     { name = "open-clip-torch" },
     { name = "opencc-python-reimplemented" },
-    { name = "opencv-python-headless" },
     { name = "peft" },
     { name = "pillow" },
     { name = "pyannote-audio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -5190,6 +5189,9 @@ cuda12 = [
     { name = "gpustat" },
     { name = "nvidia-ml-py" },
 ]
+cv2 = [
+    { name = "opencv-python-headless" },
+]
 deduplication-cuda12 = [
     { name = "cudf-cu12" },
     { name = "cuml-cu12" },
@@ -5231,7 +5233,6 @@ inference-server = [
 interleaved-cpu = [
     { name = "matplotlib" },
     { name = "open-clip-torch" },
-    { name = "opencv-python-headless" },
     { name = "pillow" },
     { name = "pypdfium2" },
     { name = "s3fs" },
@@ -5242,7 +5243,6 @@ interleaved-cuda12 = [
     { name = "matplotlib" },
     { name = "nvidia-ml-py" },
     { name = "open-clip-torch" },
-    { name = "opencv-python-headless" },
     { name = "pillow" },
     { name = "pypdfium2" },
     { name = "s3fs" },
@@ -5385,7 +5385,6 @@ video-cpu = [
     { name = "av" },
     { name = "easydict" },
     { name = "einops" },
-    { name = "opencv-python-headless" },
     { name = "torchvision", version = "0.25.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64') or sys_platform != 'linux'" },
     { name = "torchvision", version = "0.25.0+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
@@ -5396,7 +5395,6 @@ video-cuda12 = [
     { name = "einops" },
     { name = "gpustat" },
     { name = "nvidia-ml-py" },
-    { name = "opencv-python-headless" },
     { name = "pycuda" },
     { name = "torch", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64') or sys_platform != 'linux'" },
     { name = "torch", version = "2.10.0+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
@@ -5413,7 +5411,6 @@ video-media = [
     { name = "einops" },
     { name = "gpustat" },
     { name = "nvidia-ml-py" },
-    { name = "opencv-python-headless" },
     { name = "pycuda" },
     { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torch", version = "2.10.0", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64') or sys_platform != 'linux'" },
@@ -5556,8 +5553,7 @@ requires-dist = [
     { name = "open-clip-torch", marker = "extra == 'interleaved-cpu'" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "opencc-python-reimplemented", marker = "extra == 'audio-common'" },
-    { name = "opencv-python-headless", marker = "extra == 'interleaved-cpu'" },
-    { name = "opencv-python-headless", marker = "extra == 'video-cpu'" },
+    { name = "opencv-python-headless", marker = "extra == 'cv2'" },
     { name = "pandas", specifier = ">=2.1.0" },
     { name = "peft", marker = "extra == 'text-cpu'" },
     { name = "pillow", marker = "extra == 'image-cpu'" },
@@ -5616,7 +5612,7 @@ requires-dist = [
     { name = "warcio", marker = "extra == 'text-cpu'" },
     { name = "whisperx", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'audio-common'", specifier = ">=3.8.4" },
 ]
-provides-extras = ["cuda12", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "translation-common", "translation-metrics", "translation-segmentation", "translation-aws", "translation-google", "translation-nmt", "translation-all", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "video-media", "math-cpu", "math-cuda12", "interleaved-cpu", "interleaved-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
+provides-extras = ["cuda12", "cv2", "vllm", "inference-server", "deduplication-cuda12", "audio-common", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "translation-common", "translation-metrics", "translation-segmentation", "translation-aws", "translation-google", "translation-nmt", "translation-all", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "video-media", "math-cpu", "math-cuda12", "interleaved-cpu", "interleaved-cuda12", "sdg-cpu", "sdg-cuda12", "all"]
 
 [package.metadata.requires-dev]
 build = [
