@@ -34,6 +34,13 @@ fi
 cd /opt/Curator
 uv pip install GitPython pynvml pyyaml rich
 
+# cv2 stripped from image (CVE removal); reinstall for benchmarks that need it.
+case "${ENTRY_NAME}" in
+    interleaved_*|multimodal_*|video_*)
+        uv pip install ".[cv2]"
+        ;;
+esac
+
 # Session name resolution:
 #   - If NEMO_CI_SESSION_NAME is set by the generated benchmark pipeline, use it
 #     verbatim so every benchmark job writes to the same session directory.
