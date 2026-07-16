@@ -168,8 +168,9 @@ def filter_transcriptions(document_batch: DocumentBatch) -> DocumentBatch:
 
     return DocumentBatch(
         data=df,
-        task_id=document_batch.task_id,
-        dataset_name=document_batch.dataset_name
+        dataset_name=document_batch.dataset_name,
+        _metadata=document_batch._metadata,
+        _stage_perf=document_batch._stage_perf,
     )
 ```
 

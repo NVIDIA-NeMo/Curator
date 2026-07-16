@@ -1,118 +1,227 @@
 ---
-description: "Implementation guide for resumable processing to handle interrupted large-scale data operations in NeMo Curator"
+description: "Resume interrupted NeMo Curator pipelines with source-level completion checkpoints"
 categories: ["reference"]
-tags: ["batch-processing", "large-scale", "optimization", "python-api", "configuration", "monitoring"]
+tags: ["checkpointing", "fault-tolerance", "task-identity", "lmdb", "ray"]
 personas: ["mle-focused", "admin-focused"]
-difficulty: "intermediate"
+difficulty: "advanced"
 content_type: "reference"
 modality: "universal"
 ---
 
 # Resumable Processing
 
-This guide explains strategies to make large-scale data operations resumable.
-
-## Why Resumable Processing Matters
-
-Large datasets can trigger interruptions due to:
-
-- System timeouts
-- Hardware failures
-- Network issues
-- Resource constraints
-- Scheduled maintenance
-
-NeMo Curator provides built-in functionality for resuming operations from where they left off.
-
-## How it Works
-
-The resumption approach works by:
-
-1. Examining filenames in the input directory using `get_all_file_paths_under()`
-2. Comparing them with filenames in the output directory
-3. Identifying unprocessed files by comparing file counts or specific file lists
-4. Rerunning the pipeline on remaining files
-
-This approach works best when you:
-
-- Use consistent directory structures for input and output
-- Process files in batches using `files_per_partition` to manage memory usage
-- Create checkpoints by writing intermediate results to disk
-
-## Practical Patterns for Resumable Processing
-
-### 1. Process remaining files using directory comparison
-
-Use file listing utilities to identify unprocessed files and process them directly:
+Pass `checkpoint_path` to `Pipeline.run()` to skip source partitions that completed in an earlier run. This is the primary resumability mechanism for NeMo Curator pipelines.
 
 ```python
-from nemo_curator.utils.file_utils import get_all_file_paths_under
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.text.io.writer import JsonlWriter
-
-# Get all input files
-input_files = get_all_file_paths_under(
-    "input_directory/", 
-    recurse_subdirectories=True, 
-    keep_extensions=[".jsonl"]
-)
-
-# Get already processed output files
-output_files = get_all_file_paths_under(
-    "output_directory/", 
-    recurse_subdirectories=True, 
-    keep_extensions=[".jsonl"]
-)
-
-# Simple approach: if output directory has fewer files than input, 
-# process all remaining inputs
-if len(output_files) < len(input_files):
-    # Process remaining files
-    pipeline = Pipeline(name="resumable_processing")
-    
-    # Read input files
-    reader = JsonlReader(file_paths=input_files, fields=["text", "id"])
-    pipeline.add_stage(reader)
-    
-    # Add your processing stages here
-    # pipeline.add_stage(your_processing_stage)
-    
-    # Write results
-    writer = JsonlWriter(path="output_directory/")
-    pipeline.add_stage(writer)
-    
-    # Execute pipeline
-    pipeline.run()
+pipeline.run(checkpoint_path="./checkpoints/my-pipeline")
 ```
 
-### 2. Batch processing with file partitioning
+Without `checkpoint_path`, execution is unchanged and no checkpoint metadata is created.
 
-Control memory usage and enable checkpoint creation by using NeMo Curator's built-in file partitioning:
+<Note>
+The checkpoint records completed source-partition identifiers. It does not serialize task payloads, model state, in-memory stage state, or intermediate datasets. A source that did not fully drain through the sink runs again from the source on the next launch.
+</Note>
+
+## Completion Model
+
+NeMo Curator automatically identifies one source and one sink when it builds the pipeline:
+
+- If no stage is explicitly marked, the first execution stage is the source and the last is the sink.
+- Set `is_source_stage=True` or `is_sink_stage=True` on a stage to override a default.
+- A pipeline can have at most one explicit source and one explicit sink.
+
+The framework tracks the descendants of each source output with an in-memory counter:
+
+1. A new source partition opens with one pending descendant.
+2. A one-to-many stage replaces its parent with its continuing children.
+3. A task that reaches the sink or is intentionally filtered consumes one pending descendant.
+4. The source is persisted as completed when its pending count reaches zero.
+5. A later run drops completed partitions immediately after the source stage.
+
+Only completed source IDs are persisted. Pending counters disappear when a run exits, so any incomplete source is deliberately replayed.
+
+### Output Results and Retry Behavior
+
+| Stage result | Meaning for resumability | Reaches the next stage |
+| --- | --- | --- |
+| A `Task` | Work continues, or is consumed if this is the sink. | Yes, unless emitted by the sink. |
+| `None` | The input was intentionally filtered. The adapter temporarily converts it to `NoneTask`, consumes the slot, and can complete the source. | No. |
+| `FailedTask()` | The slot failed. Its source stays pending and is retried on the next run. | No. |
+| Empty output list | No completion update can be keyed. The source stays pending. | No. |
+
+`NoneTask` and `FailedTask` are framework marker tasks derived from `SentinelTask`. They carry no payload and are removed before the next stage. A custom stage normally returns `None` for a successful filter and returns `FailedTask()` only when it deliberately converts a recoverable per-task failure into a retry marker.
+
+<Warning>
+Checkpointing provides at-least-once processing for incomplete sources, not transactional exactly-once side effects. If a writer commits output and the process stops before completion is recorded, that source runs again. Make sinks idempotent, use deterministic output names, or write atomically before relying on resume behavior.
+</Warning>
+
+## Interrupt and Resume Example
+
+Create several JSONL input files so each source partition can complete independently. Save this script as `resume_demo.py`:
 
 ```python
+import time
+from dataclasses import dataclass
+
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.tasks import DocumentBatch
 
-# Process files in smaller batches using files_per_partition
-pipeline = Pipeline(name="batch_processing")
 
-# JsonlReader automatically handles file partitioning
-reader = JsonlReader(
-    file_paths="input_directory/", 
-    files_per_partition=64,  # Process 64 files at a time
-    fields=["text", "id"]
+@dataclass
+class SlowPassThrough(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Delay each partition so an interrupted run is easy to observe."""
+
+    name: str = "slow_pass_through"
+
+    def process(self, task: DocumentBatch) -> DocumentBatch:
+        time.sleep(2)
+        return task
+
+
+pipeline = Pipeline(name="resume-demo")
+pipeline.add_stage(
+    JsonlReader(
+        file_paths="./input/*.jsonl",
+        files_per_partition=1,
+        fields=["text"],
+    )
 )
-pipeline.add_stage(reader)
+pipeline.add_stage(SlowPassThrough())
+pipeline.add_stage(JsonlWriter(path="./output"))
 
-# Add your processing stages here
-# pipeline.add_stage(your_processing_stage)
-
-# Write results
-writer = JsonlWriter(path="output_directory/")
-pipeline.add_stage(writer)
-
-# Execute pipeline - processes files in batches automatically
-pipeline.run()
+pipeline.run(checkpoint_path="./checkpoints/resume-demo")
 ```
+
+Run the script, wait for several output files, and interrupt it with Ctrl+C:
+
+```bash
+python resume_demo.py
+```
+
+Run the same command again. The file-partitioning source derives stable IDs from each partition's sorted paths, reads the completion set, and emits only partitions that did not finish the first run.
+
+Keep all resume-sensitive inputs stable between launches:
+
+- Use the same checkpoint and output paths.
+- Keep the pipeline topology, source/sink roles, partitioning, and filtering behavior compatible.
+- Do not change the contents behind an unchanged source path and expect automatic invalidation. `FileGroupTask` hashes sorted paths, not file contents.
+- Use a new checkpoint directory after a semantic input change or incompatible pipeline change.
+
+## Checkpoint Storage
+
+Given `checkpoint_path="/shared/checkpoints/run-42"`, state is stored as:
+
+```text
+/shared/checkpoints/run-42/
+└── .nemo_curator_metadata/
+    ├── host-a-4128.mdb
+    ├── host-b-7319.mdb
+    └── ...
+```
+
+Each run creates or reuses one sparse LMDB file named from its hostname and process ID. A writer modifies only its own file. At startup it reads the union of completed source IDs from every `*.mdb` file in `.nemo_curator_metadata`.
+
+This design avoids cross-host LMDB writer locks and allows jobs such as a SLURM array to use a checkpoint directory on a shared filesystem. It has these boundaries:
+
+- Every host must resolve `checkpoint_path` to the same durable shared directory.
+- Completed IDs are unioned when each actor starts; the files are not a live work queue.
+- Concurrent jobs should process disjoint input shards. Jobs that start together with overlapping inputs can both begin the same source before either records completion.
+- Run only one checkpoint-enabled pipeline at a time in a Ray cluster. The resumability actor has a fixed cluster-wide name; overlapping pipelines would share the first actor rather than create independent checkpoint owners.
+- An unreadable writer file is skipped with a warning. Preserve the other files and investigate the damaged file rather than assuming its sources completed.
+- The default LMDB map is 1 GiB but sparse on Linux; physical usage grows with stored completion keys.
+
+For deterministic array sharding, shard-completion manifests, scheduler limits, and incomplete-shard resubmission, see [SLURM Job Arrays](/admin/deployment/slurm-arrays).
+
+### Reset or Clean Up
+
+To restart every source, stop all jobs using the checkpoint and remove its `.nemo_curator_metadata` directory, or select a fresh `checkpoint_path`. Removing only an output directory does not reset completion state; a subsequent run would still skip sources recorded as complete.
+
+Keep checkpoint metadata until you have validated the output. After a successful run is accepted, archive or remove the entire checkpoint directory according to your retention policy.
+
+## Deterministic Task Identity
+
+`task_id` is framework-owned and must not be passed to task constructors or assigned by stage code. It starts empty on a user-created task and is re-derived at every stage boundary as an underscore-separated lineage path.
+
+```text
+0                                      EmptyTask root
+└── 0_<source-id>                      source partition
+    └── 0_<source-id>_0                next one-to-one stage
+        ├── 0_<source-id>_0_0          first fan-out child
+        └── 0_<source-id>_0_1          second fan-out child
+```
+
+- `EmptyTask()` is a class instance with root ID `"0"`. It replaces the former shared `EmptyTask` singleton pattern.
+- Source outputs use `Task.get_deterministic_id()` when the task type implements it. `FileGroupTask` hashes its sorted paths, which keeps unchanged file groups stable if other groups are added or removed.
+- A custom source task's deterministic ID must be stable, unique within the source, and must not contain underscores. Resumability uses the final underscore-separated lineage segment as the source ID, so underscores can make distinct sources collide during checkpoint lookup.
+- Otherwise, a source output uses its position. Reordering positional sources can make a checkpoint refer to different work.
+- One-to-one results inherit their positional parent and append `0`.
+- A single input can fan out deterministically; child positions are appended.
+- For a custom batch mapping with multiple inputs and a different number of outputs (M→K where M is greater than one and M does not equal K), parentage is ambiguous. Outputs receive random IDs prefixed with `r`, and resumability logs a warning and leaves those sources pending.
+
+You can inspect `task.task_id` for logs or deterministic filenames after a stage boundary. Treat it as read-only; returning the same Python task object still causes the adapter to append a new lineage segment.
+
+## Custom Stage Responsibilities
+
+The execution adapter assigns IDs and updates completion counters for both `process()` and `process_batch()`. Custom stages should follow these mapping rules:
+
+| Mapping | Required result shape | Checkpoint behavior |
+| --- | --- | --- |
+| One input → one output | Return one task. | Deterministic child; continues or completes at sink. |
+| One input → many outputs | Return a list; use a stage batch size of 1 when parentage must remain unambiguous. | Deterministic fan-out; source completes after every child is consumed. |
+| N inputs → N outputs | Return one task or `None` for every input, in the same order. | Deterministic positional mapping. |
+| N inputs → K outputs, N ≠ K | Avoid for resumable pipelines, or restructure as per-input fan-out. | Random `r` IDs; counter update skipped and sources replay. |
+
+Do not drop filtered entries from an overridden `process_batch()`. Keep a `None` placeholder in each filtered input's position so the adapter can attribute the filter to the correct source.
+
+When returning a new task object, construct it from payload and dataset fields without setting `task_id`:
+
+```python
+def process(self, task: DocumentBatch) -> DocumentBatch:
+    data = task.to_pandas().copy()
+    data["normalized_text"] = data["text"].str.strip()
+    return DocumentBatch(
+        dataset_name=task.dataset_name,
+        data=data,
+        _metadata=task._metadata,
+        _stage_perf=task._stage_perf,
+    )
+```
+
+For a recoverable per-task failure:
+
+```python
+from nemo_curator.tasks import FailedTask
+
+def process(self, task: DocumentBatch) -> DocumentBatch | FailedTask:
+    try:
+        # Replace with the external call used by your stage.
+        return call_external_service(task)
+    # Replace TemporaryError with the recoverable exception raised by your service.
+    except TemporaryError:
+        return FailedTask()
+```
+
+An unhandled exception can still abort execution. Because the affected source never reaches completed state, it is eligible to run again with the same checkpoint.
+
+## Operational Checklist
+
+Before relying on a resume:
+
+- Use source tasks with stable, content-meaningful `get_deterministic_id()` values.
+- Keep source data, pipeline shape, stage settings, software version, and model behavior compatible.
+- Use deterministic, replay-safe sinks.
+- Confirm the log reports the expected number of pending partitions after restart.
+- Treat random `r`-prefixed task IDs and M→K ambiguity warnings as non-resumable paths to fix.
+- Give concurrent hosts disjoint source shards even when they share the checkpoint directory.
+- Avoid running multiple checkpoint-enabled pipelines concurrently in one Ray cluster.
+- Retain checkpoint metadata until output validation is complete.
+
+## Related References
+
+- [SLURM Job Arrays](/admin/deployment/slurm-arrays)
+- [ProcessingStage API](/api/reference/api-reference/processing-stage)
+- [Pipeline Execution Backends](/reference/infra/execution-backends)
+- [Memory Management](/reference/infra/memory-management)

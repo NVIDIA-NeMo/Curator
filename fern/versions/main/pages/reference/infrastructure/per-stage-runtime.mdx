@@ -123,7 +123,6 @@ class RecordPackagingVersionStage(ProcessingStage[DocumentBatch, DocumentBatch])
         batch = task.to_pandas().copy()
         batch[f"{self.name}_version"] = packaging.__version__
         return DocumentBatch(
-            task_id=task.task_id,
             dataset_name=task.dataset_name,
             data=batch,
             _metadata=task._metadata,
