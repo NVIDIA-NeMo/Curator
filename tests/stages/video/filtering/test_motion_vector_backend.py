@@ -211,7 +211,7 @@ class TestDecodeForMotion:
         """Test successful decode operation."""
         mock_video = io.BytesIO(b"mock_video_data")
 
-        with patch("av.open") as mock_open:
+        with patch("av.logging.restore_default_callback") as mock_restore_default_callback, patch("av.open") as mock_open:
             # Mock motion vector side data
             mock_side_data = Mock()
             mock_side_data.type = Mock()
@@ -267,6 +267,7 @@ class TestDecodeForMotion:
             assert isinstance(result, DecodedData)
             assert len(result.frames) == 1
             assert result.frame_size == torch.Size([480, 640, 3])
+            mock_restore_default_callback.assert_called_once_with()
 
     def test_no_motion_vectors(self):
         """Test decode with no motion vectors."""
