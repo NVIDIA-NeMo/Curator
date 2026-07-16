@@ -26,6 +26,8 @@ Use `SlurmRayClient` when:
 
 For single-node SLURM jobs, the regular `RayClient` is sufficient.
 
+If you want many independent pipeline runs over deterministic source shards instead of one shared Ray cluster, use [SLURM Job Arrays](/admin/deployment/slurm-arrays). Each array task can still use `SlurmRayClient` when that individual task spans multiple nodes.
+
 ## Prerequisites
 
 - **SLURM cluster**: a working SLURM cluster with at least one GPU node.
@@ -230,6 +232,7 @@ The first line of each node's log identifies its role:
 
 ## Related Topics
 
+- **[SLURM Job Arrays](/admin/deployment/slurm-arrays)** — deterministic source sharding, completion manifests, and retries across independent jobs.
 - **[Deploy Image Curation on Slurm](/admin/deployment/slurm-image)** — full image curation pipeline using SLURM and Pyxis.
 - **[Container Environments](/reference/infra/container-environments)** — image versions and SLURM-specific environment variables.
 - **[Execution Backends](/reference/infra/execution-backends)** — Ray Data, Xenna, and Ray actor pool executor selection.

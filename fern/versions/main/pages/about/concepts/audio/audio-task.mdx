@@ -36,7 +36,6 @@ audio_task = AudioTask(
         "language": "en"
     },
     filepath_key="audio_filepath",
-    task_id="audio_task_001",
     dataset_name="my_speech_dataset"
 )
 ```
@@ -47,7 +46,7 @@ audio_task = AudioTask(
 |-----------|------|-------------|
 | `data` | `dict` | Audio manifest entry (single dict, exposed as `_AttrDict` for attribute-style access) |
 | `filepath_key` | `str \| None` | Key name for audio file paths in data (optional) |
-| `task_id` | `str` | Unique identifier for the task |
+| `task_id` | `str` | Framework-managed deterministic lineage ID. Treat as read-only; it is assigned at stage boundaries. |
 | `dataset_name` | `str` | Name of the source dataset |
 | `num_items` | `int` | Always returns `1` (read-only property) |
 
