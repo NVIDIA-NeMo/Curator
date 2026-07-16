@@ -34,21 +34,12 @@ fi
 cd /opt/Curator
 uv pip install GitPython pynvml pyyaml rich
 
-# cv2/vllm not in image (CVE removal); install at runtime per benchmark modality.
-BENCH_EXTRAS=""
+# cv2 stripped from image (CVE removal); reinstall for benchmarks that need it.
 case "${ENTRY_NAME}" in
     interleaved_*|multimodal_*|video_*)
-        BENCH_EXTRAS="cv2"
+        uv pip install ".[cv2]"
         ;;
 esac
-case "${ENTRY_NAME}" in
-    embedding_generation_*|video_captioning_*|math_*|interleaved_*|multimodal_*|ndd_*)
-        BENCH_EXTRAS="${BENCH_EXTRAS:+${BENCH_EXTRAS},}vllm"
-        ;;
-esac
-if [ -n "${BENCH_EXTRAS}" ]; then
-    uv pip install ".[${BENCH_EXTRAS}]"
-fi
 
 # Session name resolution:
 #   - If NEMO_CI_SESSION_NAME is set by the generated benchmark pipeline, use it

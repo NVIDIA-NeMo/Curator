@@ -216,6 +216,7 @@ text_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
     "nemo_curator[text_cpu]",
+    "nemo_curator[vllm]",
 ]
 
 # Video Curation Dependencies
@@ -229,6 +230,7 @@ video_cpu = [
 video_cuda12 = [
     "nemo_curator[video_cpu]",
     "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
     "cvcuda_cu12",
     "pycuda",
     "torch<=2.10.0",
@@ -251,6 +253,7 @@ math_cuda12 = [
     "nemo_curator[math_cpu]",
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
+    "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # Multimodal / Interleaved Dependencies
@@ -266,6 +269,7 @@ interleaved_cpu = [
 interleaved_cuda12 = [
     "nemo_curator[interleaved_cpu]",
     "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
 ]
 
 # Synthetic Data Generation (SDG) Dependencies
@@ -279,12 +283,14 @@ sdg_cuda12 = [
     "nemo_curator[inference_server]",
 ]
 
-# Non-vllm modalities; add [vllm]/[inference_server]/[sdg_cuda12] for LLM stacks.
+# All dependencies
 all = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
+    "nemo_curator[inference_server]",
     "nemo_curator[interleaved_cuda12]",
     "nemo_curator[math_cuda12]",
+    "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[translation_all]",
     "nemo_curator[video_cuda12]",
