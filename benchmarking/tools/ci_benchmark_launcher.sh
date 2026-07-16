@@ -28,7 +28,7 @@ apt-get update -qq && apt-get install -y --no-install-recommends lynx
 if [[ "${ENTRY_NAME}" == audio_* ]]; then
     apt-get install -y --no-install-recommends ffmpeg
 elif [[ "${ENTRY_NAME}" == video_* ]]; then
-    bash /opt/Curator/docker/common/install_ffmpeg.sh
+    bash /opt/Curator/docker/common/install_h264_support.sh --with-libopenh264
 fi
 
 cd /opt/Curator
