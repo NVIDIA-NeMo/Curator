@@ -28,14 +28,23 @@ from typing import (
 )
 
 import av
-import cv2
 import numpy as np
 import numpy.typing as npt
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from av.container import InputContainer
 
 from nemo_curator.utils.operation_utils import make_pipeline_named_temporary_file
+
+_CV2_INSTALL_HINT = (
+    "opencv-python-headless is required for target-resolution resizing in extract_frames. "
+    "Install with: pip install nemo_curator[cv2]"
+)
 
 
 class Resolution(NamedTuple):
@@ -659,6 +668,8 @@ def extract_frames(  # noqa: PLR0913
     )
 
     if target_res[0] > 0 and target_res[1] > 0:
+        if cv2 is None:
+            raise ImportError(_CV2_INSTALL_HINT)
         interpolation = cv2.INTER_CUBIC
         frames = np.array(
             [cv2.resize(frame, (target_res[1], target_res[0]), interpolation=interpolation) for frame in frames]

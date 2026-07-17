@@ -21,8 +21,16 @@ FOLDER="${FOLDER/stages-/stages/}"
 
 export UV_NO_CACHE=1
 
+EXTRA_FLAGS="--extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu"
+# cv2 is opt-in; install only for folders that exercise cv2 code paths.
+case "$FOLDER" in
+    stages/interleaved|stages/video)
+        EXTRA_FLAGS="$EXTRA_FLAGS --extra cv2"
+        ;;
+esac
+
 rm -rf .venv
 uv venv --seed --python "${PY_VERSION}"
-uv sync --no-progress --link-mode copy --locked --extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu --group test
+uv sync --no-progress --link-mode copy --locked $EXTRA_FLAGS --group test
 source .venv/bin/activate
 coverage run -a --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"

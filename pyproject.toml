@@ -78,6 +78,10 @@ cuda12 = [
     "gpustat",
     "nvidia-ml-py",
 ]
+# Opt-in cv2 features; kept off `[all]` — wheel vendors CVE-flagged ffmpeg.
+cv2 = [
+    "opencv-python-headless",
+]
 vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
@@ -218,7 +222,6 @@ text_cuda12 = [
 # Video Curation Dependencies
 video_cpu = [
     "av==17.1.0",  # ffmpeg 8.1.1 (CVE: was 7.0.2)
-    "opencv-python-headless",  # dedupe with vllm's headless
     "torchvision",
     "einops",
     "easydict",
@@ -257,7 +260,6 @@ math_cuda12 = [
 interleaved_cpu = [
     "matplotlib",
     "open_clip_torch",
-    "opencv-python-headless",  # dedupe with vllm's headless
     "Pillow",
     "pypdfium2",
     "s3fs>=2024.12.0",
