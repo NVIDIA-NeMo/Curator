@@ -15,6 +15,18 @@
 
 > *Part of the [NVIDIA NeMo](https://www.nvidia.com/en-us/ai-data-science/products/nemo/) software suite for managing the AI agent lifecycle.*
 
+## What's Hot
+
+Don't miss the latest capabilities developers are picking up:
+
+| Feature | What it unlocks | Read this |
+|---------|-----------------|-----------|
+| **Curator on Slurm** | Run multi-node Ray pipelines on HPC clusters — text, image, video, and audio workloads at scale | [Slurm Deployment Guide](https://docs.nvidia.com/nemo/curator/latest/admin/deployment/slurm-multi-node-ray) |
+| **Audio Curation** | Build ALM and speech datasets with composite quality filtering, audio tagging, and speaker diarization | [Audio Guide](https://docs.nvidia.com/nemo/curator/latest/curate-audio) |
+| **Inference Server** | Spin up an OpenAI-compatible LLM endpoint inside your pipeline for SDG, classification, and synthetic data workflows | [Inference Server](https://docs.nvidia.com/nemo/curator/latest/curate-text/synthetic/inference-server) |
+
+> Want something featured here? Open an issue or ping `@nemo-curator-leads`.
+
 ## Updates
 
 - **2026-04** — NeMo Curator 26.04: Cosmos-Xenna 0.2.0 upgrade, simplified `Resources` API, Ray runtime upgrade. See the [release notes](https://docs.nvidia.com/nemo/curator/latest/about/release-notes).
