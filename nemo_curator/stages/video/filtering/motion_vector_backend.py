@@ -189,6 +189,10 @@ def decode_for_motion(  # noqa: C901
         DecodedData object containing motion vectors and frame dimensions.
 
     """
+    # PyAV's Python log callback can deadlock in Ray workers when FFmpeg decoder
+    # threads log during codec-context teardown.
+    av.logging.restore_default_callback()
+
     with cast("av.container.InputContainer", av.open(video, metadata_errors="ignore")) as input_container:
         stream = input_container.streams.video[0]
         ctx = stream.codec_context

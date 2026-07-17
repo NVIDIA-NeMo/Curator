@@ -47,6 +47,61 @@ _CV2_INSTALL_HINT = (
 )
 
 
+class SoftwareCodecMissingError(RuntimeError):
+    """Raised when ffprobe fails to open a stream because the FFmpeg build lacks
+    a software decoder for the input codec (for example, a strict Curator
+    FFmpeg install with NVDEC-only h264/hevc/av1 decoders).
+
+    Carries the detected codec name (e.g. ``"h264"``) so callers can produce a
+    targeted, actionable message.
+    """
+
+    def __init__(self, message: str, codec: str | None = None) -> None:
+        super().__init__(message)
+        self.codec = codec
+
+
+# MP4 sample-description FOURCCs for codecs that Curator's strict FFmpeg
+# install can decode only via NVDEC. Used by the heuristic header sniff below.
+_MP4_GPU_ONLY_CODEC_TAGS: dict[bytes, str] = {
+    b"avc1": "h264",
+    b"avc3": "h264",
+    b"hev1": "hevc",
+    b"hvc1": "hevc",
+    b"av01": "av1",
+}
+
+
+def _detect_codec_from_mp4_header(path: Path, *, scan_bytes: int = 1_048_576) -> str | None:
+    """Heuristically detect the video codec of an MP4/MOV file by scanning its
+    first ``scan_bytes`` for known sample-description FOURCC tags.
+
+    This avoids invoking ffprobe (which is what's failing) and is intentionally
+    permissive: a substring match in the header is enough for diagnostic
+    purposes. Returns the codec name or ``None`` if no known tag was found or
+    the file could not be read.
+    """
+    try:
+        with Path(path).open("rb") as fh:
+            head = fh.read(scan_bytes)
+    except OSError:
+        return None
+    for tag, codec in _MP4_GPU_ONLY_CODEC_TAGS.items():
+        if tag in head:
+            return codec
+    return None
+
+
+# Substrings in ffprobe's stderr that indicate the failure was a codec/CUDA
+# initialization problem rather than e.g. a missing/corrupt file.
+_CODEC_OPEN_FAILURE_SIGNALS: tuple[str, ...] = (
+    "CUDA_ERROR_NO_DEVICE",
+    "no CUDA-capable device",
+    "Failed loading nvcuvid",
+    "Cannot load libnvcuvid",
+)
+
+
 class Resolution(NamedTuple):
     """Container for video frame dimensions.
 
@@ -121,7 +176,7 @@ class FrameExtractionSignature:
         return f"{self.extraction_policy!s}-{int(self.target_fps * 1000)}"
 
 
-def extract_video_metadata(video: str | bytes) -> VideoMetadata:
+def extract_video_metadata(video: str | bytes) -> VideoMetadata:  # noqa: C901, PLR0912
     """Extract metadata from a video file using ffprobe.
 
     Args:
@@ -151,7 +206,22 @@ def extract_video_metadata(video: str | bytes) -> VideoMetadata:
             error_msg = f"{real_video_path} not found!"
             raise FileNotFoundError(error_msg)
         cmd.append(real_video_path.as_posix())
-        result = subprocess.run(cmd, input=inp, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)  # noqa: UP022, S603
+        try:
+            result = subprocess.run(cmd, input=inp, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)  # noqa: UP022, S603
+        except subprocess.CalledProcessError as e:
+            stderr = (e.stderr or b"").decode(errors="replace")
+            if any(signal in stderr for signal in _CODEC_OPEN_FAILURE_SIGNALS):
+                codec = _detect_codec_from_mp4_header(real_video_path)
+                msg = (
+                    f"ffprobe could not open the video codec for {real_video_path}"
+                    f"{f' (detected {codec})' if codec else ''}. "
+                    "The active ffprobe appears to use NVDEC-only h264/hevc/av1 decoders, "
+                    "and no GPU is visible to this stage. To process h264/hevc/av1 inputs, "
+                    "install full ffmpeg inside the container with:\n"
+                    "    bash /opt/Curator/docker/common/install_h264_support.sh"
+                )
+                raise SoftwareCodecMissingError(msg, codec=codec) from e
+            raise
         video_info = json.loads(result.stdout)
 
     video_stream, audio_codec = None, None
