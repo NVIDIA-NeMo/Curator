@@ -1,101 +1,30 @@
-# Steward: Synthetic Data Generation
+<!-- generated from .stewards/manifest.toml — edit the manifest, not this file -->
 
-You own SDG. Inference is the dominant cost in these pipelines, so
-the model-serving deployment pattern (in-process vs server-endpoint)
-is a first-class user choice, not an implementation detail. Apply the
-Inference Acceleration concerns in root AGENTS.md.
+# Steward: synthetic
 
-## Point Of View
+Protect prompt, model-processing, data-designer, and sample I/O contracts for synthetic generation.
 
-Prompts in, generated samples out. You own every prompt the framework
-ships, every model integration that produces synthetic text, and the
-post-filters that decide which samples survive. Treat shipped prompts
-as public API — edits change downstream model behavior.
+Ordinary work: use this map directly with the root map and run only affected checks.
+Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task is an explicit review/audit or steward-network maintenance.
 
-## Protect
+## Protects
 
-- **Prompt content.** SDG prompts ship as Python string constants in
-  `nemotron_cc/prompts.py` today (no YAML/JSON/text template files
-  exist under `stages/synthetic/`). Version, document, and changelog
-  edits.
-- **Two deployment patterns are first-class:**
-  - *In-process* — model loaded per stage worker; works when the
-    model fits within a Curator worker's GPU memory budget.
-  - *Server-endpoint* — Curator stages (CPU-only) call a local
-    model server with N vLLM replicas across nodes; saves infra
-    setup; lets users switch between hosted and self-hosted models
-    without code changes.
-- **OpenAI-API compatibility.** SDG stages call OpenAI-compatible
-  endpoints; custom Instruct/Reward models work through that
-  contract.
-- **Client setup in `setup()`, not `__init__`.** SDG stages that
-  hold a connection to a model server (vLLM, NIM) initialize the
-  client inside `setup()`. Auth tokens, endpoint URLs, and other
-  configuration are stored in `__init__` (runtime validation only).
-  See the setup-discipline rule in
-  [parent](../../AGENTS.md).
-- **Output reproducibility.** Given a fixed seed, model, and prompt,
-  outputs are reproducible to the extent the underlying model
-  allows. Document expected variance.
-- **Filter semantics.** Quality / safety / dedup filters applied to
-  generated samples are documented and tested.
-- **Packaging (if/when file-based templates land).** `MANIFEST.in`
-  does `recursive-include nemo_curator *.csv *.json *.yaml *.yml
-  *.txt *.md`, so file-based templates under `stages/synthetic/`
-  will be packaged by default.
+| Invariant | Sev | Backing | Proof / anchor |
+| --- | --- | --- | --- |
+| ModelProcessingStage preserves the setup and sample-processing behavior covered by its focused unit tests. | P1 | machine-backed | `uv run pytest tests/stages/synthetic/omni/test_base.py -q -m 'not gpu'` (`synthetic-base`) |
+| Nemotron-CC system prompts are behavior-bearing inputs and changes receive output-quality review. | P2 | manual | nemo_curator/stages/synthetic/nemotron_cc/prompts.py · `NEMOTRON_CC_SYSTEM_PROMPT` |
+| DataDesignerStage remains a DocumentBatch-to-DocumentBatch processing stage. | P2 | manual | nemo_curator/stages/synthetic/nemo_data_designer/data_designer.py · `class DataDesignerStage` |
 
-## Contract Checklist
+## Guardrails
 
-When this domain changes:
+- Credentialed or network behavior must remain explicitly isolated from focused local tests.
 
-- `nemo_curator/stages/synthetic/`
-- Prompt strings (paths and content)
-- `MANIFEST.in` and `pyproject.toml` package-data declarations if
-  file-based templates are added
-- `tests/stages/synthetic/`
-- `fern/` synthetic curation pages
-- `tutorials/synthetic/`
-- `CHANGELOG.md`
+## Edges
 
-## Advocate
+- depends-on → **pipeline** (processing-stage and DocumentBatch contracts)
+- depends-on → **backends** (execution and resource behavior)
 
-- **A programmatic registry for prompt constants** in
-  `nemotron_cc/prompts.py` so docs don't hand-enumerate.
-- **A test that imports the package and asserts each prompt
-  constant loads** — catches packaging regressions early.
-- **Documentation of each prompt's intended use**, expected output
-  shape, and known failure modes.
-- **A consistent seed / determinism story** across generators.
+## Owns
 
-## Own
-
-**Code:**
-
-- `nemo_curator/stages/synthetic/nemo_data_designer/data_designer.py`
-- `nemo_curator/stages/synthetic/nemotron_cc/` — top-level
-  (`base.py`, `nemotron_cc.py`, `prompts.py`) plus nested
-  `nemotron_cc/nemo_data_designer/{base,nemotron_cc}.py`
-- `nemo_curator/stages/synthetic/qa_multilingual_synthetic.py`
-- Any future file-based prompt templates under `stages/synthetic/`
-
-**Tests:** `tests/stages/synthetic/`.
-
-**Docs (discover by grep — see root AGENTS.md *Impacted-Docs
-Discovery*):** when changing SDG code or prompts, search `fern/`,
-`tutorials/`, `README.md`, `.cursor/rules/`, and
-`.github/copilot-instructions.md` for:
-
-- Prompt constant names from `nemotron_cc/prompts.py` (the prompt
-  text itself if changing it materially)
-- `Nemotron-CC`, `nemotron-cc`, `nemo_data_designer` and other
-  pipeline / recipe names
-- Model server identifiers: `vLLM`, `NIM`, `Ray Serve`, `Dynamo`,
-  `TRT-LLM`
-- `OpenAI`-compatible API references if changing the contract
-- The specific stage class name being changed
-- Determinism / variance claims if changing seed handling
-
-Conceptual changes (introducing a new prompt template family,
-reshaping the SDG pipeline shape) delegate to the Docs Steward.
-
-**CODEOWNERS:** `@huvunvidia`.
+- **code:** `nemo_curator/stages/synthetic`
+- **tests:** `tests/stages/synthetic`

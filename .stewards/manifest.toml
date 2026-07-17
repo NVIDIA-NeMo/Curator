@@ -1,0 +1,529 @@
+network = "NeMo Curator"
+protocol = ".stewards/PROTOCOL.md"
+max_active_bytes = 24576
+coverage_roots = ["nemo_curator/stages"]
+
+pillars = [
+  "NeMo Curator is a scalable, accelerator-aware library for turning raw multimodal data into traceable, reusable curated datasets.",
+  "Processing stages, tasks, workflows, and backend adapters are public contracts; changes preserve lifecycle, lineage, resource, and resumability semantics.",
+  "Optional feature families stay import-safe behind their extras, and focused CPU tests remain runnable without unrelated heavyweight dependencies.",
+  "Code, tests, Fern documentation, tutorials, and benchmark evidence move together when a user-visible contract changes.",
+  "The steward network is advisory and evidence-driven; CODEOWNERS and human reviewers remain the approval authority.",
+]
+
+search_policy = [
+  "At task start, read the root map before repository discovery; do not inventory every AGENTS.md in the repository.",
+  "Before reading or searching beneath a path, open the nearest scoped map on that path; add another map only when the investigation crosses its scope.",
+  "If the request names an exact file, symbol, workflow, or failing test, inspect that target before searching elsewhere.",
+  "Search progressively: likely files, then filename or import discovery, then scoped content search; expand repository-wide only when evidence proves a cross-cutting dependency.",
+  "For pipeline bugs, trace the bounded path from task and stage contracts through the selected backend adapter and executor before changing shared abstractions.",
+  "For optional features, verify both the intended extra-enabled path and import behavior when unrelated extras are absent.",
+]
+
+operating_rules = [
+  "Use the root map plus only maps governing changed paths during ordinary work; open the protocol and manifest only for explicit review, audit, or steward maintenance.",
+  "Generated AGENTS.md files are projections; edit `.stewards/manifest.toml`, run the projector, and commit both source and generated maps.",
+  "Public stage, task, workflow, backend, configuration, or output-layout changes include focused regression proof and user-facing collateral or an explicit no-impact rationale.",
+  "Keep CPU-only tests isolated from optional GPU, service, and cloud dependencies; use registered markers and shared fixtures where applicable.",
+  "Do not broaden an invariant beyond what its proof command or evidence anchor demonstrates.",
+  "Review triggers such as `ask stewards`, `bugbash`, `review swarm`, and `steward synthesis` open the protocol and solicit independent affected viewpoints.",
+  "Cross-surface work records Steward Notes naming consulted maps, accepted or deferred findings, proof run, collateral, and unresolved dissent.",
+  "Avoid unrelated refactors, speculative knobs, silent exception handling, and new suppressions unless they are part of the demonstrated fix.",
+]
+
+stop_and_ask = [
+  "A change alters a public Python API, persisted task shape, stage lifecycle, backend semantics, output layout, configuration schema, or compatibility promise.",
+  "A change adds a required dependency, changes optional-extra boundaries, or makes a CPU path require GPU or network access.",
+  "Code and tests disagree, the reported behavior cannot be reproduced, or the intended cross-backend behavior is unresolved.",
+  "A security, credential, destructive-data, or external-service boundary is involved without an explicit test or validation plan.",
+  "Benchmark claims, scaling claims, or hardware requirements would be published without reproducible evidence and environment context.",
+  "An irreversible operation, release action, external write, or coordinated downstream change is required.",
+]
+
+done_criteria = [
+  "Run the narrowest affected tests first, followed by the repository-prescribed lint, type, and broader test targets in proportion to risk.",
+  "Run `python .stewards/project.py --check` and `python .stewards/verify.py --coverage` when steward source or generated maps change.",
+  "New GPU test files are registered in `.github/gpu_test_groups.json`; CPU-only coverage stays selectable with `-m \"not gpu\"`.",
+  "User-visible behavior updates Fern docs, tutorials, examples, and release collateral where applicable, or records why each surface is unaffected.",
+  "Performance-sensitive work names the benchmark, environment, baseline, result, and limitations; do not present an unmeasured expectation as fact.",
+  "Cross-boundary changes include concise Steward Notes with proof and any remaining manual-verification debt.",
+]
+
+[coverage_exemptions]
+"nemo_curator/stages/audio" = "Inherits the pipeline constitution until audio has a dedicated steward map."
+"nemo_curator/stages/image" = "Inherits the pipeline constitution until image has a dedicated steward map."
+"nemo_curator/stages/interleaved" = "Inherits the pipeline constitution until interleaved data has a dedicated steward map."
+"nemo_curator/stages/math" = "Inherits the pipeline constitution until math curation has a dedicated steward map."
+
+[check.steward-tools]
+invoke = "python -m unittest discover -s tests/stewards -p 'test_*.py' -v"
+location = "tests/stewards/test_steward_tools.py"
+proof_contains = "test_repository_steward_network_is_current_and_covered"
+
+[check.stage-descriptors]
+invoke = "uv run pytest tests/stages/common/test_base.py -q -m 'not gpu'"
+location = "tests/stages/common/test_base.py"
+proof_contains = "class TestProcessingStageOverriddenProperties"
+
+[check.backend-sample]
+invoke = "uv run pytest tests/backends/test_integration.py -q -m 'not gpu'"
+location = "tests/backends/test_integration.py"
+proof_contains = "class TestBackendIntegrations"
+
+[check.resume-sample]
+invoke = "uv run pytest tests/backends/test_resumability_functional.py -q -m 'not gpu'"
+location = "tests/backends/test_resumability_functional.py"
+proof_contains = "class TestResumeLoop"
+
+[check.gpu-test-coverage]
+invoke = "python .github/scripts/check_gpu_test_coverage.py"
+location = ".github/scripts/check_gpu_test_coverage.py"
+proof_contains = "GPU test files are covered by gpu_test_groups.json"
+
+[check.text-registry]
+invoke = "uv run pytest tests/stages/text/classifiers/test_classifiers_init.py -q -m 'not gpu'"
+location = "tests/stages/text/classifiers/test_classifiers_init.py"
+proof_contains = "class TestDunderAll"
+
+[check.video-task]
+invoke = "uv run pytest tests/tasks/test_video.py -q -m 'not gpu'"
+location = "tests/tasks/test_video.py"
+proof_contains = "class TestVideoTask"
+
+[check.synthetic-base]
+invoke = "uv run pytest tests/stages/synthetic/omni/test_base.py -q -m 'not gpu'"
+location = "tests/stages/synthetic/omni/test_base.py"
+proof_contains = "class TestModelProcessingStage"
+
+[check.benchmark-session]
+invoke = "uv run pytest tests/benchmarking/runner/test_session.py -q -m 'not gpu'"
+location = "tests/benchmarking/runner/test_session.py"
+proof_contains = "def test_session_defaults_max_timeout_s"
+
+[check.task-postprocess]
+invoke = "uv run pytest tests/backends/test_task_id_postprocess.py -q -m 'not gpu'"
+location = "tests/backends/test_task_id_postprocess.py"
+proof_contains = "class TestPostProcessTaskIds"
+
+[[steward]]
+id = "root"
+path = "AGENTS.md"
+point_of_view = "Protect repository-wide contracts, routing, optional dependency boundaries, and honest evidence without duplicating CODEOWNERS."
+guardrails = ["Keep root guidance compact; route domain detail to scoped maps."]
+owns = { code = [".stewards", "pyproject.toml"], tests = ["tests/stewards"], docs = ["README.md"] }
+edges = [
+  { type = "routes", to = "pipeline", what = "stage, task, workflow, and resource contracts" },
+  { type = "routes", to = "backends", what = "execution and resumability semantics" },
+  { type = "routes", to = "tests", what = "test policy and infrastructure" },
+  { type = "routes", to = "docs", what = "published documentation" },
+]
+
+[[steward]]
+id = "pipeline"
+path = "nemo_curator/AGENTS.md"
+point_of_view = "Protect the stage/task/workflow substrate and the contracts every modality and executor consumes."
+guardrails = ["Treat descriptor, lifecycle, task lineage, and resource changes as cross-backend work."]
+owns = { code = ["nemo_curator/pipeline", "nemo_curator/tasks", "nemo_curator/stages/base.py", "nemo_curator/stages/resources.py"], tests = ["tests/pipelines", "tests/tasks", "tests/stages/common"] }
+edges = [
+  { type = "serves", to = "backends", what = "backend-neutral stage and task contracts" },
+  { type = "routes", to = "deduplication", what = "dedup workflows" },
+  { type = "routes", to = "synthetic", what = "synthetic generation stages" },
+  { type = "routes", to = "text", what = "text curation stages" },
+  { type = "routes", to = "video", what = "video curation stages" },
+]
+
+[[steward]]
+id = "backends"
+path = "nemo_curator/backends/AGENTS.md"
+point_of_view = "Protect backend-neutral results while preserving each executor's lifecycle, resource, failure, and resume semantics."
+guardrails = ["A focused integration sample is evidence for that sample, not proof of universal backend parity."]
+owns = { code = ["nemo_curator/backends"], tests = ["tests/backends"] }
+edges = [
+  { type = "depends-on", to = "pipeline", what = "stage descriptors and task lineage" },
+  { type = "serves", to = "performance", what = "executor behavior measured by benchmarks" },
+]
+
+[[steward]]
+id = "deduplication"
+path = "nemo_curator/stages/deduplication/AGENTS.md"
+point_of_view = "Protect stable identity, deterministic duplicate decisions, and the distinct exact, fuzzy, and semantic workflow contracts."
+guardrails = ["Do not collapse workflow-specific prerequisites or output semantics into a generic dedup claim."]
+owns = { code = ["nemo_curator/stages/deduplication"], tests = ["tests/stages/deduplication"] }
+edges = [
+  { type = "depends-on", to = "pipeline", what = "workflow and task contracts" },
+  { type = "depends-on", to = "backends", what = "distributed execution and resume behavior" },
+]
+
+[[steward]]
+id = "synthetic"
+path = "nemo_curator/stages/synthetic/AGENTS.md"
+point_of_view = "Protect prompt, model-processing, data-designer, and sample I/O contracts for synthetic generation."
+guardrails = ["Credentialed or network behavior must remain explicitly isolated from focused local tests."]
+owns = { code = ["nemo_curator/stages/synthetic"], tests = ["tests/stages/synthetic"] }
+edges = [
+  { type = "depends-on", to = "pipeline", what = "processing-stage and DocumentBatch contracts" },
+  { type = "depends-on", to = "backends", what = "execution and resource behavior" },
+]
+
+[[steward]]
+id = "text"
+path = "nemo_curator/stages/text/AGENTS.md"
+point_of_view = "Protect text batch shape, lazy optional imports, and the composability of classifiers, filters, embedders, I/O, and download stages."
+guardrails = ["Keep classifier registration lazy so importing the namespace does not initialize optional frameworks."]
+owns = { code = ["nemo_curator/stages/text"], tests = ["tests/stages/text"] }
+edges = [
+  { type = "depends-on", to = "pipeline", what = "DocumentBatch and processing-stage contracts" },
+  { type = "collaborates-with", to = "deduplication", what = "text duplicate-removal workflows" },
+]
+
+[[steward]]
+id = "video"
+path = "nemo_curator/stages/video/AGENTS.md"
+point_of_view = "Protect VideoTask metadata and the clip, embedding, preview, and metadata output layout across video pipelines."
+guardrails = ["Describe current CPU/GPU paths and writer formats precisely; do not turn acceleration goals into present-tense guarantees."]
+owns = { code = ["nemo_curator/stages/video", "nemo_curator/tasks/video.py"], tests = ["tests/stages/video", "tests/tasks/test_video.py"] }
+edges = [
+  { type = "depends-on", to = "pipeline", what = "stage and task contracts" },
+  { type = "depends-on", to = "backends", what = "distributed and accelerator execution" },
+]
+
+[[steward]]
+id = "tests"
+path = "tests/AGENTS.md"
+point_of_view = "Protect deterministic, correctly marked, dependency-isolated tests and shared infrastructure that reproduces user contracts."
+guardrails = ["Prefer shared Ray fixtures by default; isolated lifecycle tests may own a cluster when that ownership is the behavior under test."]
+owns = { tests = ["tests", ".github/gpu_test_groups.json", ".github/scripts/check_gpu_test_coverage.py"] }
+edges = [
+  { type = "verifies", to = "pipeline", what = "stage and task contracts" },
+  { type = "verifies", to = "backends", what = "executor and resume behavior" },
+]
+
+[[steward]]
+id = "docs"
+path = "fern/AGENTS.md"
+point_of_view = "Protect Fern as the canonical published documentation source and keep claims synchronized with tested behavior."
+guardrails = ["Do not edit generated or legacy documentation as a substitute for the canonical Fern source."]
+owns = { docs = ["fern"] }
+edges = [
+  { type = "documents", to = "pipeline", what = "public concepts and API behavior" },
+  { type = "collaborates-with", to = "tutorials", what = "runnable learning paths" },
+]
+
+[[steward]]
+id = "performance"
+path = "benchmarking/AGENTS.md"
+point_of_view = "Protect reproducible performance evidence with explicit workload, environment, baseline, timeout, and result context."
+guardrails = ["Benchmark expectations are proposals until a reproducible run records evidence."]
+owns = { code = ["benchmarking"], tests = ["tests/benchmarking"] }
+edges = [
+  { type = "measures", to = "backends", what = "executor scalability and resource behavior" },
+  { type = "measures", to = "pipeline", what = "stage and workflow performance" },
+]
+
+[[steward]]
+id = "tutorials"
+path = "tutorials/AGENTS.md"
+point_of_view = "Protect runnable, dependency-explicit examples that teach current public APIs without hidden environment assumptions."
+guardrails = ["Tutorial setup names the relevant optional extra and does not rely on undeclared local state."]
+owns = { docs = ["tutorials"] }
+edges = [
+  { type = "teaches", to = "pipeline", what = "public workflow construction" },
+  { type = "collaborates-with", to = "docs", what = "published conceptual guidance" },
+]
+
+[judgment.pipeline]
+advocate = ["Prefer a small composable stage over backend-specific branching in shared pipeline code."]
+do_not = ["Do not change shared descriptors to accommodate one executor without checking the others."]
+serves = ["Modality stages, backend adapters, workflow authors, and downstream library users."]
+
+[judgment.backends]
+advocate = ["Make retry, resume, failure, and task-lineage behavior observable in focused tests."]
+do_not = ["Do not claim parity beyond the backends and cases exercised by evidence."]
+serves = ["Pipeline authors running locally, on Ray Data, and on Ray Actor Pool."]
+
+[judgment.docs]
+advocate = ["Write from verified source behavior and include the setup needed to reproduce it."]
+do_not = ["Do not publish benchmark or hardware claims without linked evidence context."]
+serves = ["New adopters, existing users, and maintainers reviewing public promises."]
+
+[[invariant]]
+id = "steward-network-integrity"
+steward = "root"
+statement = "The manifest, generated maps, proof anchors, coverage classifications, and active-context budgets remain internally consistent."
+severity = "P1"
+verification = "machine"
+enforced_by = "steward-tools"
+
+[[invariant]]
+id = "public-stage-contract"
+steward = "root"
+statement = "ProcessingStage is a public architectural boundary; incompatible changes require explicit API and downstream review."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/stages/base.py"
+anchor = "class ProcessingStage"
+
+[[invariant]]
+id = "canonical-doc-source"
+steward = "root"
+statement = "Fern is the canonical source for the published NeMo Curator documentation."
+severity = "P1"
+verification = "manual"
+evidence_file = "fern/README.md"
+anchor = "This directory holds the Fern MDX source"
+
+[[invariant]]
+id = "optional-feature-boundaries"
+steward = "root"
+statement = "Feature-family dependencies remain optional extras rather than unconditional base imports."
+severity = "P1"
+verification = "manual"
+evidence_file = "pyproject.toml"
+anchor = "[project.optional-dependencies]"
+
+[[invariant]]
+id = "stage-descriptor-contract"
+steward = "pipeline"
+statement = "ProcessingStage subclasses expose the descriptor properties exercised by the common stage contract tests."
+severity = "P1"
+verification = "machine"
+enforced_by = "stage-descriptors"
+
+[[invariant]]
+id = "task-id-postprocessing"
+steward = "pipeline"
+statement = "Backend task-ID postprocessing preserves the tested root and derived task identity rules."
+severity = "P1"
+verification = "machine"
+enforced_by = "task-postprocess"
+
+[[invariant]]
+id = "stage-lifecycle"
+steward = "pipeline"
+statement = "Per-node setup remains distinct from worker setup and per-task processing."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/stages/base.py"
+anchor = "def setup_on_node"
+
+[[invariant]]
+id = "task-lineage-metadata"
+steward = "pipeline"
+statement = "Tasks retain per-stage performance history and free-form metadata across pipeline boundaries."
+severity = "P2"
+verification = "manual"
+evidence_file = "nemo_curator/tasks/tasks.py"
+anchor = "_stage_perf: list[StagePerfStats]"
+
+[[invariant]]
+id = "backend-integration-sample"
+steward = "backends"
+statement = "The canonical backend integration fixture produces equivalent results for the backend configurations it parametrizes."
+severity = "P1"
+verification = "machine"
+enforced_by = "backend-sample"
+
+[[invariant]]
+id = "resumability-sample"
+steward = "backends"
+statement = "The functional resume loop continues from persisted task state for the scenarios exercised by its fixture."
+severity = "P1"
+verification = "machine"
+enforced_by = "resume-sample"
+
+[[invariant]]
+id = "ray-stage-spec-keys"
+steward = "backends"
+statement = "Ray adapters communicate actor and fanout stage traits through RayStageSpecKeys."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/backends/utils.py"
+anchor = "class RayStageSpecKeys"
+
+[[invariant]]
+id = "actor-pool-scope"
+steward = "backends"
+statement = "Ray Actor Pool behavior changes receive explicit review for supported workflow scope and lifecycle implications."
+severity = "P2"
+verification = "none"
+
+[[invariant]]
+id = "dedup-workflow-families"
+steward = "deduplication"
+statement = "Exact, fuzzy, and semantic deduplication remain distinct workflows with independently reviewed contracts."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/stages/deduplication/exact/workflow.py"
+anchor = "class ExactDeduplicationWorkflow"
+
+[[invariant]]
+id = "dedup-id-generation"
+steward = "deduplication"
+statement = "Duplicate decisions depend on stable ID generation; algorithm or input-normalization changes require migration review."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/stages/deduplication/id_generator.py"
+anchor = "class IdGeneratorBase"
+
+[[invariant]]
+id = "dedup-cuda-extra"
+steward = "deduplication"
+statement = "GPU deduplication dependencies remain isolated in the deduplication_cuda12 optional extra."
+severity = "P1"
+verification = "manual"
+evidence_file = "pyproject.toml"
+anchor = "deduplication_cuda12 = ["
+
+[[invariant]]
+id = "synthetic-model-stage"
+steward = "synthetic"
+statement = "ModelProcessingStage preserves the setup and sample-processing behavior covered by its focused unit tests."
+severity = "P1"
+verification = "machine"
+enforced_by = "synthetic-base"
+
+[[invariant]]
+id = "synthetic-prompt-surface"
+steward = "synthetic"
+statement = "Nemotron-CC system prompts are behavior-bearing inputs and changes receive output-quality review."
+severity = "P2"
+verification = "manual"
+evidence_file = "nemo_curator/stages/synthetic/nemotron_cc/prompts.py"
+anchor = "NEMOTRON_CC_SYSTEM_PROMPT"
+
+[[invariant]]
+id = "synthetic-data-designer-boundary"
+steward = "synthetic"
+statement = "DataDesignerStage remains a DocumentBatch-to-DocumentBatch processing stage."
+severity = "P2"
+verification = "manual"
+evidence_file = "nemo_curator/stages/synthetic/nemo_data_designer/data_designer.py"
+anchor = "class DataDesignerStage"
+
+[[invariant]]
+id = "text-classifier-lazy-registry"
+steward = "text"
+statement = "The text classifier namespace exports its lazy registry without eagerly initializing optional classifier implementations."
+severity = "P1"
+verification = "machine"
+enforced_by = "text-registry"
+
+[[invariant]]
+id = "document-batch-shape"
+steward = "text"
+statement = "Text pipeline stages preserve the DocumentBatch table/data-frame task boundary unless a public migration is approved."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/tasks/document.py"
+anchor = "class DocumentBatch"
+
+[[invariant]]
+id = "text-component-separation"
+steward = "text"
+statement = "Classifier, embedder, download, I/O, filter, and modifier concerns remain independently composable where their public stages permit it."
+severity = "P2"
+verification = "none"
+
+[[invariant]]
+id = "video-task-contract"
+steward = "video"
+statement = "VideoTask serialization, metadata, and helper behavior remain covered by the focused task suite."
+severity = "P1"
+verification = "machine"
+enforced_by = "video-task"
+
+[[invariant]]
+id = "video-writer-layout"
+steward = "video"
+statement = "ClipWriterStage owns explicit paths for processed videos, clip chunks, clips, previews, metadata, and embedding artifacts."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/stages/video/io/clip_writer.py"
+anchor = "class ClipWriterStage"
+
+[[invariant]]
+id = "video-acceleration-claims"
+steward = "video"
+statement = "GPU acceleration claims distinguish measured supported paths from roadmap goals and CPU fallbacks."
+severity = "P2"
+verification = "none"
+
+[[invariant]]
+id = "gpu-test-registration"
+steward = "tests"
+statement = "Every GPU test file is assigned to a registered GPU test group."
+severity = "P1"
+verification = "machine"
+enforced_by = "gpu-test-coverage"
+
+[[invariant]]
+id = "gpu-marker-registration"
+steward = "tests"
+statement = "The gpu marker remains registered so CPU-only selection can deselect GPU tests."
+severity = "P1"
+verification = "manual"
+evidence_file = "pyproject.toml"
+anchor = "gpu: marks tests as GPU tests"
+
+[[invariant]]
+id = "shared-ray-fixture-default"
+steward = "tests"
+statement = "Tests use the shared Ray cluster fixture by default; isolated cluster ownership is reserved for lifecycle behavior under test."
+severity = "P2"
+verification = "manual"
+evidence_file = "tests/conftest.py"
+anchor = "def shared_ray_cluster"
+
+[[invariant]]
+id = "external-test-isolation"
+steward = "tests"
+statement = "Tests requiring credentials, network services, or special hardware declare and isolate those requirements."
+severity = "P1"
+verification = "none"
+
+[[invariant]]
+id = "fern-canonical-site"
+steward = "docs"
+statement = "Published NeMo Curator documentation changes are authored in the Fern MDX source tree."
+severity = "P1"
+verification = "manual"
+evidence_file = "fern/README.md"
+anchor = "docs.nvidia.com/nemo/curator"
+
+[[invariant]]
+id = "docs-claims-traceability"
+steward = "docs"
+statement = "API, backend, hardware, and performance claims identify the implementation or reproducible evidence that supports them."
+severity = "P2"
+verification = "none"
+
+[[invariant]]
+id = "benchmark-session-timeout"
+steward = "performance"
+statement = "Benchmark sessions preserve the tested default maximum timeout behavior."
+severity = "P2"
+verification = "machine"
+enforced_by = "benchmark-session"
+
+[[invariant]]
+id = "benchmark-context"
+steward = "performance"
+statement = "Reported benchmark results include workload, environment, hardware, software versions, baseline, and limitations."
+severity = "P1"
+verification = "none"
+
+[[invariant]]
+id = "tutorial-extra-names"
+steward = "tutorials"
+statement = "Tutorial dependency instructions use optional-extra names declared by the package."
+severity = "P1"
+verification = "manual"
+evidence_file = "pyproject.toml"
+anchor = "text_cpu = ["
+
+[[invariant]]
+id = "tutorial-runnability"
+steward = "tutorials"
+statement = "Tutorial examples use current public imports and state their data, network, credential, and hardware prerequisites."
+severity = "P2"
+verification = "none"

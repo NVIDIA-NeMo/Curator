@@ -1,119 +1,30 @@
-# Steward: Text Modality
+<!-- generated from .stewards/manifest.toml — edit the manifest, not this file -->
 
-You own the text modality — the largest user-facing surface and the
-most copied-and-pasted. Doc-snippet rot here breaks the first thing
-new users try.
+# Steward: text
 
-Related: `.cursor/rules/modality-structure.mdc`.
+Protect text batch shape, lazy optional imports, and the composability of classifiers, filters, embedders, I/O, and download stages.
 
-## Point Of View
+Ordinary work: use this map directly with the root map and run only affected checks.
+Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task is an explicit review/audit or steward-network maintenance.
 
-You own every transformation that produces or mutates a
-`DocumentBatch`. Treat the published classifier surfaces (Domain,
-Quality, and others on HuggingFace) as public API — their class
-names, output schemas, and documented rubrics are user contracts, not
-implementation details. Classifier/embedder changes are
-inference-bearing — apply the Inference Acceleration concerns in
-root AGENTS.md.
+## Protects
 
-## Protect
+| Invariant | Sev | Backing | Proof / anchor |
+| --- | --- | --- | --- |
+| The text classifier namespace exports its lazy registry without eagerly initializing optional classifier implementations. | P1 | machine-backed | `uv run pytest tests/stages/text/classifiers/test_classifiers_init.py -q -m 'not gpu'` (`text-registry`) |
+| Text pipeline stages preserve the DocumentBatch table/data-frame task boundary unless a public migration is approved. | P1 | manual | nemo_curator/tasks/document.py · `class DocumentBatch` |
+| Classifier, embedder, download, I/O, filter, and modifier concerns remain independently composable where their public stages permit it. | P2 | none | — |
 
-- **`DocumentBatch` contract** (`nemo_curator/tasks/document.py`):
-  `pa.Table | pd.DataFrame` payload, `num_items` semantics,
-  `validate()` expectations.
-- **Reader/writer round-tripping** (`text/io/`): writing then
-  reading preserves schema, encoding, and metadata for every
-  supported format (JSONL, Parquet, others).
-- **Classifier public surface.** `text/classifiers/__init__.py`
-  exposes a canonical lazy registry via `_LAZY` and `__all__`. The
-  Domain Classifier (26 classes — Finance, Health, Business and
-  Industrial, Science, Law and Government, Internet and Telecom,
-  Jobs and Education, News, Computers and Electronics, Shopping,
-  and 16 others) and the Quality Classifier (High / Medium / Low
-  against a rubric of content accuracy, clarity, coherence,
-  grammar, depth of information, and overall usefulness) are
-  published on HuggingFace. Renames, removals, default changes, or
-  rubric changes are major-version events.
-- **Filter and modifier semantics** (`text/filters/`,
-  `text/modifiers/`). Document edge cases (Unicode, whitespace,
-  length cutoffs). Note: `text/modules/` is utility code (`add_id`,
-  `joiner`, `splitter`) — not the home of filter/modifier stages.
-- **Tokenization and model inference are always separate stages.**
-  When a pipeline needs both (e.g., classifier inference, embedder
-  inference), split them into two stages and compose them with
-  `CompositeStage`. Tokenization is CPU-bound; inference is
-  GPU-bound. Keeping them in one stage forces the GPU stage to
-  share its replicas with tokenization, hurting throughput. Each
-  model loaded in memory deserves its own stage so the GPU stage
-  can scale independently.
-- **Download stages** (`text/download/`): respect upstream rate
-  limits / robots / licensing; surface failures explicitly;
-  retry-safe under preemption.
-- **GPU/CPU paths.** Lazy-import GPU libs; declare resources
-  honestly; CPU fallback loads.
-- **Model loading in `setup()`, not `__init__`.** Classifiers and
-  embedders must load model weights and call `.to("cuda")` inside
-  `setup()`. Loading in `__init__` serializes the model to every
-  replica. Downloading weights belongs in `setup_on_node()`. See the
-  setup-discipline rule in [parent](../../AGENTS.md).
-- **Tokenizer and model artifact handling.** HuggingFace-pinned
-  artifacts can vanish; treat that as an operational risk.
+## Guardrails
 
-## Contract Checklist
+- Keep classifier registration lazy so importing the namespace does not initialize optional frameworks.
 
-When this domain changes:
+## Edges
 
-- `stages/text/{classifiers,embedders,filters,modifiers,modules,io,download,utils,experimental,models,deduplication}/`
-- `tasks/document.py`
-- `tests/stages/text/`
-- `fern/` text curation pages — classifier names, filter parameters,
-  example invocations
-- `tutorials/text/`, `tutorials/quickstart.py`
-- `.cursor/rules/modality-structure.mdc`
-- `CHANGELOG.md`
+- depends-on → **pipeline** (DocumentBatch and processing-stage contracts)
+- collaborates-with → **deduplication** (text duplicate-removal workflows)
 
-## Advocate
+## Owns
 
-- **Programmatic embedder registry** mirroring
-  `classifiers/__init__.py:_LAZY` so docs don't hand-count.
-  Auto-generate `fern/` reference pages from `__all__`.
-- **Better diagnostics** for misconfigured tokenizer paths and
-  missing model artifacts.
-- **Reusable text fixtures** under `tests/data/`.
-- **Improved download-stage resilience** under preemption.
-
-## Own
-
-**Code:** `nemo_curator/stages/text/` (subpackages: `classifiers`,
-`embedders`, `filters`, `modifiers`, `modules`, `io`, `download`,
-`utils`, `experimental`, `models`, `deduplication`);
-`tasks/document.py`.
-
-**Tests:** `tests/stages/text/`.
-
-**Docs (discover by grep — see root AGENTS.md *Impacted-Docs
-Discovery*):** when changing text-modality code, search `fern/`,
-`tutorials/`, `README.md`, `.cursor/rules/`, and
-`.github/copilot-instructions.md` for:
-
-- The class name you're changing (e.g. `QualityClassifier`,
-  `DomainClassifier`, `FineWebMixtralEduClassifier`)
-- The HuggingFace identifier of any underlying model
-- Quality Classifier rubric labels (`High`, `Medium`, `Low`) and
-  rubric dimensions (accuracy, clarity, coherence, grammar, depth,
-  usefulness)
-- Domain Classifier class names (the 26 domain labels) if changing
-  the taxonomy
-- Filter / modifier `name` attributes if renaming
-- `DocumentBatch` if changing the task schema
-- Tokenizer or model-artifact paths if pinning changes
-
-Conceptual changes (reshaping how classifiers compose, IA refactors
-of the text curation pages) delegate to the Docs Steward.
-
-**Agent artifacts:** the text portion of
-`.cursor/rules/modality-structure.mdc`.
-
-**CODEOWNERS:** default `@NVIDIA-NeMo/curator_reviewers`.
-`classifiers/` and `embedders/` route additionally to
-`@sarahyurick @praateekmahajan @VibhuJawa`.
+- **code:** `nemo_curator/stages/text`
+- **tests:** `tests/stages/text`
