@@ -59,6 +59,45 @@ class TestTaskPerfUtils:
         assert np.allclose(metrics["StageB"]["process_time"], np.array([2.0]))
         assert np.allclose(metrics["StageB"]["custom.io"], np.array([7.0]))
 
+    def test_collect_stage_metrics_counts_shared_batch_stats_once(self) -> None:
+        """A fan-out batch's shared stats must not be counted once per output task."""
+        shared_perf = StagePerfStats(
+            stage_name="FanoutStage",
+            process_time=2.0,
+            custom_metrics={"num_rows": 100.0},
+        )
+        tasks = [
+            EmptyTask(dataset_name=f"output_{index}", data=None, _stage_perf=[shared_perf])
+            for index in range(3)
+        ]
+
+        metrics = TaskPerfUtils.aggregate_task_metrics(tasks)
+
+        assert metrics["FanoutStage_process_time_sum"] == 2.0
+        assert metrics["FanoutStage_custom.num_rows_sum"] == 100.0
+
+    def test_collect_stage_metrics_counts_distinct_equal_stats_separately(self) -> None:
+        """Equal metrics from separate batch calls remain separate observations."""
+        tasks = [
+            EmptyTask(
+                dataset_name=f"batch_{index}",
+                data=None,
+                _stage_perf=[
+                    StagePerfStats(
+                        stage_name="FanoutStage",
+                        process_time=2.0,
+                        custom_metrics={"num_rows": 100.0},
+                    )
+                ],
+            )
+            for index in range(3)
+        ]
+
+        metrics = TaskPerfUtils.aggregate_task_metrics(tasks)
+
+        assert metrics["FanoutStage_process_time_sum"] == 6.0
+        assert metrics["FanoutStage_custom.num_rows_sum"] == 300.0
+
     def test_aggregate_task_metrics_with_pipeline_prefixes(self) -> None:
         """Test aggregating task metrics with pipeline prefixes."""
         pipeline_tasks = {
