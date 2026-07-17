@@ -4,6 +4,10 @@ Hands-on tutorials for curating audio data with NeMo Curator.
 
 **New to audio curation?** Start with the [Audio Getting Started Guide](https://docs.nvidia.com/nemo/curator/latest/get-started/audio.html) for setup and basic concepts.
 
+## Platform support
+
+Audio curation requires **x86_64 Linux**. The `audio_cpu` and `audio_cuda12` extras omit several dependencies on arm64/aarch64 (NeMo ASR, diarization, and related tooling) because upstream packages do not ship aarch64 wheels. The arm64 NeMo Curator container therefore does not include the full audio stack — use amd64 for ASR, diarization, and tagging tutorials below.
+
 ## Getting started in 5 minutes
 
 No data download needed — run the ALM pipeline on bundled fixtures:

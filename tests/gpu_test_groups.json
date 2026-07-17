@@ -29,7 +29,7 @@
     ]
   },
   "video": {
-    "extras": ["video_cuda12"],
+    "extras": ["video_cuda12", "cv2"],
     "paths": ["tests/stages/video"]
   }
 }
