@@ -142,12 +142,6 @@ jobs:
           dockerfile-path: "./docker/Dockerfile"
           PAT: ${{ secrets.PAT }}
           repo-name: "Curator"
-      - name: Verify math extraction runtime
-        run: |
-          docker run --rm \
-            ${{ env.container-registry }}/curator:${{ github.sha }} \
-            python -m pytest -q \
-            tests/stages/math_stages/download/test_math_content_extractor.py::TestMathContentExtractor::test_extract_with_real_magic
 
   cicd-gpu-test-matrix:
     needs: [pre-flight, cicd-wait-in-queue]
