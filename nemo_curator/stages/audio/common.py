@@ -17,7 +17,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import soundfile
 import torch
@@ -28,6 +28,9 @@ from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
+
+if TYPE_CHECKING:
+    from nemo_curator.pipeline.payload_lifecycle import PayloadBindingSpec
 
 
 def get_audio_duration(audio_filepath: str) -> float:
@@ -176,6 +179,22 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
 
     def num_workers(self) -> int | None:
         return 1
+
+    def build_payload_materialize_stage(
+        self,
+        *,
+        payload_spec: "PayloadBindingSpec",
+        payload_config: dict[str, Any],
+        run_id: str,
+    ) -> ProcessingStage:
+        """Build the audio-owned helper requested by the generic graph planner."""
+        from nemo_curator.stages.payload_lifecycle import build_audio_payload_materialize_stage
+
+        return build_audio_payload_materialize_stage(
+            payload_spec=payload_spec,
+            payload_config=payload_config,
+            run_id=run_id,
+        )
 
 
 @dataclass

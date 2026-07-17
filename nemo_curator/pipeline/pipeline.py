@@ -66,7 +66,8 @@ class Pipeline:
         """
         self.name = name
         self.description = description
-        self.stages: list[ProcessingStage] = stages or []
+        self._logical_stages: list[ProcessingStage] = list(stages or [])
+        self.stages: list[ProcessingStage] = list(self._logical_stages)
         self.config = config or {}
 
     def add_stage(self, stage: ProcessingStage) -> "Pipeline":
@@ -82,7 +83,8 @@ class Pipeline:
             msg = f"Stage must be a ProcessingStage, got {type(stage)}"
             raise TypeError(msg)
 
-        self.stages.append(stage)
+        self._logical_stages.append(stage)
+        self.stages = list(self._logical_stages)
         logger.info(f"Added stage '{stage.name}' to pipeline '{self.name}'")
         return self
 
@@ -95,12 +97,16 @@ class Pipeline:
         logger.info(f"Planning pipeline: {self.name}")
 
         # 1. Validate pipeline has stages
-        if not self.stages:
+        if not self._logical_stages:
             msg = f"Pipeline '{self.name}' has no stages"
             raise ValueError(msg)
 
         # 2. Decompose composite stages into execution stages
-        execution_stages, decomposition_info = self._decompose_stages(self.stages)
+        execution_stages, decomposition_info = self._decompose_stages(self._logical_stages)
+
+        from nemo_curator.pipeline.payload_lifecycle import expand_payload_lifecycle_stages
+
+        execution_stages = expand_payload_lifecycle_stages(execution_stages, self.config)
 
         self.stages = execution_stages
         self.decomposition_info = decomposition_info

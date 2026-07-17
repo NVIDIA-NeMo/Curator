@@ -98,10 +98,13 @@ class BaseStageAdapter:
         input_size = sum(task.num_items for task in tasks)
         # Initialize performance timer for this batch
         self._timer.reinit(input_size)
+        input_payload_refs = self._collect_payload_refs(tasks)
 
         with self._timer.time_process(input_size):
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
+        if input_payload_refs:
+            self._release_dropped_payload_refs(input_payload_refs, results)
 
         # A returned ``None`` ("filter this slot") becomes a NoneTask so every
         # output is a real Task that gets a task_id. Sentinels (NoneTask /
@@ -116,9 +119,7 @@ class BaseStageAdapter:
         is_source_stage = getattr(self.stage, "is_source_stage", False)
         failed_tasks = [r for r in results if isinstance(r, FailedTask)]
         if failed_tasks and is_source_stage:
-            msg = (
-                f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
-            )
+            msg = f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
             raise ValueError(msg)
 
         # Record failed tasks for later inspection or retry bookkeeping.
@@ -154,6 +155,35 @@ class BaseStageAdapter:
             task.add_stage_perf(stage_perf_stats)
 
         return results
+
+    def _collect_payload_refs(self, tasks: list[Task]) -> dict[tuple[str | None, str, str], Any]:
+        if not bool(getattr(self.stage, "_curator_tracks_payload_refs", False)):
+            return {}
+        from nemo_curator.pipeline.payload_refs import task_payload_refs
+
+        refs = {}
+        for task in tasks:
+            for payload_ref in task_payload_refs(task):
+                key = (payload_ref.actor_namespace, payload_ref.store_actor_name, payload_ref.payload_id)
+                refs[key] = payload_ref
+        return refs
+
+    @staticmethod
+    def _release_dropped_payload_refs(
+        input_refs: dict[tuple[str | None, str, str], Any],
+        results: list[Task | None],
+    ) -> None:
+        from nemo_curator.pipeline.payload_refs import release_payload_ref, task_payload_refs
+
+        output_keys = set()
+        for task in results:
+            if not isinstance(task, Task):
+                continue
+            for payload_ref in task_payload_refs(task):
+                output_keys.add((payload_ref.actor_namespace, payload_ref.store_actor_name, payload_ref.payload_id))
+        for key, payload_ref in input_refs.items():
+            if key not in output_keys:
+                release_payload_ref(payload_ref)
 
     def _post_process_task_ids(self, input_tasks: list[Task], output_tasks: list[Task]) -> list[Task]:
         """Assign a deterministic ``task_id`` (parent id + own segment) to every

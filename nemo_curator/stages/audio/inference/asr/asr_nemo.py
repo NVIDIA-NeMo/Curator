@@ -16,17 +16,32 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-import nemo.collections.asr as nemo_asr
 import torch
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.payload_lifecycle import PayloadAwareStageMixin
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
+_WAVEFORM_CHANNEL_DIMENSIONS = 2
+nemo_asr: Any | None = None
+
+
+def _nemo_asr_module() -> Any:  # noqa: ANN401
+    global nemo_asr  # noqa: PLW0603
+    if nemo_asr is None:
+        try:
+            import nemo.collections.asr as imported_nemo_asr
+        except ImportError as exc:
+            msg = "InferenceAsrNemoStage requires the audio_common extra"
+            raise ImportError(msg) from exc
+        nemo_asr = imported_nemo_asr
+    return nemo_asr
+
 
 @dataclass
-class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
+class InferenceAsrNemoStage(PayloadAwareStageMixin, ProcessingStage[AudioTask, AudioTask]):
     """Speech recognition inference using a NeMo ASR model.
 
     Overrides ``process_batch`` for batched GPU inference.
@@ -47,6 +62,10 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
     asr_model: Any | None = field(default=None, repr=False)
     filepath_key: str = "audio_filepath"
     pred_text_key: str = "pred_text"
+    waveform_ref_key: str | None = "waveform_ref"
+    waveform_key: str = "waveform"
+    sample_rate_key: str = "sample_rate"
+    num_samples_key: str = "num_samples"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     batch_size: int = 16
 
@@ -69,7 +88,7 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
             kwargs: dict[str, Any] = {"model_name": self.model_name, "return_model_file": True}
             if self.cache_dir is not None:
                 kwargs["cache_dir"] = self.cache_dir
-            nemo_asr.models.ASRModel.from_pretrained(**kwargs)
+            _nemo_asr_module().models.ASRModel.from_pretrained(**kwargs)
         except Exception as e:
             msg = f"Failed to download {self.model_name}"
             raise RuntimeError(msg) from e
@@ -81,7 +100,7 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
                 kwargs: dict[str, Any] = {"model_name": self.model_name, "map_location": map_location}
                 if self.cache_dir is not None:
                     kwargs["cache_dir"] = self.cache_dir
-                self.asr_model = nemo_asr.models.ASRModel.from_pretrained(**kwargs)
+                self.asr_model = _nemo_asr_module().models.ASRModel.from_pretrained(**kwargs)
             except Exception as e:
                 msg = f"Failed to load {self.model_name}"
                 raise RuntimeError(msg) from e
@@ -94,7 +113,25 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
 
     def transcribe(self, files: list[str]) -> list[str]:
         outputs = self.asr_model.transcribe(files)
+        return self._normalize_transcriptions(outputs)
 
+    def transcribe_waveforms(self, tasks: list[AudioTask]) -> list[str]:
+        waveforms = []
+        for task in tasks:
+            waveform = torch.as_tensor(task.data[self.waveform_key], dtype=torch.float32)
+            if waveform.ndim == _WAVEFORM_CHANNEL_DIMENSIONS:
+                waveform = waveform.mean(dim=0)
+            waveforms.append(waveform.detach().cpu().numpy())
+        outputs = self.asr_model.transcribe(
+            audio=waveforms,
+            batch_size=len(waveforms),
+            return_hypotheses=False,
+            verbose=False,
+        )
+        return self._normalize_transcriptions(outputs)
+
+    @staticmethod
+    def _normalize_transcriptions(outputs: object) -> list[str]:
         if isinstance(outputs, tuple):
             outputs = outputs[0]
 
@@ -103,7 +140,7 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
                 return [inner[0].text for inner in outputs]
             return [inner[0] for inner in outputs]
 
-        return [output.text for output in outputs]
+        return [output if isinstance(output, str) else output.text for output in outputs]
 
     def process(self, task: AudioTask) -> AudioTask:
         msg = "InferenceAsrNemoStage only supports process_batch"
@@ -117,14 +154,24 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
             if not self.validate_input(task):
                 msg = f"Task {task.task_id} missing required columns for {type(self).__name__}: {self.inputs()}"
                 raise ValueError(msg)
-        files = [t.data[self.filepath_key] for t in tasks]
-        texts = self.transcribe(files)
-        for task, text in zip(tasks, texts, strict=True):
-            task.data[self.pred_text_key] = text
-        self._log_metrics(
-            {
-                "process_time": time.perf_counter() - t0,
-                "files_transcribed": len(files),
-            }
-        )
-        return tasks
+        inserted = self.resolve_payload_refs_for_batch(tasks)
+        try:
+            has_waveforms = [self.waveform_key in task.data for task in tasks]
+            if any(has_waveforms) and not all(has_waveforms):
+                msg = "A NeMo ASR batch cannot mix waveform payloads and file-path inputs"
+                raise ValueError(msg)
+            if all(has_waveforms):
+                texts = self.transcribe_waveforms(tasks)
+            else:
+                texts = self.transcribe([task.data[self.filepath_key] for task in tasks])
+            for task, text in zip(tasks, texts, strict=True):
+                task.data[self.pred_text_key] = text
+            self._log_metrics(
+                {
+                    "process_time": time.perf_counter() - t0,
+                    "files_transcribed": len(tasks),
+                }
+            )
+            return tasks
+        finally:
+            self.drop_resolved_payloads(inserted)
