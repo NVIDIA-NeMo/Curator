@@ -79,8 +79,8 @@ When this domain changes:
 
 ## Do Not
 
-- Use real network calls (HuggingFace download, remote APIs) in CPU
-  tests; mock or skip.
+- Use real network calls (HuggingFace download, remote APIs) in lightweight
+  tests; mock or skip otherwise.
 - Set `RAY_memory_usage_threshold` in test code — `conftest.py` sets
   a reasonable default.
 - Suppress coverage with `# pragma: no cover` for non-trivial logic.

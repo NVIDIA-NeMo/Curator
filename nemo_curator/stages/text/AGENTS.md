@@ -77,8 +77,6 @@ When this domain changes:
 - **Programmatic embedder registry** mirroring
   `classifiers/__init__.py:_LAZY` so docs don't hand-count.
   Auto-generate `fern/` reference pages from `__all__`.
-- **Clearer separation** between `text/experimental/` and stable
-  surfaces, plus a graduation path.
 - **Better diagnostics** for misconfigured tokenizer paths and
   missing model artifacts.
 - **Reusable text fixtures** under `tests/data/`.

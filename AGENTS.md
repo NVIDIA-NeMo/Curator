@@ -216,9 +216,9 @@ misleading. P2/P3 = polish or advocacy.
 
 **When to consult:** nearest steward for local work; multiple stewards
 when ownership lines cross; full swarm for site-wide `fern/` IA
-refactors or cross-cutting refactors. **Consult the Inference
-Acceleration Steward** for any inference-bearing or model-serving
-change. Parallelize only when the questions are independent — independent
+refactors or cross-cutting refactors. Apply the root-owned Inference
+Acceleration concern to any inference-bearing or model-serving change.
+Parallelize only when the questions are independent — independent
 stewards surface convergence. Route structural, cross-domain,
 standards-impacting, or ownership-affecting decisions to human
 governance stewards.
