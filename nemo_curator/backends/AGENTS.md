@@ -14,7 +14,6 @@ Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task
 | The canonical backend integration fixture produces equivalent results for the backend configurations it parametrizes. | P1 | machine-backed | `uv run pytest tests/backends/test_integration.py -q -m 'not gpu'` (`backend-sample`) |
 | The functional resume loop continues from persisted task state for the scenarios exercised by its fixture. | P1 | machine-backed | `uv run pytest tests/backends/test_resumability_functional.py -q -m 'not gpu'` (`resume-sample`) |
 | Ray adapters communicate actor and fanout stage traits through RayStageSpecKeys. | P1 | manual | nemo_curator/backends/utils.py · `class RayStageSpecKeys` |
-| Ray Actor Pool behavior changes receive explicit review for supported workflow scope and lifecycle implications. | P2 | none | — |
 
 ## Guardrails
 

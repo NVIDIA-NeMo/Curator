@@ -18,6 +18,7 @@ Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task
 ## Guardrails
 
 - Keep classifier registration lazy so importing the namespace does not initialize optional frameworks.
+- When tokenization and model inference have distinct CPU/GPU scaling or persistent model state, use separate stages composed together unless the implementation documents why coupling is required.
 
 ## Edges
 

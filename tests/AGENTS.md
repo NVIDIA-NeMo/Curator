@@ -19,6 +19,7 @@ Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task
 ## Guardrails
 
 - Prefer shared Ray fixtures by default; isolated lifecycle tests may own a cluster when that ownership is the behavior under test.
+- Lightweight Hugging Face downloads are acceptable; mock or skip heavier remote API calls, and coordinate token-gated CI with the automation team.
 
 ## Edges
 

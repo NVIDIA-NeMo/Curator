@@ -37,8 +37,8 @@ Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task
 
 | Steward | Map | Invariants | Automated backing |
 | --- | --- | --- | --- |
-| backends | `nemo_curator/backends/AGENTS.md` | 4 | 50% |
-| deduplication | `nemo_curator/stages/deduplication/AGENTS.md` | 3 | 0% |
+| backends | `nemo_curator/backends/AGENTS.md` | 3 | 66% |
+| deduplication | `nemo_curator/stages/deduplication/AGENTS.md` | 4 | 0% |
 | docs | `fern/AGENTS.md` | 2 | 0% |
 | performance | `benchmarking/AGENTS.md` | 2 | 50% |
 | pipeline | `nemo_curator/AGENTS.md` | 4 | 50% |

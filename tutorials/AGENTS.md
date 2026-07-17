@@ -17,6 +17,7 @@ Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task
 ## Guardrails
 
 - Tutorial setup names the relevant optional extra and does not rely on undeclared local state.
+- Run Ruff on changed tutorial Python without implying that tutorial execution is covered by the unit-test matrix.
 
 ## Edges
 

@@ -169,7 +169,10 @@ edges = [
 id = "text"
 path = "nemo_curator/stages/text/AGENTS.md"
 point_of_view = "Protect text batch shape, lazy optional imports, and the composability of classifiers, filters, embedders, I/O, and download stages."
-guardrails = ["Keep classifier registration lazy so importing the namespace does not initialize optional frameworks."]
+guardrails = [
+  "Keep classifier registration lazy so importing the namespace does not initialize optional frameworks.",
+  "When tokenization and model inference have distinct CPU/GPU scaling or persistent model state, use separate stages composed together unless the implementation documents why coupling is required.",
+]
 owns = { code = ["nemo_curator/stages/text"], tests = ["tests/stages/text"] }
 edges = [
   { type = "depends-on", to = "pipeline", what = "DocumentBatch and processing-stage contracts" },
@@ -191,7 +194,10 @@ edges = [
 id = "tests"
 path = "tests/AGENTS.md"
 point_of_view = "Protect deterministic, correctly marked, dependency-isolated tests and shared infrastructure that reproduces user contracts."
-guardrails = ["Prefer shared Ray fixtures by default; isolated lifecycle tests may own a cluster when that ownership is the behavior under test."]
+guardrails = [
+  "Prefer shared Ray fixtures by default; isolated lifecycle tests may own a cluster when that ownership is the behavior under test.",
+  "Lightweight Hugging Face downloads are acceptable; mock or skip heavier remote API calls, and coordinate token-gated CI with the automation team.",
+]
 owns = { tests = ["tests", ".github/gpu_test_groups.json", ".github/scripts/check_gpu_test_coverage.py"] }
 edges = [
   { type = "verifies", to = "pipeline", what = "stage and task contracts" },
@@ -224,7 +230,10 @@ edges = [
 id = "tutorials"
 path = "tutorials/AGENTS.md"
 point_of_view = "Protect runnable, dependency-explicit examples that teach current public APIs without hidden environment assumptions."
-guardrails = ["Tutorial setup names the relevant optional extra and does not rely on undeclared local state."]
+guardrails = [
+  "Tutorial setup names the relevant optional extra and does not rely on undeclared local state.",
+  "Run Ruff on changed tutorial Python without implying that tutorial execution is covered by the unit-test matrix.",
+]
 owns = { docs = ["tutorials"] }
 edges = [
   { type = "teaches", to = "pipeline", what = "public workflow construction" },
@@ -341,13 +350,6 @@ evidence_file = "nemo_curator/backends/utils.py"
 anchor = "class RayStageSpecKeys"
 
 [[invariant]]
-id = "actor-pool-scope"
-steward = "backends"
-statement = "Ray Actor Pool behavior changes receive explicit review for supported workflow scope and lifecycle implications."
-severity = "P2"
-verification = "none"
-
-[[invariant]]
 id = "dedup-workflow-families"
 steward = "deduplication"
 statement = "Exact, fuzzy, and semantic deduplication remain distinct workflows with independently reviewed contracts."
@@ -373,6 +375,13 @@ severity = "P1"
 verification = "manual"
 evidence_file = "pyproject.toml"
 anchor = "deduplication_cuda12 = ["
+
+[[invariant]]
+id = "actor-pool-scope"
+steward = "deduplication"
+statement = "Ray Actor Pool workflow guidance remains scoped to deduplication; proposals to broaden it require backend and product review."
+severity = "P2"
+verification = "none"
 
 [[invariant]]
 id = "synthetic-model-stage"
