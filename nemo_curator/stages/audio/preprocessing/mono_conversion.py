@@ -35,7 +35,12 @@ import torch
 from loguru import logger
 
 from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
-from nemo_curator.stages.audio._residency import produce_audio_filepath, resolve_audio
+from nemo_curator.stages.audio._residency import (
+    InputResidency,
+    produce_audio_filepath,
+    residency_read_specs,
+    resolve_audio,
+)
 from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -86,7 +91,7 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     output_audio_filepath_key: str = "mono_audio_filepath"
     original_audio_filepath_key: str = "original_audio_filepath"
     strict_sample_rate: bool = True
-    input_residency: str = "auto"
+    input_residency: InputResidency = "auto"
     keep_waveform_in_task: bool = True
     write_to_disk: bool = False
     update_audio_filepath: bool = False
@@ -134,7 +139,12 @@ class MonoConversionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
             if self.update_audio_filepath:
                 writes.append(self.audio_filepath_key)
         return StageContract(
-            reads=IOSpec(data_keys=[self.audio_filepath_key], accepts=["file", "waveform"]),
+            reads_one_of=residency_read_specs(
+                self.input_residency,
+                audio_filepath_key=self.audio_filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            ),
             writes=IOSpec(data_keys=writes, produces=produces),
             gates=Gates(writes_to_disk=self.write_to_disk),
         )
