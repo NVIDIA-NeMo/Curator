@@ -21,12 +21,52 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import soundfile as sf
 
+from nemo_curator.stages.audio._agent_ready import AudioForm, IOSpec
 from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 InputResidency = Literal["file", "waveform", "auto"]
+
+
+def accepts_for_residency(residency: str) -> list[AudioForm]:
+    """Audio forms an instance actually consumes, given its ``input_residency``.
+
+    The single source of truth a stage's ``describe()`` derives ``accepts`` from,
+    so a ``file``-mode instance can never advertise ``waveform`` (the drift /
+    "lying accepts" bug). ``auto`` accepts either; ``file``/``waveform`` accept
+    only that form.
+    """
+    if residency == "waveform":
+        return ["waveform"]
+    if residency == "file":
+        return ["file"]
+    return ["file", "waveform"]  # "auto"
+
+
+def residency_read_specs(
+    input_residency: str,
+    *,
+    audio_filepath_key: str,
+    waveform_key: str = "waveform",
+    sample_rate_key: str = "sample_rate",
+) -> list[IOSpec]:
+    """The residency-filtered audio read options for a stage's ``reads_one_of``.
+
+    ``file`` -> ``[file spec]``; ``waveform`` -> ``[waveform spec]``; ``auto`` ->
+    ``[waveform spec, file spec]``. Keeps ``accepts`` **and** ``data_keys`` in
+    lockstep with ``input_residency`` so a stage can never advertise (or require)
+    a form it won't consume for its current setting — which lets the deterministic
+    role check enforce residency compatibility with no extra check.
+    """
+    forms = accepts_for_residency(input_residency)
+    specs: list[IOSpec] = []
+    if "waveform" in forms:
+        specs.append(IOSpec(data_keys=[waveform_key, sample_rate_key], accepts=["waveform"]))
+    if "file" in forms:
+        specs.append(IOSpec(data_keys=[audio_filepath_key], accepts=["file"]))
+    return specs
 
 
 def resolve_audio(  # noqa: PLR0913 (complexity accepted: keyword-only residency/key knobs mirror the stage fields)

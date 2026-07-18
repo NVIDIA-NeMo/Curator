@@ -49,7 +49,7 @@ from silero_vad import get_speech_timestamps, load_silero_vad
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
-from nemo_curator.stages.audio._residency import resolve_audio
+from nemo_curator.stages.audio._residency import InputResidency, residency_read_specs, resolve_audio
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -112,7 +112,7 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     duration_key: str = "duration"
     original_file_key: str = "original_file"
     nested: bool = False
-    input_residency: str = "auto"
+    input_residency: InputResidency = "auto"
     keep_segment_waveform_in_task: bool = True
 
     name: str = "VADSegmentation"
@@ -158,10 +158,12 @@ class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.nested:
             writes = [self.segments_key]
         return StageContract(
-            reads_one_of=[
-                IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"]),
-                IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"]),
-            ],
+            reads_one_of=residency_read_specs(
+                self.input_residency,
+                audio_filepath_key=self.audio_filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            ),
             writes=IOSpec(data_keys=writes, produces=produces),
             cardinality="1:1 nested-list" if self.nested else "1:N fan-out",
             cardinality_options=["fan_out", "nested"],
