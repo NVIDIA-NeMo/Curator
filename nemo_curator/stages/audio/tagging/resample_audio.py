@@ -32,7 +32,13 @@ from dataclasses import dataclass
 from fsspec.core import url_to_fs
 
 from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
-from nemo_curator.stages.audio._residency import cleanup_temp_files, produce_audio_filepath, resolve_audio_path
+from nemo_curator.stages.audio._residency import (
+    InputResidency,
+    cleanup_temp_files,
+    produce_audio_filepath,
+    residency_read_specs,
+    resolve_audio_path,
+)
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio.common import get_audio_duration, load_audio_file
 from nemo_curator.stages.base import ProcessingStage
@@ -66,7 +72,7 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     audio_item_id_key: str = "audio_item_id"
     original_audio_filepath_key: str = "original_audio_filepath"
 
-    input_residency: str = "file"
+    input_residency: InputResidency = "file"
     keep_waveform_in_task: bool = False
     write_to_disk: bool = True
     update_audio_filepath: bool = False
@@ -113,7 +119,12 @@ class ResampleAudioStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
         if self.update_audio_filepath:
             writes.append(self.audio_filepath_key)
         return StageContract(
-            reads=IOSpec(data_keys=[self.audio_filepath_key], accepts=["file", "waveform"]),
+            reads_one_of=residency_read_specs(
+                self.input_residency,
+                audio_filepath_key=self.audio_filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            ),
             writes=IOSpec(data_keys=writes, produces=produces),
             gates=Gates(writes_to_disk=self.write_to_disk, requires_ffmpeg=True),
         )
