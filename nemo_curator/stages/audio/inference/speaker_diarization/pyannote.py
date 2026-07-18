@@ -36,7 +36,7 @@ from pyannote.core import Segment
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
-from nemo_curator.stages.audio._residency import cleanup_temp_files, resolve_audio_path
+from nemo_curator.stages.audio._residency import InputResidency, cleanup_temp_files, residency_read_specs, resolve_audio_path
 from nemo_curator.stages.audio.common import get_audio_duration
 from nemo_curator.stages.audio.inference.vad.whisperx_vad import WhisperXVADModel
 from nemo_curator.stages.audio.tagging.utils import add_non_speaker_segments
@@ -109,7 +109,7 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     sample_rate_key: str = "sample_rate"
     segments_key: str = "segments"
     overlap_segments_key: str = "overlap_segments"
-    input_residency: str = "file"
+    input_residency: InputResidency = "file"
     write_rttm: bool = True
     vad_onset: float = 0.5
     vad_offset: float = 0.363
@@ -171,7 +171,12 @@ class PyAnnoteDiarizationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             writes = [self.segments_key, self.overlap_segments_key]
             cardinality = "1:1"
         return StageContract(
-            reads=IOSpec(data_keys=[self.audio_filepath_key], accepts=["file", "waveform"]),
+            reads_one_of=residency_read_specs(
+                self.input_residency,
+                audio_filepath_key=self.audio_filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            ),
             writes=IOSpec(data_keys=writes),
             cardinality=cardinality,
             cardinality_options=["passthrough", "fan_out"],

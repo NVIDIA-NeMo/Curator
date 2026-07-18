@@ -21,7 +21,7 @@ import torch
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
-from nemo_curator.stages.audio._residency import cleanup_temp_files, resolve_audio_path
+from nemo_curator.stages.audio._residency import InputResidency, cleanup_temp_files, residency_read_specs, resolve_audio_path
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -51,7 +51,7 @@ class InferenceAsrNemoStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     filepath_key: str = "audio_filepath"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
-    input_residency: str = "file"
+    input_residency: InputResidency = "file"
     pred_text_key: str = "pred_text"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
     batch_size: int = 16
@@ -100,7 +100,12 @@ class InferenceAsrNemoStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
 
     def describe(self) -> StageContract:
         return StageContract(
-            reads=IOSpec(data_keys=[self.filepath_key], accepts=["file", "waveform"]),
+            reads_one_of=residency_read_specs(
+                self.input_residency,
+                audio_filepath_key=self.filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            ),
             writes=IOSpec(data_keys=[self.pred_text_key]),
             gates=Gates(
                 requires_gpu=self.resources.gpus > 0,

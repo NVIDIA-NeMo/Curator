@@ -24,7 +24,7 @@ from nemo.collections.asr.models import SortformerEncLabelModel
 
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
-from nemo_curator.stages.audio._residency import cleanup_temp_files, resolve_audio_path
+from nemo_curator.stages.audio._residency import InputResidency, cleanup_temp_files, residency_read_specs, resolve_audio_path
 from nemo_curator.stages.base import ProcessingStage
 
 if TYPE_CHECKING:
@@ -118,7 +118,7 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
     diar_segments_key: str = "diar_segments"
-    input_residency: str = "file"
+    input_residency: InputResidency = "file"
     fanout: bool = False
     start_key: str = "start"
     end_key: str = "end"
@@ -244,7 +244,12 @@ class InferenceSortformerStage(AgentReady, ProcessingStage[AudioTask, AudioTask]
             writes = [self.filepath_key, self.diar_segments_key]
             cardinality = "1:1"
         return StageContract(
-            reads=IOSpec(data_keys=[self.filepath_key], accepts=["file", "waveform"]),
+            reads_one_of=residency_read_specs(
+                self.input_residency,
+                audio_filepath_key=self.filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            ),
             writes=IOSpec(data_keys=writes),
             cardinality=cardinality,
             cardinality_options=["passthrough", "fan_out"],
