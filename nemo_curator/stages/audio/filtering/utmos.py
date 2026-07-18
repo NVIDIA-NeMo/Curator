@@ -42,7 +42,7 @@ from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
-from nemo_curator.stages.audio._residency import resolve_audio
+from nemo_curator.stages.audio._residency import residency_read_specs, resolve_audio
 from nemo_curator.stages.audio.common import ensure_mono, ensure_waveform_2d
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -169,8 +169,12 @@ class UTMOSFilterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     def describe(self) -> StageContract:
         return StageContract(
             reads_one_of=[
-                IOSpec(data_keys=[self.waveform_key, self.sample_rate_key], accepts=["waveform"]),
-                IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"]),
+                *residency_read_specs(
+                    self.input_residency,
+                    audio_filepath_key=self.audio_filepath_key,
+                    waveform_key=self.waveform_key,
+                    sample_rate_key=self.sample_rate_key,
+                ),
                 IOSpec(data_keys=[self.segments_key]),
             ],
             writes=IOSpec(data_keys=[self.score_key], segment_data_keys=[self.score_key]),
