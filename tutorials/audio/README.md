@@ -50,6 +50,7 @@ python tutorials/audio/fleurs/main.py \
 | I want to... | Tutorial | GPU | Data |
 |---|---|---|---|
 | Curate multilingual ASR data (download, transcribe, filter by WER) | [**fleurs/**](fleurs/) | Yes (~4 GB VRAM) | Auto-downloads from HuggingFace |
+| Transcribe a manifest in process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (~40 GB VRAM) | Bundled sample or your own manifest |
 | Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
 | Label raw audio for TTS/ASR/ALM via diarization, alignment, and quality metrics | [**tagging/**](tagging/) | Yes (~8 GB VRAM) | Bring your own audio manifest |
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
@@ -61,6 +62,7 @@ python tutorials/audio/fleurs/main.py \
 | Tutorial | Auto-download | Size | Notes |
 |---|---|---|---|
 | `fleurs/` | Yes | ~50 MB per language split | Downloads from HuggingFace `google/fleurs` |
+| `qwen_omni_inprocess/` | Model only | Two bundled audio files | Downloads Qwen3-Omni weights on first use |
 | `alm/` | N/A | Bundled | Uses `tests/fixtures/audio/alm/sample_input.jsonl` (5 entries) |
 | `tagging/` | No | Varies | Bring your own NeMo-style JSONL manifest with audio paths |
 | `callhome_diar/` | No | ~1 GB | Requires LDC membership and license ([LDC97S42](https://catalog.ldc.upenn.edu/LDC97S42)) |
@@ -79,6 +81,7 @@ sudo apt-get install -y ffmpeg
 | Tutorial | System packages | Pip extras |
 |---|---|---|
 | `fleurs/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
+| `qwen_omni_inprocess/` | `ffmpeg` | `audio_qwen` |
 | `alm/` | `ffmpeg` | `audio_cpu` |
 | `tagging/` | `ffmpeg` | `audio_cuda12` |
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |

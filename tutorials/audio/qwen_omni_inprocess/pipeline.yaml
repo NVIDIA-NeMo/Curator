@@ -1,0 +1,61 @@
+# Qwen3-Omni in-process ASR pipeline.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/qwen_omni_inprocess \
+#     --config-name pipeline \
+#     manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+manifest_path: ???
+output_path: ./qwen_omni_output.jsonl
+model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
+default_language: en
+prompt_file: examples/audio/qwen_omni_inprocess/prompts/en_qwen3_omni_disfluency_asr.md
+followup_prompt_file: null
+reference_text_key: null
+disfluency_text_key: null
+tensor_parallel_size: 1
+limit_mm_per_prompt_audio: 1
+
+stages:
+  - _target_: nemo_curator.stages.audio.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.MonoConversionStage
+    strict_sample_rate: false
+
+  - _target_: nemo_curator.stages.audio.inference.asr.ASRStage
+    adapter_target: nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.QwenOmniASRAdapter
+    model_id: ${model_id}
+    default_language: ${default_language}
+    sample_rate_key: sample_rate
+    reference_text_key: ${reference_text_key}
+    pred_text_key: pred_text
+    disfluency_text_key: ${disfluency_text_key}
+    batch_size: 1
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: 1.0
+    adapter_kwargs:
+      prompt_file: ${prompt_file}
+      followup_prompt_file: ${followup_prompt_file}
+      prompt_content_order: audio_text
+      tensor_parallel_size: ${tensor_parallel_size}
+      limit_mm_per_prompt_audio: ${limit_mm_per_prompt_audio}
+      max_model_len: 32768
+      max_num_seqs: 1
+      max_output_tokens: 1024
+
+  - _target_: nemo_curator.stages.audio.ManifestWriterStage
+    output_path: ${output_path}
