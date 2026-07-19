@@ -11,14 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-"""Audio speech-recognition Curator stages.
-
-The generic stage-adapter split (``ASRStage`` + pluggable ASR adapter)
-lives in ``stage.py``; the pre-existing NeMo-specific ASR stage stays in
-``asr_nemo.py``.
-"""
-
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
-
-__all__ = ["ASRStage"]

@@ -12,13 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Audio speech-recognition Curator stages.
+"""ASR model adapters co-located with the audio inference stages."""
 
-The generic stage-adapter split (``ASRStage`` + pluggable ASR adapter)
-lives in ``stage.py``; the pre-existing NeMo-specific ASR stage stays in
-``asr_nemo.py``.
-"""
+from nemo_curator.stages.audio.inference.asr.adapters.base import ASRAdapter, ASRResult
 
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+_LAZY: dict[str, str] = {
+    "QwenOmniASRAdapter": ".qwen_omni",
+}
 
-__all__ = ["ASRStage"]
+__all__ = ["ASRAdapter", "ASRResult", "QwenOmniASRAdapter"]
+
+
+def __getattr__(name: str) -> object:
+    if name in _LAZY:
+        import importlib
+
+        module = importlib.import_module(_LAZY[name], package=__name__)
+        return getattr(module, name)
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
