@@ -277,13 +277,19 @@ def test_outputs_two_turn_includes_disfluency_key() -> None:
 # ----------------------------------------------------------------------
 
 
-def test_skipped_result_sets_skip_key() -> None:
+@pytest.mark.parametrize(
+    ("result", "expected_reason"),
+    [
+        (ASRResult(text="", skipped=True), "empty_audio"),
+        (ASRResult(text="", skipped=True, skip_reason="decode_failed"), "decode_failed"),
+        (ASRResult(text="", skipped=True, extras={"skip_reason": "ignored"}), "empty_audio"),
+    ],
+)
+def test_skipped_result_sets_typed_skip_reason(result: ASRResult, expected_reason: str) -> None:
     stage = _make_stage()
-    stage._adapter.transcribe_batch.return_value = [
-        ASRResult(text="", skipped=True),
-    ]
+    stage._adapter.transcribe_batch.return_value = [result]
     results = stage.process_batch([_make_task()])
-    assert results[0].data["_skipme"] == "empty_audio"
+    assert results[0].data["_skipme"] == expected_reason
 
 
 # ----------------------------------------------------------------------

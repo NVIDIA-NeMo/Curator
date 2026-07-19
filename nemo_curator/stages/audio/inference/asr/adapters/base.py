@@ -41,6 +41,10 @@ class ASRResult:
             ``task.data`` only when ``ASRStage.disfluency_text_key`` is set.
         skipped: True when the item could not be processed (e.g. empty/corrupt
             waveform); the stage then sets ``skip_me_key = "empty_audio"``.
+        skip_reason: Optional machine-readable reason written to ``skip_me_key``
+            when ``skipped`` is true. Defaults to ``"empty_audio"`` in the stage.
+        unsupported_language: Optional normalized language code used by the
+            stage to annotate items excluded by its language allowlist.
         extras: Adapter-specific diagnostics outside the canonical shape; the
             stage never reads inside this dict.
     """
@@ -48,6 +52,8 @@ class ASRResult:
     text: str
     secondary_text: str | None = None
     skipped: bool = False
+    skip_reason: str | None = None
+    unsupported_language: str | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
 

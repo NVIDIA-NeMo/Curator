@@ -328,7 +328,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 ASRResult(
                     text="",
                     skipped=False,
-                    extras={"unsupported_language": str(item.get("language_code", "") or "").strip().lower()},
+                    unsupported_language=str(item.get("language_code", "") or "").strip().lower(),
                 ),
             )
             for index, item in enumerate(items)
@@ -346,7 +346,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             task.data[self.pred_text_key] = result.text
             if self.disfluency_text_key:
                 task.data[self.disfluency_text_key] = result.secondary_text or ""
-            unsupported_language = result.extras.get("unsupported_language")
+            unsupported_language = result.unsupported_language
             if unsupported_language:
                 _set_note(
                     task.data,
@@ -361,7 +361,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                     self.notes_key,
                 )
             if result.skipped:
-                task.data[self.skip_me_key] = str(result.extras.get("skip_reason") or "empty_audio")
+                task.data[self.skip_me_key] = result.skip_reason or "empty_audio"
                 skipped_count += 1
             if self.primary_model_value and not unsupported_language:
                 _set_note(task.data, self.primary_model_key, self.primary_model_value, self.notes_key)
