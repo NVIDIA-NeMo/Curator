@@ -18,7 +18,7 @@ modality: "text-only"
 | NVIDIA Dynamo | `DynamoVLLMModelConfig` | `DynamoServerConfig` |
 
 <Note>
-In the tested 26.06 stack, Ray Serve uses vLLM 0.18.x from the base `inference_server` environment. Dynamo 1.1.0 uses Ray to create a separate actor environment with vLLM 0.19.x, so its first startup takes longer while Ray resolves and installs the environment. Ray Serve deployments can also be accessed through Ray Serve handles instead of the OpenAI-compatible endpoint, but this path has not improved performance in project benchmarks.
+In the tested 26.06 stack, Ray Serve uses vLLM 0.18.x from the base `inference_server` environment. Dynamo 1.1.0 uses Ray to create a separate actor environment with vLLM 0.19.x, so its first startup takes longer while Ray resolves and installs the environment. Ray Serve deployments can also be accessed through Ray Serve handles instead of the OpenAI-compatible endpoint; benchmark the approach for your workloads.
 </Note>
 
 <Warning>
