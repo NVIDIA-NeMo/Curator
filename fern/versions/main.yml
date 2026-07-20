@@ -636,6 +636,9 @@ navigation:
               - page: Execution Backends
                 path: ./main/pages/reference/infrastructure/execution-backends.mdx
                 slug: execution-backends
+              - page: Stage Worker Sizing
+                path: ./main/pages/reference/infrastructure/stage-worker-sizing.mdx
+                slug: stage-worker-sizing
               - page: Per-Stage Runtime Environments
                 path: ./main/pages/reference/infrastructure/per-stage-runtime.mdx
                 slug: per-stage-runtime

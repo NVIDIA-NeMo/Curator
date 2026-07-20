@@ -52,6 +52,10 @@ Use `with_()` to change the runtime environment for a specific pipeline without 
 stage = MyStage().with_(runtime_env={"pip": ["transformers==4.45.0"]})
 ```
 
+`runtime_env=None` means no override and preserves the stage's current environment. Pass `runtime_env={}` to explicitly replace it with an empty environment dictionary.
+
+The same `with_()` call can configure resources, worker counts, and backend stage specs. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing) for the full signature and shallow-merge semantics.
+
 ### Use `uv` as the package installer
 
 Ray also supports `uv` as the package installer inside worker virtualenvs. Use the `"uv"` key instead of `"pip"` for faster installs:
