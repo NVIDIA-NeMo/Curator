@@ -11,6 +11,10 @@
     "extras": ["image_cuda12"],
     "paths": ["tests/stages/image"]
   },
+  "math": {
+    "extras": ["math_cuda12"],
+    "paths": ["tests/stages/math_stages"]
+  },
   "audio": {
     "extras": ["audio_cuda12"],
     "paths": ["tests/stages/audio"]
