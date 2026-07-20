@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -26,8 +26,8 @@ import torch
 from huggingface_hub import snapshot_download
 from loguru import logger
 
-from nemo_curator.stages.audio.inference.asr.adapters.base import ASRResult
-from nemo_curator.stages.audio.inference.asr.adapters.waveform import resample_waveform, to_mono_numpy_1d
+from nemo_curator.models.asr.base import ASRResult
+from nemo_curator.models.asr.waveform import resample_waveform, to_mono_numpy_1d
 from nemo_curator.utils.gpu_utils import get_gpu_count
 from nemo_curator.utils.vllm_utils import create_vllm_llm
 
@@ -313,7 +313,10 @@ class QwenOmniASRAdapter:
         result = template
         if language and "{language}" in result:
             result = result.replace("{language}", language)
-        if reference_text is not None and "{transcript}" in result:
+        if reference_text is None and "{transcript}" in result:
+            msg = "Prompt template contains {transcript}, but no reference text was provided"
+            raise ValueError(msg)
+        if reference_text is not None:
             result = result.replace("{transcript}", reference_text)
         return result
 
@@ -331,7 +334,7 @@ class QwenOmniASRAdapter:
         prompt = self._get_prompt_text(language, reference_text)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
-            sys_prompt = self._resolve_prompt(self.system_prompt, language)
+            sys_prompt = self._resolve_prompt(self.system_prompt, language, reference_text)
             messages.append({"role": "system", "content": [{"type": "text", "text": sys_prompt}]})
         text_content = {"type": "text", "text": prompt}
         audio_content = {"type": "audio", "audio": waveform}

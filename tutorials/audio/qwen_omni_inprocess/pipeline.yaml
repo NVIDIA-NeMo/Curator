@@ -36,7 +36,7 @@ stages:
     strict_sample_rate: false
 
   - _target_: nemo_curator.stages.audio.inference.asr.ASRStage
-    adapter_target: nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.QwenOmniASRAdapter
+    adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
     model_id: ${model_id}
     default_language: ${default_language}
     sample_rate_key: sample_rate

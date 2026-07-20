@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 import hydra.utils
 from loguru import logger
 
-from nemo_curator.stages.audio.inference.asr.adapters.base import ASRAdapter, ASRResult
+from nemo_curator.models.asr.base import ASRAdapter, ASRResult
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -262,21 +262,6 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         """Run one ASR batch."""
         if len(tasks) == 0:
             return []
-        return self._process_plain_batch(tasks)
-
-    def _partition_inference_tasks(self, tasks: list[AudioTask]) -> tuple[list[AudioTask], int]:
-        tasks_to_process: list[AudioTask] = []
-        output_exists_skipped = 0
-        for task in tasks:
-            if self.skip_if_output_exists and task.data.get(self.pred_text_key):
-                output_exists_skipped += 1
-                task.data.pop(self.waveform_key, None)
-                continue
-            tasks_to_process.append(task)
-        return tasks_to_process, output_exists_skipped
-
-    def _process_plain_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        """Dispatch one backend batch."""
         tasks_to_process, output_exists_skipped = self._partition_inference_tasks(tasks)
 
         for task in tasks_to_process:
@@ -307,6 +292,17 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 len(tasks),
             )
         return tasks
+
+    def _partition_inference_tasks(self, tasks: list[AudioTask]) -> tuple[list[AudioTask], int]:
+        tasks_to_process: list[AudioTask] = []
+        output_exists_skipped = 0
+        for task in tasks:
+            if self.skip_if_output_exists and task.data.get(self.pred_text_key):
+                output_exists_skipped += 1
+                task.data.pop(self.waveform_key, None)
+                continue
+            tasks_to_process.append(task)
+        return tasks_to_process, output_exists_skipped
 
     def run_inference(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         """Transcribe one capped sub-batch via the adapter."""

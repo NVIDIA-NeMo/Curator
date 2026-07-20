@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,11 +14,10 @@
 
 """Stage-adapter contract for audio speech-recognition.
 
-Mirrors the diarization/LID/VAD contract: ``ASRStage`` owns Curator-side glue
-(``task.data`` reads, batching, ISO language mapping, ``_skip_me``),
-while ``ASRAdapter`` (this module) owns the model-side call (prefetch, setup,
-generation, packing into ``ASRResult``). The split lets the stage swap models
-via a single YAML ``adapter_target:`` line.
+``ASRStage`` owns Curator-side glue (``task.data`` reads, batching, ISO
+language mapping, ``_skip_me``), while ``ASRAdapter`` owns the model-side call
+(prefetch, setup, generation, and packing into ``ASRResult``). The split lets
+the stage swap models via a single YAML ``adapter_target:`` line.
 """
 
 from __future__ import annotations

@@ -25,8 +25,8 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.stages.audio.inference.asr.adapters.base import ASRAdapter
-from nemo_curator.stages.audio.inference.asr.adapters.qwen_omni import QwenOmniASRAdapter
+from nemo_curator.models.asr.base import ASRAdapter
+from nemo_curator.models.asr.qwen_omni import QwenOmniASRAdapter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -39,16 +39,16 @@ def _mock_qwen_setup(
     *, processor_side_effect: Exception | None = None
 ) -> Iterator[tuple[MagicMock, MagicMock, MagicMock]]:
     with (
-        patch("nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.process_mm_info", MagicMock()),
+        patch("nemo_curator.models.asr.qwen_omni.process_mm_info", MagicMock()),
         patch(
-            "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.create_vllm_llm",
+            "nemo_curator.models.asr.qwen_omni.create_vllm_llm",
             return_value=MagicMock(),
         ) as llm_ctor,
         patch(
-            "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
+            "nemo_curator.models.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
             side_effect=processor_side_effect,
         ) as processor_ctor,
-        patch("nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.SamplingParams") as sampling_ctor,
+        patch("nemo_curator.models.asr.qwen_omni.SamplingParams") as sampling_ctor,
     ):
         yield llm_ctor, processor_ctor, sampling_ctor
 
@@ -217,6 +217,19 @@ def test_qwen_adapter_prompt_replaces_language_and_reference_transcript() -> Non
     assert turn2_messages[0]["content"][0]["text"] == "Transcribe Spanish: hola ref"
     assert turn2_messages[0]["content"][1]["audio"] is waveform
     assert turn2_messages[2]["content"][0]["text"] == "Refine Spanish: hola ref"
+
+
+def test_qwen_adapter_missing_reference_placeholder_skips_before_prompt_packing() -> None:
+    adapter = QwenOmniASRAdapter(
+        model_id="mock/qwen-omni",
+        prompt_text="Improve this transcript: {transcript}",
+    )
+    adapter._pack_vllm_inputs = MagicMock(return_value={"prompt": "must not be used"})  # type: ignore[method-assign]
+
+    prepared = adapter._prepare_single(np.zeros(_SR, dtype=np.float32), _SR, "English")
+
+    assert prepared is None
+    adapter._pack_vllm_inputs.assert_not_called()
 
 
 def test_qwen_adapter_transcribe_batch_packages_results() -> None:

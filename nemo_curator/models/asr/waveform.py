@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Adapter-side waveform normalization shared by ASR model implementations."""
+"""Waveform normalization shared by ASR model implementations."""
 
 from __future__ import annotations
 
@@ -57,6 +57,7 @@ def resample_waveform(waveform: np.ndarray, source_rate: int, target_rate: int) 
     if source_rate == target_rate:
         return waveform
 
+    # Keep optional/heavy audio dependency lazy for base-package imports.
     import librosa
 
     resampled = librosa.resample(waveform, orig_sr=source_rate, target_sr=target_rate)

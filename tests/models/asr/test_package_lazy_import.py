@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests that the audio ASR adapter package does not eagerly import GPU adapters."""
+"""Tests that the ASR model package does not eagerly import GPU adapters."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
         fromlist: tuple[str, ...] = (),
         level: int = 0,
     ) -> object:
-        if name == "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni":
+        if name == "nemo_curator.models.asr.qwen_omni":
             blocked.append(name)
             msg = f"blocked eager import of {name}"
             raise ImportError(msg)
@@ -45,16 +45,16 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
     monkeypatch.setattr(builtins, "__import__", tracking_import)
 
     module_names = {
-        "nemo_curator.stages.audio.inference.asr.adapters",
-        "nemo_curator.stages.audio.inference.asr.adapters.base",
-        "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni",
+        "nemo_curator.models.asr",
+        "nemo_curator.models.asr.base",
+        "nemo_curator.models.asr.qwen_omni",
     }
     saved_modules = {name: sys.modules.get(name) for name in module_names}
     try:
         for mod_name in module_names:
             sys.modules.pop(mod_name, None)
 
-        import nemo_curator.stages.audio.inference.asr.adapters as asr_pkg
+        import nemo_curator.models.asr as asr_pkg
 
         assert blocked == []
         assert asr_pkg.ASRAdapter is not None
@@ -69,6 +69,6 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
 
 
 def test_asr_subpackage_lazy_getattr_resolves_qwen_adapter() -> None:
-    from nemo_curator.stages.audio.inference.asr.adapters import QwenOmniASRAdapter
+    from nemo_curator.models.asr import QwenOmniASRAdapter
 
     assert QwenOmniASRAdapter.__name__ == "QwenOmniASRAdapter"

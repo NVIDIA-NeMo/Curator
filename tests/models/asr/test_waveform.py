@@ -17,7 +17,7 @@
 import numpy as np
 import pytest
 
-from nemo_curator.stages.audio.inference.asr.adapters.waveform import resample_waveform, to_mono_numpy_1d
+from nemo_curator.models.asr.waveform import resample_waveform, to_mono_numpy_1d
 
 
 def test_to_mono_accepts_channels_first_and_channels_last() -> None:
