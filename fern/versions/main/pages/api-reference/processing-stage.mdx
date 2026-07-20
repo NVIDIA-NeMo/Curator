@@ -142,6 +142,10 @@ def process_batch(self, tasks: list[InputT]) -> list[OutputT | None]:
     """
 ```
 
+`task_id` is framework-owned. The executor adapter assigns it after either `process()` or `process_batch()` returns, so custom stages must not set or derive IDs. For deterministic lineage, preserve positional correspondence in batched code: return one task or `None` for every input. A batch that maps multiple inputs to a different number of outputs receives random `r`-prefixed IDs because parentage is ambiguous.
+
+For source-level checkpointing and the complete mapping rules, refer to [Resumable Processing](/reference/infra/resumable-processing#custom-stage-responsibilities).
+
 ## Creating Custom Stages
 
 ```python
@@ -176,7 +180,6 @@ class MyCustomStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             return None
 
         return DocumentBatch(
-            task_id=f"{task.task_id}_{self.name}",
             dataset_name=task.dataset_name,
             data=df,
             _metadata=task._metadata,
