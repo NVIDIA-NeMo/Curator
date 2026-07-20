@@ -877,6 +877,7 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
+      --transcode-encoder=libopenh264
     timeout_s: 800
     sink_data:
       - name: slack
@@ -900,6 +901,7 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
+      --transcode-encoder=libopenh264
     timeout_s: 800
     sink_data:
       - name: slack
@@ -923,6 +925,7 @@ entries:
       --no-generate-embeddings
       --video-dir={dataset:videos,mp4}
       --video-limit=1000
+      --transcode-encoder=libopenh264
     timeout_s: 400
     sink_data:
       - name: slack
@@ -947,6 +950,7 @@ entries:
       --no-generate-embeddings
       --video-dir={dataset:videos,mp4}
       --video-limit=1000
+      --transcode-encoder=libopenh264
     timeout_s: 800
     sink_data:
       - name: slack
@@ -974,6 +978,7 @@ entries:
       --no-generate-embeddings
       --enhance-captions
       --video-limit=256
+      --transcode-encoder=libopenh264
     timeout_s: 1800
     sink_data:
       - name: slack
@@ -1000,6 +1005,7 @@ entries:
       --no-generate-embeddings
       --enhance-captions
       --video-limit=256
+      --transcode-encoder=libopenh264
     timeout_s: 1800
     sink_data:
       - name: slack
@@ -1089,6 +1095,7 @@ entries:
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=1000
+      --transcode-encoder=libopenh264
     timeout_s: 800
     sink_data:
       - name: slack
@@ -1116,6 +1123,7 @@ entries:
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=1000
+      --transcode-encoder=libopenh264
     timeout_s: 1800
     sink_data:
       - name: slack
