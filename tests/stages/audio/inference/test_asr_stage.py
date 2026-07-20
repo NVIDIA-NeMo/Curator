@@ -19,11 +19,11 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.stages.audio.inference.asr import ASRStage
-from nemo_curator.stages.audio.inference.asr.adapters.base import ASRResult
 from nemo_curator.tasks import AudioTask
 
-_QWEN_ADAPTER_TARGET = "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.QwenOmniASRAdapter"
+_QWEN_ADAPTER_TARGET = "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter"
 _SR = 16000
 
 
@@ -61,11 +61,6 @@ def _make_task(waveform_len: int = _SR, source_lang: str | None = "en") -> Audio
     if source_lang is not None:
         data["source_lang"] = source_lang
     return AudioTask(data=data)
-
-
-# ----------------------------------------------------------------------
-# Stage-level: process / process_batch contract
-# ----------------------------------------------------------------------
 
 
 def test_process_raises_not_implemented() -> None:
@@ -179,11 +174,6 @@ def test_adapter_result_length_mismatch_raises() -> None:
         stage.process_batch([_make_task(), _make_task()])
 
 
-# ----------------------------------------------------------------------
-# Stage-level: language mapping (ISO code -> name)
-# ----------------------------------------------------------------------
-
-
 def test_language_resolution_from_task() -> None:
     stage = _make_stage()
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="hola")]
@@ -247,11 +237,6 @@ def test_reference_text_key_is_passed_to_adapter_items() -> None:
     assert items[0]["reference_text"] == "reference transcript"
 
 
-# ----------------------------------------------------------------------
-# Stage-level: I/O contract
-# ----------------------------------------------------------------------
-
-
 def test_inputs_outputs_single_turn() -> None:
     stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
     _required, optional_inputs = stage.inputs()
@@ -272,11 +257,6 @@ def test_outputs_two_turn_includes_disfluency_key() -> None:
     assert "pred_text_secondary" in optional_outputs
 
 
-# ----------------------------------------------------------------------
-# Stage-level: skip behavior
-# ----------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("result", "expected_reason"),
     [
@@ -292,12 +272,7 @@ def test_skipped_result_sets_typed_skip_reason(result: ASRResult, expected_reaso
     assert results[0].data["_skipme"] == expected_reason
 
 
-# ----------------------------------------------------------------------
-# Stage-level: setup_on_node weight prefetch + setup() adapter construction
-# ----------------------------------------------------------------------
-
-
-@patch("nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.snapshot_download")
+@patch("nemo_curator.models.asr.qwen_omni.snapshot_download")
 def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
     stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
     stage.setup_on_node()
@@ -305,7 +280,7 @@ def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
 
 
 @patch(
-    "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.snapshot_download",
+    "nemo_curator.models.asr.qwen_omni.snapshot_download",
     side_effect=RuntimeError("missing auth"),
 )
 def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
@@ -316,7 +291,7 @@ def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
 
 
 @patch(
-    "nemo_curator.stages.audio.inference.asr.adapters.qwen_omni.snapshot_download",
+    "nemo_curator.models.asr.qwen_omni.snapshot_download",
     side_effect=RuntimeError("offline"),
 )
 def test_setup_on_node_can_warn_and_retry_later(mock_download: MagicMock) -> None:
