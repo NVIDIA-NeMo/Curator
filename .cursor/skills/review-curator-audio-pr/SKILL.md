@@ -22,10 +22,12 @@ author reply to reviewers - it helps you *produce* the review.
 
 Scope: the **audio** modality only - code under `nemo_curator/stages/audio/`,
 `nemo_curator/tasks/audio_task.py`, `tutorials/audio/`, audio tests under
-`tests/stages/audio/`, and audio benchmarks. This skill is **audio-only**: if a
-PR touches no audio path, the pull step refuses to run (step 2) - review it
-with a modality-appropriate tool instead. Fern-only documentation PRs are out of
-scope; Fern changes are included only when the same PR also touches an audio path.
+`tests/stages/audio/`, audio benchmarks, and explicitly audio-scoped Fern pages
+(`curate-audio/`, `about/concepts/audio/`, `get-started/audio.mdx`, and the
+`AudioTask` API page). This skill is **audio-only**: if a PR touches neither an
+audio implementation path nor an audio-scoped Fern path, the pull step refuses
+to run (step 2). Generic Fern navigation files remain visible when the PR also
+changes an audio-scoped page, but do not make an unrelated docs PR in scope.
 
 Requirements: Python 3.10+, `git`, and the GitHub CLI (`gh`) **already
 authenticated** against `github.com`. GitHub API access goes through `gh`;
@@ -101,7 +103,7 @@ review comments. The review lenses and every doc/code reference live in
 
 ```
 - [ ] 0. Locate or shallow-clone the Curator repo
-- [ ] 1. Identify the PR and confirm it touches audio paths
+- [ ] 1. Identify the PR and confirm it touches audio code or audio-scoped Fern paths
 - [ ] 2. Pull fresh GitHub data (gh)
 - [ ] 3. Build the post-#1608 audio review corpus (required)
 - [ ] 4. Read the diff
@@ -128,11 +130,13 @@ If you are already in the checkout that contains this skill, you can skip this.
 ### Step 1 - Identify the PR
 
 `gh pr view <N> --repo NVIDIA-NeMo/Curator`. This skill is **audio-only**: the
-pull step (step 2) aborts if the PR touches no audio path
+pull step (step 2) aborts if the PR touches no audio implementation path
 (`nemo_curator/stages/audio/`, `nemo_curator/tasks/audio_task.py`,
-`tutorials/audio/`, `tests/stages/audio/`, audio benchmarks). Fern-only PRs
-are intentionally out of scope. If the pull aborts, stop and do not review the PR
-with this skill.
+`tutorials/audio/`, `tests/stages/audio/`, audio benchmarks) and no
+audio-scoped Fern page. A Fern-only PR is in scope when it changes a page under
+`curate-audio/` or `about/concepts/audio/`, `get-started/audio.mdx`, or the
+`AudioTask` API page. If the pull aborts, stop and use a modality-appropriate
+review workflow.
 
 ### Step 2 - Pull fresh GitHub data
 
@@ -197,6 +201,13 @@ the stage being changed). Check the corpus for repeated review patterns and
 whether this PR repeats feedback already raised on other audio PRs. Only after
 this grounding do you write the overview (step 7).
 
+For a Fern-only audio PR, source verification is mandatory: follow every stage,
+class, configuration key, command, manifest field, default, dependency, and
+failure behavior named by the changed docs to the current `main` implementation.
+Read the referenced audio code, tutorial entrypoint/YAML, and relevant tests
+before judging the docs. Do not accept plausible prose as evidence that an API
+exists or behaves as documented.
+
 ### Step 6 - Generate the context files
 
 ```bash
@@ -229,6 +240,10 @@ waveform/tensor memory and manifest serialization, tarred/sharded audio I/O,
 sample-rate and metadata propagation, streaming/throughput, tutorials/docs,
 tests/coverage, and PR reviewability. Cite the linked source by name whenever
 the PR deviates.
+
+For Fern-only audio changes, anchor findings on the changed Fern line and cite
+the implementation path/line that contradicts it. Check navigation and links,
+but prioritize source fidelity and runnable commands over prose style.
 
 Record each issue as a finding, classified by severity, and post them **after
 the overview** as a PR review (inline comments for specific lines, a top-level

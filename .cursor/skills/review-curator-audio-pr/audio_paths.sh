@@ -13,5 +13,8 @@
 # limitations under the License.
 
 # Audio-modality path filter shared by review-curator-audio-pr scripts.
-AUDIO_PATH_REGEX='^(nemo_curator/stages/audio/|nemo_curator/tasks/audio_task\.py|tutorials/audio/|tests/stages/audio/|tests/tasks/test_audio|benchmarking/.*([Aa]udio|ALM|alm))'
+# Fern paths qualify only when their path is explicitly audio-scoped. Generic
+# navigation files (for example versions/main.yml) remain visible in a qualifying
+# PR but do not make an unrelated Fern PR audio-specific by themselves.
+AUDIO_PATH_REGEX='^(nemo_curator/stages/audio/|nemo_curator/tasks/audio_task\.py|tutorials/audio/|tests/stages/audio/|tests/tasks/test_audio|benchmarking/.*([Aa]udio|ALM|alm)|fern/versions/[^/]+/pages/(get-started/audio\.mdx|curate-audio/|about/concepts/audio/|api-reference/tasks/audio-task\.mdx))'
 AUDIO_MODALITY_LABEL='audio'

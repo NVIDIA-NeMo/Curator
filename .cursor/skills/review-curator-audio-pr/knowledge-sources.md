@@ -14,7 +14,8 @@ and has six parts:
 5. **GitHub data + scripts reference** - the `gh` endpoints and helper scripts.
 
 All paths are repo-relative. The skill is self-contained: this repository plus
-the GitHub CLI (`gh`). Scope: the **audio** modality.
+the GitHub CLI (`gh`). Scope: the **audio** modality, including Fern-only PRs
+whose changed paths are explicitly audio-scoped.
 
 ---
 
@@ -71,6 +72,12 @@ relative to `fern/versions/v26.04/pages/`.
 
 When a PR changes audio behavior, check whether the matching fern page above
 needs updating in the same PR - docs drift is a common review finding.
+
+When the PR changes only audio Fern pages, reverse this check: trace every
+documented stage, config key, default, command, manifest field, dependency, and
+failure claim back to current `main`. Read the referenced implementation,
+tutorial YAML/entrypoint, and tests. A source-verification finding is anchored
+on the changed Fern line and cites the contradictory implementation line.
 
 ---
 
@@ -220,6 +227,14 @@ canonical sources to cite.
   an `examples/` script; extract one shared builder both call.
 - Every config key documented for users must actually reach a stage; validate
   config-to-stage mapping and fail (or warn) on unused keys.
+- Fern audio pages must describe APIs that exist on current `main`. Verify stage
+  names/import paths, constructor arguments, defaults, pipeline order, manifest
+  field lifecycle, optional/system dependencies, GPU and batching constraints,
+  output metrics, skip/error behavior, and shell commands against source.
+- For Fern-only PRs, inspect the code and tests linked by the prose before
+  writing the overview or findings. Treat a runnable-looking command that uses
+  a missing target, wrong override, stale path, or unsupported input as a
+  correctness defect rather than a documentation nit.
 - Don't commit generated analysis/scratch docs into the source tree.
 - **References:** `tutorials/audio/README.md`; `tutorials/audio/{alm,audio_pretrain,callhome_diar,fleurs,readspeech,single_speaker_filter,tagging}/README.md`; `tutorials/audio/readspeech/readspeech_tutorial.ipynb`; `nemo_curator/stages/audio/README.md`; fern `curate-audio/tutorials/{index,beginner,readspeech,alm}.mdx`.
 
@@ -296,10 +311,11 @@ entries whose `updatedAt` changed. Then render today's file:
 ```
 
 `pull_audio_pr_corpus.sh` lists PRs with number greater than `--since`
-(default: `1608`), keeps the ones whose changed files touch audio paths, and
-pulls each one's reviews, inline comments, and issue comments.
-Fern-only documentation PRs are intentionally out of scope; a PR that also
-touches an audio path remains in scope and its Fern changes remain visible.
+(default: `1608`), keeps the ones whose changed files touch audio implementation
+paths or explicitly audio-scoped Fern paths, and pulls each one's reviews,
+inline comments, and issue comments. Generic Fern navigation files do not
+qualify a PR by themselves, but remain visible when an audio-scoped page makes
+the PR in scope.
 It paginates the complete PR history. Reruns reuse cached PRs only while their
 GitHub `updatedAt` value is unchanged; `--refresh` forces every in-scope PR to be
 re-fetched.
@@ -333,7 +349,8 @@ supplies the audio path filter, area rules, and corpus labels:
 
 `ensure-repo` reuses an existing Curator checkout or shallow-clones one and
 prints `CURATOR_REPO=<path>` on its last line. `pull` writes these files into the
-scratch outdir and rejects PRs that touch no audio path:
+scratch outdir and rejects PRs that touch neither audio implementation paths nor
+audio-scoped Fern pages:
 
 | File | Endpoint |
 |------|----------|

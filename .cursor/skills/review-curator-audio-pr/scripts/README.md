@@ -14,7 +14,9 @@ once under `.cursor/scripts/curator-pr-review/`.
 ```
 
 The entry point supplies the audio path filter from `../audio_paths.sh` and
-rejects non-audio PRs. `pull` gathers PR metadata and review activity; `digest`
+rejects non-audio PRs. The filter includes explicitly audio-scoped Fern pages;
+generic Fern navigation files qualify only when the same PR changes an
+audio-scoped page. `pull` gathers PR metadata and review activity; `digest`
 renders the working digest and open-thread queue; `build-corpus` renders the
 audio corpus. The full digest and corpus preserve complete comment bodies; the
 raw JSON remains the archival source.
@@ -30,7 +32,7 @@ Run the corpus pull and build before every audio PR review:
 
 The puller discovers audio PRs after #1608 and incrementally stores reviewer
 comments in `.curator-pr-review/audio-corpus/`. Cached PRs are refreshed when
-`updatedAt` changes; `--refresh` forces a complete re-pull. Fern-only PRs are out
-of scope. The
+`updatedAt` changes; `--refresh` forces a complete re-pull. Fern-only PRs are in
+scope when they change explicitly audio-scoped pages. The
 diff baseline for the target PR remains `main`; the corpus is separate context
 from reviews of the post-#1608 architecture.
