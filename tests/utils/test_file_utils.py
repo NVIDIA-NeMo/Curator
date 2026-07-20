@@ -46,6 +46,11 @@ class TestInferDatasetNameFromPath:
         assert infer_dataset_name_from_path("s3://my-bucket") == "my-bucket"
         assert infer_dataset_name_from_path("abfs://container@account.dfs.core.windows.net/dataset") == "dataset"
 
+    def test_directory_paths(self):
+        """Test local and cloud directory dataset name inference."""
+        assert infer_dataset_name_from_path("/home/user/MyDataSet/", path_kind="directory") == "mydataset"
+        assert infer_dataset_name_from_path("s3://bucket/MyDataSet/", path_kind="directory") == "mydataset"
+
     def test_case_conversion(self):
         """Test that results are converted to lowercase."""
         assert infer_dataset_name_from_path("s3://bucket/MyDataSet") == "mydataset"
