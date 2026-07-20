@@ -203,10 +203,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         return [], optional_inputs
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        keys = [self.pred_text_key]
+        keys = [self.pred_text_key, self.skip_me_key, self.notes_key]
         if self.disfluency_text_key:
             keys.append(self.disfluency_text_key)
-        return [], keys
+        return [], list(dict.fromkeys(keys))
 
     def _resolve_language(self, task: AudioTask) -> str | None:
         code = self._resolve_language_code(task)

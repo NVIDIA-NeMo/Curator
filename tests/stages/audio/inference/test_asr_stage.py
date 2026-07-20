@@ -245,6 +245,8 @@ def test_inputs_outputs_single_turn() -> None:
 
     _required, optional_outputs = stage.outputs()
     assert "pred_text" in optional_outputs
+    assert "_skipme" in optional_outputs
+    assert "additional_notes" in optional_outputs
 
 
 def test_outputs_two_turn_includes_disfluency_key() -> None:
