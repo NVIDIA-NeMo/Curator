@@ -4,7 +4,7 @@
     "paths": ["tests/stages/deduplication", "tests/core/test_cudf_placeholder.py"]
   },
   "text": {
-    "extras": ["text_cuda12"],
+    "extras": ["text_cuda12", "lance"],
     "paths": ["tests/stages/text", "tests/pipelines/test_per_stage_runtime_env.py"]
   },
   "image": {
