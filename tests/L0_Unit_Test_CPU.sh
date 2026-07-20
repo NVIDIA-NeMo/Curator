@@ -21,7 +21,7 @@ FOLDER="${FOLDER/stages-/stages/}"
 
 export UV_NO_CACHE=1
 
-EXTRA_FLAGS="--extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu"
+EXTRA_FLAGS="--extra audio_cpu --extra sdg_cpu --extra text_cpu --extra video_cpu --extra lance"
 # cv2 is opt-in; install only for folders that exercise cv2 code paths.
 case "$FOLDER" in
     stages/interleaved|stages/video)

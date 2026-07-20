@@ -355,15 +355,18 @@ def check_output_mode(
     fs.makedirs(path, exist_ok=True)
 
 
-def infer_dataset_name_from_path(path: str) -> str:
+def infer_dataset_name_from_path(path: str, *, path_kind: Literal["file", "directory"] = "file") -> str:
     """Infer a dataset name from a path, handling both local and cloud storage paths.
     Args:
         path: Local path or cloud storage URL (e.g. s3://, abfs://)
+        path_kind: Whether ``path`` identifies a file or directory.
     Returns:
         Inferred dataset name from the path
     """
     # Split protocol and path for cloud storage
     protocol, pure_path = split_protocol(path)
+    if path_kind == "directory":
+        return posixpath.basename(pure_path.rstrip("/")).lower()
     if protocol is None:
         # Local path handling
         first_file = Path(path)
