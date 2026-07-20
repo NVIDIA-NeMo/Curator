@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
+
+import pandas as pd
+import pyarrow as pa
 import pytest
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import Task
+from nemo_curator.tasks import DocumentBatch, Task
 
 
 class MockTask(Task[dict]):
@@ -64,6 +68,22 @@ class BackendConfiguredStage(ConcreteProcessingStage):
 
     def num_workers(self) -> int | None:
         return 2
+
+
+@pytest.mark.parametrize("table_factory", [pa.table, pd.DataFrame], ids=["pyarrow", "pandas"])
+def test_validate_input_with_tabular_columns(
+    table_factory: Callable[[dict[str, list[str]]], pa.Table | pd.DataFrame],
+) -> None:
+    class TextProcessingStage(ConcreteProcessingStage):
+        def inputs(self) -> tuple[list[str], list[str]]:
+            return ["data"], ["text content"]
+
+    stage = TextProcessingStage()
+    valid_batch = DocumentBatch(dataset_name="test", data=table_factory({"text content": ["hello"]}))
+    missing_batch = DocumentBatch(dataset_name="test", data=table_factory({"other": ["hello"]}))
+
+    assert stage.validate_input(valid_batch)
+    assert not stage.validate_input(missing_batch)
 
 
 class TestProcessingStageWith:

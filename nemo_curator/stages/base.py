@@ -190,8 +190,10 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         # Check required columns exist
         missing_data_attrs = []
+        get_columns = getattr(task, "get_columns", None)
+        data_columns = get_columns() if callable(get_columns) else getattr(task.data, "column_names", ())
         for attr in required_data_attrs:
-            if not hasattr(task.data, attr):
+            if not hasattr(task.data, attr) and attr not in data_columns:
                 missing_data_attrs.append(attr)
 
         # Log warning with missing attributes
