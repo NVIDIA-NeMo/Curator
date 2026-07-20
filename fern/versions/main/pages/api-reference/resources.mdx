@@ -133,6 +133,8 @@ high_resource_stage = stage.with_(
 )
 ```
 
+`Resources` specifies the reservation for each worker; it does not set the number of workers. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing) to configure fixed or autoscaling pools with `num_workers`, `ray_stage_spec`, and `xenna_stage_spec`.
+
 ## Source Code
 
 [View source on GitHub](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/resources.py)
