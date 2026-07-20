@@ -249,6 +249,7 @@ video_media = [
 math_cpu = [
     "nemo_curator[text_cpu]",  # Math examples use text processing utilities
     "boto3>=1.35",  # S3 range requests for Common Crawl WARC fetching
+    "python-magic==0.4.24",  # Python bindings for the libmagic runtime
 ]
 
 math_cuda12 = [

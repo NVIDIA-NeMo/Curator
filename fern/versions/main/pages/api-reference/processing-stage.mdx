@@ -142,6 +142,51 @@ def process_batch(self, tasks: list[InputT]) -> list[OutputT | None]:
     """
 ```
 
+## Backend Configuration Hooks
+
+### `num_workers()`
+
+Return a backend-neutral worker count. `None` delegates worker sizing to the executor.
+
+```python
+def num_workers(self) -> int | None:
+    return None
+```
+
+`num_workers` is reserved as a method. A subclass that defines it as a class attribute or dataclass field raises `TypeError`. Override the method for a class-level default, or use `stage.with_(num_workers=...)` for one pipeline instance.
+
+The exact meaning depends on the executor: Ray Data creates a fixed actor or task pool, Xenna treats it as a cluster-wide count, and Ray Actor Pool caps it to available resource capacity when necessary. See [Stage Worker Sizing](/reference/infra/stage-worker-sizing) for the complete backend matrix.
+
+### `ray_stage_spec()`
+
+Return Ray-specific stage options. Ray Data consumes the worker-pool keys below, while selected flags are also used by Ray Actor Pool. Use the `RayStageSpecKeys` enum rather than spelling keys manually:
+
+```python
+from nemo_curator.backends.utils import RayStageSpecKeys
+
+def ray_stage_spec(self) -> dict:
+    return {
+        RayStageSpecKeys.IS_ACTOR_STAGE: True,
+        RayStageSpecKeys.MIN_WORKERS: 2,
+        RayStageSpecKeys.MAX_WORKERS: 8,
+        RayStageSpecKeys.INITIAL_WORKERS: 4,
+    }
+```
+
+### `xenna_stage_spec()`
+
+Return Xenna-specific stage options:
+
+```python
+def xenna_stage_spec(self) -> dict:
+    return {
+        "num_workers_per_node": 2,
+        "worker_max_lifetime_m": 45,
+    }
+```
+
+Do not put `num_workers` in this dictionary. Use the common `num_workers()` hook for a cluster-wide Xenna count. `num_workers()` and `num_workers_per_node` cannot be set together.
+
 `task_id` is framework-owned. The executor adapter assigns it after either `process()` or `process_batch()` returns, so custom stages must not set or derive IDs. For deterministic lineage, preserve positional correspondence in batched code: return one task or `None` for every input. A batch that maps multiple inputs to a different number of outputs receives random `r`-prefixed IDs because parentage is ambiguous.
 
 For source-level checkpointing and the complete mapping rules, refer to [Resumable Processing](/reference/infra/resumable-processing#custom-stage-responsibilities).
@@ -223,14 +268,36 @@ All three execution backends (`XennaExecutor`, `RayDataExecutor`, `RayActorPoolE
 
 ## Configuration with `with_()`
 
-Stages can be configured using the `with_()` method:
+`with_()` deep-copies a stage and configures the copy without mutating the original. It supports portable properties and backend-specific overrides:
 
 ```python
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.resources import Resources
 
 stage = MyCustomStage(threshold=0.7)
-configured_stage = stage.with_(resources=Resources(cpus=4.0, gpus=1.0))
+configured_stage = stage.with_(
+    name="configured_stage",
+    resources=Resources(cpus=4.0, gpus=1.0),
+    batch_size=8,
+    runtime_env={"pip": ["transformers==4.45.0"]},
+    num_workers=4,
+    ray_stage_spec={
+        RayStageSpecKeys.RAY_NUM_CPUS: 1.0,
+    },
+    xenna_stage_spec={
+        "worker_max_lifetime_m": 45,
+    },
+)
 ```
+
+`ray_stage_spec` and `xenna_stage_spec` are shallow-merged: user-provided top-level keys win, while nested dictionaries are replaced rather than recursively merged. An explicit `None` inside a stage-spec dictionary is retained. In contrast, passing the whole `ray_stage_spec=None` or `xenna_stage_spec=None` means no override.
+
+`num_workers` uses an unset sentinel internally, so omission and explicit `None` differ:
+
+- Omitting `num_workers` preserves the stage's current method result.
+- `with_(num_workers=None)` resets an inherited fixed count to executor-controlled behavior.
+
+See [Stage Worker Sizing](/reference/infra/stage-worker-sizing) for merge examples, precedence rules, and invalid combinations. See [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime) for dependency isolation.
 
 ## Source Code
 
