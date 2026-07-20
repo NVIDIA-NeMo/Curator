@@ -30,13 +30,29 @@ from nemo_curator.tasks.video import Clip, Video, VideoTask
 from nemo_curator.utils import grouping
 from nemo_curator.utils.operation_utils import make_pipeline_temporary_dir
 
+SUPPORTED_ENCODERS = ("h264_nvenc", "libvpx-vp9", "libopenh264")
+
+_BYO_H264_DOCS_URL = (
+    "https://github.com/NVIDIA-NeMo/Curator/blob/main/fern/versions/main/pages/get-started/installation.mdx"
+    "#software-h264hevcav1-codec-support-advanced"
+)
+
 
 @dataclass
 class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that transcodes video clips into a standardized format.
 
-    This stage handles the conversion of video clips using FFmpeg, supporting both
-    software (libx264, libopenh264) and hardware (NVENC) encoding with configurable parameters.
+    This stage handles the conversion of video clips using FFmpeg. Supported
+    encoders:
+
+    - ``h264_nvenc`` — hardware H.264 via NVENC (recommended; requires an
+      NVENC-equipped NVIDIA GPU — note that A100/H100 do not include NVENC).
+    - ``libvpx-vp9`` — royalty-free VP9 software encoder (CPU fallback for
+      non-NVENC GPUs). Significantly slower; emits a perf advisory.
+    - ``libopenh264`` — H.264 software encoder. Not bundled with Curator's
+      FFmpeg build for licensing reasons; users must install it themselves.
+      The stage probes for it at setup time and raises a clear error pointing
+      to the docs if it is not available.
 
     Args:
         num_cpus_per_worker: Number of CPUs per worker for Xenna scheduling. Does not affect Ray Data CPU scheduling; use ray_data_num_cpus for that.
@@ -44,7 +60,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         encoder_threads: Number of threads per encoder.
         encode_batch_size: Number of clips to encode in parallel.
         nb_streams_per_gpu: Number of streams per GPU.
-        use_hwaccel: Whether to use hardware acceleration.
+        use_hwaccel: Whether to use hardware acceleration. Only valid with `h264_nvenc`.
         use_input_bit_rate: Whether to use input video bit rate.
         num_clips_per_chunk: Number of clips per chunk. If the number of clips is larger than this, the clips will be split into chunks, and created VideoTasks for each chunk.
         verbose: Whether to print verbose logs.
@@ -53,7 +69,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     """
 
     num_cpus_per_worker: float = 6.0
-    encoder: str = "libx264"
+    encoder: str = "h264_nvenc"
     encoder_threads: int = 1
     encode_batch_size: int = 16
     nb_streams_per_gpu: int = 3
@@ -75,11 +91,49 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
         if not shutil.which("ffmpeg"):
-            msg = "ClipTranscodingStage requires 'ffmpeg' built with libopenh264/NVENC support. See docker/common/install_ffmpeg.sh."
+            msg = (
+                "Could not find `ffmpeg` on PATH. ClipTranscodingStage requires "
+                "FFmpeg built with supported video encoders. See docker/common/install_ffmpeg.sh."
+            )
             raise RuntimeError(msg)
-        if self.encoder not in {"libopenh264", "libx264", "h264_nvenc"}:
-            error_msg = f"Expected encoder of `libopenh264`, `libx264`, or `h264_nvenc`. Got {self.encoder}"
+        if self.encoder not in SUPPORTED_ENCODERS:
+            error_msg = f"Expected encoder in {SUPPORTED_ENCODERS}. Got {self.encoder}"
             raise ValueError(error_msg)
+        if self.encoder == "libvpx-vp9" and self.use_hwaccel:
+            error_msg = "use_hwaccel is not supported with libvpx-vp9 (CPU encoder)"
+            raise ValueError(error_msg)
+        if self.encoder == "libopenh264":
+            self._verify_libopenh264_available()
+
+    @staticmethod
+    def _verify_libopenh264_available() -> None:
+        """Probe the local FFmpeg build for libopenh264 support."""
+        ffmpeg_bin = shutil.which("ffmpeg")
+        if ffmpeg_bin is None:
+            error_msg = (
+                "Could not find `ffmpeg` on PATH while verifying libopenh264 support. "
+                f"Install FFmpeg and ensure it is on PATH. See {_BYO_H264_DOCS_URL}"
+            )
+            raise RuntimeError(error_msg)
+        try:
+            result = subprocess.run(  # noqa: S603
+                [ffmpeg_bin, "-hide_banner", "-encoders"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired as e:
+            error_msg = f"`ffmpeg -encoders` timed out while verifying libopenh264 support. See {_BYO_H264_DOCS_URL}"
+            raise RuntimeError(error_msg) from e
+        if "libopenh264" not in result.stdout:
+            error_msg = (
+                "encoder='libopenh264' was requested but the local FFmpeg build "
+                "does not include it. Curator does not ship libopenh264 due to "
+                "its patent-license redistribution model. To enable it, install "
+                f"a libopenh264-enabled FFmpeg yourself — see {_BYO_H264_DOCS_URL}"
+            )
+            raise RuntimeError(error_msg)
 
     def __post_init__(self) -> None:
         """Post-initialization method called after all fields are set."""
@@ -96,6 +150,14 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                 # and FixedStrideExtractorStage. Kept separate from resources.cpus
                 # so Xenna scheduling is unaffected.
                 self.ray_data_num_cpus = 1.0
+
+        if self.encoder == "libvpx-vp9":
+            logger.warning(
+                "ClipTranscodingStage: libvpx-vp9 is significantly slower than "
+                "h264_nvenc and libopenh264. If your GPU has NVENC, prefer "
+                "encoder='h264_nvenc'. To use libopenh264 instead, see "
+                f"{_BYO_H264_DOCS_URL}"
+            )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["source_bytes"]
@@ -245,11 +307,8 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
     def _add_hwaccel_options(self, command: list[str]) -> None:
         """Add hardware acceleration options to command."""
-        if self.use_hwaccel:
-            if self.encoder == "h264_nvenc":
-                command.extend(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
-            else:
-                command.extend(["-hwaccel", "auto"])
+        if self.use_hwaccel and self.encoder == "h264_nvenc":
+            command.extend(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
 
     def _add_input_options(self, command: list[str], clip: Clip, video_filename: str, index: int) -> None:
         """Add input options to command."""
@@ -276,6 +335,8 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
         if self.encoder == "h264_nvenc":
             self._add_nvenc_options(command, force_pix_fmt)
+        elif self.encoder == "libvpx-vp9":
+            self._add_libvpx_vp9_options(command, use_bit_rate, force_pix_fmt)
 
     def _add_nvenc_options(self, command: list[str], force_pix_fmt: bool) -> None:
         """Add NVENC-specific encoding options."""
@@ -295,6 +356,28 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                 "20",
                 "-spatial-aq",
                 "1",
+            ]
+        )
+
+        if force_pix_fmt:
+            command.extend(["-pix_fmt", "yuv420p"])
+
+    def _add_libvpx_vp9_options(self, command: list[str], use_bit_rate: str | None, force_pix_fmt: bool) -> None:
+        """Add libvpx-vp9 (CPU) encoding options."""
+        # Constant-quality mode when no explicit bitrate is requested.
+        # libvpx-vp9 requires `-b:v 0` to honor `-crf` exactly.
+        if use_bit_rate is None:
+            command.extend(["-b:v", "0", "-crf", "31"])
+        command.extend(
+            [
+                "-deadline",
+                "good",
+                "-cpu-used",
+                "4",
+                "-row-mt",
+                "1",
+                "-tile-columns",
+                "2",
             ]
         )
 

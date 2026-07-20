@@ -12,26 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .audio_task import AudioTask
-from .document import DocumentBatch
-from .file_group import FileGroupTask
-from .image import ImageBatch, ImageObject
-from .interleaved import InterleavedBatch
-from .lance import LanceReadTask
-from .sentinels import EmptyTask, FailedTask, NoneTask, SentinelTask
-from .tasks import Task
+from dataclasses import replace
 
-__all__ = [
-    "AudioTask",
-    "DocumentBatch",
-    "EmptyTask",
-    "FailedTask",
-    "FileGroupTask",
-    "ImageBatch",
-    "ImageObject",
-    "InterleavedBatch",
-    "LanceReadTask",
-    "NoneTask",
-    "SentinelTask",
-    "Task",
-]
+from nemo_curator.tasks import LanceReadTask
+
+
+def test_lance_read_task_deterministic_id() -> None:
+    task = LanceReadTask(dataset_name="docs", path="s3://bucket/docs.lance", version=1, data=[1, 2])
+    task_id = task.get_deterministic_id()
+
+    assert task_id == replace(task).get_deterministic_id()
+    assert task_id != replace(task, path="s3://bucket/other.lance").get_deterministic_id()
+    assert task_id != replace(task, version=2).get_deterministic_id()
+    assert task_id != replace(task, data=[1, 3]).get_deterministic_id()
