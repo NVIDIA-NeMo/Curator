@@ -12,6 +12,12 @@ results to JSONL. It uses the generic YAML runner in
 - About 15 GB of disk space for the first model download
 - Audio files accessible from the machine running the pipeline
 
+> **Supported audio formats:** This tutorial loads audio with
+> `MonoConversionStage`, which uses SoundFile/libsndfile. Transcode AAC/M4A
+> inputs to a libsndfile-supported format such as WAV, FLAC, OGG, or OPUS
+> before running the pipeline. Undecodable rows are skipped by the current
+> loader, so compare the input and output row counts after each run.
+
 From the Curator repository root, install the optional Qwen stack:
 
 ```bash
