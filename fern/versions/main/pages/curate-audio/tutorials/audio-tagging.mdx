@@ -63,8 +63,8 @@ Create a JSONL file with one audio recording per line:
 
 | Field | Requirement | Behavior |
 | --- | --- | --- |
-| `audio_filepath` | Required | Local or filesystem-supported input path. A missing or unreadable file fails an audio-loading stage. |
-| `audio_item_id` | Optional | Stable identifier used for resampled filenames and speaker IDs. If omitted, resampling derives `<stem>_<path-hash>`. Supply it for reproducible, recognizable output. |
+| `audio_filepath` | Required | Local path readable by FFmpeg. A missing or unreadable file fails an audio-loading stage. |
+| `audio_item_id` | Optional | Stable, unique identifier within a shared `resampled_audio_dir`; it determines resampled filenames and speaker IDs. If omitted, resampling derives `<stem>_<path-hash>`. Supply it for reproducible, recognizable output. Reusing an ID can reuse cached audio from another manifest row. |
 
 Relative paths are resolved from the directory where you launch the tutorial. `ManifestReader` ignores blank lines and creates one `AudioTask` per nonblank JSON object.
 
@@ -80,10 +80,10 @@ uv run python tutorials/audio/tagging/main.py \
   --config-name tts_pipeline \
   input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \
   final_manifest=/tmp/tts_output.jsonl \
-  hf_token="$HF_TOKEN"
+  hf_token='${oc.env:HF_TOKEN}'
 ```
 
-The TTS configuration creates 5–20 second, single-speaker segments. `full_utterance_ratio: 1.0` prefers complete punctuation-bounded utterances, while pause and bandwidth changes can also close a segment after its minimum duration.
+The TTS configuration targets 5–20 second, single-speaker segments. `min_duration: 5` is a threshold used before pause, bandwidth, or punctuation-boundary decisions; short terminal groups can still remain. `full_utterance_ratio: 1.0` prefers complete punctuation-bounded utterances.
 
 ## Run the ASR pipeline
 
@@ -93,7 +93,7 @@ uv run python tutorials/audio/tagging/main.py \
   --config-name asr_pipeline \
   input_manifest=tests/fixtures/audio/tagging/sample_input.jsonl \
   final_manifest=/tmp/asr_output.jsonl \
-  hf_token="$HF_TOKEN"
+  hf_token='${oc.env:HF_TOKEN}'
 ```
 
 The ASR configuration uses `full_utterance_ratio: 0.8`, may combine speakers, and then transcribes each prepared segment with `nvidia/stt_en_conformer_ctc_large`. `ComputeWERStage` compares the second-pass `text_2` value with first-pass `text`.
@@ -151,7 +151,7 @@ The runnable configurations are `tutorials/audio/tagging/tts_pipeline.yaml` and 
 | `language_short` | `en` | Language passed to WER text normalization in the ASR configuration. |
 | `execution_mode` | `streaming` | Backend executor mode. |
 | `stages.4.batch_size` | `32` | Pipeline task batch for the first ASR stage in the supplied YAML. |
-| `stages.9.min_duration` | `5` | Minimum prepared training-segment duration in seconds. |
+| `stages.9.min_duration` | `5` | Threshold in seconds used before pause, bandwidth, or punctuation-boundary decisions; it is not a guaranteed output minimum. |
 | `stages.9.max_duration` | `20` | Maximum prepared training-segment duration in seconds. |
 | `stages.9.max_pause` | `2` | TTS pause boundary in seconds after the minimum duration. |
 
@@ -163,7 +163,7 @@ uv run python tutorials/audio/tagging/main.py \
   --config-name tts_pipeline \
   input_manifest=/data/input.jsonl \
   final_manifest=/data/tts-output.jsonl \
-  hf_token="$HF_TOKEN" \
+  hf_token='${oc.env:HF_TOKEN}' \
   max_segment_length=30 \
   stages.4.batch_size=16 \
   stages.4.transcribe_batch_size=16 \
@@ -290,7 +290,7 @@ SQUIM values are model estimates, not comparisons against a clean reference. Cal
 ## Reruns, artifacts, and failures
 
 - The writer truncates `final_manifest` when a run initializes. Write to a new path if you need to preserve a prior result.
-- Resampled audio is reused when the destination already exists. Remove stale files from `resampled_audio_dir` after changing source audio, sample rate, channel count, or format.
+- Resampled audio is reused when the destination already exists. Keep supplied `audio_item_id` values unique within a shared `resampled_audio_dir`; otherwise a row can reuse another row's cached audio. Remove stale files from `resampled_audio_dir` after changing a source for an existing ID, sample rate, channel count, or format.
 - Diarization writes RTTM files and splitting writes WAV files next to the resampled audio. Budget workspace storage for these artifacts.
 - The tutorial has no manifest checkpoint or automatic resume cursor. A rerun starts reading the input manifest from the beginning, though existing resampled files can be reused.
 - First-pass ASR isolates failures by retrying individual audio files; second-pass segment inference and SQUIM model failures are fatal. Inspect warnings and metric skip reasons before treating a completed manifest as complete.
