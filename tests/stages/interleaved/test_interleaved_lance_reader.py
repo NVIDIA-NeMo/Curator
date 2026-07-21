@@ -221,6 +221,34 @@ def test_interleaved_lance_reader_non_streaming_records_stopped_early_metadata(t
     assert _tables(result)[0]["sample_id"].combine_chunks().to_pylist() == ["doc-a", "doc-a"]
 
 
+def test_interleaved_lance_reader_max_output_rows_counts_size_limited_flushes(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "limited-after-flush.lance"
+    rows = [
+        _row("doc-a", 0, "text", "a0"),
+        _row("doc-a", 1, "image"),
+        _row("doc-b", 0, "text", "b0"),
+        _row("doc-b", 1, "image"),
+        _row("doc-c", 0, "text", "c0"),
+        _row("doc-c", 1, "image"),
+    ]
+    _write_interleaved_dataset(dataset_path, rows)
+    task = _single_fragment_task(dataset_path)
+
+    result = InterleavedLanceReaderStage(
+        fields=list(INTERLEAVED_SCHEMA.names),
+        max_batch_rows=2,
+        max_output_rows=4,
+        include_lance_metadata=False,
+    ).process(task)
+
+    tables = _tables(result)
+    assert sum(table.num_rows for table in tables) == 4
+    assert [table["sample_id"].combine_chunks().to_pylist() for table in tables] == [
+        ["doc-a", "doc-a"],
+        ["doc-b", "doc-b"],
+    ]
+
+
 def test_interleaved_lance_reader_adds_lance_metadata_columns(tmp_path: Path) -> None:
     dataset_path = tmp_path / "metadata.lance"
     rows = [_row("doc-a", 0, "text", "a0"), _row("doc-a", 1, "image")]
