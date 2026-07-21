@@ -86,6 +86,16 @@ class TestRepositoryStewardNetwork(unittest.TestCase):
         assert result.returncode == 1
         assert "STALE maps" in result.stdout
 
+    def test_root_projection_omits_maintenance_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _fixture(root, ROOT, project=True)
+
+            projected = (root / "AGENTS.md").read_text(encoding="utf-8")
+
+        assert "## Network" not in projected
+        assert "Automated backing" not in projected
+
     def test_projector_rejects_path_escape(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

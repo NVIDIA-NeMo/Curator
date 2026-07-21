@@ -39,4 +39,4 @@ Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task
 
 ## Serves
 
-- Pipeline authors running locally, on Ray Data, and on Ray Actor Pool.
+- Pipeline authors running on Xenna or Ray Data. Ray Actor Pool guidance remains scoped to deduplication.

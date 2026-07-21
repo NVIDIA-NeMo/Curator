@@ -101,7 +101,7 @@ def render_node(
     return "\n".join(output).rstrip() + "\n"
 
 
-def render_root(data: dict, stewards: list[dict], grouped: dict[str, list[dict]]) -> str:
+def render_root(data: dict, grouped: dict[str, list[dict]]) -> str:
     output = [
         MARKER,
         "",
@@ -116,20 +116,6 @@ def render_root(data: dict, stewards: list[dict], grouped: dict[str, list[dict]]
     output.extend(f"- {pillar}" for pillar in data.get("pillars", []))
     _bullets(output, "Search Discipline", data.get("search_policy", []))
     _bullets(output, "Operating Rules", data.get("operating_rules", []))
-    output.extend(
-        [
-            "",
-            "## Network",
-            "",
-            "| Steward | Map | Invariants | Automated backing |",
-            "| --- | --- | --- | --- |",
-        ]
-    )
-    for steward in sorted(stewards, key=lambda item: item["id"]):
-        invariants = grouped.get(steward["id"], [])
-        machine = sum(item.get("verification") == "machine" for item in invariants)
-        percent = f"{100 * machine // len(invariants)}%" if invariants else "—"
-        output.append(f"| {steward['id']} | `{steward['path']}` | {len(invariants)} | {percent} |")
     root_invariants = grouped.get("root", [])
     if root_invariants:
         output.extend(
@@ -171,7 +157,7 @@ def build_maps(data: dict) -> dict[str, str]:
     maps: dict[str, str] = {}
     for steward in stewards:
         if steward["id"] == "root":
-            maps[steward["path"]] = render_root(data, stewards, grouped)
+            maps[steward["path"]] = render_root(data, grouped)
         else:
             maps[steward["path"]] = render_node(
                 steward,

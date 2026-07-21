@@ -33,22 +33,6 @@ Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task
 - Cross-surface work records Steward Notes naming consulted maps, accepted or deferred findings, proof run, collateral, and unresolved dissent.
 - Avoid unrelated refactors, speculative knobs, silent exception handling, and new suppressions unless they are part of the demonstrated fix.
 
-## Network
-
-| Steward | Map | Invariants | Automated backing |
-| --- | --- | --- | --- |
-| backends | `nemo_curator/backends/AGENTS.md` | 3 | 66% |
-| deduplication | `nemo_curator/stages/deduplication/AGENTS.md` | 4 | 0% |
-| docs | `fern/AGENTS.md` | 2 | 0% |
-| performance | `benchmarking/AGENTS.md` | 2 | 50% |
-| pipeline | `nemo_curator/AGENTS.md` | 4 | 50% |
-| root | `AGENTS.md` | 4 | 25% |
-| synthetic | `nemo_curator/stages/synthetic/AGENTS.md` | 3 | 33% |
-| tests | `tests/AGENTS.md` | 4 | 25% |
-| text | `nemo_curator/stages/text/AGENTS.md` | 3 | 33% |
-| tutorials | `tutorials/AGENTS.md` | 2 | 0% |
-| video | `nemo_curator/stages/video/AGENTS.md` | 3 | 33% |
-
 ## Protects (constitution)
 
 | Invariant | Sev | Backing | Proof / anchor |

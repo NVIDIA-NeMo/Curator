@@ -80,11 +80,6 @@ invoke = "python .github/scripts/check_gpu_test_coverage.py"
 location = ".github/scripts/check_gpu_test_coverage.py"
 proof_contains = "GPU test files are covered by gpu_test_groups.json"
 
-[check.text-registry]
-invoke = "uv run pytest tests/stages/text/classifiers/test_classifiers_init.py -q -m 'not gpu'"
-location = "tests/stages/text/classifiers/test_classifiers_init.py"
-proof_contains = "class TestDunderAll"
-
 [check.video-task]
 invoke = "uv run pytest tests/tasks/test_video.py -q -m 'not gpu'"
 location = "tests/tasks/test_video.py"
@@ -168,9 +163,8 @@ edges = [
 [[steward]]
 id = "text"
 path = "nemo_curator/stages/text/AGENTS.md"
-point_of_view = "Protect text batch shape, lazy optional imports, and the composability of classifiers, filters, embedders, I/O, and download stages."
+point_of_view = "Protect text batch shape and the composability of classifiers, filters, embedders, I/O, and download stages."
 guardrails = [
-  "Keep classifier registration lazy so importing the namespace does not initialize optional frameworks.",
   "When tokenization and model inference have distinct CPU/GPU scaling or persistent model state, use separate stages composed together unless the implementation documents why coupling is required.",
 ]
 owns = { code = ["nemo_curator/stages/text"], tests = ["tests/stages/text"] }
@@ -248,7 +242,7 @@ serves = ["Modality stages, backend adapters, workflow authors, and downstream l
 [judgment.backends]
 advocate = ["Make retry, resume, failure, and task-lineage behavior observable in focused tests."]
 do_not = ["Do not claim parity beyond the backends and cases exercised by evidence."]
-serves = ["Pipeline authors running locally, on Ray Data, and on Ray Actor Pool."]
+serves = ["Pipeline authors running on Xenna or Ray Data. Ray Actor Pool guidance remains scoped to deduplication."]
 
 [judgment.docs]
 advocate = ["Write from verified source behavior and include the setup needed to reproduce it."]
@@ -408,14 +402,6 @@ severity = "P2"
 verification = "manual"
 evidence_file = "nemo_curator/stages/synthetic/nemo_data_designer/data_designer.py"
 anchor = "class DataDesignerStage"
-
-[[invariant]]
-id = "text-classifier-lazy-registry"
-steward = "text"
-statement = "The text classifier namespace exports its lazy registry without eagerly initializing optional classifier implementations."
-severity = "P1"
-verification = "machine"
-enforced_by = "text-registry"
 
 [[invariant]]
 id = "document-batch-shape"
