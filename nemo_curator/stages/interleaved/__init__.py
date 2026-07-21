@@ -12,12 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.stages.interleaved.lance import InterleavedLanceReader, InterleavedLanceReaderStage
+from importlib import import_module
+
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
     BaseInterleavedFilterStage,
     InterleavedAspectRatioFilterStage,
 )
+
+_LAZY = {
+    "InterleavedLanceReader": ".lance",
+    "InterleavedLanceReaderStage": ".lance",
+}
 
 __all__ = [
     "BaseInterleavedAnnotatorStage",
@@ -26,3 +32,11 @@ __all__ = [
     "InterleavedLanceReader",
     "InterleavedLanceReaderStage",
 ]
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY.get(name)
+    if target is None:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+    return getattr(import_module(target, package=__name__), name)
