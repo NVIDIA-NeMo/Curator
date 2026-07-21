@@ -24,7 +24,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.text.io.reader.lance import LancePartitioningStage, LanceReaderStage, _pop_dataset_kwargs
+from nemo_curator.stages.interleaved.utils.schema import align_interleaved_table
+from nemo_curator.stages.text.io.reader.lance import LancePartitioningStage, LanceReaderStage
 from nemo_curator.tasks import EmptyTask, InterleavedBatch, LanceReadTask
 from nemo_curator.utils.lance import add_lance_metadata_columns
 
@@ -53,10 +54,7 @@ class _BatchAccumulator:
         self.pending_rows = 0
 
 
-def _split_table_by_consecutive_group(table: pa.Table, group_column: str) -> list[pa.Table]:
-    """Split a table into consecutive group slices without reordering rows."""
-    if table.num_rows == 0:
-        return []
+def _validated_group_column(table: pa.Table, group_column: str) -> pa.Array:
     if group_column not in table.column_names:
         msg = f"Group column '{group_column}' not found in table"
         raise ValueError(msg)
@@ -65,6 +63,14 @@ def _split_table_by_consecutive_group(table: pa.Table, group_column: str) -> lis
     if pc.any(pc.is_null(col)).as_py():
         msg = f"Group column '{group_column}' contains null values"
         raise ValueError(msg)
+    return col
+
+
+def _split_table_by_consecutive_group(table: pa.Table, group_column: str) -> list[pa.Table]:
+    """Split a table into consecutive group slices without reordering rows."""
+    if table.num_rows == 0:
+        return []
+    col = _validated_group_column(table, group_column)
     if table.num_rows == 1:
         return [table]
 
@@ -225,9 +231,11 @@ class InterleavedLanceReaderStage(LanceReaderStage):
             splits, metadata = self._stream_read_task(task)
         else:
             output: ReaderOutput = self.read_task(task, dict(self.read_kwargs or {}), self.fields)
-            self._validate_result(task, output.data)
+            _validated_group_column(output.data, _GROUP_COLUMN)
+            table = align_interleaved_table(output.data)
+            self._validate_result(task, table)
             splits, stopped_early = _tables_from_record_batches(
-                [output.data],
+                [table],
                 group_column=_GROUP_COLUMN,
                 max_batch_bytes=self.max_batch_bytes,
                 max_batch_rows=self.max_batch_rows,
@@ -271,30 +279,14 @@ class InterleavedLanceReaderStage(LanceReaderStage):
         return batches if len(batches) > 1 else batches[0]
 
     def _stream_read_task(self, task: LanceReadTask) -> tuple[list[pa.Table], dict[str, Any]]:
-        import lance
-        from lance.schema import schema_to_json
-
-        read_kwargs = dict(self.read_kwargs or {})
-        dataset_kwargs = _pop_dataset_kwargs(read_kwargs)
-        dataset_kwargs["version"] = task.version
-
-        scanner_kwargs = self._scanner_kwargs(read_kwargs, self.fields)
-        dataset = lance.dataset(task.path, **dataset_kwargs)
-        fragments = [dataset.get_fragment(fragment_id) for fragment_id in task.data]
-        requested_columns = scanner_kwargs.get("columns")
-        blob_columns = [
-            field.name
-            for field in dataset.schema
-            if getattr(field.type, "extension_name", None) == "lance.blob.v2"
-            and (requested_columns is None or field.name in requested_columns)
-        ]
+        dataset, scanner_kwargs, blob_columns = self._dataset_and_scanner_kwargs(
+            task,
+            dict(self.read_kwargs or {}),
+            self.fields,
+        )
         if blob_columns:
             msg = "streaming InterleavedLanceReaderStage does not support lance.blob.v2 columns"
             raise NotImplementedError(msg)
-        if self.include_lance_metadata:
-            scanner_kwargs["with_row_address"] = True
-            scanner_kwargs["with_row_id"] = True
-        scanner_kwargs["fragments"] = fragments
 
         splits, stopped_early = _tables_from_record_batches(
             dataset.scanner(**scanner_kwargs).to_batches(),
@@ -307,18 +299,16 @@ class InterleavedLanceReaderStage(LanceReaderStage):
             self._validate_result(task, pa.Table.from_pylist([]))
         if self.include_lance_metadata:
             splits = [add_lance_metadata_columns(split) for split in splits]
+        splits = [align_interleaved_table(split) for split in splits]
 
-        metadata = {
-            "source_files": [task.path],
-            "lance": {
-                "version": task.version,
-                "fragment_ids": list(task.data),
-                "schema": schema_to_json(dataset.schema),
-                "has_stable_row_ids": dataset.has_stable_row_ids,
+        metadata = self._metadata_for_task(
+            task,
+            dataset,
+            {
                 "streaming_read": True,
                 "stopped_early": stopped_early,
             },
-        }
+        )
         return splits, metadata
 
 
