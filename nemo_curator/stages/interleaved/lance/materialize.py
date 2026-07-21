@@ -29,7 +29,6 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import InterleavedBatch
 
 from .fetch import (
-    ImageFetchMode,
     _as_table,
     _LanceFetchTimeoutError,
     _LanceImageFetcherBase,
@@ -94,7 +93,6 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
     io_threads: int = 32
     metadata_cache_size_bytes: int = 1024**3
     sort_row_ids_for_fetch: bool = False
-    fetch_mode: ImageFetchMode = "in_process"
     fetch_timeout_seconds: float = 600.0
     fetch_retries: int = 3
     fetcher_max_batches: int = 0
@@ -148,9 +146,6 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         if self.existing_column_policy not in {"error", "fill_null", "overwrite"}:
             msg = f"Unsupported existing_column_policy: {self.existing_column_policy}"
             raise ValueError(msg)
-        if self.fetch_mode not in {"in_process", "subprocess", "subprocess_on_timeout"}:
-            msg = f"Unsupported fetch_mode: {self.fetch_mode}"
-            raise ValueError(msg)
         for name, value in {
             "fetch_batch_size": self.fetch_batch_size,
             "io_threads": self.io_threads,
@@ -183,7 +178,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
     def teardown(self) -> None:
         self._close_fetcher(wait_for_fetches=True)
 
-    def _make_fetcher(self, *, fetch_mode: ImageFetchMode) -> _LanceImageFetcherBase:
+    def _make_fetcher(self) -> _LanceImageFetcherBase:
         common_kwargs = {
             "table_config": self.dataset,
             "columns": self.columns,
@@ -191,7 +186,6 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
             "io_threads": self.io_threads,
             "metadata_cache_size_bytes": self.metadata_cache_size_bytes,
             "fetch_timeout_seconds": self.fetch_timeout_seconds,
-            "fetch_mode": fetch_mode,
         }
         if self.address_mode == "row_address":
             return _LanceRowAddressFetcher(**common_kwargs)
@@ -202,7 +196,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
 
     def _ensure_fetcher(self) -> _LanceImageFetcherBase:
         if self._fetcher is None:
-            self._fetcher = self._make_fetcher(fetch_mode=self.fetch_mode)
+            self._fetcher = self._make_fetcher()
             self._fetcher_batches = 0
         return self._fetcher
 
@@ -221,16 +215,6 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
             return
         self._close_fetcher(wait_for_fetches=True)
 
-    def _fetch_requested_images_subprocess_fallback(
-        self,
-        requested_addresses: list[LanceImageAddress],
-    ) -> _RowIdFetchResult:
-        fallback_fetcher = self._make_fetcher(fetch_mode="subprocess")
-        try:
-            return fallback_fetcher.fetch(requested_addresses)  # type: ignore[arg-type]
-        finally:
-            fallback_fetcher.close(wait_for_fetches=True)
-
     def _fetch_requested_images(self, requested_addresses: list[LanceImageAddress]) -> tuple[_RowIdFetchResult, int]:
         max_attempts = self.fetch_retries + 1
         for attempt in range(1, max_attempts + 1):
@@ -238,16 +222,6 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
                 return self._ensure_fetcher().fetch(requested_addresses), attempt  # type: ignore[arg-type]
             except _LanceFetchTimeoutError as exc:
                 self._close_fetcher(wait_for_fetches=False)
-                if self.fetch_mode == "subprocess_on_timeout":
-                    try:
-                        return self._fetch_requested_images_subprocess_fallback(requested_addresses), attempt + 1
-                    except _LanceFetchTimeoutError as fallback_exc:
-                        if attempt >= max_attempts:
-                            msg = (
-                                f"Lance image fetch timed out after {attempt} attempts and subprocess fallback "
-                                f"(timeout={self.fetch_timeout_seconds:.1f}s)"
-                            )
-                            raise RuntimeError(msg) from fallback_exc
                 if attempt >= max_attempts:
                     msg = (
                         f"Lance image fetch timed out after {attempt} attempts "
@@ -428,7 +402,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         return values
 
     def _can_replace_whole_columns(self, table: pa.Table, requested_indices: list[int]) -> bool:
-        if requested_indices != list(range(table.num_rows)):
+        if len(requested_indices) != table.num_rows:
             return False
         if self.existing_column_policy != "fill_null":
             return True
@@ -531,10 +505,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         for index in requested_indices:
             values[index] = True
         presence = pa.array(values, type=pa.bool_(), from_pandas=True)
-        column_index = table.schema.get_field_index(self.presence_column)
-        if column_index >= 0:
-            return table.set_column(column_index, self.presence_column, presence)
-        return table.append_column(self.presence_column, presence)
+        return self._write_column(table, self.presence_column, presence)
 
     def _process_tasks(self, tasks: list[InterleavedBatch]) -> list[InterleavedBatch]:
         if len(tasks) == 0:
@@ -580,8 +551,6 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
             "input_tasks": float(len(prepared)),
             "input_rows": float(sum(prepared_task.table.num_rows for prepared_task in prepared)),
             "requested_lance_addresses": float(len(requested_addresses)),
-            "requested_row_ids": float(len(requested_addresses) if self.address_mode == "row_id" else 0),
-            "requested_row_addresses": float(len(requested_addresses) if self.address_mode == "row_address" else 0),
             "materializer_seconds": time.perf_counter() - process_started,
             "lance_fetch_seconds": fetch_result.fetch_seconds,
             "lance_fetch_attempts": float(fetch_attempts),
@@ -592,7 +561,6 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
             "lance_fetched_bytes": float(sum(fetch_result.fetched_bytes_by_column.values())),
             "lance_read_bytes": float(fetch_result.read_bytes),
             "lance_read_iops": float(fetch_result.read_iops),
-            "fetch_mode.subprocess": float(self.fetch_mode == "subprocess"),
             "address_mode.row_id": float(self.address_mode == "row_id"),
             "address_mode.row_address": float(self.address_mode == "row_address"),
         }
