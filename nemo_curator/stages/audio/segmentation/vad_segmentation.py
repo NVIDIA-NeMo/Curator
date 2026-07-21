@@ -48,7 +48,8 @@ from silero_vad import get_speech_timestamps, load_silero_vad
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
-from nemo_curator.stages.audio.common import ensure_waveform_2d, load_audio_file
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
+from nemo_curator.stages.audio._residency import InputResidency, residency_read_specs, resolve_audio
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -58,7 +59,7 @@ SILERO_TARGET_RATE = 16000
 
 
 @dataclass
-class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
+class VADSegmentationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """
     Stage to segment audio using Voice Activity Detection (VAD).
 
@@ -76,6 +77,20 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         speech_pad_ms: Padding in ms to add before/after speech segments.
         waveform_key: Key to get waveform data.
         sample_rate_key: Key to get sample rate.
+        audio_filepath_key: Key in data dict for the input audio file path.
+        segments_key: Key where the nested segments list is written (nested=True).
+        start_ms_key: Key where each segment's start time in milliseconds is written.
+        end_ms_key: Key where each segment's end time in milliseconds is written.
+        segment_num_key: Key where each segment's index is written.
+        duration_key: Key where each segment's duration in seconds is written.
+        original_file_key: Key carrying the source file path for provenance.
+        nested: If True, return one task with all segment dicts under segments_key
+            instead of fanning out one task per segment (default False).
+        input_residency: Which input to use — "waveform" (in-memory only), "file"
+            (audio_filepath only), or "auto" (waveform first, file fallback; default).
+        keep_segment_waveform_in_task: If True (default), store each segment's waveform
+            in the segment item. If False, nested segments are metadata-only — waveform
+            consumers such as SegmentConcatenation will skip them.
 
     Note:
         Default resources: cpus=1.0, gpus=0.0 (CPU). Silero VAD is lightweight.
@@ -87,9 +102,18 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
     max_duration_sec: float = 60.0
     threshold: float = 0.5
     speech_pad_ms: int = 300
+    audio_filepath_key: str = "audio_filepath"
     waveform_key: str = "waveform"
     sample_rate_key: str = "sample_rate"
+    segments_key: str = "segments"
+    start_ms_key: str = "start_ms"
+    end_ms_key: str = "end_ms"
+    segment_num_key: str = "segment_num"
+    duration_key: str = "duration"
+    original_file_key: str = "original_file"
     nested: bool = False
+    input_residency: InputResidency = "auto"
+    keep_segment_waveform_in_task: bool = True
 
     name: str = "VADSegmentation"
     batch_size: int = 1
@@ -99,12 +123,53 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
         super().__init__()
         self._vad_model = None
         self._device = None
+        if self.nested and not self.keep_segment_waveform_in_task:
+            logger.warning(
+                "[VADSegmentation] nested=True with keep_segment_waveform_in_task=False: "
+                "segments will carry no audio — SegmentConcatenation (and any waveform "
+                "consumer) will silently drop every segment. Metadata-only use intended?"
+            )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], ["waveform", "sample_rate", "start_ms", "end_ms", "segment_num", "duration"]
+        if self.nested:
+            return [], [self.segments_key]
+        outputs = [self.sample_rate_key, self.start_ms_key, self.end_ms_key, self.segment_num_key, self.duration_key]
+        if self.keep_segment_waveform_in_task:
+            outputs.append(self.waveform_key)
+        outputs.append(self.original_file_key)
+        return [], outputs
+
+    def describe(self) -> StageContract:
+        writes = [
+            self.sample_rate_key,
+            self.start_ms_key,
+            self.end_ms_key,
+            self.segment_num_key,
+            self.duration_key,
+            self.original_file_key,  # _build_segment_item always writes it
+        ]
+        produces = []
+        if self.keep_segment_waveform_in_task:
+            writes.append(self.waveform_key)
+            produces.append("tensor")
+        if self.nested:
+            writes = [self.segments_key]
+        return StageContract(
+            reads_one_of=residency_read_specs(
+                self.input_residency,
+                audio_filepath_key=self.audio_filepath_key,
+                waveform_key=self.waveform_key,
+                sample_rate_key=self.sample_rate_key,
+            ),
+            writes=IOSpec(data_keys=writes, produces=produces),
+            cardinality="1:1 nested-list" if self.nested else "1:N fan-out",
+            cardinality_options=["fan_out", "nested"],
+            iteration_key=self.segments_key,
+            gates=Gates(requires_gpu=self.resources.gpus > 0),
+        )
 
     def ray_stage_spec(self) -> dict[str, Any]:
         if self.nested:
@@ -180,51 +245,43 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
             not in (
                 self.waveform_key,
                 self.sample_rate_key,
-                "start_ms",
-                "end_ms",
-                "segment_num",
-                "duration",
+                self.start_ms_key,
+                self.end_ms_key,
+                self.segment_num_key,
+                self.duration_key,
                 "num_samples",
             )
         }
+        if not self.keep_segment_waveform_in_task:
+            segment_waveform = None
         segment_data.update(
             {
-                "waveform": segment_waveform,
-                "sample_rate": sample_rate,
-                "start_ms": start_ms,
-                "end_ms": end_ms,
-                "segment_num": segment_num,
-                "duration": (end_ms - start_ms) / 1000.0,
-                "original_file": item.get("original_file", item.get("audio_filepath", "unknown")),
+                self.sample_rate_key: sample_rate,
+                self.start_ms_key: start_ms,
+                self.end_ms_key: end_ms,
+                self.segment_num_key: segment_num,
+                self.duration_key: (end_ms - start_ms) / 1000.0,
+                self.original_file_key: item.get(self.original_file_key, item.get(self.audio_filepath_key, "unknown")),
             }
         )
+        if segment_waveform is not None:
+            segment_data[self.waveform_key] = segment_waveform
         return segment_data
 
     def _resolve_audio(self, item: dict[str, Any]) -> tuple[torch.Tensor, int] | None:
         """Resolve waveform and sample_rate from task data. Returns None on failure."""
-        waveform = item.get(self.waveform_key)
-        sample_rate = item.get(self.sample_rate_key)
+        resolved = resolve_audio(
+            item,
+            residency=self.input_residency,  # type: ignore[arg-type]
+            audio_filepath_key=self.audio_filepath_key,
+            waveform_key=self.waveform_key,
+            sample_rate_key=self.sample_rate_key,
+        )
+        if resolved is None:
+            logger.error("Missing waveform/sample_rate and no valid audio path provided")
+        return resolved
 
-        if waveform is None:
-            audio_filepath = item.get("audio_filepath")
-            if audio_filepath and os.path.exists(audio_filepath):
-                try:
-                    waveform, sample_rate = load_audio_file(audio_filepath)
-                    item[self.waveform_key] = waveform
-                    item[self.sample_rate_key] = sample_rate
-                except Exception as e:  # noqa: BLE001
-                    logger.error(f"Failed to load audio file {audio_filepath}: {e}")
-                    return None
-            else:
-                logger.error("Missing waveform and no valid audio_filepath provided")
-                return None
-        elif sample_rate is None:
-            logger.warning("Waveform present but sample_rate missing - task skipped")
-            return None
-
-        return ensure_waveform_2d(waveform), sample_rate
-
-    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:
+    def process(self, task: AudioTask) -> AudioTask | list[AudioTask]:  # noqa: PLR0911 (complexity accepted: one early return per input/error condition)
         """
         Process a single AudioTask.
 
@@ -238,7 +295,11 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
             msg = "VAD model failed to initialize. Cannot process audio."
             raise RuntimeError(msg)
 
-        audio_result = self._resolve_audio(task.data)
+        try:
+            audio_result = self._resolve_audio(task.data)
+        except (OSError, RuntimeError) as e:  # corrupt/unreadable audio -> skip the row, don't crash the batch
+            logger.error(f"Failed to load audio for {task.data.get(self.audio_filepath_key)!r}: {e}")
+            return []
         if audio_result is None:
             return []
         waveform, sample_rate = audio_result
@@ -248,11 +309,11 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
             if not segments:
                 logger.warning("No speech segments detected by VAD")
                 if self.nested:
-                    task.data["segments"] = []
+                    task.data[self.segments_key] = []
                     return task
                 return []
 
-            original_file = task.data.get("audio_filepath", "unknown")
+            original_file = task.data.get(self.audio_filepath_key, "unknown")
             file_name = os.path.basename(original_file) if original_file != "unknown" else task.task_id
             total_duration = sum((s["end"] - s["start"]) for s in segments)
             logger.info(
@@ -260,11 +321,11 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
             )
 
             if self.nested:
-                task.data["segments"] = [
+                task.data[self.segments_key] = [
                     self._build_segment_item(task.data, waveform, sample_rate, seg, i)
                     for i, seg in enumerate(segments)
                 ]
-                del task.data[self.waveform_key]
+                task.data.pop(self.waveform_key, None)
                 return task
 
             output_tasks: list[AudioTask] = []
@@ -273,9 +334,9 @@ class VADSegmentationStage(ProcessingStage[AudioTask, AudioTask]):
                 seg_task = AudioTask(
                     data=seg_data,
                     dataset_name=task.dataset_name,
+                    _metadata=dict(task._metadata or {}),
+                    _stage_perf=list(task._stage_perf),
                 )
-                if task._metadata:
-                    seg_task._metadata = dict(task._metadata)
                 output_tasks.append(seg_task)
 
         except Exception as e:  # noqa: BLE001

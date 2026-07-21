@@ -25,6 +25,7 @@ from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
@@ -41,7 +42,7 @@ def get_audio_duration(audio_filepath: str) -> float:
 
 
 @dataclass
-class GetAudioDurationStage(ProcessingStage[AudioTask, AudioTask]):
+class GetAudioDurationStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Compute audio duration from the file at *audio_filepath_key* and
     store the result under *duration_key*.
 
@@ -65,6 +66,12 @@ class GetAudioDurationStage(ProcessingStage[AudioTask, AudioTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.duration_key]
 
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.audio_filepath_key], accepts=["file"]),
+            writes=IOSpec(data_keys=[self.duration_key]),
+        )
+
     def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
         audio_filepath = task.data[self.audio_filepath_key]
@@ -74,7 +81,7 @@ class GetAudioDurationStage(ProcessingStage[AudioTask, AudioTask]):
         return task
 
 
-class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
+class PreserveByValueStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Filter entries by comparing *input_value_key* against *target_value*.
 
     Returns ``None`` from ``process()`` to drop entries that fail the
@@ -87,6 +94,7 @@ class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
     """
 
     name: str = "PreserveByValueStage"
+    BATCH_ONLY = True  # process() raises; only process_batch is implemented (agent-discovery hint)
 
     def __init__(
         self,
@@ -107,6 +115,13 @@ class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.input_value_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.input_value_key]),
+            writes=IOSpec(data_keys=[self.input_value_key]),
+            cardinality="filter",
+        )
 
     def process(self, task: AudioTask) -> AudioTask | None:
         msg = "PreserveByValueStage only supports process_batch"
@@ -133,7 +148,7 @@ class PreserveByValueStage(ProcessingStage[AudioTask, AudioTask]):
 
 
 @dataclass
-class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
+class ManifestReaderStage(AgentReady, ProcessingStage[FileGroupTask, AudioTask]):
     """Read JSONL manifest files from a FileGroupTask and emit one AudioTask per line.
 
     Uses line-by-line streaming via fsspec (no Pandas) to keep memory at ~1x file size.
@@ -177,9 +192,16 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def num_workers(self) -> int | None:
         return 1
 
+    def describe(self) -> StageContract:
+        return StageContract(
+            writes=IOSpec(data_keys=["audio_filepath"]),
+            cardinality="1:N fan-out",
+            gates=Gates(lifecycle_side_effects=True),
+        )
+
 
 @dataclass
-class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
+class ManifestReader(AgentReady, CompositeStage[EmptyTask, AudioTask]):
     """Composite stage for reading JSONL manifests.
 
     Decomposes into:
@@ -227,9 +249,12 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
             parts.append(f"with target blocksize {self.blocksize}")
         return ", ".join(parts)
 
+    def describe(self) -> StageContract:
+        return StageContract(cardinality="1:N fan-out", wrappable=False)
+
 
 @dataclass
-class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
+class ManifestWriterStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Append a single AudioTask to a JSONL manifest file.
 
     The output file is truncated once in ``setup()`` (called on the driver)
@@ -290,6 +315,18 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
     def num_workers(self) -> int | None:
         return 1
 
+    def describe(self) -> StageContract:
+        return StageContract(
+            gates=Gates(
+                writes_to_disk=True,
+                lifecycle_side_effects=True,
+                # Serializes task.data as-is via json.dumps; a resident tensor
+                # (e.g. a waveform) will crash it. Route through
+                # AudioToDocumentStage (which sanitizes) if one may be present.
+                requires_serializable_input=True,
+            ),
+        )
+
 
 def load_audio_file(audio_path: str, mono: bool = True) -> tuple[torch.Tensor, int]:
     """Load audio file and return waveform tensor (channels, samples) and sample rate."""
@@ -327,6 +364,13 @@ def resolve_waveform_from_item(
     item['audio_filepath'], resolves missing sample_rate from file header.
     Updates item in-place when loading from file.
     Returns None if resolution fails.
+
+    .. note::
+       The canonical resolver is :func:`nemo_curator.stages.audio._residency.resolve_audio`.
+       This helper is retained for its unique behavior — reading ``sample_rate`` from the
+       file header *without* reloading an already-present waveform, and writing the loaded
+       waveform/sample_rate back into ``item`` — which ``resolve_audio`` does not replicate.
+       Prefer ``resolve_audio`` in new code.
     """
     waveform = item.get("waveform")
     sample_rate = item.get("sample_rate")
