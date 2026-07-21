@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import copy
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -24,7 +25,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.text.io.reader.lance import LancePartitioningStage, LanceReaderStage
+from nemo_curator.stages.text.io.reader.lance import LancePartitioningStage, LanceReaderStage, _pop_dataset_kwargs
 from nemo_curator.tasks import EmptyTask, InterleavedBatch, LanceReadTask
 from nemo_curator.utils.lance import add_lance_metadata_columns
 
@@ -48,10 +49,13 @@ def _split_table_by_consecutive_group(table: pa.Table, group_column: str) -> lis
     if group_column not in table.column_names:
         msg = f"Group column '{group_column}' not found in table"
         raise ValueError(msg)
+    col = table[group_column].combine_chunks()
+    if pc.any(pc.is_null(col)).as_py():
+        msg = f"Group column '{group_column}' contains null values"
+        raise ValueError(msg)
     if table.num_rows == 1:
         return [table]
 
-    col = table[group_column].combine_chunks()
     group_change = pc.not_equal(col.slice(1), col.slice(0, table.num_rows - 1))
     group_change = pc.fill_null(group_change, False)
     split_points = pc.indices_nonzero(group_change).to_pylist()
@@ -176,6 +180,20 @@ def _tables_from_record_batches(  # noqa: C901
     return chunks, stopped_early
 
 
+def _reader_metadata(
+    metadata: dict[str, Any],
+    *,
+    streaming_read: bool,
+    stopped_early: bool,
+) -> dict[str, Any]:
+    metadata = copy.deepcopy(metadata)
+    lance_metadata = dict(metadata.get("lance", {}))
+    lance_metadata["streaming_read"] = streaming_read
+    lance_metadata["stopped_early"] = stopped_early
+    metadata["lance"] = lance_metadata
+    return metadata
+
+
 @dataclass
 class InterleavedLanceReaderStage(LanceReaderStage):
     """Read Lance fragments into validated ``InterleavedBatch`` objects."""
@@ -204,14 +222,18 @@ class InterleavedLanceReaderStage(LanceReaderStage):
         else:
             output: ReaderOutput = self.read_task(task, dict(self.read_kwargs or {}), self.fields)
             self._validate_result(task, output.data)
-            splits, _ = _tables_from_record_batches(
+            splits, stopped_early = _tables_from_record_batches(
                 [output.data],
                 group_column=_GROUP_COLUMN,
                 max_batch_bytes=self.max_batch_bytes,
                 max_batch_rows=self.max_batch_rows,
                 max_output_rows=self.max_output_rows,
             )
-            metadata = output.metadata if output.metadata is not None else task._metadata
+            metadata = _reader_metadata(
+                output.metadata if output.metadata is not None else task._metadata,
+                streaming_read=False,
+                stopped_early=stopped_early,
+            )
 
         batches = [
             InterleavedBatch(
@@ -246,11 +268,8 @@ class InterleavedLanceReaderStage(LanceReaderStage):
         from lance.schema import schema_to_json
 
         read_kwargs = dict(self.read_kwargs or {})
-        dataset_kwargs = dict(read_kwargs.pop("dataset_options", {}) or {})
+        dataset_kwargs = _pop_dataset_kwargs(read_kwargs)
         dataset_kwargs["version"] = task.version
-        storage_options = read_kwargs.pop("storage_options", None)
-        if storage_options is not None:
-            dataset_kwargs["storage_options"] = storage_options
 
         scanner_kwargs = self._scanner_kwargs(read_kwargs, self.fields)
         dataset = lance.dataset(task.path, **dataset_kwargs)
