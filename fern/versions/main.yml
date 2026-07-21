@@ -321,6 +321,15 @@ navigation:
               - page: Multilingual Q&A
                 path: ./main/pages/curate-text/synthetic/multilingual-qa.mdx
                 slug: multilingual-qa
+              - section: Nemotron OCR
+                slug: nemotron-ocr
+                contents:
+                  - page: Overview
+                    path: ./main/pages/curate-text/synthetic/nemotron-ocr/index.mdx
+                    slug: ""
+                  - page: Tutorial
+                    path: ./main/pages/curate-text/synthetic/nemotron-ocr/tutorial.mdx
+                    slug: tutorial
               - section: Nemotron-CC
                 slug: nemotron-cc
                 contents:
