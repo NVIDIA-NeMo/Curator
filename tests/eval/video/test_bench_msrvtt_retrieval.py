@@ -37,7 +37,6 @@ from eval.video.bench_msrvtt_retrieval import (
     v2t_gt_ranks,
 )
 
-
 # ---- _normalise ----
 
 
@@ -93,7 +92,7 @@ class TestBuildCorpus:
             {"video_id": "vid1", "video_path": "/first.mp4", "caption": "a"},
             {"video_id": "vid1", "video_path": "/second.mp4", "caption": "b"},
         ]
-        ids, paths = build_corpus(records)
+        _ids, paths = build_corpus(records)
         assert paths == ["/first.mp4"]
 
     def test_empty_records(self) -> None:
@@ -315,15 +314,24 @@ class TestParseArgs:
         assert args.output is None
 
     def test_custom_values(self) -> None:
-        args = parse_args([
-            "--model-dir", "/models",
-            "--variant", "224p",
-            "--split", "val",
-            "--top-k", "5",
-            "--limit", "100",
-            "--sample-fps", "4.0",
-            "--direction", "t2v",
-        ])
+        args = parse_args(
+            [
+                "--model-dir",
+                "/models",
+                "--variant",
+                "224p",
+                "--split",
+                "val",
+                "--top-k",
+                "5",
+                "--limit",
+                "100",
+                "--sample-fps",
+                "4.0",
+                "--direction",
+                "t2v",
+            ]
+        )
         assert args.variant == "224p"
         assert args.split == "val"
         assert args.top_k == 5
@@ -390,13 +398,14 @@ class TestEmbedVideos:
         assert embs.shape == (1, _DIM)
 
     def test_failed_video_sets_valid_false(self) -> None:
-        def _loader(path, fps):
+        def _loader(path: str, _fps: float) -> list[np.ndarray]:
             if "good" in path:
                 return _FAKE_FRAMES
-            raise ValueError("undecodable")
+            msg = "undecodable"
+            raise ValueError(msg)
 
         with patch("eval.video.bench_msrvtt_retrieval._load_frames", side_effect=_loader):
-            embs, valid = embed_videos(_video_model(), ["/bad.mp4", "/good.mp4"], batch_size=1)
+            _embs, valid = embed_videos(_video_model(), ["/bad.mp4", "/good.mp4"], batch_size=1)
         assert not valid[0]
         assert valid[1]
 
@@ -409,18 +418,21 @@ class TestEmbedVideos:
         assert valid.dtype == bool
 
     def test_all_failed_raises(self) -> None:
-        with patch("eval.video.bench_msrvtt_retrieval._load_frames", side_effect=ValueError("bad")):
-            with pytest.raises(RuntimeError, match="No videos could be decoded"):
-                embed_videos(_video_model(), ["/bad.mp4"], batch_size=1)
+        with (
+            patch("eval.video.bench_msrvtt_retrieval._load_frames", side_effect=ValueError("bad")),
+            pytest.raises(RuntimeError, match="No videos could be decoded"),
+        ):
+            embed_videos(_video_model(), ["/bad.mp4"], batch_size=1)
 
     def test_zero_embeddings_for_failed_are_not_nan(self) -> None:
         model = _video_model()
 
-        def _loader(path, fps):
+        def _loader(path: str, _fps: float) -> list[np.ndarray]:
             if "good" in path:
                 return _FAKE_FRAMES
-            raise ValueError("bad")
+            msg = "bad"
+            raise ValueError(msg)
 
         with patch("eval.video.bench_msrvtt_retrieval._load_frames", side_effect=_loader):
-            embs, valid = embed_videos(model, ["/bad.mp4", "/good.mp4"], batch_size=1)
+            embs, _valid = embed_videos(model, ["/bad.mp4", "/good.mp4"], batch_size=1)
         assert not np.any(np.isnan(embs))

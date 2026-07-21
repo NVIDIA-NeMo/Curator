@@ -44,7 +44,6 @@ import tempfile
 import zipfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -61,11 +60,13 @@ LOG = logging.getLogger("bench_msrvtt_retrieval")
 
 HF_DATASET = "friedrichor/MSR-VTT"
 HF_VIDEO_ZIP = "MSRVTT_Videos.zip"
+_RECALL_AT_5_K = 5
 
 
 # ---------------------------------------------------------------------------
 # Dataset loading (captions + video paths)
 # ---------------------------------------------------------------------------
+
 
 def ensure_msrvtt_videos(target_dir: Path) -> Path:
     """Download + extract MSRVTT_Videos.zip from the HF Hub (once)."""
@@ -93,9 +94,9 @@ def ensure_msrvtt_videos(target_dir: Path) -> Path:
     return target_dir
 
 
-def _build_video_index(video_dir: Path) -> Dict[str, str]:
+def _build_video_index(video_dir: Path) -> dict[str, str]:
     """Map {video_id_stem: absolute mp4 path} for everything under video_dir."""
-    index: Dict[str, str] = {}
+    index: dict[str, str] = {}
     for p in video_dir.rglob("*.mp4"):
         index.setdefault(p.stem, str(p))
     return index
@@ -104,9 +105,9 @@ def _build_video_index(video_dir: Path) -> Dict[str, str]:
 def load_msrvtt(
     split: str,
     video_dir: Path,
-    config: Optional[str] = None,
-    limit: Optional[int] = None,
-) -> List[Dict]:
+    config: str | None = None,
+    limit: int | None = None,
+) -> list[dict]:
     """Return records: [{video_id, video_path, caption}].
 
     Each caption row becomes one query; rows are de-duplicated to unique videos
@@ -118,7 +119,7 @@ def load_msrvtt(
     video_index = _build_video_index(video_dir)
     LOG.info("Indexed %d mp4 files under %s", len(video_index), video_dir)
 
-    records: List[Dict] = []
+    records: list[dict] = []
     missing = 0
     # Column name differs by config: test_1k uses "caption", train configs use "sentence"
     cap_col = "caption" if "caption" in ds.column_names else "sentence"
@@ -137,8 +138,7 @@ def load_msrvtt(
     if limit and limit > 0:
         records = records[:limit]
 
-    LOG.info("Loaded %d caption rows over %d unique videos",
-             len(records), len({r["video_id"] for r in records}))
+    LOG.info("Loaded %d caption rows over %d unique videos", len(records), len({r["video_id"] for r in records}))
     return records
 
 
@@ -146,13 +146,14 @@ def load_msrvtt(
 # Embedding helpers
 # ---------------------------------------------------------------------------
 
+
 def _normalise(matrix: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     norms = np.where(norms == 0, 1.0, norms)
     return matrix / norms
 
 
-def _load_frames(path: str, sample_fps: float = 2.0) -> List[np.ndarray]:
+def _load_frames(path: str, sample_fps: float = 2.0) -> list[np.ndarray]:
     """Extract frames from a video at sample_fps using cv2 (software decoding).
 
     Uses cv2.VideoCapture which defaults to CPU/software decoding, avoiding
@@ -161,7 +162,8 @@ def _load_frames(path: str, sample_fps: float = 2.0) -> List[np.ndarray]:
     """
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
-        raise ValueError(f"Cannot open video: {path}")
+        msg = f"Cannot open video: {path}"
+        raise ValueError(msg)
     video_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     step = max(1, round(video_fps / sample_fps))
     frames = []
@@ -177,32 +179,33 @@ def _load_frames(path: str, sample_fps: float = 2.0) -> List[np.ndarray]:
     finally:
         cap.release()
     if not frames:
-        raise ValueError("empty video")
+        msg = "empty video"
+        raise ValueError(msg)
     return frames
 
 
-def embed_texts(model: CosmosEmbed1, texts: List[str], batch_size: int) -> np.ndarray:
+def embed_texts(model: CosmosEmbed1, texts: list[str], batch_size: int) -> np.ndarray:
     """Embed a list of strings; returns L2-normalised (N, D) float32 array."""
-    embs: List[np.ndarray] = []
+    embs: list[np.ndarray] = []
     n = len(texts)
     for i, text in enumerate(texts):
         if i % batch_size == 0:
             LOG.info("Text embed %d / %d", i + 1, n)
-        t = model.get_text_embedding(text)   # (1, D) float16 cpu tensor
+        t = model.get_text_embedding(text)  # (1, D) float16 cpu tensor
         embs.append(t.float().numpy()[0])
     return _normalise(np.stack(embs, axis=0))
 
 
 def embed_videos(
-    model: CosmosEmbed1, video_paths: List[str], batch_size: int, sample_fps: float = 2.0
-) -> Tuple[np.ndarray, np.ndarray]:
+    model: CosmosEmbed1, video_paths: list[str], batch_size: int, sample_fps: float = 2.0
+) -> tuple[np.ndarray, np.ndarray]:
     """Embed videos. Returns (embeddings (N, D), valid_mask (N,) bool).
 
     Videos are embedded one at a time because clips have varying native
     resolutions. Failed/undecodable videos get a zero embedding and valid=False.
     """
-    dim: Optional[int] = None
-    all_embs: List[Optional[np.ndarray]] = [None] * len(video_paths)
+    dim: int | None = None
+    all_embs: list[np.ndarray | None] = [None] * len(video_paths)
     valid = np.zeros(len(video_paths), dtype=bool)
 
     n = len(video_paths)
@@ -215,15 +218,16 @@ def embed_videos(
             if processed is None:
                 LOG.warning("Not enough frames in %s", video_paths[j])
                 continue
-            emb = model.encode_video_frames(processed)   # (1, D) float16 cpu
-            all_embs[j] = emb.float().numpy()[0]         # (D,)
+            emb = model.encode_video_frames(processed)  # (1, D) float16 cpu
+            all_embs[j] = emb.float().numpy()[0]  # (D,)
             dim = all_embs[j].shape[0]
             valid[j] = True
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             LOG.warning("Failed to embed %s: %s", video_paths[j], exc)
 
     if dim is None:
-        raise RuntimeError("No videos could be decoded/embedded.")
+        msg = "No videos could be decoded/embedded."
+        raise RuntimeError(msg)
     filled = np.stack(
         [e if e is not None else np.zeros(dim, dtype=np.float32) for e in all_embs],
         axis=0,
@@ -235,9 +239,10 @@ def embed_videos(
 # Corpus / ranking / metrics
 # ---------------------------------------------------------------------------
 
-def build_corpus(records: List[Dict]) -> Tuple[List[str], List[str]]:
+
+def build_corpus(records: list[dict]) -> tuple[list[str], list[str]]:
     """One entry per unique video. Returns (video_ids, video_paths)."""
-    seen: Dict[str, str] = {}
+    seen: dict[str, str] = {}
     for r in records:
         seen.setdefault(r["video_id"], r["video_path"])
     video_ids = list(seen.keys())
@@ -245,28 +250,26 @@ def build_corpus(records: List[Dict]) -> Tuple[List[str], List[str]]:
     return video_ids, video_paths
 
 
-def rank_queries(
-    query_embs: np.ndarray, corpus_embs: np.ndarray, batch_size: int = 512
-) -> np.ndarray:
+def rank_queries(query_embs: np.ndarray, corpus_embs: np.ndarray, batch_size: int = 512) -> np.ndarray:
     """Return (Q, C) 1-based rank matrix via batched cosine similarity."""
-    Q, C = query_embs.shape[0], corpus_embs.shape[0]
-    ranks = np.empty((Q, C), dtype=np.int32)
-    for start in range(0, Q, batch_size):
-        end = min(start + batch_size, Q)
+    n_queries, n_corpus = query_embs.shape[0], corpus_embs.shape[0]
+    ranks = np.empty((n_queries, n_corpus), dtype=np.int32)
+    for start in range(0, n_queries, batch_size):
+        end = min(start + batch_size, n_queries)
         sims = query_embs[start:end] @ corpus_embs.T
         order = np.argsort(-sims, axis=1)
         bs = end - start
-        rank_mat = np.empty((bs, C), dtype=np.int32)
+        rank_mat = np.empty((bs, n_corpus), dtype=np.int32)
         rows = np.arange(bs)[:, None]
-        rank_mat[rows, order] = np.arange(1, C + 1, dtype=np.int32)
+        rank_mat[rows, order] = np.arange(1, n_corpus + 1, dtype=np.int32)
         ranks[start:end] = rank_mat
     return ranks
 
 
-def compute_metrics(ranks_of_gt: np.ndarray, top_k: int = 10) -> Dict:
+def compute_metrics(ranks_of_gt: np.ndarray, top_k: int = 10) -> dict:
     """Standard text-to-video retrieval metrics from per-query GT ranks."""
     r1 = float(np.mean(ranks_of_gt == 1))
-    r5 = float(np.mean(ranks_of_gt <= 5))
+    r5 = float(np.mean(ranks_of_gt <= _RECALL_AT_5_K))
     r10 = float(np.mean(ranks_of_gt <= top_k))
     med_r = float(np.median(ranks_of_gt))
     mean_r = float(np.mean(ranks_of_gt))
@@ -283,7 +286,7 @@ def compute_metrics(ranks_of_gt: np.ndarray, top_k: int = 10) -> Dict:
         "total_queries": int(ranks_of_gt.shape[0]),
         "corpus_size": None,
     }
-    if top_k != 5:
+    if top_k != _RECALL_AT_5_K:
         result["recall_at_5"] = r5
     return result
 
@@ -291,8 +294,8 @@ def compute_metrics(ranks_of_gt: np.ndarray, top_k: int = 10) -> Dict:
 def t2v_gt_ranks(
     text_embs: np.ndarray,
     video_embs: np.ndarray,
-    query_gt_video_ids: List[str],
-    vid_to_corpus_idx: Dict[str, int],
+    query_gt_video_ids: list[str],
+    vid_to_corpus_idx: dict[str, int],
 ) -> np.ndarray:
     """Text-to-video: each caption query ranks videos; GT = its own video.
 
@@ -312,8 +315,8 @@ def t2v_gt_ranks(
 def v2t_gt_ranks(
     video_embs: np.ndarray,
     text_embs: np.ndarray,
-    corpus_video_ids: List[str],
-    query_gt_video_ids: List[str],
+    corpus_video_ids: list[str],
+    query_gt_video_ids: list[str],
 ) -> np.ndarray:
     """Video-to-text: each video query ranks captions; relevant = its captions.
 
@@ -322,7 +325,7 @@ def v2t_gt_ranks(
     """
     rank_matrix = rank_queries(video_embs, text_embs)  # (V, Q)
     n_q = text_embs.shape[0]
-    vid_to_text_idxs: Dict[str, List[int]] = defaultdict(list)
+    vid_to_text_idxs: dict[str, list[int]] = defaultdict(list)
     for ti, vid in enumerate(query_gt_video_ids):
         vid_to_text_idxs[vid].append(ti)
     ranks = np.empty(len(corpus_video_ids), dtype=np.float32)
@@ -332,13 +335,14 @@ def v2t_gt_ranks(
     return ranks
 
 
-def print_summary(metrics: Dict, top_k: int, direction: str) -> None:
+def print_summary(metrics: dict, top_k: int, direction: str) -> None:
     label = "Text-to-Video" if direction == "t2v" else "Video-to-Text"
     qlabel = "captions" if direction == "t2v" else "videos"
     clabel = "videos" if direction == "t2v" else "captions"
     print(f"\n=== MSR-VTT {label} Retrieval ===")
-    print(f"Queries : {metrics['total_queries']} {qlabel}   "
-          f"Corpus : {metrics['corpus_size']} {clabel}   Top-K : {top_k}")
+    print(
+        f"Queries : {metrics['total_queries']} {qlabel}   Corpus : {metrics['corpus_size']} {clabel}   Top-K : {top_k}"
+    )
     print(f"R@1     : {metrics['recall_at_1']:.4f}")
     print(f"R@5     : {metrics['recall_at_5']:.4f}")
     print(f"R@{top_k:<4d}  : {metrics[f'recall_at_{top_k}']:.4f}")
@@ -352,35 +356,44 @@ def print_summary(metrics: Dict, top_k: int, direction: str) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-def parse_args(argv=None) -> argparse.Namespace:
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="MSR-VTT video-text retrieval benchmark (CosmosEmbed1)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--model-dir", required=True,
-                   help="Root model directory passed to CosmosEmbed1 (contains nvidia/Cosmos-Embed1-<variant>/).")
-    p.add_argument("--variant", default="336p", choices=["224p", "336p", "448p"],
-                   help="CosmosEmbed1 variant.")
-    p.add_argument("--direction", choices=["t2v", "v2t", "both"], default="both",
-                   help="Retrieval direction: text->video, video->text, or both.")
+    p.add_argument(
+        "--model-dir",
+        required=True,
+        help="Root model directory passed to CosmosEmbed1 (contains nvidia/Cosmos-Embed1-<variant>/).",
+    )
+    p.add_argument("--variant", default="336p", choices=["224p", "336p", "448p"], help="CosmosEmbed1 variant.")
+    p.add_argument(
+        "--direction",
+        choices=["t2v", "v2t", "both"],
+        default="both",
+        help="Retrieval direction: text->video, video->text, or both.",
+    )
     p.add_argument("--split", default="test", help="MSR-VTT split.")
-    p.add_argument("--config", default=None,
-                   help="HF dataset config name (e.g. test_1k, train_9k). "
-                        "Defaults to 'test_1k' when split='test', else required.")
-    p.add_argument("--video-dir", default=None,
-                   help="Local dir of MSR-VTT mp4s; if omitted, download from HF Hub.")
+    p.add_argument(
+        "--config",
+        default=None,
+        help="HF dataset config name (e.g. test_1k, train_9k). "
+        "Defaults to 'test_1k' when split='test', else required.",
+    )
+    p.add_argument("--video-dir", default=None, help="Local dir of MSR-VTT mp4s; if omitted, download from HF Hub.")
     p.add_argument("--top-k", type=int, default=10, help="K for Recall@K and NDCG@K.")
-    p.add_argument("--limit", type=int, default=0,
-                   help="Limit caption rows / queries (0 = all). For quick checks.")
-    p.add_argument("--sample-fps", type=float, default=2.0,
-                   help="Frame rate used to sample each video before embedding.")
+    p.add_argument("--limit", type=int, default=0, help="Limit caption rows / queries (0 = all). For quick checks.")
+    p.add_argument(
+        "--sample-fps", type=float, default=2.0, help="Frame rate used to sample each video before embedding."
+    )
     p.add_argument("--text-batch-size", type=int, default=64, help="Text embedding batch size.")
     p.add_argument("--video-batch-size", type=int, default=8, help="Video embedding batch size.")
     p.add_argument("--output", default=None, help="Path to write JSON results (optional).")
     return p.parse_args(argv)
 
 
-def main(argv=None) -> int:
+def main(argv: list[str] | None = None) -> int:  # noqa: PLR0915
     args = parse_args(argv)
 
     # 1. Resolve videos
@@ -398,7 +411,8 @@ def main(argv=None) -> int:
         LOG.error("--config is required for --split %s (e.g. train_9k, train_7k).", args.split)
         return 2
     records = load_msrvtt(
-        split=args.split, video_dir=video_dir,
+        split=args.split,
+        video_dir=video_dir,
         config=hf_config,
         limit=args.limit if args.limit > 0 else None,
     )
@@ -411,8 +425,7 @@ def main(argv=None) -> int:
     vid_to_corpus_idx = {vid: i for i, vid in enumerate(corpus_video_ids)}
     query_captions = [r["caption"] for r in records]
     query_gt_video_ids = [r["video_id"] for r in records]
-    LOG.info("Corpus: %d videos | Queries: %d captions",
-             len(corpus_video_ids), len(query_captions))
+    LOG.info("Corpus: %d videos | Queries: %d captions", len(corpus_video_ids), len(query_captions))
 
     # 4. Embed
     LOG.info("Loading CosmosEmbed1-%s from %s", args.variant, args.model_dir)
@@ -426,7 +439,7 @@ def main(argv=None) -> int:
     if n_bad:
         LOG.warning("%d/%d corpus videos failed to embed; dropping from corpus.", n_bad, len(valid))
         corpus_embs = corpus_embs[valid]
-        corpus_video_ids = [vid for vid, v in zip(corpus_video_ids, valid) if v]
+        corpus_video_ids = [vid for vid, v in zip(corpus_video_ids, valid, strict=False) if v]
         vid_to_corpus_idx = {vid: i for i, vid in enumerate(corpus_video_ids)}
     LOG.info("Embedding text queries...")
     query_embs = embed_texts(model, query_captions, batch_size=args.text_batch_size)
@@ -442,7 +455,7 @@ def main(argv=None) -> int:
         "failed_videos": n_bad,
     }
     directions = ["t2v", "v2t"] if args.direction == "both" else [args.direction]
-    all_metrics: Dict[str, Dict] = {}
+    all_metrics: dict[str, dict] = {}
 
     for direction in directions:
         if direction == "t2v":
