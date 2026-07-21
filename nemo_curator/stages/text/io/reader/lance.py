@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import lance
+import pyarrow as pa
 from lance.schema import schema_to_json
 
 from nemo_curator.backends.utils import RayStageSpecKeys
@@ -33,6 +34,103 @@ from nemo_curator.utils.lance import (
 )
 
 from .base import BaseReader, ReaderOutput
+
+
+def _validate_positive_optional(name: str, value: int | None) -> None:
+    if value is not None and value <= 0:
+        msg = f"{name} must be greater than 0 when set"
+        raise ValueError(msg)
+
+
+def _rows_per_split(table: pa.Table, *, max_batch_rows: int | None, max_batch_bytes: int | None) -> int:
+    if table.num_rows == 0:
+        return 0
+    rows_per_split = table.num_rows
+    if max_batch_rows is not None:
+        rows_per_split = min(rows_per_split, max_batch_rows)
+    if max_batch_bytes is not None and table.nbytes > max_batch_bytes:
+        bytes_per_row = max(1, (table.nbytes + table.num_rows - 1) // table.num_rows)
+        rows_per_split = min(rows_per_split, max(1, max_batch_bytes // bytes_per_row))
+    return rows_per_split
+
+
+def _split_table_by_limits(
+    table: pa.Table,
+    *,
+    max_batch_rows: int | None,
+    max_batch_bytes: int | None,
+) -> list[pa.Table]:
+    rows_per_split = _rows_per_split(table, max_batch_rows=max_batch_rows, max_batch_bytes=max_batch_bytes)
+    if rows_per_split == 0:
+        return [table]
+    if rows_per_split >= table.num_rows:
+        return [table]
+    return [
+        table.slice(start, min(rows_per_split, table.num_rows - start))
+        for start in range(0, table.num_rows, rows_per_split)
+    ]
+
+
+def _would_exceed_limits(
+    *,
+    rows: int,
+    bytes_: int,
+    max_batch_rows: int | None,
+    max_batch_bytes: int | None,
+) -> bool:
+    return bool(
+        (max_batch_rows is not None and rows > max_batch_rows)
+        or (max_batch_bytes is not None and bytes_ > max_batch_bytes)
+    )
+
+
+def _tables_from_record_batches(
+    batches: object,
+    *,
+    max_batch_rows: int | None,
+    max_batch_bytes: int | None,
+) -> list[pa.Table]:
+    chunks: list[pa.Table] = []
+    pending: list[pa.Table] = []
+    pending_rows = 0
+    pending_bytes = 0
+
+    def flush_pending() -> None:
+        nonlocal pending_rows, pending_bytes
+        if not pending:
+            return
+        chunks.append(pa.concat_tables(pending, promote_options="default") if len(pending) > 1 else pending[0])
+        pending.clear()
+        pending_rows = 0
+        pending_bytes = 0
+
+    for batch in batches:
+        table = pa.Table.from_batches([batch]) if isinstance(batch, pa.RecordBatch) else batch
+        if not isinstance(table, pa.Table) or table.num_rows == 0:
+            continue
+        for split in _split_table_by_limits(
+            table,
+            max_batch_rows=max_batch_rows,
+            max_batch_bytes=max_batch_bytes,
+        ):
+            if max_batch_rows is None and max_batch_bytes is None:
+                chunks.append(split)
+                continue
+            next_rows = pending_rows + split.num_rows
+            next_bytes = pending_bytes + split.nbytes
+            if pending and _would_exceed_limits(
+                rows=next_rows,
+                bytes_=next_bytes,
+                max_batch_rows=max_batch_rows,
+                max_batch_bytes=max_batch_bytes,
+            ):
+                flush_pending()
+            pending.append(split)
+            pending_rows += split.num_rows
+            pending_bytes += split.nbytes
+
+    flush_pending()
+    return chunks
 
 
 def _pop_dataset_kwargs(read_kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -61,7 +159,9 @@ class LancePartitioningStage(ProcessingStage[EmptyTask, LanceReadTask]):
 
     Args:
         path: Path or URI of the Lance dataset.
-        fragments_per_partition: Number of Lance fragments assigned to each read task.
+        fragments_per_partition: Number of Lance fragments assigned to each read task. This is a coarse
+            partitioning knob: large multimodal fragments can still produce large read tasks, so tune this together
+            with ``LanceReaderStage.max_batch_rows`` and ``LanceReaderStage.max_batch_bytes``.
         fragment_ids: Optional explicit fragment ids to read. Defaults to all fragments. Duplicates are ignored.
         read_kwargs: Options for opening the Lance dataset. Arbitrary dataset options belong under
             ``dataset_options``; top-level ``version`` and ``storage_options`` take precedence.
@@ -122,17 +222,26 @@ class LanceReaderStage(BaseReader):
             parsing and precedence rules.
         include_lance_metadata: Whether to include row-id, row-address, and fragment-id metadata columns.
         allow_empty: Whether filtered reads may return empty tables without raising.
+        max_batch_rows: Optional maximum rows per emitted ``DocumentBatch``.
+        max_batch_bytes: Optional approximate maximum Arrow bytes per emitted ``DocumentBatch``.
+        streaming_read: Whether to read scanner record batches directly. This is enabled automatically when
+            ``max_batch_rows`` or ``max_batch_bytes`` is set.
     """
 
     fields: list[str] | None = None
     read_kwargs: dict[str, Any] = field(default_factory=dict)
     include_lance_metadata: bool = True
     allow_empty: bool = True
+    max_batch_rows: int | None = None
+    max_batch_bytes: int | None = None
+    streaming_read: bool = False
     name: str = "lance_reader"
 
     def __post_init__(self) -> None:
         super().__post_init__()
         self.read_kwargs = dict(self.read_kwargs or {})
+        _validate_positive_optional("max_batch_rows", self.max_batch_rows)
+        _validate_positive_optional("max_batch_bytes", self.max_batch_bytes)
 
     def outputs(self) -> tuple[list[str], list[str]]:
         scanner_options = self.read_kwargs.get("scanner_options") or {}
@@ -152,12 +261,12 @@ class LanceReaderStage(BaseReader):
             scanner_kwargs["columns"] = fields
         return scanner_kwargs
 
-    def read_task(
+    def _prepare_lance_scan(
         self,
         task: LanceReadTask,
         read_kwargs: dict[str, Any] | None,
         fields: list[str] | None,
-    ) -> ReaderOutput:
+    ) -> tuple[lance.LanceDataset, dict[str, Any], list[str]]:
         read_kwargs = dict(read_kwargs or {})
         dataset_kwargs = _pop_dataset_kwargs(read_kwargs)
         dataset_kwargs["version"] = task.version
@@ -165,27 +274,21 @@ class LanceReaderStage(BaseReader):
         dataset = lance.dataset(task.path, **dataset_kwargs)
         fragments = [dataset.get_fragment(fragment_id) for fragment_id in task.data]
         requested_columns = scanner_kwargs.get("columns")
-        # Blob v2 scans return storage descriptors instead of payload bytes.
-        # Materialize requested blobs separately and align them by row address.
-        has_requested_blobs = any(
-            getattr(field.type, "extension_name", None) == "lance.blob.v2"
-            and (requested_columns is None or field.name in requested_columns)
+        blob_columns = [
+            field.name
             for field in dataset.schema
-        )
-        if self.include_lance_metadata or has_requested_blobs:
+            if getattr(field.type, "extension_name", None) == "lance.blob.v2"
+            and (requested_columns is None or field.name in requested_columns)
+        ]
+        if self.include_lance_metadata or blob_columns:
             scanner_kwargs["with_row_address"] = True
         if self.include_lance_metadata:
             scanner_kwargs["with_row_id"] = True
         scanner_kwargs["fragments"] = fragments
-        table = dataset.scanner(**scanner_kwargs).to_table()
-        if has_requested_blobs:
-            table = materialize_lance_blob_columns(dataset, table)
-        if self.include_lance_metadata:
-            table = add_lance_metadata_columns(table)
-        elif has_requested_blobs and "_rowaddr" in table.column_names:
-            table = table.drop_columns(["_rowaddr"])
+        return dataset, scanner_kwargs, blob_columns
 
-        metadata = {
+    def _metadata_for_task(self, task: LanceReadTask, dataset: lance.LanceDataset) -> dict[str, Any]:
+        return {
             "source_files": [task.path],
             "lance": {
                 "version": task.version,
@@ -194,7 +297,57 @@ class LanceReaderStage(BaseReader):
                 "has_stable_row_ids": dataset.has_stable_row_ids,
             },
         }
-        return ReaderOutput(table, metadata)
+
+    def _finalize_table(self, dataset: lance.LanceDataset, table: pa.Table, blob_columns: list[str]) -> pa.Table:
+        if blob_columns:
+            table = materialize_lance_blob_columns(dataset, table)
+        if self.include_lance_metadata:
+            return add_lance_metadata_columns(table)
+        if blob_columns and "_rowaddr" in table.column_names:
+            return table.drop_columns(["_rowaddr"])
+        return table
+
+    def _read_outputs(
+        self,
+        task: LanceReadTask,
+        read_kwargs: dict[str, Any] | None,
+        fields: list[str] | None,
+    ) -> list[ReaderOutput]:
+        dataset, scanner_kwargs, blob_columns = self._prepare_lance_scan(task, read_kwargs, fields)
+        metadata = self._metadata_for_task(task, dataset)
+        use_streaming = self.streaming_read or self.max_batch_rows is not None or self.max_batch_bytes is not None
+        if not use_streaming:
+            table = dataset.scanner(**scanner_kwargs).to_table()
+            table = self._finalize_table(dataset, table, blob_columns)
+            return [ReaderOutput(table, metadata)]
+
+        scanner = dataset.scanner(**scanner_kwargs)
+        tables = _tables_from_record_batches(
+            scanner.to_batches(),
+            max_batch_rows=self.max_batch_rows,
+            max_batch_bytes=self.max_batch_bytes,
+        )
+        if not tables:
+            tables = [dataset.scanner(**scanner_kwargs).to_table()]
+        return [ReaderOutput(self._finalize_table(dataset, table, blob_columns), metadata) for table in tables]
+
+    def process(self, task: LanceReadTask) -> DocumentBatch | list[DocumentBatch]:
+        outputs = self._read_outputs(task, dict(self.read_kwargs or {}), self.fields)
+        batches: list[DocumentBatch] = []
+        for output in outputs:
+            self._validate_result(task, output.data)
+            batches.append(self._document_batch(task, output))
+        if not batches:
+            return []
+        return batches if len(batches) > 1 else batches[0]
+
+    def read_task(
+        self,
+        task: LanceReadTask,
+        read_kwargs: dict[str, Any] | None,
+        fields: list[str] | None,
+    ) -> ReaderOutput:
+        return self._read_outputs(task, read_kwargs, fields)[0]
 
 
 @dataclass
@@ -207,7 +360,9 @@ class LanceReader(CompositeStage[EmptyTask, DocumentBatch]):
 
     Args:
         path: Path or URI of the Lance dataset.
-        fragments_per_partition: Number of Lance fragments assigned to each read task.
+        fragments_per_partition: Number of Lance fragments assigned to each read task. This is a coarse
+            partitioning knob: large fragments can still produce large reader outputs, so tune it together with
+            ``max_batch_rows`` and ``max_batch_bytes``.
         fields: Optional columns to read.
         read_kwargs: Options for Lance dataset and scanner construction. Arbitrary dataset options
             belong under ``dataset_options``; top-level ``version`` and ``storage_options`` take
@@ -215,6 +370,10 @@ class LanceReader(CompositeStage[EmptyTask, DocumentBatch]):
             which are forwarded to ``dataset.scanner``. ``fields`` overrides scanner ``columns``.
         include_lance_metadata: Whether to include row-id, row-address, and fragment-id metadata columns.
         fragment_ids: Optional explicit fragment ids to read. Defaults to all fragments. Duplicates are ignored.
+        max_batch_rows: Optional maximum rows per emitted ``DocumentBatch``.
+        max_batch_bytes: Optional approximate maximum Arrow bytes per emitted ``DocumentBatch``.
+        streaming_read: Whether to read scanner record batches directly. This is enabled automatically when
+            ``max_batch_rows`` or ``max_batch_bytes`` is set.
         task_type: Output task type. Only ``"document"`` is currently supported.
     """
 
@@ -224,6 +383,9 @@ class LanceReader(CompositeStage[EmptyTask, DocumentBatch]):
     read_kwargs: dict[str, Any] | None = None
     include_lance_metadata: bool = True
     fragment_ids: list[int] | None = None
+    max_batch_rows: int | None = None
+    max_batch_bytes: int | None = None
+    streaming_read: bool = False
     task_type: Literal["document"] = "document"
     name: str = "lance_reader"
 
@@ -247,5 +409,8 @@ class LanceReader(CompositeStage[EmptyTask, DocumentBatch]):
                 fields=self.fields,
                 read_kwargs=self.read_kwargs,
                 include_lance_metadata=self.include_lance_metadata,
+                max_batch_rows=self.max_batch_rows,
+                max_batch_bytes=self.max_batch_bytes,
+                streaming_read=self.streaming_read,
             ),
         ]

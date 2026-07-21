@@ -16,6 +16,7 @@ from pathlib import Path
 
 import lance
 import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 from lance.schema import json_to_schema
 
@@ -93,6 +94,9 @@ def test_lance_reader_partitions_filters_blobs_and_metadata(tmp_path: Path):
         assert LANCE_FRAGID_COLUMN in table.column_names
         assert table.schema.field("content_zlib").type == pa.large_binary()
         seen_payloads.update(table["content_zlib"].to_pylist())
+        rowaddrs = table[LANCE_ROWADDR_COLUMN].combine_chunks().cast(pa.uint64())
+        expected_fragids = pc.shift_right(rowaddrs, pa.scalar(32, type=pa.uint64())).cast(pa.uint64())
+        assert table[LANCE_FRAGID_COLUMN].combine_chunks().to_pylist() == expected_fragids.to_pylist()
         fragids = {int(value) for value in table[LANCE_FRAGID_COLUMN].combine_chunks().to_pylist()}
         assert seen_fragments.isdisjoint(fragids)
         seen_fragments.update(fragids)
@@ -134,6 +138,49 @@ def test_lance_reader_exposes_stable_row_ids(tmp_path: Path):
     assert batch._metadata["lance"]["has_stable_row_ids"] is True
     assert table[LANCE_ROWID_COLUMN].null_count == 0
     assert len(set(table[LANCE_ROWID_COLUMN].to_pylist())) == table.num_rows
+
+
+def test_lance_reader_splits_by_max_batch_rows(tmp_path: Path):
+    dataset_path = tmp_path / "docs.lance"
+    _write_lance_dataset(dataset_path)
+    task = LancePartitioningStage(path=str(dataset_path), fragments_per_partition=2).process(EmptyTask())[0]
+
+    result = LanceReaderStage(
+        fields=["url"],
+        max_batch_rows=2,
+        include_lance_metadata=False,
+    ).process(task)
+
+    assert isinstance(result, list)
+    assert [batch.to_pyarrow().num_rows for batch in result] == [2, 2]
+    assert [batch.to_pyarrow()["url"].to_pylist() for batch in result] == [
+        ["https://a.example", "https://b.example"],
+        ["https://c.example", "https://d.example"],
+    ]
+
+
+def test_lance_reader_splits_by_max_batch_bytes_from_composite(tmp_path: Path):
+    dataset_path = tmp_path / "docs.lance"
+    _write_lance_dataset(dataset_path)
+    partitioner, reader = LanceReader(
+        path=str(dataset_path),
+        fields=["url", "text"],
+        fragments_per_partition=2,
+        max_batch_bytes=1,
+        include_lance_metadata=False,
+    ).decompose()
+
+    assert reader.max_batch_bytes == 1
+    result = reader.process(partitioner.process(EmptyTask())[0])
+
+    assert isinstance(result, list)
+    assert [batch.to_pyarrow().num_rows for batch in result] == [1, 1, 1, 1]
+
+
+@pytest.mark.parametrize("field", ["max_batch_rows", "max_batch_bytes"])
+def test_lance_reader_rejects_non_positive_batch_limits(field: str):
+    with pytest.raises(ValueError, match=f"{field} must be greater than 0"):
+        LanceReaderStage(**{field: 0})
 
 
 def test_lance_reader_validates_requested_fragments(tmp_path: Path):
