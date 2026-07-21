@@ -16,9 +16,8 @@
 
 from __future__ import annotations
 
-import copy
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
@@ -42,6 +41,18 @@ def _validate_positive_optional(name: str, value: int | None) -> None:
         raise ValueError(msg)
 
 
+@dataclass
+class _BatchAccumulator:
+    pending_groups: list[pa.Table] = field(default_factory=list)
+    pending_bytes: int = 0
+    pending_rows: int = 0
+
+    def clear(self) -> None:
+        self.pending_groups.clear()
+        self.pending_bytes = 0
+        self.pending_rows = 0
+
+
 def _split_table_by_consecutive_group(table: pa.Table, group_column: str) -> list[pa.Table]:
     """Split a table into consecutive group slices without reordering rows."""
     if table.num_rows == 0:
@@ -49,7 +60,8 @@ def _split_table_by_consecutive_group(table: pa.Table, group_column: str) -> lis
     if group_column not in table.column_names:
         msg = f"Group column '{group_column}' not found in table"
         raise ValueError(msg)
-    col = table[group_column].combine_chunks()
+    chunked = table[group_column]
+    col = chunked.combine_chunks() if len(chunked.chunks) > 1 else chunked.chunks[0]
     if pc.any(pc.is_null(col)).as_py():
         msg = f"Group column '{group_column}' contains null values"
         raise ValueError(msg)
@@ -64,35 +76,35 @@ def _split_table_by_consecutive_group(table: pa.Table, group_column: str) -> lis
     return [table.slice(start, end - start) for start, end in zip(starts, ends, strict=True)]
 
 
-def _append_group_to_size_limited_chunks(  # noqa: PLR0913
+def _append_group_to_size_limited_chunks(
     group: pa.Table,
     *,
     max_batch_bytes: int | None,
     max_batch_rows: int | None,
     chunks: list[pa.Table],
-    pending_groups: list[pa.Table],
-    pending_bytes: list[int],
-    pending_rows: list[int],
-) -> None:
+    acc: _BatchAccumulator,
+) -> int:
     """Append one whole group, flushing before it if it would exceed limits."""
     group_bytes = group.nbytes
     group_rows = group.num_rows
+    flushed_rows = 0
     should_flush = bool(
-        pending_groups
+        acc.pending_groups
         and (
-            (max_batch_bytes is not None and pending_bytes[0] + group_bytes > max_batch_bytes)
-            or (max_batch_rows is not None and pending_rows[0] + group_rows > max_batch_rows)
+            (max_batch_bytes is not None and acc.pending_bytes + group_bytes > max_batch_bytes)
+            or (max_batch_rows is not None and acc.pending_rows + group_rows > max_batch_rows)
         )
     )
     if should_flush:
-        chunks.append(pa.concat_tables(pending_groups, promote_options="default"))
-        pending_groups.clear()
-        pending_bytes[0] = 0
-        pending_rows[0] = 0
+        chunk = pa.concat_tables(acc.pending_groups, promote_options="default")
+        chunks.append(chunk)
+        flushed_rows = chunk.num_rows
+        acc.clear()
 
-    pending_groups.append(group)
-    pending_bytes[0] += group_bytes
-    pending_rows[0] += group_rows
+    acc.pending_groups.append(group)
+    acc.pending_bytes += group_bytes
+    acc.pending_rows += group_rows
+    return flushed_rows
 
 
 def _tables_from_record_batches(  # noqa: C901
@@ -110,26 +122,22 @@ def _tables_from_record_batches(  # noqa: C901
     stream early, the in-progress group is not emitted as a partial sample.
     """
     chunks: list[pa.Table] = []
-    pending_groups: list[pa.Table] = []
-    pending_bytes = [0]
-    pending_rows = [0]
+    acc = _BatchAccumulator()
     carry: pa.Table | None = None
     emitted_rows = 0
     stopped_early = False
 
     def flush_pending() -> None:
         nonlocal emitted_rows
-        if not pending_groups:
+        if not acc.pending_groups:
             return
-        chunk = pa.concat_tables(pending_groups, promote_options="default")
+        chunk = pa.concat_tables(acc.pending_groups, promote_options="default")
         chunks.append(chunk)
         emitted_rows += chunk.num_rows
-        pending_groups.clear()
-        pending_bytes[0] = 0
-        pending_rows[0] = 0
+        acc.clear()
 
     def output_limit_reached(next_group_rows: int) -> bool:
-        return max_output_rows is not None and emitted_rows + pending_rows[0] + next_group_rows > max_output_rows
+        return max_output_rows is not None and emitted_rows + acc.pending_rows + next_group_rows > max_output_rows
 
     for batch in batches:
         table = pa.Table.from_batches([batch]) if isinstance(batch, pa.RecordBatch) else batch
@@ -150,14 +158,12 @@ def _tables_from_record_batches(  # noqa: C901
                 flush_pending()
                 stopped_early = True
                 break
-            _append_group_to_size_limited_chunks(
+            emitted_rows += _append_group_to_size_limited_chunks(
                 group,
                 max_batch_bytes=max_batch_bytes,
                 max_batch_rows=max_batch_rows,
                 chunks=chunks,
-                pending_groups=pending_groups,
-                pending_bytes=pending_bytes,
-                pending_rows=pending_rows,
+                acc=acc,
             )
         if stopped_early:
             break
@@ -166,14 +172,12 @@ def _tables_from_record_batches(  # noqa: C901
         if output_limit_reached(carry.num_rows):
             stopped_early = True
         else:
-            _append_group_to_size_limited_chunks(
+            emitted_rows += _append_group_to_size_limited_chunks(
                 carry,
                 max_batch_bytes=max_batch_bytes,
                 max_batch_rows=max_batch_rows,
                 chunks=chunks,
-                pending_groups=pending_groups,
-                pending_bytes=pending_bytes,
-                pending_rows=pending_rows,
+                acc=acc,
             )
 
     flush_pending()
@@ -186,7 +190,7 @@ def _reader_metadata(
     streaming_read: bool,
     stopped_early: bool,
 ) -> dict[str, Any]:
-    metadata = copy.deepcopy(metadata)
+    metadata = dict(metadata)
     lance_metadata = dict(metadata.get("lance", {}))
     lance_metadata["streaming_read"] = streaming_read
     lance_metadata["stopped_early"] = stopped_early
@@ -249,8 +253,11 @@ class InterleavedLanceReaderStage(LanceReaderStage):
                 msg = f"Lance fragment task {task.task_id} is not a valid InterleavedBatch"
                 raise ValueError(msg)
 
-        rows = sum(split.num_rows for split in splits)
-        bytes_ = sum(split.nbytes for split in splits)
+        rows = 0
+        bytes_ = 0
+        for split in splits:
+            rows += split.num_rows
+            bytes_ += split.nbytes
         self._log_metrics(
             {
                 "reader_process_seconds": time.perf_counter() - started,
