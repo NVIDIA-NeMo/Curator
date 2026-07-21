@@ -83,17 +83,6 @@ class _RetryMaterializationStage(LanceRowIdImageMaterializationStage):
         return self._fetcher  # type: ignore[return-value]
 
 
-class _FallbackMaterializationStage(_RetryMaterializationStage):
-    def __init__(self, fallback_fetcher: _FakeRowIdFetcher, **kwargs: object) -> None:
-        super().__init__(**kwargs)
-        self.fallback_fetcher = fallback_fetcher
-        self.fallback_calls: list[list[int]] = []
-
-    def _fetch_requested_images_subprocess_fallback(self, requested_row_ids: list[int]) -> _RowIdFetchResult:
-        self.fallback_calls.append(list(requested_row_ids))
-        return self.fallback_fetcher.fetch(requested_row_ids)
-
-
 def _table_config(uri: str = "memory://images") -> LanceTableConfig:
     return LanceTableConfig(uri=uri, version=1)
 
@@ -231,29 +220,6 @@ def test_lance_rowid_image_materializer_retries_timed_out_fetcher() -> None:
     assert result.to_pyarrow()["binary_content"].combine_chunks().to_pylist() == [b"jpeg-a"]
 
 
-def test_lance_rowid_image_materializer_can_fallback_to_subprocess_after_timeout() -> None:
-    timed_out = _TimeoutRowIdFetcher()
-    fallback = _FakeRowIdFetcher({10: {"image": b"jpeg-a", "mime_type": "image/jpeg"}})
-    stage = _FallbackMaterializationStage(
-        fetchers=[timed_out],
-        fallback_fetcher=fallback,
-        dataset=_table_config(),
-        presence_column="lance_image_present",
-        fetch_mode="subprocess_on_timeout",
-        fetch_timeout_seconds=0.1,
-        fetch_retries=0,
-    )
-    task = _interleaved_rowid_task([_image_row("https://a.example/img.jpg")], [10])
-
-    result = stage.process(task)
-
-    assert timed_out.calls == [[10]]
-    assert timed_out.closed
-    assert stage.fallback_calls == [[10]]
-    assert fallback.calls == [[10]]
-    assert result.to_pyarrow()["binary_content"].combine_chunks().to_pylist() == [b"jpeg-a"]
-
-
 def test_lance_rowid_image_materializer_can_parse_json_source_ref() -> None:
     stage = LanceRowIdImageMaterializationStage(
         dataset=_table_config(),
@@ -329,8 +295,7 @@ def test_restore_fetched_original_order() -> None:
     assert restored[0]["mime_type"].to_pylist() == ["c", "a", "b"]
 
 
-@pytest.mark.parametrize("fetch_mode", ["in_process", "subprocess"])
-def test_lance_rowid_image_materializer_real_local_dataset(tmp_path: Path, fetch_mode: str) -> None:
+def test_lance_rowid_image_materializer_real_local_dataset(tmp_path: Path) -> None:
     lance = pytest.importorskip("lance")
 
     dataset_path = tmp_path / "rowid-images.lance"
@@ -362,7 +327,6 @@ def test_lance_rowid_image_materializer_real_local_dataset(tmp_path: Path, fetch
         dataset=LanceTableConfig(uri=str(dataset_path), version=dataset.version),
         presence_column="lance_image_present",
         fetch_batch_size=1,
-        fetch_mode=fetch_mode,
         io_threads=1,
     )
     task = _interleaved_rowid_task([_image_row("rowid://b")], [row_id])
@@ -376,8 +340,7 @@ def test_lance_rowid_image_materializer_real_local_dataset(tmp_path: Path, fetch
     assert result.to_pyarrow()["lance_image_present"].combine_chunks().to_pylist() == [True]
 
 
-@pytest.mark.parametrize("fetch_mode", ["in_process", "subprocess"])
-def test_lance_row_address_image_materializer_real_local_dataset(tmp_path: Path, fetch_mode: str) -> None:
+def test_lance_row_address_image_materializer_real_local_dataset(tmp_path: Path) -> None:
     lance = pytest.importorskip("lance")
 
     dataset_path = tmp_path / "rowaddr-images.lance"
@@ -408,7 +371,6 @@ def test_lance_row_address_image_materializer_real_local_dataset(tmp_path: Path,
         address_mode="row_address",
         presence_column="lance_image_present",
         fetch_batch_size=1,
-        fetch_mode=fetch_mode,
         io_threads=2,
     )
     task = _interleaved_rowaddr_task(

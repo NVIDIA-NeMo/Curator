@@ -17,23 +17,16 @@
 from __future__ import annotations
 
 import contextlib
-import json
-import os
-import subprocess
-import sys
-import tempfile
 import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar, cast
 
 import pyarrow as pa
 
 if TYPE_CHECKING:
     from .config import LanceTableConfig
 
-ImageFetchMode = Literal["in_process", "subprocess", "subprocess_on_timeout"]
 _T = TypeVar("_T")
 
 
@@ -251,10 +244,7 @@ class _LanceRowIdFetcher(_LanceImageFetcherBase):
         *,
         sort_row_ids_for_fetch: bool,
         fetch_timeout_seconds: float,
-        fetch_mode: ImageFetchMode,
     ) -> None:
-        self.sort_row_ids_for_fetch = sort_row_ids_for_fetch
-        self.fetch_mode = fetch_mode
         super().__init__(
             table_config=table_config,
             columns=columns,
@@ -263,6 +253,7 @@ class _LanceRowIdFetcher(_LanceImageFetcherBase):
             metadata_cache_size_bytes=metadata_cache_size_bytes,
             fetch_timeout_seconds=fetch_timeout_seconds,
         )
+        self.sort_row_ids_for_fetch = sort_row_ids_for_fetch
         self._validate_dataset()
         if not callable(getattr(self.dataset, "_take_rows", None)):
             msg = "Pinned PyLance build does not expose dataset._take_rows"
@@ -274,8 +265,6 @@ class _LanceRowIdFetcher(_LanceImageFetcherBase):
             raise ValueError(msg)
 
     def _take_rows(self, row_ids: list[int]) -> list[pa.Table]:
-        if self.fetch_mode == "subprocess":
-            return [self._take_rows_subprocess(row_ids)]
         if self.executor is None:
             msg = "Lance row-id fetcher is closed"
             raise RuntimeError(msg)
@@ -291,60 +280,6 @@ class _LanceRowIdFetcher(_LanceImageFetcherBase):
                 operation=f"dataset._take_rows chunks={len(chunks)} rows={len(row_ids)}",
             )
         ]
-
-    def _take_rows_subprocess(self, row_ids: list[int]) -> pa.Table:
-        timeout = self.fetch_timeout_seconds if self.fetch_timeout_seconds > 0 else None
-        tmp_root = Path(os.environ.get("LANCE_MATERIALIZER_SUBPROCESS_DIR") or tempfile.gettempdir())
-        with tempfile.TemporaryDirectory(prefix="lance_fetch_", dir=tmp_root) as tmp:
-            tmp_path = Path(tmp)
-            request_path = tmp_path / "request.json"
-            output_path = tmp_path / "output.arrow"
-            request_path.write_text(
-                json.dumps(
-                    {
-                        "uri": self.config.uri,
-                        "version": self.config.version,
-                        "storage_options": self.config.storage_options,
-                        "columns": list(self.columns),
-                        "row_ids": row_ids,
-                        "fetch_batch_size": self.fetch_batch_size,
-                        "io_threads": self.io_threads,
-                        "metadata_cache_size_bytes": self.metadata_cache_size_bytes,
-                        "sort_row_ids_for_fetch": self.sort_row_ids_for_fetch,
-                    },
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            cmd = [
-                sys.executable,
-                "-m",
-                "nemo_curator.stages.interleaved.lance.subprocess_fetch",
-                "--request-json",
-                str(request_path),
-                "--output-arrow",
-                str(output_path),
-            ]
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
-            try:
-                stdout, stderr = process.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired as exc:
-                process.kill()
-                stdout, stderr = process.communicate()
-                msg = (
-                    f"Timed out after {self.fetch_timeout_seconds:.1f}s waiting for subprocess Lance fetch; "
-                    f"rows={len(row_ids)} child_pid={process.pid} stdout={stdout!r} stderr={stderr!r}"
-                )
-                raise _LanceFetchTimeoutError(msg) from exc
-            if process.returncode != 0:
-                msg = (
-                    f"Subprocess Lance fetch failed with return code {process.returncode}; "
-                    f"rows={len(row_ids)} stdout={stdout!r} stderr={stderr!r}"
-                )
-                raise RuntimeError(msg)
-            with pa.memory_map(str(output_path), "r") as source:
-                return pa.ipc.open_file(source).read_all()
 
     def fetch(self, row_ids: list[int]) -> _RowIdFetchResult:
         if not row_ids:
@@ -375,9 +310,7 @@ class _LanceRowAddressFetcher(_LanceImageFetcherBase):
         metadata_cache_size_bytes: int,
         *,
         fetch_timeout_seconds: float,
-        fetch_mode: ImageFetchMode,
     ) -> None:
-        self.fetch_mode = fetch_mode
         super().__init__(
             table_config=table_config,
             columns=columns,
@@ -389,8 +322,6 @@ class _LanceRowAddressFetcher(_LanceImageFetcherBase):
         self.fragments = {int(fragment.fragment_id): fragment for fragment in self.dataset.get_fragments()}
 
     def _take_row_addresses(self, addresses: list[_LanceRowAddress]) -> list[pa.Table]:
-        if self.fetch_mode == "subprocess":
-            return [self._take_row_addresses_subprocess(addresses)]
         if self.executor is None:
             msg = "Lance row-address fetcher is closed"
             raise RuntimeError(msg)
@@ -412,62 +343,6 @@ class _LanceRowAddressFetcher(_LanceImageFetcherBase):
             raise ValueError(msg)
         table = _as_table(fragment.take(operation.row_offsets, columns=list(self.columns)))
         return table, operation.original_indices
-
-    def _take_row_addresses_subprocess(self, addresses: list[_LanceRowAddress]) -> pa.Table:
-        timeout = self.fetch_timeout_seconds if self.fetch_timeout_seconds > 0 else None
-        tmp_root = Path(os.environ.get("LANCE_MATERIALIZER_SUBPROCESS_DIR") or tempfile.gettempdir())
-        with tempfile.TemporaryDirectory(prefix="lance_fetch_", dir=tmp_root) as tmp:
-            tmp_path = Path(tmp)
-            request_path = tmp_path / "request.json"
-            output_path = tmp_path / "output.arrow"
-            request_path.write_text(
-                json.dumps(
-                    {
-                        "uri": self.config.uri,
-                        "version": self.config.version,
-                        "storage_options": self.config.storage_options,
-                        "columns": list(self.columns),
-                        "row_addresses": [
-                            {"fragment_id": address.fragment_id, "row_offset": address.row_offset}
-                            for address in addresses
-                        ],
-                        "fetch_batch_size": self.fetch_batch_size,
-                        "io_threads": self.io_threads,
-                        "metadata_cache_size_bytes": self.metadata_cache_size_bytes,
-                    },
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            cmd = [
-                sys.executable,
-                "-m",
-                "nemo_curator.stages.interleaved.lance.subprocess_fetch",
-                "--request-json",
-                str(request_path),
-                "--output-arrow",
-                str(output_path),
-            ]
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)  # noqa: S603
-            try:
-                stdout, stderr = process.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired as exc:
-                process.kill()
-                stdout, stderr = process.communicate()
-                msg = (
-                    f"Timed out after {self.fetch_timeout_seconds:.1f}s waiting for subprocess Lance fetch; "
-                    f"rows={len(addresses)} child_pid={process.pid} stdout={stdout!r} stderr={stderr!r}"
-                )
-                raise _LanceFetchTimeoutError(msg) from exc
-            if process.returncode != 0:
-                msg = (
-                    f"Subprocess Lance fetch failed with return code {process.returncode}; "
-                    f"rows={len(addresses)} stdout={stdout!r} stderr={stderr!r}"
-                )
-                raise RuntimeError(msg)
-            with pa.memory_map(str(output_path), "r") as source:
-                return pa.ipc.open_file(source).read_all()
 
     def fetch(self, addresses: list[_LanceRowAddress]) -> _RowIdFetchResult:
         if not addresses:
