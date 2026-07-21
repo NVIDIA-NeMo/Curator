@@ -21,6 +21,7 @@ from huggingface_hub import hf_hub_download
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio.datasets.file_utils import extract_archive
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask
@@ -42,7 +43,7 @@ def get_fleurs_filenames(lang: str, split: str) -> tuple[str, str]:
 
 
 @dataclass
-class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
+class CreateInitialManifestFleursStage(AgentReady, ProcessingStage[EmptyTask, AudioTask]):
     """Create initial manifest for the FLEURS dataset.
 
     Dataset link: https://huggingface.co/datasets/google/fleurs
@@ -93,6 +94,13 @@ class CreateInitialManifestFleursStage(ProcessingStage[EmptyTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.filepath_key, self.text_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            writes=IOSpec(data_keys=[self.filepath_key, self.text_key], produces=["disk"]),
+            cardinality="1:N fan-out",
+            gates=Gates(writes_to_disk=True, requires_internet_first_run=self.auto_download),
+        )
 
     def language_data_dir(self) -> str:
         """Return the per-language download directory under ``raw_data_dir``.
