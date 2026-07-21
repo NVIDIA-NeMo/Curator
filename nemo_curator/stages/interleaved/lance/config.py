@@ -12,15 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lance-backed interleaved readers and materializers."""
+"""Shared Lance table configuration for interleaved stages."""
 
-from nemo_curator.stages.interleaved.lance.config import LanceTableConfig
-from nemo_curator.stages.interleaved.lance.materialize import LanceRowIdImageMaterializationStage
-from nemo_curator.stages.interleaved.lance.reader import InterleavedLanceReader, InterleavedLanceReaderStage
+from __future__ import annotations
 
-__all__ = [
-    "InterleavedLanceReader",
-    "InterleavedLanceReaderStage",
-    "LanceRowIdImageMaterializationStage",
-    "LanceTableConfig",
-]
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class LanceTableConfig:
+    """Configuration for opening a pinned Lance table."""
+
+    uri: str
+    version: int | None = None
+    storage_options: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.uri:
+            msg = "Lance table URI must not be empty"
+            raise ValueError(msg)
