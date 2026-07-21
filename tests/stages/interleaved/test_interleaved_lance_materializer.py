@@ -23,6 +23,7 @@ import pytest
 from nemo_curator.stages.interleaved.lance import LanceRowIdImageMaterializationStage, LanceTableConfig
 from nemo_curator.stages.interleaved.lance.fetch import (
     _LanceFetchTimeoutError,
+    _LanceRowAddress,
     _restore_fetched_original_order,
     _RowIdFetchResult,
 )
@@ -36,12 +37,12 @@ if TYPE_CHECKING:
 class _FakeRowIdFetcher:
     source_types: ClassVar[dict[str, pa.DataType]] = {"image": pa.large_binary(), "mime_type": pa.string()}
 
-    def __init__(self, rows_by_id: dict[int, dict[str, object]]) -> None:
+    def __init__(self, rows_by_id: dict[Any, dict[str, object]]) -> None:
         self.rows_by_id = rows_by_id
-        self.calls: list[list[int]] = []
+        self.calls: list[list[Any]] = []
         self.closed = False
 
-    def fetch(self, row_ids: list[int]) -> _RowIdFetchResult:
+    def fetch(self, row_ids: list[Any]) -> _RowIdFetchResult:
         self.calls.append(list(row_ids))
         rows = [self.rows_by_id[row_id] for row_id in row_ids]
         table = pa.table(
@@ -104,6 +105,17 @@ def _interleaved_task(rows: list[dict[str, Any]]) -> InterleavedBatch:
 def _interleaved_rowid_task(rows: list[dict[str, Any]], row_ids: list[int | None]) -> InterleavedBatch:
     table = pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA)
     table = table.append_column("lance_row_id", pa.array(row_ids, type=pa.uint64(), from_pandas=True))
+    return InterleavedBatch(dataset_name="docs", data=table)
+
+
+def _interleaved_rowaddr_task(
+    rows: list[dict[str, Any]],
+    fragment_ids: list[int | None],
+    row_offsets: list[int | None],
+) -> InterleavedBatch:
+    table = pa.Table.from_pylist(rows, schema=INTERLEAVED_SCHEMA)
+    table = table.append_column("lance_fragment_id", pa.array(fragment_ids, type=pa.uint32(), from_pandas=True))
+    table = table.append_column("lance_row_offset", pa.array(row_offsets, type=pa.uint32(), from_pandas=True))
     return InterleavedBatch(dataset_name="docs", data=table)
 
 
@@ -259,6 +271,49 @@ def test_lance_rowid_image_materializer_can_parse_json_source_ref() -> None:
     assert result.to_pyarrow()["binary_content"].combine_chunks().to_pylist() == [b"jpeg-a"]
 
 
+def test_lance_row_address_image_materializer_fills_bytes_without_url_lookup() -> None:
+    stage = LanceRowIdImageMaterializationStage(
+        dataset=_table_config(),
+        address_mode="row_address",
+        presence_column="lance_image_present",
+    )
+    fake = _FakeRowIdFetcher(
+        {
+            _LanceRowAddress(fragment_id=3, row_offset=1): {"image": b"jpeg-a", "mime_type": "image/jpeg"},
+            _LanceRowAddress(fragment_id=1, row_offset=7): {"image": b"png-b", "mime_type": "image/png"},
+        }
+    )
+    stage._fetcher = fake
+    task = _interleaved_rowaddr_task(
+        [
+            _image_row("https://a.example/img.jpg"),
+            _image_row("https://b.example/img.png"),
+            {
+                "sample_id": "s1",
+                "position": 1,
+                "modality": "text",
+                "content_type": "text/plain",
+                "text_content": "caption",
+                "binary_content": None,
+                "source_ref": None,
+                "materialize_error": None,
+            },
+        ],
+        [3, 1, None],
+        [1, 7, None],
+    )
+
+    result = stage.process(task)
+    table = result.to_pyarrow()
+
+    assert fake.calls == [
+        [_LanceRowAddress(fragment_id=3, row_offset=1), _LanceRowAddress(fragment_id=1, row_offset=7)]
+    ]
+    assert table["binary_content"].combine_chunks().to_pylist() == [b"jpeg-a", b"png-b", None]
+    assert table["content_type"].combine_chunks().to_pylist() == ["image/jpeg", "image/png", "text/plain"]
+    assert table["lance_image_present"].combine_chunks().to_pylist() == [True, True, None]
+
+
 def test_restore_fetched_original_order() -> None:
     sorted_table = pa.table(
         {
@@ -319,3 +374,53 @@ def test_lance_rowid_image_materializer_real_local_dataset(tmp_path: Path, fetch
 
     assert result.to_pyarrow()["binary_content"].combine_chunks().to_pylist() == [b"jpeg-b"]
     assert result.to_pyarrow()["lance_image_present"].combine_chunks().to_pylist() == [True]
+
+
+@pytest.mark.parametrize("fetch_mode", ["in_process", "subprocess"])
+def test_lance_row_address_image_materializer_real_local_dataset(tmp_path: Path, fetch_mode: str) -> None:
+    lance = pytest.importorskip("lance")
+
+    dataset_path = tmp_path / "rowaddr-images.lance"
+    table = pa.table(
+        {
+            "image": [b"jpeg-a", b"jpeg-b", b"jpeg-c"],
+            "mime_type": ["image/jpeg", "image/jpeg", "image/jpeg"],
+        },
+        schema=pa.schema(
+            [
+                pa.field("image", pa.large_binary()),
+                pa.field("mime_type", pa.string()),
+            ]
+        ),
+    )
+    lance.write_dataset(
+        table,
+        str(dataset_path),
+        mode="create",
+        max_rows_per_file=1,
+        max_rows_per_group=1,
+    )
+    dataset = lance.dataset(str(dataset_path))
+    fragments = sorted(dataset.get_fragments(), key=lambda fragment: fragment.fragment_id)
+
+    stage = LanceRowIdImageMaterializationStage(
+        dataset=LanceTableConfig(uri=str(dataset_path), version=dataset.version),
+        address_mode="row_address",
+        presence_column="lance_image_present",
+        fetch_batch_size=1,
+        fetch_mode=fetch_mode,
+        io_threads=2,
+    )
+    task = _interleaved_rowaddr_task(
+        [_image_row("rowaddr://c"), _image_row("rowaddr://a"), _image_row("rowaddr://b")],
+        [fragments[2].fragment_id, fragments[0].fragment_id, fragments[1].fragment_id],
+        [0, 0, 0],
+    )
+
+    try:
+        result = stage.process(task)
+    finally:
+        stage.teardown()
+
+    assert result.to_pyarrow()["binary_content"].combine_chunks().to_pylist() == [b"jpeg-c", b"jpeg-a", b"jpeg-b"]
+    assert result.to_pyarrow()["lance_image_present"].combine_chunks().to_pylist() == [True, True, True]

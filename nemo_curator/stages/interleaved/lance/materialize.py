@@ -32,6 +32,9 @@ from .fetch import (
     ImageFetchMode,
     _as_table,
     _LanceFetchTimeoutError,
+    _LanceImageFetcherBase,
+    _LanceRowAddress,
+    _LanceRowAddressFetcher,
     _LanceRowIdFetcher,
     _RowIdFetchResult,
     _slice_fetched_tables,
@@ -41,6 +44,8 @@ if TYPE_CHECKING:
     from .config import LanceTableConfig
 
 ExistingColumnPolicy = Literal["error", "fill_null", "overwrite"]
+LanceImageAddressMode = Literal["row_id", "row_address"]
+LanceImageAddress = int | _LanceRowAddress
 
 
 def _is_lance_blob_type(data_type: pa.DataType) -> bool:
@@ -60,24 +65,28 @@ def _projected_type(source_type: pa.DataType, existing_type: pa.DataType | None)
 
 
 @dataclass(frozen=True)
-class _PreparedRowIdTask:
+class _PreparedImageTask:
     task: InterleavedBatch
     table: pa.Table
     requested_indices: list[int]
-    requested_row_ids: list[int]
+    requested_addresses: list[LanceImageAddress]
 
 
 @dataclass
 class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, InterleavedBatch]):
-    """Materialize interleaved image rows from Lance stable row IDs.
+    """Materialize interleaved image rows from Lance image addresses.
 
     This stage performs no URL lookup. It expects upstream enrichment to add a
-    stable Lance row-id column for rows whose image bytes should be fetched.
+    stable Lance row-id column, or Lance fragment/row-offset columns, for rows
+    whose image bytes should be fetched.
     """
 
     dataset: LanceTableConfig
+    address_mode: LanceImageAddressMode = "row_id"
     input_row_id_column: str = "lance_row_id"
     input_row_id_json_field: str | None = None
+    input_fragment_id_column: str = "lance_fragment_id"
+    input_row_offset_column: str = "lance_row_offset"
     columns: dict[str, str] = field(default_factory=lambda: {"image": "binary_content", "mime_type": "content_type"})
     presence_column: str | None = None
     existing_column_policy: ExistingColumnPolicy = "fill_null"
@@ -91,7 +100,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
     fetcher_max_batches: int = 0
     name: str = "lance_rowid_image_materialization"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
-    _fetcher: _LanceRowIdFetcher | None = field(default=None, init=False, repr=False)
+    _fetcher: _LanceImageFetcherBase | None = field(default=None, init=False, repr=False)
     _fetcher_batches: int = field(default=0, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -100,12 +109,31 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         self._validate_batch_config()
 
     def _validate_column_config(self) -> None:
-        if not self.input_row_id_column:
+        self._validate_address_column_config()
+        self._validate_projection_column_config()
+
+    def _validate_address_column_config(self) -> None:
+        if self.address_mode not in {"row_id", "row_address"}:
+            msg = f"Unsupported address_mode: {self.address_mode}"
+            raise ValueError(msg)
+        if self.address_mode == "row_id" and not self.input_row_id_column:
             msg = "input_row_id_column must not be empty"
             raise ValueError(msg)
         if self.input_row_id_json_field == "":
             msg = "input_row_id_json_field must be non-empty when provided"
             raise ValueError(msg)
+        if self.address_mode == "row_address":
+            if self.input_row_id_json_field is not None:
+                msg = "input_row_id_json_field is only supported for address_mode='row_id'"
+                raise ValueError(msg)
+            if not self.input_fragment_id_column:
+                msg = "input_fragment_id_column must not be empty"
+                raise ValueError(msg)
+            if not self.input_row_offset_column:
+                msg = "input_row_offset_column must not be empty"
+                raise ValueError(msg)
+
+    def _validate_projection_column_config(self) -> None:
         if not self.columns and not self.presence_column:
             msg = "columns may be empty only when presence_column is configured"
             raise ValueError(msg)
@@ -142,6 +170,8 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
             raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
+        if self.address_mode == "row_address":
+            return ["data"], [self.input_fragment_id_column, self.input_row_offset_column]
         return ["data"], [self.input_row_id_column]
 
     def outputs(self) -> tuple[list[str], list[str]]:
@@ -153,19 +183,24 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
     def teardown(self) -> None:
         self._close_fetcher(wait_for_fetches=True)
 
-    def _make_fetcher(self, *, fetch_mode: ImageFetchMode) -> _LanceRowIdFetcher:
+    def _make_fetcher(self, *, fetch_mode: ImageFetchMode) -> _LanceImageFetcherBase:
+        common_kwargs = {
+            "table_config": self.dataset,
+            "columns": self.columns,
+            "fetch_batch_size": self.fetch_batch_size,
+            "io_threads": self.io_threads,
+            "metadata_cache_size_bytes": self.metadata_cache_size_bytes,
+            "fetch_timeout_seconds": self.fetch_timeout_seconds,
+            "fetch_mode": fetch_mode,
+        }
+        if self.address_mode == "row_address":
+            return _LanceRowAddressFetcher(**common_kwargs)
         return _LanceRowIdFetcher(
-            table_config=self.dataset,
-            columns=self.columns,
-            fetch_batch_size=self.fetch_batch_size,
-            io_threads=self.io_threads,
-            metadata_cache_size_bytes=self.metadata_cache_size_bytes,
+            **common_kwargs,
             sort_row_ids_for_fetch=self.sort_row_ids_for_fetch,
-            fetch_timeout_seconds=self.fetch_timeout_seconds,
-            fetch_mode=fetch_mode,
         )
 
-    def _ensure_fetcher(self) -> _LanceRowIdFetcher:
+    def _ensure_fetcher(self) -> _LanceImageFetcherBase:
         if self._fetcher is None:
             self._fetcher = self._make_fetcher(fetch_mode=self.fetch_mode)
             self._fetcher_batches = 0
@@ -186,23 +221,26 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
             return
         self._close_fetcher(wait_for_fetches=True)
 
-    def _fetch_requested_images_subprocess_fallback(self, requested_row_ids: list[int]) -> _RowIdFetchResult:
+    def _fetch_requested_images_subprocess_fallback(
+        self,
+        requested_addresses: list[LanceImageAddress],
+    ) -> _RowIdFetchResult:
         fallback_fetcher = self._make_fetcher(fetch_mode="subprocess")
         try:
-            return fallback_fetcher.fetch(requested_row_ids)
+            return fallback_fetcher.fetch(requested_addresses)  # type: ignore[arg-type]
         finally:
             fallback_fetcher.close(wait_for_fetches=True)
 
-    def _fetch_requested_images(self, requested_row_ids: list[int]) -> tuple[_RowIdFetchResult, int]:
+    def _fetch_requested_images(self, requested_addresses: list[LanceImageAddress]) -> tuple[_RowIdFetchResult, int]:
         max_attempts = self.fetch_retries + 1
         for attempt in range(1, max_attempts + 1):
             try:
-                return self._ensure_fetcher().fetch(requested_row_ids), attempt
+                return self._ensure_fetcher().fetch(requested_addresses), attempt  # type: ignore[arg-type]
             except _LanceFetchTimeoutError as exc:
                 self._close_fetcher(wait_for_fetches=False)
                 if self.fetch_mode == "subprocess_on_timeout":
                     try:
-                        return self._fetch_requested_images_subprocess_fallback(requested_row_ids), attempt + 1
+                        return self._fetch_requested_images_subprocess_fallback(requested_addresses), attempt + 1
                     except _LanceFetchTimeoutError as fallback_exc:
                         if attempt >= max_attempts:
                             msg = (
@@ -219,10 +257,40 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         msg = "unreachable Lance fetch retry state"
         raise RuntimeError(msg)
 
-    def _validate_input_table(self, table: pa.Table, source_types: dict[str, pa.DataType]) -> None:
+    def _validate_input_address_columns(self, table: pa.Table) -> None:
+        if self.address_mode == "row_address":
+            missing_address_columns = [
+                column
+                for column in (self.input_fragment_id_column, self.input_row_offset_column)
+                if column not in table.column_names
+            ]
+            if missing_address_columns:
+                msg = f"Input row-address columns do not exist: {missing_address_columns}"
+                raise ValueError(msg)
+            for column in (self.input_fragment_id_column, self.input_row_offset_column):
+                input_type = table.schema.field(column).type
+                if not (pa.types.is_integer(input_type) or pa.types.is_string(input_type)):
+                    msg = (
+                        f"Input row-address column {column!r} has type {input_type}; "
+                        "expected an integer or string column"
+                    )
+                    raise TypeError(msg)
+            return
+
         if self.input_row_id_column not in table.column_names:
             msg = f"Input row-id column {self.input_row_id_column!r} does not exist"
             raise ValueError(msg)
+        input_type = table.schema.field(self.input_row_id_column).type
+        if self.input_row_id_json_field is not None and not pa.types.is_string(input_type):
+            msg = "input_row_id_json_field requires a string input row-id column"
+            raise TypeError(msg)
+        if self.input_row_id_json_field is None and not (
+            pa.types.is_integer(input_type) or pa.types.is_string(input_type)
+        ):
+            msg = f"Input row-id column has type {input_type}; expected an integer or string column"
+            raise TypeError(msg)
+
+    def _validate_destination_columns(self, table: pa.Table, source_types: dict[str, pa.DataType]) -> None:
         collisions = sorted(set(self.columns.values()) & set(table.column_names))
         if collisions and self.existing_column_policy == "error":
             msg = f"Projected destination columns already exist: {collisions}"
@@ -241,20 +309,18 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
                 f"Lance column {source!r} has type {source_type}"
             )
             raise TypeError(msg)
+
+    def _validate_presence_column(self, table: pa.Table) -> None:
         if self.presence_column in table.column_names and not pa.types.is_boolean(
             table.schema.field(self.presence_column).type
         ):
             msg = f"Presence column {self.presence_column!r} must have boolean type"
             raise TypeError(msg)
-        input_type = table.schema.field(self.input_row_id_column).type
-        if self.input_row_id_json_field is not None and not pa.types.is_string(input_type):
-            msg = "input_row_id_json_field requires a string input row-id column"
-            raise TypeError(msg)
-        if self.input_row_id_json_field is None and not (
-            pa.types.is_integer(input_type) or pa.types.is_string(input_type)
-        ):
-            msg = f"Input row-id column has type {input_type}; expected an integer or string column"
-            raise TypeError(msg)
+
+    def _validate_input_table(self, table: pa.Table, source_types: dict[str, pa.DataType]) -> None:
+        self._validate_input_address_columns(table)
+        self._validate_destination_columns(table, source_types)
+        self._validate_presence_column(table)
 
     @staticmethod
     def _coerce_row_id(value: object) -> int | None:
@@ -285,21 +351,39 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
     def _table_row_ids(self, table: pa.Table) -> list[int | None]:
         return [self._extract_row_id(value) for value in table[self.input_row_id_column].combine_chunks().to_pylist()]
 
+    def _table_row_addresses(self, table: pa.Table) -> list[_LanceRowAddress | None]:
+        fragment_ids = table[self.input_fragment_id_column].combine_chunks().to_pylist()
+        row_offsets = table[self.input_row_offset_column].combine_chunks().to_pylist()
+        addresses: list[_LanceRowAddress | None] = []
+        for fragment_id_value, row_offset_value in zip(fragment_ids, row_offsets, strict=True):
+            fragment_id = self._coerce_row_id(fragment_id_value)
+            row_offset = self._coerce_row_id(row_offset_value)
+            if fragment_id is None or row_offset is None:
+                addresses.append(None)
+            else:
+                addresses.append(_LanceRowAddress(fragment_id=fragment_id, row_offset=row_offset))
+        return addresses
+
+    def _table_addresses(self, table: pa.Table) -> list[LanceImageAddress | None]:
+        if self.address_mode == "row_address":
+            return self._table_row_addresses(table)
+        return self._table_row_ids(table)
+
     def _requested_indices(
         self,
         table: pa.Table,
-        row_ids: list[int | None],
+        addresses: list[LanceImageAddress | None],
         presence: list[bool | None] | None,
-    ) -> tuple[list[int], list[int]]:
+    ) -> tuple[list[int], list[LanceImageAddress]]:
         destination_values = {
             destination: table[destination].combine_chunks().to_pylist()
             for destination in self.columns.values()
             if destination in table.column_names
         }
         indices: list[int] = []
-        requested_row_ids: list[int] = []
-        for index, row_id in enumerate(row_ids):
-            if row_id is None or (presence is not None and presence[index] is False):
+        requested_addresses: list[LanceImageAddress] = []
+        for index, address in enumerate(addresses):
+            if address is None or (presence is not None and presence[index] is False):
                 continue
             if self.existing_column_policy == "fill_null" and self.columns:
                 all_populated = all(
@@ -312,28 +396,28 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
             elif not self.columns and presence is not None and presence[index] is not None:
                 continue
             indices.append(index)
-            requested_row_ids.append(row_id)
-        return indices, requested_row_ids
+            requested_addresses.append(address)
+        return indices, requested_addresses
 
     def _prepare_task(
         self,
         task: InterleavedBatch,
         source_types: dict[str, pa.DataType],
-    ) -> _PreparedRowIdTask:
+    ) -> _PreparedImageTask:
         table = task.to_pyarrow()
         self._validate_input_table(table, source_types)
-        row_ids = self._table_row_ids(table)
+        addresses = self._table_addresses(table)
         presence = (
             table[self.presence_column].combine_chunks().to_pylist()
             if self.presence_column and self.presence_column in table.column_names
             else None
         )
-        requested_indices, requested_row_ids = self._requested_indices(table, row_ids, presence)
-        return _PreparedRowIdTask(
+        requested_indices, requested_addresses = self._requested_indices(table, addresses, presence)
+        return _PreparedImageTask(
             task=task,
             table=table,
             requested_indices=requested_indices,
-            requested_row_ids=requested_row_ids,
+            requested_addresses=requested_addresses,
         )
 
     def _flatten_fetched_values(self, fetch_result: _RowIdFetchResult) -> dict[str, list[object]]:
@@ -388,7 +472,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         result = table
         fetched_table = self._concat_fetched_tables(fetch_result)
         if fetched_table.num_rows != len(requested_indices):
-            msg = f"Lance returned {fetched_table.num_rows} rows for {len(requested_indices)} requested stable row IDs"
+            msg = f"Lance returned {fetched_table.num_rows} rows for {len(requested_indices)} requested image rows"
             raise RuntimeError(msg)
         for source, destination in self.columns.items():
             existing_type = result.schema.field(destination).type if destination in result.schema.names else None
@@ -407,7 +491,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         fetched_values = self._flatten_fetched_values(fetch_result)
         fetched_rows = len(next(iter(fetched_values.values()), []))
         if fetched_rows != len(requested_indices):
-            msg = f"Lance returned {fetched_rows} rows for {len(requested_indices)} requested stable row IDs"
+            msg = f"Lance returned {fetched_rows} rows for {len(requested_indices)} requested image rows"
             raise RuntimeError(msg)
 
         for source, destination in self.columns.items():
@@ -460,14 +544,14 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         fetcher = self._ensure_fetcher()
         source_types = fetcher.source_types
         prepared = [self._prepare_task(task, source_types) for task in tasks]
-        requested_row_ids = [row_id for prepared_task in prepared for row_id in prepared_task.requested_row_ids]
-        fetch_result, fetch_attempts = self._fetch_requested_images(requested_row_ids)
+        requested_addresses = [address for prepared_task in prepared for address in prepared_task.requested_addresses]
+        fetch_result, fetch_attempts = self._fetch_requested_images(requested_addresses)
         self._maybe_recycle_fetcher_after_success()
 
         outputs: list[InterleavedBatch] = []
         fetched_offset = 0
         for prepared_task in prepared:
-            fetched_count = len(prepared_task.requested_row_ids)
+            fetched_count = len(prepared_task.requested_addresses)
             task_fetch_result = _RowIdFetchResult(
                 tables=_slice_fetched_tables(fetch_result.tables, fetched_offset, fetched_count),
                 fetch_seconds=fetch_result.fetch_seconds,
@@ -495,7 +579,9 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         metrics = {
             "input_tasks": float(len(prepared)),
             "input_rows": float(sum(prepared_task.table.num_rows for prepared_task in prepared)),
-            "requested_row_ids": float(len(requested_row_ids)),
+            "requested_lance_addresses": float(len(requested_addresses)),
+            "requested_row_ids": float(len(requested_addresses) if self.address_mode == "row_id" else 0),
+            "requested_row_addresses": float(len(requested_addresses) if self.address_mode == "row_address" else 0),
             "materializer_seconds": time.perf_counter() - process_started,
             "lance_fetch_seconds": fetch_result.fetch_seconds,
             "lance_fetch_attempts": float(fetch_attempts),
@@ -507,6 +593,8 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
             "lance_read_bytes": float(fetch_result.read_bytes),
             "lance_read_iops": float(fetch_result.read_iops),
             "fetch_mode.subprocess": float(self.fetch_mode == "subprocess"),
+            "address_mode.row_id": float(self.address_mode == "row_id"),
+            "address_mode.row_address": float(self.address_mode == "row_address"),
         }
         for source, value in fetch_result.fetched_bytes_by_column.items():
             metrics[f"lance_fetched_{source}_bytes"] = float(value)
