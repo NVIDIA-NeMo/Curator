@@ -26,6 +26,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from nemo_curator.stages.audio._agent_ready import AgentReady, IOSpec, StageContract
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
 
@@ -149,7 +150,7 @@ def _get_filepath_from_stats(stats: dict[str, Any] | None, key: str) -> str | No
 
 
 @dataclass
-class ALMDataOverlapStage(ProcessingStage[AudioTask, AudioTask]):
+class ALMDataOverlapStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Filter overlapping ALM windows.
 
     Removes windows with overlap exceeding the threshold, keeping
@@ -161,6 +162,8 @@ class ALMDataOverlapStage(ProcessingStage[AudioTask, AudioTask]):
     # Processing parameters (EXACT match to SDP)
     overlap_percentage: int = 0
     target_duration: float = 120.0
+    windows_key: str = "windows"
+    filtered_windows_key: str = "filtered_windows"
 
     def __post_init__(self) -> None:
         """Validate parameters."""
@@ -172,17 +175,26 @@ class ALMDataOverlapStage(ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], ["windows"]
+        return [], [self.windows_key]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.filtered_windows_key]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.windows_key]),
+            writes=IOSpec(data_keys=[self.filtered_windows_key]),
+        )
 
     def process(self, task: AudioTask) -> AudioTask:
         t0 = time.perf_counter()
-        input_windows = len(task.data.get("windows", []))
+        input_windows = len(task.data.get(self.windows_key, []))
         result = self._filter_overlaps(task.data)
         task.data.clear()
         task.data.update(result)
         filter_time = time.perf_counter() - t0
 
-        output_windows = len(task.data.get("filtered_windows", []))
+        output_windows = len(task.data.get(self.filtered_windows_key, []))
         filtered_dur = task.data.get("filtered_dur", 0.0)
         self._log_metrics(
             {
@@ -199,10 +211,10 @@ class ALMDataOverlapStage(ProcessingStage[AudioTask, AudioTask]):
         """Filter overlapping windows from entry."""
         threshold = self.overlap_percentage / MAX_OVERLAP_PERCENTAGE
 
-        windows = entry.get("windows", [])
+        windows = entry.get(self.windows_key, [])
         if not windows:
             result = entry.copy()
-            result.setdefault("filtered_windows", [])
+            result.setdefault(self.filtered_windows_key, [])
             result.setdefault("filtered_dur", 0.0)
             result.setdefault("filtered_dur_list", [])
             result.setdefault("total_dur_window", 0.0)
@@ -234,7 +246,7 @@ class ALMDataOverlapStage(ProcessingStage[AudioTask, AudioTask]):
         result["total_dur_list_window"] = total_dur_list_window
         result["total_dur_list_window_timestamps"] = total_dur_list_window_timestamps
         result["filtered"] = filtered_timestamps
-        result["filtered_windows"] = filtered_windows
+        result[self.filtered_windows_key] = filtered_windows
         result["filtered_dur"] = filtered_dur
         result["filtered_dur_list"] = filtered_dur_list
         result["manifest_filepath"] = manifest_filepath

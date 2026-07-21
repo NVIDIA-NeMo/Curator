@@ -32,6 +32,7 @@ import torchaudio.functional as taf
 from loguru import logger
 
 from nemo_curator.backends.utils import RayStageSpecKeys
+from nemo_curator.stages.audio._agent_ready import AgentReady, Gates, IOSpec, StageContract
 from nemo_curator.stages.audio.alm.pretrain.planning import relativize_segments
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _PLAN_DATA_KEY,
@@ -51,7 +52,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
+class SnippetExtractionStage(AgentReady, ProcessingStage[AudioTask, AudioTask]):
     """Slice the source audio per snippet plan, mono-resample, and write into a tar.
 
     For each planned snippet:
@@ -115,6 +116,20 @@ class SnippetExtractionStage(ProcessingStage[AudioTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, "snippet_id", "duration", "segments"]
+
+    def describe(self) -> StageContract:
+        return StageContract(
+            reads=IOSpec(data_keys=[self.audio_filepath_key, _PLAN_DATA_KEY], accepts=["file"]),
+            writes=IOSpec(
+                data_keys=[self.audio_filepath_key, "snippet_id", "duration", "segments"],
+                # Disk output only happens when not dry-running; keep this consistent
+                # with the writes_to_disk gate below.
+                produces=[] if self.dry_run else ["disk"],
+            ),
+            cardinality="1:N fan-out",
+            iteration_key=_PLAN_DATA_KEY,
+            gates=Gates(writes_to_disk=not self.dry_run, lifecycle_side_effects=not self.dry_run),
+        )
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
