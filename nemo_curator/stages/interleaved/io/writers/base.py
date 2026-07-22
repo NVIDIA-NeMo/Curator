@@ -26,7 +26,7 @@ from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.interleaved.utils import materialize_task_binary_content
-from nemo_curator.stages.interleaved.utils.schema import align_table, reconcile_schema, resolve_schema
+from nemo_curator.stages.interleaved.utils.schema import align_interleaved_table, resolve_schema
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import check_output_mode
@@ -114,10 +114,7 @@ class BaseInterleavedWriter(ProcessingStage[InterleavedBatch, FileGroupTask], AB
     def _align_output(self, df: pd.DataFrame) -> pd.DataFrame:
         """Reconcile or align *df* to the declared schema."""
         table = pa.Table.from_pandas(df, preserve_index=False)
-        if self.schema is not None:
-            table = align_table(table, self.schema)
-        else:
-            table = table.cast(reconcile_schema(table.schema))
+        table = align_interleaved_table(table, self.schema)
         return table.to_pandas(types_mapper=pd.ArrowDtype)
 
     def _write_dataframe(self, df: pd.DataFrame, file_path: str, write_kwargs: dict[str, Any]) -> None:

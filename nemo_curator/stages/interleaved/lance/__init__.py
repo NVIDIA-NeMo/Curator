@@ -12,15 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lance-backed interleaved readers and materializers."""
+"""Lance-backed interleaved readers, sidecars, and materializers."""
 
 from nemo_curator.stages.interleaved.lance.config import LanceTableConfig
 from nemo_curator.stages.interleaved.lance.materialize import LanceRowIdImageMaterializationStage
 from nemo_curator.stages.interleaved.lance.reader import InterleavedLanceReader, InterleavedLanceReaderStage
+from nemo_curator.stages.interleaved.lance.sidecar import ShardedSqliteUrlLanceAddressResolutionStage
 
 __all__ = [
     "InterleavedLanceReader",
     "InterleavedLanceReaderStage",
     "LanceRowIdImageMaterializationStage",
     "LanceTableConfig",
+    "ShardedSqliteUrlLanceAddressResolutionStage",
 ]

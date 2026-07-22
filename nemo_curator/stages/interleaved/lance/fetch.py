@@ -332,8 +332,11 @@ class _LanceRowAddressFetcher(_LanceImageFetcherBase):
             futures,
             operation=f"fragment.take ops={len(operations)} rows={len(addresses)}",
         )
-        tables = [table for table, _ in fetched]
-        original_indices = [index for _, indices in fetched for index in indices]
+        tables = []
+        original_indices = []
+        for table, indices in fetched:
+            tables.append(table)
+            original_indices.extend(indices)
         return _restore_fetched_original_order(tables, original_indices)
 
     def _take_fragment_rows(self, operation: _LanceFragmentTakeOperation) -> tuple[pa.Table, list[int]]:

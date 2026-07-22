@@ -20,7 +20,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import pyarrow as pa
 
@@ -28,6 +28,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import InterleavedBatch
 
+from .config import LanceTableConfig  # noqa: TC001
 from .fetch import (
     _as_table,
     _LanceFetchTimeoutError,
@@ -38,9 +39,6 @@ from .fetch import (
     _RowIdFetchResult,
     _slice_fetched_tables,
 )
-
-if TYPE_CHECKING:
-    from .config import LanceTableConfig
 
 ExistingColumnPolicy = Literal["error", "fill_null", "overwrite"]
 LanceImageAddressMode = Literal["row_id", "row_address"]
@@ -217,7 +215,8 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
 
     def _fetch_requested_images(self, requested_addresses: list[LanceImageAddress]) -> tuple[_RowIdFetchResult, int]:
         max_attempts = self.fetch_retries + 1
-        for attempt in range(1, max_attempts + 1):
+        attempt = 1
+        while True:
             try:
                 return self._ensure_fetcher().fetch(requested_addresses), attempt  # type: ignore[arg-type]
             except _LanceFetchTimeoutError as exc:
@@ -228,8 +227,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
                         f"(timeout={self.fetch_timeout_seconds:.1f}s)"
                     )
                     raise RuntimeError(msg) from exc
-        msg = "unreachable Lance fetch retry state"
-        raise RuntimeError(msg)
+                attempt += 1
 
     def _validate_input_address_columns(self, table: pa.Table) -> None:
         if self.address_mode == "row_address":
@@ -419,10 +417,6 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         return table.append_column(destination, array)
 
     @staticmethod
-    def _concat_fetched_tables(fetch_result: _RowIdFetchResult) -> pa.Table:
-        return _as_table(fetch_result.tables)
-
-    @staticmethod
     def _coerce_fetched_column(
         column: pa.ChunkedArray,
         source_type: pa.DataType,
@@ -444,7 +438,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         source_types: dict[str, pa.DataType],
     ) -> pa.Table:
         result = table
-        fetched_table = self._concat_fetched_tables(fetch_result)
+        fetched_table = _as_table(fetch_result.tables)
         if fetched_table.num_rows != len(requested_indices):
             msg = f"Lance returned {fetched_table.num_rows} rows for {len(requested_indices)} requested image rows"
             raise RuntimeError(msg)
@@ -508,7 +502,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         return self._write_column(table, self.presence_column, presence)
 
     def _process_tasks(self, tasks: list[InterleavedBatch]) -> list[InterleavedBatch]:
-        if len(tasks) == 0:
+        if not tasks:
             return []
 
         process_started = time.perf_counter()
@@ -562,7 +556,6 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
             "lance_read_bytes": float(fetch_result.read_bytes),
             "lance_read_iops": float(fetch_result.read_iops),
             "address_mode.row_id": float(self.address_mode == "row_id"),
-            "address_mode.row_address": float(self.address_mode == "row_address"),
         }
         for source, value in fetch_result.fetched_bytes_by_column.items():
             metrics[f"lance_fetched_{source}_bytes"] = float(value)
