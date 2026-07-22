@@ -289,8 +289,8 @@ def test_build_url_lance_sidecar_cli_helpers(tmp_path: Path, monkeypatch: pytest
     options = cli.aws_profile_storage_options("con")
 
     assert options["aws_access_key_id"] == "key"
-    assert options["aws_secret_access_key"] == "secret"  # noqa: S105
-    assert options["aws_session_token"] == "token"  # noqa: S105
+    assert options["aws_secret_access_key"] == "secret"  # noqa: S105  # pragma: allowlist secret
+    assert options["aws_session_token"] == "token"  # noqa: S105  # pragma: allowlist secret
     assert options["aws_endpoint"] == "https://pdx.s8k.io"
     assert options["aws_region"] == "us-east-1"
     assert options["aws_virtual_hosted_style_request"] == "false"
