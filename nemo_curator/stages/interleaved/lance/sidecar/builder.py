@@ -87,7 +87,9 @@ def _scanner_for(dataset: Any, *, key_column: str, max_rows: int, batch_size: in
         scanner_kwargs["batch_size"] = batch_size
     try:
         return dataset.scanner(**scanner_kwargs)
-    except TypeError:
+    except TypeError as exc:
+        if "batch_size" not in str(exc):
+            raise
         scanner_kwargs.pop("batch_size", None)
         return dataset.scanner(**scanner_kwargs)
 
@@ -213,108 +215,113 @@ def build_sharded_sqlite_url_lance_sidecar(  # noqa: C901, PLR0912, PLR0913, PLR
         msg = f"Lance dataset is missing key column {key_column!r}; schema={lance_dataset.schema.names}"
         raise ValueError(msg)
 
-    conns = [_connect_write_shard(shards_dir / f"shard-{shard_id:05d}.sqlite") for shard_id in range(shard_count)]
-    pending: list[list[tuple[bytes, bytes, bytes]]] = [[] for _ in range(shard_count)]
-    inserted_by_shard = [0] * shard_count
-    duplicates_by_shard = [0] * shard_count
-    total_rows = 0
-    valid_url_rows = 0
-    sample_urls_written = 0
-    progress_path = temporary / "progress.json"
-    sample_path = temporary / "sample_urls.jsonl"
-    scan_started = _now()
-    next_commit_rows = commit_every_rows
-    next_progress_rows = progress_every_rows
+    conns: list[sqlite3.Connection] = []
+    try:
+        for shard_id in range(shard_count):
+            conns.append(_connect_write_shard(shards_dir / f"shard-{shard_id:05d}.sqlite"))
+        pending: list[list[tuple[bytes, bytes, bytes]]] = [[] for _ in range(shard_count)]
+        inserted_by_shard = [0] * shard_count
+        duplicates_by_shard = [0] * shard_count
+        total_rows = 0
+        valid_url_rows = 0
+        sample_urls_written = 0
+        progress_path = temporary / "progress.json"
+        sample_path = temporary / "sample_urls.jsonl"
+        scan_started = _now()
+        next_commit_rows = commit_every_rows
+        next_progress_rows = progress_every_rows
 
-    with sample_path.open("w", encoding="utf-8") as sample_file:
-        for batch in _iter_batches(
-            _scanner_for(lance_dataset, key_column=key_column, max_rows=max_rows, batch_size=batch_size)
-        ):
-            batch_dict = batch.to_pydict()
-            urls = batch_dict[key_column]
-            row_ids = batch_dict[ROW_ID_COLUMN]
-            rowaddrs = batch_dict[ROWADDR_COLUMN]
-            total_rows += len(urls)
-            for url, row_id, rowaddr in zip(urls, row_ids, rowaddrs, strict=True):
-                if not isinstance(url, str) or not url:
-                    continue
-                valid_url_rows += 1
-                rowaddr_int = int(rowaddr)
-                digest = hash_url(url)
-                shard_id = shard_for_digest(digest, shard_count)
-                pending[shard_id].append((digest, encode_uint64(row_id), encode_uint64(rowaddr_int)))
-                if sample_urls_written < sample_url_count:
-                    fragment_id, row_offset = decode_rowaddr(rowaddr_int)
-                    sample_file.write(
-                        json.dumps(
-                            {
-                                "url": url,
-                                "row_id": int(row_id),
-                                "rowaddr": rowaddr_int,
-                                "fragment_id": fragment_id,
-                                "row_offset": row_offset,
-                            },
-                            separators=(",", ":"),
+        with sample_path.open("w", encoding="utf-8") as sample_file:
+            for batch in _iter_batches(
+                _scanner_for(lance_dataset, key_column=key_column, max_rows=max_rows, batch_size=batch_size)
+            ):
+                batch_dict = batch.to_pydict()
+                urls = batch_dict[key_column]
+                row_ids = batch_dict[ROW_ID_COLUMN]
+                rowaddrs = batch_dict[ROWADDR_COLUMN]
+                total_rows += len(urls)
+                for url, row_id, rowaddr in zip(urls, row_ids, rowaddrs, strict=True):
+                    if not isinstance(url, str) or not url:
+                        continue
+                    valid_url_rows += 1
+                    rowaddr_int = int(rowaddr)
+                    digest = hash_url(url)
+                    shard_id = shard_for_digest(digest, shard_count)
+                    pending[shard_id].append((digest, encode_uint64(row_id), encode_uint64(rowaddr_int)))
+                    if sample_urls_written < sample_url_count:
+                        fragment_id, row_offset = decode_rowaddr(rowaddr_int)
+                        sample_file.write(
+                            json.dumps(
+                                {
+                                    "url": url,
+                                    "row_id": int(row_id),
+                                    "rowaddr": rowaddr_int,
+                                    "fragment_id": fragment_id,
+                                    "row_offset": row_offset,
+                                },
+                                separators=(",", ":"),
+                            )
+                            + "\n"
                         )
-                        + "\n"
+                        sample_urls_written += 1
+                    if len(pending[shard_id]) >= insert_batch_rows:
+                        inserted, duplicates = _flush_shard(conns[shard_id], pending[shard_id])
+                        inserted_by_shard[shard_id] += inserted
+                        duplicates_by_shard[shard_id] += duplicates
+                        pending[shard_id].clear()
+                if total_rows >= next_commit_rows:
+                    _flush_pending(conns, pending, inserted_by_shard, duplicates_by_shard)
+                    _commit_all(conns)
+                    _write_progress(
+                        progress_path,
+                        total_rows=total_rows,
+                        valid_url_rows=valid_url_rows,
+                        inserted_by_shard=inserted_by_shard,
+                        duplicates_by_shard=duplicates_by_shard,
+                        started=scan_started,
                     )
-                    sample_urls_written += 1
-                if len(pending[shard_id]) >= insert_batch_rows:
-                    inserted, duplicates = _flush_shard(conns[shard_id], pending[shard_id])
-                    inserted_by_shard[shard_id] += inserted
-                    duplicates_by_shard[shard_id] += duplicates
-                    pending[shard_id].clear()
-            if total_rows >= next_commit_rows:
-                _flush_pending(conns, pending, inserted_by_shard, duplicates_by_shard)
-                _commit_all(conns)
-                _write_progress(
-                    progress_path,
-                    total_rows=total_rows,
-                    valid_url_rows=valid_url_rows,
-                    inserted_by_shard=inserted_by_shard,
-                    duplicates_by_shard=duplicates_by_shard,
-                    started=scan_started,
-                )
-                while next_commit_rows <= total_rows:
-                    next_commit_rows += commit_every_rows
-                while next_progress_rows <= total_rows:
-                    next_progress_rows += progress_every_rows
-            elif total_rows >= next_progress_rows:
-                _flush_pending(conns, pending, inserted_by_shard, duplicates_by_shard)
-                _write_progress(
-                    progress_path,
-                    total_rows=total_rows,
-                    valid_url_rows=valid_url_rows,
-                    inserted_by_shard=inserted_by_shard,
-                    duplicates_by_shard=duplicates_by_shard,
-                    started=scan_started,
-                )
-                while next_progress_rows <= total_rows:
-                    next_progress_rows += progress_every_rows
+                    while next_commit_rows <= total_rows:
+                        next_commit_rows += commit_every_rows
+                    while next_progress_rows <= total_rows:
+                        next_progress_rows += progress_every_rows
+                elif total_rows >= next_progress_rows:
+                    _flush_pending(conns, pending, inserted_by_shard, duplicates_by_shard)
+                    _write_progress(
+                        progress_path,
+                        total_rows=total_rows,
+                        valid_url_rows=valid_url_rows,
+                        inserted_by_shard=inserted_by_shard,
+                        duplicates_by_shard=duplicates_by_shard,
+                        started=scan_started,
+                    )
+                    while next_progress_rows <= total_rows:
+                        next_progress_rows += progress_every_rows
 
-    _flush_pending(conns, pending, inserted_by_shard, duplicates_by_shard)
-    _commit_all(conns)
-    _write_progress(
-        progress_path,
-        total_rows=total_rows,
-        valid_url_rows=valid_url_rows,
-        inserted_by_shard=inserted_by_shard,
-        duplicates_by_shard=duplicates_by_shard,
-        started=scan_started,
-    )
-    for shard_id, conn in enumerate(conns):
-        conn.execute("INSERT INTO metadata VALUES (?, ?)", ("shard_id", json.dumps(shard_id)))
-        conn.execute("INSERT INTO metadata VALUES (?, ?)", ("shard_count", json.dumps(shard_count)))
-        conn.execute("INSERT INTO metadata VALUES (?, ?)", ("hash", json.dumps(SIDECAR_HASH)))
-        conn.execute("INSERT INTO metadata VALUES (?, ?)", ("row_id_encoding", json.dumps(UINT64_ENCODING)))
-        conn.execute("INSERT INTO metadata VALUES (?, ?)", ("rowaddr_encoding", json.dumps(UINT64_ENCODING)))
-        conn.execute(
-            "INSERT INTO metadata VALUES (?, ?)",
-            ("sidecar_schema_version", json.dumps(SIDECAR_SCHEMA_VERSION_WITH_ROWADDR)),
+        _flush_pending(conns, pending, inserted_by_shard, duplicates_by_shard)
+        _commit_all(conns)
+        _write_progress(
+            progress_path,
+            total_rows=total_rows,
+            valid_url_rows=valid_url_rows,
+            inserted_by_shard=inserted_by_shard,
+            duplicates_by_shard=duplicates_by_shard,
+            started=scan_started,
         )
-        conn.commit()
-        conn.execute("PRAGMA optimize")
-        conn.close()
+        for shard_id, conn in enumerate(conns):
+            conn.execute("INSERT INTO metadata VALUES (?, ?)", ("shard_id", json.dumps(shard_id)))
+            conn.execute("INSERT INTO metadata VALUES (?, ?)", ("shard_count", json.dumps(shard_count)))
+            conn.execute("INSERT INTO metadata VALUES (?, ?)", ("hash", json.dumps(SIDECAR_HASH)))
+            conn.execute("INSERT INTO metadata VALUES (?, ?)", ("row_id_encoding", json.dumps(UINT64_ENCODING)))
+            conn.execute("INSERT INTO metadata VALUES (?, ?)", ("rowaddr_encoding", json.dumps(UINT64_ENCODING)))
+            conn.execute(
+                "INSERT INTO metadata VALUES (?, ?)",
+                ("sidecar_schema_version", json.dumps(SIDECAR_SCHEMA_VERSION_WITH_ROWADDR)),
+            )
+            conn.commit()
+            conn.execute("PRAGMA optimize")
+    finally:
+        for conn in conns:
+            conn.close()
 
     scan_seconds = _now() - scan_started
     shard_bytes = {path.name: path.stat().st_size for path in sorted(shards_dir.glob("*.sqlite"))}

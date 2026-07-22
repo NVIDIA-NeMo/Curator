@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
@@ -36,6 +38,7 @@ from nemo_curator.stages.interleaved.lance.sidecar import (
     read_lance_url_sidecar_manifest,
     shard_for_digest,
 )
+from nemo_curator.stages.interleaved.lance.sidecar import builder as sidecar_builder
 from nemo_curator.tasks import InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
@@ -262,6 +265,81 @@ def test_build_url_lance_sidecar_and_materialize_with_split_row_address(tmp_path
     assert result["binary_content"].combine_chunks().to_pylist() == [b"jpeg-b"]
     assert result["content_type"].combine_chunks().to_pylist() == ["image/jpeg"]
     assert result["lance_materialized_present"].combine_chunks().to_pylist() == [True]
+
+
+def test_build_url_lance_sidecar_scanner_fallback_only_handles_batch_size() -> None:
+    calls: list[dict[str, object]] = []
+
+    class BatchSizeOnlyDataset:
+        def scanner(self, **kwargs: object) -> str:
+            calls.append(kwargs)
+            if "batch_size" in kwargs:
+                msg = "unexpected keyword argument 'batch_size'"
+                raise TypeError(msg)
+            return "scanner"
+
+    scanner = sidecar_builder._scanner_for(BatchSizeOnlyDataset(), key_column="url", max_rows=10, batch_size=5)
+
+    assert scanner == "scanner"
+    assert "batch_size" in calls[0]
+    assert "batch_size" not in calls[1]
+
+    class UnsupportedRowAddressDataset:
+        def scanner(self, **kwargs: object) -> str:
+            msg = "unexpected keyword argument 'with_row_address'"
+            raise TypeError(msg)
+
+    with pytest.raises(TypeError, match="with_row_address"):
+        sidecar_builder._scanner_for(UnsupportedRowAddressDataset(), key_column="url", max_rows=10, batch_size=5)
+
+
+def test_build_url_lance_sidecar_closes_connections_after_scan_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[bool] = []
+
+    class FakeConn:
+        total_changes = 0
+
+        def execute(self, *_args: object) -> None:
+            return None
+
+        def commit(self) -> None:
+            return None
+
+        def close(self) -> None:
+            closed.append(True)
+
+    class FailingScanner:
+        def to_batches(self) -> list[object]:
+            msg = "scan failed"
+            raise RuntimeError(msg)
+
+    def fake_connect(_path: Path) -> FakeConn:
+        return FakeConn()
+
+    monkeypatch.setattr(sidecar_builder, "_connect_write_shard", fake_connect)
+    monkeypatch.setitem(
+        sys.modules,
+        "lance",
+        SimpleNamespace(
+            dataset=lambda *_args, **_kwargs: SimpleNamespace(
+                schema=SimpleNamespace(names=["url"]),
+                version=1,
+            )
+        ),
+    )
+    monkeypatch.setattr(sidecar_builder, "_scanner_for", lambda *_args, **_kwargs: FailingScanner())
+
+    with pytest.raises(RuntimeError, match="scan failed"):
+        build_sharded_sqlite_url_lance_sidecar(
+            dataset=LanceTableConfig(uri="memory://images", version=1),
+            output_dir=tmp_path / "sidecar",
+            shard_count=3,
+        )
+
+    assert closed == [True, True, True]
 
 
 def test_build_url_lance_sidecar_cli_helpers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

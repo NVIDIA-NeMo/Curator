@@ -103,13 +103,13 @@ class ShardedSqliteUrlLanceAddressResolutionStage(ProcessingStage[InterleavedBat
         if not self.input_url_column:
             msg = "input_url_column must not be empty"
             raise ValueError(msg)
-        for name, value in {
+        for param_name, value in {
             "query_batch_size": self.query_batch_size,
             "cache_mib": self.cache_mib,
             "mmap_mib": self.mmap_mib,
         }.items():
             if value <= 0:
-                msg = f"{name} must be greater than 0"
+                msg = f"{param_name} must be greater than 0"
                 raise ValueError(msg)
         output_columns = [
             column
