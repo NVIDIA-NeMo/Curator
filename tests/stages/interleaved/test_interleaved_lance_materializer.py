@@ -15,17 +15,23 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, ClassVar
+from concurrent.futures import Future
+from typing import TYPE_CHECKING, Any, ClassVar, get_type_hints
 
 import pyarrow as pa
 import pytest
 
 from nemo_curator.stages.interleaved.lance import LanceRowIdImageMaterializationStage, LanceTableConfig
 from nemo_curator.stages.interleaved.lance.fetch import (
+    _as_table,
     _LanceFetchTimeoutError,
+    _LanceImageFetcherBase,
     _LanceRowAddress,
+    _LanceRowAddressFetcher,
+    _LanceRowIdFetcher,
     _restore_fetched_original_order,
     _RowIdFetchResult,
+    _slice_fetched_tables,
 )
 from nemo_curator.tasks import InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
@@ -128,6 +134,57 @@ def test_lance_table_config_requires_uri() -> None:
         LanceTableConfig(uri="")
 
 
+def test_lance_materializer_runtime_type_hints_resolve() -> None:
+    hints = get_type_hints(LanceRowIdImageMaterializationStage)
+
+    assert hints["dataset"] is LanceTableConfig
+
+
+def test_interleaved_lazy_exports_resolve_lance_symbols() -> None:
+    from nemo_curator.stages import interleaved
+    from nemo_curator.stages.interleaved import io as interleaved_io
+    from nemo_curator.stages.interleaved.lance import InterleavedLanceReader, InterleavedLanceReaderStage
+
+    assert interleaved.LanceRowIdImageMaterializationStage is LanceRowIdImageMaterializationStage
+    assert interleaved.LanceTableConfig is LanceTableConfig
+    assert interleaved.InterleavedLanceReader is InterleavedLanceReader
+    assert interleaved.InterleavedLanceReaderStage is InterleavedLanceReaderStage
+    assert interleaved_io.InterleavedLanceReader is InterleavedLanceReader
+    with pytest.raises(AttributeError, match="no attribute"):
+        interleaved.__getattr__("MissingStage")
+    with pytest.raises(AttributeError, match="no attribute"):
+        interleaved_io.__getattr__("MissingReader")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"address_mode": "url"}, "Unsupported address_mode"),
+        ({"input_row_id_column": ""}, "input_row_id_column"),
+        ({"input_row_id_json_field": ""}, "input_row_id_json_field"),
+        (
+            {"address_mode": "row_address", "input_row_id_json_field": "row_id"},
+            "input_row_id_json_field is only supported",
+        ),
+        ({"address_mode": "row_address", "input_fragment_id_column": ""}, "input_fragment_id_column"),
+        ({"address_mode": "row_address", "input_row_offset_column": ""}, "input_row_offset_column"),
+        ({"columns": {}, "presence_column": None}, "columns may be empty"),
+        ({"columns": {"image": "binary_content", "mime_type": "binary_content"}}, "distinct destination"),
+        ({"presence_column": "binary_content"}, "presence_column"),
+        ({"existing_column_policy": "replace"}, "Unsupported existing_column_policy"),
+        ({"fetch_batch_size": 0}, "fetch_batch_size"),
+        ({"io_threads": 0}, "io_threads"),
+        ({"metadata_cache_size_bytes": 0}, "metadata_cache_size_bytes"),
+        ({"fetch_timeout_seconds": -1}, "fetch_timeout_seconds"),
+        ({"fetch_retries": -1}, "fetch_retries"),
+        ({"fetcher_max_batches": -1}, "fetcher_max_batches"),
+    ],
+)
+def test_lance_rowid_image_materializer_rejects_invalid_config(kwargs: dict[str, object], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        LanceRowIdImageMaterializationStage(dataset=_table_config(), **kwargs)
+
+
 def test_lance_rowid_image_materializer_fills_bytes_without_url_lookup() -> None:
     stage = LanceRowIdImageMaterializationStage(
         dataset=_table_config(),
@@ -200,6 +257,53 @@ def test_lance_rowid_image_materializer_existing_policy_error() -> None:
         stage.process(task)
 
 
+@pytest.mark.parametrize(
+    ("stage", "task", "error_type", "match"),
+    [
+        (
+            LanceRowIdImageMaterializationStage(dataset=_table_config(), input_row_id_column="missing"),
+            _interleaved_task([_image_row("https://a.example/img.jpg")]),
+            ValueError,
+            "does not exist",
+        ),
+        (
+            LanceRowIdImageMaterializationStage(dataset=_table_config(), input_row_id_json_field="row_id"),
+            _interleaved_rowid_task([_image_row("https://a.example/img.jpg")], [10]),
+            TypeError,
+            "requires a string",
+        ),
+        (
+            LanceRowIdImageMaterializationStage(dataset=_table_config(), address_mode="row_address"),
+            _interleaved_task([_image_row("https://a.example/img.jpg")]),
+            ValueError,
+            "row-address columns do not exist",
+        ),
+        (
+            LanceRowIdImageMaterializationStage(dataset=_table_config(), columns={"image": "text_content"}),
+            _interleaved_rowid_task([_image_row("https://a.example/img.jpg")], [10]),
+            TypeError,
+            "Destination column",
+        ),
+        (
+            LanceRowIdImageMaterializationStage(dataset=_table_config(), presence_column="source_ref"),
+            _interleaved_rowid_task([_image_row("https://a.example/img.jpg")], [10]),
+            TypeError,
+            "Presence column",
+        ),
+    ],
+)
+def test_lance_rowid_image_materializer_validates_input_table(
+    stage: LanceRowIdImageMaterializationStage,
+    task: InterleavedBatch,
+    error_type: type[Exception],
+    match: str,
+) -> None:
+    stage._fetcher = _FakeRowIdFetcher({10: {"image": b"jpeg-a", "mime_type": "image/jpeg"}})
+
+    with pytest.raises(error_type, match=match):
+        stage.process(task)
+
+
 def test_lance_rowid_image_materializer_retries_timed_out_fetcher() -> None:
     timed_out = _TimeoutRowIdFetcher()
     success = _FakeRowIdFetcher({10: {"image": b"jpeg-a", "mime_type": "image/jpeg"}})
@@ -218,6 +322,24 @@ def test_lance_rowid_image_materializer_retries_timed_out_fetcher() -> None:
     assert timed_out.closed
     assert success.calls == [[10]]
     assert result.to_pyarrow()["binary_content"].combine_chunks().to_pylist() == [b"jpeg-a"]
+
+
+def test_lance_rowid_image_materializer_raises_after_retry_exhaustion() -> None:
+    first_timeout = _TimeoutRowIdFetcher()
+    second_timeout = _TimeoutRowIdFetcher()
+    stage = _RetryMaterializationStage(
+        fetchers=[first_timeout, second_timeout],
+        dataset=_table_config(),
+        fetch_timeout_seconds=0.1,
+        fetch_retries=1,
+    )
+    task = _interleaved_rowid_task([_image_row("https://a.example/img.jpg")], [10])
+
+    with pytest.raises(RuntimeError, match="timed out after 2 attempts"):
+        stage.process(task)
+
+    assert first_timeout.closed
+    assert second_timeout.closed
 
 
 def test_lance_rowid_image_materializer_can_parse_json_source_ref() -> None:
@@ -293,6 +415,34 @@ def test_restore_fetched_original_order() -> None:
     assert len(restored) == 1
     assert restored[0]["image"].to_pylist() == [b"row-30", b"row-10", b"row-20"]
     assert restored[0]["mime_type"].to_pylist() == ["c", "a", "b"]
+
+
+def test_lance_fetch_helpers_handle_edge_cases() -> None:
+    table = pa.table({"image": [b"a", b"b"], "mime_type": ["image/jpeg", "image/png"]})
+
+    assert _as_table([]).num_rows == 0
+    assert _slice_fetched_tables([table], 0, 0) == []
+    with pytest.raises(ValueError, match="non-negative"):
+        _slice_fetched_tables([table], -1, 1)
+    with pytest.raises(RuntimeError, match="Unable to slice"):
+        _slice_fetched_tables([table], 1, 3)
+
+    fetcher = object.__new__(_LanceImageFetcherBase)
+    fetcher.fetch_timeout_seconds = 0.001
+    assert fetcher._submit_fetches([], operation="noop") == []
+    pending: Future[int] = Future()
+    with pytest.raises(_LanceFetchTimeoutError, match="Timed out"):
+        fetcher._submit_fetches([pending], operation="blocked fetch")
+
+    closed_row_id_fetcher = object.__new__(_LanceRowIdFetcher)
+    closed_row_id_fetcher.executor = None
+    with pytest.raises(RuntimeError, match="fetcher is closed"):
+        closed_row_id_fetcher._take_rows([1])
+
+    closed_row_address_fetcher = object.__new__(_LanceRowAddressFetcher)
+    closed_row_address_fetcher.executor = None
+    with pytest.raises(RuntimeError, match="fetcher is closed"):
+        closed_row_address_fetcher._take_row_addresses([_LanceRowAddress(fragment_id=1, row_offset=0)])
 
 
 def test_lance_rowid_image_materializer_real_local_dataset(tmp_path: Path) -> None:

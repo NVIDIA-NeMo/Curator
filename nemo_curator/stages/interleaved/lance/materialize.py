@@ -20,7 +20,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import pyarrow as pa
 
@@ -28,6 +28,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import InterleavedBatch
 
+from .config import LanceTableConfig  # noqa: TC001
 from .fetch import (
     _as_table,
     _LanceFetchTimeoutError,
@@ -38,9 +39,6 @@ from .fetch import (
     _RowIdFetchResult,
     _slice_fetched_tables,
 )
-
-if TYPE_CHECKING:
-    from .config import LanceTableConfig
 
 ExistingColumnPolicy = Literal["error", "fill_null", "overwrite"]
 LanceImageAddressMode = Literal["row_id", "row_address"]
@@ -217,7 +215,8 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
 
     def _fetch_requested_images(self, requested_addresses: list[LanceImageAddress]) -> tuple[_RowIdFetchResult, int]:
         max_attempts = self.fetch_retries + 1
-        for attempt in range(1, max_attempts + 1):
+        attempt = 1
+        while True:
             try:
                 return self._ensure_fetcher().fetch(requested_addresses), attempt  # type: ignore[arg-type]
             except _LanceFetchTimeoutError as exc:
@@ -228,8 +227,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
                         f"(timeout={self.fetch_timeout_seconds:.1f}s)"
                     )
                     raise RuntimeError(msg) from exc
-        msg = "unreachable Lance fetch retry state"
-        raise RuntimeError(msg)
+                attempt += 1
 
     def _validate_input_address_columns(self, table: pa.Table) -> None:
         if self.address_mode == "row_address":
