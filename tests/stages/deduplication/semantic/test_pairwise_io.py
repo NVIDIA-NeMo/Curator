@@ -34,6 +34,7 @@ class TestClusterWiseFilePartitioningStage:
         stage = ClusterWiseFilePartitioningStage("/test/path")
 
         assert stage.num_workers() == 1
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True
         assert stage.xenna_stage_spec() == {}
 
     def test_setup(self):

@@ -22,7 +22,6 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage
 from nemo_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
@@ -51,7 +50,7 @@ class TestClipTranscodingStage:
         """Set up test fixtures."""
         self.stage = ClipTranscodingStage(
             num_cpus_per_worker=4.0,
-            encoder="libx264",
+            encoder="h264_nvenc",
             encoder_threads=2,
             encode_batch_size=8,
             use_hwaccel=False,
@@ -104,8 +103,70 @@ class TestClipTranscodingStage:
         """Test setup with invalid encoder raises ValueError."""
         stage = ClipTranscodingStage(encoder="invalid_encoder")
 
-        with pytest.raises(ValueError, match="Expected encoder of"):
+        with pytest.raises(ValueError, match="Expected encoder in"):
             stage.setup()
+
+    def test_setup_libvpx_vp9_valid(self) -> None:
+        """Test setup accepts libvpx-vp9 as a valid encoder."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9", use_hwaccel=False)
+        # Should not raise
+        stage.setup()
+
+    def test_setup_libvpx_vp9_with_hwaccel_raises(self) -> None:
+        """Test setup rejects libvpx-vp9 combined with use_hwaccel=True."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9", use_hwaccel=True)
+
+        with pytest.raises(ValueError, match="use_hwaccel is not supported with libvpx-vp9"):
+            stage.setup()
+
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.subprocess.run")
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.shutil.which")
+    def test_setup_libopenh264_available_passes(self, mock_which: MagicMock, mock_run: MagicMock) -> None:
+        """libopenh264 is accepted when the local FFmpeg build advertises it."""
+        mock_which.return_value = "/usr/local/bin/ffmpeg"
+        mock_run.return_value = MagicMock(stdout="V..... libopenh264 OpenH264 H.264", returncode=0)
+        stage = ClipTranscodingStage(encoder="libopenh264")
+        stage.setup()  # should not raise
+        mock_run.assert_called_once()
+        # Verify the probe used `ffmpeg -hide_banner -encoders` with the resolved path
+        cmd = mock_run.call_args.args[0]
+        assert cmd[0] == "/usr/local/bin/ffmpeg"
+        assert "-encoders" in cmd
+
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.subprocess.run")
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.shutil.which")
+    def test_setup_libopenh264_unavailable_raises(self, mock_which: MagicMock, mock_run: MagicMock) -> None:
+        """libopenh264 raises a clear error when the local FFmpeg build lacks it."""
+        mock_which.return_value = "/usr/local/bin/ffmpeg"
+        mock_run.return_value = MagicMock(stdout="V..... h264_nvenc NVIDIA NVENC", returncode=0)
+        stage = ClipTranscodingStage(encoder="libopenh264")
+        with pytest.raises(RuntimeError, match=r"libopenh264.*does not include it"):
+            stage.setup()
+
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.shutil.which")
+    def test_setup_libopenh264_ffmpeg_missing_raises(self, mock_which: MagicMock) -> None:
+        """A missing FFmpeg binary surfaces as a RuntimeError pointing to the docs."""
+        mock_which.return_value = None
+        stage = ClipTranscodingStage(encoder="libopenh264")
+        with pytest.raises(RuntimeError, match=r"Could not find `ffmpeg` on PATH"):
+            stage.setup()
+
+    def test_post_init_libvpx_vp9_emits_perf_warning(self) -> None:
+        """Constructing a libvpx-vp9 stage logs the perf advisory."""
+        import nemo_curator.stages.video.clipping.clip_extraction_stages as ces
+
+        with patch.object(ces, "logger") as mock_logger:
+            ClipTranscodingStage(encoder="libvpx-vp9")
+            mock_logger.warning.assert_called_once()
+            assert "libvpx-vp9 is significantly slower" in mock_logger.warning.call_args[0][0]
+
+    def test_post_init_h264_nvenc_no_perf_warning(self) -> None:
+        """h264_nvenc construction does not trigger the VP9 perf advisory."""
+        import nemo_curator.stages.video.clipping.clip_extraction_stages as ces
+
+        with patch.object(ces, "logger") as mock_logger:
+            ClipTranscodingStage(encoder="h264_nvenc")
+            assert not any("libvpx-vp9 is significantly slower" in str(c) for c in mock_logger.warning.call_args_list)
 
     def test_ray_stage_spec(self) -> None:
         """Test that ray_stage_spec returns the correct values."""
@@ -116,14 +177,6 @@ class TestClipTranscodingStage:
 
         assert RayStageSpecKeys.IS_FANOUT_STAGE in spec
         assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
-
-    def test_resources_cpu_encoder(self) -> None:
-        """Test resource requirements for CPU encoders."""
-        stage = ClipTranscodingStage(encoder="libx264", use_hwaccel=False, num_cpus_per_worker=6.0)
-
-        resources = stage.resources
-        assert isinstance(resources, Resources)
-        assert resources.cpus == 6.0
 
     def test_process_no_clips(self) -> None:
         """Test processing when video has no clips."""
@@ -304,6 +357,22 @@ class TestClipTranscodingStage:
         stage_multi = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=4)
         assert stage_multi.resources.gpus == 0.25
 
+    def test_resources_libvpx_vp9_uses_cpu(self) -> None:
+        """Test that libvpx-vp9 allocates CPU resources, not GPU."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9", use_hwaccel=False, num_cpus_per_worker=8.0)
+        assert stage.resources.cpus == 8.0
+        assert stage.resources.gpus == 0
+
+    def test_add_hwaccel_options_libvpx_vp9_ignored(self) -> None:
+        """Test that hwaccel options are not added for libvpx-vp9 even if requested."""
+        command: list[str] = []
+        # Bypass setup-time validation by constructing without use_hwaccel,
+        # then assert the command builder is also defensive.
+        stage = ClipTranscodingStage(encoder="libvpx-vp9", use_hwaccel=False)
+        stage.use_hwaccel = True  # simulate misconfiguration
+        stage._add_hwaccel_options(command)
+        assert "-hwaccel" not in command
+
     def test_add_input_options(self) -> None:
         """Test adding input options to FFmpeg command."""
         command = []
@@ -321,7 +390,7 @@ class TestClipTranscodingStage:
         assert "-map" in command
         assert "0:v:0" in command
         assert "-c:v" in command
-        assert "libx264" in command
+        assert "h264_nvenc" in command
 
     def test_add_video_encoding_options_no_bitrate(self) -> None:
         """Test adding video encoding options without bit rate."""
@@ -341,6 +410,50 @@ class TestClipTranscodingStage:
         # Should add bit rate options
         assert "-b:v" in command
         assert "5000K" in command
+
+    def test_add_video_encoding_options_libvpx_vp9_crf_mode(self) -> None:
+        """Test that libvpx-vp9 emits CRF-mode options when no bitrate is given."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9")
+        command: list[str] = []
+
+        stage._add_video_encoding_options(command, None, False)
+
+        # CRF mode: -b:v 0 plus -crf
+        assert "-b:v" in command
+        assert "0" in command
+        assert "-crf" in command
+        # VP9 threading/speed knobs
+        assert "-row-mt" in command
+        assert "-tile-columns" in command
+        assert "-deadline" in command
+        assert "-cpu-used" in command
+        # Must not contain NVENC-only flags
+        assert "-rc:v" not in command
+        assert "-cq:v" not in command
+        assert "-tune" not in command
+
+    def test_add_video_encoding_options_libvpx_vp9_with_bitrate(self) -> None:
+        """Test that libvpx-vp9 honors an explicit bitrate (skips CRF mode)."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9")
+        command: list[str] = []
+
+        stage._add_video_encoding_options(command, "5000K", False)
+
+        # Bitrate path: -b:v 5000K, no -crf
+        assert "5000K" in command
+        assert "-crf" not in command
+        # Threading/speed knobs still present
+        assert "-row-mt" in command
+
+    def test_add_video_encoding_options_libvpx_vp9_force_pix_fmt(self) -> None:
+        """Test that libvpx-vp9 forces yuv420p when force_pix_fmt is True."""
+        stage = ClipTranscodingStage(encoder="libvpx-vp9")
+        command: list[str] = []
+
+        stage._add_video_encoding_options(command, None, True)
+
+        assert "-pix_fmt" in command
+        assert "yuv420p" in command
 
     def test_add_output_options(self) -> None:
         """Test adding output options to FFmpeg command."""
@@ -580,14 +693,14 @@ class TestClipTranscodingStage:
 
 class TestClipTranscodingStageRayDataResources:
     def test_cpu_path_sets_ray_data_num_cpus_to_1(self):
-        stage = ClipTranscodingStage()
+        stage = ClipTranscodingStage(encoder="libvpx-vp9")
         assert stage.ray_data_num_cpus == 1.0
         assert stage.resources.cpus == stage.num_cpus_per_worker
 
     def test_cpu_path_ray_stage_spec_includes_ray_num_cpus(self):
         from nemo_curator.backends.utils import RayStageSpecKeys
 
-        stage = ClipTranscodingStage()
+        stage = ClipTranscodingStage(encoder="libvpx-vp9")
         spec = stage.ray_stage_spec()
         assert spec[RayStageSpecKeys.RAY_NUM_CPUS] == 1.0
         assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True

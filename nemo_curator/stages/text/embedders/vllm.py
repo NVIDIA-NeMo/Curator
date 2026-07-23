@@ -18,7 +18,17 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 from huggingface_hub import snapshot_download
-from vllm import LLM
+
+try:
+    from vllm import LLM
+
+    VLLM_AVAILABLE = True
+except ImportError:
+    VLLM_AVAILABLE = False
+
+    class LLM:  # dummy for type hints
+        pass
+
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
@@ -28,6 +38,11 @@ from nemo_curator.tasks import DocumentBatch
 
 if TYPE_CHECKING:
     from transformers import AutoTokenizer
+
+_VLLM_INSTALL_HINT = (
+    "vLLM is required for VLLMEmbeddingModelStage. "
+    "Install with: pip install nemo_curator[vllm]"
+)
 
 
 class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -79,6 +94,8 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         to its config resolution code — passing a repo ID with a custom cache dir
         fails offline.
         """
+        if not VLLM_AVAILABLE:
+            raise ImportError(_VLLM_INSTALL_HINT)
         model_path = snapshot_download(
             self.model_identifier,
             cache_dir=self.cache_dir,

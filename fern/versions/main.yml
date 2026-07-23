@@ -321,6 +321,15 @@ navigation:
               - page: Multilingual Q&A
                 path: ./main/pages/curate-text/synthetic/multilingual-qa.mdx
                 slug: multilingual-qa
+              - section: Nemotron OCR
+                slug: nemotron-ocr
+                contents:
+                  - page: Overview
+                    path: ./main/pages/curate-text/synthetic/nemotron-ocr/index.mdx
+                    slug: ""
+                  - page: Tutorial
+                    path: ./main/pages/curate-text/synthetic/nemotron-ocr/tutorial.mdx
+                    slug: tutorial
               - section: Nemotron-CC
                 slug: nemotron-cc
                 contents:
@@ -639,6 +648,9 @@ navigation:
               - page: Execution Backends
                 path: ./main/pages/reference/infrastructure/execution-backends.mdx
                 slug: execution-backends
+              - page: Stage Worker Sizing
+                path: ./main/pages/reference/infrastructure/stage-worker-sizing.mdx
+                slug: stage-worker-sizing
               - page: Per-Stage Runtime Environments
                 path: ./main/pages/reference/infrastructure/per-stage-runtime.mdx
                 slug: per-stage-runtime
