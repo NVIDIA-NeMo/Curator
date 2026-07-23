@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import gc
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -50,8 +49,8 @@ except ImportError:
     SamplingParams = None  # type: ignore[assignment,misc]
 
 
-def _require_audio_qwen_stack(*, context: str) -> None:
-    """Raise a single ImportError listing missing audio_qwen-only deps."""
+def _require_audio_inference_stack(*, context: str) -> None:
+    """Raise a single ImportError listing missing audio-inference dependencies."""
     missing: list[str] = []
     if SamplingParams is None:
         missing.append("vllm")
@@ -61,8 +60,8 @@ def _require_audio_qwen_stack(*, context: str) -> None:
         missing.append("transformers (Qwen3OmniMoeProcessor)")
     if missing:
         msg = (
-            f"QwenOmniASRAdapter {context} requires the audio_qwen extra. "
-            f"Missing: {', '.join(missing)}. Install with: uv sync --extra audio_qwen"
+            f"QwenOmniASRAdapter {context} requires the audio_inference extra. "
+            f"Missing: {', '.join(missing)}. Install with: uv sync --extra audio_inference"
         )
         raise ImportError(msg)
 
@@ -139,7 +138,6 @@ class QwenOmniASRAdapter:
     top_p: float | None = None
     top_k: int = 1
     repetition_penalty: float = 1.0
-    prep_workers: int = 8
 
     enable_prefix_caching: bool = True
     prefix_caching_hash_algo: str = "xxhash"
@@ -175,7 +173,6 @@ class QwenOmniASRAdapter:
             raise ValueError(msg)
 
         self._processor: Any = None
-        self._prep_pool: ThreadPoolExecutor | None = None
         self._llm: Any = None
         self._sampling_params: Any = None
 
@@ -200,7 +197,7 @@ class QwenOmniASRAdapter:
     def setup(self) -> None:
         if self._llm is not None:
             return
-        _require_audio_qwen_stack(context="setup()")
+        _require_audio_inference_stack(context="setup()")
 
         tp_size = self.tensor_parallel_size or get_gpu_count()
         logger.info(
@@ -250,15 +247,11 @@ class QwenOmniASRAdapter:
             )
             self._sampling_params = SamplingParams(**sampling_kwargs)
             self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id, **proc_kwargs)
-            self._prep_pool = ThreadPoolExecutor(max_workers=self.prep_workers)
         except Exception:
             self.teardown()
             raise
 
     def teardown(self) -> None:
-        if self._prep_pool is not None:
-            self._prep_pool.shutdown(wait=False)
-            self._prep_pool = None
         self._processor = None
         self._llm = None
         self._sampling_params = None
@@ -429,12 +422,10 @@ class QwenOmniASRAdapter:
     ) -> list[tuple[dict[str, Any], np.ndarray] | None]:
         langs = languages or [None] * len(waveforms)
         refs = reference_texts or [None] * len(waveforms)
-        if self._prep_pool is None:
-            return [
-                self._prepare_single(w, sr, lang, ref)
-                for w, sr, lang, ref in zip(waveforms, sample_rates, langs, refs, strict=False)
-            ]
-        return list(self._prep_pool.map(self._prepare_single, waveforms, sample_rates, langs, refs))
+        return [
+            self._prepare_single(w, sr, lang, ref)
+            for w, sr, lang, ref in zip(waveforms, sample_rates, langs, refs, strict=True)
+        ]
 
     def _prepare_turn2_single(
         self,
@@ -465,12 +456,10 @@ class QwenOmniASRAdapter:
     ) -> list[dict[str, Any] | None]:
         langs = languages or [None] * len(waveforms_16k)
         refs = reference_texts or [None] * len(waveforms_16k)
-        if self._prep_pool is None:
-            return [
-                self._prepare_turn2_single(w, pt, lang, ref)
-                for w, pt, lang, ref in zip(waveforms_16k, pred_texts, langs, refs, strict=False)
-            ]
-        return list(self._prep_pool.map(self._prepare_turn2_single, waveforms_16k, pred_texts, langs, refs))
+        return [
+            self._prepare_turn2_single(w, pt, lang, ref)
+            for w, pt, lang, ref in zip(waveforms_16k, pred_texts, langs, refs, strict=True)
+        ]
 
     @staticmethod
     def _first_output_text(output: Any) -> str:  # noqa: ANN401

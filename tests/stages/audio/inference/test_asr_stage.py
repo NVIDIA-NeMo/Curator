@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.models.asr.base import ASRResult
 from nemo_curator.stages.audio.inference.asr import ASRStage
 from nemo_curator.tasks import AudioTask
@@ -69,7 +70,7 @@ def test_process_raises_not_implemented() -> None:
         stage.process(_make_task())
 
 
-def test_empty_batch() -> None:
+def test_empty_batch_does_not_create_an_unparented_sentinel() -> None:
     stage = _make_stage()
     assert stage.process_batch([]) == []
 
@@ -217,6 +218,26 @@ def test_supported_language_filter_skips_before_adapter_call() -> None:
     assert "_skipme" not in results[0].data
     assert results[0].data["additional_notes"]["ASR_inference"] == "skipped (unsupported language: pl)"
     assert results[0].data["additional_notes"]["qwen3_prediction_s1"] == "lang_not_supported:pl"
+
+
+def test_resumability_preserves_unsupported_task_lineage() -> None:
+    stage = _make_stage(supported_language_codes=["en"])
+    task = _make_task(source_lang="pl")
+    task.task_id = "source_0"
+    task._source_id = "source"
+    captured: list[tuple[str, str, int]] = []
+
+    with (
+        patch("nemo_curator.backends.base.is_resumability_actor_active", return_value=True),
+        patch("nemo_curator.backends.base.flush_resumability_deltas", side_effect=captured.extend),
+    ):
+        results = BaseStageAdapter(stage).process_batch([task])
+
+    assert results == [task]
+    assert task.task_id == "source_0_0"
+    assert task._source_id == "source"
+    assert captured == [("source_0_0", "source", 0)]
+    stage._adapter.transcribe_batch.assert_not_called()
 
 
 def test_reference_text_key_is_passed_to_adapter_items() -> None:

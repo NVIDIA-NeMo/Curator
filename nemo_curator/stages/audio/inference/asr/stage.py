@@ -260,8 +260,6 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Run one ASR batch."""
-        if len(tasks) == 0:
-            return []
         tasks_to_process, output_exists_skipped = self._partition_inference_tasks(tasks)
 
         for task in tasks_to_process:

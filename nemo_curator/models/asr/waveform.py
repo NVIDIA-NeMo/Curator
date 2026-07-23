@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import librosa
 import numpy as np
 
 _WAVEFORM_2D_NDIM = 2
@@ -56,9 +57,6 @@ def resample_waveform(waveform: np.ndarray, source_rate: int, target_rate: int) 
         raise ValueError(msg)
     if source_rate == target_rate:
         return waveform
-
-    # Keep optional/heavy audio dependency lazy for base-package imports.
-    import librosa
 
     resampled = librosa.resample(waveform, orig_sr=source_rate, target_sr=target_rate)
     return np.ascontiguousarray(resampled, dtype=np.float32)

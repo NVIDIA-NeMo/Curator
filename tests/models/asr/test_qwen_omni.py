@@ -422,7 +422,6 @@ def test_qwen_adapter_setup_cleans_up_partial_engine_when_processor_fails() -> N
     assert adapter._llm is None
     assert adapter._sampling_params is None
     assert adapter._processor is None
-    assert adapter._prep_pool is None
 
 
 def test_qwen_adapter_marks_empty_turn1_outputs_skipped_and_excludes_turn2() -> None:

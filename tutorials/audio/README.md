@@ -81,7 +81,7 @@ sudo apt-get install -y ffmpeg
 | Tutorial | System packages | Pip extras |
 |---|---|---|
 | `fleurs/` | `ffmpeg` | `audio_cpu` or `audio_cuda12` |
-| `qwen_omni_inprocess/` | `ffmpeg` | `audio_qwen` |
+| `qwen_omni_inprocess/` | `ffmpeg` | `audio_inference` |
 | `alm/` | `ffmpeg` | `audio_cpu` |
 | `tagging/` | `ffmpeg` | `audio_cuda12` |
 | `callhome_diar/` | `ffmpeg`, `sox` | `audio_cuda12` |
