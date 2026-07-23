@@ -417,10 +417,6 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         return table.append_column(destination, array)
 
     @staticmethod
-    def _concat_fetched_tables(fetch_result: _RowIdFetchResult) -> pa.Table:
-        return _as_table(fetch_result.tables)
-
-    @staticmethod
     def _coerce_fetched_column(
         column: pa.ChunkedArray,
         source_type: pa.DataType,
@@ -442,7 +438,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         source_types: dict[str, pa.DataType],
     ) -> pa.Table:
         result = table
-        fetched_table = self._concat_fetched_tables(fetch_result)
+        fetched_table = _as_table(fetch_result.tables)
         if fetched_table.num_rows != len(requested_indices):
             msg = f"Lance returned {fetched_table.num_rows} rows for {len(requested_indices)} requested image rows"
             raise RuntimeError(msg)
@@ -506,7 +502,7 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
         return self._write_column(table, self.presence_column, presence)
 
     def _process_tasks(self, tasks: list[InterleavedBatch]) -> list[InterleavedBatch]:
-        if len(tasks) == 0:
+        if not tasks:
             return []
 
         process_started = time.perf_counter()
@@ -560,7 +556,6 @@ class LanceRowIdImageMaterializationStage(ProcessingStage[InterleavedBatch, Inte
             "lance_read_bytes": float(fetch_result.read_bytes),
             "lance_read_iops": float(fetch_result.read_iops),
             "address_mode.row_id": float(self.address_mode == "row_id"),
-            "address_mode.row_address": float(self.address_mode == "row_address"),
         }
         for source, value in fetch_result.fetched_bytes_by_column.items():
             metrics[f"lance_fetched_{source}_bytes"] = float(value)

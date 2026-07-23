@@ -25,6 +25,7 @@ _LAZY = {
     "InterleavedLanceReaderStage": ".lance",
     "LanceRowIdImageMaterializationStage": ".lance",
     "LanceTableConfig": ".lance",
+    "ShardedSqliteUrlLanceAddressResolutionStage": ".lance",
 }
 
 __all__ = [
@@ -35,6 +36,7 @@ __all__ = [
     "InterleavedLanceReaderStage",
     "LanceRowIdImageMaterializationStage",
     "LanceTableConfig",
+    "ShardedSqliteUrlLanceAddressResolutionStage",
 ]
 
 
