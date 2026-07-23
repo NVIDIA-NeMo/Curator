@@ -152,12 +152,22 @@ class LanceReaderStage(BaseReader):
             scanner_kwargs["columns"] = fields
         return scanner_kwargs
 
-    def read_task(
+    def _requested_blob_columns(self, dataset: object, requested_columns: list[str] | None) -> list[str]:
+        """Return requested Lance blob-v2 column names."""
+        return [
+            field.name
+            for field in dataset.schema
+            if getattr(field.type, "extension_name", None) == "lance.blob.v2"
+            and (requested_columns is None or field.name in requested_columns)
+        ]
+
+    def _dataset_and_scanner_kwargs(
         self,
         task: LanceReadTask,
         read_kwargs: dict[str, Any] | None,
         fields: list[str] | None,
-    ) -> ReaderOutput:
+    ) -> tuple[Any, dict[str, Any], list[str]]:
+        """Open the pinned Lance dataset and build scanner kwargs for a read task."""
         read_kwargs = dict(read_kwargs or {})
         dataset_kwargs = _pop_dataset_kwargs(read_kwargs)
         dataset_kwargs["version"] = task.version
@@ -165,36 +175,52 @@ class LanceReaderStage(BaseReader):
         dataset = lance.dataset(task.path, **dataset_kwargs)
         fragments = [dataset.get_fragment(fragment_id) for fragment_id in task.data]
         requested_columns = scanner_kwargs.get("columns")
-        # Blob v2 scans return storage descriptors instead of payload bytes.
-        # Materialize requested blobs separately and align them by row address.
-        has_requested_blobs = any(
-            getattr(field.type, "extension_name", None) == "lance.blob.v2"
-            and (requested_columns is None or field.name in requested_columns)
-            for field in dataset.schema
-        )
-        if self.include_lance_metadata or has_requested_blobs:
+        blob_columns = self._requested_blob_columns(dataset, requested_columns)
+        if self.include_lance_metadata or blob_columns:
             scanner_kwargs["with_row_address"] = True
         if self.include_lance_metadata:
             scanner_kwargs["with_row_id"] = True
         scanner_kwargs["fragments"] = fragments
+        return dataset, scanner_kwargs, blob_columns
+
+    def _metadata_for_task(
+        self,
+        task: LanceReadTask,
+        dataset: object,
+        extra_lance_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Build common Lance read metadata for downstream batches."""
+        lance_metadata = {
+            "version": task.version,
+            "fragment_ids": list(task.data),
+            "schema": schema_to_json(dataset.schema),
+            "has_stable_row_ids": dataset.has_stable_row_ids,
+        }
+        if extra_lance_metadata:
+            lance_metadata.update(extra_lance_metadata)
+        return {
+            "source_files": [task.path],
+            "lance": lance_metadata,
+        }
+
+    def read_task(
+        self,
+        task: LanceReadTask,
+        read_kwargs: dict[str, Any] | None,
+        fields: list[str] | None,
+    ) -> ReaderOutput:
+        dataset, scanner_kwargs, blob_columns = self._dataset_and_scanner_kwargs(task, read_kwargs, fields)
+        # Blob v2 scans return storage descriptors instead of payload bytes.
+        # Materialize requested blobs separately and align them by row address.
         table = dataset.scanner(**scanner_kwargs).to_table()
-        if has_requested_blobs:
+        if blob_columns:
             table = materialize_lance_blob_columns(dataset, table)
         if self.include_lance_metadata:
             table = add_lance_metadata_columns(table)
-        elif has_requested_blobs and "_rowaddr" in table.column_names:
+        elif blob_columns and "_rowaddr" in table.column_names:
             table = table.drop_columns(["_rowaddr"])
 
-        metadata = {
-            "source_files": [task.path],
-            "lance": {
-                "version": task.version,
-                "fragment_ids": list(task.data),
-                "schema": schema_to_json(dataset.schema),
-                "has_stable_row_ids": dataset.has_stable_row_ids,
-            },
-        }
-        return ReaderOutput(table, metadata)
+        return ReaderOutput(table, self._metadata_for_task(task, dataset))
 
 
 @dataclass
