@@ -79,8 +79,6 @@ def test_interleaved_lance_reader_decomposes() -> None:
         fields=list(INTERLEAVED_SCHEMA.names),
         max_batch_bytes=256 * 1024 * 1024,
         max_batch_rows=1024,
-        streaming_read=True,
-        max_output_rows=10_000,
         fragments_per_partition=2,
         fragment_ids=[1],
     ).decompose()
@@ -90,14 +88,12 @@ def test_interleaved_lance_reader_decomposes() -> None:
     assert reader.fields == list(INTERLEAVED_SCHEMA.names)
     assert reader.max_batch_bytes == 256 * 1024 * 1024
     assert reader.max_batch_rows == 1024
-    assert reader.streaming_read is True
-    assert reader.max_output_rows == 10_000
     assert reader.include_lance_metadata is True
 
 
 @pytest.mark.parametrize(
     "field",
-    ["max_batch_bytes", "max_batch_rows", "max_output_rows"],
+    ["max_batch_bytes", "max_batch_rows"],
 )
 def test_interleaved_lance_reader_rejects_non_positive_limits(field: str) -> None:
     with pytest.raises(ValueError, match=f"{field} must be > 0"):
@@ -129,6 +125,9 @@ def test_interleaved_lance_reader_splits_without_splitting_sample_ids(tmp_path: 
         ["doc-b", "doc-b"],
         ["doc-c", "doc-c"],
     ]
+    batches = result if isinstance(result, list) else [result]
+    assert all(batch._stage_perf is not task._stage_perf for batch in batches)
+    assert len({id(batch._stage_perf) for batch in batches}) == len(batches)
 
 
 def test_interleaved_lance_reader_rejects_null_sample_ids(tmp_path: Path) -> None:
@@ -139,114 +138,11 @@ def test_interleaved_lance_reader_rejects_null_sample_ids(tmp_path: Path) -> Non
     lance.write_dataset(table, str(dataset_path), mode="create")
     task = _single_fragment_task(dataset_path)
 
-    with pytest.raises(ValueError, match="contains null values"):
+    with pytest.raises(ValueError, match="null values"):
         InterleavedLanceReaderStage(
             fields=list(INTERLEAVED_SCHEMA.names),
             include_lance_metadata=False,
         ).process(task)
-
-
-def test_interleaved_lance_reader_streaming_carries_sample_across_scanner_batches(tmp_path: Path) -> None:
-    dataset_path = tmp_path / "streaming.lance"
-    rows = [
-        _row("doc-a", 0, "text", "a0"),
-        _row("doc-a", 1, "text", "a1"),
-        _row("doc-a", 2, "image"),
-        _row("doc-b", 0, "text", "b0"),
-        _row("doc-b", 1, "image"),
-    ]
-    _write_interleaved_dataset(dataset_path, rows, max_rows_per_group=1)
-    task = _single_fragment_task(dataset_path)
-
-    result = InterleavedLanceReaderStage(
-        fields=list(INTERLEAVED_SCHEMA.names),
-        read_kwargs={"scanner_options": {"batch_size": 1}},
-        streaming_read=True,
-        max_batch_rows=3,
-        include_lance_metadata=False,
-    ).process(task)
-
-    tables = _tables(result)
-    assert [table["sample_id"].combine_chunks().to_pylist() for table in tables] == [
-        ["doc-a", "doc-a", "doc-a"],
-        ["doc-b", "doc-b"],
-    ]
-
-
-def test_interleaved_lance_reader_streaming_respects_max_output_rows_without_partial_sample(
-    tmp_path: Path,
-) -> None:
-    dataset_path = tmp_path / "limited.lance"
-    rows = [
-        _row("doc-a", 0, "text", "a0"),
-        _row("doc-a", 1, "image"),
-        _row("doc-b", 0, "text", "b0"),
-        _row("doc-b", 1, "image"),
-    ]
-    _write_interleaved_dataset(dataset_path, rows, max_rows_per_group=1)
-    task = _single_fragment_task(dataset_path)
-
-    result = InterleavedLanceReaderStage(
-        fields=list(INTERLEAVED_SCHEMA.names),
-        read_kwargs={"scanner_options": {"batch_size": 1}},
-        streaming_read=True,
-        max_output_rows=3,
-        include_lance_metadata=False,
-    ).process(task)
-
-    tables = _tables(result)
-    assert len(tables) == 1
-    assert tables[0]["sample_id"].combine_chunks().to_pylist() == ["doc-a", "doc-a"]
-
-
-def test_interleaved_lance_reader_non_streaming_records_stopped_early_metadata(tmp_path: Path) -> None:
-    dataset_path = tmp_path / "limited-non-streaming.lance"
-    rows = [
-        _row("doc-a", 0, "text", "a0"),
-        _row("doc-a", 1, "image"),
-        _row("doc-b", 0, "text", "b0"),
-        _row("doc-b", 1, "image"),
-    ]
-    _write_interleaved_dataset(dataset_path, rows)
-    task = _single_fragment_task(dataset_path)
-
-    result = InterleavedLanceReaderStage(
-        fields=list(INTERLEAVED_SCHEMA.names),
-        max_output_rows=3,
-        include_lance_metadata=False,
-    ).process(task)
-
-    assert result._metadata["lance"]["streaming_read"] is False
-    assert result._metadata["lance"]["stopped_early"] is True
-    assert _tables(result)[0]["sample_id"].combine_chunks().to_pylist() == ["doc-a", "doc-a"]
-
-
-def test_interleaved_lance_reader_max_output_rows_counts_size_limited_flushes(tmp_path: Path) -> None:
-    dataset_path = tmp_path / "limited-after-flush.lance"
-    rows = [
-        _row("doc-a", 0, "text", "a0"),
-        _row("doc-a", 1, "image"),
-        _row("doc-b", 0, "text", "b0"),
-        _row("doc-b", 1, "image"),
-        _row("doc-c", 0, "text", "c0"),
-        _row("doc-c", 1, "image"),
-    ]
-    _write_interleaved_dataset(dataset_path, rows)
-    task = _single_fragment_task(dataset_path)
-
-    result = InterleavedLanceReaderStage(
-        fields=list(INTERLEAVED_SCHEMA.names),
-        max_batch_rows=2,
-        max_output_rows=4,
-        include_lance_metadata=False,
-    ).process(task)
-
-    tables = _tables(result)
-    assert sum(table.num_rows for table in tables) == 4
-    assert [table["sample_id"].combine_chunks().to_pylist() for table in tables] == [
-        ["doc-a", "doc-a"],
-        ["doc-b", "doc-b"],
-    ]
 
 
 def test_interleaved_lance_reader_adds_lance_metadata_columns(tmp_path: Path) -> None:
@@ -266,28 +162,8 @@ def test_interleaved_lance_reader_adds_lance_metadata_columns(tmp_path: Path) ->
     assert result._metadata["lance"]["has_stable_row_ids"] is False
 
 
-def test_interleaved_lance_reader_streaming_rejects_blob_columns(tmp_path: Path) -> None:
-    dataset_path = tmp_path / "blob.lance"
-    schema = INTERLEAVED_SCHEMA.append(lance.blob_field("payload"))
-    row = _row("doc-a", 0, "text", "a0")
-    table = pa.Table.from_pylist([row], schema=INTERLEAVED_SCHEMA).append_column(
-        "payload",
-        lance.blob_array([b"payload"]),
-    )
-    lance.write_dataset(
-        table.cast(schema),
-        str(dataset_path),
-        mode="create",
-        data_storage_version="2.2",
-    )
-    task = _single_fragment_task(dataset_path)
-
-    with pytest.raises(NotImplementedError, match=r"does not support lance\.blob\.v2"):
-        InterleavedLanceReaderStage(fields=list(schema.names), streaming_read=True).process(task)
-
-
-def test_interleaved_lance_reader_streaming_honors_top_level_version_read_kwarg(tmp_path: Path) -> None:
-    dataset_path = tmp_path / "streaming-version.lance"
+def test_interleaved_lance_reader_honors_top_level_version_read_kwarg(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "version.lance"
     rows = [_row("doc-a", 0, "text", "a0"), _row("doc-a", 1, "image")]
     _write_interleaved_dataset(dataset_path, rows)
     version = lance.dataset(str(dataset_path)).version
@@ -295,7 +171,6 @@ def test_interleaved_lance_reader_streaming_honors_top_level_version_read_kwarg(
         path=str(dataset_path),
         fields=list(INTERLEAVED_SCHEMA.names),
         read_kwargs={"version": version, "scanner_options": {"batch_size": 1}},
-        streaming_read=True,
         include_lance_metadata=False,
     ).decompose()
     task = partitioner.process(EmptyTask())[0]
