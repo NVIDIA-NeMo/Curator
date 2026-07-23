@@ -139,7 +139,7 @@ audio_cuda12 = [
 
 # Model-backed audio inference is an opt-in CUDA stack. Keeping it separate
 # preserves the existing audio_cuda12 environment for other audio pipelines.
-audio_inference = [
+audio_vllm = [
     "nemo_curator[audio_cuda12]",
     "nemo_curator[vllm]",
     # Latest Qwen-compatible releases inside Curator's vLLM 0.18 / HF Hub

@@ -18,7 +18,7 @@ current, and outdated feedback could be distinguished.
 | Do not add a copyright header to an empty ASR package file. | The reviewed empty package file was superseded by commit `16f0c441`. `nemo_curator/models/asr/__init__.py` now contains the package's lazy public exports, so it is no longer empty and its license header remains appropriate. |
 | Remove generated section-banner comments from the ASR stage tests. | Already addressed by commit `a3d2bedd`: the reviewed banners were removed. |
 | Remove the blank line from `tests/models/asr/__init__.py`. | Made the tracked file zero bytes. |
-| Consider a broader optional-extra name such as `audio_inference`. | Renamed `audio_qwen` to `audio_inference` in `pyproject.toml`, `uv.lock`, runtime installation guidance, error messages, and tutorial documentation. |
+| Use a broader vLLM-specific optional-extra name. | Renamed `audio_qwen` to `audio_vllm` in `pyproject.toml`, `uv.lock`, runtime installation guidance, error messages, and tutorial documentation. |
 | Reconsider the adapter-local `ThreadPoolExecutor` in favor of Curator resource/worker allocation. | Removed `ThreadPoolExecutor`, the `prep_workers` option, pool lifecycle state, and parallel map calls. Turn-1 and Turn-2 input preparation now run deterministically inside the Curator-managed adapter worker, with strict length checks on every paired input list. |
 
 ## Verification

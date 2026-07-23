@@ -21,7 +21,7 @@ results to JSONL. It uses the generic YAML runner in
 From the Curator repository root, install the optional Qwen stack:
 
 ```bash
-uv sync --extra audio_inference
+uv sync --extra audio_vllm
 source .venv/bin/activate
 ```
 

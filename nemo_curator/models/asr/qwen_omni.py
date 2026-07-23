@@ -49,8 +49,8 @@ except ImportError:
     SamplingParams = None  # type: ignore[assignment,misc]
 
 
-def _require_audio_inference_stack(*, context: str) -> None:
-    """Raise a single ImportError listing missing audio-inference dependencies."""
+def _require_audio_vllm_stack(*, context: str) -> None:
+    """Raise a single ImportError listing missing audio-vLLM dependencies."""
     missing: list[str] = []
     if SamplingParams is None:
         missing.append("vllm")
@@ -60,8 +60,8 @@ def _require_audio_inference_stack(*, context: str) -> None:
         missing.append("transformers (Qwen3OmniMoeProcessor)")
     if missing:
         msg = (
-            f"QwenOmniASRAdapter {context} requires the audio_inference extra. "
-            f"Missing: {', '.join(missing)}. Install with: uv sync --extra audio_inference"
+            f"QwenOmniASRAdapter {context} requires the audio_vllm extra. "
+            f"Missing: {', '.join(missing)}. Install with: uv sync --extra audio_vllm"
         )
         raise ImportError(msg)
 
@@ -197,7 +197,7 @@ class QwenOmniASRAdapter:
     def setup(self) -> None:
         if self._llm is not None:
             return
-        _require_audio_inference_stack(context="setup()")
+        _require_audio_vllm_stack(context="setup()")
 
         tp_size = self.tensor_parallel_size or get_gpu_count()
         logger.info(
