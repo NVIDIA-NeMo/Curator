@@ -21,7 +21,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from nemo_curator.core.utils import split_table_by_group_max_bytes
+from nemo_curator.core.utils import split_table_by_group, split_table_by_group_max_bytes
 from nemo_curator.stages.interleaved.io.reader import InterleavedWebdatasetReader
 from nemo_curator.stages.interleaved.stages import (
     BaseInterleavedAnnotatorStage,
@@ -421,9 +421,28 @@ def test_split_table_multiple_groups_split() -> None:
 def test_split_table_preserves_group_integrity() -> None:
     table = pa.table({"g": ["a", "b", "a", "b"], "v": [1, 2, 3, 4]})
     result = split_table_by_group_max_bytes(table, "g", 1)
+    assert pa.concat_tables(result).equals(table)
     for chunk in result:
         groups = chunk["g"].to_pylist()
         assert len(set(groups)) == 1 or all(g == groups[0] for g in groups)
+
+
+def test_split_table_supports_row_limits() -> None:
+    table = pa.table({"g": ["a", "a", "b", "b", "c", "c"], "v": [1, 2, 3, 4, 5, 6]})
+    result = split_table_by_group(
+        table,
+        "g",
+        max_batch_rows=3,
+    )
+
+    assert [chunk["g"].to_pylist() for chunk in result] == [["a", "a"], ["b", "b"], ["c", "c"]]
+
+
+def test_split_table_rejects_null_groups() -> None:
+    table = pa.table({"g": ["a", None], "v": [1, 2]})
+
+    with pytest.raises(ValueError, match="contains null values"):
+        split_table_by_group(table, "g", max_batch_rows=1)
 
 
 # --- basic_row_validity_mask tests ---
