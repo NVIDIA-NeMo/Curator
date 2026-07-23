@@ -274,16 +274,3 @@ def split_table_by_group(
     starts = [0, *split_points]
     ends = [*split_points, num_rows]
     return [table.slice(start, end - start) for start, end in zip(starts, ends, strict=True)]
-
-
-def split_table_by_group_max_bytes(
-    table: pa.Table,
-    group_column: str,
-    max_batch_bytes: int | None,
-) -> list[pa.Table]:
-    """Backward-compatible wrapper for byte-limited interleaved batching."""
-    return split_table_by_group(
-        table,
-        group_column,
-        max_batch_bytes=max_batch_bytes,
-    )

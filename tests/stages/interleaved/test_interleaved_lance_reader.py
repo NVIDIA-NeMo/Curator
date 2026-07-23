@@ -27,6 +27,7 @@ from nemo_curator.stages.text.io.reader.lance import (
 )
 from nemo_curator.tasks import EmptyTask, InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 lance = pytest.importorskip("lance")
 
@@ -68,9 +69,16 @@ def _tables(result: InterleavedBatch | list[InterleavedBatch]) -> list[pa.Table]
     return [batch.to_pyarrow() for batch in batches]
 
 
-def test_interleaved_lance_reader_validates_required_fields() -> None:
-    with pytest.raises(ValueError, match="omit required columns"):
-        InterleavedLanceReader(path="example.lance", fields=["sample_id"]).decompose()
+def test_interleaved_lance_reader_stage_reports_missing_required_fields() -> None:
+    fields = ["sample_id"]
+    missing = sorted(InterleavedBatch.REQUIRED_COLUMNS - set(fields))
+
+    with pytest.raises(ValueError, match="omit required columns") as exc_info:
+        InterleavedLanceReaderStage(fields=fields)
+
+    error = str(exc_info.value)
+    assert "omit required columns" in error
+    assert all(field in error for field in missing)
 
 
 def test_interleaved_lance_reader_decomposes() -> None:
@@ -112,6 +120,7 @@ def test_interleaved_lance_reader_splits_without_splitting_sample_ids(tmp_path: 
     ]
     _write_interleaved_dataset(dataset_path, rows)
     task = _single_fragment_task(dataset_path)
+    task._stage_perf = [StagePerfStats(stage_name="upstream")]
 
     result = InterleavedLanceReaderStage(
         fields=list(INTERLEAVED_SCHEMA.names),
@@ -126,6 +135,7 @@ def test_interleaved_lance_reader_splits_without_splitting_sample_ids(tmp_path: 
         ["doc-c", "doc-c"],
     ]
     batches = result if isinstance(result, list) else [result]
+    assert all(batch._stage_perf == task._stage_perf for batch in batches)
     assert all(batch._stage_perf is not task._stage_perf for batch in batches)
     assert len({id(batch._stage_perf) for batch in batches}) == len(batches)
 
@@ -164,18 +174,26 @@ def test_interleaved_lance_reader_adds_lance_metadata_columns(tmp_path: Path) ->
 
 def test_interleaved_lance_reader_honors_top_level_version_read_kwarg(tmp_path: Path) -> None:
     dataset_path = tmp_path / "version.lance"
-    rows = [_row("doc-a", 0, "text", "a0"), _row("doc-a", 1, "image")]
-    _write_interleaved_dataset(dataset_path, rows)
-    version = lance.dataset(str(dataset_path)).version
+    old_rows = [_row("doc-old", 0, "text", "old"), _row("doc-old", 1, "image")]
+    _write_interleaved_dataset(dataset_path, old_rows)
+    old_version = lance.dataset(str(dataset_path)).version
+    new_rows = [_row("doc-new", 0, "text", "new"), _row("doc-new", 1, "image")]
+    lance.write_dataset(
+        pa.Table.from_pylist(new_rows, schema=INTERLEAVED_SCHEMA),
+        str(dataset_path),
+        mode="overwrite",
+        max_rows_per_file=len(new_rows),
+    )
     partitioner, reader = InterleavedLanceReader(
         path=str(dataset_path),
         fields=list(INTERLEAVED_SCHEMA.names),
-        read_kwargs={"version": version, "scanner_options": {"batch_size": 1}},
+        read_kwargs={"version": old_version, "scanner_options": {"batch_size": 1}},
         include_lance_metadata=False,
     ).decompose()
     task = partitioner.process(EmptyTask())[0]
 
     result = reader.process(task)
 
-    assert _tables(result)[0]["sample_id"].combine_chunks().to_pylist() == ["doc-a", "doc-a"]
-    assert result._metadata["lance"]["version"] == version
+    assert task.version == old_version
+    assert _tables(result)[0]["sample_id"].combine_chunks().to_pylist() == ["doc-old", "doc-old"]
+    assert result._metadata["lance"]["version"] == old_version
