@@ -53,11 +53,6 @@ def _mock_qwen_setup(
         yield llm_ctor, processor_ctor, sampling_ctor
 
 
-# ----------------------------------------------------------------------
-# Protocol conformance (requires @runtime_checkable)
-# ----------------------------------------------------------------------
-
-
 def test_qwen_adapter_conforms_to_asr_protocol() -> None:
     """QwenOmniASRAdapter satisfies the ASRAdapter contract (requires @runtime_checkable)."""
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
@@ -67,11 +62,6 @@ def test_qwen_adapter_conforms_to_asr_protocol() -> None:
 def test_qwen_adapter_default_prompt_matches_reference_adapter() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
     assert adapter.prompt_text == "Transcribe the audio."
-
-
-# ----------------------------------------------------------------------
-# QwenOmniASRAdapter helpers (no GPU, no vLLM required)
-# ----------------------------------------------------------------------
 
 
 def test_qwen_adapter_first_output_text_handles_empty_vllm_output() -> None:
@@ -305,11 +295,6 @@ def test_qwen_adapter_prepare_single_skips_too_short_waveform_before_preprocess(
     assert adapter._prepare_single(np.zeros(100, dtype=np.float32), _SR, "English") is None
     adapter._build_messages.assert_not_called()
     adapter._pack_vllm_inputs.assert_not_called()
-
-
-# ----------------------------------------------------------------------
-# Elevated vLLM knobs
-# ----------------------------------------------------------------------
 
 
 def test_qwen_adapter_has_elevated_vllm_knobs_as_dataclass_fields() -> None:
