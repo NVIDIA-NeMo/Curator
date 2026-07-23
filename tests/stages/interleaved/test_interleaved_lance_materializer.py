@@ -23,12 +23,10 @@ import pytest
 from nemo_curator.stages.interleaved.lance import InterleavedLanceMaterializerStage
 from nemo_curator.stages.interleaved.lance.fetch import (
     _as_table,
-    _LanceFetcherBase,
+    _LanceFetcher,
     _LanceFetchResult,
     _LanceFetchTimeoutError,
     _LanceRowAddress,
-    _LanceRowAddressFetcher,
-    _LanceRowIdFetcher,
     _restore_fetched_original_order,
 )
 from nemo_curator.tasks import InterleavedBatch
@@ -155,7 +153,6 @@ def test_interleaved_lazy_exports_resolve_lance_symbols() -> None:
         ({"columns": {}}, "columns must not be empty"),
         ({"columns": {"image": "binary_content", "mime_type": "binary_content"}}, "distinct destination"),
         ({"presence_column": "binary_content"}, "presence_column"),
-        ({"existing_column_policy": "replace"}, "Unsupported existing_column_policy"),
         ({"fetch_batch_size": 0}, "fetch_batch_size"),
         ({"io_threads": 0}, "io_threads"),
         ({"metadata_cache_size_bytes": 0}, "metadata_cache_size_bytes"),
@@ -247,7 +244,7 @@ def test_lance_rowid_image_materializer_fill_null_preserves_each_populated_value
 def test_lance_rowid_image_materializer_overwrites_existing_values() -> None:
     stage = InterleavedLanceMaterializerStage(
         path=_TEST_PATH,
-        existing_column_policy="overwrite",
+        overwrite_existing=True,
     )
     fake = _FakeRowIdFetcher({10: {"image": b"replacement", "mime_type": "image/png"}})
     stage._fetcher = fake
@@ -273,18 +270,6 @@ def test_lance_materializer_projects_configured_non_image_column() -> None:
     result = stage.process(task).to_pyarrow()
 
     assert result["lance_mime_type"].to_pylist() == ["image/jpeg"]
-
-
-def test_lance_rowid_image_materializer_existing_policy_error() -> None:
-    stage = InterleavedLanceMaterializerStage(
-        path=_TEST_PATH,
-        existing_column_policy="error",
-    )
-    stage._fetcher = _FakeRowIdFetcher({10: {"image": b"jpeg-a", "mime_type": "image/jpeg"}})
-    task = _interleaved_rowid_task([_image_row("https://a.example/img.jpg")], [10])
-
-    with pytest.raises(ValueError, match="already exist"):
-        stage.process(task)
 
 
 @pytest.mark.parametrize(
@@ -435,22 +420,19 @@ def test_lance_fetch_helpers_handle_edge_cases() -> None:
     assert _as_table([]).num_rows == 0
     assert _as_table([table]).equals(table)
 
-    fetcher = object.__new__(_LanceFetcherBase)
+    fetcher = object.__new__(_LanceFetcher)
     fetcher.fetch_timeout_seconds = 0.001
     assert fetcher._submit_fetches([], operation="noop") == []
     pending: Future[int] = Future()
     with pytest.raises(_LanceFetchTimeoutError, match="Timed out"):
         fetcher._submit_fetches([pending], operation="blocked fetch")
 
-    closed_row_id_fetcher = object.__new__(_LanceRowIdFetcher)
-    closed_row_id_fetcher.executor = None
+    closed_fetcher = object.__new__(_LanceFetcher)
+    closed_fetcher.executor = None
     with pytest.raises(RuntimeError, match="fetcher is closed"):
-        closed_row_id_fetcher._take_rows([1])
-
-    closed_row_address_fetcher = object.__new__(_LanceRowAddressFetcher)
-    closed_row_address_fetcher.executor = None
+        closed_fetcher._take_rows([1])
     with pytest.raises(RuntimeError, match="fetcher is closed"):
-        closed_row_address_fetcher._take_row_addresses([_LanceRowAddress(fragment_id=1, row_offset=0)])
+        closed_fetcher._take_row_addresses([_LanceRowAddress(fragment_id=1, row_offset=0)])
 
 
 def test_lance_rowid_image_materializer_real_local_dataset(tmp_path: Path) -> None:
@@ -546,3 +528,27 @@ def test_lance_row_address_image_materializer_real_local_dataset(tmp_path: Path)
 
     assert result.to_pyarrow()["binary_content"].combine_chunks().to_pylist() == [b"jpeg-c", b"jpeg-a", b"jpeg-b"]
     assert result.to_pyarrow()["lance_image_present"].combine_chunks().to_pylist() == [True, True, True]
+
+
+def test_lance_materializer_rejects_blob_v2_columns(tmp_path: Path) -> None:
+    lance = pytest.importorskip("lance")
+
+    dataset_path = tmp_path / "blob-images.lance"
+    schema = pa.schema([lance.blob_field("payload")])
+    table = pa.Table.from_arrays([lance.blob_array([b"jpeg-a"])], schema=schema)
+    lance.write_dataset(
+        table,
+        str(dataset_path),
+        data_storage_version="2.2",
+        enable_stable_row_ids=True,
+    )
+    dataset = lance.dataset(str(dataset_path))
+    row_id = int(dataset.scanner(columns=[], with_row_id=True).to_table()["_rowid"][0].as_py())
+    stage = InterleavedLanceMaterializerStage(
+        path=str(dataset_path),
+        columns={"payload": "binary_content"},
+    )
+    task = _interleaved_rowid_task([_image_row("rowid://blob")], [row_id])
+
+    with pytest.raises(TypeError, match="Blob v2 columns are not supported"):
+        stage.process(task)

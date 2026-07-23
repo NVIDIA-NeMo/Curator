@@ -20,11 +20,12 @@ import contextlib
 import time
 from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import pyarrow as pa
 
 _T = TypeVar("_T")
+_LanceAddressMode = Literal["row_id", "row_address"]
 
 
 class _LanceFetchTimeoutError(TimeoutError):
@@ -98,8 +99,11 @@ def _group_row_addresses_by_fragment(
     return operations
 
 
-class _LanceFetcherBase:
-    """Worker-local Lance fetcher base."""
+_LanceAddress = int | _LanceRowAddress
+
+
+class _LanceFetcher:
+    """Worker-local Lance coordinate fetcher."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -111,6 +115,8 @@ class _LanceFetcherBase:
         io_threads: int,
         metadata_cache_size_bytes: int,
         *,
+        address_mode: _LanceAddressMode,
+        sort_row_ids_for_fetch: bool,
         fetch_timeout_seconds: float,
     ) -> None:
         import lance
@@ -122,6 +128,8 @@ class _LanceFetcherBase:
         self.fetch_batch_size = fetch_batch_size
         self.io_threads = io_threads
         self.metadata_cache_size_bytes = metadata_cache_size_bytes
+        self.address_mode = address_mode
+        self.sort_row_ids_for_fetch = sort_row_ids_for_fetch
         self.fetch_timeout_seconds = fetch_timeout_seconds
         self.session = lance.Session(metadata_cache_size_bytes=metadata_cache_size_bytes)
         self.dataset = lance.dataset(
@@ -131,6 +139,12 @@ class _LanceFetcherBase:
             session=self.session,
         )
         self._validate_columns()
+        self._validate_address_mode()
+        self.fragments = (
+            {int(fragment.fragment_id): fragment for fragment in self.dataset.get_fragments()}
+            if address_mode == "row_address"
+            else {}
+        )
         self.executor: ThreadPoolExecutor | None = ThreadPoolExecutor(
             max_workers=io_threads, thread_name_prefix="lance-fetch"
         )
@@ -155,6 +169,23 @@ class _LanceFetcherBase:
         if missing:
             msg = f"Requested Lance columns do not exist: {missing}"
             raise ValueError(msg)
+        blob_columns = [
+            source
+            for source in self.columns
+            if getattr(self.dataset.schema.field(source).type, "extension_name", None) == "lance.blob.v2"
+        ]
+        if blob_columns:
+            msg = f"Lance Blob v2 columns are not supported for coordinate fetches: {blob_columns}"
+            raise TypeError(msg)
+
+    def _validate_address_mode(self) -> None:
+        if self.address_mode == "row_id":
+            if not self.dataset.has_stable_row_ids:
+                msg = "Lance row-id materialization requires stable row IDs"
+                raise ValueError(msg)
+            if not callable(getattr(self.dataset, "_take_rows", None)):
+                msg = "Pinned PyLance build does not expose dataset._take_rows"
+                raise TypeError(msg)
 
     def _submit_fetches(self, futures: list[Future[_T]], *, operation: str) -> list[_T]:
         if not futures:
@@ -198,44 +229,6 @@ class _LanceFetcherBase:
             read_iops=read_iops,
         )
 
-
-class _LanceRowIdFetcher(_LanceFetcherBase):
-    """Worker-local direct Lance stable-row-id fetcher."""
-
-    def __init__(  # noqa: PLR0913
-        self,
-        path: str,
-        version: int | None,
-        storage_options: dict[str, str],
-        columns: dict[str, str],
-        fetch_batch_size: int,
-        io_threads: int,
-        metadata_cache_size_bytes: int,
-        *,
-        sort_row_ids_for_fetch: bool,
-        fetch_timeout_seconds: float,
-    ) -> None:
-        super().__init__(
-            path=path,
-            version=version,
-            storage_options=storage_options,
-            columns=columns,
-            fetch_batch_size=fetch_batch_size,
-            io_threads=io_threads,
-            metadata_cache_size_bytes=metadata_cache_size_bytes,
-            fetch_timeout_seconds=fetch_timeout_seconds,
-        )
-        self.sort_row_ids_for_fetch = sort_row_ids_for_fetch
-        self._validate_dataset()
-        if not callable(getattr(self.dataset, "_take_rows", None)):
-            msg = "Pinned PyLance build does not expose dataset._take_rows"
-            raise TypeError(msg)
-
-    def _validate_dataset(self) -> None:
-        if not self.dataset.has_stable_row_ids:
-            msg = "Lance row-id materialization requires stable row IDs"
-            raise ValueError(msg)
-
     def _take_rows(self, row_ids: list[int]) -> pa.Table:
         if self.executor is None:
             msg = "Lance row-id fetcher is closed"
@@ -254,49 +247,12 @@ class _LanceRowIdFetcher(_LanceFetcherBase):
         ]
         return _as_table(tables)
 
-    def fetch(self, row_ids: list[int]) -> _LanceFetchResult:
-        if not row_ids:
-            return _LanceFetchResult(self._empty_table(), 0.0, dict.fromkeys(self.columns, 0))
-
-        self._io_stats(self.dataset)
-        fetch_started = time.perf_counter()
+    def _fetch_row_ids(self, row_ids: list[int]) -> pa.Table:
         if self.sort_row_ids_for_fetch:
             sorted_original_indices = sorted(range(len(row_ids)), key=row_ids.__getitem__)
             sorted_row_ids = [row_ids[index] for index in sorted_original_indices]
-            table = _restore_fetched_original_order(self._take_rows(sorted_row_ids), sorted_original_indices)
-        else:
-            table = self._take_rows(row_ids)
-        fetch_seconds = time.perf_counter() - fetch_started
-
-        return self._fetch_result(table, fetch_seconds)
-
-
-class _LanceRowAddressFetcher(_LanceFetcherBase):
-    """Worker-local Lance fragment-row-offset fetcher."""
-
-    def __init__(  # noqa: PLR0913
-        self,
-        path: str,
-        version: int | None,
-        storage_options: dict[str, str],
-        columns: dict[str, str],
-        fetch_batch_size: int,
-        io_threads: int,
-        metadata_cache_size_bytes: int,
-        *,
-        fetch_timeout_seconds: float,
-    ) -> None:
-        super().__init__(
-            path=path,
-            version=version,
-            storage_options=storage_options,
-            columns=columns,
-            fetch_batch_size=fetch_batch_size,
-            io_threads=io_threads,
-            metadata_cache_size_bytes=metadata_cache_size_bytes,
-            fetch_timeout_seconds=fetch_timeout_seconds,
-        )
-        self.fragments = {int(fragment.fragment_id): fragment for fragment in self.dataset.get_fragments()}
+            return _restore_fetched_original_order(self._take_rows(sorted_row_ids), sorted_original_indices)
+        return self._take_rows(row_ids)
 
     def _take_row_addresses(self, addresses: list[_LanceRowAddress]) -> pa.Table:
         if self.executor is None:
@@ -322,12 +278,23 @@ class _LanceRowAddressFetcher(_LanceFetcherBase):
         table = _as_table(fragment.take(operation.row_offsets, columns=list(self.columns)))
         return table, operation.original_indices
 
-    def fetch(self, addresses: list[_LanceRowAddress]) -> _LanceFetchResult:
+    def fetch(self, addresses: list[_LanceAddress]) -> _LanceFetchResult:
         if not addresses:
             return _LanceFetchResult(self._empty_table(), 0.0, dict.fromkeys(self.columns, 0))
 
         self._io_stats(self.dataset)
         fetch_started = time.perf_counter()
-        table = self._take_row_addresses(addresses)
+        if self.address_mode == "row_id":
+            row_ids = [address for address in addresses if isinstance(address, int)]
+            if len(row_ids) != len(addresses):
+                msg = "row_id mode requires integer addresses"
+                raise TypeError(msg)
+            table = self._fetch_row_ids(row_ids)
+        else:
+            row_addresses = [address for address in addresses if isinstance(address, _LanceRowAddress)]
+            if len(row_addresses) != len(addresses):
+                msg = "row_address mode requires fragment and row-offset addresses"
+                raise TypeError(msg)
+            table = self._take_row_addresses(row_addresses)
         fetch_seconds = time.perf_counter() - fetch_started
         return self._fetch_result(table, fetch_seconds)

@@ -27,32 +27,23 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import InterleavedBatch
 
 from .fetch import (
-    _LanceFetcherBase,
+    _LanceAddress,
+    _LanceFetcher,
     _LanceFetchResult,
     _LanceFetchTimeoutError,
     _LanceRowAddress,
-    _LanceRowAddressFetcher,
-    _LanceRowIdFetcher,
 )
 
-ExistingColumnPolicy = Literal["error", "fill_null", "overwrite"]
 LanceAddressMode = Literal["row_id", "row_address"]
-LanceAddress = int | _LanceRowAddress
-
-
-def _is_lance_blob_type(data_type: pa.DataType) -> bool:
-    return getattr(data_type, "extension_name", None) == "lance.blob.v2"
 
 
 def _is_binary_like_type(data_type: pa.DataType) -> bool:
-    return pa.types.is_binary(data_type) or pa.types.is_large_binary(data_type) or _is_lance_blob_type(data_type)
+    return pa.types.is_binary(data_type) or pa.types.is_large_binary(data_type)
 
 
 def _projected_type(source_type: pa.DataType, existing_type: pa.DataType | None) -> pa.DataType:
     if existing_type is not None:
         return existing_type
-    if _is_lance_blob_type(source_type):
-        return pa.large_binary()
     return source_type
 
 
@@ -60,7 +51,7 @@ def _projected_type(source_type: pa.DataType, existing_type: pa.DataType | None)
 class _PreparedTask:
     table: pa.Table
     requested_indices: list[int]
-    requested_addresses: list[LanceAddress]
+    requested_addresses: list[_LanceAddress]
 
 
 @dataclass
@@ -81,7 +72,7 @@ class InterleavedLanceMaterializerStage(ProcessingStage[InterleavedBatch, Interl
     input_row_offset_column: str = "lance_row_offset"
     columns: dict[str, str] = field(default_factory=lambda: {"image": "binary_content", "mime_type": "content_type"})
     presence_column: str | None = None
-    existing_column_policy: ExistingColumnPolicy = "fill_null"
+    overwrite_existing: bool = False
     fetch_batch_size: int = 512
     io_threads: int = 32
     metadata_cache_size_bytes: int = 1024**3
@@ -89,7 +80,7 @@ class InterleavedLanceMaterializerStage(ProcessingStage[InterleavedBatch, Interl
     fetch_timeout_seconds: float = 600.0
     fetch_retries: int = 3
     name: str = "interleaved_lance_materializer"
-    _fetcher: _LanceFetcherBase | None = field(default=None, init=False, repr=False)
+    _fetcher: _LanceFetcher | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.path:
@@ -131,9 +122,6 @@ class InterleavedLanceMaterializerStage(ProcessingStage[InterleavedBatch, Interl
             raise ValueError(msg)
 
     def _validate_batch_config(self) -> None:
-        if self.existing_column_policy not in {"error", "fill_null", "overwrite"}:
-            msg = f"Unsupported existing_column_policy: {self.existing_column_policy}"
-            raise ValueError(msg)
         for name, value in {
             "fetch_batch_size": self.fetch_batch_size,
             "io_threads": self.io_threads,
@@ -163,25 +151,21 @@ class InterleavedLanceMaterializerStage(ProcessingStage[InterleavedBatch, Interl
     def teardown(self) -> None:
         self._close_fetcher(wait_for_fetches=True)
 
-    def _make_fetcher(self) -> _LanceFetcherBase:
-        common_kwargs = {
-            "path": self.path,
-            "version": self.version,
-            "storage_options": self.storage_options,
-            "columns": self.columns,
-            "fetch_batch_size": self.fetch_batch_size,
-            "io_threads": self.io_threads,
-            "metadata_cache_size_bytes": self.metadata_cache_size_bytes,
-            "fetch_timeout_seconds": self.fetch_timeout_seconds,
-        }
-        if self.address_mode == "row_address":
-            return _LanceRowAddressFetcher(**common_kwargs)
-        return _LanceRowIdFetcher(
-            **common_kwargs,
+    def _make_fetcher(self) -> _LanceFetcher:
+        return _LanceFetcher(
+            path=self.path,
+            version=self.version,
+            storage_options=self.storage_options,
+            columns=self.columns,
+            fetch_batch_size=self.fetch_batch_size,
+            io_threads=self.io_threads,
+            metadata_cache_size_bytes=self.metadata_cache_size_bytes,
+            address_mode=self.address_mode,
             sort_row_ids_for_fetch=self.sort_row_ids_for_fetch,
+            fetch_timeout_seconds=self.fetch_timeout_seconds,
         )
 
-    def _ensure_fetcher(self) -> _LanceFetcherBase:
+    def _ensure_fetcher(self) -> _LanceFetcher:
         if self._fetcher is None:
             self._fetcher = self._make_fetcher()
         return self._fetcher
@@ -192,12 +176,12 @@ class InterleavedLanceMaterializerStage(ProcessingStage[InterleavedBatch, Interl
         self._fetcher.close(wait_for_fetches=wait_for_fetches)
         self._fetcher = None
 
-    def _fetch_requested(self, requested_addresses: list[LanceAddress]) -> tuple[_LanceFetchResult, int]:
+    def _fetch_requested(self, requested_addresses: list[_LanceAddress]) -> tuple[_LanceFetchResult, int]:
         max_attempts = self.fetch_retries + 1
         attempt = 1
         while True:
             try:
-                return self._ensure_fetcher().fetch(requested_addresses), attempt  # type: ignore[arg-type]
+                return self._ensure_fetcher().fetch(requested_addresses), attempt
             except _LanceFetchTimeoutError as exc:
                 self._close_fetcher(wait_for_fetches=False)
                 if attempt >= max_attempts:
@@ -231,10 +215,6 @@ class InterleavedLanceMaterializerStage(ProcessingStage[InterleavedBatch, Interl
             raise TypeError(msg)
 
     def _validate_destination_columns(self, table: pa.Table, source_types: dict[str, pa.DataType]) -> None:
-        collisions = sorted(set(self.columns.values()) & set(table.column_names))
-        if collisions and self.existing_column_policy == "error":
-            msg = f"Projected destination columns already exist: {collisions}"
-            raise ValueError(msg)
         for source, destination in self.columns.items():
             if destination not in table.column_names:
                 continue
@@ -262,53 +242,40 @@ class InterleavedLanceMaterializerStage(ProcessingStage[InterleavedBatch, Interl
         self._validate_destination_columns(table, source_types)
         self._validate_presence_column(table)
 
-    @staticmethod
-    def _coerce_address_component(value: int | None) -> int | None:
-        if value is None:
-            return None
-        return value if value >= 0 else None
+    def _table_addresses(self, table: pa.Table) -> list[_LanceAddress | None]:
+        if self.address_mode == "row_id":
+            return [
+                value if value is None or value >= 0 else None
+                for value in table[self.input_row_id_column].combine_chunks().to_pylist()
+            ]
 
-    def _table_row_ids(self, table: pa.Table) -> list[int | None]:
-        return [
-            self._coerce_address_component(value)
-            for value in table[self.input_row_id_column].combine_chunks().to_pylist()
-        ]
-
-    def _table_row_addresses(self, table: pa.Table) -> list[_LanceRowAddress | None]:
         fragment_ids = table[self.input_fragment_id_column].combine_chunks().to_pylist()
         row_offsets = table[self.input_row_offset_column].combine_chunks().to_pylist()
         addresses: list[_LanceRowAddress | None] = []
         for fragment_id_value, row_offset_value in zip(fragment_ids, row_offsets, strict=True):
-            fragment_id = self._coerce_address_component(fragment_id_value)
-            row_offset = self._coerce_address_component(row_offset_value)
-            if fragment_id is None or row_offset is None:
+            if fragment_id_value is None or fragment_id_value < 0 or row_offset_value is None or row_offset_value < 0:
                 addresses.append(None)
             else:
-                addresses.append(_LanceRowAddress(fragment_id=fragment_id, row_offset=row_offset))
+                addresses.append(_LanceRowAddress(fragment_id=fragment_id_value, row_offset=row_offset_value))
         return addresses
-
-    def _table_addresses(self, table: pa.Table) -> list[LanceAddress | None]:
-        if self.address_mode == "row_address":
-            return self._table_row_addresses(table)
-        return self._table_row_ids(table)
 
     def _requested_indices(
         self,
         table: pa.Table,
-        addresses: list[LanceAddress | None],
+        addresses: list[_LanceAddress | None],
         presence: list[bool | None] | None,
-    ) -> tuple[list[int], list[LanceAddress]]:
+    ) -> tuple[list[int], list[_LanceAddress]]:
         destination_validity = {
             destination: pc.is_valid(table[destination]).to_pylist()
             for destination in self.columns.values()
             if destination in table.column_names
         }
         indices: list[int] = []
-        requested_addresses: list[LanceAddress] = []
+        requested_addresses: list[_LanceAddress] = []
         for index, address in enumerate(addresses):
             if address is None or (presence is not None and presence[index] is False):
                 continue
-            if self.existing_column_policy == "fill_null":
+            if not self.overwrite_existing:
                 all_populated = all(
                     destination in destination_validity and destination_validity[destination][index]
                     for destination in self.columns.values()
@@ -388,7 +355,7 @@ class InterleavedLanceMaterializerStage(ProcessingStage[InterleavedBatch, Interl
         fetched: pa.ChunkedArray | pa.Array,
         requested_indices: list[int],
     ) -> tuple[list[int], pa.ChunkedArray | pa.Array]:
-        if self.existing_column_policy != "fill_null":
+        if self.overwrite_existing:
             return requested_indices, fetched
 
         requested_existing = pc.take(existing, pa.array(requested_indices, type=pa.int64()))
