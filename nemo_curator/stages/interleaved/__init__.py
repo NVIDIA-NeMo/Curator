@@ -21,20 +21,18 @@ from nemo_curator.stages.interleaved.stages import (
 )
 
 _LAZY = {
+    "InterleavedLanceMaterializerStage": ".lance",
     "InterleavedLanceReader": ".lance",
     "InterleavedLanceReaderStage": ".lance",
-    "LanceRowIdImageMaterializationStage": ".lance",
-    "LanceTableConfig": ".lance",
 }
 
 __all__ = [
     "BaseInterleavedAnnotatorStage",
     "BaseInterleavedFilterStage",
     "InterleavedAspectRatioFilterStage",
+    "InterleavedLanceMaterializerStage",
     "InterleavedLanceReader",
     "InterleavedLanceReaderStage",
-    "LanceRowIdImageMaterializationStage",
-    "LanceTableConfig",
 ]
 
 

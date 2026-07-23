@@ -14,13 +14,11 @@
 
 """Lance-backed interleaved readers and materializers."""
 
-from nemo_curator.stages.interleaved.lance.config import LanceTableConfig
-from nemo_curator.stages.interleaved.lance.materialize import LanceRowIdImageMaterializationStage
+from nemo_curator.stages.interleaved.lance.materialize import InterleavedLanceMaterializerStage
 from nemo_curator.stages.interleaved.lance.reader import InterleavedLanceReader, InterleavedLanceReaderStage
 
 __all__ = [
+    "InterleavedLanceMaterializerStage",
     "InterleavedLanceReader",
     "InterleavedLanceReaderStage",
-    "LanceRowIdImageMaterializationStage",
-    "LanceTableConfig",
 ]

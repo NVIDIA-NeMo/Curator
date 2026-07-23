@@ -12,26 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lance fetch utilities for interleaved image materialization."""
+"""Lance fetch utilities for interleaved materialization."""
 
 from __future__ import annotations
 
 import contextlib
 import time
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TypeVar
 
 import pyarrow as pa
-
-if TYPE_CHECKING:
-    from .config import LanceTableConfig
 
 _T = TypeVar("_T")
 
 
 class _LanceFetchTimeoutError(TimeoutError):
-    """Raised when a Lance fetch batch stops making progress."""
+    """Raised when a Lance fetch batch exceeds its configured deadline."""
 
 
 @dataclass(frozen=True)
@@ -55,49 +52,22 @@ def _as_table(value: pa.Table | list[pa.Table]) -> pa.Table:
     return value
 
 
-def _slice_fetched_tables(tables: list[pa.Table], offset: int, length: int) -> list[pa.Table]:
-    if length == 0:
-        return []
-    if offset < 0 or length < 0:
-        msg = "offset and length must be non-negative"
-        raise ValueError(msg)
-
-    remaining_offset = offset
-    remaining_length = length
-    sliced: list[pa.Table] = []
-    for table in tables:
-        if remaining_offset >= table.num_rows:
-            remaining_offset -= table.num_rows
-            continue
-        take = min(table.num_rows - remaining_offset, remaining_length)
-        sliced.append(table.slice(remaining_offset, take))
-        remaining_length -= take
-        remaining_offset = 0
-        if remaining_length == 0:
-            break
-    if remaining_length != 0:
-        msg = f"Unable to slice {length} fetched rows from offset {offset}"
-        raise RuntimeError(msg)
-    return sliced
-
-
-def _restore_fetched_original_order(tables: list[pa.Table], sorted_original_indices: list[int]) -> list[pa.Table]:
+def _restore_fetched_original_order(table: pa.Table, sorted_original_indices: list[int]) -> pa.Table:
     """Restore rows fetched in optimized order back to caller-requested order."""
-    if not tables or len(sorted_original_indices) <= 1:
-        return tables
-    table = tables[0] if len(tables) == 1 else pa.concat_tables(tables, promote_options="default")
+    if len(sorted_original_indices) <= 1:
+        return table
     if table.num_rows != len(sorted_original_indices):
-        msg = f"Lance returned {table.num_rows} rows for {len(sorted_original_indices)} sorted image addresses"
+        msg = f"Lance returned {table.num_rows} rows for {len(sorted_original_indices)} sorted addresses"
         raise RuntimeError(msg)
     sorted_position_by_original = [0] * len(sorted_original_indices)
     for sorted_position, original_position in enumerate(sorted_original_indices):
         sorted_position_by_original[original_position] = sorted_position
-    return [table.take(pa.array(sorted_position_by_original, type=pa.int64()))]
+    return table.take(pa.array(sorted_position_by_original, type=pa.int64()))
 
 
 @dataclass
-class _RowIdFetchResult:
-    tables: list[pa.Table]
+class _LanceFetchResult:
+    table: pa.Table
     fetch_seconds: float
     fetched_bytes_by_column: dict[str, int]
     read_bytes: int = 0
@@ -128,12 +98,14 @@ def _group_row_addresses_by_fragment(
     return operations
 
 
-class _LanceImageFetcherBase:
-    """Worker-local Lance image fetcher base."""
+class _LanceFetcherBase:
+    """Worker-local Lance fetcher base."""
 
     def __init__(  # noqa: PLR0913
         self,
-        table_config: LanceTableConfig,
+        path: str,
+        version: int | None,
+        storage_options: dict[str, str],
         columns: dict[str, str],
         fetch_batch_size: int,
         io_threads: int,
@@ -143,7 +115,9 @@ class _LanceImageFetcherBase:
     ) -> None:
         import lance
 
-        self.config = table_config
+        self.path = path
+        self.version = version
+        self.storage_options = storage_options
         self.columns = columns
         self.fetch_batch_size = fetch_batch_size
         self.io_threads = io_threads
@@ -151,19 +125,22 @@ class _LanceImageFetcherBase:
         self.fetch_timeout_seconds = fetch_timeout_seconds
         self.session = lance.Session(metadata_cache_size_bytes=metadata_cache_size_bytes)
         self.dataset = lance.dataset(
-            table_config.uri,
-            version=table_config.version,
-            storage_options=table_config.storage_options or None,
+            path,
+            version=version,
+            storage_options=storage_options or None,
             session=self.session,
         )
         self._validate_columns()
         self.executor: ThreadPoolExecutor | None = ThreadPoolExecutor(
-            max_workers=io_threads, thread_name_prefix="lance-image-fetch"
+            max_workers=io_threads, thread_name_prefix="lance-fetch"
         )
 
     @property
     def source_types(self) -> dict[str, pa.DataType]:
         return {source: self.dataset.schema.field(source).type for source in self.columns}
+
+    def _empty_table(self) -> pa.Table:
+        return pa.table({source: pa.array([], type=data_type) for source, data_type in self.source_types.items()})
 
     def close(self, *, wait_for_fetches: bool = True) -> None:
         executor = self.executor
@@ -182,28 +159,22 @@ class _LanceImageFetcherBase:
     def _submit_fetches(self, futures: list[Future[_T]], *, operation: str) -> list[_T]:
         if not futures:
             return []
-        deadline = time.monotonic() + self.fetch_timeout_seconds if self.fetch_timeout_seconds > 0 else None
-        future_to_index = {future: index for index, future in enumerate(futures)}
-        pending = set(futures)
-        results: list[_T | None] = [None] * len(futures)
-
-        while pending:
-            timeout = None
-            if deadline is not None:
-                timeout = max(0.0, deadline - time.monotonic())
-            done, pending = wait(pending, timeout=timeout, return_when=FIRST_COMPLETED)
-            if not done:
-                for future in pending:
-                    future.cancel()
-                msg = (
-                    f"Timed out after {self.fetch_timeout_seconds:.1f}s waiting for {operation}; "
-                    f"{len(pending)}/{len(futures)} Lance fetch futures are still pending"
-                )
-                raise _LanceFetchTimeoutError(msg)
-            for future in done:
-                results[future_to_index[future]] = future.result()
-
-        return cast("list[_T]", results)
+        timeout = self.fetch_timeout_seconds if self.fetch_timeout_seconds > 0 else None
+        done, pending = wait(futures, timeout=timeout, return_when=FIRST_EXCEPTION)
+        failed = next((future for future in done if future.exception() is not None), None)
+        if failed is not None:
+            for future in pending:
+                future.cancel()
+            failed.result()
+        if pending:
+            for future in pending:
+                future.cancel()
+            msg = (
+                f"Timed out after {self.fetch_timeout_seconds:.1f}s waiting for {operation}; "
+                f"{len(pending)}/{len(futures)} Lance fetch futures are still pending"
+            )
+            raise _LanceFetchTimeoutError(msg)
+        return [future.result() for future in futures]
 
     @staticmethod
     def _io_stats(dataset: object) -> tuple[int, int]:
@@ -215,15 +186,12 @@ class _LanceImageFetcherBase:
             return int(getattr(stats, "read_bytes", 0)), int(getattr(stats, "read_iops", 0))
         return 0, 0
 
-    def _fetch_result(self, tables: list[pa.Table], fetch_seconds: float) -> _RowIdFetchResult:
-        fetched_bytes = dict.fromkeys(self.columns, 0)
-        for table in tables:
-            for source in self.columns:
-                fetched_bytes[source] += table[source].nbytes
+    def _fetch_result(self, table: pa.Table, fetch_seconds: float) -> _LanceFetchResult:
+        fetched_bytes = {source: table[source].nbytes for source in self.columns}
 
         read_bytes, read_iops = self._io_stats(self.dataset)
-        return _RowIdFetchResult(
-            tables=tables,
+        return _LanceFetchResult(
+            table=table,
             fetch_seconds=fetch_seconds,
             fetched_bytes_by_column=fetched_bytes,
             read_bytes=read_bytes,
@@ -231,12 +199,14 @@ class _LanceImageFetcherBase:
         )
 
 
-class _LanceRowIdFetcher(_LanceImageFetcherBase):
-    """Worker-local direct Lance stable-row-id image fetcher."""
+class _LanceRowIdFetcher(_LanceFetcherBase):
+    """Worker-local direct Lance stable-row-id fetcher."""
 
     def __init__(  # noqa: PLR0913
         self,
-        table_config: LanceTableConfig,
+        path: str,
+        version: int | None,
+        storage_options: dict[str, str],
         columns: dict[str, str],
         fetch_batch_size: int,
         io_threads: int,
@@ -246,7 +216,9 @@ class _LanceRowIdFetcher(_LanceImageFetcherBase):
         fetch_timeout_seconds: float,
     ) -> None:
         super().__init__(
-            table_config=table_config,
+            path=path,
+            version=version,
+            storage_options=storage_options,
             columns=columns,
             fetch_batch_size=fetch_batch_size,
             io_threads=io_threads,
@@ -264,7 +236,7 @@ class _LanceRowIdFetcher(_LanceImageFetcherBase):
             msg = "Lance row-id materialization requires stable row IDs"
             raise ValueError(msg)
 
-    def _take_rows(self, row_ids: list[int]) -> list[pa.Table]:
+    def _take_rows(self, row_ids: list[int]) -> pa.Table:
         if self.executor is None:
             msg = "Lance row-id fetcher is closed"
             raise RuntimeError(msg)
@@ -273,37 +245,40 @@ class _LanceRowIdFetcher(_LanceImageFetcherBase):
             row_ids[start : start + self.fetch_batch_size] for start in range(0, len(row_ids), self.fetch_batch_size)
         ]
         futures = [self.executor.submit(self.dataset._take_rows, ids, columns=projected) for ids in chunks]
-        return [
+        tables = [
             _as_table(table)
             for table in self._submit_fetches(
                 futures,
                 operation=f"dataset._take_rows chunks={len(chunks)} rows={len(row_ids)}",
             )
         ]
+        return _as_table(tables)
 
-    def fetch(self, row_ids: list[int]) -> _RowIdFetchResult:
+    def fetch(self, row_ids: list[int]) -> _LanceFetchResult:
         if not row_ids:
-            return _RowIdFetchResult([], 0.0, dict.fromkeys(self.columns, 0))
+            return _LanceFetchResult(self._empty_table(), 0.0, dict.fromkeys(self.columns, 0))
 
         self._io_stats(self.dataset)
         fetch_started = time.perf_counter()
         if self.sort_row_ids_for_fetch:
             sorted_original_indices = sorted(range(len(row_ids)), key=row_ids.__getitem__)
             sorted_row_ids = [row_ids[index] for index in sorted_original_indices]
-            tables = _restore_fetched_original_order(self._take_rows(sorted_row_ids), sorted_original_indices)
+            table = _restore_fetched_original_order(self._take_rows(sorted_row_ids), sorted_original_indices)
         else:
-            tables = self._take_rows(row_ids)
+            table = self._take_rows(row_ids)
         fetch_seconds = time.perf_counter() - fetch_started
 
-        return self._fetch_result(tables, fetch_seconds)
+        return self._fetch_result(table, fetch_seconds)
 
 
-class _LanceRowAddressFetcher(_LanceImageFetcherBase):
-    """Worker-local Lance fragment-row-offset image fetcher."""
+class _LanceRowAddressFetcher(_LanceFetcherBase):
+    """Worker-local Lance fragment-row-offset fetcher."""
 
     def __init__(  # noqa: PLR0913
         self,
-        table_config: LanceTableConfig,
+        path: str,
+        version: int | None,
+        storage_options: dict[str, str],
         columns: dict[str, str],
         fetch_batch_size: int,
         io_threads: int,
@@ -312,7 +287,9 @@ class _LanceRowAddressFetcher(_LanceImageFetcherBase):
         fetch_timeout_seconds: float,
     ) -> None:
         super().__init__(
-            table_config=table_config,
+            path=path,
+            version=version,
+            storage_options=storage_options,
             columns=columns,
             fetch_batch_size=fetch_batch_size,
             io_threads=io_threads,
@@ -321,7 +298,7 @@ class _LanceRowAddressFetcher(_LanceImageFetcherBase):
         )
         self.fragments = {int(fragment.fragment_id): fragment for fragment in self.dataset.get_fragments()}
 
-    def _take_row_addresses(self, addresses: list[_LanceRowAddress]) -> list[pa.Table]:
+    def _take_row_addresses(self, addresses: list[_LanceRowAddress]) -> pa.Table:
         if self.executor is None:
             msg = "Lance row-address fetcher is closed"
             raise RuntimeError(msg)
@@ -334,7 +311,8 @@ class _LanceRowAddressFetcher(_LanceImageFetcherBase):
         )
         tables = [table for table, _ in fetched]
         original_indices = [index for _, indices in fetched for index in indices]
-        return _restore_fetched_original_order(tables, original_indices)
+        table = _as_table(tables)
+        return _restore_fetched_original_order(table, original_indices)
 
     def _take_fragment_rows(self, operation: _LanceFragmentTakeOperation) -> tuple[pa.Table, list[int]]:
         fragment = self.fragments.get(operation.fragment_id)
@@ -344,12 +322,12 @@ class _LanceRowAddressFetcher(_LanceImageFetcherBase):
         table = _as_table(fragment.take(operation.row_offsets, columns=list(self.columns)))
         return table, operation.original_indices
 
-    def fetch(self, addresses: list[_LanceRowAddress]) -> _RowIdFetchResult:
+    def fetch(self, addresses: list[_LanceRowAddress]) -> _LanceFetchResult:
         if not addresses:
-            return _RowIdFetchResult([], 0.0, dict.fromkeys(self.columns, 0))
+            return _LanceFetchResult(self._empty_table(), 0.0, dict.fromkeys(self.columns, 0))
 
         self._io_stats(self.dataset)
         fetch_started = time.perf_counter()
-        tables = self._take_row_addresses(addresses)
+        table = self._take_row_addresses(addresses)
         fetch_seconds = time.perf_counter() - fetch_started
-        return self._fetch_result(tables, fetch_seconds)
+        return self._fetch_result(table, fetch_seconds)

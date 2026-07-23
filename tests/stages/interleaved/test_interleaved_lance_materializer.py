@@ -14,30 +14,30 @@
 
 from __future__ import annotations
 
-import json
 from concurrent.futures import Future
-from typing import TYPE_CHECKING, Any, ClassVar, get_type_hints
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import pyarrow as pa
 import pytest
 
-from nemo_curator.stages.interleaved.lance import LanceRowIdImageMaterializationStage, LanceTableConfig
+from nemo_curator.stages.interleaved.lance import InterleavedLanceMaterializerStage
 from nemo_curator.stages.interleaved.lance.fetch import (
     _as_table,
+    _LanceFetcherBase,
+    _LanceFetchResult,
     _LanceFetchTimeoutError,
-    _LanceImageFetcherBase,
     _LanceRowAddress,
     _LanceRowAddressFetcher,
     _LanceRowIdFetcher,
     _restore_fetched_original_order,
-    _RowIdFetchResult,
-    _slice_fetched_tables,
 )
 from nemo_curator.tasks import InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+_TEST_PATH = "memory://images"
 
 
 class _FakeRowIdFetcher:
@@ -48,7 +48,7 @@ class _FakeRowIdFetcher:
         self.calls: list[list[Any]] = []
         self.closed = False
 
-    def fetch(self, row_ids: list[Any]) -> _RowIdFetchResult:
+    def fetch(self, row_ids: list[Any]) -> _LanceFetchResult:
         self.calls.append(list(row_ids))
         rows = [self.rows_by_id[row_id] for row_id in row_ids]
         table = pa.table(
@@ -57,8 +57,8 @@ class _FakeRowIdFetcher:
                 "mime_type": pa.array([row["mime_type"] for row in rows], type=pa.string()),
             }
         )
-        return _RowIdFetchResult(
-            tables=[table],
+        return _LanceFetchResult(
+            table=table,
             fetch_seconds=0.5,
             fetched_bytes_by_column={"image": sum(len(row["image"]) for row in rows), "mime_type": 0},
         )
@@ -72,13 +72,13 @@ class _TimeoutRowIdFetcher(_FakeRowIdFetcher):
     def __init__(self) -> None:
         super().__init__({})
 
-    def fetch(self, row_ids: list[int]) -> _RowIdFetchResult:
+    def fetch(self, row_ids: list[int]) -> _LanceFetchResult:
         self.calls.append(list(row_ids))
         msg = "timed out"
         raise _LanceFetchTimeoutError(msg)
 
 
-class _RetryMaterializationStage(LanceRowIdImageMaterializationStage):
+class _RetryMaterializationStage(InterleavedLanceMaterializerStage):
     def __init__(self, fetchers: list[_FakeRowIdFetcher], **kwargs: object) -> None:
         super().__init__(**kwargs)
         self.fetchers = fetchers
@@ -87,10 +87,6 @@ class _RetryMaterializationStage(LanceRowIdImageMaterializationStage):
         if self._fetcher is None:
             self._fetcher = self.fetchers.pop(0)  # type: ignore[assignment]
         return self._fetcher  # type: ignore[return-value]
-
-
-def _table_config(uri: str = "memory://images") -> LanceTableConfig:
-    return LanceTableConfig(uri=uri, version=1)
 
 
 def _interleaved_task(rows: list[dict[str, Any]]) -> InterleavedBatch:
@@ -129,15 +125,9 @@ def _image_row(
     }
 
 
-def test_lance_table_config_requires_uri() -> None:
-    with pytest.raises(ValueError, match="must not be empty"):
-        LanceTableConfig(uri="")
-
-
-def test_lance_materializer_runtime_type_hints_resolve() -> None:
-    hints = get_type_hints(LanceRowIdImageMaterializationStage)
-
-    assert hints["dataset"] is LanceTableConfig
+def test_lance_materializer_requires_path() -> None:
+    with pytest.raises(ValueError, match="path must not be empty"):
+        InterleavedLanceMaterializerStage(path="")
 
 
 def test_interleaved_lazy_exports_resolve_lance_symbols() -> None:
@@ -145,8 +135,7 @@ def test_interleaved_lazy_exports_resolve_lance_symbols() -> None:
     from nemo_curator.stages.interleaved import io as interleaved_io
     from nemo_curator.stages.interleaved.lance import InterleavedLanceReader, InterleavedLanceReaderStage
 
-    assert interleaved.LanceRowIdImageMaterializationStage is LanceRowIdImageMaterializationStage
-    assert interleaved.LanceTableConfig is LanceTableConfig
+    assert interleaved.InterleavedLanceMaterializerStage is InterleavedLanceMaterializerStage
     assert interleaved.InterleavedLanceReader is InterleavedLanceReader
     assert interleaved.InterleavedLanceReaderStage is InterleavedLanceReaderStage
     assert interleaved_io.InterleavedLanceReader is InterleavedLanceReader
@@ -161,14 +150,9 @@ def test_interleaved_lazy_exports_resolve_lance_symbols() -> None:
     [
         ({"address_mode": "url"}, "Unsupported address_mode"),
         ({"input_row_id_column": ""}, "input_row_id_column"),
-        ({"input_row_id_json_field": ""}, "input_row_id_json_field"),
-        (
-            {"address_mode": "row_address", "input_row_id_json_field": "row_id"},
-            "input_row_id_json_field is only supported",
-        ),
         ({"address_mode": "row_address", "input_fragment_id_column": ""}, "input_fragment_id_column"),
         ({"address_mode": "row_address", "input_row_offset_column": ""}, "input_row_offset_column"),
-        ({"columns": {}, "presence_column": None}, "columns may be empty"),
+        ({"columns": {}}, "columns must not be empty"),
         ({"columns": {"image": "binary_content", "mime_type": "binary_content"}}, "distinct destination"),
         ({"presence_column": "binary_content"}, "presence_column"),
         ({"existing_column_policy": "replace"}, "Unsupported existing_column_policy"),
@@ -177,17 +161,16 @@ def test_interleaved_lazy_exports_resolve_lance_symbols() -> None:
         ({"metadata_cache_size_bytes": 0}, "metadata_cache_size_bytes"),
         ({"fetch_timeout_seconds": -1}, "fetch_timeout_seconds"),
         ({"fetch_retries": -1}, "fetch_retries"),
-        ({"fetcher_max_batches": -1}, "fetcher_max_batches"),
     ],
 )
 def test_lance_rowid_image_materializer_rejects_invalid_config(kwargs: dict[str, object], match: str) -> None:
     with pytest.raises(ValueError, match=match):
-        LanceRowIdImageMaterializationStage(dataset=_table_config(), **kwargs)
+        InterleavedLanceMaterializerStage(path=_TEST_PATH, **kwargs)
 
 
 def test_lance_rowid_image_materializer_fills_bytes_without_url_lookup() -> None:
-    stage = LanceRowIdImageMaterializationStage(
-        dataset=_table_config(),
+    stage = InterleavedLanceMaterializerStage(
+        path=_TEST_PATH,
         presence_column="lance_image_present",
     )
     fake = _FakeRowIdFetcher(
@@ -225,8 +208,8 @@ def test_lance_rowid_image_materializer_fills_bytes_without_url_lookup() -> None
 
 
 def test_lance_rowid_image_materializer_fill_null_skips_populated_rows() -> None:
-    stage = LanceRowIdImageMaterializationStage(
-        dataset=_table_config(),
+    stage = InterleavedLanceMaterializerStage(
+        path=_TEST_PATH,
         presence_column="lance_image_present",
     )
     fake = _FakeRowIdFetcher({20: {"image": b"png-b", "mime_type": "image/png"}})
@@ -245,9 +228,56 @@ def test_lance_rowid_image_materializer_fill_null_skips_populated_rows() -> None
     assert result.to_pyarrow()["binary_content"].combine_chunks().to_pylist() == [b"existing", b"png-b"]
 
 
+def test_lance_rowid_image_materializer_fill_null_preserves_each_populated_value() -> None:
+    stage = InterleavedLanceMaterializerStage(path=_TEST_PATH)
+    fake = _FakeRowIdFetcher({10: {"image": b"replacement", "mime_type": "image/jpeg"}})
+    stage._fetcher = fake
+    task = _interleaved_rowid_task(
+        [_image_row("https://a.example/img.jpg", binary_content=b"existing")],
+        [10],
+    )
+
+    result = stage.process(task).to_pyarrow()
+
+    assert fake.calls == [[10]]
+    assert result["binary_content"].to_pylist() == [b"existing"]
+    assert result["content_type"].to_pylist() == ["image/jpeg"]
+
+
+def test_lance_rowid_image_materializer_overwrites_existing_values() -> None:
+    stage = InterleavedLanceMaterializerStage(
+        path=_TEST_PATH,
+        existing_column_policy="overwrite",
+    )
+    fake = _FakeRowIdFetcher({10: {"image": b"replacement", "mime_type": "image/png"}})
+    stage._fetcher = fake
+    task = _interleaved_rowid_task(
+        [_image_row("https://a.example/img.jpg", binary_content=b"existing", content_type="image/jpeg")],
+        [10],
+    )
+
+    result = stage.process(task).to_pyarrow()
+
+    assert result["binary_content"].to_pylist() == [b"replacement"]
+    assert result["content_type"].to_pylist() == ["image/png"]
+
+
+def test_lance_materializer_projects_configured_non_image_column() -> None:
+    stage = InterleavedLanceMaterializerStage(
+        path=_TEST_PATH,
+        columns={"mime_type": "lance_mime_type"},
+    )
+    stage._fetcher = _FakeRowIdFetcher({10: {"image": b"unused", "mime_type": "image/jpeg"}})
+    task = _interleaved_rowid_task([_image_row("https://a.example/img.jpg")], [10])
+
+    result = stage.process(task).to_pyarrow()
+
+    assert result["lance_mime_type"].to_pylist() == ["image/jpeg"]
+
+
 def test_lance_rowid_image_materializer_existing_policy_error() -> None:
-    stage = LanceRowIdImageMaterializationStage(
-        dataset=_table_config(),
+    stage = InterleavedLanceMaterializerStage(
+        path=_TEST_PATH,
         existing_column_policy="error",
     )
     stage._fetcher = _FakeRowIdFetcher({10: {"image": b"jpeg-a", "mime_type": "image/jpeg"}})
@@ -261,31 +291,31 @@ def test_lance_rowid_image_materializer_existing_policy_error() -> None:
     ("stage", "task", "error_type", "match"),
     [
         (
-            LanceRowIdImageMaterializationStage(dataset=_table_config(), input_row_id_column="missing"),
+            InterleavedLanceMaterializerStage(path=_TEST_PATH, input_row_id_column="missing"),
             _interleaved_task([_image_row("https://a.example/img.jpg")]),
             ValueError,
             "does not exist",
         ),
         (
-            LanceRowIdImageMaterializationStage(dataset=_table_config(), input_row_id_json_field="row_id"),
-            _interleaved_rowid_task([_image_row("https://a.example/img.jpg")], [10]),
+            InterleavedLanceMaterializerStage(path=_TEST_PATH, input_row_id_column="source_ref"),
+            _interleaved_task([_image_row("https://a.example/img.jpg")]),
             TypeError,
-            "requires a string",
+            "expected an integer",
         ),
         (
-            LanceRowIdImageMaterializationStage(dataset=_table_config(), address_mode="row_address"),
+            InterleavedLanceMaterializerStage(path=_TEST_PATH, address_mode="row_address"),
             _interleaved_task([_image_row("https://a.example/img.jpg")]),
             ValueError,
             "row-address columns do not exist",
         ),
         (
-            LanceRowIdImageMaterializationStage(dataset=_table_config(), columns={"image": "text_content"}),
+            InterleavedLanceMaterializerStage(path=_TEST_PATH, columns={"image": "text_content"}),
             _interleaved_rowid_task([_image_row("https://a.example/img.jpg")], [10]),
             TypeError,
             "Destination column",
         ),
         (
-            LanceRowIdImageMaterializationStage(dataset=_table_config(), presence_column="source_ref"),
+            InterleavedLanceMaterializerStage(path=_TEST_PATH, presence_column="source_ref"),
             _interleaved_rowid_task([_image_row("https://a.example/img.jpg")], [10]),
             TypeError,
             "Presence column",
@@ -293,7 +323,7 @@ def test_lance_rowid_image_materializer_existing_policy_error() -> None:
     ],
 )
 def test_lance_rowid_image_materializer_validates_input_table(
-    stage: LanceRowIdImageMaterializationStage,
+    stage: InterleavedLanceMaterializerStage,
     task: InterleavedBatch,
     error_type: type[Exception],
     match: str,
@@ -309,7 +339,7 @@ def test_lance_rowid_image_materializer_retries_timed_out_fetcher() -> None:
     success = _FakeRowIdFetcher({10: {"image": b"jpeg-a", "mime_type": "image/jpeg"}})
     stage = _RetryMaterializationStage(
         fetchers=[timed_out, success],
-        dataset=_table_config(),
+        path=_TEST_PATH,
         presence_column="lance_image_present",
         fetch_timeout_seconds=0.1,
         fetch_retries=1,
@@ -329,7 +359,7 @@ def test_lance_rowid_image_materializer_raises_after_retry_exhaustion() -> None:
     second_timeout = _TimeoutRowIdFetcher()
     stage = _RetryMaterializationStage(
         fetchers=[first_timeout, second_timeout],
-        dataset=_table_config(),
+        path=_TEST_PATH,
         fetch_timeout_seconds=0.1,
         fetch_retries=1,
     )
@@ -342,26 +372,9 @@ def test_lance_rowid_image_materializer_raises_after_retry_exhaustion() -> None:
     assert second_timeout.closed
 
 
-def test_lance_rowid_image_materializer_can_parse_json_source_ref() -> None:
-    stage = LanceRowIdImageMaterializationStage(
-        dataset=_table_config(),
-        input_row_id_column="source_ref",
-        input_row_id_json_field="row_id",
-        presence_column="lance_image_present",
-    )
-    fake = _FakeRowIdFetcher({33: {"image": b"jpeg-a", "mime_type": "image/jpeg"}})
-    stage._fetcher = fake
-    task = _interleaved_task([_image_row(json.dumps({"row_id": 33}))])
-
-    result = stage.process(task)
-
-    assert fake.calls == [[33]]
-    assert result.to_pyarrow()["binary_content"].combine_chunks().to_pylist() == [b"jpeg-a"]
-
-
 def test_lance_row_address_image_materializer_fills_bytes_without_url_lookup() -> None:
-    stage = LanceRowIdImageMaterializationStage(
-        dataset=_table_config(),
+    stage = InterleavedLanceMaterializerStage(
+        path=_TEST_PATH,
         address_mode="row_address",
         presence_column="lance_image_present",
     )
@@ -410,24 +423,19 @@ def test_restore_fetched_original_order() -> None:
         }
     )
 
-    restored = _restore_fetched_original_order([sorted_table], [1, 2, 0])
+    restored = _restore_fetched_original_order(sorted_table, [1, 2, 0])
 
-    assert len(restored) == 1
-    assert restored[0]["image"].to_pylist() == [b"row-30", b"row-10", b"row-20"]
-    assert restored[0]["mime_type"].to_pylist() == ["c", "a", "b"]
+    assert restored["image"].to_pylist() == [b"row-30", b"row-10", b"row-20"]
+    assert restored["mime_type"].to_pylist() == ["c", "a", "b"]
 
 
 def test_lance_fetch_helpers_handle_edge_cases() -> None:
     table = pa.table({"image": [b"a", b"b"], "mime_type": ["image/jpeg", "image/png"]})
 
     assert _as_table([]).num_rows == 0
-    assert _slice_fetched_tables([table], 0, 0) == []
-    with pytest.raises(ValueError, match="non-negative"):
-        _slice_fetched_tables([table], -1, 1)
-    with pytest.raises(RuntimeError, match="Unable to slice"):
-        _slice_fetched_tables([table], 1, 3)
+    assert _as_table([table]).equals(table)
 
-    fetcher = object.__new__(_LanceImageFetcherBase)
+    fetcher = object.__new__(_LanceFetcherBase)
     fetcher.fetch_timeout_seconds = 0.001
     assert fetcher._submit_fetches([], operation="noop") == []
     pending: Future[int] = Future()
@@ -473,8 +481,9 @@ def test_lance_rowid_image_materializer_real_local_dataset(tmp_path: Path) -> No
     row_ids = dataset.scanner(columns=[], with_row_id=True, limit=2).to_table()["_rowid"].combine_chunks().to_pylist()
     row_id = int(row_ids[1])
 
-    stage = LanceRowIdImageMaterializationStage(
-        dataset=LanceTableConfig(uri=str(dataset_path), version=dataset.version),
+    stage = InterleavedLanceMaterializerStage(
+        path=str(dataset_path),
+        version=dataset.version,
         presence_column="lance_image_present",
         fetch_batch_size=1,
         io_threads=1,
@@ -516,8 +525,9 @@ def test_lance_row_address_image_materializer_real_local_dataset(tmp_path: Path)
     dataset = lance.dataset(str(dataset_path))
     fragments = sorted(dataset.get_fragments(), key=lambda fragment: fragment.fragment_id)
 
-    stage = LanceRowIdImageMaterializationStage(
-        dataset=LanceTableConfig(uri=str(dataset_path), version=dataset.version),
+    stage = InterleavedLanceMaterializerStage(
+        path=str(dataset_path),
+        version=dataset.version,
         address_mode="row_address",
         presence_column="lance_image_present",
         fetch_batch_size=1,
