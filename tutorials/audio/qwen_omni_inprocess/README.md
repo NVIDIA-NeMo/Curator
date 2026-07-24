@@ -134,8 +134,9 @@ Rows are handled differently depending on where processing fails:
 
 - Missing, inaccessible, undecodable, or invalid audio causes
   `ResampleAudioStage` to fail with the corresponding `ffmpeg` error.
-- A resampled file that cannot be reopened causes `ASRStage` to fail that
-  batch instead of falling back to the original audio path.
+- A resampled file that cannot be reopened is logged and retained with an
+  empty configured prediction column and `"_skipme": "audio_load_error"`;
+  other files in the same ASR batch continue through inference.
 - Adapter prompt-preparation failures, too-short audio, and empty model outputs
   remain in the output with an empty configured prediction column and
   `"_skipme": "empty_audio"`.
