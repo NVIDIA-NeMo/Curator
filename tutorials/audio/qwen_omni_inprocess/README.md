@@ -75,20 +75,8 @@ configuration visible in code review.
 
 ## Select the executor
 
-The default `backend: ray_data` matches the reference runner. To use Xenna
-batch mode instead, select both the backend and its execution mode:
-
-```bash
-python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/qwen_omni_inprocess \
-  --config-name pipeline \
-  manifest_path=/data/input.jsonl \
-  output_path=/tmp/qwen_omni_output.jsonl \
-  backend=xenna \
-  execution_mode=batch
-```
-
-To use Xenna streaming mode:
+The default `backend: ray_data` matches the reference runner. When using
+Xenna, use its default streaming mode:
 
 ```bash
 python nemo_curator/config/run.py \
@@ -98,6 +86,19 @@ python nemo_curator/config/run.py \
   output_path=/tmp/qwen_omni_output.jsonl \
   backend=xenna \
   execution_mode=streaming
+```
+
+Use Xenna batch mode only as a fallback when streaming runs out of memory for
+the workload:
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/qwen_omni_inprocess \
+  --config-name pipeline \
+  manifest_path=/data/input.jsonl \
+  output_path=/tmp/qwen_omni_output.jsonl \
+  backend=xenna \
+  execution_mode=batch
 ```
 
 `execution_mode` applies only to Xenna and is ignored when `backend` is
