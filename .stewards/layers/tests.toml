@@ -1,0 +1,54 @@
+[layer]
+id = "tests"
+target = "tests"
+kind = "domain"
+owners = [
+  "@NVIDIA-NeMo/curator_reviewers",
+]
+
+[[steward]]
+id = "tests"
+path = "tests/AGENTS.md"
+point_of_view = "Protect deterministic, correctly marked, dependency-isolated tests and shared infrastructure that reproduces user contracts."
+guardrails = [
+  "Prefer shared Ray fixtures by default; isolated lifecycle tests may own a cluster when that ownership is the behavior under test.",
+  "Lightweight Hugging Face downloads are acceptable; mock or skip heavier remote API calls, and coordinate token-gated CI with the automation team.",
+]
+owns = { tests = ["tests", ".github/gpu_test_groups.json", ".github/scripts/check_gpu_test_coverage.py"] }
+edges = [
+  { type = "verifies", to = "pipeline", what = "stage and task contracts" },
+  { type = "verifies", to = "backends", what = "executor and resume behavior" },
+]
+
+[[invariant]]
+id = "gpu-test-registration"
+steward = "tests"
+statement = "Every GPU test file is assigned to a registered GPU test group."
+severity = "P1"
+verification = "machine"
+enforced_by = "gpu-test-coverage"
+
+[[invariant]]
+id = "gpu-marker-registration"
+steward = "tests"
+statement = "The gpu marker remains registered so CPU-only selection can deselect GPU tests."
+severity = "P1"
+verification = "manual"
+evidence_file = "pyproject.toml"
+anchor = "gpu: marks tests as GPU tests"
+
+[[invariant]]
+id = "shared-ray-fixture-default"
+steward = "tests"
+statement = "Tests use the shared Ray cluster fixture by default; isolated cluster ownership is reserved for lifecycle behavior under test."
+severity = "P2"
+verification = "manual"
+evidence_file = "tests/conftest.py"
+anchor = "def shared_ray_cluster"
+
+[[invariant]]
+id = "external-test-isolation"
+steward = "tests"
+statement = "Tests requiring credentials, network services, or special hardware declare and isolate those requirements."
+severity = "P1"
+verification = "none"

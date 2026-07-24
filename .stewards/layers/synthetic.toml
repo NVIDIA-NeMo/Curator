@@ -1,0 +1,46 @@
+[layer]
+id = "synthetic"
+target = "synthetic"
+kind = "domain"
+owners = [
+  "@huvunvidia",
+]
+
+[[steward]]
+id = "synthetic"
+path = "nemo_curator/stages/synthetic/AGENTS.md"
+point_of_view = "Protect prompt, model-processing, data-designer, and sample I/O contracts for synthetic generation."
+guardrails = [
+  "Credentialed or network behavior must remain explicitly isolated from focused local tests.",
+]
+owns = { code = ["nemo_curator/stages/synthetic"], tests = ["tests/stages/synthetic"] }
+edges = [
+  { type = "depends-on", to = "pipeline", what = "processing-stage and DocumentBatch contracts" },
+  { type = "depends-on", to = "backends", what = "execution and resource behavior" },
+]
+
+[[invariant]]
+id = "synthetic-model-stage"
+steward = "synthetic"
+statement = "ModelProcessingStage preserves the setup and sample-processing behavior covered by its focused unit tests."
+severity = "P1"
+verification = "machine"
+enforced_by = "synthetic-base"
+
+[[invariant]]
+id = "synthetic-prompt-surface"
+steward = "synthetic"
+statement = "Nemotron-CC system prompts are behavior-bearing inputs and changes receive output-quality review."
+severity = "P2"
+verification = "manual"
+evidence_file = "nemo_curator/stages/synthetic/nemotron_cc/prompts.py"
+anchor = "NEMOTRON_CC_SYSTEM_PROMPT"
+
+[[invariant]]
+id = "synthetic-data-designer-boundary"
+steward = "synthetic"
+statement = "DataDesignerStage remains a DocumentBatch-to-DocumentBatch processing stage."
+severity = "P2"
+verification = "manual"
+evidence_file = "nemo_curator/stages/synthetic/nemo_data_designer/data_designer.py"
+anchor = "class DataDesignerStage"

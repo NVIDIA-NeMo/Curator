@@ -1,11 +1,15 @@
-<!-- generated from .stewards/manifest.toml — edit the manifest, not this file -->
+<!-- generated steward map; edit source layers, not this file -->
+<!-- source layers: .stewards/layers/docs.toml -->
+
+> **Guidance owners:** @NVIDIA-NeMo/docs_team. Update `.stewards/layers/docs.toml`.
+> Regenerate with `python .stewards/project.py`, then run `python .stewards/verify.py --coverage`.
 
 # Steward: docs
 
 Protect Fern as the canonical published documentation source and keep claims synchronized with tested behavior.
 
 Ordinary work: use this map directly with the root map and run only affected checks.
-Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task is an explicit review/audit or steward-network maintenance.
+Open `.stewards/` only for explicit review, audit, or steward maintenance.
 
 ## Protects
 

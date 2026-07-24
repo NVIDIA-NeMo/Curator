@@ -28,7 +28,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from types import ModuleType
 
-MARKER = "<!-- generated from .stewards/manifest.toml — edit the manifest, not this file -->"
+MARKER = "<!-- generated steward map; edit source layers, not this file -->"
+LEGACY_MARKER = "<!-- generated from .stewards/manifest.toml — edit the manifest, not this file -->"
+MANAGED_MARKERS = {MARKER, LEGACY_MARKER}
+CODEOWNERS_MIN_FIELDS = 2
 SEVERITIES = {"P0", "P1", "P2", "P3"}
 
 
@@ -40,20 +43,6 @@ def _load_projector(path: Path) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-def _ancestor_maps(path: str, steward_paths: set[str]) -> list[str]:
-    target = Path(path).parent
-    chain = ["AGENTS.md"] if "AGENTS.md" in steward_paths else []
-    for candidate in sorted(steward_paths):
-        if candidate in chain or candidate == path:
-            continue
-        parent = Path(candidate).parent
-        if parent != Path() and (parent == target or parent in target.parents):
-            chain.append(candidate)
-    if path not in chain:
-        chain.append(path)
-    return chain
 
 
 def _looks_local(token: str) -> bool:
@@ -130,6 +119,39 @@ def _verify_checks(repo: Path, checks: dict[str, Any], errors: list[str]) -> Non
             errors.append(f"check {check_id}: missing proof_contains")
         elif location_safe and proof not in (repo / location).read_text(encoding="utf-8", errors="ignore"):
             errors.append(f"check {check_id}: proof text not found in {location}: {proof}")
+
+
+def _verify_layers(repo: Path, data: dict[str, Any], errors: list[str]) -> None:
+    layers = data.get("_layers", [])
+    if not layers:
+        return
+    codeowners_path = repo / ".github" / "CODEOWNERS"
+    if not codeowners_path.is_file():
+        errors.append("layered steward sources require .github/CODEOWNERS")
+        return
+    entries: dict[str, list[str]] = {}
+    for raw_line in codeowners_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) >= CODEOWNERS_MIN_FIELDS:
+            entries[parts[0].lstrip("/")] = parts[1:]
+
+    for layer in layers:
+        layer_id = layer["id"]
+        source = layer["source"]
+        owners = layer.get("owners", [])
+        if not owners:
+            errors.append(f"layer {layer_id} needs at least one guidance owner")
+            continue
+        invalid = [owner for owner in owners if not owner.startswith("@")]
+        if invalid:
+            errors.append(f"layer {layer_id} has invalid owner handles: {', '.join(invalid)}")
+        registered = entries.get(source, [])
+        missing = [owner for owner in owners if owner not in registered]
+        if missing:
+            errors.append(f"layer {layer_id} CODEOWNERS entry {source} is missing: {', '.join(missing)}")
 
 
 def _verify_invariants(
@@ -217,20 +239,25 @@ def _verify_maps(repo: Path, data: dict[str, Any], errors: list[str]) -> None:
         target = repo / path
         if not target.exists() or target.read_text(encoding="utf-8") != expected:
             errors.append(f"stale generated map: {path}")
-        chain = _ancestor_maps(path, set(maps))
+        chain = projector.active_map_chain(path, set(maps))
         active_bytes = sum(len(maps[item].encode()) for item in chain)
         if active_bytes > max_bytes:
             errors.append(f"active map chain exceeds budget: {path} ({active_bytes} > {max_bytes})")
     for candidate in repo.rglob("AGENTS.md"):
         relative = candidate.relative_to(repo).as_posix()
-        if MARKER in candidate.read_text(encoding="utf-8", errors="ignore") and relative not in maps:
+        content = candidate.read_text(encoding="utf-8", errors="ignore")
+        if any(marker in content for marker in MANAGED_MARKERS) and relative not in maps:
             errors.append(f"orphan generated map: {relative}")
 
 
 def verify(repo: Path, manifest_path: Path, coverage: bool) -> list[str]:
-    with manifest_path.open("rb") as stream:
-        data = tomllib.load(stream)
+    projector = _load_projector(Path(__file__).with_name("project.py"))
+    try:
+        data = projector.load_manifest(manifest_path, repo)
+    except (projector.ManifestError, OSError, tomllib.TOMLDecodeError) as error:
+        return [f"invalid steward manifest: {error}"]
     errors: list[str] = []
+    _verify_layers(repo, data, errors)
     steward_ids, steward_paths = _verify_graph(repo, data, errors)
     checks = data.get("check", {})
     invariants = data.get("invariant", [])
@@ -255,8 +282,8 @@ def main() -> int:
         sys.stdout.write("Steward verification failed:\n")
         sys.stdout.write("".join(f"- {error}\n" for error in errors))
         return 1
-    with manifest.open("rb") as stream:
-        data = tomllib.load(stream)
+    projector = _load_projector(Path(__file__).with_name("project.py"))
+    data = projector.load_manifest(manifest, repo)
     invariants = data.get("invariant", [])
     machine = sum(item.get("verification") == "machine" for item in invariants)
     manual = sum(item.get("verification") == "manual" for item in invariants)

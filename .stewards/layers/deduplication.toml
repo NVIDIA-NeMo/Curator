@@ -1,0 +1,55 @@
+[layer]
+id = "deduplication"
+target = "deduplication"
+kind = "domain"
+owners = [
+  "@ayushdg",
+  "@praateekmahajan",
+]
+
+[[steward]]
+id = "deduplication"
+path = "nemo_curator/stages/deduplication/AGENTS.md"
+point_of_view = "Protect stable identity, deterministic duplicate decisions, and the distinct exact, fuzzy, and semantic workflow contracts."
+guardrails = [
+  "Do not collapse workflow-specific prerequisites or output semantics into a generic dedup claim.",
+]
+owns = { code = ["nemo_curator/stages/deduplication"], tests = ["tests/stages/deduplication"] }
+edges = [
+  { type = "depends-on", to = "pipeline", what = "workflow and task contracts" },
+  { type = "depends-on", to = "backends", what = "distributed execution and resume behavior" },
+]
+
+[[invariant]]
+id = "dedup-workflow-families"
+steward = "deduplication"
+statement = "Exact, fuzzy, and semantic deduplication remain distinct workflows with independently reviewed contracts."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/stages/deduplication/exact/workflow.py"
+anchor = "class ExactDeduplicationWorkflow"
+
+[[invariant]]
+id = "dedup-id-generation"
+steward = "deduplication"
+statement = "Duplicate decisions depend on stable ID generation; algorithm or input-normalization changes require migration review."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/stages/deduplication/id_generator.py"
+anchor = "class IdGeneratorBase"
+
+[[invariant]]
+id = "dedup-cuda-extra"
+steward = "deduplication"
+statement = "GPU deduplication dependencies remain isolated in the deduplication_cuda12 optional extra."
+severity = "P1"
+verification = "manual"
+evidence_file = "pyproject.toml"
+anchor = "deduplication_cuda12 = ["
+
+[[invariant]]
+id = "actor-pool-scope"
+steward = "deduplication"
+statement = "Ray Actor Pool workflow guidance remains scoped to deduplication; proposals to broaden it require backend and product review."
+severity = "P2"
+verification = "none"

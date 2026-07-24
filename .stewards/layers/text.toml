@@ -1,0 +1,38 @@
+[layer]
+id = "text"
+target = "text"
+kind = "domain"
+owners = [
+  "@sarahyurick",
+  "@praateekmahajan",
+  "@VibhuJawa",
+]
+
+[[steward]]
+id = "text"
+path = "nemo_curator/stages/text/AGENTS.md"
+point_of_view = "Protect text batch shape and the composability of classifiers, filters, embedders, I/O, and download stages."
+guardrails = [
+  "When tokenization and model inference have distinct CPU/GPU scaling or persistent model state, use separate stages composed together unless the implementation documents why coupling is required.",
+]
+owns = { code = ["nemo_curator/stages/text"], tests = ["tests/stages/text"] }
+edges = [
+  { type = "depends-on", to = "pipeline", what = "DocumentBatch and processing-stage contracts" },
+  { type = "collaborates-with", to = "deduplication", what = "text duplicate-removal workflows" },
+]
+
+[[invariant]]
+id = "document-batch-shape"
+steward = "text"
+statement = "Text pipeline stages preserve the DocumentBatch table/data-frame task boundary unless a public migration is approved."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/tasks/document.py"
+anchor = "class DocumentBatch"
+
+[[invariant]]
+id = "text-component-separation"
+steward = "text"
+statement = "Classifier, embedder, download, I/O, filter, and modifier concerns remain independently composable where their public stages permit it."
+severity = "P2"
+verification = "none"

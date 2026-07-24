@@ -1,11 +1,15 @@
-<!-- generated from .stewards/manifest.toml — edit the manifest, not this file -->
+<!-- generated steward map; edit source layers, not this file -->
+<!-- source layers: .stewards/layers/tests.toml -->
+
+> **Guidance owners:** @NVIDIA-NeMo/curator_reviewers. Update `.stewards/layers/tests.toml`.
+> Regenerate with `python .stewards/project.py`, then run `python .stewards/verify.py --coverage`.
 
 # Steward: tests
 
 Protect deterministic, correctly marked, dependency-isolated tests and shared infrastructure that reproduces user contracts.
 
 Ordinary work: use this map directly with the root map and run only affected checks.
-Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task is an explicit review/audit or steward-network maintenance.
+Open `.stewards/` only for explicit review, audit, or steward maintenance.
 
 ## Protects
 

@@ -1,9 +1,13 @@
-<!-- generated from .stewards/manifest.toml — edit the manifest, not this file -->
+<!-- generated steward map; edit source layers, not this file -->
+<!-- source layers: .stewards/layers/repository.toml -->
+
+> **Guidance owners:** @NVIDIA-NeMo/curator_reviewers. Update `.stewards/layers/repository.toml`.
+> Regenerate with `python .stewards/project.py`, then run `python .stewards/verify.py --coverage`.
 
 # Agent Constitution — NeMo Curator
 
 Ordinary work: use this root map plus only scoped maps on the target path.
-Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task is an explicit review/audit or steward-network maintenance.
+Open `.stewards/` only for explicit review, audit, or steward maintenance.
 
 ## Pillars
 
@@ -25,7 +29,7 @@ Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task
 ## Operating Rules
 
 - Use the root map plus only maps governing changed paths during ordinary work; open the protocol and manifest only for explicit review, audit, or steward maintenance.
-- Generated AGENTS.md files are projections; edit `.stewards/manifest.toml`, run the projector, and commit both source and generated maps.
+- Generated AGENTS.md files are projections; edit the owner source layer named in the map header, run the projector, and commit both source and generated maps.
 - Public stage, task, workflow, backend, configuration, or output-layout changes include focused regression proof and user-facing collateral or an explicit no-impact rationale.
 - Keep CPU-only tests isolated from optional GPU, service, and cloud dependencies; use registered markers and shared fixtures where applicable.
 - Do not broaden an invariant beyond what its proof command or evidence anchor demonstrates.
@@ -62,4 +66,4 @@ Do not open `.stewards/PROTOCOL.md` or `.stewards/manifest.toml` unless the task
 
 ---
 
-Explicit review/audit only: [.stewards/PROTOCOL.md](.stewards/PROTOCOL.md). Steward maintenance only: [.stewards/manifest.toml](.stewards/manifest.toml), then `python .stewards/verify.py --coverage`.
+Steward authoring: [.stewards/README.md](.stewards/README.md). Explicit review/audit: [.stewards/PROTOCOL.md](.stewards/PROTOCOL.md).

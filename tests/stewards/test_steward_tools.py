@@ -25,7 +25,7 @@ from pathlib import Path
 PROJECT = Path(__file__).parents[2]
 PROJECTOR = PROJECT / ".stewards" / "project.py"
 VERIFIER = PROJECT / ".stewards" / "verify.py"
-MARKER = "<!-- generated from .stewards/manifest.toml — edit the manifest, not this file -->"
+MARKER = "<!-- generated steward map; edit source layers, not this file -->"
 
 
 def _run(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -67,6 +67,115 @@ verification = "none"
 """
 
 
+def _layered_fixture(
+    root: Path,
+    *,
+    include_overlay: bool = False,
+    include_codeowners: bool = True,
+    duplicate_overlay_invariant: bool = False,
+) -> Path:
+    stewards = root / ".stewards"
+    layers = stewards / "layers"
+    layers.mkdir(parents=True)
+    (stewards / "PROTOCOL.md").write_text("# Protocol\n", encoding="utf-8")
+    layer_sources = [
+        '".stewards/layers/repository.toml"',
+        '".stewards/layers/docs.toml"',
+    ]
+    if include_overlay:
+        layer_sources.append('".stewards/layers/docs-overlay.toml"')
+    manifest = stewards / "manifest.toml"
+    manifest.write_text(
+        f'network = "fixture"\nprotocol = ".stewards/PROTOCOL.md"\nlayer_sources = [{", ".join(layer_sources)}]\n',
+        encoding="utf-8",
+    )
+    (layers / "repository.toml").write_text(
+        """
+[layer]
+id = "repository"
+target = "root"
+kind = "base"
+owners = ["@root-team"]
+
+[root]
+pillars = ["Root guidance."]
+
+[[steward]]
+id = "root"
+path = "AGENTS.md"
+
+[[invariant]]
+id = "root-contract"
+steward = "root"
+statement = "The fixture has a root invariant."
+severity = "P1"
+verification = "none"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    (layers / "docs.toml").write_text(
+        """
+[layer]
+id = "docs"
+target = "docs"
+kind = "domain"
+owners = ["@docs-team"]
+
+[[steward]]
+id = "docs"
+path = "docs/AGENTS.md"
+guardrails = ["Use the canonical documentation source."]
+
+[[invariant]]
+id = "docs-contract"
+steward = "docs"
+statement = "Documentation guidance remains scoped."
+severity = "P2"
+verification = "none"
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    if include_overlay:
+        invariant = """
+
+[[invariant]]
+id = "docs-contract"
+steward = "docs"
+statement = "The overlay silently replaces the domain contract."
+severity = "P1"
+verification = "none"
+"""
+        (layers / "docs-overlay.toml").write_text(
+            """
+[layer]
+id = "docs-special"
+target = "docs"
+kind = "overlay"
+owners = ["@docs-team"]
+
+[[steward]]
+id = "docs"
+guardrails = ["Apply the narrower documentation convention."]
+""".strip()
+            + (invariant if duplicate_overlay_invariant else "")
+            + "\n",
+            encoding="utf-8",
+        )
+    if include_codeowners:
+        codeowners = root / ".github" / "CODEOWNERS"
+        codeowners.parent.mkdir(parents=True)
+        entries = [
+            ".stewards/layers/repository.toml @root-team",
+            ".stewards/layers/docs.toml @docs-team",
+        ]
+        if include_overlay:
+            entries.append(".stewards/layers/docs-overlay.toml @docs-team")
+        codeowners.write_text("\n".join(entries) + "\n", encoding="utf-8")
+    return manifest
+
+
 class TestRepositoryStewardNetwork(unittest.TestCase):
     def test_repository_steward_network_is_current_and_covered(self) -> None:
         projected = _run(PROJECTOR, "--check")
@@ -95,6 +204,129 @@ class TestRepositoryStewardNetwork(unittest.TestCase):
 
         assert "## Network" not in projected
         assert "Automated backing" not in projected
+
+    def test_layer_declaration_spawns_owned_scoped_map(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = _layered_fixture(root)
+
+            result = _run(PROJECTOR, "--repo", str(root), "--manifest", str(manifest))
+            projected = (root / "docs" / "AGENTS.md").read_text(encoding="utf-8")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "**Guidance owners:** @docs-team" in projected
+        assert "Update `.stewards/layers/docs.toml`" in projected
+        assert "Use the canonical documentation source." in projected
+
+    def test_explain_shows_effective_source_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = _layered_fixture(root)
+
+            result = _run(
+                PROJECTOR,
+                "--repo",
+                str(root),
+                "--manifest",
+                str(manifest),
+                "--explain",
+                "docs",
+            )
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "AGENTS.md <= .stewards/layers/repository.toml (@root-team)" in result.stdout
+        assert "docs/AGENTS.md <= .stewards/layers/docs.toml (@docs-team)" in result.stdout
+
+    def test_overlay_adds_guidance_and_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = _layered_fixture(root, include_overlay=True)
+
+            result = _run(PROJECTOR, "--repo", str(root), "--manifest", str(manifest))
+            projected = (root / "docs" / "AGENTS.md").read_text(encoding="utf-8")
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "Use the canonical documentation source." in projected
+        assert "Apply the narrower documentation convention." in projected
+        assert ".stewards/layers/docs.toml, .stewards/layers/docs-overlay.toml" in projected
+
+    def test_overlay_cannot_silently_replace_invariant(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = _layered_fixture(
+                root,
+                include_overlay=True,
+                duplicate_overlay_invariant=True,
+            )
+
+            result = _run(PROJECTOR, "--repo", str(root), "--manifest", str(manifest))
+
+        assert result.returncode == 2
+        assert "an overlay replacement needs override = true" in result.stderr
+
+    def test_verifier_requires_codeowners_for_layer_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = _layered_fixture(root, include_codeowners=False)
+            projected = _run(PROJECTOR, "--repo", str(root), "--manifest", str(manifest))
+            assert projected.returncode == 0, projected.stdout + projected.stderr
+
+            result = _run(VERIFIER, "--repo", str(root), "--manifest", str(manifest))
+
+        assert result.returncode == 1
+        assert "layered steward sources require .github/CODEOWNERS" in result.stdout
+
+    def test_projector_rejects_layer_source_path_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = _layered_fixture(root)
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8").replace(
+                    '".stewards/layers/docs.toml"',
+                    '"../docs.toml"',
+                ),
+                encoding="utf-8",
+            )
+
+            result = _run(PROJECTOR, "--repo", str(root), "--manifest", str(manifest))
+
+        assert result.returncode == 2
+        assert "unsafe layer source path" in result.stderr
+
+    def test_projector_rejects_layer_symlink_outside_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            root = workspace / "repo"
+            root.mkdir()
+            manifest = _layered_fixture(root)
+            source = root / ".stewards" / "layers" / "docs.toml"
+            outside = workspace / "docs.toml"
+            outside.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+            source.unlink()
+            source.symlink_to(outside)
+
+            result = _run(PROJECTOR, "--repo", str(root), "--manifest", str(manifest))
+
+        assert result.returncode == 2
+        assert "layer source resolves outside repository" in result.stderr
+
+    def test_projector_rejects_unknown_layer_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = _layered_fixture(root)
+            source = root / ".stewards" / "layers" / "docs.toml"
+            source.write_text(
+                source.read_text(encoding="utf-8").replace(
+                    'owners = ["@docs-team"]',
+                    'owners = ["@docs-team"]\nowner = "@typo"',
+                ),
+                encoding="utf-8",
+            )
+
+            result = _run(PROJECTOR, "--repo", str(root), "--manifest", str(manifest))
+
+        assert result.returncode == 2
+        assert "unknown metadata: owner" in result.stderr
 
     def test_projector_rejects_path_escape(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

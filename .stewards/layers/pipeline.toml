@@ -1,0 +1,68 @@
+[layer]
+id = "pipeline"
+target = "pipeline"
+kind = "domain"
+owners = [
+  "@NVIDIA-NeMo/curator_reviewers",
+]
+
+[[steward]]
+id = "pipeline"
+path = "nemo_curator/AGENTS.md"
+point_of_view = "Protect the stage/task/workflow substrate and the contracts every modality and executor consumes."
+guardrails = [
+  "Treat descriptor, lifecycle, task lineage, and resource changes as cross-backend work.",
+]
+owns = { code = ["nemo_curator/pipeline", "nemo_curator/tasks", "nemo_curator/stages/base.py", "nemo_curator/stages/resources.py"], tests = ["tests/pipelines", "tests/tasks", "tests/stages/common"] }
+edges = [
+  { type = "serves", to = "backends", what = "backend-neutral stage and task contracts" },
+  { type = "routes", to = "deduplication", what = "dedup workflows" },
+  { type = "routes", to = "synthetic", what = "synthetic generation stages" },
+  { type = "routes", to = "text", what = "text curation stages" },
+  { type = "routes", to = "video", what = "video curation stages" },
+]
+
+[judgment.pipeline]
+advocate = [
+  "Prefer a small composable stage over backend-specific branching in shared pipeline code.",
+]
+do_not = [
+  "Do not change shared descriptors to accommodate one executor without checking the others.",
+]
+serves = [
+  "Modality stages, backend adapters, workflow authors, and downstream library users.",
+]
+
+[[invariant]]
+id = "stage-descriptor-contract"
+steward = "pipeline"
+statement = "ProcessingStage subclasses expose the descriptor properties exercised by the common stage contract tests."
+severity = "P1"
+verification = "machine"
+enforced_by = "stage-descriptors"
+
+[[invariant]]
+id = "task-id-postprocessing"
+steward = "pipeline"
+statement = "Backend task-ID postprocessing preserves the tested root and derived task identity rules."
+severity = "P1"
+verification = "machine"
+enforced_by = "task-postprocess"
+
+[[invariant]]
+id = "stage-lifecycle"
+steward = "pipeline"
+statement = "Per-node setup remains distinct from worker setup and per-task processing."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/stages/base.py"
+anchor = "def setup_on_node"
+
+[[invariant]]
+id = "task-lineage-metadata"
+steward = "pipeline"
+statement = "Tasks retain per-stage performance history and free-form metadata across pipeline boundaries."
+severity = "P2"
+verification = "manual"
+evidence_file = "nemo_curator/tasks/tasks.py"
+anchor = "_stage_perf: list[StagePerfStats]"

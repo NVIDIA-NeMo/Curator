@@ -1,0 +1,38 @@
+[layer]
+id = "performance"
+target = "performance"
+kind = "domain"
+owners = [
+  "@rlratzel",
+  "@praateekmahajan",
+  "@sarahyurick",
+  "@ayushdg",
+]
+
+[[steward]]
+id = "performance"
+path = "benchmarking/AGENTS.md"
+point_of_view = "Protect reproducible performance evidence with explicit workload, environment, baseline, timeout, and result context."
+guardrails = [
+  "Benchmark expectations are proposals until a reproducible run records evidence.",
+]
+owns = { code = ["benchmarking"], tests = ["tests/benchmarking"] }
+edges = [
+  { type = "measures", to = "backends", what = "executor scalability and resource behavior" },
+  { type = "measures", to = "pipeline", what = "stage and workflow performance" },
+]
+
+[[invariant]]
+id = "benchmark-session-timeout"
+steward = "performance"
+statement = "Benchmark sessions preserve the tested default maximum timeout behavior."
+severity = "P2"
+verification = "machine"
+enforced_by = "benchmark-session"
+
+[[invariant]]
+id = "benchmark-context"
+steward = "performance"
+statement = "Reported benchmark results include workload, environment, hardware, software versions, baseline, and limitations."
+severity = "P1"
+verification = "none"

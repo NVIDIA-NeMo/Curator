@@ -1,0 +1,59 @@
+[layer]
+id = "backends"
+target = "backends"
+kind = "domain"
+owners = [
+  "@oyilmaz-nvidia",
+  "@praateekmahajan",
+  "@abhinavg4",
+  "@ayushdg",
+]
+
+[[steward]]
+id = "backends"
+path = "nemo_curator/backends/AGENTS.md"
+point_of_view = "Protect backend-neutral results while preserving each executor's lifecycle, resource, failure, and resume semantics."
+guardrails = [
+  "A focused integration sample is evidence for that sample, not proof of universal backend parity.",
+]
+owns = { code = ["nemo_curator/backends"], tests = ["tests/backends"] }
+edges = [
+  { type = "depends-on", to = "pipeline", what = "stage descriptors and task lineage" },
+  { type = "serves", to = "performance", what = "executor behavior measured by benchmarks" },
+]
+
+[judgment.backends]
+advocate = [
+  "Make retry, resume, failure, and task-lineage behavior observable in focused tests.",
+]
+do_not = [
+  "Do not claim parity beyond the backends and cases exercised by evidence.",
+]
+serves = [
+  "Pipeline authors running on Xenna or Ray Data. Ray Actor Pool guidance remains scoped to deduplication.",
+]
+
+[[invariant]]
+id = "backend-integration-sample"
+steward = "backends"
+statement = "The canonical backend integration fixture produces equivalent results for the backend configurations it parametrizes."
+severity = "P1"
+verification = "machine"
+enforced_by = "backend-sample"
+
+[[invariant]]
+id = "resumability-sample"
+steward = "backends"
+statement = "The functional resume loop continues from persisted task state for the scenarios exercised by its fixture."
+severity = "P1"
+verification = "machine"
+enforced_by = "resume-sample"
+
+[[invariant]]
+id = "ray-stage-spec-keys"
+steward = "backends"
+statement = "Ray adapters communicate actor and fanout stage traits through RayStageSpecKeys."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/backends/utils.py"
+anchor = "class RayStageSpecKeys"

@@ -1,0 +1,45 @@
+[layer]
+id = "video"
+target = "video"
+kind = "domain"
+owners = [
+  "@suiyoubi",
+  "@abhinavg4",
+]
+
+[[steward]]
+id = "video"
+path = "nemo_curator/stages/video/AGENTS.md"
+point_of_view = "Protect VideoTask metadata and the clip, embedding, preview, and metadata output layout across video pipelines."
+guardrails = [
+  "Describe current CPU/GPU paths and writer formats precisely; do not turn acceleration goals into present-tense guarantees.",
+]
+owns = { code = ["nemo_curator/stages/video", "nemo_curator/tasks/video.py"], tests = ["tests/stages/video", "tests/tasks/test_video.py"] }
+edges = [
+  { type = "depends-on", to = "pipeline", what = "stage and task contracts" },
+  { type = "depends-on", to = "backends", what = "distributed and accelerator execution" },
+]
+
+[[invariant]]
+id = "video-task-contract"
+steward = "video"
+statement = "VideoTask serialization, metadata, and helper behavior remain covered by the focused task suite."
+severity = "P1"
+verification = "machine"
+enforced_by = "video-task"
+
+[[invariant]]
+id = "video-writer-layout"
+steward = "video"
+statement = "ClipWriterStage owns explicit paths for processed videos, clip chunks, clips, previews, metadata, and embedding artifacts."
+severity = "P1"
+verification = "manual"
+evidence_file = "nemo_curator/stages/video/io/clip_writer.py"
+anchor = "class ClipWriterStage"
+
+[[invariant]]
+id = "video-acceleration-claims"
+steward = "video"
+statement = "GPU acceleration claims distinguish measured supported paths from roadmap goals and CPU fallbacks."
+severity = "P2"
+verification = "none"

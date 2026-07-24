@@ -1,0 +1,47 @@
+[layer]
+id = "docs"
+target = "docs"
+kind = "domain"
+owners = [
+  "@NVIDIA-NeMo/docs_team",
+]
+
+[[steward]]
+id = "docs"
+path = "fern/AGENTS.md"
+point_of_view = "Protect Fern as the canonical published documentation source and keep claims synchronized with tested behavior."
+guardrails = [
+  "Do not edit generated or legacy documentation as a substitute for the canonical Fern source.",
+]
+owns = { docs = ["fern"] }
+edges = [
+  { type = "documents", to = "pipeline", what = "public concepts and API behavior" },
+  { type = "collaborates-with", to = "tutorials", what = "runnable learning paths" },
+]
+
+[judgment.docs]
+advocate = [
+  "Write from verified source behavior and include the setup needed to reproduce it.",
+]
+do_not = [
+  "Do not publish benchmark or hardware claims without linked evidence context.",
+]
+serves = [
+  "New adopters, existing users, and maintainers reviewing public promises.",
+]
+
+[[invariant]]
+id = "fern-canonical-site"
+steward = "docs"
+statement = "Published NeMo Curator documentation changes are authored in the Fern MDX source tree."
+severity = "P1"
+verification = "manual"
+evidence_file = "fern/README.md"
+anchor = "docs.nvidia.com/nemo/curator"
+
+[[invariant]]
+id = "docs-claims-traceability"
+steward = "docs"
+statement = "API, backend, hardware, and performance claims identify the implementation or reproducible evidence that supports them."
+severity = "P2"
+verification = "none"
