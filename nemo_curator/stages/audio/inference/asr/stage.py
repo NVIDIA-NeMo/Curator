@@ -21,10 +21,12 @@ predictions. The concrete adapter is resolved at runtime from
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import hydra.utils
+import torchaudio
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
@@ -33,6 +35,8 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
@@ -90,18 +94,25 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
     "zh": "Chinese",
 }
 
+_SKIP_ME_KEY = "_skipme"
+_NOTES_KEY = "additional_notes"
 
-def _set_note(task_data: dict[str, Any], stage_name: str, value: str, notes_key: str) -> None:
-    notes = task_data.get(notes_key)
+
+def _set_note(task_data: dict[str, Any], stage_name: str, value: str) -> None:
+    notes = task_data.get(_NOTES_KEY)
     if not isinstance(notes, dict):
         notes = {}
-        task_data[notes_key] = notes
+        task_data[_NOTES_KEY] = notes
     notes[stage_name] = value
 
 
 @dataclass
 class ASRStage(ProcessingStage[AudioTask, AudioTask]):
-    """Audio speech-recognition Curator stage with a pluggable adapter."""
+    """Audio speech-recognition stage with a pluggable adapter.
+
+    The stage writes only ``pred_text_key`` plus the optional control columns
+    ``_skipme`` and ``additional_notes``.
+    """
 
     # Adapter selection.
     adapter_target: str
@@ -110,16 +121,12 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     revision: str | None = None
 
     # Task I/O keys.
-    waveform_key: str = "waveform"
-    sample_rate_key: str = "sampling_rate"
+    audio_filepath_key: str = "resampled_audio_filepath"
     source_lang_key: str = "source_lang"
     reference_text_key: str | None = None
     default_language: str | None = None
     supported_language_codes: list[str] | None = None
     pred_text_key: str = "pred_text"
-    disfluency_text_key: str | None = None
-    skip_me_key: str = "_skipme"
-    notes_key: str = "additional_notes"
     primary_model_key: str = "primary_model"
     primary_model_value: str | None = None
 
@@ -133,6 +140,12 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     batch_size: int = 32
 
     def __post_init__(self) -> None:
+        if not self.pred_text_key:
+            msg = "ASRStage.pred_text_key must be non-empty"
+            raise ValueError(msg)
+        if self.pred_text_key in {_SKIP_ME_KEY, _NOTES_KEY}:
+            msg = f"ASRStage.pred_text_key cannot use reserved control column {self.pred_text_key!r}"
+            raise ValueError(msg)
         if int(self.batch_size) <= 0:
             msg = f"ASRStage.batch_size must be > 0, got {self.batch_size}"
             raise ValueError(msg)
@@ -181,7 +194,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 **self.adapter_kwargs,
             )
             try:
-                adapter.setup()
+                adapter.setup(num_gpus=self._adapter_gpu_count())
             except Exception:
                 try:
                     adapter.teardown()
@@ -191,22 +204,33 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             self._adapter = adapter
             logger.info("ASR adapter ready on worker ({})", self.adapter_target)
 
+    def _adapter_gpu_count(self) -> int:
+        """Return the physical GPU count represented by this stage's request.
+
+        Curator permits fractional GPU scheduling for models that share a
+        device. Any positive fraction therefore represents one visible physical
+        GPU; multi-GPU requests are rounded up to the number of devices the
+        backend must make visible to the worker.
+        """
+        requested_gpus = float(self.resources.gpus)
+        if requested_gpus < 0 or not math.isfinite(requested_gpus):
+            msg = f"ASRStage.resources.gpus must be a finite non-negative value, got {requested_gpus}"
+            raise ValueError(msg)
+        return math.ceil(requested_gpus)
+
     def teardown(self) -> None:
         if self._adapter is not None:
             self._adapter.teardown()
             self._adapter = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        optional_inputs = [self.waveform_key, self.sample_rate_key]
+        required_inputs = [self.audio_filepath_key]
         if self.reference_text_key:
-            optional_inputs.append(self.reference_text_key)
-        return [], optional_inputs
+            required_inputs.append(self.reference_text_key)
+        return [], required_inputs
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        keys = [self.pred_text_key, self.skip_me_key, self.notes_key]
-        if self.disfluency_text_key:
-            keys.append(self.disfluency_text_key)
-        return [], list(dict.fromkeys(keys))
+        return [], [self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY]
 
     def _resolve_language(self, task: AudioTask) -> str | None:
         code = self._resolve_language_code(task)
@@ -238,21 +262,26 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         return text or None
 
     def _build_items(self, tasks: list[AudioTask]) -> list[dict[str, Any]]:
-        items = []
-        for task in tasks:
-            waveform = task.data.get(self.waveform_key)
-            sample_rate = task.data.get(self.sample_rate_key)
-            items.append(
-                {
-                    "waveform": waveform,
-                    "sample_rate": sample_rate,
-                    "language": self._resolve_language(task),
-                    "language_code": self._resolve_language_code(task),
-                    "reference_text": self._resolve_reference_text(task),
-                    "task_id": task.task_id,
-                }
-            )
-        return items
+        return [
+            {
+                "audio_filepath": task.data[self.audio_filepath_key],
+                "language": self._resolve_language(task),
+                "language_code": self._resolve_language_code(task),
+                "reference_text": self._resolve_reference_text(task),
+                "task_id": task.task_id,
+            }
+            for task in tasks
+        ]
+
+    @staticmethod
+    def _load_audio(audio_filepath: str) -> np.ndarray:
+        """Open one resampled file inside the ASR worker.
+
+        ``ResampleAudioStage`` guarantees mono audio, so squeezing its channel
+        dimension matches the file-backed tagging pipeline contract.
+        """
+        waveform, _sample_rate = torchaudio.load(audio_filepath)
+        return waveform.squeeze(0).numpy()
 
     def process(self, task: AudioTask) -> AudioTask:
         msg = f"{type(self).__name__} only supports process_batch"
@@ -297,7 +326,6 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         for task in tasks:
             if self.skip_if_output_exists and task.data.get(self.pred_text_key):
                 output_exists_skipped += 1
-                task.data.pop(self.waveform_key, None)
                 continue
             tasks_to_process.append(task)
         return tasks_to_process, output_exists_skipped
@@ -307,12 +335,21 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         supported_indices = [index for index, item in enumerate(items) if self._is_language_supported(item)]
         by_index: dict[int, ASRResult] = {}
         if supported_indices:
-            supported_items = [items[index] for index in supported_indices]
-            adapter_results = self._adapter.transcribe_batch(supported_items)
-            if len(adapter_results) != len(supported_items):
+            adapter_items = [
+                {
+                    "waveform": self._load_audio(str(items[index]["audio_filepath"])),
+                    "language": items[index]["language"],
+                    "language_code": items[index]["language_code"],
+                    "reference_text": items[index]["reference_text"],
+                    "task_id": items[index]["task_id"],
+                }
+                for index in supported_indices
+            ]
+            adapter_results = self._adapter.transcribe_batch(adapter_items)
+            if len(adapter_results) != len(adapter_items):
                 msg = (
                     f"Adapter returned {len(adapter_results)} results for "
-                    f"{len(supported_items)} supported items (must match 1:1)"
+                    f"{len(adapter_items)} supported items (must match 1:1)"
                 )
                 raise RuntimeError(msg)
             by_index = dict(zip(supported_indices, adapter_results, strict=True))
@@ -338,36 +375,30 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         skipped_count = 0
         for task, result in zip(tasks, results, strict=True):
             task.data[self.pred_text_key] = result.text
-            if self.disfluency_text_key:
-                task.data[self.disfluency_text_key] = result.secondary_text or ""
             unsupported_language = result.unsupported_language
             if unsupported_language:
                 _set_note(
                     task.data,
                     self.name,
                     f"skipped (unsupported language: {unsupported_language})",
-                    self.notes_key,
                 )
                 _set_note(
                     task.data,
                     self.pred_text_key,
                     f"lang_not_supported:{unsupported_language}",
-                    self.notes_key,
                 )
             if result.skipped:
-                task.data[self.skip_me_key] = result.skip_reason or "empty_audio"
+                task.data[_SKIP_ME_KEY] = result.skip_reason or "empty_audio"
                 skipped_count += 1
             if self.primary_model_value and not unsupported_language:
-                _set_note(task.data, self.primary_model_key, self.primary_model_value, self.notes_key)
-            task.data.pop(self.waveform_key, None)
+                _set_note(task.data, self.primary_model_key, self.primary_model_value)
 
         if skipped_count:
             logger.info(
                 f"ASRStage ({self.adapter_target}): marked {skipped_count}/{len(tasks)} "
-                f"tasks as empty_audio ({self.skip_me_key})",
+                f"tasks as empty_audio ({_SKIP_ME_KEY})",
             )
         logger.debug(
-            f"ASRStage ({self.adapter_target}): generated {len(results)} predictions "
-            f"(disfluency_text={'on' if self.disfluency_text_key else 'off'})",
+            f"ASRStage ({self.adapter_target}): generated {len(results)} predictions",
         )
         return tasks

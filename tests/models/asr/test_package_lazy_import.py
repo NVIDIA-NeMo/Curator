@@ -57,9 +57,7 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
         import nemo_curator.models.asr as asr_pkg
 
         assert blocked == []
-        assert asr_pkg.ASRAdapter is not None
-        assert asr_pkg.ASRResult is not None
-        assert "QwenOmniASRAdapter" in asr_pkg._LAZY
+        assert "QwenOmniASRAdapter" not in vars(asr_pkg)
     finally:
         for mod_name in module_names:
             sys.modules.pop(mod_name, None)
@@ -68,7 +66,9 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
                 sys.modules[mod_name] = module
 
 
-def test_asr_subpackage_lazy_getattr_resolves_qwen_adapter() -> None:
-    from nemo_curator.models.asr import QwenOmniASRAdapter
+def test_hydra_resolves_qwen_adapter_from_module_path() -> None:
+    import hydra.utils
 
-    assert QwenOmniASRAdapter.__name__ == "QwenOmniASRAdapter"
+    adapter_cls = hydra.utils.get_class("nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter")
+
+    assert adapter_cls.__name__ == "QwenOmniASRAdapter"

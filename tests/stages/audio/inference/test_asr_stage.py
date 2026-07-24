@@ -18,19 +18,21 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+import torch
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.stages.audio.inference.asr import ASRStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 _QWEN_ADAPTER_TARGET = "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter"
 _SR = 16000
+_RESAMPLED_AUDIO_PATH = "/data/resampled.wav"
 
 
-def _make_stage(  # noqa: PLR0913
+def _make_stage(
     *,
-    disfluency_text_key: str | None = None,
     default_language: str | None = None,
     batch_size: int = 32,
     reference_text_key: str | None = None,
@@ -42,7 +44,6 @@ def _make_stage(  # noqa: PLR0913
         adapter_target=_QWEN_ADAPTER_TARGET,
         model_id="mock/qwen-omni",
         pred_text_key="qwen3_prediction_s1",
-        disfluency_text_key=disfluency_text_key,
         default_language=default_language,
         batch_size=batch_size,
         reference_text_key=reference_text_key,
@@ -51,14 +52,12 @@ def _make_stage(  # noqa: PLR0913
     )
     mock_adapter = MagicMock()
     stage._adapter = mock_adapter
+    stage._load_audio = MagicMock(return_value=np.zeros(_SR, dtype=np.float32))  # type: ignore[method-assign]
     return stage
 
 
-def _make_task(waveform_len: int = _SR, source_lang: str | None = "en") -> AudioTask:
-    data: dict[str, object] = {
-        "waveform": np.zeros(waveform_len, dtype=np.float32),
-        "sampling_rate": _SR,
-    }
+def _make_task(source_lang: str | None = "en") -> AudioTask:
+    data: dict[str, object] = {"resampled_audio_filepath": _RESAMPLED_AUDIO_PATH}
     if source_lang is not None:
         data["source_lang"] = source_lang
     return AudioTask(data=data)
@@ -77,35 +76,27 @@ def test_empty_batch_does_not_create_an_unparented_sentinel() -> None:
 
 def test_basic_inference_single_turn() -> None:
     stage = _make_stage()
-    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello world")]
-
-    results = stage.process_batch([_make_task()])
-
-    assert results[0].data["qwen3_prediction_s1"] == "hello world"
-    assert "waveform" not in results[0].data
-
-
-def test_disfluency_text_key_stores_secondary() -> None:
-    stage = _make_stage(disfluency_text_key="qwen3_prediction_s2")
     stage._adapter.transcribe_batch.return_value = [
-        ASRResult(text="hello world", secondary_text="hello world cleaned"),
+        ASRResult(text="hello world", secondary_text="must not be persisted"),
     ]
 
     results = stage.process_batch([_make_task()])
 
     assert results[0].data["qwen3_prediction_s1"] == "hello world"
-    assert results[0].data["qwen3_prediction_s2"] == "hello world cleaned"
-    assert "qwen3_prediction_s2" in stage.outputs()[1]
-
-
-def test_disfluency_text_key_none_is_normalised_to_empty_string() -> None:
-    stage = _make_stage(disfluency_text_key="qwen3_prediction_s2")
-    stage._adapter.transcribe_batch.return_value = [
-        ASRResult(text="hello world", secondary_text=None),
-    ]
-
-    results = stage.process_batch([_make_task()])
-    assert results[0].data["qwen3_prediction_s2"] == ""
+    assert results[0].data == {
+        "resampled_audio_filepath": _RESAMPLED_AUDIO_PATH,
+        "source_lang": "en",
+        "qwen3_prediction_s1": "hello world",
+    }
+    inferred_item = stage._adapter.transcribe_batch.call_args.args[0][0]
+    assert set(inferred_item) == {
+        "waveform",
+        "language",
+        "language_code",
+        "reference_text",
+        "task_id",
+    }
+    assert inferred_item["waveform"].shape == (_SR,)
 
 
 def test_adapter_not_initialized_raises() -> None:
@@ -138,10 +129,9 @@ def test_skip_if_output_exists_reuses_prediction_and_only_infers_missing_rows() 
     assert results == [existing, missing]
     assert existing.data["qwen3_prediction_s1"] == "existing prediction"
     assert missing.data["qwen3_prediction_s1"] == "new prediction"
-    assert "waveform" not in existing.data
-    assert "waveform" not in missing.data
     inferred_items = stage._adapter.transcribe_batch.call_args.args[0]
     assert len(inferred_items) == 1
+    stage._load_audio.assert_called_once_with(_RESAMPLED_AUDIO_PATH)
 
 
 def test_skip_if_output_exists_skips_entire_prefilled_batch() -> None:
@@ -181,8 +171,7 @@ def test_language_resolution_from_task() -> None:
 
     task = AudioTask(
         data={
-            "waveform": np.zeros(_SR, dtype=np.float32),
-            "sampling_rate": _SR,
+            "resampled_audio_filepath": "/data/spanish.wav",
             "source_lang": "es",
         }
     )
@@ -196,12 +185,7 @@ def test_default_language_used_when_task_language_missing() -> None:
     stage = _make_stage(default_language="en")
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
 
-    task = AudioTask(
-        data={
-            "waveform": np.zeros(_SR, dtype=np.float32),
-            "sampling_rate": _SR,
-        }
-    )
+    task = AudioTask(data={"resampled_audio_filepath": _RESAMPLED_AUDIO_PATH})
     stage.process_batch([task])
 
     items = stage._adapter.transcribe_batch.call_args[0][0]
@@ -214,6 +198,7 @@ def test_supported_language_filter_skips_before_adapter_call() -> None:
     results = stage.process_batch([_make_task(source_lang="pl")])
 
     stage._adapter.transcribe_batch.assert_not_called()
+    stage._load_audio.assert_not_called()
     assert results[0].data["qwen3_prediction_s1"] == ""
     assert "_skipme" not in results[0].data
     assert results[0].data["additional_notes"]["ASR_inference"] == "skipped (unsupported language: pl)"
@@ -245,8 +230,7 @@ def test_reference_text_key_is_passed_to_adapter_items() -> None:
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
     task = AudioTask(
         data={
-            "waveform": np.zeros(_SR, dtype=np.float32),
-            "sampling_rate": _SR,
+            "resampled_audio_filepath": _RESAMPLED_AUDIO_PATH,
             "source_lang": "en",
             "text": "reference transcript",
         }
@@ -258,26 +242,61 @@ def test_reference_text_key_is_passed_to_adapter_items() -> None:
     assert items[0]["reference_text"] == "reference transcript"
 
 
-def test_inputs_outputs_single_turn() -> None:
-    stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
-    _required, optional_inputs = stage.inputs()
-    assert "waveform" in optional_inputs
-    assert "sampling_rate" in optional_inputs
-
-    _required, optional_outputs = stage.outputs()
-    assert "pred_text" in optional_outputs
-    assert "_skipme" in optional_outputs
-    assert "additional_notes" in optional_outputs
-
-
-def test_outputs_two_turn_includes_disfluency_key() -> None:
+def test_inputs_and_exact_output_contract() -> None:
     stage = ASRStage(
         adapter_target=_QWEN_ADAPTER_TARGET,
         model_id="mock/model",
-        disfluency_text_key="pred_text_secondary",
+        pred_text_key="custom_prediction",
     )
+    _required, required_inputs = stage.inputs()
+    assert required_inputs == ["resampled_audio_filepath"]
+
     _required, optional_outputs = stage.outputs()
-    assert "pred_text_secondary" in optional_outputs
+    assert optional_outputs == ["custom_prediction", "_skipme", "additional_notes"]
+
+
+def test_stage_loads_resampled_audio_like_tagging_pipeline() -> None:
+    tensor = torch.ones((1, _SR), dtype=torch.float32)
+    with patch(
+        "nemo_curator.stages.audio.inference.asr.stage.torchaudio.load",
+        return_value=(tensor, _SR),
+    ) as load:
+        waveform = ASRStage._load_audio(_RESAMPLED_AUDIO_PATH)
+
+    load.assert_called_once_with(_RESAMPLED_AUDIO_PATH)
+    assert waveform.shape == (_SR,)
+    assert waveform.dtype == np.float32
+    np.testing.assert_array_equal(waveform, np.ones(_SR, dtype=np.float32))
+
+
+def test_stage_requires_resampled_path_and_does_not_fallback_to_original_audio() -> None:
+    stage = _make_stage()
+    task = AudioTask(data={"audio_filepath": "/data/original.wav", "source_lang": "en"})
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        stage.process_batch([task])
+
+    stage._load_audio.assert_not_called()
+    stage._adapter.transcribe_batch.assert_not_called()
+
+
+def test_empty_prediction_key_is_rejected() -> None:
+    with pytest.raises(ValueError, match="pred_text_key must be non-empty"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            pred_text_key="",
+        )
+
+
+@pytest.mark.parametrize("pred_text_key", ["_skipme", "additional_notes"])
+def test_control_columns_cannot_be_used_as_prediction_key(pred_text_key: str) -> None:
+    with pytest.raises(ValueError, match="reserved control column"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            pred_text_key=pred_text_key,
+        )
 
 
 @pytest.mark.parametrize(
@@ -345,6 +364,7 @@ def test_setup_uses_adapter_target_and_kwargs() -> None:
         model_id="mock/model",
         revision="abc123",
         adapter_kwargs={"max_model_len": 8192, "enable_prefix_caching": False},
+        resources=Resources(gpus=2),
     )
 
     fake_adapter = MagicMock()
@@ -359,8 +379,47 @@ def test_setup_uses_adapter_target_and_kwargs() -> None:
         max_model_len=8192,
         enable_prefix_caching=False,
     )
-    fake_adapter.setup.assert_called_once_with()
+    fake_adapter.setup.assert_called_once_with(num_gpus=2)
     assert stage._adapter is fake_adapter
+
+
+@pytest.mark.parametrize(
+    ("requested_gpus", "expected_num_gpus"),
+    [(0.0, 0), (0.25, 1), (1.0, 1), (1.5, 2), (2.0, 2)],
+)
+def test_setup_derives_adapter_gpu_count_from_stage_resources(
+    requested_gpus: float,
+    expected_num_gpus: int,
+) -> None:
+    stage = ASRStage(
+        adapter_target="tests.fake.Adapter",
+        model_id="mock/model",
+        resources=Resources(gpus=requested_gpus),
+    )
+    fake_adapter = MagicMock()
+
+    with patch("hydra.utils.get_class", return_value=MagicMock(return_value=fake_adapter)):
+        stage.setup()
+
+    fake_adapter.setup.assert_called_once_with(num_gpus=expected_num_gpus)
+
+
+@pytest.mark.parametrize("requested_gpus", [-1.0, float("inf"), float("nan")])
+def test_setup_rejects_invalid_stage_gpu_resource(requested_gpus: float) -> None:
+    stage = ASRStage(
+        adapter_target="tests.fake.Adapter",
+        model_id="mock/model",
+        resources=Resources(gpus=requested_gpus),
+    )
+    fake_adapter = MagicMock()
+
+    with (
+        patch("hydra.utils.get_class", return_value=MagicMock(return_value=fake_adapter)),
+        pytest.raises(ValueError, match=r"resources\.gpus must be a finite non-negative value"),
+    ):
+        stage.setup()
+
+    fake_adapter.teardown.assert_called_once_with()
 
 
 def test_setup_failure_cleans_partial_adapter_and_allows_retry() -> None:
@@ -380,4 +439,4 @@ def test_setup_failure_cleans_partial_adapter_and_allows_retry() -> None:
         stage.setup()
 
     assert stage._adapter is working_adapter
-    working_adapter.setup.assert_called_once_with()
+    working_adapter.setup.assert_called_once_with(num_gpus=1)

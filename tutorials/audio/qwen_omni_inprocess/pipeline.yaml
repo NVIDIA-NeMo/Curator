@@ -18,44 +18,68 @@ hydra:
 
 manifest_path: ???
 output_path: ./qwen_omni_output.jsonl
+workspace_dir: /tmp/qwen_omni_workspace
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+sample_rate: 16000
 model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
-default_language: en
-prompt_file: examples/audio/qwen_omni_inprocess/prompts/en_qwen3_omni_disfluency_asr.md
-followup_prompt_file: null
+default_language: null
+supported_language_codes: [en, zh, ko, ja, de, ru, it, fr, es, pt, ms, nl, id, tr, vi, yue, ar, ur]
+prompt_text: Transcribe the audio.
+prompt_file: null
 reference_text_key: null
-disfluency_text_key: null
-tensor_parallel_size: 1
-limit_mm_per_prompt_audio: 1
+pred_text_key: primary_model_prediction
+gpus_per_actor: 2
+backend: ray_data
+execution_mode: streaming
 
 stages:
-  - _target_: nemo_curator.stages.audio.ManifestReader
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
     manifest_path: ${manifest_path}
     files_per_partition: 1
 
-  - _target_: nemo_curator.stages.audio.MonoConversionStage
-    strict_sample_rate: false
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: "ResampleAudio"
+    resampled_audio_dir: ${resampled_audio_dir}
+    input_format: "wav"
+    target_sample_rate: ${sample_rate}
+    target_format: "wav"
+    target_nchannels: 1
 
-  - _target_: nemo_curator.stages.audio.inference.asr.ASRStage
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
     model_id: ${model_id}
     default_language: ${default_language}
-    sample_rate_key: sample_rate
+    supported_language_codes: ${supported_language_codes}
     reference_text_key: ${reference_text_key}
-    pred_text_key: pred_text
-    disfluency_text_key: ${disfluency_text_key}
-    batch_size: 1
+    pred_text_key: ${pred_text_key}
+    batch_size: 32
     resources:
       _target_: nemo_curator.stages.resources.Resources
-      gpus: 1.0
+      gpus: ${gpus_per_actor}
     adapter_kwargs:
+      prompt_text: ${prompt_text}
       prompt_file: ${prompt_file}
-      followup_prompt_file: ${followup_prompt_file}
-      prompt_content_order: audio_text
-      tensor_parallel_size: ${tensor_parallel_size}
-      limit_mm_per_prompt_audio: ${limit_mm_per_prompt_audio}
+      en_prompt_text: null
+      en_prompt_file: null
+      followup_prompt: null
+      followup_prompt_file: null
+      system_prompt: null
+      system_prompt_file: null
+      prompt_content_order: text_audio
+      max_output_tokens: 256
       max_model_len: 32768
-      max_num_seqs: 1
-      max_output_tokens: 1024
+      max_num_seqs: 16
+      max_num_batched_tokens: null
+      gpu_memory_utilization: 0.95
+      prep_workers: 16
+      temperature: 0.0
+      top_p: null
+      top_k: 1
+      repetition_penalty: 1.0
+      enable_prefix_caching: true
+      prefix_caching_hash_algo: xxhash
+      limit_mm_per_prompt_audio: 2
+      seed: 1234
 
-  - _target_: nemo_curator.stages.audio.ManifestWriterStage
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
     output_path: ${output_path}

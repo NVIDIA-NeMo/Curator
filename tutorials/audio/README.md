@@ -50,7 +50,7 @@ python tutorials/audio/fleurs/main.py \
 | I want to... | Tutorial | GPU | Data |
 |---|---|---|---|
 | Curate multilingual ASR data (download, transcribe, filter by WER) | [**fleurs/**](fleurs/) | Yes (~4 GB VRAM) | Auto-downloads from HuggingFace |
-| Transcribe a manifest in process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (~40 GB VRAM) | Bundled sample or your own manifest |
+| Transcribe a manifest in-process with Qwen3-Omni and vLLM | [**qwen_omni_inprocess/**](qwen_omni_inprocess/) | Yes (2 per ASR actor) | Bundled sample or your own manifest |
 | Build training windows for Audio Language Models from diarized manifests | [**alm/**](alm/) | No (CPU-only) | Bundled sample fixtures |
 | Label raw audio for TTS/ASR/ALM via diarization, alignment, and quality metrics | [**tagging/**](tagging/) | Yes (~8 GB VRAM) | Bring your own audio manifest |
 | Evaluate speaker diarization (DER) on a benchmark dataset | [**callhome_diar/**](callhome_diar/) | Yes (~8 GB VRAM) | Requires [LDC license](https://catalog.ldc.upenn.edu/LDC97S42) |
@@ -71,7 +71,8 @@ python tutorials/audio/fleurs/main.py \
 
 ## System dependencies
 
-Audio pipelines require `ffmpeg` for resampling and format conversion. Install it before running any audio tutorial:
+Most audio pipelines use `ffmpeg` for resampling and format conversion.
+Install it before running those tutorials:
 
 ```bash
 # Ubuntu / Debian

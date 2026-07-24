@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
-from nemo_curator.config.run import create_pipeline_from_yaml
+from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml, main
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
@@ -334,3 +336,156 @@ def test_both_stages_and_workflow_raises_error():
 
     with pytest.raises(RuntimeError, match="Both stages and workflow"):
         create_pipeline_from_yaml(cfg)
+
+
+def test_executor_uses_pipeline_default_without_executor_config():
+    cfg = OmegaConf.create({"stages": []})
+
+    assert create_executor_from_yaml(cfg) is None
+
+
+@patch("hydra.utils.get_class")
+def test_executor_configures_xenna_execution_mode(mock_get_class: MagicMock):
+    executor_cls = MagicMock()
+    mock_get_class.return_value = executor_cls
+    cfg = OmegaConf.create({"backend": "xenna", "execution_mode": "batch"})
+
+    executor = create_executor_from_yaml(cfg)
+
+    mock_get_class.assert_called_once_with("nemo_curator.backends.xenna.XennaExecutor")
+    executor_cls.assert_called_once_with(config={"execution_mode": "batch"})
+    assert executor is executor_cls.return_value
+
+
+@patch("hydra.utils.get_class")
+def test_execution_mode_defaults_to_xenna_backend(mock_get_class: MagicMock):
+    executor_cls = MagicMock()
+    mock_get_class.return_value = executor_cls
+    cfg = OmegaConf.create({"execution_mode": "streaming"})
+
+    create_executor_from_yaml(cfg)
+
+    mock_get_class.assert_called_once_with("nemo_curator.backends.xenna.XennaExecutor")
+    executor_cls.assert_called_once_with(config={"execution_mode": "streaming"})
+
+
+@patch("hydra.utils.get_class")
+def test_ray_data_does_not_receive_xenna_execution_mode(mock_get_class: MagicMock):
+    executor_cls = MagicMock()
+    mock_get_class.return_value = executor_cls
+    cfg = OmegaConf.create({"backend": "ray_data", "execution_mode": "batch"})
+
+    create_executor_from_yaml(cfg)
+
+    mock_get_class.assert_called_once_with("nemo_curator.backends.ray_data.RayDataExecutor")
+    executor_cls.assert_called_once_with()
+
+
+def test_unknown_executor_backend_raises_error():
+    cfg = OmegaConf.create({"backend": "unknown"})
+
+    with pytest.raises(ValueError, match="Unknown backend 'unknown'"):
+        create_executor_from_yaml(cfg)
+
+
+def test_unknown_xenna_execution_mode_raises_error():
+    cfg = OmegaConf.create({"backend": "xenna", "execution_mode": "unknown"})
+
+    with pytest.raises(ValueError, match="Unknown Xenna execution mode 'unknown'"):
+        create_executor_from_yaml(cfg)
+
+
+@patch("nemo_curator.config.run.create_executor_from_yaml")
+@patch("nemo_curator.config.run.create_pipeline_from_yaml")
+@patch("nemo_curator.config.run.create_ray_client_from_yaml")
+def test_main_passes_configured_executor_to_pipeline(
+    mock_create_ray_client: MagicMock,
+    mock_create_pipeline: MagicMock,
+    mock_create_executor: MagicMock,
+):
+    cfg = OmegaConf.create({"stages": []})
+    executor = mock_create_executor.return_value
+
+    main.__wrapped__(cfg)
+
+    mock_create_ray_client.return_value.start.assert_called_once_with()
+    mock_create_pipeline.return_value.run.assert_called_once_with(executor=executor)
+    mock_create_ray_client.return_value.stop.assert_called_once_with()
+
+
+def test_qwen_tutorial_yaml_matches_reference_runner_config():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "qwen_omni_inprocess"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "pred_text_key=custom_prediction",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    resample_stage = pipeline.stages[1]
+    stage = pipeline.stages[2]
+    executor = create_executor_from_yaml(cfg)
+
+    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == ("qwen_omni_workspace", "audio_resampled")
+    assert resample_stage.input_format == "wav"
+    assert resample_stage.target_sample_rate == 16000
+    assert resample_stage.target_format == "wav"
+    assert resample_stage.target_nchannels == 1
+    assert stage.audio_filepath_key == "resampled_audio_filepath"
+    assert stage.inputs()[1] == ["resampled_audio_filepath"]
+    assert stage.pred_text_key == "custom_prediction"
+    assert stage.outputs() == ([], ["custom_prediction", "_skipme", "additional_notes"])
+    assert stage.default_language is None
+    assert stage.supported_language_codes == [
+        "en",
+        "zh",
+        "ko",
+        "ja",
+        "de",
+        "ru",
+        "it",
+        "fr",
+        "es",
+        "pt",
+        "ms",
+        "nl",
+        "id",
+        "tr",
+        "vi",
+        "yue",
+        "ar",
+        "ur",
+    ]
+    assert stage.batch_size == 32
+    assert stage.resources.gpus == 2
+    assert dict(stage.adapter_kwargs) == {
+        "prompt_text": "Transcribe the audio.",
+        "prompt_file": None,
+        "en_prompt_text": None,
+        "en_prompt_file": None,
+        "followup_prompt": None,
+        "followup_prompt_file": None,
+        "system_prompt": None,
+        "system_prompt_file": None,
+        "prompt_content_order": "text_audio",
+        "max_output_tokens": 256,
+        "max_model_len": 32768,
+        "max_num_seqs": 16,
+        "max_num_batched_tokens": None,
+        "gpu_memory_utilization": 0.95,
+        "prep_workers": 16,
+        "temperature": 0.0,
+        "top_p": None,
+        "top_k": 1,
+        "repetition_penalty": 1.0,
+        "enable_prefix_caching": True,
+        "prefix_caching_hash_algo": "xxhash",
+        "limit_mm_per_prompt_audio": 2,
+        "seed": 1234,
+    }
+    assert executor.__class__.__name__ == "RayDataExecutor"
+    assert executor.config == {}

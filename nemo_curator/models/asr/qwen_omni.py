@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import gc
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -26,8 +27,6 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.models.asr.waveform import resample_waveform, to_mono_numpy_1d
-from nemo_curator.utils.gpu_utils import get_gpu_count
 from nemo_curator.utils.vllm_utils import create_vllm_llm
 
 if TYPE_CHECKING:
@@ -67,7 +66,6 @@ def _require_audio_vllm_stack(*, context: str) -> None:
 
 
 _QWEN3_OMNI_MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
-_QWEN_SAMPLE_RATE = 16000
 _MIN_QWEN_AUDIO_SAMPLES = 1600
 _PROMPT_CONTENT_ORDERS = frozenset({"text_audio", "audio_text"})
 _FOLLOWUP_PROMPT_DEFAULT = (
@@ -85,11 +83,6 @@ class QwenOmniASRAdapter:
     ``cls(model_id=..., revision=..., **adapter_kwargs)``, so every field
     below is a keyword-only knob settable from the YAML ``adapter_kwargs``.
 
-    Resource expectations:
-        * ~40 GB VRAM for Qwen3-Omni-30B-A3B (FP8): one A100-80GB or two
-          A100-40GB with ``tensor_parallel_size=2``.
-        * ~15 GB cached weights on first run (HuggingFace Hub).
-
     Notable Args (most are plain vLLM/sampling knobs):
         prompt_text / *_file: Turn-1 user prompt; ``{language}`` and
             ``{transcript}`` are interpolated per-item when the stage supplies
@@ -102,17 +95,18 @@ class QwenOmniASRAdapter:
         prompt_content_order: order of text and audio blocks in each user
             message. ``text_audio`` preserves reference-adapter behavior;
             ``audio_text`` matches Qwen's official ASR cookbook.
-        tensor_parallel_size: ``None`` -> auto-detect from visible GPUs.
         enable_prefix_caching: default ``True`` since prompts repeat across
             requests; disable for highly variable prompts.
-        limit_mm_per_prompt_audio: per-prompt audio cap; ``2`` covers the
-            two-turn flow, ``1`` for strictly single-turn. This audio adapter
-            passes image/video multimodal caps as ``1`` for Qwen/vLLM
-            compatibility even though ASR requests only attach audio payloads.
+        limit_mm_per_prompt_audio: per-request audio cap. This adapter attaches
+            one audio item in both single-turn and two-turn modes, so ``1`` is
+            sufficient for either. The default ``2`` is a permissive adapter
+            default. Image/video multimodal caps are passed as ``1`` for
+            Qwen/vLLM compatibility even though ASR requests only attach audio.
         max_num_batched_tokens: optional vLLM scheduler/encoder-cache budget.
             Long single audio items can exceed the default multimodal encoder
             cache even when ``max_model_len`` is large enough; set this to at
             least the observed audio feature length for 40-50 minute probes.
+        prep_workers: thread-pool size for parallel audio preprocessing.
         seed: exposed so reproducibility / bit-exactness tests can override.
     """
 
@@ -132,12 +126,12 @@ class QwenOmniASRAdapter:
     max_num_batched_tokens: int | None = None
     max_num_seqs: int = 32
     gpu_memory_utilization: float = 0.95
-    tensor_parallel_size: int | None = None
     max_output_tokens: int = 256
     temperature: float = 0.0
     top_p: float | None = None
     top_k: int = 1
     repetition_penalty: float = 1.0
+    prep_workers: int = 16
 
     enable_prefix_caching: bool = True
     prefix_caching_hash_algo: str = "xxhash"
@@ -168,6 +162,10 @@ class QwenOmniASRAdapter:
         if self.repetition_penalty <= 0.0:
             msg = f"repetition_penalty must be greater than zero, got {self.repetition_penalty}"
             raise ValueError(msg)
+        if int(self.prep_workers) <= 0:
+            msg = f"prep_workers must be positive, got {self.prep_workers}"
+            raise ValueError(msg)
+        self.prep_workers = int(self.prep_workers)
         if self.limit_mm_per_prompt_audio <= 0:
             msg = "limit_mm_per_prompt_audio must be positive"
             raise ValueError(msg)
@@ -175,6 +173,7 @@ class QwenOmniASRAdapter:
         self._processor: Any = None
         self._llm: Any = None
         self._sampling_params: Any = None
+        self._prep_pool: ThreadPoolExecutor | None = None
 
     @staticmethod
     def _load_text(text: str | None, file_path: str | None) -> str | None:
@@ -194,14 +193,16 @@ class QwenOmniASRAdapter:
             kwargs["revision"] = revision
         snapshot_download(model_id, **kwargs)
 
-    def setup(self) -> None:
+    def setup(self, *, num_gpus: int) -> None:
         if self._llm is not None:
             return
+        if not isinstance(num_gpus, int) or isinstance(num_gpus, bool) or num_gpus <= 0:
+            msg = f"QwenOmniASRAdapter requires a positive integer num_gpus, got {num_gpus!r}"
+            raise ValueError(msg)
         _require_audio_vllm_stack(context="setup()")
 
-        tp_size = self.tensor_parallel_size or get_gpu_count()
         logger.info(
-            f"Loading QwenOmni model={self.model_id}  tp={tp_size}  "
+            f"Loading QwenOmni model={self.model_id}  tp={num_gpus}  "
             f"max_model_len={self.max_model_len}  max_num_seqs={self.max_num_seqs}"
             + (
                 f"  max_num_batched_tokens={self.max_num_batched_tokens}"
@@ -213,7 +214,7 @@ class QwenOmniASRAdapter:
 
         engine_kwargs: dict[str, Any] = {
             "gpu_memory_utilization": self.gpu_memory_utilization,
-            "tensor_parallel_size": tp_size,
+            "tensor_parallel_size": num_gpus,
             "max_model_len": self.max_model_len,
             "seed": int(self.seed),
             "enable_prefix_caching": bool(self.enable_prefix_caching),
@@ -247,11 +248,15 @@ class QwenOmniASRAdapter:
             )
             self._sampling_params = SamplingParams(**sampling_kwargs)
             self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id, **proc_kwargs)
+            self._prep_pool = ThreadPoolExecutor(max_workers=self.prep_workers)
         except Exception:
             self.teardown()
             raise
 
     def teardown(self) -> None:
+        if self._prep_pool is not None:
+            self._prep_pool.shutdown(wait=False)
+            self._prep_pool = None
         self._processor = None
         self._llm = None
         self._sampling_params = None
@@ -281,12 +286,10 @@ class QwenOmniASRAdapter:
         if not items:
             return []
         waveforms = [it["waveform"] for it in items]
-        sample_rates = [it["sample_rate"] for it in items]
         languages = [it.get("language") for it in items]
         reference_texts = [it.get("reference_text") for it in items]
         pred_texts, disfl_texts, skipped_indices = self._run_two_turn(
             waveforms,
-            sample_rates,
             languages,
             reference_texts,
         )
@@ -386,61 +389,58 @@ class QwenOmniASRAdapter:
 
     def _prepare_single(
         self,
-        waveform: object,
-        sample_rate: int,
+        waveform: np.ndarray,
         language: str | None = None,
         reference_text: str | None = None,
     ) -> tuple[dict[str, Any], np.ndarray] | None:
         try:
-            waveform_1d = to_mono_numpy_1d(waveform)
-            if waveform_1d.size == 0:
+            if waveform.size == 0:
                 logger.warning("Skipping empty waveform")
                 return None
-            if waveform_1d.size < _MIN_QWEN_AUDIO_SAMPLES:
-                logger.warning("Skipping too-short waveform ({} samples)", waveform_1d.size)
+            if waveform.size < _MIN_QWEN_AUDIO_SAMPLES:
+                logger.warning("Skipping too-short waveform ({} samples)", waveform.size)
                 return None
-            waveform_16k = resample_waveform(waveform_1d, sample_rate, _QWEN_SAMPLE_RATE)
-            messages = self._build_messages(waveform_16k, language, reference_text)
+            messages = self._build_messages(waveform, language, reference_text)
             inputs = self._pack_vllm_inputs(messages)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Failed to preprocess audio, skipping (waveform shape={}, sr={}): {}",
+                "Failed to preprocess audio, skipping (waveform shape={}): {}",
                 getattr(waveform, "shape", None),
-                sample_rate,
                 exc,
             )
             return None
 
-        return inputs, waveform_16k
+        return inputs, waveform
 
     def _prepare_batch(
         self,
-        waveforms: list[object],
-        sample_rates: list[int],
+        waveforms: list[np.ndarray],
         languages: list[str | None] | None = None,
         reference_texts: list[str | None] | None = None,
     ) -> list[tuple[dict[str, Any], np.ndarray] | None]:
         langs = languages or [None] * len(waveforms)
         refs = reference_texts or [None] * len(waveforms)
-        return [
-            self._prepare_single(w, sr, lang, ref)
-            for w, sr, lang, ref in zip(waveforms, sample_rates, langs, refs, strict=True)
-        ]
+        if self._prep_pool is None:
+            return [
+                self._prepare_single(waveform, language, reference_text)
+                for waveform, language, reference_text in zip(waveforms, langs, refs, strict=True)
+            ]
+        return list(self._prep_pool.map(self._prepare_single, waveforms, langs, refs))
 
     def _prepare_turn2_single(
         self,
-        waveform_16k: np.ndarray,
+        waveform: np.ndarray,
         pred_text: str,
         language: str | None = None,
         reference_text: str | None = None,
     ) -> dict[str, Any] | None:
         try:
-            messages = self._build_turn2_messages(waveform_16k, pred_text, language, reference_text)
+            messages = self._build_turn2_messages(waveform, pred_text, language, reference_text)
             inputs = self._pack_vllm_inputs(messages)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Failed to preprocess Turn 2 audio (shape={}): {}",
-                getattr(waveform_16k, "shape", None),
+                getattr(waveform, "shape", None),
                 exc,
             )
             return None
@@ -449,17 +449,19 @@ class QwenOmniASRAdapter:
 
     def _prepare_turn2_batch(
         self,
-        waveforms_16k: list[np.ndarray],
+        waveforms: list[np.ndarray],
         pred_texts: list[str],
         languages: list[str | None] | None = None,
         reference_texts: list[str | None] | None = None,
     ) -> list[dict[str, Any] | None]:
-        langs = languages or [None] * len(waveforms_16k)
-        refs = reference_texts or [None] * len(waveforms_16k)
-        return [
-            self._prepare_turn2_single(w, pt, lang, ref)
-            for w, pt, lang, ref in zip(waveforms_16k, pred_texts, langs, refs, strict=True)
-        ]
+        langs = languages or [None] * len(waveforms)
+        refs = reference_texts or [None] * len(waveforms)
+        if self._prep_pool is None:
+            return [
+                self._prepare_turn2_single(w, pt, lang, ref)
+                for w, pt, lang, ref in zip(waveforms, pred_texts, langs, refs, strict=True)
+            ]
+        return list(self._prep_pool.map(self._prepare_turn2_single, waveforms, pred_texts, langs, refs))
 
     @staticmethod
     def _first_output_text(output: Any) -> str:  # noqa: ANN401
@@ -489,8 +491,7 @@ class QwenOmniASRAdapter:
 
     def _run_two_turn(
         self,
-        waveforms: list[object],
-        sample_rates: list[int],
+        waveforms: list[np.ndarray],
         languages: list[str | None] | None = None,
         reference_texts: list[str | None] | None = None,
     ) -> tuple[list[str], list[str], set[int]]:
@@ -503,10 +504,10 @@ class QwenOmniASRAdapter:
         n = len(waveforms)
 
         # -- Turn 1 ----------------------------------------------------------
-        prepared = self._prepare_batch(waveforms, sample_rates, languages, reference_texts)
+        prepared = self._prepare_batch(waveforms, languages, reference_texts)
         valid_indices = [i for i, p in enumerate(prepared) if p is not None]
         valid_inputs = [prepared[i][0] for i in valid_indices]
-        waveforms_16k: dict[int, np.ndarray] = {i: prepared[i][1] for i in valid_indices}
+        prepared_waveforms: dict[int, np.ndarray] = {i: prepared[i][1] for i in valid_indices}
         skipped_indices = set(range(n)) - set(valid_indices)
 
         if not valid_inputs:
@@ -537,7 +538,7 @@ class QwenOmniASRAdapter:
         langs = languages or [None] * n
         refs = reference_texts or [None] * n
         t2_prepared = self._prepare_turn2_batch(
-            [waveforms_16k[i] for i in t2_indices],
+            [prepared_waveforms[i] for i in t2_indices],
             [pred_texts[i] for i in t2_indices],
             [langs[i] for i in t2_indices],
             [refs[i] for i in t2_indices],

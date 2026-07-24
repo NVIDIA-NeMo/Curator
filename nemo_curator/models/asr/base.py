@@ -15,7 +15,7 @@
 """Stage-adapter contract for audio speech-recognition.
 
 ``ASRStage`` owns Curator-side glue (``task.data`` reads, batching, ISO
-language mapping, ``_skip_me``), while ``ASRAdapter`` owns the model-side call
+language mapping, ``_skipme``), while ``ASRAdapter`` owns the model-side call
 (prefetch, setup, generation, and packing into ``ASRResult``). The split lets
 the stage swap models via a single YAML ``adapter_target:`` line.
 """
@@ -35,12 +35,11 @@ class ASRResult:
 
     Attributes:
         text: Primary transcription (Turn-1 / sole output). Empty if skipped.
-        secondary_text: Optional Turn-2 / disfluency-preserved output;
-            ``None`` for single-turn or skipped Turn-2. Written to
-            ``task.data`` only when ``ASRStage.disfluency_text_key`` is set.
+        secondary_text: Optional adapter-side secondary output. ``ASRStage``
+            deliberately does not persist this value.
         skipped: True when the item could not be processed (e.g. empty/corrupt
-            waveform); the stage then sets ``skip_me_key = "empty_audio"``.
-        skip_reason: Optional machine-readable reason written to ``skip_me_key``
+            waveform); the stage then sets ``_skipme = "empty_audio"``.
+        skip_reason: Optional machine-readable reason written to ``_skipme``
             when ``skipped`` is true. Defaults to ``"empty_audio"`` in the stage.
         unsupported_language: Optional normalized language code used by the
             stage to annotate items excluded by its language allowlist.
@@ -68,10 +67,8 @@ class ASRAdapter(Protocol):
     (unpacked from ``task.data``) and returns one ``ASRResult`` per input, in
     order. Expected per-item keys (stage-populated):
 
-    * ``waveform``: canonical Curator waveform object from the stage
-      (typically a torch tensor shaped ``(channels, samples)``); adapters own
-      any model-specific conversion such as squeezing to 1-D numpy.
-    * ``sample_rate`` (``int``): source rate; adapter handles any resampling.
+    * ``waveform``: contiguous, mono, 1-D float32 NumPy samples loaded by
+      ``ASRStage`` from the resampled audio path.
     * ``language`` (``str | None``): human-readable name (e.g. ``"English"``).
     * ``language_code`` (``str | None``): original language code from the
       configured stage input column.
@@ -95,8 +92,12 @@ class ASRAdapter(Protocol):
         """
         ...
 
-    def setup(self) -> None:
-        """Load the model into the worker process (once per worker)."""
+    def setup(self, *, num_gpus: int) -> None:
+        """Load the model into the worker process using the stage-owned GPU count.
+
+        ``ASRStage`` derives ``num_gpus`` from its Curator resource request so
+        adapters do not expose a second, independently configurable GPU count.
+        """
         ...
 
     def teardown(self) -> None:
