@@ -83,11 +83,6 @@ def test_qwen_adapter_rejects_nonpositive_repetition_penalty() -> None:
         QwenOmniASRAdapter(model_id="mock/qwen-omni", repetition_penalty=0.0)
 
 
-def test_qwen_adapter_rejects_nonpositive_prep_workers() -> None:
-    with pytest.raises(ValueError, match="prep_workers must be positive"):
-        QwenOmniASRAdapter(model_id="mock/qwen-omni", prep_workers=0)
-
-
 @pytest.mark.parametrize("num_gpus", [0, -1, 1.5, True])
 def test_qwen_adapter_setup_requires_positive_integer_stage_gpu_count(num_gpus: object) -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
@@ -329,7 +324,6 @@ def test_qwen_adapter_vllm_knob_defaults_match_doc() -> None:
     assert adapter.prefix_caching_hash_algo == "xxhash"
     assert adapter.limit_mm_per_prompt_audio == 2
     assert adapter.max_num_batched_tokens is None
-    assert adapter.prep_workers == 16
     assert adapter.seed == 1234
 
 
@@ -351,7 +345,6 @@ def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
     with _mock_qwen_setup() as (llm_ctor, _, sampling_ctor):
         adapter.setup(num_gpus=2)
 
-    assert adapter._prep_pool is not None
     llm_ctor.assert_called_once()
     kwargs = llm_ctor.call_args.kwargs
     assert kwargs["enable_prefix_caching"] is False
@@ -416,7 +409,6 @@ def test_qwen_adapter_setup_cleans_up_partial_engine_when_processor_fails() -> N
     assert adapter._llm is None
     assert adapter._sampling_params is None
     assert adapter._processor is None
-    assert adapter._prep_pool is None
 
 
 def test_qwen_adapter_marks_empty_turn1_outputs_skipped_and_excludes_turn2() -> None:

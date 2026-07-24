@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import gc
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -106,7 +105,6 @@ class QwenOmniASRAdapter:
             Long single audio items can exceed the default multimodal encoder
             cache even when ``max_model_len`` is large enough; set this to at
             least the observed audio feature length for 40-50 minute probes.
-        prep_workers: thread-pool size for parallel audio preprocessing.
         seed: exposed so reproducibility / bit-exactness tests can override.
     """
 
@@ -131,8 +129,6 @@ class QwenOmniASRAdapter:
     top_p: float | None = None
     top_k: int = 1
     repetition_penalty: float = 1.0
-    prep_workers: int = 16
-
     enable_prefix_caching: bool = True
     prefix_caching_hash_algo: str = "xxhash"
     limit_mm_per_prompt_audio: int = 2
@@ -162,10 +158,6 @@ class QwenOmniASRAdapter:
         if self.repetition_penalty <= 0.0:
             msg = f"repetition_penalty must be greater than zero, got {self.repetition_penalty}"
             raise ValueError(msg)
-        if int(self.prep_workers) <= 0:
-            msg = f"prep_workers must be positive, got {self.prep_workers}"
-            raise ValueError(msg)
-        self.prep_workers = int(self.prep_workers)
         if self.limit_mm_per_prompt_audio <= 0:
             msg = "limit_mm_per_prompt_audio must be positive"
             raise ValueError(msg)
@@ -173,7 +165,6 @@ class QwenOmniASRAdapter:
         self._processor: Any = None
         self._llm: Any = None
         self._sampling_params: Any = None
-        self._prep_pool: ThreadPoolExecutor | None = None
 
     @staticmethod
     def _load_text(text: str | None, file_path: str | None) -> str | None:
@@ -248,15 +239,11 @@ class QwenOmniASRAdapter:
             )
             self._sampling_params = SamplingParams(**sampling_kwargs)
             self._processor = Qwen3OmniMoeProcessor.from_pretrained(self.model_id, **proc_kwargs)
-            self._prep_pool = ThreadPoolExecutor(max_workers=self.prep_workers)
         except Exception:
             self.teardown()
             raise
 
     def teardown(self) -> None:
-        if self._prep_pool is not None:
-            self._prep_pool.shutdown(wait=False)
-            self._prep_pool = None
         self._processor = None
         self._llm = None
         self._sampling_params = None
@@ -420,12 +407,10 @@ class QwenOmniASRAdapter:
     ) -> list[tuple[dict[str, Any], np.ndarray] | None]:
         langs = languages or [None] * len(waveforms)
         refs = reference_texts or [None] * len(waveforms)
-        if self._prep_pool is None:
-            return [
-                self._prepare_single(waveform, language, reference_text)
-                for waveform, language, reference_text in zip(waveforms, langs, refs, strict=True)
-            ]
-        return list(self._prep_pool.map(self._prepare_single, waveforms, langs, refs))
+        return [
+            self._prepare_single(waveform, language, reference_text)
+            for waveform, language, reference_text in zip(waveforms, langs, refs, strict=True)
+        ]
 
     def _prepare_turn2_single(
         self,
@@ -456,12 +441,10 @@ class QwenOmniASRAdapter:
     ) -> list[dict[str, Any] | None]:
         langs = languages or [None] * len(waveforms)
         refs = reference_texts or [None] * len(waveforms)
-        if self._prep_pool is None:
-            return [
-                self._prepare_turn2_single(w, pt, lang, ref)
-                for w, pt, lang, ref in zip(waveforms, pred_texts, langs, refs, strict=True)
-            ]
-        return list(self._prep_pool.map(self._prepare_turn2_single, waveforms, pred_texts, langs, refs))
+        return [
+            self._prepare_turn2_single(w, pt, lang, ref)
+            for w, pt, lang, ref in zip(waveforms, pred_texts, langs, refs, strict=True)
+        ]
 
     @staticmethod
     def _first_output_text(output: Any) -> str:  # noqa: ANN401

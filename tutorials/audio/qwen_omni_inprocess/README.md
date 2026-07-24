@@ -69,7 +69,6 @@ explicit:
 | Maximum model length | `32768` |
 | Maximum generated tokens | `256` |
 | Audio inputs allowed per vLLM request | `2` |
-| Audio preprocessing workers | `16` |
 
 Keeping these values in the YAML makes any future drift from the reference
 configuration visible in code review.

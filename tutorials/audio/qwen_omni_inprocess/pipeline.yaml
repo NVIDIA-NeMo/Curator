@@ -71,7 +71,6 @@ stages:
       max_num_seqs: 16
       max_num_batched_tokens: null
       gpu_memory_utilization: 0.95
-      prep_workers: 16
       temperature: 0.0
       top_p: null
       top_k: 1

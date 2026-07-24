@@ -477,7 +477,6 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
         "max_num_seqs": 16,
         "max_num_batched_tokens": None,
         "gpu_memory_utilization": 0.95,
-        "prep_workers": 16,
         "temperature": 0.0,
         "top_p": None,
         "top_k": 1,
