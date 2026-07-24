@@ -15,6 +15,7 @@
 #   - The shared filesystem mounted at the same path inside the container
 #
 # Usage:
+#   export CONTAINER_IMAGE=nvcr.io/nvidia/nemo-curator:<tag>
 #   sbatch tutorials/slurm/submit_container.sh
 #
 # Override resources without editing this file:
@@ -35,14 +36,20 @@
 
 set -euo pipefail
 
-# ---------------------------------------------------------------------------
-# Paths — adjust to your environment
-# ---------------------------------------------------------------------------
+# Root of the NeMo Curator checkout — auto-detected from this script's location.
 CURATOR_DIR="${CURATOR_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 
-# Official NeMo Curator container from NGC.
-# Browse available tags: https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator
-CONTAINER_IMAGE="${CONTAINER_IMAGE:-nvcr.io/nvidia/nemo-curator:26.02}"
+# Required: NeMo Curator container from NGC.
+# Browse available tags and pick one before submitting:
+#   https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator
+if [[ -z "${CONTAINER_IMAGE:-}" ]]; then
+    echo "ERROR: CONTAINER_IMAGE is not set." >&2
+    echo "  Choose a tag from https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator" >&2
+    echo "  then set it before calling sbatch:" >&2
+    echo "    export CONTAINER_IMAGE=nvcr.io/nvidia/nemo-curator:<tag>" >&2
+    echo "    sbatch tutorials/slurm/submit_container.sh" >&2
+    exit 2
+fi
 
 # Mount the shared filesystem that contains your code and data.
 # Format: <host_path>:<container_path>[,<host_path2>:<container_path2>]
