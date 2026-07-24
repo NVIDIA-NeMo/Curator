@@ -392,7 +392,7 @@ def _validate_outputs(  # noqa: C901
     }
 
 
-def run_audio_tagging_benchmark(  # noqa: PLR0913
+def run_audio_tagging_benchmark(  # noqa: PLR0913, PLR0915
     benchmark_results_path: str,
     scratch_output_path: str,
     diarization_model_path: str,
@@ -406,7 +406,12 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     hf_repo_id: str | None = None,
     asr_transcribe_batch_size: int = 32,
     squim_compute_batch_size: int = 32,
+    diarization_segmentation_batch_size: int = 128,
+    diarization_embedding_batch_size: int = 128,
+    gpu_stage_num_workers: int | None = None,
+    cpu_stage_num_workers: int | None = None,
     use_cuda_graphs: bool = True,
+    execution_mode: str | None = None,
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the full audio-tagging pipeline on pre-staged audio and models."""
@@ -423,6 +428,14 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     if repeat_factor < 1:
         msg = "repeat_factor must be at least 1"
         raise ValueError(msg)
+    if gpu_stage_num_workers is not None and gpu_stage_num_workers < 1:
+        msg = "gpu_stage_num_workers must be at least 1"
+        raise ValueError(msg)
+    if cpu_stage_num_workers is not None and cpu_stage_num_workers < 1:
+        msg = "cpu_stage_num_workers must be at least 1"
+        raise ValueError(msg)
+    gpu_worker_config = {"num_workers": gpu_stage_num_workers} if gpu_stage_num_workers is not None else {}
+    cpu_worker_config = {"num_workers": cpu_stage_num_workers} if cpu_stage_num_workers is not None else {}
     if not diarization_model.exists():
         msg = f"Pre-staged PyAnnote model not found: {diarization_model}"
         raise FileNotFoundError(msg)
@@ -437,13 +450,16 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
     results_dir = benchmark_results_path / "results"
     final_manifest = results_dir / "tagging_output.jsonl"
 
-    exc = setup_executor(executor, config={"execution_mode": "streaming"})
+    executor_config = {"execution_mode": execution_mode} if execution_mode else None
+    exc = setup_executor(executor, config=executor_config)
     run_start_time = time.perf_counter()
     pipeline = Pipeline(name="audio_tagging_benchmark", description="AMI meetings -> full audio tagging")
 
     pipeline.add_stage(ManifestReader(manifest_path=str(input_manifest_path)))
     if repeat_factor > 1:
-        pipeline.add_stage(RepeatEntriesStage(repeat_factor=repeat_factor, unique_id_key="audio_item_id"))
+        pipeline.add_stage(
+            RepeatEntriesStage(repeat_factor=repeat_factor, unique_id_key="audio_item_id").with_(**cpu_worker_config)
+        )
 
     pipeline.add_stage(
         ResampleAudioStage(
@@ -452,18 +468,20 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             target_sample_rate=16000,
             target_format="wav",
             target_nchannels=1,
-        ).with_(resources=Resources(cpus=1))
+        ).with_(resources=Resources(cpus=1), **cpu_worker_config)
     )
     pipeline.add_stage(
         PyAnnoteDiarizationStage(
             name="PyAnnoteDiarization",
             model_name=str(diarization_model),
+            segmentation_batch_size=diarization_segmentation_batch_size,
+            embedding_batch_size=diarization_embedding_batch_size,
             max_length=max_segment_length,
-        ).with_(resources=Resources(cpus=1, gpus=0.4))
+        ).with_(resources=Resources(cpus=1, gpus=0.4), **gpu_worker_config)
     )
     pipeline.add_stage(
         SplitLongAudioStage(name="SplitLongAudio", suggested_max_len=max_segment_length, min_len=1.0).with_(
-            resources=Resources(cpus=1)
+            resources=Resources(cpus=1), **cpu_worker_config
         )
     )
     pipeline.add_stage(
@@ -474,18 +492,22 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             batch_size=asr_batch_size,
             transcribe_batch_size=asr_transcribe_batch_size,
             use_cuda_graphs=use_cuda_graphs,
-        ).with_(resources=Resources(cpus=1, gpus=0.45))
+        ).with_(resources=Resources(cpus=1, gpus=0.45), **gpu_worker_config)
     )
-    pipeline.add_stage(JoinSplitAudioMetadataStage(name="JoinSplitMetadata").with_(resources=Resources(cpus=1)))
+    pipeline.add_stage(
+        JoinSplitAudioMetadataStage(name="JoinSplitMetadata").with_(resources=Resources(cpus=1), **cpu_worker_config)
+    )
     pipeline.add_stage(
         MergeAlignmentDiarizationStage(name="MergeAlignmentDiar", text_key="text", words_key="words").with_(
-            resources=Resources(cpus=1)
+            resources=Resources(cpus=1), **cpu_worker_config
         )
     )
-    pipeline.add_stage(BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=1)))
+    pipeline.add_stage(
+        BandwidthEstimationStage(name="BandwidthEstimation").with_(resources=Resources(cpus=1), **cpu_worker_config)
+    )
     pipeline.add_stage(
         TorchSquimQualityMetricsStage(name="SquimMetrics", compute_batch_size=squim_compute_batch_size).with_(
-            resources=Resources(gpus=0.05)
+            resources=Resources(gpus=0.05), **gpu_worker_config
         )
     )
     pipeline.add_stage(
@@ -495,7 +517,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             min_duration=5,
             max_duration=20,
             full_utterance_ratio=1.0,
-        ).with_(resources=Resources(cpus=1))
+        ).with_(resources=Resources(cpus=1), **cpu_worker_config)
     )
     pipeline.add_stage(
         NeMoASRAlignerStage(
@@ -510,7 +532,7 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             infer_segment_only=True,
             compute_timestamps=False,
             use_cuda_graphs=use_cuda_graphs,
-        ).with_(resources=Resources(cpus=1, gpus=0.1))
+        ).with_(resources=Resources(cpus=1, gpus=0.1), **gpu_worker_config)
     )
     pipeline.add_stage(
         ComputeWERStage(
@@ -520,10 +542,12 @@ def run_audio_tagging_benchmark(  # noqa: PLR0913
             reference_text_key="text",
             pnc_chars=".?,",
             compute_pnc_wer=False,
-        ).with_(resources=Resources(cpus=1))
+        ).with_(resources=Resources(cpus=1), **cpu_worker_config)
     )
     pipeline.add_stage(
-        ManifestWriterStage(name="ManifestWriter", output_path=str(final_manifest)).with_(resources=Resources(cpus=1))
+        ManifestWriterStage(name="ManifestWriter", output_path=str(final_manifest)).with_(
+            resources=Resources(cpus=1), **cpu_worker_config
+        )
     )
 
     logger.info(pipeline.describe())
@@ -599,6 +623,30 @@ def main() -> int:
     parser.add_argument("--asr-transcribe-batch-size", type=int, default=32, help="ASR model batch size")
     parser.add_argument("--squim-compute-batch-size", type=int, default=32, help="SQUIM model batch size")
     parser.add_argument(
+        "--diarization-segmentation-batch-size",
+        type=int,
+        default=128,
+        help="PyAnnote segmentation batch size",
+    )
+    parser.add_argument(
+        "--diarization-embedding-batch-size",
+        type=int,
+        default=128,
+        help="PyAnnote speaker-embedding batch size",
+    )
+    parser.add_argument(
+        "--gpu-stage-num-workers",
+        type=int,
+        default=None,
+        help="Cap each GPU stage to this many workers; defaults to executor autoscaling",
+    )
+    parser.add_argument(
+        "--cpu-stage-num-workers",
+        type=int,
+        default=None,
+        help="Cap each CPU stage to this many workers; defaults to executor autoscaling",
+    )
+    parser.add_argument(
         "--disable-cuda-graphs",
         dest="use_cuda_graphs",
         action="store_false",
@@ -606,6 +654,12 @@ def main() -> int:
     )
     parser.set_defaults(use_cuda_graphs=True)
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data", "ray_actors"])
+    parser.add_argument(
+        "--execution-mode",
+        choices=["streaming", "batch"],
+        default=None,
+        help="Xenna execution mode. Defaults to streaming; ignored by other executors.",
+    )
 
     args = parser.parse_args()
     params = vars(args)

@@ -2,7 +2,7 @@
 # nightly benchmark entries.
 #
 # Pass this file to benchmarking/tools/run.sh with:
-#   --data-setup-config benchmarking/nightly-data-setup.yaml
+#   --config benchmarking/nightly-data-setup.yaml
 
 data_setups:
   - name: fleurs_hy_am

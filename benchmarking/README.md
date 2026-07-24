@@ -57,14 +57,14 @@ pre-staged model snapshots or caches, such as audio tagging.
 ```bash
 ./benchmarking/tools/run.sh \
   --config ./benchmarking/nightly-benchmark.yaml \
-  --data-setup-config ./benchmarking/nightly-data-setup.yaml
+  --config ./benchmarking/nightly-data-setup.yaml
 ```
 
 To run using the Curator sources on the host instead of those in the image, pass the `--use-host-curator` option:
 ```bash
 ./benchmarking/tools/run.sh \
   --config ./benchmarking/nightly-benchmark.yaml \
-  --data-setup-config ./benchmarking/nightly-data-setup.yaml \
+  --config ./benchmarking/nightly-data-setup.yaml \
   --use-host-curator
 ```
 This is especially useful during active development and debugging since it avoids a costly rebuild step.
@@ -495,10 +495,10 @@ local scratch path and uses a stable Hugging Face cache to avoid re-fetching
 blobs across reruns, but it is not the nightly path.
 
 To run the checked-in audio setup before the benchmark session, pass
-`--data-setup-config benchmarking/nightly-data-setup.yaml` to
-`benchmarking/tools/run.sh`. The setup entries verify and reuse existing staged
-data when present, or download and stage it into the configured paths before the
-nightly benchmark entries start.
+`--config benchmarking/nightly-data-setup.yaml` alongside the main benchmark
+config to `benchmarking/tools/run.sh`. All supplied config files are merged
+before the setup entries verify and reuse existing staged data, or download and
+stage it into the configured paths before the nightly benchmark entries start.
 
 Current audio setup commands:
 
@@ -580,6 +580,27 @@ python benchmarking/scripts/audio_tagging_benchmark.py \
   --raw-data-dir /path/to/audio_tagging_ami_sdm \
   --no-auto-download \
   --diarization-model-path /path/to/pyannote-speaker-diarization-community-1 \
+  --executor xenna
+```
+
+On constrained local GPUs, disable ASR CUDA graphs and lower the model
+microbatches without changing the pipeline or its output checks:
+
+```bash
+python benchmarking/scripts/audio_tagging_benchmark.py \
+  --benchmark-results-path /tmp/audio-tagging-results \
+  --scratch-output-path /tmp/audio-tagging-scratch \
+  --raw-data-dir /path/to/audio_tagging_ami_sdm \
+  --no-auto-download \
+  --diarization-model-path /path/to/pyannote-speaker-diarization-community-1 \
+  --disable-cuda-graphs \
+  --asr-transcribe-batch-size 8 \
+  --squim-compute-batch-size 8 \
+  --diarization-segmentation-batch-size 16 \
+  --diarization-embedding-batch-size 16 \
+  --gpu-stage-num-workers 1 \
+  --cpu-stage-num-workers 1 \
+  --execution-mode batch \
   --executor xenna
 ```
 

@@ -16,10 +16,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
+from pathlib import Path
 from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # Use pytest's expression eval code to support "-k" style matching.
 # TODO: This adds a dependency on a pytest internal module.
@@ -34,11 +32,44 @@ from runner.entry import Entry
 from runner.path_resolver import PathResolver
 from runner.utils import assert_valid_config_dict, get_total_memory_bytes
 
+_data_setup_script_base_path = Path(__file__).resolve().parent.parent / "data_prep"
+
+
+def _create_data_setup_entries(setup_configs: object) -> list[Entry]:
+    if not isinstance(setup_configs, list):
+        msg = "Invalid configuration: 'data_setups' must be a list"
+        raise TypeError(msg)
+
+    data_setups = []
+    names: set[str] = set()
+    for setup_data in setup_configs:
+        if not isinstance(setup_data, dict):
+            msg = f"Invalid data setup entry: expected dict, got {type(setup_data).__name__}"
+            raise TypeError(msg)
+        missing = [field_name for field_name in ("name", "script") if field_name not in setup_data]
+        if missing:
+            msg = f"Invalid data setup entry: missing required fields {missing}"
+            raise ValueError(msg)
+        if setup_data["name"] in names:
+            msg = f"Duplicate data setup name: {setup_data['name']}"
+            raise ValueError(msg)
+        names.add(setup_data["name"])
+        data_setups.append(
+            Entry.from_dict(
+                {
+                    **setup_data,
+                    "script_base_path": _data_setup_script_base_path,
+                }
+            )
+        )
+    return data_setups
+
 
 @dataclass(kw_only=True)
 class Session:
     results_path: Path
     entries: list[Entry] = field(default_factory=list)
+    data_setups: list[Entry] = field(default_factory=list)
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
     # Maximum allowed per-entry timeout after default_timeout_s has been applied.
@@ -64,6 +95,12 @@ class Session:
         if len(names) != len(set(names)):
             duplicates = {name for name in names if names.count(name) > 1}
             msg = f"Duplicate entry name(s) found: {', '.join(duplicates)}"
+            raise ValueError(msg)
+
+        data_setup_names = [entry.name for entry in self.data_setups]
+        if len(data_setup_names) != len(set(data_setup_names)):
+            duplicates = {name for name in data_setup_names if data_setup_names.count(name) > 1}
+            msg = f"Duplicate data setup name(s) found: {', '.join(duplicates)}"
             raise ValueError(msg)
 
         # Process object_store_size by converting values representing fractions of system memory to bytes.
@@ -100,6 +137,10 @@ class Session:
                 )
                 raise ValueError(msg)
 
+        for data_setup in self.data_setups:
+            if data_setup.timeout_s is None:
+                data_setup.timeout_s = self.default_timeout_s
+
         # Update object store size for each entry that has not been set.
         for entry in self.entries:
             if entry.object_store_size is None:
@@ -125,9 +166,8 @@ class Session:
         Factory method to create a Session from a dictionary.
 
         The dictionary is typically created from reading one or more YAML files.
-        This method resolves environment variables and converts the list of
-        entry dicts to Entry objects, and returns a new Session
-        object.
+        This method resolves environment variables, converts benchmark and data
+        setup entry dictionaries to Entry objects, and returns a new Session.
 
         Entry filtering: at most one of ``entry_filter_expr`` (pytest -k style
         substring expression) or ``entries_exact`` (list of exact entry-name
@@ -150,6 +190,7 @@ class Session:
         sinks = cls.create_sinks_from_dict(sess_data.get("sinks", []))
 
         entries = [Entry.from_dict(e) for e in sess_data["entries"]]
+        data_setups = _create_data_setup_entries(sess_data.get("data_setups", []))
 
         # Filter entries:
         # - entries_exact takes precedence and selects entries whose names appear in the
@@ -183,6 +224,7 @@ class Session:
 
         sess_data["results_path"] = path_resolver.resolve("results_path")
         sess_data["entries"] = entries
+        sess_data["data_setups"] = data_setups
         sess_data["sinks"] = sinks
         sess_data["path_resolver"] = path_resolver
         sess_data["dataset_resolver"] = dataset_resolver

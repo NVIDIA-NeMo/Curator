@@ -33,7 +33,6 @@ from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
 _this_script_dir = Path(__file__).parent
-_data_setup_script_base_path = _this_script_dir / "data_prep"
 
 # TODO: How do we want to package this tool? Perhaps a package extra for
 #  nemo-curator, i.e. nemo-curator[benchmarking]?
@@ -149,43 +148,6 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
 
     result_data["requirements_not_met"] = requirements_data
     return meets_requirements
-
-
-def load_data_setup_entries(config_files: list[Path], default_timeout_s: int, *, strict_env: bool) -> list[Entry]:
-    """Load data-prep entries from one or more setup config files."""
-    if not config_files:
-        return []
-
-    setup_config = merge_config_files(config_files)
-    setup_config = remove_disabled_blocks(setup_config)
-    setup_config = resolve_env_vars(setup_config, strict=strict_env)
-    data_setups = setup_config.get("data_setups", [])
-    if not isinstance(data_setups, list):
-        msg = "Invalid data setup config: 'data_setups' must be a list"
-        raise TypeError(msg)
-
-    setup_default_timeout_s = int(setup_config.get("default_timeout_s", default_timeout_s))
-    entries: list[Entry] = []
-    names: set[str] = set()
-    for setup_data in data_setups:
-        if not isinstance(setup_data, dict):
-            msg = f"Invalid data setup entry: expected dict, got {type(setup_data).__name__}"
-            raise TypeError(msg)
-        missing = [field for field in ("name", "script") if field not in setup_data]
-        if missing:
-            msg = f"Invalid data setup entry: missing required fields {missing}"
-            raise ValueError(msg)
-        if setup_data["name"] in names:
-            msg = f"Duplicate data setup name: {setup_data['name']}"
-            raise ValueError(msg)
-        names.add(setup_data["name"])
-
-        entry_data = {**setup_data, "script_base_path": _data_setup_script_base_path}
-        entry = Entry.from_dict(entry_data)
-        if entry.timeout_s is None:
-            entry.timeout_s = setup_default_timeout_s
-        entries.append(entry)
-    return entries
 
 
 def run_data_setup_entry(
@@ -424,18 +386,8 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
         action="append",
         required=True,
         help=(
-            "Path to YAML config for the benchmark entries, machine paths, etc. Can be "
+            "Path to YAML config for benchmark entries, data setups, machine paths, etc. Can be "
             "specified multiple times to merge configs."
-        ),
-    )
-    parser.add_argument(
-        "--data-setup-config",
-        type=Path,
-        action="append",
-        default=[],
-        help=(
-            "Path to a YAML config describing data-prep scripts to run before benchmark "
-            "entries. Can be specified multiple times to merge setup configs."
         ),
     )
     parser.add_argument(
@@ -528,7 +480,7 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
             entry_filter_expr=args.entries,
             entries_exact=entries_exact_list,
         )
-    except ValueError as e:
+    except (TypeError, ValueError) as e:
         logger.error(str(e))
         return 1
 
@@ -540,16 +492,6 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
         for entry in session.entries:
             logger.info(f"\t{entry.name}")
         return 0
-
-    try:
-        data_setup_entries = load_data_setup_entries(
-            args.data_setup_config,
-            session.default_timeout_s,
-            strict_env=args.strict_config_check,
-        )
-    except (TypeError, ValueError) as e:
-        logger.error(str(e))
-        return 1
 
     # Create session folder under results_dir
     session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d_%H-%M-%S_UTC")
@@ -565,11 +507,8 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
     if args.reason:
         env_dict["run_reason"] = args.reason
 
-    if args.data_setup_config:
-        env_dict["data_setup_config"] = [str(path) for path in args.data_setup_config]
-
     if not run_data_setups(
-        setup_entries=data_setup_entries,
+        setup_entries=session.data_setups,
         path_resolver=session.path_resolver,
         dataset_resolver=session.dataset_resolver,
         session_path=session_path,
