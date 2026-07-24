@@ -117,6 +117,29 @@ def test_multi_task_batch_preserves_order() -> None:
     assert results[1].data["qwen3_prediction_s1"] == "text2"
 
 
+def test_audio_load_failure_skips_only_failed_item_and_preserves_order() -> None:
+    stage = _make_stage()
+    waveform = np.zeros(_SR, dtype=np.float32)
+    stage._load_audio.side_effect = [waveform, RuntimeError("corrupt audio"), waveform]
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(text="text1"),
+        ASRResult(text="text3"),
+    ]
+    tasks = [_make_task(), _make_task(), _make_task()]
+    for index, task in enumerate(tasks, start=1):
+        task.task_id = f"task-{index}"
+        task.data["resampled_audio_filepath"] = f"/data/resampled-{index}.wav"
+
+    results = stage.process_batch(tasks)
+
+    assert [task.data["qwen3_prediction_s1"] for task in results] == ["text1", "", "text3"]
+    assert "_skipme" not in results[0].data
+    assert results[1].data["_skipme"] == "audio_load_error"
+    assert "_skipme" not in results[2].data
+    inferred_items = stage._adapter.transcribe_batch.call_args.args[0]
+    assert [item["task_id"] for item in inferred_items] == [tasks[0].task_id, tasks[2].task_id]
+
+
 def test_skip_if_output_exists_reuses_prediction_and_only_infers_missing_rows() -> None:
     stage = _make_stage(skip_if_output_exists=True)
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="new prediction")]

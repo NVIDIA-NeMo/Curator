@@ -334,17 +334,35 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         """Transcribe one capped sub-batch via the adapter."""
         supported_indices = [index for index, item in enumerate(items) if self._is_language_supported(item)]
         by_index: dict[int, ASRResult] = {}
-        if supported_indices:
-            adapter_items = [
+        adapter_indices: list[int] = []
+        adapter_items: list[dict[str, Any]] = []
+        for index in supported_indices:
+            item = items[index]
+            audio_filepath = str(item["audio_filepath"])
+            try:
+                waveform = self._load_audio(audio_filepath)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "ASRStage ({}): failed to load audio for task {} from {}: {}",
+                    self.adapter_target,
+                    item["task_id"],
+                    audio_filepath,
+                    exc,
+                )
+                by_index[index] = ASRResult(text="", skipped=True, skip_reason="audio_load_error")
+                continue
+            adapter_indices.append(index)
+            adapter_items.append(
                 {
-                    "waveform": self._load_audio(str(items[index]["audio_filepath"])),
-                    "language": items[index]["language"],
-                    "language_code": items[index]["language_code"],
-                    "reference_text": items[index]["reference_text"],
-                    "task_id": items[index]["task_id"],
+                    "waveform": waveform,
+                    "language": item["language"],
+                    "language_code": item["language_code"],
+                    "reference_text": item["reference_text"],
+                    "task_id": item["task_id"],
                 }
-                for index in supported_indices
-            ]
+            )
+
+        if adapter_items:
             adapter_results = self._adapter.transcribe_batch(adapter_items)
             if len(adapter_results) != len(adapter_items):
                 msg = (
@@ -352,7 +370,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                     f"{len(adapter_items)} supported items (must match 1:1)"
                 )
                 raise RuntimeError(msg)
-            by_index = dict(zip(supported_indices, adapter_results, strict=True))
+            by_index.update(zip(adapter_indices, adapter_results, strict=True))
         return [
             by_index.get(
                 index,
