@@ -49,7 +49,7 @@ Pass exactly one of `pdf_dir`, `zip_base_dir`, or `jsonl_base_dir` so the prepro
 | `vllm` (recommended) | High-throughput GPU inference with batching. Set `enforce_eager=True` if you hit compilation issues. |
 | `hf` | Hugging Face Transformers fallback when vLLM is unavailable or for debugging. |
 
-The inference stage retries on port collisions when binding the vLLM server, so multi-replica deployments on the same node coexist cleanly.
+The inference stage retries transient port collisions when starting vLLM. Non-retryable startup failures, such as invalid configuration or GPU out-of-memory errors, fail immediately.
 
 ---
 
@@ -120,7 +120,7 @@ NemotronParsePDFReader(
 | `pdf_dir` | str \| None | `None` | Directory containing `.pdf` files. |
 | `zip_base_dir` | str \| None | `None` | Root directory of CC-MAIN PDF zip hierarchy. |
 | `jsonl_base_dir` | str \| None | `None` | Root directory of JSONL-encoded PDF datasets. |
-| `model_path` | str | (default model) | Local path or HF repo ID for the Nemotron-Parse weights. |
+| `model_path` | str | `"nvidia/NVIDIA-Nemotron-Parse-v1.2"` | Local path or HF repo ID for the Nemotron-Parse weights. |
 | `backend` | str | `"vllm"` | Inference backend (`vllm` or `hf`). |
 | `pdfs_per_task` | int | `10` | Number of PDFs grouped into each `FileGroupTask`. |
 | `max_pdfs` | int \| None | `None` | Hard cap on total PDFs processed (debug aid). |
@@ -135,6 +135,70 @@ NemotronParsePDFReader(
 | `file_name_field` | str | `"file_name"` | Manifest field naming a single PDF file. |
 | `file_names_field` | str | `"cc_pdf_file_names"` | Manifest field naming a list of PDF files (CC-MAIN layout). |
 | `url_field` | str | `"url"` | Manifest field for the source URL passthrough. |
+
+### Tune the vLLM Engine
+
+`NemotronParseInferenceStage.engine_kwargs` is `None` by default. It passes additional settings to NeMo Curator's shared vLLM initializer: vLLM engine settings are forwarded to `vllm.LLM`, while helper settings such as `max_port_retries` control initialization itself. Use this field when you compose the pipeline from individual stages and need controls that are not exposed by `NemotronParsePDFReader`:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.interleaved.io import InterleavedParquetWriterStage
+from nemo_curator.stages.interleaved.pdf.nemotron_parse import (
+    NemotronParseInferenceStage,
+    NemotronParsePostprocessStage,
+    PDFPartitioningStage,
+    PDFPreprocessStage,
+)
+
+pipeline = Pipeline(name="tuned_nemotron_parse")
+pipeline.add_stage(PDFPartitioningStage(manifest_path="./pdfs.jsonl", pdfs_per_task=10))
+pipeline.add_stage(PDFPreprocessStage(pdf_dir="/data/pdfs", max_pages=50))
+pipeline.add_stage(
+    NemotronParseInferenceStage(
+        backend="vllm",
+        max_num_seqs=64,
+        engine_kwargs={
+            "gpu_memory_utilization": 0.90,
+            "max_num_batched_tokens": 16384,
+        },
+    )
+)
+pipeline.add_stage(NemotronParsePostprocessStage(min_crop_px=10))
+pipeline.add_stage(
+    InterleavedParquetWriterStage(
+        path="./parsed_pdfs",
+        materialize_on_write=False,
+    )
+)
+```
+
+The installed vLLM version performs final validation of forwarded engine settings. Check the matching vLLM documentation before using additional keys.
+
+<Note>
+Keys in `engine_kwargs` take precedence over the stage's `max_num_seqs` and `enforce_eager` values. Prefer the dedicated stage fields for those two settings and reserve `engine_kwargs` for other vLLM controls so the effective configuration remains clear.
+</Note>
+
+Common tuning controls include:
+
+| Key | Effect | Tuning guidance |
+| --- | --- | --- |
+| `gpu_memory_utilization` | Fraction of GPU memory reserved by the vLLM engine. | Lower it when the engine competes with other GPU workloads; increase cautiously when KV-cache capacity is limiting throughput. |
+| `max_num_batched_tokens` | Maximum tokens scheduled in one iteration. | Increase for throughput when memory permits; reduce after scheduler or memory pressure. |
+| `dtype` | Model weight data type. The helper default is `"bfloat16"`. | Change only when the model and GPU support the selected type. |
+| `limit_mm_per_prompt` | Per-prompt multimodal limits. The helper default is `{"image": 1}`. | Keep one image per prompt for the current page-level pipeline. |
+| `max_port_retries` | vLLM engine startup attempts. The helper default is `3`. | Increase only for nodes with frequent transient `MASTER_PORT` collisions. |
+
+### Ray Data Fanout
+
+`PDFPartitioningStage` is a Ray Data fanout stage. It reads the manifest on one worker, emits one `FileGroupTask` per `pdfs_per_task` group, and Ray Data repartitions the result to one emitted task per block. Downstream preprocess and inference stages can then consume those blocks in parallel instead of receiving the whole manifest as one block.
+
+This behavior is automatic with `RayDataExecutor`; no stage-spec override is required. `pdfs_per_task` still controls the work in each emitted task:
+
+- Lower values create more tasks and expose more downstream parallelism, with more scheduling overhead.
+- Higher values reduce scheduling overhead but can leave GPUs idle when the number of tasks is smaller than the available workers.
+- `max_pdfs` is applied before tasks are created, so it remains useful for small validation runs.
+
+Xenna uses its own task dispatch and does not consume the Ray Data fanout marker.
 
 ## Output Format
 
@@ -181,6 +245,65 @@ Each output row represents a single item (text, image, or metadata) from a parse
 
 The output is directly compatible with [Interleaved IO](/curate-text/process-data/interleaved/io) readers and writers — the schema matches `INTERLEAVED_SCHEMA` exactly.
 
+## Inspect Inference Metrics
+
+`NemotronParseInferenceStage` records additive custom metrics on each output task. Aggregate the final pipeline results with `TaskPerfUtils`:
+
+```python
+import time
+
+from nemo_curator.tasks.utils import TaskPerfUtils
+
+started = time.perf_counter()
+results = pipeline.run(executor)
+wall_time_s = time.perf_counter() - started
+
+metrics = TaskPerfUtils.aggregate_task_metrics(results, prefix="task")
+metric_prefix = "task_nemotron_parse_inference_custom"
+
+valid_pages = metrics.get(f"{metric_prefix}.num_valid_pages_sum", 0.0)
+output_tokens = metrics.get(f"{metric_prefix}.total_output_tokens_sum", 0.0)
+
+pages_per_second = valid_pages / wall_time_s if wall_time_s else 0.0
+output_tokens_per_second = output_tokens / wall_time_s if wall_time_s else 0.0
+
+print(f"{pages_per_second:.2f} pages/s")
+print(f"{output_tokens_per_second:.2f} output tokens/s")
+```
+
+`aggregate_task_metrics()` appends `_sum`, `_mean`, and `_std` to each flattened metric. Use `_sum` for additive counts and total durations. Measure end-to-end throughput against pipeline wall time rather than the sum of per-task inference times, because tasks can run concurrently.
+
+### Metric Reference
+
+| Custom metric | Backends | Description |
+| --- | --- | --- |
+| `image_load_time` | vLLM, HF | Seconds spent decoding page-image bytes for the task. |
+| `num_input_pages` | vLLM, HF | Page rows presented to the inference stage. |
+| `num_valid_pages` | vLLM, HF | Pages successfully decoded and sent to the model. |
+| `num_skipped_pages` | vLLM, HF | Pages skipped because their image bytes could not be decoded. |
+| `vllm_inference_time` | vLLM | Seconds spent in vLLM generation, including retried inference attempts. |
+| `total_prompt_tokens` | vLLM | Prompt tokens reported by vLLM across valid pages. |
+| `total_output_tokens` | vLLM | Generated token count across valid pages. |
+| `total_output_chars` | vLLM | Characters in generated text across valid pages. |
+| `num_output_length_truncated` | vLLM | Completions whose vLLM finish reason was `length`. |
+| `num_empty_outputs` | vLLM | Requests with no completion or blank completion text. |
+| `vllm_retries` | vLLM | Inference-engine resets after generation failures. This does not count startup port-collision retries. |
+
+<Note>
+The HF backend records image-loading and page-count metrics, but it does not expose vLLM token, character, truncation, or retry metrics.
+</Note>
+
+Use the quality signals alongside throughput. A high `num_output_length_truncated` value means outputs are reaching the stage's built-in 9,000-token generation limit and warrants inspection of those pages; `num_empty_outputs` and `num_skipped_pages` identify model-output and image-decoding failures that raw pages-per-second figures can hide.
+
+## vLLM Retry Behavior
+
+There are two separate retry paths:
+
+1. **Engine startup:** `create_vllm_llm()` chooses a new `MASTER_PORT` and retries up to `max_port_retries=3` times for direct address-in-use errors or vLLM v1's wrapped `Engine core initialization failed` error. Retries wait two to five seconds with jitter. Known non-retryable failures, including out-of-memory, device-side assertion, and invalid configuration errors, are raised immediately.
+2. **Inference:** vLLM generation is attempted up to three times. After a failed attempt, the stage resets the engine before retrying. Successful retries contribute to the `vllm_retries` task metric; the final exception is raised after the third failed attempt.
+
+If startup retries are exhausted, first check the worker log for the original failure. For repeated port collisions, reduce the number of vLLM replicas starting simultaneously or set a larger stage-level `max_port_retries` through `engine_kwargs`. Do not mask CUDA out-of-memory or invalid-model errors by increasing retries; tune memory-related engine settings or correct the model configuration instead.
+
 ## Render Timeout
 
 The preprocess stage replaces `signal.SIGALRM` with a `multiprocessing` fork-based timeout (`_RENDER_TIMEOUT_S = 60` by default). This is required because Xenna runs stage workers inside Ray actor processes on non-main threads, where `SIGALRM` raises `ValueError: signal only works in main thread`. The forked child inherits the PDF bytes via copy-on-write and is killed if it exceeds the timeout, reliably escaping any hung C-extension code inside `pypdfium2`.
@@ -189,7 +312,7 @@ You don't need to configure this — it works automatically. If you find legitim
 
 ## Benchmarking
 
-A standalone benchmark script ships at `benchmarking/scripts/nemotron_parse_pdf_benchmark.py`. Use it to measure throughput on representative datasets before scaling to your full corpus.
+A standalone benchmark script ships at `benchmarking/scripts/nemotron_parse_pdf_benchmark.py`. It uses the same `TaskPerfUtils` aggregation shown above and reports end-to-end pages per second and output tokens per second. Use a representative manifest and the public tutorial arguments to compare configurations before scaling to your full corpus; the repository's nightly benchmark orchestration is not required.
 
 ## Best Practices
 
