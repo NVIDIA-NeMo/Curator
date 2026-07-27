@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import torch
+from loguru import logger
 
 from nemo_curator.pipeline.payload_refs import (
     PAYLOAD_RESERVATION_LEASE_TTL_S,
@@ -82,6 +83,29 @@ def _current_ray_namespace() -> str | None:
 
 def _safe_actor_suffix(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value) or "unknown"
+
+
+def _kill_named_actor(name: str, namespace: str | None = None) -> bool:
+    try:
+        import ray
+
+        actor = _get_named_actor(name, namespace)
+        ray.kill(actor, no_restart=True)
+    except ValueError:
+        return False
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Failed to kill payload actor {name!r}: {exc}")
+        return False
+    return True
+
+
+def _active_ray_node_ids() -> list[str]:
+    try:
+        import ray
+
+        return [str(node["NodeID"]) for node in ray.nodes() if node.get("Alive")]
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _parse_byte_limit(value: int | str | None, *, field_name: str) -> int | None:
@@ -273,7 +297,12 @@ def _get_or_create_actor(
     try:
         return _get_named_actor(name, namespace)
     except ValueError:
-        options: dict[str, Any] = {"name": name, "get_if_exists": True}
+        # Detached: these actors are created from inside a worker, but payload
+        # handles must stay resolvable for consumers running in a different
+        # worker pool that outlives the creator. A non-detached actor dies with
+        # the worker that created it, which would strand every published ref.
+        # Executors kill them at run teardown via ``cleanup_run_resources``.
+        options: dict[str, Any] = {"name": name, "get_if_exists": True, "lifetime": "detached"}
         if namespace:
             options["namespace"] = namespace
         if node_id:
@@ -386,6 +415,29 @@ class PayloadManager:
                 msg = f"Timed out waiting for payload admission: {snapshot}"
                 raise RuntimeError(msg)
             time.sleep(self.admission_poll_interval_s)
+
+    def cleanup_run_resources(self) -> None:
+        """Kill this run's detached admission and per-node store actors.
+
+        Runs on the driver, where ``setup`` may never have been called, so actor
+        names are recomputed from ``run_id`` rather than read off instance state.
+        The store actor is per node, and any node that ran the materializer may
+        hold one, so every live node is swept.
+        """
+        suffix = _safe_actor_suffix(str(self.run_id))
+        namespace = self._namespace or _current_ray_namespace()
+        _kill_named_actor(f"{self.admission_actor_prefix}_{suffix}", namespace)
+        store_prefix = f"{self.store_actor_prefix}_{suffix}_"
+        for node_id in _active_ray_node_ids():
+            _kill_named_actor(f"{store_prefix}{_safe_actor_suffix(node_id)}", namespace)
+        self._node_id = ""
+        self._node_budget_bytes = 0
+        self._cluster_budget_bytes = None
+        self._admission_name = ""
+        self._store_name = ""
+        self._namespace = None
+        self._admission = None
+        self._store = None
 
 
 class PayloadAwareStageMixin:
@@ -565,6 +617,16 @@ class AudioPayloadMaterializeStage(ProcessingStage[AudioTask, AudioTask]):
                 node_memory_fraction=self.node_memory_fraction,
             )
         self._manager.setup()
+
+    def cleanup_run_resources(self) -> None:
+        """Executor-invoked teardown of this run's detached payload actors."""
+        manager = self._manager or PayloadManager(
+            run_id=self.run_id,
+            max_node_payload_bytes=self.max_node_payload_bytes,
+            max_cluster_payload_bytes=self.max_cluster_payload_bytes,
+            node_memory_fraction=self.node_memory_fraction,
+        )
+        manager.cleanup_run_resources()
 
 
 def build_audio_payload_materialize_stage(

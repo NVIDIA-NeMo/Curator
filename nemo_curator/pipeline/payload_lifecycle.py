@@ -39,17 +39,23 @@ class PayloadBindingSpec:
     num_samples_key: str
 
 
+def payload_lifecycle_enabled(config: dict[str, Any]) -> bool:
+    """Report whether a pipeline config turns the payload lifecycle on."""
+    lifecycle = config.get("payload_lifecycle") or {}
+    if not isinstance(lifecycle, dict):
+        msg = "payload_lifecycle must be a mapping"
+        raise TypeError(msg)
+    return bool(lifecycle.get("enabled", False))
+
+
 def expand_payload_lifecycle_stages(
     stages: list[ProcessingStage],
     config: dict[str, Any],
 ) -> list[ProcessingStage]:
     """Insert modality-owned materialization and generic release stages."""
-    lifecycle = config.get("payload_lifecycle") or {}
-    if not isinstance(lifecycle, dict):
-        msg = "payload_lifecycle must be a mapping"
-        raise TypeError(msg)
-    if not lifecycle.get("enabled", False):
+    if not payload_lifecycle_enabled(config):
         return stages
+    lifecycle = config["payload_lifecycle"]
 
     materialize_after = _required_selector(lifecycle, "materialize_after")
     release_after = _required_selector(lifecycle, "release_after")

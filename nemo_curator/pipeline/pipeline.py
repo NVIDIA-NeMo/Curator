@@ -270,6 +270,22 @@ class Pipeline:
 
             executor = XennaExecutor()
 
+        from nemo_curator.pipeline.payload_lifecycle import payload_lifecycle_enabled
+
+        if payload_lifecycle_enabled(self.config):
+            from nemo_curator.backends.xenna import XennaExecutor
+
+            if isinstance(executor, XennaExecutor):
+                msg = (
+                    "payload_lifecycle is not supported on XennaExecutor. The lifecycle "
+                    "bounds resident payload bytes, but Xenna's streaming backpressure "
+                    "counts tasks rather than bytes, and its batch mode runs each stage to "
+                    "completion before starting the next — so the materialize stage would "
+                    "block on an admission budget that only the downstream release stage "
+                    "can free. Use RayDataExecutor instead."
+                )
+                raise RuntimeError(msg)
+
         from nemo_curator.core.serve import is_inference_server_active
 
         if is_inference_server_active():

@@ -15,7 +15,11 @@
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
+import pytest
+
+from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.payload_lifecycle import payload_lifecycle_enabled
 from nemo_curator.stages.audio.common import ManifestReaderStage
 from nemo_curator.stages.audio.inference.asr.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.base import ProcessingStage
@@ -162,3 +166,33 @@ def test_pipeline_accepts_configurable_dotted_materializer_target() -> None:
     pipeline.build()
 
     assert isinstance(pipeline.stages[1], AudioPayloadMaterializeStage)
+
+
+@pytest.mark.parametrize("execution_mode", ["streaming", "batch"])
+def test_payload_lifecycle_run_rejects_xenna_executor(execution_mode: str) -> None:
+    source = _StructuralSource()
+    consumer = _FastConformerEnvelopeConsumer()
+    pipeline = Pipeline(
+        name="xenna-rejected",
+        stages=[source, consumer],
+        config={
+            "payload_lifecycle": {
+                "enabled": True,
+                "materialize_after": source.name,
+                "release_after": consumer.name,
+                "consumers": [consumer.name],
+            }
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="not supported on XennaExecutor"):
+        pipeline.run(XennaExecutor(config={"execution_mode": execution_mode}))
+
+
+def test_payload_lifecycle_enabled_reads_the_config_gate() -> None:
+    assert payload_lifecycle_enabled({"payload_lifecycle": {"enabled": True}})
+    assert not payload_lifecycle_enabled({"payload_lifecycle": {"enabled": False}})
+    assert not payload_lifecycle_enabled({"payload_lifecycle": {}})
+    assert not payload_lifecycle_enabled({})
+    with pytest.raises(TypeError, match="must be a mapping"):
+        payload_lifecycle_enabled({"payload_lifecycle": ["enabled"]})

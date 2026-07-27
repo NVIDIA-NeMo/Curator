@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
 from nemo_curator.pipeline import payload_refs
 from nemo_curator.pipeline.payload_refs import PayloadRef
 from nemo_curator.stages.base import ProcessingStage
@@ -65,3 +65,34 @@ def test_adapter_releases_payload_when_consumer_drops_task(monkeypatch: pytest.M
     refs = adapter._collect_payload_refs([task])
     adapter._release_dropped_payload_refs(refs, [])
     assert released == ["payload"]
+
+
+class _NoopExecutor(BaseExecutor):
+    def execute(self, stages: list[ProcessingStage], initial_tasks: list[AudioTask] | None = None) -> None:
+        return None
+
+
+class _CleanableStage:
+    def __init__(self, name: str, calls: list[str], *, fails: bool = False) -> None:
+        self.name = name
+        self._calls = calls
+        self._fails = fails
+
+    def cleanup_run_resources(self) -> None:
+        self._calls.append(self.name)
+        if self._fails:
+            msg = "cleanup exploded"
+            raise RuntimeError(msg)
+
+
+def test_executor_cleans_up_stages_in_reverse_and_survives_failures() -> None:
+    calls: list[str] = []
+    stages = [
+        _CleanableStage("materialize", calls),
+        _CleanableStage("consumer", calls, fails=True),
+        _DropStage(),
+    ]
+
+    _NoopExecutor()._cleanup_stage_run_resources(stages)
+
+    assert calls == ["consumer", "materialize"]

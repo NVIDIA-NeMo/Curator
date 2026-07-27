@@ -74,6 +74,23 @@ class BaseExecutor(ABC):
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
         """Execute the pipeline."""
 
+    def _cleanup_stage_run_resources(self, stages: list["ProcessingStage"]) -> None:
+        """Release run-scoped resources created by pipeline helper stages.
+
+        Some helper stages deliberately create detached, named Ray actors so
+        payload handles stay resolvable across backend-visible stage boundaries.
+        Nothing inside a single row-processing stage knows when the last consumer
+        is done, so the executor, which owns the run lifecycle, tears them down.
+        """
+        for stage in reversed(stages):
+            cleanup = getattr(stage, "cleanup_run_resources", None)
+            if not callable(cleanup):
+                continue
+            try:
+                cleanup()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"Run-scoped cleanup failed for stage {stage}: {exc}")
+
 
 class BaseStageAdapter:
     """Adapts ProcessingStage to an execution backend, if needed."""

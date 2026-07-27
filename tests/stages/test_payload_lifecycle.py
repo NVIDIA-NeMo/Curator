@@ -80,6 +80,54 @@ def _payload_ref(payload_id: str = "payload") -> PayloadRef:
     )
 
 
+def _raise_actor_missing(*_args: object, **_kwargs: object) -> None:
+    raise ValueError
+
+
+def test_payload_actors_are_created_detached(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ray
+
+    captured: dict[str, object] = {}
+
+    class _Bound:
+        @staticmethod
+        def remote(*_args: object) -> str:
+            return "handle"
+
+    class _ActorClass:
+        @staticmethod
+        def options(**options: object) -> type[_Bound]:
+            captured.update(options)
+            return _Bound
+
+    monkeypatch.setattr(payload_lifecycle, "_get_named_actor", _raise_actor_missing)
+    monkeypatch.setattr(ray, "remote", lambda _cls: _ActorClass)
+
+    handle = payload_lifecycle._get_or_create_actor(PayloadStore, "store", namespace="ns")
+
+    assert handle == "handle"
+    assert captured["lifetime"] == "detached"
+    assert captured["name"] == "store"
+    assert captured["namespace"] == "ns"
+
+
+def test_materialize_cleanup_kills_run_actors_without_worker_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+    killed: list[str] = []
+    monkeypatch.setattr(payload_lifecycle, "_kill_named_actor", lambda name, _namespace=None: killed.append(name))
+    monkeypatch.setattr(payload_lifecycle, "_active_ray_node_ids", lambda: ["node-a", "node-b"])
+    monkeypatch.setattr(payload_lifecycle, "_current_ray_namespace", lambda: None)
+
+    stage = AudioPayloadMaterializeStage(run_id="run/1")
+    assert stage._manager is None
+    stage.cleanup_run_resources()
+
+    assert killed == [
+        "curator_payload_admission_run_1",
+        "curator_payload_store_run_1_node-a",
+        "curator_payload_store_run_1_node-b",
+    ]
+
+
 def test_payload_admission_and_store_release_are_idempotent() -> None:
     admission = PayloadAdmission(node_budget_bytes=32)
     admission.register_node("node")
