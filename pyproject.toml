@@ -212,7 +212,10 @@ text_cpu = [
     "sentence-transformers",
 ]
 
-lance = ["pylance>=7"]
+lance = [
+    "lance-ray>=0.4",
+    "pylance>=7",
+]
 
 text_cuda12 = [
     "nemo_curator[cuda12]",
@@ -249,6 +252,7 @@ video_media = [
 math_cpu = [
     "nemo_curator[text_cpu]",  # Math examples use text processing utilities
     "boto3>=1.35",  # S3 range requests for Common Crawl WARC fetching
+    "python-magic==0.4.24",  # Python bindings for the libmagic runtime
 ]
 
 math_cuda12 = [

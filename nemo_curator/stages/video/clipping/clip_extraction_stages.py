@@ -167,12 +167,12 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""
-        spec: dict[str, Any] = {RayStageSpecKeys.IS_FANOUT_STAGE: True}
+        spec = super().ray_stage_spec()
         if self.ray_data_num_cpus is not None:
             spec[RayStageSpecKeys.RAY_NUM_CPUS] = self.ray_data_num_cpus
         return spec
 
-    def process(self, task: VideoTask) -> VideoTask:
+    def process(self, task: VideoTask) -> VideoTask | list[VideoTask]:
         video = task.data
 
         if not video.clips:

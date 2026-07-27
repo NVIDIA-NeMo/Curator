@@ -30,7 +30,7 @@ For usage details, see [Text Embeddings](/curate-text/process-data/embeddings) a
 
 Built-in LLM serving alongside curation pipelines using Ray Serve and vLLM:
 
-- **`InferenceServer` and `InferenceModelConfig`**: New APIs to deploy one or more LLMs as OpenAI-compatible endpoints directly within a Ray cluster, eliminating the need for separate inference infrastructure.
+- **`InferenceServer` and typed backend configuration**: APIs to deploy one or more LLMs as OpenAI-compatible endpoints directly within a Ray cluster. Use `RayServeModelConfig` for Ray Serve or `DynamoVLLMModelConfig` with `DynamoServerConfig` for NVIDIA Dynamo.
 - **Context manager support**: `InferenceServer` works as a context manager for automatic startup and cleanup of served models.
 - **GPU contention detection**: `Pipeline.run()` automatically detects when an InferenceServer is active and enforces `RayDataExecutor` usage for GPU pipeline stages to prevent resource conflicts.
 - **`GenerationConfig.extra_kwargs`**: New field for passing arbitrary parameters through to the OpenAI API `create()` call.

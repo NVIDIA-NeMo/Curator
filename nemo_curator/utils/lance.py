@@ -52,3 +52,15 @@ def materialize_lance_blob_columns(dataset: lance.LanceDataset, table: pa.Table)
         output_field = pa.field(field.name, pa.large_binary(), nullable=field.nullable)
         table = table.set_column(column_index, output_field, payloads)
     return table
+
+
+def encode_lance_blob_columns(table: pa.Table, schema: pa.Schema) -> pa.Table:
+    """Rebuild Lance Blob v2 arrays from materialized binary columns."""
+    for field in schema:
+        column_index = table.schema.get_field_index(field.name)
+        if column_index < 0 or getattr(field.type, "extension_name", None) != "lance.blob.v2":
+            continue
+        column = table.column(column_index).combine_chunks()
+        if column.type != field.type:
+            table = table.set_column(column_index, field, lance.blob_array(column.to_pylist()))
+    return table

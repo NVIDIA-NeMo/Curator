@@ -19,7 +19,20 @@ import copy
 import time
 from abc import ABC, ABCMeta, abstractmethod
 from inspect import isabstract
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast, final
+from types import UnionType
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Generic,
+    TypeVar,
+    Union,
+    cast,
+    final,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from loguru import logger
 
@@ -190,8 +203,10 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         # Check required columns exist
         missing_data_attrs = []
+        get_columns = getattr(task, "get_columns", None)
+        data_columns = get_columns() if callable(get_columns) else getattr(task.data, "column_names", ())
         for attr in required_data_attrs:
-            if not hasattr(task.data, attr):
+            if not hasattr(task.data, attr) and attr not in data_columns:
                 missing_data_attrs.append(attr)
 
         # Log warning with missing attributes
@@ -393,7 +408,34 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         Returns (dict[str, Any]):
             Dictionary containing Ray-specific configuration
         """
-        return {}
+        return {"is_fanout_stage": self.is_fanout_stage()}
+
+    def is_fanout_stage(self) -> bool:
+        """Infer whether `process()` can fan out one input task into many outputs."""
+        try:
+            process_hints = get_type_hints(type(self).process)
+        except (AttributeError, NameError, TypeError) as exc:
+            logger.debug(
+                "Could not resolve type hints for {}.process; defaulting is_fanout_stage to False: {}",
+                type(self).__name__,
+                exc,
+            )
+            return False
+
+        return self._annotation_contains_list(process_hints.get("return"))
+
+    @classmethod
+    def _annotation_contains_list(cls, annotation: object) -> bool:
+        if annotation is None:
+            return False
+
+        if get_origin(annotation) is list:
+            return True
+
+        if get_origin(annotation) in (UnionType, Union):
+            return any(cls._annotation_contains_list(arg) for arg in get_args(annotation))
+
+        return False
 
     # --- Custom per-stage metrics helpers ---
     def _log_metrics(self, metrics: dict[str, float]) -> None:

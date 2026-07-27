@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import fsspec
 import pytest
 
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
@@ -24,10 +25,31 @@ from nemo_curator.utils.file_utils import (
     get_all_file_paths_under,
     infer_dataset_name_from_path,
     parse_bytes_string_to_int,
+    read_json_file,
+    write_json_file,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+class TestJsonFiles:
+    def test_local_file(self, tmp_path: Path):
+        path = tmp_path / "nested" / "record.json"
+        fs = fsspec.filesystem("file")
+
+        write_json_file(str(path), {"b": 2, "a": 1}, fs)
+
+        assert path.read_text() == '{"a": 1, "b": 2}\n'
+        assert read_json_file(str(path), fs) == {"a": 1, "b": 2}
+
+    def test_fsspec_file(self, tmp_path: Path):
+        path = f"/{tmp_path.name}/nested/record.json"
+        fs = fsspec.filesystem("memory")
+
+        write_json_file(path, {"value": 1}, fs)
+
+        assert read_json_file(path, fs) == {"value": 1}
 
 
 class TestInferDatasetNameFromPath:

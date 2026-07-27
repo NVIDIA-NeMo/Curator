@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,21 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from importlib import import_module
+"""Lance-backed interleaved readers."""
 
-_LAZY = {
-    "JsonlWriter": ".jsonl",
-    "LanceWriter": ".lance",
-    "ParquetWriter": ".parquet",
-    "commit_lance_checkpoint": ".lance",
-}
+from nemo_curator.stages.interleaved.lance.reader import InterleavedLanceReader, InterleavedLanceReaderStage
 
-__all__ = list(_LAZY)
-
-
-def __getattr__(name: str) -> object:
-    target = _LAZY.get(name)
-    if target is None:
-        msg = f"module {__name__!r} has no attribute {name!r}"
-        raise AttributeError(msg)
-    return getattr(import_module(target, package=__name__), name)
+__all__ = [
+    "InterleavedLanceReader",
+    "InterleavedLanceReaderStage",
+]

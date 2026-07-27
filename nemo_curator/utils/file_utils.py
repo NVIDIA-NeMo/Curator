@@ -14,16 +14,19 @@
 
 from __future__ import annotations
 
+import json
 import os
 import posixpath
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import fsspec
 from fsspec.core import get_filesystem_class, split_protocol
+from fsspec.implementations.local import LocalFileSystem
 from fsspec.utils import infer_storage_options
 from loguru import logger
 
+from nemo_curator.utils.atomic_io import write_json_atomically
 from nemo_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:
@@ -53,6 +56,23 @@ def get_fs(path: str, storage_options: dict[str, str] | None = None) -> fsspec.A
         storage_options = {}
     protocol, path = split_protocol(path)
     return get_filesystem_class(protocol)(**storage_options)
+
+
+def read_json_file(path: str, fs: fsspec.AbstractFileSystem) -> dict[str, Any]:
+    """Read JSON from an fsspec filesystem."""
+    return json.loads(fs.read_text(path, encoding="utf-8"))
+
+
+def write_json_file(path: str, payload: dict[str, Any], fs: fsspec.AbstractFileSystem) -> None:
+    """Write JSON through fsspec, atomically for local filesystems."""
+    if isinstance(fs, LocalFileSystem):
+        write_json_atomically(Path(path), payload)
+        return
+
+    parent = posixpath.dirname(path)
+    if parent:
+        fs.makedirs(parent, exist_ok=True)
+    fs.write_text(path, f"{json.dumps(payload, sort_keys=True)}\n", encoding="utf-8")
 
 
 def is_not_empty(
