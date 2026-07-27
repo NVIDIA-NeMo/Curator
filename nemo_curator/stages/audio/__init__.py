@@ -43,6 +43,7 @@ _LAZY = {
     "TimestampMapperStage": "nemo_curator.stages.audio.postprocessing",
     "UTMOSFilterStage": "nemo_curator.stages.audio.filtering",
     "VADSegmentationStage": "nemo_curator.stages.audio.segmentation",
+    "WhisperHallucinationStage": "nemo_curator.stages.audio.text_filtering",
 }
 
 __all__ = [
@@ -61,6 +62,7 @@ __all__ = [
     "TimestampMapperStage",
     "UTMOSFilterStage",
     "VADSegmentationStage",
+    "WhisperHallucinationStage",
 ]
 
 
