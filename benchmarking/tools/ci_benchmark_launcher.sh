@@ -24,8 +24,22 @@ mkdir -p "/tmp/curator/results/${BRANCH_NAME}"
 # discarded with the container.
 apt-get update -qq && apt-get install -y --no-install-recommends lynx
 
+# ffmpeg not in image (CVE removal); install at runtime per modality
+if [[ "${ENTRY_NAME}" == audio_* ]]; then
+    apt-get install -y --no-install-recommends ffmpeg
+elif [[ "${ENTRY_NAME}" == video_* ]]; then
+    bash /opt/Curator/docker/common/install_h264_support.sh --with-libopenh264
+fi
+
 cd /opt/Curator
 uv pip install GitPython pynvml pyyaml rich
+
+# cv2 stripped from image (CVE removal); reinstall for benchmarks that need it.
+case "${ENTRY_NAME}" in
+    interleaved_*|multimodal_*|video_*)
+        uv pip install ".[cv2]"
+        ;;
+esac
 
 # Session name resolution:
 #   - If NEMO_CI_SESSION_NAME is set by the generated benchmark pipeline, use it

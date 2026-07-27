@@ -1,8 +1,8 @@
 ---
-description: "Serve LLMs locally via Ray Serve and vLLM alongside NeMo Curator pipelines using InferenceServer"
+description: "Serve local LLMs through typed Ray Serve or NVIDIA Dynamo backends with NeMo Curator's InferenceServer"
 categories: ["how-to-guides"]
-tags: ["inference-server", "ray-serve", "vllm", "llm", "serving", "local-inference"]
-personas: ["data-scientist-focused", "mle-focused"]
+tags: ["inference-server", "ray-serve", "dynamo", "vllm", "llm", "local-inference"]
+personas: ["data-scientist-focused", "mle-focused", "admin-focused", "devops-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
 modality: "text-only"
@@ -10,188 +10,465 @@ modality: "text-only"
 
 # Inference Server
 
-NeMo Curator can serve LLMs locally using Ray Serve and vLLM, providing an OpenAI-compatible endpoint without external inference infrastructure. This is useful for synthetic data generation workflows where you co-locate model serving with your curation pipeline on the same GPU cluster.
+`InferenceServer` serves one or more local models behind an OpenAI-compatible endpoint on your Ray cluster. Choose a typed backend configuration for either Ray Serve or NVIDIA Dynamo; the client-facing endpoint and lifecycle API stay the same. Both backends support the serving capabilities described in this guide, so benchmark your workload and choose the backend based on measured performance.
+
+| Backend | Model configuration | Server configuration |
+| --- | --- | --- |
+| Ray Serve | `RayServeModelConfig` | `RayServeServerConfig` (default) |
+| NVIDIA Dynamo | `DynamoVLLMModelConfig` | `DynamoServerConfig` |
+
+<Note>
+In the tested 26.06 stack, Ray Serve uses vLLM 0.18.x from the base `inference_server` environment. Dynamo 1.1.0 uses Ray to create a separate actor environment with vLLM 0.19.x, so its first startup takes longer while Ray resolves and installs the environment. Ray Serve deployments can also be accessed through Ray Serve handles instead of the OpenAI-compatible endpoint; benchmark the approach for your workloads.
+</Note>
+
+<Warning>
+The old `InferenceModelConfig` class was removed. Migrate to the backend-specific types in [Migrate from `InferenceModelConfig`](#migrate-from-inferencemodelconfig).
+</Warning>
 
 ## Prerequisites
 
-Install the inference server dependencies:
+Install the inference-server extra:
 
 ```bash
-uv pip install nemo-curator[inference_server]
+uv pip install "nemo-curator[inference_server]"
 ```
 
-This installs Ray Serve, vLLM, and supporting libraries. You need an NVIDIA GPU with sufficient VRAM for the model you intend to serve.
+Local GPU serving through this extra targets **x86_64 Linux**. The vLLM, ai-dynamo, and NIXL dependencies are not installed by the extra on aarch64 or macOS.
 
-## Quick Start
+The tested 26.06 stack uses:
+
+- CUDA 12.9.1 in the NeMo Curator container.
+- PyTorch 2.10.
+- Ray Serve 2.55.1 or later.
+- vLLM 0.18.x for `inference_server` (`vllm<0.19`).
+- ai-dynamo 1.1.0 and NIXL 0.10.0 or later for the Dynamo backend.
+
+Start or connect to a Ray cluster before creating the server. The examples below use `RayClient`; an externally managed Ray cluster works as well.
+
+## Ray Serve Quickstart
+
+Ray Serve is the default backend. Omitting `backend=` is equivalent to passing `RayServeServerConfig()`.
 
 ```python
 from openai import OpenAI
+
 from nemo_curator.core.client import RayClient
-from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
 
-# 1. Start Ray cluster
-client = RayClient()
-client.start()
+ray_client = RayClient(num_cpus=8, num_gpus=1)
+ray_client.start()
 
-# 2. Configure and serve a model
-config = InferenceModelConfig(
-    model_identifier="google/gemma-3-27b-it",
-    engine_kwargs={"tensor_parallel_size": 4},
+model = RayServeModelConfig(
+    model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",  # pragma: allowlist secret
     deployment_config={
         "autoscaling_config": {
             "min_replicas": 1,
             "max_replicas": 1,
         },
     },
+    engine_kwargs={
+        "tensor_parallel_size": 1,
+        "max_model_len": 2048,
+    },
 )
 
-with InferenceServer(models=[config]) as server:
-    # 3. Query via OpenAI SDK
-    oai = OpenAI(base_url=server.endpoint, api_key="unused")
-    response = oai.chat.completions.create(
-        model="google/gemma-3-27b-it",
-        messages=[{"role": "user", "content": "Hello!"}],
+with InferenceServer(models=[model]) as server:
+    client = OpenAI(base_url=server.endpoint, api_key="unused")
+    response = client.chat.completions.create(
+        model="HuggingFaceTB/SmolLM2-135M-Instruct",  # pragma: allowlist secret
+        messages=[{"role": "user", "content": "Say hello in one word."}],
+        max_tokens=16,
     )
     print(response.choices[0].message.content)
 ```
 
-The `InferenceServer` deploys models onto the Ray cluster and exposes an OpenAI-compatible API at `http://localhost:<port>/v1`. When used as a context manager, it automatically starts and stops the server.
+The server waits for every configured model to appear at `/v1/models` before `start()` returns. `server.endpoint` contains the correct host and port for the selected backend.
 
-## InferenceModelConfig
+## Shared Server API
 
-Each model you want to serve is described by an `InferenceModelConfig`:
-
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `model_identifier` | str | Required | HuggingFace model ID or local path |
-| `model_name` | str | None | API-facing model name clients use in requests. Defaults to `model_identifier` |
-| `deployment_config` | dict | `{}` | Ray Serve deployment configuration (autoscaling, replicas) |
-| `engine_kwargs` | dict | `{}` | vLLM engine keyword arguments (`tensor_parallel_size`, etc.) |
-| `runtime_env` | dict | `{}` | Ray runtime environment (pip packages, env vars, working directory) |
-
-### Common Engine Arguments
-
-```python
-config = InferenceModelConfig(
-    model_identifier="meta-llama/Llama-3-8B-Instruct",
-    engine_kwargs={
-        "tensor_parallel_size": 2,  # Split model across 2 GPUs
-    },
-)
-```
-
-### Autoscaling
-
-Use `deployment_config` to control replica count and autoscaling:
-
-```python
-config = InferenceModelConfig(
-    model_identifier="meta-llama/Llama-3-8B-Instruct",
-    deployment_config={
-        "autoscaling_config": {
-            "min_replicas": 1,
-            "max_replicas": 4,
-        },
-    },
-)
-```
-
-## InferenceServer
+`InferenceServer` accepts a list of model configurations and one matching server configuration.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `models` | list[InferenceModelConfig] | Required | Models to deploy |
-| `name` | str | `"default"` | Ray Serve application name |
-| `port` | int | 8000 | HTTP port for the OpenAI-compatible endpoint |
-| `health_check_timeout_s` | int | 300 | Seconds to wait for models to become healthy |
-| `verbose` | bool | False | If True, keep Ray Serve and vLLM logging at default levels |
+| `models` | `list[BaseModelConfig]` | Required | Models to serve. Every item must use the same concrete configuration type. |
+| `backend` | `BaseServerConfig` | `RayServeServerConfig()` | Backend and server-level configuration. |
+| `name` | `str` | `"default"` | Server name used for Ray Serve applications or Dynamo actor and placement-group prefixes. |
+| `port` | `int` | `8000` | Preferred frontend port. NeMo Curator selects a free port when necessary. |
+| `health_check_timeout_s` | `int` | `300` | Maximum time to wait for all models to register. |
+| `verbose` | `bool` | `False` | Preserve detailed backend and request logs when `True`. |
 
-### Start and Stop
+Only one `InferenceServer` can be active in a Python process at a time. Stop the current server before starting another.
 
-You can use `InferenceServer` as a context manager or call `start()` and `stop()` manually:
+Use a context manager for automatic cleanup:
 
 ```python
-# Context manager (recommended)
-with InferenceServer(models=[config]) as server:
-    # server.endpoint is available here
-    pass  # Server stops automatically
+with InferenceServer(models=[model]) as server:
+    print(server.endpoint)
+```
 
-# Manual lifecycle
-server = InferenceServer(models=[config])
+For explicit lifecycle control:
+
+```python
+server = InferenceServer(models=[model])
 server.start()
-# ... use server.endpoint ...
-server.stop()
+try:
+    print(server.endpoint)
+finally:
+    server.stop()
 ```
 
-### Multi-Model Serving
+## Ray Serve Configuration
 
-Deploy multiple models in a single server. Clients select a model by name in the API request:
+### `RayServeModelConfig`
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_identifier` | `str` | Required | Hugging Face model ID or local model path. |
+| `model_name` | `str \| None` | `None` | Name exposed through the API. Defaults to `model_identifier`. |
+| `runtime_env` | `dict` | `{}` | Ray runtime environment merged into the model deployment. |
+| `deployment_config` | `dict` | `{}` | Ray Serve deployment settings, including autoscaling. |
+| `engine_kwargs` | `dict` | `{}` | vLLM engine settings such as tensor parallelism and model length. |
+
+Use `model_name` when weights come from a local path but clients should use a stable API name:
 
 ```python
+model = RayServeModelConfig(
+    model_identifier="/models/gemma-3-27b-it",
+    model_name="google/gemma-3-27b-it",
+    deployment_config={
+        "autoscaling_config": {"min_replicas": 1, "max_replicas": 2},
+    },
+    engine_kwargs={"tensor_parallel_size": 4},
+)
+```
+
+### Multiple Ray Serve Models
+
+Each model can use a distinct deployment and runtime environment:
+
+```python
+from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
+
 models = [
-    InferenceModelConfig(
-        model_identifier="meta-llama/Llama-3-8B-Instruct",
-        model_name="llama-8b",
+    RayServeModelConfig(
+        model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",  # pragma: allowlist secret
+        model_name="writer",
+        deployment_config={
+            "autoscaling_config": {"min_replicas": 1, "max_replicas": 2},
+        },
         engine_kwargs={"tensor_parallel_size": 1},
     ),
-    InferenceModelConfig(
-        model_identifier="google/gemma-3-27b-it",
-        model_name="gemma-27b",
-        engine_kwargs={"tensor_parallel_size": 4},
+    RayServeModelConfig(
+        model_identifier="HuggingFaceTB/SmolLM-135M-Instruct",  # pragma: allowlist secret
+        model_name="reviewer",
+        deployment_config={
+            "autoscaling_config": {"min_replicas": 1, "max_replicas": 1},
+        },
+        engine_kwargs={"tensor_parallel_size": 1},
     ),
 ]
 
-with InferenceServer(models=models) as server:
-    oai = OpenAI(base_url=server.endpoint, api_key="unused")
-    # Select model by name
-    response = oai.chat.completions.create(
-        model="llama-8b",
-        messages=[{"role": "user", "content": "Hello!"}],
-    )
+server = InferenceServer(models=models)
+server.start()
 ```
 
-The `/v1/models` endpoint lists all available models.
+Clients select `writer` or `reviewer` in the OpenAI request's `model` field.
 
-## Use with NeMo Curator Pipelines
+## Dynamo Aggregated Serving
 
-### With AsyncOpenAIClient
+Aggregated mode runs prefill and decode in the same vLLM worker. `num_replicas` creates static replicas; Dynamo does not use Ray Serve autoscaling configuration.
 
-Point NeMo Curator's `AsyncOpenAIClient` at the inference server endpoint:
+```python
+from nemo_curator.core.serve import (
+    DynamoServerConfig,
+    DynamoVLLMModelConfig,
+    InferenceServer,
+)
+
+model = DynamoVLLMModelConfig(
+    model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",  # pragma: allowlist secret
+    mode="aggregated",
+    num_replicas=2,
+    engine_kwargs={
+        "tensor_parallel_size": 1,
+        "max_model_len": 2048,
+    },
+)
+
+server = InferenceServer(
+    models=[model],
+    backend=DynamoServerConfig(),
+    health_check_timeout_s=600,
+)
+server.start()
+```
+
+For aggregated models, a tensor-parallel replica can span multiple nodes when the tensor-parallel size divides evenly across available nodes. NeMo Curator prefers a single-node placement and otherwise uses equal GPU bundles on distinct nodes.
+
+## Dynamo Disaggregated Serving
+
+Disaggregated mode runs independent prefill and decode workers. Configure both roles explicitly.
+
+```python
+from nemo_curator.core.serve import (
+    DynamoRoleConfig,
+    DynamoServerConfig,
+    DynamoVLLMModelConfig,
+    InferenceServer,
+)
+
+model = DynamoVLLMModelConfig(
+    model_identifier="HuggingFaceTB/SmolLM2-135M-Instruct",  # pragma: allowlist secret
+    mode="disagg",
+    engine_kwargs={
+        "max_model_len": 2048,
+        "tensor_parallel_size": 1,
+    },
+    prefill=DynamoRoleConfig(
+        num_replicas=2,
+        engine_kwargs={"tensor_parallel_size": 2},
+    ),
+    decode=DynamoRoleConfig(
+        num_replicas=1,
+        engine_kwargs={"tensor_parallel_size": 1},
+    ),
+)
+
+server = InferenceServer(
+    models=[model],
+    backend=DynamoServerConfig(),
+    health_check_timeout_s=600,
+)
+server.start()
+```
+
+Role-level `engine_kwargs` shallow-merge over the model-level values. In this example, prefill uses tensor parallelism of 2 and decode uses 1; both inherit `max_model_len`.
+
+<Warning>
+Each disaggregated role's tensor-parallel group must fit on a single node. Multi-node tensor parallelism is supported for aggregated replicas, not for a disaggregated prefill or decode worker.
+</Warning>
+
+Disaggregated serving uses the NIXL connector for KV transfer by default. `kv_transfer_config` and `kv_events_config` are managed by NeMo Curator and are not constructor parameters.
+
+## Dynamo Configuration Reference
+
+### `DynamoVLLMModelConfig`
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `model_identifier` | `str` | Required | Hugging Face model ID or local model path. |
+| `model_name` | `str \| None` | `None` | API-facing name; defaults to `model_identifier`. |
+| `runtime_env` | `dict` | `{}` | Packages, environment variables, and other Ray runtime settings for workers. |
+| `engine_kwargs` | `dict` | `{}` | Base vLLM engine settings. |
+| `num_replicas` | `int` | `1` | Static replica count for aggregated mode. Must be at least 1. |
+| `mode` | `"aggregated" \| "disagg"` | `"aggregated"` | Serving topology. |
+| `prefill` | `DynamoRoleConfig \| None` | `None` | Prefill replicas and overrides for disaggregated mode. |
+| `decode` | `DynamoRoleConfig \| None` | `None` | Decode replicas and overrides for disaggregated mode. |
+| `dynamo_kwargs` | `dict` | `{}` | Additional worker CLI options, translated from snake case to kebab case. |
+
+All models in one server must have unique `model_name` values. Dynamo also rejects names that sanitize to the same component slug.
+
+### `DynamoRoleConfig`
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `num_replicas` | `int` | `1` | Number of workers for this role. Must be at least 0; `DynamoVLLMModelConfig` requires at least one prefill and one decode replica in disaggregated mode. |
+| `engine_kwargs` | `dict` | `{}` | Role-level vLLM settings merged over the model settings. |
+
+### `DynamoServerConfig`
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `etcd_endpoint` | `str \| None` | `None` | Existing etcd endpoint. When omitted, NeMo Curator starts etcd. |
+| `nats_url` | `str \| None` | `None` | Existing NATS endpoint. When omitted, NeMo Curator starts NATS. |
+| `namespace` | `str` | Dynamo default | Dynamo discovery namespace. |
+| `request_plane` | `str` | Dynamo default | Request transport, for example `"tcp"`. |
+| `event_plane` | `str` | Dynamo default | Event transport. |
+| `router` | `DynamoRouterConfig` | Default config | Routing mode and frontend options. |
+| `subprocess_env` | `dict[str, str]` | `{}` | Environment variables propagated to etcd/NATS-aware workers and the frontend. |
+
+## Dynamo Routing
+
+```python
+from nemo_curator.core.serve import DynamoRouterConfig, DynamoServerConfig
+
+backend = DynamoServerConfig(
+    router=DynamoRouterConfig(
+        mode="kv",
+        kv_events=False,
+        router_kwargs={"dyn_chat_processor": "vllm"},
+    ),
+)
+```
+
+| `mode` | Behavior |
+| --- | --- |
+| `None` | Auto-select KV routing when any model is disaggregated; otherwise let Dynamo use round-robin. |
+| `"round_robin"` | Rotate requests across replicas. |
+| `"random"` | Select a replica randomly. |
+| `"kv"` | Route using KV-cache affinity. |
+| `"direct"` | Use Dynamo's direct-routing mode. |
+
+`kv_events` is valid only with KV routing. When you explicitly set `mode="kv"`, `kv_events=False` uses approximate tree-based tracking. When `mode=None` auto-selects KV routing for a disaggregated model, NeMo Curator also enables exact event-backed routing even though the configured default is `False`. If a publishing role explicitly enables vLLM's hybrid KV-cache manager, automatic routing instead keeps events disabled; explicitly requesting event-backed routing with that configuration raises an error.
+
+Additional `router_kwargs` are forwarded to the Dynamo frontend. Do not put `router_mode` or `router_kv_events` in that dictionary; use the typed fields instead. Boolean false values are emitted as `--no-*` flags.
+
+For multimodal OpenAI content arrays, the Dynamo frontend can require:
+
+```python
+DynamoRouterConfig(
+    router_kwargs={"dyn_chat_processor": "vllm"},
+)
+```
+
+The worker also needs its model-specific multimodal settings, such as `limit_mm_per_prompt` in `engine_kwargs` and `enable_multimodal` in `dynamo_kwargs`.
+
+## Runtime Environments and Subprocess Variables
+
+Both model types inherit `runtime_env` from `BaseModelConfig`:
+
+```python
+model = DynamoVLLMModelConfig(
+    model_identifier="my-org/my-model",
+    runtime_env={
+        "uv": {"packages": ["my-model-plugin==1.2.0"]},
+        "env_vars": {"HF_HOME": "/models/hf-cache"},
+    },
+)
+```
+
+NeMo Curator merges `pip` or `uv` package lists and environment variables instead of replacing the backend's required packages. Dynamo automatically adds its tested `ai-dynamo[vllm]` actor environment and pins the actor's Ray version to the cluster version. On a new cluster node, the first actor can take several minutes to create this cached environment.
+
+Use `DynamoServerConfig.subprocess_env` for variables that must reach the Dynamo frontend and worker subprocesses:
+
+```python
+backend = DynamoServerConfig(
+    subprocess_env={"DYN_TCP_REQUEST_TIMEOUT": "180"},
+)
+```
+
+## Resource Placement
+
+Before starting Dynamo, NeMo Curator checks the total requested GPUs and fails early when the cluster is too small.
+
+- Aggregated GPU count is `num_replicas * tensor_parallel_size` per model.
+- Disaggregated GPU count is the sum of each role's `num_replicas * tensor_parallel_size`.
+- Aggregated tensor-parallel groups prefer one node, then use an equal multi-node split.
+- Each disaggregated role must fit on one node.
+- Set `CURATOR_IGNORE_RAY_HEAD_NODE=1` to keep model placement off the Ray head node when worker nodes are labeled for that policy.
+
+Dynamo creates detached, named placement groups and actors. On startup, it removes stale resources with the same server-name prefix. On shutdown, it reacquires actor handles by name, terminates the subprocess groups, and removes the placement groups.
+
+## HAProxy Ingress
+
+The NeMo Curator container includes HAProxy and `socat`. When both binaries are available, local Ray cluster initialization enables Ray Serve's HAProxy ingress and assigns a free metrics port. If either binary is unavailable, Ray Serve uses its default Python proxy.
+
+No HAProxy configuration is required in `InferenceServer`. To confirm the optimized path, check startup logs for `Ray Serve HAProxy ingress enabled`.
+
+## Use with NeMo Curator Clients
+
+Point any OpenAI-compatible client at `server.endpoint`:
 
 ```python
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
-from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
 
-config = InferenceModelConfig(
-    model_identifier="meta-llama/Llama-3-8B-Instruct",
-    engine_kwargs={"tensor_parallel_size": 2},
+client = AsyncOpenAIClient(
+    base_url=server.endpoint,
+    api_key="unused",
+    max_concurrent_requests=10,
 )
-
-with InferenceServer(models=[config]) as server:
-    client = AsyncOpenAIClient(
-        base_url=server.endpoint,
-        api_key="unused",
-        max_concurrent_requests=10,
-    )
-    # Use client in SDG pipeline stages
 ```
 
-### GPU Contention
+For Dynamo, the endpoint host is the node running the frontend placement-group bundle. Use `server.endpoint` instead of assuming `localhost`.
 
-When an `InferenceServer` is active, `Pipeline.run()` automatically detects potential GPU contention:
+## Run Pipelines While Serving
 
-- **RayDataExecutor**: Allowed. Ray's resource scheduler coordinates GPU allocation between served models and pipeline stages.
-- **XennaExecutor**: Raises `RuntimeError` if the pipeline has GPU stages. Xenna manages GPU assignment independently and would conflict with served models.
+Ray Data and Ray Actor Pool executors honor Ray's GPU accounting and schedule GPU stages away from GPUs held by either inference backend. Xenna manages GPU assignment independently and is rejected when an active `InferenceServer` and a GPU pipeline stage would conflict.
 
-If your pipeline has only CPU stages, either executor works.
+```python
+from nemo_curator.backends.ray_data import RayDataExecutor
 
-## Logging
+with InferenceServer(models=[model]) as server:
+    results = pipeline.run(executor=RayDataExecutor())
+```
 
-By default (`verbose=False`), `InferenceServer` suppresses per-request logs from vLLM and Ray Serve access logs to reduce noise. Ray Serve logs still go to files under the Ray session log directory. Set `verbose=True` to restore full logging output for debugging.
+CPU-only pipelines can use any executor while the server is active.
 
----
+## Migrate from `InferenceModelConfig`
+
+Before:
+
+```python
+from nemo_curator.core.serve import InferenceModelConfig, InferenceServer
+
+model = InferenceModelConfig(
+    model_identifier="google/gemma-3-27b-it",
+    deployment_config={
+        "autoscaling_config": {"min_replicas": 1, "max_replicas": 1},
+    },
+    engine_kwargs={"tensor_parallel_size": 4},
+)
+server = InferenceServer(models=[model])
+```
+
+After, using Ray Serve:
+
+```python
+from nemo_curator.core.serve import InferenceServer, RayServeModelConfig
+
+model = RayServeModelConfig(
+    model_identifier="google/gemma-3-27b-it",
+    deployment_config={
+        "autoscaling_config": {"min_replicas": 1, "max_replicas": 1},
+    },
+    engine_kwargs={"tensor_parallel_size": 4},
+)
+server = InferenceServer(models=[model])
+```
+
+Or, using static Dynamo replicas:
+
+```python
+from nemo_curator.core.serve import (
+    DynamoServerConfig,
+    DynamoVLLMModelConfig,
+    InferenceServer,
+)
+
+model = DynamoVLLMModelConfig(
+    model_identifier="google/gemma-3-27b-it",
+    num_replicas=1,
+    engine_kwargs={"tensor_parallel_size": 4},
+)
+server = InferenceServer(models=[model], backend=DynamoServerConfig())
+```
+
+Do not pass Ray Serve's `deployment_config` to `DynamoVLLMModelConfig`. Use `num_replicas` or the disaggregated role counts instead.
+
+## Troubleshooting
+
+### Model Does Not Become Healthy
+
+- Increase `health_check_timeout_s` for large model downloads or slow actor-environment creation.
+- Check the model name returned by `/v1/models`; local paths often need an explicit `model_name` alias.
+- Confirm the requested tensor-parallel groups fit the cluster topology.
+- For Dynamo, inspect subprocess logs under the Ray session's `nemo_curator_dynamo_<id>` directory.
+
+### Dynamo Cannot Start etcd or NATS
+
+Install the NeMo Curator container dependencies, or supply existing `etcd_endpoint` and `nats_url` values in `DynamoServerConfig`.
+
+### Local Multi-GPU Startup Hangs
+
+On PCIe systems without peer-to-peer GPU access, restart Ray or the Python kernel and either set `NCCL_P2P_DISABLE=1` before starting the cluster or reduce `tensor_parallel_size` to 1.
+
+### Runtime Environment Times Out
+
+Ensure cluster nodes can reach the package index and share compatible Python, CUDA, and Ray versions. Dynamo actor setup uses a 600-second timeout; prebuild the NeMo Curator container when workers cannot install packages at runtime.
 
 ## Next Steps
 
-- [LLM Client Setup](/curate-text/synthetic/llm-client): Configure client parameters and generation settings
-- [Synthetic Data Generation](/curate-text/synthetic): Overview of SDG capabilities
+- [LLM Client Setup](/curate-text/synthetic/llm-client)
+- [NeMo Data Designer](/curate-text/synthetic/nemo-data-designer)
+- [Execution Backends](/reference/infra/execution-backends)
+- [Per-Stage Runtime Environments](/reference/infra/per-stage-runtime)

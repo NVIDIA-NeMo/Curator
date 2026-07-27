@@ -110,7 +110,7 @@ Each task is a data class. You can add whatever statistics you need (input or ou
 ## Fault Tolerance, Checkpointing, and Observability
 
 <Accordion title="What if a stage fails (for example, OOM or disk error)? Will the pipeline crash?">
-Ray will relaunch failed workers or actors, but robust error handling and resumption (for example, from last completed task) should be implemented in your stage logic as needed.
+Ray can relaunch failed workers or actors. For restart recovery, pass `checkpoint_path` to `Pipeline.run()` so completed source partitions are skipped on the next launch. A custom stage can return `FailedTask()` for a recoverable per-task failure that should remain pending. Refer to [Resumable Processing](/reference/infra/resumable-processing).
 </Accordion>
 
 <Accordion title="How is observability handled? Can I track pipeline performance, actor counts, and task durations?">
@@ -118,7 +118,7 @@ All Ray pipelines expose resource and processing metrics via a built-in Grafana 
 </Accordion>
 
 <Accordion title="Can I resume processing from mid-pipeline if interrupted?">
-For streaming pipelines, each completed task can be tracked (temporarily with final outputs), so resumption logic is "start from task N+1". If you rely on explicit intermediate checkpoints, you can extend the process logic to save and reload state as needed.
+Yes. Run the same pipeline with the same `checkpoint_path`. NeMo Curator records completed source partitions under `.nemo_curator_metadata` and skips them on a later launch. Incomplete sources restart from the source; stage payloads and in-memory state are not serialized. Refer to [Resumable Processing](/reference/infra/resumable-processing) for storage, replay, and multi-host constraints.
 </Accordion>
 
 ---
