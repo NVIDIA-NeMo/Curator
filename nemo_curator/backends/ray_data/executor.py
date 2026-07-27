@@ -106,7 +106,6 @@ class RayDataExecutor(BaseExecutor):
             output_tasks = self._dataset_to_tasks(current_dataset)
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
         finally:
-            self._cleanup_stage_run_resources(stages)
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
             ray.shutdown()
         return output_tasks

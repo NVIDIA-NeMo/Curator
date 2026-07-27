@@ -165,7 +165,6 @@ class XennaExecutor(BaseExecutor):
             logger.error(f"Pipeline execution failed: {e}")
             raise
         finally:
-            self._cleanup_stage_run_resources(stages)
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
             ray.shutdown()
         return results if results else []

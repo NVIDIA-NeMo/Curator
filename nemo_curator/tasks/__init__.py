@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from .audio_task import AudioTask
-from .dispatch_batch import DispatchBatchTask
 from .document import DocumentBatch
 from .file_group import FileGroupTask
 from .image import ImageBatch, ImageObject
@@ -23,7 +22,6 @@ from .tasks import Task
 
 __all__ = [
     "AudioTask",
-    "DispatchBatchTask",
     "DocumentBatch",
     "EmptyTask",
     "FailedTask",
