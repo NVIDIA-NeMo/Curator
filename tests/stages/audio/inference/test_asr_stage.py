@@ -52,7 +52,9 @@ def _make_stage(
     )
     mock_adapter = MagicMock()
     stage._adapter = mock_adapter
-    stage._load_audio = MagicMock(return_value=np.zeros(_SR, dtype=np.float32))  # type: ignore[method-assign]
+    stage._load_audio = MagicMock(  # type: ignore[method-assign]
+        return_value=(np.zeros(_SR, dtype=np.float32), _SR)
+    )
     return stage
 
 
@@ -91,12 +93,14 @@ def test_basic_inference_single_turn() -> None:
     inferred_item = stage._adapter.transcribe_batch.call_args.args[0][0]
     assert set(inferred_item) == {
         "waveform",
+        "sample_rate",
         "language",
         "language_code",
         "reference_text",
         "task_id",
     }
     assert inferred_item["waveform"].shape == (_SR,)
+    assert inferred_item["sample_rate"] == _SR
 
 
 def test_adapter_not_initialized_raises() -> None:
@@ -120,7 +124,11 @@ def test_multi_task_batch_preserves_order() -> None:
 def test_audio_load_failure_skips_only_failed_item_and_preserves_order() -> None:
     stage = _make_stage()
     waveform = np.zeros(_SR, dtype=np.float32)
-    stage._load_audio.side_effect = [waveform, RuntimeError("corrupt audio"), waveform]
+    stage._load_audio.side_effect = [
+        (waveform, _SR),
+        RuntimeError("corrupt audio"),
+        (waveform, _SR),
+    ]
     stage._adapter.transcribe_batch.return_value = [
         ASRResult(text="text1"),
         ASRResult(text="text3"),
@@ -228,6 +236,19 @@ def test_supported_language_filter_skips_before_adapter_call() -> None:
     assert results[0].data["additional_notes"]["qwen3_prediction_s1"] == "lang_not_supported:pl"
 
 
+def test_supported_language_filter_annotates_missing_language() -> None:
+    stage = _make_stage(supported_language_codes=["en"])
+
+    results = stage.process_batch([_make_task(source_lang=None)])
+
+    stage._adapter.transcribe_batch.assert_not_called()
+    stage._load_audio.assert_not_called()
+    assert results[0].data["qwen3_prediction_s1"] == ""
+    assert "_skipme" not in results[0].data
+    assert results[0].data["additional_notes"]["ASR_inference"] == "skipped (missing language)"
+    assert results[0].data["additional_notes"]["qwen3_prediction_s1"] == "language_missing"
+
+
 def test_resumability_preserves_unsupported_task_lineage() -> None:
     stage = _make_stage(supported_language_codes=["en"])
     task = _make_task(source_lang="pl")
@@ -278,15 +299,17 @@ def test_inputs_and_exact_output_contract() -> None:
     assert optional_outputs == ["custom_prediction", "_skipme", "additional_notes"]
 
 
-def test_stage_loads_resampled_audio_like_tagging_pipeline() -> None:
+def test_stage_loads_resampled_audio_like_tagging_pipeline_and_preserves_sample_rate() -> None:
+    decoded_sample_rate = 8000
     tensor = torch.ones((1, _SR), dtype=torch.float32)
     with patch(
         "nemo_curator.stages.audio.inference.asr.stage.torchaudio.load",
-        return_value=(tensor, _SR),
+        return_value=(tensor, decoded_sample_rate),
     ) as load:
-        waveform = ASRStage._load_audio(_RESAMPLED_AUDIO_PATH)
+        waveform, sample_rate = ASRStage._load_audio(_RESAMPLED_AUDIO_PATH)
 
     load.assert_called_once_with(_RESAMPLED_AUDIO_PATH)
+    assert sample_rate == decoded_sample_rate
     assert waveform.shape == (_SR,)
     assert waveform.dtype == np.float32
     np.testing.assert_array_equal(waveform, np.ones(_SR, dtype=np.float32))
@@ -350,7 +373,7 @@ def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
 )
 def test_setup_on_node_raises_by_default(mock_download: MagicMock) -> None:
     stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
-    with pytest.raises(RuntimeError, match="prefetch_weights failed"):
+    with pytest.raises(RuntimeError, match="download_weights_on_node failed"):
         stage.setup_on_node()
     mock_download.assert_called_once_with("mock/model")
 
@@ -386,7 +409,12 @@ def test_setup_uses_adapter_target_and_kwargs() -> None:
         adapter_target=_QWEN_ADAPTER_TARGET,
         model_id="mock/model",
         revision="abc123",
-        adapter_kwargs={"max_model_len": 8192, "enable_prefix_caching": False},
+        adapter_kwargs={
+            "vllm_kwargs": {
+                "max_model_len": 8192,
+                "enable_prefix_caching": False,
+            }
+        },
         resources=Resources(gpus=2),
     )
 
@@ -399,10 +427,12 @@ def test_setup_uses_adapter_target_and_kwargs() -> None:
     fake_cls.assert_called_once_with(
         model_id="mock/model",
         revision="abc123",
-        max_model_len=8192,
-        enable_prefix_caching=False,
+        vllm_kwargs={
+            "max_model_len": 8192,
+            "enable_prefix_caching": False,
+        },
     )
-    fake_adapter.setup.assert_called_once_with(num_gpus=2)
+    fake_adapter.load_model.assert_called_once_with(num_gpus=2)
     assert stage._adapter is fake_adapter
 
 
@@ -424,7 +454,7 @@ def test_setup_derives_adapter_gpu_count_from_stage_resources(
     with patch("hydra.utils.get_class", return_value=MagicMock(return_value=fake_adapter)):
         stage.setup()
 
-    fake_adapter.setup.assert_called_once_with(num_gpus=expected_num_gpus)
+    fake_adapter.load_model.assert_called_once_with(num_gpus=expected_num_gpus)
 
 
 @pytest.mark.parametrize("requested_gpus", [-1.0, float("inf"), float("nan")])
@@ -442,13 +472,13 @@ def test_setup_rejects_invalid_stage_gpu_resource(requested_gpus: float) -> None
     ):
         stage.setup()
 
-    fake_adapter.teardown.assert_called_once_with()
+    fake_adapter.unload_model.assert_called_once_with()
 
 
 def test_setup_failure_cleans_partial_adapter_and_allows_retry() -> None:
     stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
     failed_adapter = MagicMock()
-    failed_adapter.setup.side_effect = RuntimeError("engine init failed")
+    failed_adapter.load_model.side_effect = RuntimeError("engine init failed")
     working_adapter = MagicMock()
     fake_cls = MagicMock(side_effect=[failed_adapter, working_adapter])
 
@@ -457,9 +487,20 @@ def test_setup_failure_cleans_partial_adapter_and_allows_retry() -> None:
             stage.setup()
 
         assert stage._adapter is None
-        failed_adapter.teardown.assert_called_once_with()
+        failed_adapter.unload_model.assert_called_once_with()
 
         stage.setup()
 
     assert stage._adapter is working_adapter
-    working_adapter.setup.assert_called_once_with(num_gpus=1)
+    working_adapter.load_model.assert_called_once_with(num_gpus=1)
+
+
+def test_teardown_delegates_to_adapter_unload_model_once() -> None:
+    stage = _make_stage()
+    adapter = stage._adapter
+
+    stage.teardown()
+    stage.teardown()
+
+    adapter.unload_model.assert_called_once_with()
+    assert stage._adapter is None

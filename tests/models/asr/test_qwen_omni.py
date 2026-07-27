@@ -33,10 +33,63 @@ if TYPE_CHECKING:
 _SR = 16000
 
 
+class _FakeProcessor:
+    def apply_chat_template(
+        self,
+        messages: list[dict[str, object]],
+        *,
+        tokenize: bool,
+        add_generation_prompt: bool,
+    ) -> str:
+        assert tokenize is False
+        assert add_generation_prompt is True
+        return repr(messages)
+
+
+def _fake_process_mm_info(
+    messages: list[dict[str, object]],
+    *,
+    use_audio_in_video: bool,
+) -> tuple[list[np.ndarray] | None, None, None]:
+    assert use_audio_in_video is False
+    audios = [
+        part["audio"]
+        for message in messages
+        for part in message["content"]  # type: ignore[union-attr]
+        if part["type"] == "audio"
+    ]
+    return audios or None, None, None
+
+
+def _vllm_output(text: str) -> SimpleNamespace:
+    return SimpleNamespace(outputs=[SimpleNamespace(text=text, token_ids=[0])])
+
+
 @contextmanager
-def _mock_qwen_setup(
+def _mock_external_qwen_runtime(
+    adapter: QwenOmniASRAdapter,
+    *,
+    generated_batches: list[list[SimpleNamespace]] | None = None,
+) -> Iterator[tuple[MagicMock, MagicMock]]:
+    llm = MagicMock()
+    if generated_batches is not None:
+        llm.generate.side_effect = generated_batches
+    adapter._llm = llm
+    adapter._sampling_params = object()
+    adapter._processor = _FakeProcessor()
+    with patch(
+        "nemo_curator.models.asr.qwen_omni.process_mm_info",
+        side_effect=_fake_process_mm_info,
+    ) as mm_info:
+        yield llm, mm_info
+
+
+@contextmanager
+def _mock_qwen_model_load(
     *, processor_side_effect: Exception | None = None
 ) -> Iterator[tuple[MagicMock, MagicMock, MagicMock]]:
+    processor_cls = MagicMock()
+    processor_cls.from_pretrained.side_effect = processor_side_effect
     with (
         patch("nemo_curator.models.asr.qwen_omni.process_mm_info", MagicMock()),
         patch(
@@ -44,12 +97,12 @@ def _mock_qwen_setup(
             return_value=MagicMock(),
         ) as llm_ctor,
         patch(
-            "nemo_curator.models.asr.qwen_omni.Qwen3OmniMoeProcessor.from_pretrained",
-            side_effect=processor_side_effect,
-        ) as processor_ctor,
+            "nemo_curator.models.asr.qwen_omni.Qwen3OmniMoeProcessor",
+            processor_cls,
+        ),
         patch("nemo_curator.models.asr.qwen_omni.SamplingParams") as sampling_ctor,
     ):
-        yield llm_ctor, processor_ctor, sampling_ctor
+        yield llm_ctor, processor_cls.from_pretrained, sampling_ctor
 
 
 def test_qwen_adapter_conforms_to_asr_protocol() -> None:
@@ -72,23 +125,23 @@ def test_qwen_adapter_rejects_nonpositive_max_output_tokens() -> None:
         QwenOmniASRAdapter(model_id="mock/qwen-omni", max_output_tokens=0)
 
 
-@pytest.mark.parametrize("top_p", [0.0, -0.1, 1.1])
-def test_qwen_adapter_rejects_invalid_top_p(top_p: float) -> None:
-    with pytest.raises(ValueError, match="top_p must be in"):
-        QwenOmniASRAdapter(model_id="mock/qwen-omni", top_p=top_p)
+@pytest.mark.parametrize("reserved_key", ["model", "revision", "tensor_parallel_size"])
+def test_qwen_adapter_rejects_stage_owned_vllm_kwargs(reserved_key: str) -> None:
+    with pytest.raises(ValueError, match=reserved_key):
+        QwenOmniASRAdapter(model_id="mock/qwen-omni", vllm_kwargs={reserved_key: "invalid"})
 
 
-def test_qwen_adapter_rejects_nonpositive_repetition_penalty() -> None:
-    with pytest.raises(ValueError, match="repetition_penalty must be greater than zero"):
-        QwenOmniASRAdapter(model_id="mock/qwen-omni", repetition_penalty=0.0)
+def test_qwen_adapter_rejects_sampling_max_tokens_override() -> None:
+    with pytest.raises(ValueError, match="use max_output_tokens"):
+        QwenOmniASRAdapter(model_id="mock/qwen-omni", sampling_kwargs={"max_tokens": 1024})
 
 
 @pytest.mark.parametrize("num_gpus", [0, -1, 1.5, True])
-def test_qwen_adapter_setup_requires_positive_integer_stage_gpu_count(num_gpus: object) -> None:
+def test_qwen_adapter_load_model_requires_positive_integer_stage_gpu_count(num_gpus: object) -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
 
     with pytest.raises(ValueError, match="requires a positive integer num_gpus"):
-        adapter.setup(num_gpus=num_gpus)  # type: ignore[arg-type]
+        adapter.load_model(num_gpus=num_gpus)  # type: ignore[arg-type]
 
 
 def test_qwen_adapter_rejects_invalid_prompt_content_order() -> None:
@@ -98,26 +151,26 @@ def test_qwen_adapter_rejects_invalid_prompt_content_order() -> None:
 
 def test_qwen_adapter_infer_turn_returns_length_stopped_output() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", max_output_tokens=2)
-    adapter._generate = MagicMock(  # type: ignore[method-assign]
-        return_value=[
-            SimpleNamespace(outputs=[SimpleNamespace(text="partial", token_ids=[0, 1], finish_reason="length")])
-        ]
-    )
-
-    texts = adapter._infer_turn(inputs=[{"prompt": "a"}], indices=[0], n=1)
+    with _mock_external_qwen_runtime(
+        adapter,
+        generated_batches=[
+            [SimpleNamespace(outputs=[SimpleNamespace(text="partial", token_ids=[0, 1], finish_reason="length")])]
+        ],
+    ):
+        texts = adapter._infer_turn(inputs=[{"prompt": "a"}], indices=[0], n=1)
 
     assert texts == ["partial"]
 
 
 def test_qwen_adapter_infer_turn_accepts_explicit_stop_at_token_cap() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", max_output_tokens=2)
-    adapter._generate = MagicMock(  # type: ignore[method-assign]
-        return_value=[
-            SimpleNamespace(outputs=[SimpleNamespace(text="complete", token_ids=[0, 1], finish_reason="stop")])
-        ]
-    )
-
-    texts = adapter._infer_turn(inputs=[{"prompt": "a"}], indices=[0], n=1)
+    with _mock_external_qwen_runtime(
+        adapter,
+        generated_batches=[
+            [SimpleNamespace(outputs=[SimpleNamespace(text="complete", token_ids=[0, 1], finish_reason="stop")])]
+        ],
+    ):
+        texts = adapter._infer_turn(inputs=[{"prompt": "a"}], indices=[0], n=1)
 
     assert texts == ["complete"]
 
@@ -126,19 +179,16 @@ def test_qwen_adapter_infer_turn_scatters_outputs_by_index() -> None:
     """``_infer_turn`` scatters vLLM outputs back to original positions."""
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
 
-    def _fake_generate(inputs: list[dict[str, object]]) -> list[SimpleNamespace]:
-        return [
-            SimpleNamespace(outputs=[SimpleNamespace(text=f"t{i}", token_ids=[0, 1])]) for i, _ in enumerate(inputs)
-        ]
-
-    adapter._generate = _fake_generate  # type: ignore[method-assign]
-
     # Length-4 batch where only positions 1 and 3 produced valid inputs.
-    texts = adapter._infer_turn(
-        inputs=[{"prompt": "a"}, {"prompt": "b"}],
-        indices=[1, 3],
-        n=4,
-    )
+    with _mock_external_qwen_runtime(
+        adapter,
+        generated_batches=[[_vllm_output("t0"), _vllm_output("t1")]],
+    ):
+        texts = adapter._infer_turn(
+            inputs=[{"prompt": "a"}, {"prompt": "b"}],
+            indices=[1, 3],
+            n=4,
+        )
 
     assert texts == ["", "t0", "", "t1"]
 
@@ -147,13 +197,13 @@ def test_qwen_adapter_infer_turn_raises_on_vllm_count_mismatch() -> None:
     """A short vLLM result list must fail loud (strict=True), not silently drop utterances."""
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
 
-    def _short_generate(_inputs: list[dict[str, object]]) -> list[SimpleNamespace]:
-        # vLLM returns fewer outputs than inputs (e.g. a scheduler drop).
-        return [SimpleNamespace(outputs=[SimpleNamespace(text="only-one", token_ids=[0])])]
-
-    adapter._generate = _short_generate  # type: ignore[method-assign]
-
-    with pytest.raises(ValueError, match="zip"):
+    with (
+        _mock_external_qwen_runtime(
+            adapter,
+            generated_batches=[[_vllm_output("only-one")]],
+        ),
+        pytest.raises(ValueError, match="zip"),
+    ):
         adapter._infer_turn(inputs=[{"prompt": "a"}, {"prompt": "b"}], indices=[0, 1], n=2)
 
 
@@ -221,142 +271,161 @@ def test_qwen_adapter_missing_reference_placeholder_skips_before_prompt_packing(
         model_id="mock/qwen-omni",
         prompt_text="Improve this transcript: {transcript}",
     )
-    adapter._pack_vllm_inputs = MagicMock(return_value={"prompt": "must not be used"})  # type: ignore[method-assign]
-
-    prepared = adapter._prepare_single(np.zeros(_SR, dtype=np.float32), "English")
+    with _mock_external_qwen_runtime(adapter) as (llm, mm_info):
+        prepared = adapter._prepare_single(np.zeros(_SR, dtype=np.float32), "English")
 
     assert prepared is None
-    adapter._pack_vllm_inputs.assert_not_called()
+    mm_info.assert_not_called()
+    llm.generate.assert_not_called()
 
 
 def test_qwen_adapter_transcribe_batch_packages_results() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt="refine")
-    adapter._run_two_turn = MagicMock(  # type: ignore[method-assign]
-        return_value=(
-            ["text-a", "text-b", ""],
-            ["refined-a", "", ""],
-            {2},
-        ),
-    )
     items = [
         {
             "waveform": np.zeros(_SR, dtype=np.float32),
+            "sample_rate": _SR,
             "language": "English",
             "reference_text": "ref-a",
         },
         {
             "waveform": np.zeros(_SR, dtype=np.float32),
+            "sample_rate": _SR,
             "language": "English",
             "reference_text": "ref-b",
         },
-        {"waveform": np.zeros(0, dtype=np.float32), "language": None},
+        {"waveform": np.zeros(0, dtype=np.float32), "sample_rate": _SR, "language": None},
     ]
-    results = adapter.transcribe_batch(items)
+    with _mock_external_qwen_runtime(
+        adapter,
+        generated_batches=[
+            [_vllm_output("text-a"), _vllm_output("text-b")],
+            [_vllm_output("refined-a"), _vllm_output("")],
+        ],
+    ) as (llm, _):
+        results = adapter.transcribe_batch(items)
 
     assert [r.text for r in results] == ["text-a", "text-b", ""]
     assert [r.secondary_text for r in results] == ["refined-a", "", ""]
     assert [r.skipped for r in results] == [False, False, True]
-
-    adapter._run_two_turn.assert_called_once()
-    _waveforms, langs, refs = adapter._run_two_turn.call_args[0]
-    assert langs == ["English", "English", None]
-    assert refs == ["ref-a", "ref-b", None]
+    assert llm.generate.call_count == 2
+    assert len(llm.generate.call_args_list[0].args[0]) == 2
+    assert len(llm.generate.call_args_list[1].args[0]) == 2
 
 
 def test_qwen_adapter_single_turn_drops_secondary_text() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt=None)
-    adapter._run_two_turn = MagicMock(  # type: ignore[method-assign]
-        return_value=(["text-a"], [""], set()),
-    )
-    results = adapter.transcribe_batch(
-        [
-            {"waveform": np.zeros(_SR, dtype=np.float32)},
-        ]
-    )
+    with _mock_external_qwen_runtime(
+        adapter,
+        generated_batches=[[_vllm_output("text-a")]],
+    ):
+        results = adapter.transcribe_batch(
+            [
+                {"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR},
+            ]
+        )
     assert results[0].secondary_text is None
+
+
+def test_qwen_adapter_rejects_non_16khz_audio_before_inference() -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
+    with (
+        _mock_external_qwen_runtime(adapter) as (llm, mm_info),
+        pytest.raises(ValueError, match=r"requires 16000 Hz audio.*decoded at 8000 Hz"),
+    ):
+        adapter.transcribe_batch(
+            [
+                {
+                    "waveform": np.zeros(8000, dtype=np.float32),
+                    "sample_rate": 8000,
+                }
+            ]
+        )
+
+    mm_info.assert_not_called()
+    llm.generate.assert_not_called()
 
 
 def test_qwen_adapter_prepare_single_uses_stage_normalized_waveform_unchanged() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-    adapter._build_messages = MagicMock(return_value=[{"role": "user", "content": []}])  # type: ignore[method-assign]
-    adapter._pack_vllm_inputs = MagicMock(return_value={"prompt": "p"})  # type: ignore[method-assign]
     waveform = np.ones(_SR, dtype=np.float32)
 
-    prepared = adapter._prepare_single(waveform, "English")
+    with _mock_external_qwen_runtime(adapter):
+        prepared = adapter._prepare_single(waveform, "English")
 
     assert prepared is not None
     inputs, prepared_waveform = prepared
-    assert inputs == {"prompt": "p"}
+    assert len(inputs["multi_modal_data"]["audio"]) == 1
+    assert inputs["multi_modal_data"]["audio"][0] is waveform
     assert prepared_waveform is waveform
 
 
 def test_qwen_adapter_prepare_single_skips_too_short_waveform_before_preprocess() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-    adapter._build_messages = MagicMock(return_value=[{"role": "user", "content": []}])  # type: ignore[method-assign]
-    adapter._pack_vllm_inputs = MagicMock(return_value={"prompt": "p"})  # type: ignore[method-assign]
 
-    assert adapter._prepare_single(np.zeros(100, dtype=np.float32), "English") is None
-    adapter._build_messages.assert_not_called()
-    adapter._pack_vllm_inputs.assert_not_called()
+    with _mock_external_qwen_runtime(adapter) as (llm, mm_info):
+        assert adapter._prepare_single(np.zeros(100, dtype=np.float32), "English") is None
+
+    mm_info.assert_not_called()
+    llm.generate.assert_not_called()
 
 
-def test_qwen_adapter_has_elevated_vllm_knobs_as_dataclass_fields() -> None:
-    """vLLM knobs are dataclass fields settable from YAML ``adapter_kwargs``."""
+def test_qwen_adapter_accepts_nested_vllm_kwargs() -> None:
+    """Engine knobs remain directly configurable through YAML ``adapter_kwargs``."""
+    vllm_kwargs = {
+        "enable_prefix_caching": False,
+        "prefix_caching_hash_algo": "sha256",
+        "limit_mm_per_prompt": {"image": 1, "video": 1, "audio": 1},
+        "max_num_batched_tokens": 49152,
+        "seed": 99,
+    }
     adapter = QwenOmniASRAdapter(
         model_id="mock/qwen-omni",
-        enable_prefix_caching=False,
-        prefix_caching_hash_algo="sha256",
-        limit_mm_per_prompt_audio=1,
-        max_num_batched_tokens=49152,
-        seed=99,
+        vllm_kwargs=vllm_kwargs,
     )
-    assert adapter.enable_prefix_caching is False
-    assert adapter.prefix_caching_hash_algo == "sha256"
-    assert adapter.limit_mm_per_prompt_audio == 1
-    assert adapter.max_num_batched_tokens == 49152
-    assert adapter.seed == 99
+    assert adapter.vllm_kwargs == vllm_kwargs
+    assert adapter.vllm_kwargs is not vllm_kwargs
+    vllm_kwargs["limit_mm_per_prompt"]["audio"] = 9
+    assert adapter.vllm_kwargs["limit_mm_per_prompt"]["audio"] == 1
 
 
 def test_qwen_adapter_vllm_knob_defaults_match_doc() -> None:
     """Default vLLM knob values match the adapter documentation."""
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-    assert adapter.enable_prefix_caching is True
-    assert adapter.prefix_caching_hash_algo == "xxhash"
-    assert adapter.limit_mm_per_prompt_audio == 2
-    assert adapter.max_num_batched_tokens is None
-    assert adapter.seed == 1234
+    assert adapter.vllm_kwargs["enable_prefix_caching"] is True
+    assert adapter.vllm_kwargs["prefix_caching_hash_algo"] == "xxhash"
+    assert adapter.vllm_kwargs["limit_mm_per_prompt"] == {"image": 1, "video": 1, "audio": 2}
+    assert adapter.vllm_kwargs["seed"] == 1234
 
 
-def test_qwen_adapter_rejects_invalid_max_num_batched_tokens() -> None:
-    with pytest.raises(ValueError, match="max_num_batched_tokens must be positive"):
-        QwenOmniASRAdapter(model_id="mock/qwen-omni", max_num_batched_tokens=0)
-
-
-def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
-    """setup() forwards the elevated knobs to the vLLM LLM ctor."""
+def test_qwen_adapter_load_model_threads_vllm_kwargs_into_shared_llm_ctor() -> None:
+    """load_model() forwards engine kwargs through Curator's shared helper."""
     adapter = QwenOmniASRAdapter(
         model_id="mock/qwen-omni",
+        vllm_kwargs={
+            "enable_prefix_caching": False,
+            "prefix_caching_hash_algo": "sha256",
+            "limit_mm_per_prompt": {"image": 1, "video": 1, "audio": 3},
+            "max_num_batched_tokens": 49152,
+            "seed": 42,
+        },
+    )
+    with _mock_qwen_model_load() as (llm_ctor, _, sampling_ctor):
+        adapter.load_model(num_gpus=2)
+
+    llm_ctor.assert_called_once_with(
+        "mock/qwen-omni",
         enable_prefix_caching=False,
         prefix_caching_hash_algo="sha256",
-        limit_mm_per_prompt_audio=3,
+        limit_mm_per_prompt={"image": 1, "video": 1, "audio": 3},
         max_num_batched_tokens=49152,
         seed=42,
+        tensor_parallel_size=2,
     )
-    with _mock_qwen_setup() as (llm_ctor, _, sampling_ctor):
-        adapter.setup(num_gpus=2)
-
-    llm_ctor.assert_called_once()
-    kwargs = llm_ctor.call_args.kwargs
-    assert kwargs["enable_prefix_caching"] is False
-    assert kwargs["prefix_caching_hash_algo"] == "sha256"
-    assert kwargs["limit_mm_per_prompt"] == {"image": 1, "video": 1, "audio": 3}
-    assert kwargs["max_num_batched_tokens"] == 49152
-    assert kwargs["seed"] == 42
-    assert kwargs["tensor_parallel_size"] == 2
-    assert "revision" not in kwargs
     sampling_ctor.assert_called_once_with(
         temperature=0.0,
         top_k=1,
+        repetition_penalty=1.0,
         max_tokens=256,
     )
 
@@ -365,46 +434,49 @@ def test_qwen_adapter_setup_threads_vllm_knobs_into_llm_ctor() -> None:
     ("adapter_kwargs", "expected_sampling_kwargs"),
     [
         (
-            {"temperature": 0.01, "top_p": 0.1, "top_k": 1, "max_output_tokens": 8192},
+            {
+                "sampling_kwargs": {"temperature": 0.01, "top_p": 0.1, "top_k": 1},
+                "max_output_tokens": 8192,
+            },
             {"temperature": 0.01, "top_k": 1, "max_tokens": 8192, "top_p": 0.1},
         ),
         (
-            {"repetition_penalty": 1.15},
-            {"temperature": 0.0, "top_k": 1, "max_tokens": 256, "repetition_penalty": 1.15},
+            {"sampling_kwargs": {"repetition_penalty": 1.15}},
+            {"max_tokens": 256, "repetition_penalty": 1.15},
         ),
     ],
 )
-def test_qwen_adapter_setup_threads_sampling_parameters(
-    adapter_kwargs: dict[str, float | int],
+def test_qwen_adapter_load_model_threads_sampling_kwargs(
+    adapter_kwargs: dict[str, object],
     expected_sampling_kwargs: dict[str, float | int],
 ) -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", **adapter_kwargs)
-    with _mock_qwen_setup() as (_, _, sampling_ctor):
-        adapter.setup(num_gpus=1)
+    with _mock_qwen_model_load() as (_, _, sampling_ctor):
+        adapter.load_model(num_gpus=1)
 
     sampling_ctor.assert_called_once_with(**expected_sampling_kwargs)
 
 
-def test_qwen_adapter_setup_forwards_revision_to_llm_and_processor() -> None:
-    """Tier-1 revision must reach inference loaders, not only prefetch_weights."""
+def test_qwen_adapter_load_model_forwards_revision_to_llm_and_processor() -> None:
+    """Tier-1 revision must reach inference loaders, not only the weight download."""
     adapter = QwenOmniASRAdapter(
         model_id="mock/qwen-omni",
         revision="abc123",
     )
-    with _mock_qwen_setup() as (llm_ctor, proc_ctor, _):
-        adapter.setup(num_gpus=1)
+    with _mock_qwen_model_load() as (llm_ctor, proc_ctor, _):
+        adapter.load_model(num_gpus=1)
 
     assert llm_ctor.call_args.kwargs["revision"] == "abc123"
     proc_ctor.assert_called_once_with("mock/qwen-omni", revision="abc123")
 
 
-def test_qwen_adapter_setup_cleans_up_partial_engine_when_processor_fails() -> None:
+def test_qwen_adapter_load_model_cleans_up_partial_engine_when_processor_fails() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
     with (
-        _mock_qwen_setup(processor_side_effect=RuntimeError("processor failed")),
+        _mock_qwen_model_load(processor_side_effect=RuntimeError("processor failed")),
         pytest.raises(RuntimeError, match="processor failed"),
     ):
-        adapter.setup(num_gpus=1)
+        adapter.load_model(num_gpus=1)
 
     assert adapter._llm is None
     assert adapter._sampling_params is None
@@ -415,26 +487,20 @@ def test_qwen_adapter_marks_empty_turn1_outputs_skipped_and_excludes_turn2() -> 
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt="refine")
     waveform_a = np.ones(_SR, dtype=np.float32)
     waveform_b = np.ones(_SR, dtype=np.float32)
-    adapter._prepare_batch = MagicMock(  # type: ignore[method-assign]
-        return_value=[
-            ({"prompt": "a"}, waveform_a),
-            ({"prompt": "b"}, waveform_b),
+    with _mock_external_qwen_runtime(
+        adapter,
+        generated_batches=[
+            [_vllm_output(""), _vllm_output("text-b")],
+            [_vllm_output("refined-b")],
         ],
-    )
-    adapter._prepare_turn2_batch = MagicMock(return_value=[{"prompt": "turn2-b"}])  # type: ignore[method-assign]
-    adapter._infer_turn = MagicMock(  # type: ignore[method-assign]
-        side_effect=[
-            ["", "text-b"],
-            ["", "refined-b"],
-        ],
-    )
-
-    pred_texts, disfluency_texts, skipped_indices = adapter._run_two_turn(
-        [waveform_a, waveform_b],
-        ["English", "English"],
-    )
+    ) as (llm, _):
+        pred_texts, disfluency_texts, skipped_indices = adapter._run_two_turn(
+            [waveform_a, waveform_b],
+            ["English", "English"],
+        )
 
     assert pred_texts == ["", "text-b"]
     assert disfluency_texts == ["", "refined-b"]
     assert skipped_indices == {0}
-    adapter._prepare_turn2_batch.assert_called_once_with([waveform_b], ["text-b"], ["English"], [None])
+    assert llm.generate.call_count == 2
+    assert len(llm.generate.call_args_list[1].args[0]) == 1

@@ -16,8 +16,8 @@
 
 ``ASRStage`` owns Curator-side glue (``task.data`` reads, batching, ISO
 language mapping, ``_skipme``), while ``ASRAdapter`` owns the model-side call
-(prefetch, setup, generation, and packing into ``ASRResult``). The split lets
-the stage swap models via a single YAML ``adapter_target:`` line.
+(weight download, model loading, generation, and packing into ``ASRResult``).
+The split lets the stage swap models via a single YAML ``adapter_target:`` line.
 """
 
 from __future__ import annotations
@@ -69,6 +69,8 @@ class ASRAdapter(Protocol):
 
     * ``waveform``: contiguous, mono, 1-D float32 NumPy samples loaded by
       ``ASRStage`` from the resampled audio path.
+    * ``sample_rate`` (``int``): sample rate returned while decoding
+      ``waveform``.
     * ``language`` (``str | None``): human-readable name (e.g. ``"English"``).
     * ``language_code`` (``str | None``): original language code from the
       configured stage input column.
@@ -84,7 +86,7 @@ class ASRAdapter(Protocol):
     model_id: str
 
     @classmethod
-    def prefetch_weights(cls, model_id: str, revision: str | None = None) -> None:
+    def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
         """Download weights to local cache without allocating a GPU.
 
         Classmethod so the stage can call it (once per node) without
@@ -92,7 +94,7 @@ class ASRAdapter(Protocol):
         """
         ...
 
-    def setup(self, *, num_gpus: int) -> None:
+    def load_model(self, *, num_gpus: int) -> None:
         """Load the model into the worker process using the stage-owned GPU count.
 
         ``ASRStage`` derives ``num_gpus`` from its Curator resource request so
@@ -100,7 +102,7 @@ class ASRAdapter(Protocol):
         """
         ...
 
-    def teardown(self) -> None:
+    def unload_model(self) -> None:
         """Release GPU memory and worker-local state."""
         ...
 

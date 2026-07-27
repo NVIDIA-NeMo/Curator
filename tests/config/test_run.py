@@ -430,6 +430,7 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
     executor = create_executor_from_yaml(cfg)
 
     assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert "sample_rate" not in cfg
     assert Path(resample_stage.resampled_audio_dir).parts[-2:] == ("qwen_omni_workspace", "audio_resampled")
     assert resample_stage.input_format == "wav"
     assert resample_stage.target_sample_rate == 16000
@@ -473,18 +474,26 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
         "system_prompt_file": None,
         "prompt_content_order": "text_audio",
         "max_output_tokens": 256,
-        "max_model_len": 32768,
-        "max_num_seqs": 16,
-        "max_num_batched_tokens": None,
-        "gpu_memory_utilization": 0.95,
-        "temperature": 0.0,
-        "top_p": None,
-        "top_k": 1,
-        "repetition_penalty": 1.0,
-        "enable_prefix_caching": True,
-        "prefix_caching_hash_algo": "xxhash",
-        "limit_mm_per_prompt_audio": 2,
-        "seed": 1234,
+        "vllm_kwargs": {
+            "max_model_len": 32768,
+            "max_num_seqs": 16,
+            "gpu_memory_utilization": 0.95,
+            "dtype": "auto",
+            "trust_remote_code": True,
+            "enable_prefix_caching": True,
+            "prefix_caching_hash_algo": "xxhash",
+            "limit_mm_per_prompt": {
+                "image": 1,
+                "video": 1,
+                "audio": 2,
+            },
+            "seed": 1234,
+        },
+        "sampling_kwargs": {
+            "temperature": 0.0,
+            "top_k": 1,
+            "repetition_penalty": 1.0,
+        },
     }
     assert executor.__class__.__name__ == "RayDataExecutor"
     assert executor.config == {}

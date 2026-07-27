@@ -82,13 +82,12 @@ cuda12 = [
 cv2 = [
     "opencv-python-headless",
 ]
-vllm = ["vllm>=0.14.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
+vllm = ["vllm>=0.18.1,<0.19; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
 inference_server = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
-    "vllm<0.19; (platform_machine == 'x86_64' and platform_system != 'Darwin')", # Ray Serve LLM 2.55.1 isn't compatible with vllm 0.19+
     "ai-dynamo==1.1.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')", # pin so the Dynamo actor venv resolves to the same release we test against; gated to x86_64 since vllm wheels are x86_64-only
     "boto3>=1.35", # Get rid once https://github.com/ray-project/ray/issues/61269 is fixed
     "nixl-cu12>=0.10.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
@@ -116,8 +115,8 @@ audio_common = [
     "librosa",
     "scipy",
     "pydub>=0.25.1",
-    "transformers",
-    "accelerate",
+    "transformers>=4.57.6,<5.0",
+    "accelerate>=1.12.0",
     "nemo_text_processing; platform_machine == 'x86_64' and platform_system != 'Darwin'",  # pulls pynini, which ships x86_64-only wheels and fails to build on aarch64
     "opencc-python-reimplemented",
     "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
@@ -134,20 +133,8 @@ audio_cuda12 = [
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
     "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
-    "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
-]
-
-# Model-backed audio inference is an opt-in CUDA stack. Keeping it separate
-# preserves the existing audio_cuda12 environment for other audio pipelines.
-audio_vllm = [
-    "nemo_curator[audio_cuda12]",
-    "nemo_curator[vllm]",
-    # Latest Qwen-compatible releases inside Curator's vLLM 0.18 / HF Hub
-    # compatibility envelope. vLLM 0.18.x does not support Transformers 5.x.
-    "accelerate>=1.12.0",
     "qwen-omni-utils>=0.0.9",
-    "transformers>=4.57.6,<5.0",
-    "vllm>=0.18.1,<0.19; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 
 image_cpu = [

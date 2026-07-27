@@ -173,14 +173,14 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     ) -> None:
         """Cache model weights once per node (no GPU allocation)."""
         try:
-            self._adapter_class().prefetch_weights(self.model_id, self.revision)
+            self._adapter_class().download_weights_on_node(self.model_id, self.revision)
             logger.info(
                 "ASR weights cached on node for {} ({})",
                 self.model_id,
                 self.adapter_target,
             )
         except Exception as exc:
-            msg = f"ASRStage: prefetch_weights failed for {self.model_id}"
+            msg = f"ASRStage: download_weights_on_node failed for {self.model_id}"
             if self.prefetch_fail_on_error:
                 raise RuntimeError(msg) from exc
             logger.warning("{}; setup() will retry: {}", msg, exc)
@@ -194,10 +194,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 **self.adapter_kwargs,
             )
             try:
-                adapter.setup(num_gpus=self._adapter_gpu_count())
+                adapter.load_model(num_gpus=self._adapter_gpu_count())
             except Exception:
                 try:
-                    adapter.teardown()
+                    adapter.unload_model()
                 except Exception as teardown_exc:  # noqa: BLE001
                     logger.warning("ASR adapter cleanup after setup failure also failed: {}", teardown_exc)
                 raise
@@ -220,7 +220,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
 
     def teardown(self) -> None:
         if self._adapter is not None:
-            self._adapter.teardown()
+            self._adapter.unload_model()
             self._adapter = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -274,14 +274,14 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         ]
 
     @staticmethod
-    def _load_audio(audio_filepath: str) -> np.ndarray:
+    def _load_audio(audio_filepath: str) -> tuple[np.ndarray, int]:
         """Open one resampled file inside the ASR worker.
 
         ``ResampleAudioStage`` guarantees mono audio, so squeezing its channel
         dimension matches the file-backed tagging pipeline contract.
         """
-        waveform, _sample_rate = torchaudio.load(audio_filepath)
-        return waveform.squeeze(0).numpy()
+        waveform, sample_rate = torchaudio.load(audio_filepath)
+        return waveform.squeeze(0).numpy(), sample_rate
 
     def process(self, task: AudioTask) -> AudioTask:
         msg = f"{type(self).__name__} only supports process_batch"
@@ -340,7 +340,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             item = items[index]
             audio_filepath = str(item["audio_filepath"])
             try:
-                waveform = self._load_audio(audio_filepath)
+                waveform, sample_rate = self._load_audio(audio_filepath)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "ASRStage ({}): failed to load audio for task {} from {}: {}",
@@ -355,6 +355,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             adapter_items.append(
                 {
                     "waveform": waveform,
+                    "sample_rate": sample_rate,
                     "language": item["language"],
                     "language_code": item["language_code"],
                     "reference_text": item["reference_text"],
@@ -377,7 +378,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 ASRResult(
                     text="",
                     skipped=False,
-                    unsupported_language=str(item.get("language_code", "") or "").strip().lower(),
+                    unsupported_language=str(item.get("language_code", "") or "").strip().lower() or None,
                 ),
             )
             for index, item in enumerate(items)
@@ -386,15 +387,19 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     def assemble(
         self,
         tasks: list[AudioTask],
-        _items: list[dict[str, Any]],
+        items: list[dict[str, Any]],
         results: list[ASRResult],
     ) -> list[AudioTask]:
         """Write adapter results to tasks."""
         skipped_count = 0
-        for task, result in zip(tasks, results, strict=True):
+        for task, item, result in zip(tasks, items, results, strict=True):
             task.data[self.pred_text_key] = result.text
             unsupported_language = result.unsupported_language
-            if unsupported_language:
+            missing_language = self._supported_language_codes is not None and not item["language_code"]
+            if missing_language:
+                _set_note(task.data, self.name, "skipped (missing language)")
+                _set_note(task.data, self.pred_text_key, "language_missing")
+            elif unsupported_language:
                 _set_note(
                     task.data,
                     self.name,
@@ -408,7 +413,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             if result.skipped:
                 task.data[_SKIP_ME_KEY] = result.skip_reason or "empty_audio"
                 skipped_count += 1
-            if self.primary_model_value and not unsupported_language:
+            if self.primary_model_value and not unsupported_language and not missing_language:
                 _set_note(task.data, self.primary_model_key, self.primary_model_value)
 
         if skipped_count:

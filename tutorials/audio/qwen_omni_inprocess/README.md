@@ -24,7 +24,7 @@ under `resampled_audio_dir` before inference starts on those rows.
 From the Curator repository root, install the optional Qwen stack:
 
 ```bash
-uv sync --extra audio_vllm
+uv sync --extra audio_cuda12 --extra vllm
 source .venv/bin/activate
 ```
 
@@ -73,6 +73,12 @@ explicit:
 Keeping these values in the YAML makes any future drift from the reference
 configuration visible in code review.
 
+The engine settings live under `adapter_kwargs.vllm_kwargs`; sampling settings
+live under `adapter_kwargs.sampling_kwargs`. They are forwarded to Curator's
+shared vLLM construction path and vLLM's `SamplingParams`, respectively.
+Do not put `tensor_parallel_size` in `vllm_kwargs`: `gpus_per_actor` is the
+single GPU-count setting and the stage derives tensor parallelism from it.
+
 ## Select the executor
 
 The default `backend: ray_data` matches the reference runner. When using
@@ -119,9 +125,12 @@ contain `audio_filepath` and, by default, `source_lang`:
 
 Only file paths and metadata travel between pipeline stages. `ASRStage` opens
 `resampled_audio_filepath` with `torchaudio` only for its current batch and
-passes the resulting mono NumPy samples directly to the adapter. It never
-stores a waveform or sample rate in `task.data`, so manifest size does not
-cause all decoded audio to accumulate in host RAM.
+passes the resulting mono NumPy samples and decoded sample rate directly to
+the adapter. It never stores either value in `task.data`, so manifest size
+does not cause all decoded audio to accumulate in host RAM. The Qwen-Omni
+adapter requires 16 kHz audio and rejects a file if its decoded rate differs;
+the tutorial therefore fixes `ResampleAudioStage.target_sample_rate` at
+16 kHz instead of exposing an incompatible override.
 
 `ASRStage` adds only the configured prediction column and, when applicable,
 `_skipme` or `additional_notes`. This tutorial defaults the prediction column
@@ -143,6 +152,9 @@ Rows are handled differently depending on where processing fails:
 - A language outside `supported_language_codes` remains in the output with an
   empty configured prediction column and an explanation under
   `additional_notes`.
+- When `supported_language_codes` is enabled, a row with neither
+  `source_lang` nor `default_language` remains in the output with an empty
+  prediction and `language_missing` under `additional_notes`.
 
 Inspect `_skipme` and `additional_notes` before consuming a completed
 manifest.
@@ -170,7 +182,7 @@ interpolation. Unknown codes are passed through in normalized lowercase form.
 The default allowlist matches the reference Qwen stage:
 `en`, `zh`, `ko`, `ja`, `de`, `ru`, `it`, `fr`, `es`, `pt`, `ms`, `nl`,
 `id`, `tr`, `vi`, `yue`, `ar`, and `ur`. Rows without `source_lang` are
-annotated as unsupported unless `default_language` is explicitly set.
+annotated with `language_missing` unless `default_language` is explicitly set.
 
 ## Reference-guided inference
 
