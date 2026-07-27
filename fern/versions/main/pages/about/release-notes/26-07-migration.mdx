@@ -1,16 +1,16 @@
 ---
-description: "Migration checklist for upgrading NeMo Curator pipelines to 26.06 (v1.3.0)"
+description: "Migration checklist for upgrading NeMo Curator pipelines to 26.07 (v1.3.0)"
 categories: ["reference", "how-to"]
-tags: ["migration", "upgrade", "26.06", "v1.3.0"]
+tags: ["migration", "upgrade", "26.07", "v1.3.0"]
 personas: ["data-scientist-focused", "mle-focused", "admin-focused", "devops-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
 modality: "universal"
 ---
 
-# Migrate to NeMo Curator 26.06
+# Migrate to NeMo Curator 26.07
 
-Use this checklist to update applications and pipeline configuration for NeMo Curator 26.06 (v1.3.0). For the complete feature and fix list, see the [26.06 release notes](/about/release-notes).
+Use this checklist to update applications and pipeline configuration for NeMo Curator 26.07 (v1.3.0). For the complete feature and fix list, see the [26.07 release notes](/about/release-notes).
 
 ## Migration at a Glance
 
@@ -23,14 +23,21 @@ Use this checklist to update applications and pipeline configuration for NeMo Cu
 | Video caption variants | Replace `qwen` with `qwen2.5` or `qwen3` | Video caption and enhancement pipelines |
 | Inference server | Replace `InferenceModelConfig` with a typed Ray Serve or Dynamo configuration | Pipelines that serve local LLMs |
 | Audio ASR workers | Rename `num_workers` to `dataloader_num_workers` | ASR and alignment stages |
-| Stage workers | Move executor sizing to `with_(num_workers=...)` where appropriate | Custom scheduling and tutorial code |
 | Audio dependencies | Account for missing `nemo_text_processing` on aarch64 and macOS | Audio pipelines using ITN or WER stages |
 | Video dependencies | Install FlashAttention explicitly only if custom code imports it | Custom video environments |
 | Resumability | Start Ray first and pass a local `checkpoint_path` only to resumability-safe pipelines | Long-running Ray pipelines |
 
 ## 1. Upgrade Python
 
-NeMo Curator 26.06 requires Python 3.11 or later and supports Python versions below 3.14. Recreate the environment instead of upgrading Python in place, then install only the extras your pipeline uses.
+NeMo Curator 26.07 requires Python 3.11 or later and supports Python versions below 3.14. Recreate the environment instead of upgrading Python in place, then install only the extras your pipeline uses.
+
+```bash
+uv venv --python 3.11
+source .venv/bin/activate
+uv pip install "nemo-curator[all]"
+```
+
+If you do not use `uv`, create the environment with `venv` instead:
 
 ```bash
 python3.11 -m venv .venv
@@ -43,7 +50,7 @@ Replace `all` with a narrower modality extra when possible.
 
 ## 2. Stop Supplying `task_id`
 
-`Task.task_id` is framework-owned in 26.06. It has `init=False`, so passing it to a task constructor raises an error. NeMo Curator assigns IDs at every stage boundary and preserves deterministic lineage for supported one-to-one, one-to-many, and positionally aligned many-to-many mappings. Ambiguous M-to-K mappings receive a random ID prefixed with `r`.
+`Task.task_id` is framework-owned in 26.07. It has `init=False`, so passing it to a task constructor raises an error. NeMo Curator assigns IDs at every stage boundary and preserves deterministic lineage for supported one-to-one, one-to-many, and positionally aligned many-to-many mappings. Ambiguous M-to-K mappings receive a random ID prefixed with `r`.
 
 Before:
 
@@ -215,26 +222,7 @@ The same rename applies to stages derived from `BaseASRProcessorStage`. The two 
 
 See [#2086](https://github.com/NVIDIA-NeMo/Curator/pull/2086) and [Stage worker sizing](/reference/infra/stage-worker-sizing).
 
-## 8. Normalize Custom Stage Scheduling
-
-Review custom `ray_stage_spec()` and `xenna_stage_spec()` methods after the scheduling changes in [#2077](https://github.com/NVIDIA-NeMo/Curator/pull/2077) and [#2086](https://github.com/NVIDIA-NeMo/Curator/pull/2086).
-
-For a per-pipeline fixed worker override, prefer:
-
-```python
-stage = MyProcessingStage(...).with_(num_workers=4)
-```
-
-Use stage specifications when the class itself needs a reusable scheduling policy:
-
-- `ActorPoolStrategy` or `TaskPoolStrategy` for fixed Ray Data workers.
-- Minimum, maximum, and initial sizes for an autoscaling actor pool.
-- Xenna `Resources` for per-worker computation and memory requirements.
-- Per-node resources only for work that truly consumes node-scoped capacity.
-
-Do not copy a Xenna-only `num_workers` dictionary into all backends. The NDD tutorial correction in [#2104](https://github.com/NVIDIA-NeMo/Curator/pull/2104) is a representative migration.
-
-## 9. Review Architecture-Specific Dependencies
+## 8. Review Architecture-Specific Dependencies
 
 ### Dependency Matrix
 
@@ -260,9 +248,9 @@ If they require `nemo_text_processing` in your pipeline, run that portion on a s
 
 In [#2107](https://github.com/NVIDIA-NeMo/Curator/pull/2107), NeMo Curator removed the direct `flash-attn<=2.8.3` pin from `video_cuda12`, the lock file, and related Docker build handling. The built-in video stack should run with its declared dependencies. If your own model or stage imports `flash_attn`, install a version compatible with your CUDA, PyTorch, compiler, and architecture instead of relying on the Curator extra.
 
-## 10. Configure Pipeline Resumability
+## 9. Configure Pipeline Resumability
 
-NeMo Curator 26.06 includes source-level counter checkpointing from [#2063](https://github.com/NVIDIA-NeMo/Curator/pull/2063). On rerun, it skips source partitions whose downstream work completed and retries sources with unfinished or failed branches.
+NeMo Curator 26.07 includes source-level counter checkpointing from [#2063](https://github.com/NVIDIA-NeMo/Curator/pull/2063). On rerun, it skips source partitions whose downstream work completed and retries sources with unfinished or failed branches.
 
 Start the Ray cluster before running the pipeline, then pass a local directory to `checkpoint_path`:
 
@@ -295,7 +283,7 @@ Follow these constraints:
 
 See [Resumable Processing](/reference/infra/resumable-processing) for the full execution model and supported patterns.
 
-## 11. Run Post-Upgrade Checks
+## 10. Run Post-Upgrade Checks
 
 Use a representative subset rather than a synthetic no-op pipeline. Confirm all of the following:
 
