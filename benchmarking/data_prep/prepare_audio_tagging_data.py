@@ -345,14 +345,6 @@ def _resolve_model_hf_repo_id(value: str | None) -> str | None:
     return value or os.environ.get("CURATOR_AUDIO_TAGGING_MODEL_HF_REPO_ID") or DEFAULT_MODEL_HF_REPO_ID
 
 
-def _has_dataset_artifacts(output_path: Path) -> bool:
-    return (output_path / "manifest.jsonl").exists() or (output_path / "audio").exists()
-
-
-def _has_model_artifacts(model_output_path: Path) -> bool:
-    return model_output_path.exists() and any(model_output_path.iterdir())
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Stage AMI audio-tagging benchmark data and local PyAnnote model snapshot.",
@@ -435,7 +427,7 @@ def main() -> int:
         logger.info(f"Verifying staged audio-tagging model at: {model_output_path}")
         return 0 if verify_dataset(output_path) and verify_model(model_output_path) else 1
 
-    dataset_ready = _has_dataset_artifacts(output_path) and verify_dataset(output_path)
+    dataset_ready = verify_dataset(output_path)
     if not dataset_ready:
         if not ami_hf_repo_id:
             logger.error("Dataset staging requires --hf-repo-id or CURATOR_AUDIO_TAGGING_HF_REPO_ID")
@@ -452,7 +444,7 @@ def main() -> int:
         )
         dataset_ready = verify_dataset(output_path)
 
-    model_ready = _has_model_artifacts(model_output_path) and verify_model(model_output_path)
+    model_ready = verify_model(model_output_path)
     if not model_ready:
         try:
             stage_model(
