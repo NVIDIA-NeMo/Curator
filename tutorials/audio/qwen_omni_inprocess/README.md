@@ -55,7 +55,7 @@ vLLM's tensor-parallel size.
 
 ## Effective defaults
 
-The tutorial YAML makes the reference runner's effective primary-Qwen settings
+The tutorial YAML makes the reference runner's effective Qwen settings
 explicit:
 
 | Setting | Tutorial value |
@@ -134,10 +134,9 @@ the tutorial therefore fixes `ResampleAudioStage.target_sample_rate` at
 
 `ASRStage` adds only the configured prediction column and, when applicable,
 `_skipme` or `additional_notes`. This tutorial defaults the prediction column
-to `primary_model_prediction`, matching the reference runner; override it
-through the YAML, for example `pred_text_key=qwen_transcript`. The writer
-truncates `output_path` when the run starts and then appends one JSON object per
-input row.
+to `pred_text`; override it through the YAML, for example
+`pred_text_key=qwen_transcript`. The writer truncates `output_path` when the
+run starts and then appends one JSON object per input row.
 
 Rows are handled differently depending on where processing fails:
 
@@ -163,19 +162,8 @@ manifest.
 
 The default uses the reference runner's inline prompt `Transcribe the audio.`
 with no language-specific or system prompt.
-Set `prompt_file` to use a UTF-8 prompt asset instead.
-
-For language-aware prompting, use the bundled multilingual prompt containing
-`{language}`:
-
-```bash
-python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/qwen_omni_inprocess \
-  --config-name pipeline \
-  manifest_path=/data/input.jsonl \
-  output_path=/tmp/qwen_omni_output.jsonl \
-  prompt_file=examples/audio/qwen_omni_inprocess/prompts/ml_qwen3_omni_disfluency_asr.md
-```
+Set `prompt_file` to use a UTF-8 prompt asset instead. Prompt text may contain
+`{language}`.
 
 Known ISO codes are converted to human-readable language names before prompt
 interpolation. Unknown codes are passed through in normalized lowercase form.
@@ -183,27 +171,6 @@ The default allowlist matches the reference Qwen stage:
 `en`, `zh`, `ko`, `ja`, `de`, `ru`, `it`, `fr`, `es`, `pt`, `ms`, `nl`,
 `id`, `tr`, `vi`, `yue`, `ar`, and `ur`. Rows without `source_lang` are
 annotated with `language_missing` unless `default_language` is explicitly set.
-
-## Reference-guided inference
-
-For reference-guided correction, each input row must also contain a `text`
-reference transcript:
-
-```bash
-python nemo_curator/config/run.py \
-  --config-path ../../tutorials/audio/qwen_omni_inprocess \
-  --config-name pipeline \
-  manifest_path=/data/input.jsonl \
-  output_path=/tmp/qwen_omni_output.jsonl \
-  reference_text_key=text \
-  pred_text_key=revised_transcript \
-  prompt_file=examples/audio/qwen_omni_inprocess/prompts/en_qwen3_omni_reference_improvement.md
-```
-
-The result is written to `revised_transcript`. A prompt containing
-`{transcript}` requires a non-empty value at `reference_text_key` for every
-row. A missing value makes that row fail adapter preprocessing and receive
-the normal adapter skip marker.
 
 ## Scope
 

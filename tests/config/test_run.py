@@ -432,7 +432,6 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
     assert resample_stage.__class__.__name__ == "ResampleAudioStage"
     assert "sample_rate" not in cfg
     assert Path(resample_stage.resampled_audio_dir).parts[-2:] == ("qwen_omni_workspace", "audio_resampled")
-    assert resample_stage.input_format == "wav"
     assert resample_stage.target_sample_rate == 16000
     assert resample_stage.target_format == "wav"
     assert resample_stage.target_nchannels == 1

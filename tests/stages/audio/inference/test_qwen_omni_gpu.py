@@ -49,8 +49,11 @@ def _load_short_fixture() -> np.ndarray:
 
 
 def _require_real_qwen_stack() -> None:
-    pytest.importorskip("qwen_omni_utils")
-    pytest.importorskip("vllm")
+    try:
+        __import__("qwen_omni_utils")
+        __import__("vllm")
+    except ImportError as exc:
+        pytest.fail(f"The Qwen-Omni GPU test environment is missing a required dependency: {exc}")
     if Qwen3OmniMoeProcessor is None or SamplingParams is None or process_mm_info is None:
         pytest.fail("The installed Qwen-Omni dependency stack is incomplete")
 
@@ -76,7 +79,7 @@ def test_qwen_omni_real_two_gpu_smoke() -> None:
     """Load the real model through Curator and transcribe one bundled sample."""
     _require_real_qwen_stack()
     if torch.cuda.device_count() < 2:
-        pytest.skip("Qwen-Omni smoke test requires two visible GPUs")
+        pytest.fail("Qwen-Omni smoke test requires two visible GPUs")
 
     adapter = QwenOmniASRAdapter(
         model_id=_MODEL_ID,
@@ -102,7 +105,6 @@ def test_qwen_omni_real_two_gpu_smoke() -> None:
                     "sample_rate": _SAMPLE_RATE,
                     "language": "English",
                     "language_code": "en",
-                    "reference_text": None,
                     "task_id": "qwen-omni-gpu-smoke",
                 }
             ]

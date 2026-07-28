@@ -123,12 +123,9 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     # Task I/O keys.
     audio_filepath_key: str = "resampled_audio_filepath"
     source_lang_key: str = "source_lang"
-    reference_text_key: str | None = None
     default_language: str | None = None
     supported_language_codes: list[str] | None = None
     pred_text_key: str = "pred_text"
-    primary_model_key: str = "primary_model"
-    primary_model_value: str | None = None
 
     skip_if_output_exists: bool = False
 
@@ -224,10 +221,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             self._adapter = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        required_inputs = [self.audio_filepath_key]
-        if self.reference_text_key:
-            required_inputs.append(self.reference_text_key)
-        return [], required_inputs
+        return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY]
@@ -252,22 +246,12 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         code = str(item.get("language_code", "") or "").strip().lower()
         return bool(code) and code in self._supported_language_codes
 
-    def _resolve_reference_text(self, task: AudioTask) -> str | None:
-        if not self.reference_text_key:
-            return None
-        value = task.data.get(self.reference_text_key)
-        if value is None:
-            return None
-        text = str(value).strip()
-        return text or None
-
     def _build_items(self, tasks: list[AudioTask]) -> list[dict[str, Any]]:
         return [
             {
                 "audio_filepath": task.data[self.audio_filepath_key],
                 "language": self._resolve_language(task),
                 "language_code": self._resolve_language_code(task),
-                "reference_text": self._resolve_reference_text(task),
                 "task_id": task.task_id,
             }
             for task in tasks
@@ -358,7 +342,6 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                     "sample_rate": sample_rate,
                     "language": item["language"],
                     "language_code": item["language_code"],
-                    "reference_text": item["reference_text"],
                     "task_id": item["task_id"],
                 }
             )
@@ -413,8 +396,6 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             if result.skipped:
                 task.data[_SKIP_ME_KEY] = result.skip_reason or "empty_audio"
                 skipped_count += 1
-            if self.primary_model_value and not unsupported_language and not missing_language:
-                _set_note(task.data, self.primary_model_key, self.primary_model_value)
 
         if skipped_count:
             logger.info(

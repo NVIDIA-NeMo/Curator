@@ -149,7 +149,7 @@ def test_qwen_adapter_rejects_invalid_prompt_content_order() -> None:
         QwenOmniASRAdapter(model_id="mock/qwen-omni", prompt_content_order="invalid")
 
 
-def test_qwen_adapter_infer_turn_returns_length_stopped_output() -> None:
+def test_qwen_adapter_infer_batch_returns_length_stopped_output() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", max_output_tokens=2)
     with _mock_external_qwen_runtime(
         adapter,
@@ -157,12 +157,12 @@ def test_qwen_adapter_infer_turn_returns_length_stopped_output() -> None:
             [SimpleNamespace(outputs=[SimpleNamespace(text="partial", token_ids=[0, 1], finish_reason="length")])]
         ],
     ):
-        texts = adapter._infer_turn(inputs=[{"prompt": "a"}], indices=[0], n=1)
+        texts = adapter._infer_batch(inputs=[{"prompt": "a"}], indices=[0], n=1)
 
     assert texts == ["partial"]
 
 
-def test_qwen_adapter_infer_turn_accepts_explicit_stop_at_token_cap() -> None:
+def test_qwen_adapter_infer_batch_accepts_explicit_stop_at_token_cap() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", max_output_tokens=2)
     with _mock_external_qwen_runtime(
         adapter,
@@ -170,13 +170,13 @@ def test_qwen_adapter_infer_turn_accepts_explicit_stop_at_token_cap() -> None:
             [SimpleNamespace(outputs=[SimpleNamespace(text="complete", token_ids=[0, 1], finish_reason="stop")])]
         ],
     ):
-        texts = adapter._infer_turn(inputs=[{"prompt": "a"}], indices=[0], n=1)
+        texts = adapter._infer_batch(inputs=[{"prompt": "a"}], indices=[0], n=1)
 
     assert texts == ["complete"]
 
 
-def test_qwen_adapter_infer_turn_scatters_outputs_by_index() -> None:
-    """``_infer_turn`` scatters vLLM outputs back to original positions."""
+def test_qwen_adapter_infer_batch_scatters_outputs_by_index() -> None:
+    """``_infer_batch`` scatters vLLM outputs back to original positions."""
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
 
     # Length-4 batch where only positions 1 and 3 produced valid inputs.
@@ -184,7 +184,7 @@ def test_qwen_adapter_infer_turn_scatters_outputs_by_index() -> None:
         adapter,
         generated_batches=[[_vllm_output("t0"), _vllm_output("t1")]],
     ):
-        texts = adapter._infer_turn(
+        texts = adapter._infer_batch(
             inputs=[{"prompt": "a"}, {"prompt": "b"}],
             indices=[1, 3],
             n=4,
@@ -193,7 +193,7 @@ def test_qwen_adapter_infer_turn_scatters_outputs_by_index() -> None:
     assert texts == ["", "t0", "", "t1"]
 
 
-def test_qwen_adapter_infer_turn_raises_on_vllm_count_mismatch() -> None:
+def test_qwen_adapter_infer_batch_raises_on_vllm_count_mismatch() -> None:
     """A short vLLM result list must fail loud (strict=True), not silently drop utterances."""
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
 
@@ -204,7 +204,7 @@ def test_qwen_adapter_infer_turn_raises_on_vllm_count_mismatch() -> None:
         ),
         pytest.raises(ValueError, match="zip"),
     ):
-        adapter._infer_turn(inputs=[{"prompt": "a"}, {"prompt": "b"}], indices=[0, 1], n=2)
+        adapter._infer_batch(inputs=[{"prompt": "a"}, {"prompt": "b"}], indices=[0, 1], n=2)
 
 
 def test_qwen_adapter_audio_text_prompt_order_matches_official_asr_recipe() -> None:
@@ -227,31 +227,18 @@ def test_qwen_adapter_audio_text_prompt_order_matches_official_asr_recipe() -> N
     }
 
 
-def test_qwen_adapter_prompt_replaces_language_and_reference_transcript() -> None:
+def test_qwen_adapter_prompt_replaces_language() -> None:
     adapter = QwenOmniASRAdapter(
         model_id="mock/qwen-omni",
-        prompt_text="Transcribe {language}: {transcript}",
-        en_prompt_text="English prompt {transcript}",
+        prompt_text="Transcribe {language}",
+        en_prompt_text="English prompt",
     )
     waveform = np.zeros(_SR, dtype=np.float32)
 
-    messages = adapter._build_messages(waveform, "English", "hello reference")
+    messages = adapter._build_messages(waveform, "English")
 
-    assert messages[-1]["content"][0]["text"] == "English prompt hello reference"
+    assert messages[-1]["content"][0]["text"] == "English prompt"
     assert messages[-1]["content"][1]["audio"] is waveform
-
-
-def test_qwen_adapter_missing_reference_placeholder_skips_before_prompt_packing() -> None:
-    adapter = QwenOmniASRAdapter(
-        model_id="mock/qwen-omni",
-        prompt_text="Improve this transcript: {transcript}",
-    )
-    with _mock_external_qwen_runtime(adapter) as (llm, mm_info):
-        prepared = adapter._prepare_single(np.zeros(_SR, dtype=np.float32), "English")
-
-    assert prepared is None
-    mm_info.assert_not_called()
-    llm.generate.assert_not_called()
 
 
 def test_qwen_adapter_transcribe_batch_packages_results() -> None:
@@ -261,13 +248,11 @@ def test_qwen_adapter_transcribe_batch_packages_results() -> None:
             "waveform": np.zeros(_SR, dtype=np.float32),
             "sample_rate": _SR,
             "language": "English",
-            "reference_text": "ref-a",
         },
         {
             "waveform": np.zeros(_SR, dtype=np.float32),
             "sample_rate": _SR,
             "language": "English",
-            "reference_text": "ref-b",
         },
         {"waveform": np.zeros(0, dtype=np.float32), "sample_rate": _SR, "language": None},
     ]

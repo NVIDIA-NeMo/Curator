@@ -106,16 +106,14 @@ class QwenOmniASRAdapter:
     can be supplied from the YAML ``adapter_kwargs``.
 
     Notable Args:
-        prompt_text / *_file: User prompt; ``{language}`` and
-            ``{transcript}`` are interpolated per-item when the stage supplies
-            language and reference text values. ``*_file`` variants load text
-            from a UTF-8 file at ``__post_init__`` time.
+        prompt_text / *_file: User prompt; ``{language}`` is interpolated
+            per-item when the stage supplies a language. ``*_file`` variants
+            load text from a UTF-8 file at ``__post_init__`` time.
         en_prompt_text / en_prompt_file: override used when language is
             ``"English"``.
         system_prompt / *_file: optional system message.
         prompt_content_order: order of text and audio blocks in each user
-            message. ``text_audio`` preserves reference-adapter behavior;
-            ``audio_text`` matches Qwen's official ASR cookbook.
+            message. ``audio_text`` matches Qwen's official ASR cookbook.
         max_output_tokens: maximum transcription tokens. Kept separate so the
             adapter remains the only source of ``SamplingParams.max_tokens``.
         vllm_kwargs: engine settings forwarded to Curator's shared
@@ -264,12 +262,7 @@ class QwenOmniASRAdapter:
                 raise ValueError(msg)
         waveforms = [it["waveform"] for it in items]
         languages = [it.get("language") for it in items]
-        reference_texts = [it.get("reference_text") for it in items]
-        pred_texts, skipped_indices = self._run_inference(
-            waveforms,
-            languages,
-            reference_texts,
-        )
+        pred_texts, skipped_indices = self._run_inference(waveforms, languages)
         return [
             ASRResult(
                 text=pred,
@@ -280,32 +273,26 @@ class QwenOmniASRAdapter:
 
     # Input preparation
 
-    def _resolve_prompt(self, template: str, language: str | None, reference_text: str | None = None) -> str:
+    def _resolve_prompt(self, template: str, language: str | None) -> str:
         result = template
         if language and "{language}" in result:
             result = result.replace("{language}", language)
-        if reference_text is None and "{transcript}" in result:
-            msg = "Prompt template contains {transcript}, but no reference text was provided"
-            raise ValueError(msg)
-        if reference_text is not None:
-            result = result.replace("{transcript}", reference_text)
         return result
 
-    def _get_prompt_text(self, language: str | None, reference_text: str | None = None) -> str:
+    def _get_prompt_text(self, language: str | None) -> str:
         if language == "English" and self.en_prompt_text:
-            return self._resolve_prompt(self.en_prompt_text, language, reference_text)
-        return self._resolve_prompt(self.prompt_text, language, reference_text)
+            return self._resolve_prompt(self.en_prompt_text, language)
+        return self._resolve_prompt(self.prompt_text, language)
 
     def _build_audio_prompt_messages(
         self,
         waveform: np.ndarray,
         language: str | None = None,
-        reference_text: str | None = None,
     ) -> list[dict[str, Any]]:
-        prompt = self._get_prompt_text(language, reference_text)
+        prompt = self._get_prompt_text(language)
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
-            sys_prompt = self._resolve_prompt(self.system_prompt, language, reference_text)
+            sys_prompt = self._resolve_prompt(self.system_prompt, language)
             messages.append({"role": "system", "content": [{"type": "text", "text": sys_prompt}]})
         text_content = {"type": "text", "text": prompt}
         audio_content = {"type": "audio", "audio": waveform}
@@ -321,9 +308,8 @@ class QwenOmniASRAdapter:
         self,
         waveform: np.ndarray,
         language: str | None = None,
-        reference_text: str | None = None,
     ) -> list[dict[str, Any]]:
-        return self._build_audio_prompt_messages(waveform, language, reference_text)
+        return self._build_audio_prompt_messages(waveform, language)
 
     def _pack_vllm_inputs(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         """Render chat ``messages`` into a vLLM request dict."""
@@ -346,7 +332,6 @@ class QwenOmniASRAdapter:
         self,
         waveform: np.ndarray,
         language: str | None = None,
-        reference_text: str | None = None,
     ) -> dict[str, Any] | None:
         try:
             if waveform.size == 0:
@@ -355,7 +340,7 @@ class QwenOmniASRAdapter:
             if waveform.size < _MIN_QWEN_AUDIO_SAMPLES:
                 logger.warning("Skipping too-short waveform ({} samples)", waveform.size)
                 return None
-            messages = self._build_messages(waveform, language, reference_text)
+            messages = self._build_messages(waveform, language)
             inputs = self._pack_vllm_inputs(messages)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -371,14 +356,9 @@ class QwenOmniASRAdapter:
         self,
         waveforms: list[np.ndarray],
         languages: list[str | None] | None = None,
-        reference_texts: list[str | None] | None = None,
     ) -> list[dict[str, Any] | None]:
         langs = languages or [None] * len(waveforms)
-        refs = reference_texts or [None] * len(waveforms)
-        return [
-            self._prepare_single(waveform, language, reference_text)
-            for waveform, language, reference_text in zip(waveforms, langs, refs, strict=True)
-        ]
+        return [self._prepare_single(waveform, language) for waveform, language in zip(waveforms, langs, strict=True)]
 
     @staticmethod
     def _first_output_text(output: Any) -> str:  # noqa: ANN401
@@ -387,13 +367,13 @@ class QwenOmniASRAdapter:
             return ""
         return (getattr(sequences[0], "text", "") or "").strip()
 
-    def _infer_turn(
+    def _infer_batch(
         self,
         inputs: list[dict[str, Any]],
         indices: list[int],
         n: int,
     ) -> list[str]:
-        """Run one vLLM turn and scatter its texts back to input order.
+        """Run one vLLM batch and scatter its texts back to input order.
 
         ``indices[k]`` is the position in the length-``n`` batch that
         ``inputs[k]`` came from.
@@ -410,12 +390,11 @@ class QwenOmniASRAdapter:
         self,
         waveforms: list[np.ndarray],
         languages: list[str | None] | None = None,
-        reference_texts: list[str | None] | None = None,
     ) -> tuple[list[str], set[int]]:
         """Run batched inference on in-memory waveforms."""
         n = len(waveforms)
 
-        prepared = self._prepare_batch(waveforms, languages, reference_texts)
+        prepared = self._prepare_batch(waveforms, languages)
         valid_indices = [i for i, p in enumerate(prepared) if p is not None]
         valid_inputs = [p for p in prepared if p is not None]
         skipped_indices = set(range(n)) - set(valid_indices)
@@ -427,7 +406,7 @@ class QwenOmniASRAdapter:
         if len(valid_inputs) < n:
             logger.warning(f"Skipped {n - len(valid_inputs)}/{n} corrupt audio samples")
 
-        pred_texts = self._infer_turn(valid_inputs, valid_indices, n)
+        pred_texts = self._infer_batch(valid_inputs, valid_indices, n)
         empty_output_indices = {i for i in valid_indices if not pred_texts[i]}
         if empty_output_indices:
             skipped_indices.update(empty_output_indices)

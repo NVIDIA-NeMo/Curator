@@ -25,8 +25,7 @@ default_language: null
 supported_language_codes: [en, zh, ko, ja, de, ru, it, fr, es, pt, ms, nl, id, tr, vi, yue, ar, ur]
 prompt_text: Transcribe the audio.
 prompt_file: null
-reference_text_key: null
-pred_text_key: primary_model_prediction
+pred_text_key: pred_text
 gpus_per_actor: 2
 backend: ray_data
 execution_mode: streaming
@@ -39,7 +38,6 @@ stages:
   - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
     name: "ResampleAudio"
     resampled_audio_dir: ${resampled_audio_dir}
-    input_format: "wav"
     target_sample_rate: 16000
     target_format: "wav"
     target_nchannels: 1
@@ -49,7 +47,6 @@ stages:
     model_id: ${model_id}
     default_language: ${default_language}
     supported_language_codes: ${supported_language_codes}
-    reference_text_key: ${reference_text_key}
     pred_text_key: ${pred_text_key}
     batch_size: 32
     resources:

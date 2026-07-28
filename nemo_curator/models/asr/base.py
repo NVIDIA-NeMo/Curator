@@ -34,7 +34,7 @@ class ASRResult:
     constant when the adapter is swapped.
 
     Attributes:
-        text: Primary transcription. Empty if skipped.
+        text: Transcription text. Empty if skipped.
         skipped: True when the item could not be processed. The stage writes
             ``skip_reason`` to ``_skipme`` and falls back to ``"empty_audio"``
             when no reason is supplied.
@@ -72,9 +72,6 @@ class ASRAdapter(Protocol):
     * ``language`` (``str | None``): human-readable name (e.g. ``"English"``).
     * ``language_code`` (``str | None``): original language code from the
       configured stage input column.
-    * ``reference_text`` (``str | None``): optional transcript/reference text
-      from ``ASRStage.reference_text_key`` for adapters or prompts that need
-      row-level text context.
     * ``task_id`` (``str | None``): carried through for diagnostics.
 
     Attributes:

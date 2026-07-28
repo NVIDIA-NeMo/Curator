@@ -35,7 +35,6 @@ def _make_stage(
     *,
     default_language: str | None = None,
     batch_size: int = 32,
-    reference_text_key: str | None = None,
     supported_language_codes: list[str] | None = None,
     skip_if_output_exists: bool = False,
 ) -> ASRStage:
@@ -43,10 +42,9 @@ def _make_stage(
     stage = ASRStage(
         adapter_target=_QWEN_ADAPTER_TARGET,
         model_id="mock/qwen-omni",
-        pred_text_key="qwen3_prediction_s1",
+        pred_text_key="pred_text",
         default_language=default_language,
         batch_size=batch_size,
-        reference_text_key=reference_text_key,
         supported_language_codes=supported_language_codes,
         skip_if_output_exists=skip_if_output_exists,
     )
@@ -76,7 +74,7 @@ def test_empty_batch_does_not_create_an_unparented_sentinel() -> None:
     assert stage.process_batch([]) == []
 
 
-def test_basic_inference_single_turn() -> None:
+def test_basic_inference() -> None:
     stage = _make_stage()
     stage._adapter.transcribe_batch.return_value = [
         ASRResult(text="hello world"),
@@ -84,11 +82,11 @@ def test_basic_inference_single_turn() -> None:
 
     results = stage.process_batch([_make_task()])
 
-    assert results[0].data["qwen3_prediction_s1"] == "hello world"
+    assert results[0].data["pred_text"] == "hello world"
     assert results[0].data == {
         "resampled_audio_filepath": _RESAMPLED_AUDIO_PATH,
         "source_lang": "en",
-        "qwen3_prediction_s1": "hello world",
+        "pred_text": "hello world",
     }
     inferred_item = stage._adapter.transcribe_batch.call_args.args[0][0]
     assert set(inferred_item) == {
@@ -96,7 +94,6 @@ def test_basic_inference_single_turn() -> None:
         "sample_rate",
         "language",
         "language_code",
-        "reference_text",
         "task_id",
     }
     assert inferred_item["waveform"].shape == (_SR,)
@@ -117,8 +114,8 @@ def test_multi_task_batch_preserves_order() -> None:
     ]
     results = stage.process_batch([_make_task(), _make_task()])
 
-    assert results[0].data["qwen3_prediction_s1"] == "text1"
-    assert results[1].data["qwen3_prediction_s1"] == "text2"
+    assert results[0].data["pred_text"] == "text1"
+    assert results[1].data["pred_text"] == "text2"
 
 
 def test_audio_load_failure_skips_only_failed_item_and_preserves_order() -> None:
@@ -140,7 +137,7 @@ def test_audio_load_failure_skips_only_failed_item_and_preserves_order() -> None
 
     results = stage.process_batch(tasks)
 
-    assert [task.data["qwen3_prediction_s1"] for task in results] == ["text1", "", "text3"]
+    assert [task.data["pred_text"] for task in results] == ["text1", "", "text3"]
     assert "_skipme" not in results[0].data
     assert results[1].data["_skipme"] == "audio_load_error"
     assert "_skipme" not in results[2].data
@@ -152,14 +149,14 @@ def test_skip_if_output_exists_reuses_prediction_and_only_infers_missing_rows() 
     stage = _make_stage(skip_if_output_exists=True)
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="new prediction")]
     existing = _make_task()
-    existing.data["qwen3_prediction_s1"] = "existing prediction"
+    existing.data["pred_text"] = "existing prediction"
     missing = _make_task()
 
     results = stage.process_batch([existing, missing])
 
     assert results == [existing, missing]
-    assert existing.data["qwen3_prediction_s1"] == "existing prediction"
-    assert missing.data["qwen3_prediction_s1"] == "new prediction"
+    assert existing.data["pred_text"] == "existing prediction"
+    assert missing.data["pred_text"] == "new prediction"
     inferred_items = stage._adapter.transcribe_batch.call_args.args[0]
     assert len(inferred_items) == 1
     stage._load_audio.assert_called_once_with(_RESAMPLED_AUDIO_PATH)
@@ -168,12 +165,12 @@ def test_skip_if_output_exists_reuses_prediction_and_only_infers_missing_rows() 
 def test_skip_if_output_exists_skips_entire_prefilled_batch() -> None:
     stage = _make_stage(skip_if_output_exists=True)
     tasks = [_make_task(), _make_task()]
-    tasks[0].data["qwen3_prediction_s1"] = "first"
-    tasks[1].data["qwen3_prediction_s1"] = "second"
+    tasks[0].data["pred_text"] = "first"
+    tasks[1].data["pred_text"] = "second"
 
     results = stage.process_batch(tasks)
 
-    assert [task.data["qwen3_prediction_s1"] for task in results] == ["first", "second"]
+    assert [task.data["pred_text"] for task in results] == ["first", "second"]
     stage._adapter.transcribe_batch.assert_not_called()
 
 
@@ -181,11 +178,11 @@ def test_skip_if_output_exists_does_not_skip_empty_prediction() -> None:
     stage = _make_stage(skip_if_output_exists=True)
     stage._adapter.transcribe_batch.return_value = [ASRResult(text="filled")]
     task = _make_task()
-    task.data["qwen3_prediction_s1"] = ""
+    task.data["pred_text"] = ""
 
     result = stage.process_batch([task])
 
-    assert result[0].data["qwen3_prediction_s1"] == "filled"
+    assert result[0].data["pred_text"] == "filled"
     stage._adapter.transcribe_batch.assert_called_once()
 
 
@@ -230,10 +227,10 @@ def test_supported_language_filter_skips_before_adapter_call() -> None:
 
     stage._adapter.transcribe_batch.assert_not_called()
     stage._load_audio.assert_not_called()
-    assert results[0].data["qwen3_prediction_s1"] == ""
+    assert results[0].data["pred_text"] == ""
     assert "_skipme" not in results[0].data
     assert results[0].data["additional_notes"]["ASR_inference"] == "skipped (unsupported language: pl)"
-    assert results[0].data["additional_notes"]["qwen3_prediction_s1"] == "lang_not_supported:pl"
+    assert results[0].data["additional_notes"]["pred_text"] == "lang_not_supported:pl"
 
 
 def test_supported_language_filter_annotates_missing_language() -> None:
@@ -243,10 +240,10 @@ def test_supported_language_filter_annotates_missing_language() -> None:
 
     stage._adapter.transcribe_batch.assert_not_called()
     stage._load_audio.assert_not_called()
-    assert results[0].data["qwen3_prediction_s1"] == ""
+    assert results[0].data["pred_text"] == ""
     assert "_skipme" not in results[0].data
     assert results[0].data["additional_notes"]["ASR_inference"] == "skipped (missing language)"
-    assert results[0].data["additional_notes"]["qwen3_prediction_s1"] == "language_missing"
+    assert results[0].data["additional_notes"]["pred_text"] == "language_missing"
 
 
 def test_resumability_preserves_unsupported_task_lineage() -> None:
@@ -267,23 +264,6 @@ def test_resumability_preserves_unsupported_task_lineage() -> None:
     assert task._source_id == "source"
     assert captured == [("source_0_0", "source", 0)]
     stage._adapter.transcribe_batch.assert_not_called()
-
-
-def test_reference_text_key_is_passed_to_adapter_items() -> None:
-    stage = _make_stage(reference_text_key="text")
-    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
-    task = AudioTask(
-        data={
-            "resampled_audio_filepath": _RESAMPLED_AUDIO_PATH,
-            "source_lang": "en",
-            "text": "reference transcript",
-        }
-    )
-
-    stage.process_batch([task])
-
-    items = stage._adapter.transcribe_batch.call_args[0][0]
-    assert items[0]["reference_text"] == "reference transcript"
 
 
 def test_inputs_and_exact_output_contract() -> None:
