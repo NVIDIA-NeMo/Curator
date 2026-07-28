@@ -80,6 +80,25 @@ redirects:
     destination: "/nemo/curator/v26.07/:path*"
   - source: "/nemo/curator/:path*.html"
     destination: "/nemo/curator/:path*"
+  # Pages removed in 26.07: the Dask-era SLURM image-curation walkthrough and the
+  # experimental-executors reference (nemo_curator.backends.experimental no longer exists).
+  # Older trains still host both pages, so only the unversioned/latest/main/v26.07 URLs redirect.
+  - source: "/nemo/curator/admin/deployment/slurm-image"
+    destination: "/nemo/curator/admin/deployment/slurm-multi-node-ray"
+  - source: "/nemo/curator/latest/admin/deployment/slurm-image"
+    destination: "/nemo/curator/latest/admin/deployment/slurm-multi-node-ray"
+  - source: "/nemo/curator/main/admin/deployment/slurm-image"
+    destination: "/nemo/curator/main/admin/deployment/slurm-multi-node-ray"
+  - source: "/nemo/curator/v26.07/admin/deployment/slurm-image"
+    destination: "/nemo/curator/v26.07/admin/deployment/slurm-multi-node-ray"
+  - source: "/nemo/curator/api/reference/api-reference/executors/experimental"
+    destination: "/nemo/curator/reference/infra/execution-backends"
+  - source: "/nemo/curator/latest/api/reference/api-reference/executors/experimental"
+    destination: "/nemo/curator/latest/reference/infra/execution-backends"
+  - source: "/nemo/curator/main/api/reference/api-reference/executors/experimental"
+    destination: "/nemo/curator/main/reference/infra/execution-backends"
+  - source: "/nemo/curator/v26.07/api/reference/api-reference/executors/experimental"
+    destination: "/nemo/curator/v26.07/reference/infra/execution-backends"
   # Audio concepts: legacy nested nav URLs → flat slugs (aligned with Sphinx filenames)
   - source: "/about/concepts/audio/curation/pipeline"
     destination: "/about/concepts/audio/curation-pipeline"

@@ -281,14 +281,26 @@ configured_stage = stage.with_(
     batch_size=8,
     runtime_env={"pip": ["transformers==4.45.0"]},
     num_workers=4,
+    # Set the stage spec for the executor you actually run with:
     ray_stage_spec={
         RayStageSpecKeys.RAY_NUM_CPUS: 1.0,
     },
+)
+```
+
+Both specs are shown together here only to document the arguments. In practice you set the one matching the executor you run the pipeline with — `ray_stage_spec` for Ray Data, `xenna_stage_spec` for Xenna:
+
+```python
+# Xenna equivalent
+configured_stage = stage.with_(
+    num_workers=4,
     xenna_stage_spec={
         "worker_max_lifetime_m": 45,
     },
 )
 ```
+
+Setting both is harmless — each executor reads only its own spec — but it is only useful if the same stage runs under both backends.
 
 `ray_stage_spec` and `xenna_stage_spec` are shallow-merged: user-provided top-level keys win, while nested dictionaries are replaced rather than recursively merged. An explicit `None` inside a stage-spec dictionary is retained. In contrast, passing the whole `ray_stage_spec=None` or `xenna_stage_spec=None` means no override.
 

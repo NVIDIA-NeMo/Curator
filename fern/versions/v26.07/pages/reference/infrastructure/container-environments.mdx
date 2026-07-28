@@ -52,8 +52,12 @@ The primary container includes comprehensive support for all curation modalities
 - CUDA 12.8.1 with cuDNN
 - Python 3.12 with uv package manager
 - FFmpeg 8+ with NVENC support (for video processing)
-- Ray, Dask, and distributed computing frameworks
+- Ray and its distributed computing libraries
 - NVIDIA optimized Python packages
+
+<Note>
+Ray is the execution framework for all NeMo Curator pipelines. Dask is no longer used to run curation work; `dask`, `dask-cuda`, and `dask-cudf` are present in the image only as transitive dependencies of the RAPIDS `raft-dask-cu12` package.
+</Note>
 
 ### Curator Environment
 

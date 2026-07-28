@@ -117,11 +117,17 @@ class DurationFilterStage(ProcessingStage[AudioTask, AudioTask]):
 ### Batch Stage (GPU/IO processing)
 
 ```python
+from dataclasses import dataclass, field
+from nemo_curator.stages.resources import Resources
+
 @dataclass
 class MyGpuStage(ProcessingStage[AudioTask, AudioTask]):
     """GPU stage using process_batch."""
 
     name: str = "MyGpuStage"
+    resources: Resources = field(
+        default_factory=lambda: Resources(gpu_memory_gb=16.0)
+    )
 
     def process(self, task: AudioTask) -> AudioTask:
         raise NotImplementedError("Use process_batch for GPU stages")

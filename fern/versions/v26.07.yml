@@ -606,9 +606,6 @@ navigation:
               - page: Requirements
                 path: ./v26.07/pages/admin/deployment/requirements.mdx
                 slug: requirements
-              - page: Deploy Image Curation on Slurm
-                path: ./v26.07/pages/admin/deployment/slurm/image.mdx
-                slug: slurm-image
               - page: Multi-Node Ray on Slurm
                 path: ./v26.07/pages/admin/deployment/slurm/multi-node-ray.mdx
                 slug: slurm-multi-node-ray
@@ -699,9 +696,6 @@ navigation:
               - page: XennaExecutor
                 path: ./v26.07/pages/api-reference/executors/xenna-executor.mdx
                 slug: xenna-executor
-              - page: Experimental
-                path: ./v26.07/pages/api-reference/executors/experimental.mdx
-                slug: experimental
           - page: Resources
             path: ./v26.07/pages/api-reference/resources.mdx
             slug: resources

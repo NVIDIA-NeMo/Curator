@@ -56,6 +56,10 @@ def add_stage(self, stage: ProcessingStage) -> "Pipeline":
 
 Build an execution plan from the pipeline. Decomposes composite stages into execution stages and updates the pipeline in place.
 
+<Note>
+`run()` calls `build()` for you. You should not need to call it directly; it is documented here to explain what happens between `add_stage()` and execution.
+</Note>
+
 ```python
 def build(self) -> None:
     """Build the execution plan by decomposing composite stages.

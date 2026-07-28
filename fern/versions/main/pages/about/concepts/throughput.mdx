@@ -65,19 +65,23 @@ This near-linear scaling holds because NeMo Curator partitions work across nodes
 
 The most straightforward way to increase throughput. When you add nodes to your Ray cluster, the executor automatically distributes pipeline stages across the expanded cluster.
 
-Use `RayClient` for single-node setups or `RaySlurmClient` for multi-node SLURM clusters:
+Use `RayClient` for single-node setups or `SlurmRayClient` for multi-node SLURM clusters:
 
 ```python
-from nemo_curator.core.client import RayClient, RaySlurmClient
+from nemo_curator.core.client import RayClient, SlurmRayClient
 
 # Single-node
 client = RayClient()
 client.start()
 
 # Multi-node via SLURM
-client = RaySlurmClient()
+client = SlurmRayClient()
 client.start()
 ```
+
+<Note>
+`SlurmRayClient` subclasses `RayClient`. On a single-node SLURM job, or when the script is not running under SLURM at all, it behaves identically to `RayClient` — so it is safe to use unconditionally in scripts that run in both settings.
+</Note>
 
 ### 2. Tune Batch Size
 

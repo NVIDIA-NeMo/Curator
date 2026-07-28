@@ -14,7 +14,7 @@ modality: "universal"
 `SlurmRayClient` is a drop-in replacement for `RayClient` that bootstraps a multi-node Ray cluster under SLURM. The head node starts `ray start --head`, writes the assigned GCS port to a shared file, and waits for workers to join. Worker nodes block on the port file and call `ray start --block`. Only the head returns from `start()`, so your pipeline code runs on the head while workers stay attached to the cluster.
 
 <Note>
-For details on container environments and SLURM-specific environment variables, refer to [Container Environments](/reference/infra/container-environments). For the image-curation specific Slurm workflow, refer to [Deploy Image Curation on Slurm](/admin/deployment/slurm-image).
+For details on container environments and SLURM-specific environment variables, refer to [Container Environments](/reference/infra/container-environments).
 </Note>
 
 ## When to Use It
@@ -233,6 +233,5 @@ The first line of each node's log identifies its role:
 ## Related Topics
 
 - **[SLURM Job Arrays](/admin/deployment/slurm-arrays)** — deterministic source sharding, completion manifests, and retries across independent jobs.
-- **[Deploy Image Curation on Slurm](/admin/deployment/slurm-image)** — full image curation pipeline using SLURM and Pyxis.
 - **[Container Environments](/reference/infra/container-environments)** — image versions and SLURM-specific environment variables.
 - **[Execution Backends](/reference/infra/execution-backends)** — Ray Data, Xenna, and Ray actor pool executor selection.

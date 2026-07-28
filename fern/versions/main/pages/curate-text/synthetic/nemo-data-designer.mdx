@@ -43,13 +43,15 @@ flowchart LR
 Install the NDD dependency:
 
 ```bash
-uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[text_cuda12]
+uv pip install nemo-curator[sdg_cpu]
 ```
 
-The `data-designer` package is included in the text extras. For local model serving, also install:
+The `data-designer` package ships in the SDG extras only — `sdg_cpu`, or `sdg_cuda12` for the GPU stack. It is not part of the text extras.
+
+For local model serving on GPU, install `sdg_cuda12`, which pulls in `cuda12`, `sdg_cpu`, and `inference_server` together:
 
 ```bash
-uv pip install nemo-curator[inference_server]
+uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[sdg_cuda12]
 ```
 
 ## DataDesignerStage
