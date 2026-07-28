@@ -62,6 +62,7 @@ from runner.utils import (
     remove_disabled_blocks,
     resolve_env_vars,
 )
+from runner.viewer_url import resolve_viewer_url
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -432,12 +433,19 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
             "replaced with an empty string and a warning is logged."
         ),
     )
-    parser.add_argument(
+    viewer_url_group = parser.add_mutually_exclusive_group()
+    viewer_url_group.add_argument(
         "--viewer-url",
         default=None,
+        help=("Resolved run-viewer URL to surface in sinks. Overrides viewer_url_template from YAML config when set."),
+    )
+    viewer_url_group.add_argument(
+        "--viewer-url-template",
+        default=None,
         help=(
-            "Run-viewer URL to surface in sinks (e.g. Slack parent message footer). "
-            "When set, the Slack sink renders a 'Results viewer' section linking to this URL."
+            "Run-viewer URL template to render after the session path is known. Supports "
+            "{results_path}, {results_path_url}, {session_name}, {session_name_url}, "
+            "{session_path}, and {session_path_url}. Mutually exclusive with --viewer-url."
         ),
     )
     parser.add_argument(
@@ -498,14 +506,29 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
     session_path = (session.results_path / session_name).absolute()
     ensure_dir(session_path)
 
+    if args.reason:
+        session.run_reason = args.reason
+    if args.viewer_url:
+        session.viewer_url = args.viewer_url
+        session.viewer_url_template = None
+    elif args.viewer_url_template:
+        session.viewer_url = None
+        session.viewer_url_template = args.viewer_url_template
+    try:
+        session.viewer_url = resolve_viewer_url(
+            viewer_url=session.viewer_url,
+            viewer_url_template=session.viewer_url_template,
+            results_path=session.results_path,
+            session_name=session_name,
+            session_path=session_path,
+        )
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
+
     session_overall_success = True
     logger.info(f"Started session {session_name}...")
     env_dict = dump_env(session_obj=session, output_path=session_path)
-
-    # Record an optional free-text reason for the run (e.g. "regression check after MR !2442").
-    # Appears in env.json and the Slack environment block. No-op when unset.
-    if args.reason:
-        env_dict["run_reason"] = args.reason
 
     if not run_data_setups(
         setup_entries=session.data_setups,
@@ -515,13 +538,6 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
     ):
         logger.error("Data setup failed; benchmark entries will not be run.")
         return 1
-
-    # Surface an optional run-viewer URL in the Slack sink. Patch sink_config in-process
-    # so we don't have to teach the YAML config loader about a per-launch viewer URL.
-    if args.viewer_url:
-        for sink in session.sinks:
-            if getattr(sink, "name", None) == "slack":
-                sink.sink_config["viewer_url"] = args.viewer_url
 
     for sink in session.sinks:
         sink.initialize(session_name=session_name, session=session, env_dict=env_dict)

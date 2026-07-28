@@ -165,6 +165,19 @@ default_timeout_s: 7200
 # Defaults to 14340 (3h59m).
 max_timeout_s: 14340
 
+# Optional: Free-text reason for the run, persisted in env.json and surfaced to sinks.
+run_reason: "26.06 RC7 benchmarks"
+
+# Optional: Resolved benchmark viewer URL, persisted in env.json and surfaced to sinks.
+# Set either viewer_url or viewer_url_template, not both.
+viewer_url: "http://viewer.example.com/run-viewer?dir=/path/to/results/session"
+
+# Optional: Benchmark viewer URL template. Used when viewer_url is not set, and
+# rendered after the session name/path are known. Supported placeholders are:
+# {results_path}, {results_path_url}, {session_name}, {session_name_url},
+# {session_path}, and {session_path_url}. The *_url forms are URL-encoded.
+viewer_url_template: "http://viewer.example.com/run-viewer?dir={results_path_url}&run={session_name_url}"
+
 # Optional: Delete scratch directories after each entry completes
 # The path {session_entry_dir}/scratch is automatically created when an entry starts and can be used by benchmark
 #scripts for writing temp files. This directory is automatically cleaned up on completion of the entry if
@@ -289,6 +302,46 @@ python benchmarking/run.py \
   --config config.yaml \
   --session-name my-experiment-v2
 ```
+
+**Benchmark viewer URL:**
+
+To include a link to a benchmark run viewer in sinks such as Slack, pass a resolved URL with `--viewer-url`:
+
+```bash
+python benchmarking/run.py \
+  --config config.yaml \
+  --viewer-url "http://viewer.example.com/run-viewer?dir=/path/to/results/&run=my-session"
+```
+
+If part of the URL depends on the selected results path or session name, use `--viewer-url-template`. The template is rendered after the final session name and session path are known:
+
+```bash
+python benchmarking/run.py \
+  --config config.yaml \
+  --session-name my-session \
+  --viewer-url-template "http://viewer.example.com/run-viewer?dir={results_path_url}&run={session_name_url}"
+```
+
+For a viewer that reads results from a remote host path, include the host in the template:
+
+```bash
+python benchmarking/run.py \
+  --config config.yaml \
+  --viewer-url-template "http://rratzel-ws1:5050/run-viewer?dir=dgx-a100-01%3A{results_path_url}%2F&run={session_name_url}"
+```
+
+Supported `--viewer-url-template` placeholders:
+
+| Placeholder | Value |
+| --- | --- |
+| `{results_path}` | The configured results root directory. |
+| `{results_path_url}` | URL-encoded `results_path`. |
+| `{session_name}` | The resolved session name, either from `--session-name` or the generated default. |
+| `{session_name_url}` | URL-encoded `session_name`. |
+| `{session_path}` | The full session result directory, equivalent to `{results_path}/{session_name}`. |
+| `{session_path_url}` | URL-encoded `session_path`. |
+
+Use `results_path` when the viewer expects the results root and a separate `run` parameter. Use `session_path` when the viewer expects a single path directly to the session directory. Set either `viewer_url` or `viewer_url_template`, not both.
 
 ### Environment Variables
 
