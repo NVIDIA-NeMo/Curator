@@ -134,7 +134,6 @@ def _model_stage(
         "source_lang_key": "source_lang",
         "default_language": settings.language,
         "pred_text_key": pred_text_key,
-        "primary_model_value": model if role == "primary" else None,
         "batch_size": batch_size,
         "resources": _resources(gpus=2.0 if model == "qwen_omni" else 1.0),
         "adapter_kwargs": adapter_kwargs,
