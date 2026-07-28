@@ -16,9 +16,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import torch
 
-from nemo_curator.pipeline.payload_refs import PayloadRef
 from nemo_curator.stages.audio.inference.asr.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -84,36 +82,6 @@ class TestAsrNeMoStage:
             assert all(isinstance(r, AudioTask) for r in results)
             assert results[0].data["pred_text"] == "the cat"
             assert results[1].data["pred_text"] == "sat on a mat"
-
-    def test_process_batch_consumes_payload_waveform_without_file_decode(self) -> None:
-        model = MagicMock()
-        model.transcribe.return_value = ["payload transcript"]
-        stage = InferenceAsrNemoStage(model_name="fastconformer", asr_model=model)
-        task = AudioTask(
-            data={
-                "audio_filepath": "/must/not/be/read.wav",
-                "waveform_ref": PayloadRef(
-                    payload_id="payload",
-                    owner_node_id="node",
-                    store_actor_name="store",
-                    admission_actor_name="admission",
-                    amount_bytes=16,
-                    metadata={"sample_rate": 16_000, "num_samples": 4},
-                ),
-            }
-        )
-
-        with patch(
-            "nemo_curator.stages.payload_lifecycle.resolve_payload_refs_batched",
-            return_value=[torch.tensor([[0.0, 0.1, 0.2, 0.3]])],
-        ):
-            results = stage.process_batch([task])
-
-        assert results[0].data["pred_text"] == "payload transcript"
-        assert "waveform" not in results[0].data
-        call = model.transcribe.call_args
-        assert call.kwargs["batch_size"] == 1
-        assert call.kwargs["audio"][0].shape == (4,)
 
     @patch("nemo_curator.stages.audio.inference.asr.asr_nemo.nemo_asr")
     def test_setup_on_node_downloads_only(self, mock_nemo_asr: MagicMock) -> None:

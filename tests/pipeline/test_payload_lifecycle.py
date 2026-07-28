@@ -86,11 +86,13 @@ def test_pipeline_inserts_audio_payload_helpers_for_local_batching() -> None:
     assert [type(stage) for stage in pipeline.stages] == [
         ManifestReaderStage,
         AudioPayloadMaterializeStage,
-        InferenceAsrNemoStage,
+        PayloadResolvingStage,
         PayloadReleaseStage,
     ]
+    wrapper = pipeline.stages[2]
+    assert wrapper.wrapped_stage is consumer
     assert consumer.batch_size == 4
-    assert consumer._curator_tracks_payload_refs is True
+    assert wrapper._curator_tracks_payload_refs is True
 
 
 def test_pipeline_payload_expansion_is_idempotent() -> None:
