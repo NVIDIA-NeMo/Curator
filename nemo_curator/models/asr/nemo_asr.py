@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""NeMo Framework ASR models behind the shared :class:`ASRAdapter` contract."""
+"""NeMo Framework ASR behind the shared :class:`ASRAdapter` contract."""
 
 from __future__ import annotations
 
@@ -20,13 +20,11 @@ import gc
 import time
 from dataclasses import dataclass, field
 from numbers import Integral, Real
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    import numpy as np
+import numpy as np
 
 from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.models.asr.waveform import resample_waveform, to_mono_numpy_1d
 
 _DEFAULT_FASTCONFORMER_CTC_MODEL = "nvidia/stt_en_fastconformer_ctc_large"
 _DEFAULT_SAMPLE_RATE = 16_000
@@ -44,26 +42,12 @@ def _nemo_asr_module() -> Any:  # noqa: ANN401
 
 @dataclass
 class NeMoASRAdapter:
-    """Run a NeMo ASR checkpoint as exact adapter batches.
-
-    The default checkpoint is NVIDIA's English FastConformer CTC model. The
-    adapter accepts in-memory waveform items from the consuming stage and
-    passes all valid items from one adapter call to one NeMo transcription
-    DataLoader batch. This preserves global dispatch boundaries instead of
-    letting NeMo silently fall back to its public ``batch_size=4`` default.
-
-    Any NeMo checkpoint compatible with ``ASRModel.from_pretrained`` may be
-    selected through ``model_id``. ``revision`` is accepted to satisfy the
-    shared adapter constructor, but NeMo's loader has no revision argument and
-    therefore rejects non-``None`` revisions explicitly.
-    """
+    """Run a pretrained NeMo checkpoint using waveforms prepared by ``ASRStage``."""
 
     model_id: str = _DEFAULT_FASTCONFORMER_CTC_MODEL
     revision: str | None = None
-    target_sample_rate: int | None = None
     num_workers: int = 0
     verbose: bool = False
-    device: str | None = None
     enable_local_attention: bool = False
     local_attention_context_size: tuple[int, int] = (128, 128)
     refresh_cache: bool = False
@@ -75,12 +59,7 @@ class NeMoASRAdapter:
         if not self.model_id:
             msg = "NeMoASRAdapter.model_id must be non-empty"
             raise ValueError(msg)
-        if self.revision is not None:
-            msg = "NeMo ASRModel.from_pretrained does not support revision pinning"
-            raise ValueError(msg)
-        if self.target_sample_rate is not None and self.target_sample_rate <= 0:
-            msg = "NeMoASRAdapter.target_sample_rate must be positive when set"
-            raise ValueError(msg)
+        self._reject_revision(self.revision)
         if self.num_workers < 0:
             msg = "NeMoASRAdapter.num_workers must be non-negative"
             raise ValueError(msg)
@@ -99,30 +78,38 @@ class NeMoASRAdapter:
             raise ValueError(msg)
         self.local_attention_context_size = (int(context_size[0]), int(context_size[1]))
 
-    @classmethod
-    def prefetch_weights(cls, model_id: str, revision: str | None = None) -> None:
-        """Download the NeMo checkpoint without constructing a GPU model."""
+    @staticmethod
+    def _reject_revision(revision: str | None) -> None:
         if revision is not None:
             msg = "NeMo ASRModel.from_pretrained does not support revision pinning"
             raise ValueError(msg)
+
+    @classmethod
+    def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
+        """Download a pretrained checkpoint without allocating a GPU model."""
+        cls._reject_revision(revision)
         _nemo_asr_module().models.ASRModel.from_pretrained(model_name=model_id, return_model_file=True)
 
-    def setup(self) -> None:
-        """Load one worker-local NeMo model on the selected device."""
-        if self._model is not None:
-            return
-
-        import torch
-
-        device = (
-            torch.device(self.device) if self.device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        )
-        model = _nemo_asr_module().models.ASRModel.from_pretrained(
+    def _load_checkpoint(self, device: Any) -> Any:  # noqa: ANN401
+        return _nemo_asr_module().models.ASRModel.from_pretrained(
             model_name=self.model_id,
             map_location=device,
             refresh_cache=self.refresh_cache,
             strict=self.strict,
         )
+
+    def load_model(self, *, num_gpus: int) -> None:
+        """Load one worker-local model on the device requested by ``ASRStage``."""
+        if self._model is not None:
+            return
+        if num_gpus < 0:
+            msg = "num_gpus must be non-negative"
+            raise ValueError(msg)
+
+        import torch
+
+        device = torch.device("cuda" if num_gpus else "cpu")
+        model = self._load_checkpoint(device)
         if self.enable_local_attention:
             self._configure_local_attention(model)
         self._model = model
@@ -147,7 +134,7 @@ class NeMoASRAdapter:
         )
         change_subsampling_chunking(1)
 
-    def teardown(self) -> None:
+    def unload_model(self) -> None:
         """Release worker-local model and CUDA cache state."""
         self._model = None
         gc.collect()
@@ -173,21 +160,30 @@ class NeMoASRAdapter:
             self.last_metrics = self._metrics(input_count=0, valid_count=0, elapsed_s=0.0)
             return []
         if self._model is None:
-            msg = "NeMoASRAdapter is not initialized; call setup() first"
+            msg = "NeMoASRAdapter is not initialized; call load_model() first"
             raise RuntimeError(msg)
 
-        sample_rate = self._model_sample_rate()
+        model_sample_rate = self._model_sample_rate()
         valid_indices: list[int] = []
         waveforms: list[np.ndarray] = []
         for index, item in enumerate(items):
-            waveform = to_mono_numpy_1d(item.get("waveform"))
-            source_rate = int(item.get("sample_rate") or 0)
-            if waveform.size == 0 or source_rate <= 0:
+            waveform = np.asarray(item.get("waveform"), dtype=np.float32)
+            if waveform.size == 0:
                 continue
-            waveforms.append(resample_waveform(waveform, source_rate, sample_rate))
+            if waveform.ndim != 1:
+                msg = f"ASRStage must provide a mono 1-D waveform, got shape {waveform.shape}"
+                raise ValueError(msg)
+            sample_rate = int(item.get("sample_rate") or 0)
+            if sample_rate != model_sample_rate:
+                msg = (
+                    f"ASRStage must provide {model_sample_rate} Hz audio for {self.model_id!r}; "
+                    f"received {sample_rate} Hz"
+                )
+                raise ValueError(msg)
+            waveforms.append(np.ascontiguousarray(waveform))
             valid_indices.append(index)
 
-        results = [ASRResult(text="", skipped=True, model_id=self.model_id) for _ in items]
+        results = [ASRResult(text="", skipped=True, skip_reason="empty_audio") for _ in items]
         if not waveforms:
             self.last_metrics = self._metrics(input_count=len(items), valid_count=0, elapsed_s=0.0)
             return results
@@ -207,7 +203,7 @@ class NeMoASRAdapter:
             raise RuntimeError(msg)
 
         for index, text in zip(valid_indices, texts, strict=True):
-            results[index] = ASRResult(text=text, skipped=False, model_id=self.model_id)
+            results[index] = ASRResult(text=text)
         self.last_metrics = self._metrics(
             input_count=len(items),
             valid_count=len(valid_indices),
@@ -216,9 +212,6 @@ class NeMoASRAdapter:
         return results
 
     def _model_sample_rate(self) -> int:
-        if self.target_sample_rate is not None:
-            return int(self.target_sample_rate)
-
         preprocessor = getattr(self._model, "preprocessor", None)
         value = getattr(preprocessor, "_sample_rate", None)
         if isinstance(value, Real) and value > 0:

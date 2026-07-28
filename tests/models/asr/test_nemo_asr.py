@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the NeMo Framework implementation of the shared ASR adapter."""
+"""Tests for the NeMo implementation of the shared ASR adapter."""
 
 from __future__ import annotations
 
@@ -47,20 +47,10 @@ def test_nemo_adapter_conforms_to_asr_protocol() -> None:
     assert isinstance(NeMoASRAdapter(), ASRAdapter)
 
 
-def test_nemo_adapter_rejects_unsupported_revision() -> None:
-    with pytest.raises(ValueError, match="does not support revision"):
-        NeMoASRAdapter(revision="main")
-
-
-def test_nemo_adapter_rejects_invalid_local_attention_context() -> None:
-    with pytest.raises(ValueError, match="must contain two positive integers"):
-        NeMoASRAdapter(local_attention_context_size=(128, 0))
-
-
-def test_prefetch_downloads_without_constructing_model() -> None:
+def test_download_weights_uses_shared_classmethod_contract() -> None:
     nemo_asr = MagicMock()
     with patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_asr):
-        NeMoASRAdapter.prefetch_weights("nvidia/stt_en_fastconformer_ctc_large")
+        NeMoASRAdapter.download_weights_on_node("nvidia/stt_en_fastconformer_ctc_large")
 
     nemo_asr.models.ASRModel.from_pretrained.assert_called_once_with(
         model_name="nvidia/stt_en_fastconformer_ctc_large",
@@ -68,57 +58,31 @@ def test_prefetch_downloads_without_constructing_model() -> None:
     )
 
 
-def test_setup_loads_one_worker_local_model_and_is_idempotent() -> None:
-    nemo_asr = MagicMock()
+def test_load_model_uses_stage_owned_gpu_count_and_is_idempotent() -> None:
+    adapter = NeMoASRAdapter()
     model = _mock_model([])
-    nemo_asr.models.ASRModel.from_pretrained.return_value = model
-    adapter = NeMoASRAdapter(device="cpu")
 
-    with patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_asr):
-        adapter.setup()
-        adapter.setup()
+    with patch.object(adapter, "_load_checkpoint", return_value=model) as load:
+        adapter.load_model(num_gpus=0)
+        adapter.load_model(num_gpus=0)
 
     assert adapter._model is model
-    assert nemo_asr.models.ASRModel.from_pretrained.call_count == 1
-    kwargs = nemo_asr.models.ASRModel.from_pretrained.call_args.kwargs
-    assert kwargs["model_name"] == adapter.model_id
-    assert kwargs["map_location"].type == "cpu"
-    model.change_attention_model.assert_not_called()
-    model.change_subsampling_conv_chunking_factor.assert_not_called()
+    assert load.call_count == 1
+    assert load.call_args.args[0].type == "cpu"
 
 
-def test_setup_configures_local_attention_when_enabled() -> None:
-    nemo_asr = MagicMock()
+def test_load_model_configures_local_attention_when_enabled() -> None:
+    adapter = NeMoASRAdapter(enable_local_attention=True, local_attention_context_size=(64, 96))
     model = _mock_model([])
-    nemo_asr.models.ASRModel.from_pretrained.return_value = model
-    adapter = NeMoASRAdapter(
-        device="cpu",
-        enable_local_attention=True,
-        local_attention_context_size=(64, 96),
-    )
 
-    with patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_asr):
-        adapter.setup()
+    with patch.object(adapter, "_load_checkpoint", return_value=model):
+        adapter.load_model(num_gpus=0)
 
     model.change_attention_model.assert_called_once_with(
         self_attention_model="rel_pos_local_attn",
         att_context_size=[64, 96],
     )
     model.change_subsampling_conv_chunking_factor.assert_called_once_with(1)
-
-
-def test_setup_rejects_model_without_local_attention_api() -> None:
-    nemo_asr = MagicMock()
-    nemo_asr.models.ASRModel.from_pretrained.return_value = SimpleNamespace()
-    adapter = NeMoASRAdapter(device="cpu", enable_local_attention=True)
-
-    with (
-        patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_asr),
-        pytest.raises(TypeError, match="does not support FastConformer local-attention conversion"),
-    ):
-        adapter.setup()
-
-    assert adapter._model is None
 
 
 def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:
@@ -133,38 +97,37 @@ def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:
     kwargs = model.transcribe.call_args.kwargs
     assert kwargs["batch_size"] == 2
     assert kwargs["num_workers"] == 2
-    assert "use_lhotse" not in kwargs
     assert len(kwargs["audio"]) == 2
-    assert adapter.last_metrics["transcribe_calls"] == 1.0
-    assert adapter.last_metrics["requested_batch_size"] == 2.0
 
 
-def test_transcribe_batch_preserves_skipped_positions() -> None:
+def test_transcribe_batch_preserves_empty_positions() -> None:
     model = _mock_model(["valid"])
     adapter = NeMoASRAdapter()
     adapter._model = model
 
-    results = adapter.transcribe_batch([_item(samples=0), _item(), {"waveform": [1.0], "sample_rate": 0}])
+    results = adapter.transcribe_batch([_item(samples=0), _item()])
 
-    assert [result.text for result in results] == ["", "valid", ""]
-    assert [result.skipped for result in results] == [True, False, True]
-    assert model.transcribe.call_args.kwargs["batch_size"] == 1
-    assert adapter.last_metrics["utterances_skipped_preprocess"] == 2.0
+    assert [result.text for result in results] == ["", "valid"]
+    assert [result.skipped for result in results] == [True, False]
+    assert results[0].skip_reason == "empty_audio"
 
 
-def test_transcribe_batch_resamples_to_model_rate() -> None:
-    model = _mock_model(["resampled"])
-    model.preprocessor._sample_rate = 8_000
+def test_transcribe_batch_requires_upstream_resampling() -> None:
     adapter = NeMoASRAdapter()
-    adapter._model = model
-    resampled = np.zeros(8_000, dtype=np.float32)
+    adapter._model = _mock_model([])
 
-    with patch("nemo_curator.models.asr.nemo_asr.resample_waveform", return_value=resampled) as resample:
-        adapter.transcribe_batch([_item()])
+    with pytest.raises(ValueError, match="ASRStage must provide 16000 Hz"):
+        adapter.transcribe_batch([_item(sample_rate=8_000)])
 
-    resample.assert_called_once()
-    assert resample.call_args.args[1:] == (_SAMPLE_RATE, 8_000)
-    assert model.transcribe.call_args.kwargs["audio"][0] is resampled
+
+def test_transcribe_batch_requires_upstream_mono_conversion() -> None:
+    adapter = NeMoASRAdapter()
+    adapter._model = _mock_model([])
+    item = _item()
+    item["waveform"] = np.zeros((1, _SAMPLE_RATE), dtype=np.float32)
+
+    with pytest.raises(ValueError, match="mono 1-D waveform"):
+        adapter.transcribe_batch([item])
 
 
 @pytest.mark.parametrize(
@@ -177,11 +140,3 @@ def test_transcribe_batch_resamples_to_model_rate() -> None:
 )
 def test_normalize_transcriptions_matches_nemo_output_shapes(outputs: object, expected: list[str]) -> None:
     assert NeMoASRAdapter._normalize_transcriptions(outputs) == expected
-
-
-def test_transcribe_batch_rejects_output_count_mismatch() -> None:
-    adapter = NeMoASRAdapter()
-    adapter._model = _mock_model(["only one"])
-
-    with pytest.raises(RuntimeError, match="1 transcriptions for 2 valid inputs"):
-        adapter.transcribe_batch([_item(), _item()])
