@@ -331,7 +331,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         return tasks_to_process, output_exists_skipped
 
     def run_inference(self, items: list[dict[str, Any]]) -> list[ASRResult]:
-        """Transcribe one capped sub-batch via the adapter."""
+        """Transcribe one stage batch via the adapter."""
         supported_indices = [index for index, item in enumerate(items) if self._is_language_supported(item)]
         by_index: dict[int, ASRResult] = {}
         adapter_indices: list[int] = []
@@ -419,7 +419,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         if skipped_count:
             logger.info(
                 f"ASRStage ({self.adapter_target}): marked {skipped_count}/{len(tasks)} "
-                f"tasks as empty_audio ({_SKIP_ME_KEY})",
+                f"tasks with {_SKIP_ME_KEY}",
             )
         logger.debug(
             f"ASRStage ({self.adapter_target}): generated {len(results)} predictions",

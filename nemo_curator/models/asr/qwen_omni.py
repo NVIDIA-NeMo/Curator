@@ -106,7 +106,7 @@ class QwenOmniASRAdapter:
     can be supplied from the YAML ``adapter_kwargs``.
 
     Notable Args:
-        prompt_text / *_file: Turn-1 user prompt; ``{language}`` and
+        prompt_text / *_file: User prompt; ``{language}`` and
             ``{transcript}`` are interpolated per-item when the stage supplies
             language and reference text values. ``*_file`` variants load text
             from a UTF-8 file at ``__post_init__`` time.
@@ -247,7 +247,7 @@ class QwenOmniASRAdapter:
             raise RuntimeError(msg) from exc
 
     def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
-        """Run batched two-turn inference over per-task dicts.
+        """Run batched inference over per-task dicts.
 
         Skipped items (empty / unprocessable waveforms) round-trip as
         ``ASRResult(text="", skipped=True)`` to preserve ordering.

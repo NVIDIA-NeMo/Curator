@@ -35,8 +35,9 @@ class ASRResult:
 
     Attributes:
         text: Primary transcription. Empty if skipped.
-        skipped: True when the item could not be processed (e.g. empty/corrupt
-            waveform); the stage then sets ``_skipme = "empty_audio"``.
+        skipped: True when the item could not be processed. The stage writes
+            ``skip_reason`` to ``_skipme`` and falls back to ``"empty_audio"``
+            when no reason is supplied.
         skip_reason: Optional machine-readable reason written to ``_skipme``
             when ``skipped`` is true. Defaults to ``"empty_audio"`` in the stage.
         unsupported_language: Optional normalized language code used by the
