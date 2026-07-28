@@ -65,10 +65,9 @@ class ASRAdapter(Protocol):
     (unpacked from ``task.data``) and returns one ``ASRResult`` per input, in
     order. Expected per-item keys (stage-populated):
 
-    * ``waveform``: contiguous, mono, 1-D float32 NumPy samples loaded by
-      ``ASRStage`` from the resampled audio path.
-    * ``sample_rate`` (``int``): sample rate returned while decoding
-      ``waveform``.
+    * ``waveform``: contiguous, mono, 1-D float32 NumPy samples normalized by
+      ``ASRStage`` from a file or a reader-provided in-memory waveform.
+    * ``sample_rate`` (``int``): the stage's configured target sample rate.
     * ``language`` (``str | None``): human-readable name (e.g. ``"English"``).
     * ``language_code`` (``str | None``): original language code from the
       configured stage input column.

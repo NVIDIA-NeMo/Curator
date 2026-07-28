@@ -31,12 +31,14 @@ _SR = 16000
 _RESAMPLED_AUDIO_PATH = "/data/resampled.wav"
 
 
-def _make_stage(
+def _make_stage(  # noqa: PLR0913
     *,
     default_language: str | None = None,
     batch_size: int = 32,
     supported_language_codes: list[str] | None = None,
     skip_if_output_exists: bool = False,
+    waveform_key: str | None = None,
+    keep_waveform: bool = False,
 ) -> ASRStage:
     """Build an ASRStage wired to a mock adapter (no real model load)."""
     stage = ASRStage(
@@ -47,6 +49,8 @@ def _make_stage(
         batch_size=batch_size,
         supported_language_codes=supported_language_codes,
         skip_if_output_exists=skip_if_output_exists,
+        waveform_key=waveform_key,
+        keep_waveform=keep_waveform,
     )
     mock_adapter = MagicMock()
     stage._adapter = mock_adapter
@@ -58,6 +62,21 @@ def _make_stage(
 
 def _make_task(source_lang: str | None = "en") -> AudioTask:
     data: dict[str, object] = {"resampled_audio_filepath": _RESAMPLED_AUDIO_PATH}
+    if source_lang is not None:
+        data["source_lang"] = source_lang
+    return AudioTask(data=data)
+
+
+def _make_waveform_task(
+    *,
+    waveform: np.ndarray | None = None,
+    sample_rate: int = _SR,
+    source_lang: str | None = "en",
+) -> AudioTask:
+    data: dict[str, object] = {
+        "waveform": np.zeros(_SR, dtype=np.float32) if waveform is None else waveform,
+        "sampling_rate": sample_rate,
+    }
     if source_lang is not None:
         data["source_lang"] = source_lang
     return AudioTask(data=data)
@@ -279,6 +298,19 @@ def test_inputs_and_exact_output_contract() -> None:
     assert optional_outputs == ["custom_prediction", "_skipme", "additional_notes"]
 
 
+def test_in_memory_input_contract_requires_waveform_and_sample_rate() -> None:
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        waveform_key="waveform",
+        sample_rate_key="sampling_rate",
+    )
+
+    _required, required_inputs = stage.inputs()
+
+    assert required_inputs == ["waveform", "sampling_rate"]
+
+
 def test_stage_loads_resampled_audio_like_tagging_pipeline_and_preserves_sample_rate() -> None:
     decoded_sample_rate = 8000
     tensor = torch.ones((1, _SR), dtype=torch.float32)
@@ -293,6 +325,43 @@ def test_stage_loads_resampled_audio_like_tagging_pipeline_and_preserves_sample_
     assert waveform.shape == (_SR,)
     assert waveform.dtype == np.float32
     np.testing.assert_array_equal(waveform, np.ones(_SR, dtype=np.float32))
+
+
+def test_in_memory_waveform_is_normalized_once_and_removed_after_inference() -> None:
+    stage = _make_stage(waveform_key="waveform")
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
+    stereo_8khz = np.ones((2, 8000), dtype=np.float64)
+    task = _make_waveform_task(waveform=stereo_8khz, sample_rate=8000)
+
+    results = stage.process_batch([task])
+
+    assert results[0].data["pred_text"] == "hello"
+    assert "waveform" not in results[0].data
+    inferred_item = stage._adapter.transcribe_batch.call_args.args[0][0]
+    assert inferred_item["sample_rate"] == _SR
+    assert inferred_item["waveform"].shape == (_SR,)
+    assert inferred_item["waveform"].dtype == np.float32
+    stage._load_audio.assert_not_called()
+
+
+def test_in_memory_waveform_can_be_retained_for_recovery_inference() -> None:
+    stage = _make_stage(waveform_key="waveform", keep_waveform=True)
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
+    waveform = np.ones(_SR, dtype=np.float32)
+    task = _make_waveform_task(waveform=waveform)
+
+    results = stage.process_batch([task])
+
+    assert results[0].data["waveform"] is waveform
+
+
+def test_invalid_target_sample_rate_is_rejected() -> None:
+    with pytest.raises(ValueError, match="target_sample_rate must be > 0"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            target_sample_rate=0,
+        )
 
 
 def test_stage_requires_resampled_path_and_does_not_fallback_to_original_audio() -> None:

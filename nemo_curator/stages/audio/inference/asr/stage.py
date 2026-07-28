@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import hydra.utils
+import numpy as np
+import torch
 import torchaudio
 from loguru import logger
 
@@ -35,8 +37,6 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 
@@ -96,6 +96,8 @@ _LANG_CODE_TO_NAME: dict[str, str] = {
 
 _SKIP_ME_KEY = "_skipme"
 _NOTES_KEY = "additional_notes"
+_MONO_DIMENSIONS = 1
+_CHANNEL_FIRST_DIMENSIONS = 2
 
 
 def _set_note(task_data: dict[str, Any], stage_name: str, value: str) -> None:
@@ -122,6 +124,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
 
     # Task I/O keys.
     audio_filepath_key: str = "resampled_audio_filepath"
+    waveform_key: str | None = None
+    sample_rate_key: str = "sampling_rate"
+    target_sample_rate: int = 16000
+    keep_waveform: bool = False
     source_lang_key: str = "source_lang"
     default_language: str | None = None
     supported_language_codes: list[str] | None = None
@@ -146,7 +152,11 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         if int(self.batch_size) <= 0:
             msg = f"ASRStage.batch_size must be > 0, got {self.batch_size}"
             raise ValueError(msg)
+        if int(self.target_sample_rate) <= 0:
+            msg = f"ASRStage.target_sample_rate must be > 0, got {self.target_sample_rate}"
+            raise ValueError(msg)
         self.batch_size = int(self.batch_size)
+        self.target_sample_rate = int(self.target_sample_rate)
         self._adapter: ASRAdapter | None = None
         self._supported_language_codes = self._normalise_supported_language_codes(self.supported_language_codes)
 
@@ -221,6 +231,8 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             self._adapter = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
+        if self.waveform_key:
+            return [], [self.waveform_key, self.sample_rate_key]
         return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
@@ -247,15 +259,20 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         return bool(code) and code in self._supported_language_codes
 
     def _build_items(self, tasks: list[AudioTask]) -> list[dict[str, Any]]:
-        return [
-            {
-                "audio_filepath": task.data[self.audio_filepath_key],
+        items: list[dict[str, Any]] = []
+        for task in tasks:
+            item = {
                 "language": self._resolve_language(task),
                 "language_code": self._resolve_language_code(task),
                 "task_id": task.task_id,
             }
-            for task in tasks
-        ]
+            if self.waveform_key:
+                item["waveform"] = task.data[self.waveform_key]
+                item["sample_rate"] = task.data[self.sample_rate_key]
+            else:
+                item["audio_filepath"] = task.data[self.audio_filepath_key]
+            items.append(item)
+        return items
 
     @staticmethod
     def _load_audio(audio_filepath: str) -> tuple[np.ndarray, int]:
@@ -266,6 +283,27 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         """
         waveform, sample_rate = torchaudio.load(audio_filepath)
         return waveform.squeeze(0).numpy(), sample_rate
+
+    def _prepare_waveform(self, waveform: object, sample_rate: object) -> np.ndarray:
+        """Return contiguous mono float32 samples at ``target_sample_rate``."""
+        source_sample_rate = int(sample_rate)
+        if source_sample_rate <= 0:
+            msg = f"sample rate must be > 0, got {source_sample_rate}"
+            raise ValueError(msg)
+
+        tensor = torch.as_tensor(waveform, dtype=torch.float32)
+        if tensor.ndim == _CHANNEL_FIRST_DIMENSIONS:
+            tensor = tensor.mean(dim=0)
+        elif tensor.ndim != _MONO_DIMENSIONS:
+            msg = f"waveform must be 1-D mono or 2-D channel-first audio, got shape {tuple(tensor.shape)}"
+            raise ValueError(msg)
+        if source_sample_rate != self.target_sample_rate:
+            tensor = torchaudio.functional.resample(
+                tensor,
+                source_sample_rate,
+                self.target_sample_rate,
+            )
+        return np.ascontiguousarray(tensor.cpu().numpy(), dtype=np.float32)
 
     def process(self, task: AudioTask) -> AudioTask:
         msg = f"{type(self).__name__} only supports process_batch"
@@ -294,6 +332,9 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             items,
             results,
         )
+        if self.waveform_key and not self.keep_waveform:
+            for task in tasks:
+                task.data.pop(self.waveform_key, None)
         if output_exists_skipped:
             logger.info(
                 "ASRStage ({}): reused existing {} for {}/{} tasks",
@@ -322,15 +363,21 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         adapter_items: list[dict[str, Any]] = []
         for index in supported_indices:
             item = items[index]
-            audio_filepath = str(item["audio_filepath"])
             try:
-                waveform, sample_rate = self._load_audio(audio_filepath)
+                if "waveform" in item:
+                    waveform = item["waveform"]
+                    sample_rate = item["sample_rate"]
+                    audio_source = self.waveform_key or "waveform"
+                else:
+                    audio_source = str(item["audio_filepath"])
+                    waveform, sample_rate = self._load_audio(audio_source)
+                waveform = self._prepare_waveform(waveform, sample_rate)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
-                    "ASRStage ({}): failed to load audio for task {} from {}: {}",
+                    "ASRStage ({}): failed to prepare audio for task {} from {}: {}",
                     self.adapter_target,
                     item["task_id"],
-                    audio_filepath,
+                    audio_source,
                     exc,
                 )
                 by_index[index] = ASRResult(text="", skipped=True, skip_reason="audio_load_error")
@@ -339,7 +386,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             adapter_items.append(
                 {
                     "waveform": waveform,
-                    "sample_rate": sample_rate,
+                    "sample_rate": self.target_sample_rate,
                     "language": item["language"],
                     "language_code": item["language_code"],
                     "task_id": item["task_id"],
@@ -399,8 +446,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
 
         if skipped_count:
             logger.info(
-                f"ASRStage ({self.adapter_target}): marked {skipped_count}/{len(tasks)} "
-                f"tasks with {_SKIP_ME_KEY}",
+                f"ASRStage ({self.adapter_target}): marked {skipped_count}/{len(tasks)} tasks with {_SKIP_ME_KEY}",
             )
         logger.debug(
             f"ASRStage ({self.adapter_target}): generated {len(results)} predictions",
