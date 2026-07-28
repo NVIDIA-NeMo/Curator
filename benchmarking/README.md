@@ -313,7 +313,7 @@ python benchmarking/run.py \
   --viewer-url "http://viewer.example.com/run-viewer?dir=/path/to/results/&run=my-session"
 ```
 
-If part of the URL depends on the selected results path or session name, use `--viewer-url-template`. The template is rendered after the final session name and session path are known:
+If part of the URL depends on the selected results path or session name, use `--viewer-url-template`. The template is rendered after the final session name and session path are known. When benchmarks run in a container with configured `host_path` / `container_path` mounts, path placeholders use the host-visible path so links work outside the container:
 
 ```bash
 python benchmarking/run.py \
@@ -334,11 +334,11 @@ Supported `--viewer-url-template` placeholders:
 
 | Placeholder | Value |
 | --- | --- |
-| `{results_path}` | The configured results root directory. |
+| `{results_path}` | The configured results root directory, unmapped to the host-visible path when running in a container. |
 | `{results_path_url}` | URL-encoded `results_path`. |
 | `{session_name}` | The resolved session name, either from `--session-name` or the generated default. |
 | `{session_name_url}` | URL-encoded `session_name`. |
-| `{session_path}` | The full session result directory, equivalent to `{results_path}/{session_name}`. |
+| `{session_path}` | The full session result directory, equivalent to `{results_path}/{session_name}`, unmapped to the host-visible path when running in a container. |
 | `{session_path_url}` | URL-encoded `session_path`. |
 
 Use `results_path` when the viewer expects the results root and a separate `run` parameter. Use `session_path` when the viewer expects a single path directly to the session directory. Set either `viewer_url` or `viewer_url_template`, not both.

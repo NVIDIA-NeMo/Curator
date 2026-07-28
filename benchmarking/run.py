@@ -515,12 +515,15 @@ def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
         session.viewer_url = None
         session.viewer_url_template = args.viewer_url_template
     try:
+        # viewer_url must have paths that are visible outside of a
+        # container, meaning host paths that are mapped to container
+        # mounts (if any) will be "unmapped".
         session.viewer_url = resolve_viewer_url(
             viewer_url=session.viewer_url,
             viewer_url_template=session.viewer_url_template,
-            results_path=session.results_path,
+            results_path=session.path_resolver.unmap_container_path(session.results_path),
             session_name=session_name,
-            session_path=session_path,
+            session_path=session.path_resolver.unmap_container_path(session_path),
         )
     except ValueError as e:
         logger.error(str(e))
