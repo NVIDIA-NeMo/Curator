@@ -30,9 +30,13 @@ ModelName = Literal[
 ]
 
 _ASR_STAGE = "nemo_curator.stages.audio.inference.asr.stage.ASRStage"
-_QWEN_ADAPTERS = {
+_ASR_ADAPTERS = {
     "qwen_omni": "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter",
     "qwen_asr": "nemo_curator.models.asr.qwen_asr.QwenASRAdapter",
+    "parakeet_v3": "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    "parakeet_riva": "nemo_curator.models.asr.nemo_local.LocalNeMoASRAdapter",
+    "whisper": "nemo_curator.models.faster_whisper_asr.FasterWhisperASR",
+    "indic_monolingual": "nemo_curator.models.indic_conformer_hybrid.IndicConformerHybridASR",
 }
 
 
@@ -78,12 +82,6 @@ def _resources(*, gpus: float = 0.0, gpu_memory_gb: float | None = None) -> dict
     return config
 
 
-def _nemo_model_args(model_id: str) -> dict[str, str]:
-    if model_id.endswith(".nemo"):
-        return {"model_path": model_id}
-    return {"model_name": model_id}
-
-
 def _model_stage(
     model: ModelName,
     *,
@@ -94,86 +92,53 @@ def _model_stage(
     keep_waveform = role == "primary" and settings.recovery_model != "none"
     batch_size = settings.primary_batch_size if role == "primary" else settings.recovery_batch_size
     name = f"{model}_{role}"
+    model_ids = {
+        "qwen_omni": settings.qwen_omni_model_id,
+        "qwen_asr": settings.qwen_asr_model_id,
+        "parakeet_v3": settings.parakeet_v3_model_id,
+        "parakeet_riva": settings.parakeet_riva_model_id,
+        "whisper": settings.whisper_model_size_or_path,
+        "indic_monolingual": settings.indic_model_id.format(language=settings.language),
+    }
+    if model not in _ASR_ADAPTERS:
+        msg = f"Unsupported ASR model stage: {model}"
+        raise ValueError(msg)
 
-    if model in _QWEN_ADAPTERS:
-        model_id = settings.qwen_omni_model_id if model == "qwen_omni" else settings.qwen_asr_model_id
-        adapter_kwargs: dict[str, Any]
-        if model == "qwen_omni":
-            adapter_kwargs = {
-                "prompt_text": "Transcribe the audio.",
-                "max_output_tokens": 256,
-                "max_model_len": 4096,
-                "max_num_seqs": 128,
-                "gpu_memory_utilization": 0.85,
-                "temperature": 0.0,
-                "top_k": 1,
-            }
-        else:
-            adapter_kwargs = {
-                "max_new_tokens": 4096,
-                "max_inference_batch_size": batch_size,
-                "gpu_memory_utilization": 0.95,
-            }
-        return {
-            "_target_": _ASR_STAGE,
-            "name": name,
-            "adapter_target": _QWEN_ADAPTERS[model],
-            "model_id": model_id,
-            "audio_filepath_key": "audio_filepath",
-            "source_lang_key": "source_lang",
-            "default_language": settings.language,
-            "pred_text_key": pred_text_key,
-            "primary_model_value": model if role == "primary" else None,
-            "batch_size": batch_size,
-            "resources": _resources(gpus=2.0 if model == "qwen_omni" else 1.0),
-            "adapter_kwargs": adapter_kwargs,
+    adapter_kwargs: dict[str, Any] = {}
+    if model == "qwen_omni":
+        adapter_kwargs = {
+            "prompt_text": "Transcribe the audio.",
+            "max_output_tokens": 256,
+            "max_model_len": 4096,
+            "max_num_seqs": 128,
+            "gpu_memory_utilization": 0.85,
+            "temperature": 0.0,
+            "top_k": 1,
+        }
+    elif model == "qwen_asr":
+        adapter_kwargs = {
+            "max_new_tokens": 4096,
+            "max_inference_batch_size": batch_size,
+            "gpu_memory_utilization": 0.95,
         }
 
-    if model == "whisper":
-        return {
-            "_target_": ("nemo_curator.stages.audio.inference.faster_whisper.InferenceFasterWhisperStage"),
-            "name": name,
-            "model_size_or_path": settings.whisper_model_size_or_path,
-            "source_lang_key": "source_lang",
-            "waveform_key": "waveform",
-            "sample_rate_key": "sampling_rate",
-            "pred_text_key": pred_text_key,
-            "keep_waveform": keep_waveform,
-            "batch_size": batch_size,
-            "resources": _resources(gpus=1.0),
-        }
-
-    if model == "indic_monolingual":
-        model_id = settings.indic_model_id.format(language=settings.language)
-        return {
-            "_target_": (
-                "nemo_curator.stages.audio.inference.indic_conformer_hybrid.InferenceIndicConformerHybridStage"
-            ),
-            "name": name,
-            "model_id": model_id,
-            "source_lang_key": "source_lang",
-            "waveform_key": "waveform",
-            "sample_rate_key": "sampling_rate",
-            "pred_text_key": pred_text_key,
-            "keep_waveform": keep_waveform,
-            "batch_size": batch_size,
-            "resources": _resources(gpus=1.0),
-        }
-
-    if model in {"parakeet_v3", "parakeet_riva"}:
-        model_id = settings.parakeet_v3_model_id if model == "parakeet_v3" else settings.parakeet_riva_model_id
-        return {
-            "_target_": ("nemo_curator.stages.audio.inference.asr.asr_nemo.InferenceAsrNemoStage"),
-            "name": name,
-            **_nemo_model_args(model_id),
-            "filepath_key": "audio_filepath",
-            "pred_text_key": pred_text_key,
-            "batch_size": batch_size,
-            "resources": _resources(gpus=1.0),
-        }
-
-    msg = f"Unsupported ASR model stage: {model}"
-    raise ValueError(msg)
+    return {
+        "_target_": _ASR_STAGE,
+        "name": name,
+        "adapter_target": _ASR_ADAPTERS[model],
+        "model_id": model_ids[model],
+        "waveform_key": "waveform",
+        "sample_rate_key": "sampling_rate",
+        "target_sample_rate": 16000,
+        "keep_waveform": keep_waveform,
+        "source_lang_key": "source_lang",
+        "default_language": settings.language,
+        "pred_text_key": pred_text_key,
+        "primary_model_value": model if role == "primary" else None,
+        "batch_size": batch_size,
+        "resources": _resources(gpus=2.0 if model == "qwen_omni" else 1.0),
+        "adapter_kwargs": adapter_kwargs,
+    }
 
 
 def build_stage_configs(settings: GranaryV2PipelineSettings) -> list[dict[str, Any]]:

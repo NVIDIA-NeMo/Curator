@@ -86,24 +86,25 @@ def test_no_recovery_route_omits_recovery_inference_and_recheck() -> None:
         )
     )
 
-    assert _suffixes(stages).count("InferenceFasterWhisperStage") == 1
+    assert _suffixes(stages).count("ASRStage") == 1
+    assert stages[2]["adapter_target"].endswith(".FasterWhisperASR")
     assert _suffixes(stages).count("WhisperHallucinationStage") == 1
     selection = next(stage for stage in stages if _suffixes([stage])[0] == "SelectBestPredictionStage")
     assert selection["primary_text_key"] == "primary_model_prediction"
 
 
 @pytest.mark.parametrize(
-    ("model", "expected_suffix"),
+    ("model", "expected_adapter"),
     [
-        ("whisper", "InferenceFasterWhisperStage"),
-        ("indic_monolingual", "InferenceIndicConformerHybridStage"),
-        ("parakeet_v3", "InferenceAsrNemoStage"),
-        ("parakeet_riva", "InferenceAsrNemoStage"),
+        ("whisper", "FasterWhisperASR"),
+        ("indic_monolingual", "IndicConformerHybridASR"),
+        ("parakeet_v3", "NeMoASRAdapter"),
+        ("parakeet_riva", "LocalNeMoASRAdapter"),
     ],
 )
-def test_non_qwen_models_use_dedicated_stage_adapters(
+def test_non_qwen_models_use_generic_stage_adapters(
     model: str,
-    expected_suffix: str,
+    expected_adapter: str,
 ) -> None:
     stages = build_stage_configs(
         _settings(
@@ -113,7 +114,11 @@ def test_non_qwen_models_use_dedicated_stage_adapters(
         )
     )
 
-    assert _suffixes(stages)[2] == expected_suffix
+    assert _suffixes(stages)[2] == "ASRStage"
+    assert str(stages[2]["adapter_target"]).endswith(f".{expected_adapter}")
+    assert stages[2]["waveform_key"] == "waveform"
+    assert stages[2]["sample_rate_key"] == "sampling_rate"
+    assert stages[2]["target_sample_rate"] == 16000
 
 
 def test_local_nemo_checkpoint_is_wired_as_model_path() -> None:
@@ -125,8 +130,17 @@ def test_local_nemo_checkpoint_is_wired_as_model_path() -> None:
         )
     )
 
-    assert stages[2]["model_path"] == "/models/parakeet-riva.nemo"
-    assert "model_name" not in stages[2]
+    assert stages[2]["model_id"] == "/models/parakeet-riva.nemo"
+    assert stages[2]["adapter_target"].endswith(".LocalNeMoASRAdapter")
+
+
+def test_primary_keeps_waveform_only_when_recovery_needs_it() -> None:
+    with_recovery = build_stage_configs(_settings(primary_model="whisper", recovery_model="qwen_asr"))
+    without_recovery = build_stage_configs(_settings(primary_model="whisper", recovery_model="none"))
+
+    assert with_recovery[2]["keep_waveform"] is True
+    assert with_recovery[4]["keep_waveform"] is False
+    assert without_recovery[2]["keep_waveform"] is False
 
 
 def test_turn_two_is_absent_from_code_and_yaml() -> None:

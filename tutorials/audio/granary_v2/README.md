@@ -8,6 +8,10 @@ production contract:
 The model route is derived from `language` by
 `nemo_curator.stages.audio.pipeline_utils.resolve_model_route`. Explicit
 `primary_model` and `recovery_model` values override the defaults.
+Every model route uses the shared `ASRStage`; Qwen-Omni, Qwen3-ASR,
+NeMo/FastConformer, local `.nemo`, IndicConformer, and Faster-Whisper differ
+only by `adapter_target`. The reader's in-memory waveform is normalized once
+by that shared stage and retained only when a recovery model still needs it.
 
 There is intentionally no second ASR turn. The configuration never supplies a
 follow-up prompt, never creates a second-turn prediction column, and does not
