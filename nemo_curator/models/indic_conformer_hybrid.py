@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: ANN401, I001, N806, N812, PLR0913, PLR1714, PLW0603
+# ruff: noqa: ANN401, I001, N806, PLR0913, PLR1714, PLW0603
 
 """AI4Bharat IndicConformer *hybrid* (CTC+RNNT) per-language ``.nemo`` ASR.
 
-This model-only adapter loads the per-language
+This adapter loads the per-language
 ``ai4bharat/indicconformer_stt_<lang>_hybrid_ctc_rnnt_large`` ``.nemo``
-checkpoints and runs waveform-to-text inference. The Curator stage wrapper
-lives in ``nemo_curator.stages.audio.inference.indic_conformer_hybrid``.
+checkpoints and runs waveform-to-text inference behind the shared ``ASRStage``.
 
 These checkpoints were trained with AI4Bharat's NeMo fork
 (https://github.com/AI4Bharat/NeMo, ``nemo-v2`` branch), which adds a *multi-softmax*
@@ -57,9 +56,9 @@ from typing import Any, Literal
 import numpy as np
 from loguru import logger
 
-from nemo_curator.models.base import ModelInterface
+from nemo_curator.models.asr.base import ASRResult
 
-_TARGET_SR = 16000
+_TARGET_SR = 16_000
 
 # Set once ``_apply_multisoftmax_patches`` has run.
 _PATCHED = False
@@ -292,32 +291,31 @@ def _apply_multisoftmax_patches() -> None:  # noqa: C901, PLR0915
     logger.info("Applied AI4Bharat multi-softmax patches to NeMo ConvASRDecoder/RNNTDecoder/RNNTJoint")
 
 
-class IndicConformerHybridASR(ModelInterface):
-    """AI4Bharat IndicConformer hybrid (CTC+RNNT) per-language NeMo ASR engine.
-
-    Pure inference: ``setup()`` then ``generate(waveforms, sample_rates, lang_codes)``.
-    It knows nothing about Curator task or executor types; the stage adapter
-    owns those concerns.
-    """
+class IndicConformerHybridASR:
+    """AI4Bharat IndicConformer hybrid adapter for #1967's generic ASR stage."""
 
     def __init__(
         self,
         model_id: str,
+        revision: str | None = None,
         decode_mode: Literal["ctc", "rnnt"] = "rnnt",
         *,
         max_symbols_per_step: int = 10,
     ):
+        if not model_id:
+            msg = "IndicConformerHybridASR.model_id must be non-empty"
+            raise ValueError(msg)
+        if revision is not None:
+            msg = "IndicConformerHybridASR does not support revision pinning"
+            raise ValueError(msg)
         self.model_id = model_id
+        self.revision = revision
         self.decode_mode = decode_mode
         self.max_symbols_per_step = max_symbols_per_step
         self._model: Any = None
         self._device: Any = None
         self._num_langs: int = 0
         self._per_lang_classes: int = 0  # V / num_langs (blank index within a head)
-
-    @property
-    def model_id_names(self) -> list[str]:
-        return [self.model_id]
 
     @staticmethod
     def _resolve_nemo_path(model_id: str) -> str:
@@ -339,12 +337,26 @@ class IndicConformerHybridASR(ModelInterface):
             raise RuntimeError(msg)
         return hf_hub_download(model_id, files[0])
 
-    def setup(self) -> None:
+    @classmethod
+    def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
+        """Resolve the checkpoint into the node-local cache without loading it."""
+        if revision is not None:
+            msg = "IndicConformerHybridASR does not support revision pinning"
+            raise ValueError(msg)
+        cls._resolve_nemo_path(model_id)
+
+    def load_model(self, *, num_gpus: int) -> None:
+        if self._model is not None:
+            return
+        if num_gpus < 0:
+            msg = "num_gpus must be non-negative"
+            raise ValueError(msg)
+
         import torch
         import nemo.collections.asr as nemo_asr
 
         _apply_multisoftmax_patches()
-        self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._device = torch.device("cuda" if num_gpus else "cpu")
         nemo_path = self._resolve_nemo_path(self.model_id)
         logger.info(f"Loading IndicConformer hybrid model={nemo_path} device={self._device}")
 
@@ -369,8 +381,7 @@ class IndicConformerHybridASR(ModelInterface):
         self._model.ctc_decoder.language_masks = masks
         logger.info(f"IndicConformer hybrid ready: {self._num_langs} langs, {self._per_lang_classes} tokens/lang")
 
-    def teardown(self) -> None:
-        del self._model
+    def unload_model(self) -> None:
         self._model = None
         self._device = None
         gc.collect()
@@ -396,7 +407,6 @@ class IndicConformerHybridASR(ModelInterface):
             raise RuntimeError(msg)
         mode = (decode_mode or self.decode_mode).lower()
         import torch
-        import torchaudio.functional as AF
 
         texts: list[str] = []
         langs_out: list[str] = []
@@ -406,11 +416,14 @@ class IndicConformerHybridASR(ModelInterface):
                     texts.append("")
                     langs_out.append(lang)
                     continue
-                wav = torch.from_numpy(np.ascontiguousarray(w, dtype=np.float32)).to(self._device)
-                if wav.ndim > 1:
-                    wav = wav.mean(dim=-1)
+                samples = np.asarray(w, dtype=np.float32)
+                if samples.ndim != 1:
+                    msg = f"ASRStage must provide a mono 1-D waveform, got shape {samples.shape}"
+                    raise ValueError(msg)
                 if int(sr) != _TARGET_SR:
-                    wav = AF.resample(wav, orig_freq=int(sr), new_freq=_TARGET_SR)
+                    msg = f"ASRStage must provide {_TARGET_SR} Hz audio; received {sr} Hz"
+                    raise ValueError(msg)
+                wav = torch.from_numpy(np.ascontiguousarray(samples)).to(self._device)
                 length = torch.tensor([wav.shape[0]], device=self._device)
                 encoded, encoded_len = self._model(
                     input_signal=wav.unsqueeze(0), input_signal_length=length
@@ -422,6 +435,35 @@ class IndicConformerHybridASR(ModelInterface):
                 texts.append(text)
                 langs_out.append(lang)
         return texts, langs_out
+
+    def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
+        """Transcribe supported rows and preserve the shared one-result-per-item contract."""
+        results = [ASRResult(text="", skipped=True, skip_reason="empty_audio") for _ in items]
+        valid_indices: list[int] = []
+        waveforms: list[np.ndarray] = []
+        sample_rates: list[int] = []
+        languages: list[str] = []
+        for index, item in enumerate(items):
+            language = str(item.get("language_code") or "").strip().lower()
+            if language not in INDIC_CONFORMER_HYBRID_LANGS:
+                results[index] = ASRResult(text="", unsupported_language=language or None)
+                continue
+            waveform = np.asarray(item.get("waveform"), dtype=np.float32)
+            if waveform.size == 0:
+                continue
+            valid_indices.append(index)
+            waveforms.append(waveform)
+            sample_rates.append(int(item.get("sample_rate") or 0))
+            languages.append(language)
+
+        if valid_indices:
+            texts, _ = self.generate(waveforms, sample_rates, languages)
+            if len(texts) != len(valid_indices):
+                msg = f"IndicConformer returned {len(texts)} transcriptions for {len(valid_indices)} inputs"
+                raise RuntimeError(msg)
+            for index, text in zip(valid_indices, texts, strict=True):
+                results[index] = ASRResult(text=text)
+        return results
 
     def _ids_to_text(self, local_ids: list[int], lang: str) -> str:
         """Map per-language local token ids -> aggregate ids -> text."""

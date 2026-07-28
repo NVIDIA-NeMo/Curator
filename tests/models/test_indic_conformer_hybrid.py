@@ -14,8 +14,17 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
+import numpy as np
+import pytest
+
+from nemo_curator.models.asr.base import ASRAdapter
 from nemo_curator.models.indic_conformer_hybrid import IndicConformerHybridASR
+
+
+def test_adapter_conforms_to_shared_protocol() -> None:
+    assert isinstance(IndicConformerHybridASR("checkpoint.nemo"), ASRAdapter)
 
 
 def test_local_nemo_path_is_used_without_hub_download(tmp_path: Path) -> None:
@@ -40,3 +49,45 @@ def test_empty_token_sequence_decodes_to_empty_text() -> None:
     adapter = IndicConformerHybridASR("checkpoint.nemo")
 
     assert adapter._ids_to_text([], "hi") == ""
+
+
+def test_download_weights_resolves_checkpoint_without_loading_model(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "indic.nemo"
+    checkpoint.touch()
+
+    with patch.object(IndicConformerHybridASR, "_resolve_nemo_path", return_value=str(checkpoint)) as resolve:
+        IndicConformerHybridASR.download_weights_on_node("ai4bharat/model")
+
+    resolve.assert_called_once_with("ai4bharat/model")
+
+
+def test_transcribe_batch_routes_supported_languages_through_model() -> None:
+    adapter = IndicConformerHybridASR("checkpoint.nemo")
+    adapter._model = MagicMock()
+    with patch.object(adapter, "generate", return_value=(["नमस्ते"], ["hi"])) as generate:
+        results = adapter.transcribe_batch(
+            [
+                {
+                    "waveform": np.zeros(160, dtype=np.float32),
+                    "sample_rate": 16_000,
+                    "language_code": "hi",
+                },
+                {
+                    "waveform": np.zeros(160, dtype=np.float32),
+                    "sample_rate": 16_000,
+                    "language_code": "en",
+                },
+            ]
+        )
+
+    assert results[0].text == "नमस्ते"
+    assert results[1].unsupported_language == "en"
+    assert generate.call_count == 1
+
+
+def test_generate_requires_upstream_resampling() -> None:
+    adapter = IndicConformerHybridASR("checkpoint.nemo")
+    adapter._model = MagicMock()
+
+    with pytest.raises(ValueError, match="ASRStage must provide 16000 Hz"):
+        adapter.generate([np.zeros(160, dtype=np.float32)], [8_000], ["hi"])
