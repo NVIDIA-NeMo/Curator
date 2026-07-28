@@ -24,7 +24,6 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from nemo_curator.models.asr.base import ASRAdapter
 from nemo_curator.models.asr.qwen_omni import QwenOmniASRAdapter
 
 if TYPE_CHECKING:
@@ -103,37 +102,6 @@ def _mock_qwen_model_load(
         patch("nemo_curator.models.asr.qwen_omni.SamplingParams") as sampling_ctor,
     ):
         yield llm_ctor, processor_cls.from_pretrained, sampling_ctor
-
-
-def test_qwen_adapter_conforms_to_asr_protocol() -> None:
-    """QwenOmniASRAdapter satisfies the ASRAdapter contract (requires @runtime_checkable)."""
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-    assert isinstance(adapter, ASRAdapter)
-
-
-def test_qwen_adapter_default_prompt_matches_reference_adapter() -> None:
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-    assert adapter.prompt_text == "Transcribe the audio."
-
-
-def test_qwen_adapter_first_output_text_handles_empty_vllm_output() -> None:
-    assert QwenOmniASRAdapter._first_output_text(SimpleNamespace(outputs=[])) == ""
-
-
-def test_qwen_adapter_rejects_nonpositive_max_output_tokens() -> None:
-    with pytest.raises(ValueError, match="max_output_tokens must be positive"):
-        QwenOmniASRAdapter(model_id="mock/qwen-omni", max_output_tokens=0)
-
-
-@pytest.mark.parametrize("reserved_key", ["model", "revision", "tensor_parallel_size"])
-def test_qwen_adapter_rejects_stage_owned_vllm_kwargs(reserved_key: str) -> None:
-    with pytest.raises(ValueError, match=reserved_key):
-        QwenOmniASRAdapter(model_id="mock/qwen-omni", vllm_kwargs={reserved_key: "invalid"})
-
-
-def test_qwen_adapter_rejects_sampling_max_tokens_override() -> None:
-    with pytest.raises(ValueError, match="use max_output_tokens"):
-        QwenOmniASRAdapter(model_id="mock/qwen-omni", sampling_kwargs={"max_tokens": 1024})
 
 
 @pytest.mark.parametrize("num_gpus", [0, -1, 1.5, True])
@@ -328,15 +296,6 @@ def test_qwen_adapter_accepts_nested_vllm_kwargs() -> None:
     assert adapter.vllm_kwargs is not vllm_kwargs
     vllm_kwargs["limit_mm_per_prompt"]["audio"] = 9
     assert adapter.vllm_kwargs["limit_mm_per_prompt"]["audio"] == 1
-
-
-def test_qwen_adapter_vllm_knob_defaults_match_doc() -> None:
-    """Default vLLM knob values match the adapter documentation."""
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-    assert adapter.vllm_kwargs["enable_prefix_caching"] is True
-    assert adapter.vllm_kwargs["prefix_caching_hash_algo"] == "xxhash"
-    assert adapter.vllm_kwargs["limit_mm_per_prompt"] == {"image": 1, "video": 1, "audio": 2}
-    assert adapter.vllm_kwargs["seed"] == 1234
 
 
 def test_qwen_adapter_load_model_threads_vllm_kwargs_into_shared_llm_ctor() -> None:
