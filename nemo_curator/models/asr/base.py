@@ -34,9 +34,7 @@ class ASRResult:
     constant when the adapter is swapped.
 
     Attributes:
-        text: Primary transcription (Turn-1 / sole output). Empty if skipped.
-        secondary_text: Optional adapter-side secondary output. ``ASRStage``
-            deliberately does not persist this value.
+        text: Primary transcription. Empty if skipped.
         skipped: True when the item could not be processed (e.g. empty/corrupt
             waveform); the stage then sets ``_skipme = "empty_audio"``.
         skip_reason: Optional machine-readable reason written to ``_skipme``
@@ -48,7 +46,6 @@ class ASRResult:
     """
 
     text: str
-    secondary_text: str | None = None
     skipped: bool = False
     skip_reason: str | None = None
     unsupported_language: str | None = None

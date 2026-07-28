@@ -161,8 +161,8 @@ manifest.
 
 ## Languages and prompts
 
-The default is single-turn transcription with the reference runner's inline prompt
-`Transcribe the audio.` and no language-specific, follow-up, or system prompt.
+The default uses the reference runner's inline prompt `Transcribe the audio.`
+with no language-specific or system prompt.
 Set `prompt_file` to use a UTF-8 prompt asset instead.
 
 For language-aware prompting, use the bundled multilingual prompt containing

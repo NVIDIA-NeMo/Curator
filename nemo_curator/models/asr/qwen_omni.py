@@ -70,11 +70,6 @@ _QWEN3_OMNI_MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 _QWEN_OMNI_SAMPLE_RATE = 16000
 _MIN_QWEN_AUDIO_SAMPLES = 1600
 _PROMPT_CONTENT_ORDERS = frozenset({"text_audio", "audio_text"})
-_FOLLOWUP_PROMPT_DEFAULT = (
-    "Now listen to the audio again and add any false starts, filler words "
-    "and preserve colloquial words (like lemme, gonna, wanna, etc) as is "
-    "spoken in the audio."
-)
 _RESERVED_VLLM_KWARGS = frozenset({"model", "revision", "tensor_parallel_size"})
 
 
@@ -117,8 +112,7 @@ class QwenOmniASRAdapter:
             from a UTF-8 file at ``__post_init__`` time.
         en_prompt_text / en_prompt_file: override used when language is
             ``"English"``.
-        followup_prompt / *_file: when set, enables Turn-2 inference.
-        system_prompt / *_file: optional system message for both turns.
+        system_prompt / *_file: optional system message.
         prompt_content_order: order of text and audio blocks in each user
             message. ``text_audio`` preserves reference-adapter behavior;
             ``audio_text`` matches Qwen's official ASR cookbook.
@@ -138,8 +132,6 @@ class QwenOmniASRAdapter:
     prompt_file: str | None = None
     en_prompt_text: str | None = None
     en_prompt_file: str | None = None
-    followup_prompt: str | None = None
-    followup_prompt_file: str | None = None
     system_prompt: str | None = None
     system_prompt_file: str | None = None
     prompt_content_order: str = "text_audio"
@@ -150,7 +142,6 @@ class QwenOmniASRAdapter:
     def __post_init__(self) -> None:
         self.prompt_text = self._load_text(self.prompt_text, self.prompt_file) or ""
         self.en_prompt_text = self._load_text(self.en_prompt_text, self.en_prompt_file)
-        self.followup_prompt = self._load_text(self.followup_prompt, self.followup_prompt_file)
         self.system_prompt = self._load_text(self.system_prompt, self.system_prompt_file)
 
         if self.max_output_tokens <= 0:
@@ -274,19 +265,17 @@ class QwenOmniASRAdapter:
         waveforms = [it["waveform"] for it in items]
         languages = [it.get("language") for it in items]
         reference_texts = [it.get("reference_text") for it in items]
-        pred_texts, disfl_texts, skipped_indices = self._run_two_turn(
+        pred_texts, skipped_indices = self._run_inference(
             waveforms,
             languages,
             reference_texts,
         )
-        has_t2 = bool(self.followup_prompt)
         return [
             ASRResult(
                 text=pred,
-                secondary_text=(disfl if has_t2 else None),
                 skipped=(i in skipped_indices),
             )
-            for i, (pred, disfl) in enumerate(zip(pred_texts, disfl_texts, strict=True))
+            for i, pred in enumerate(pred_texts)
         ]
 
     # Input preparation
@@ -336,28 +325,8 @@ class QwenOmniASRAdapter:
     ) -> list[dict[str, Any]]:
         return self._build_audio_prompt_messages(waveform, language, reference_text)
 
-    def _build_turn2_messages(
-        self,
-        waveform: np.ndarray,
-        pred_text: str,
-        language: str | None = None,
-        reference_text: str | None = None,
-    ) -> list[dict[str, Any]]:
-        followup = self._resolve_prompt(self.followup_prompt or _FOLLOWUP_PROMPT_DEFAULT, language, reference_text)
-        messages = self._build_audio_prompt_messages(waveform, language, reference_text)
-        messages.append({"role": "assistant", "content": [{"type": "text", "text": pred_text}]})
-        messages.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": followup},
-                ],
-            }
-        )
-        return messages
-
     def _pack_vllm_inputs(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        """Render chat ``messages`` into a vLLM request dict (shared by both turns)."""
+        """Render chat ``messages`` into a vLLM request dict."""
         text = self._processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
         inputs: dict[str, Any] = {
@@ -378,7 +347,7 @@ class QwenOmniASRAdapter:
         waveform: np.ndarray,
         language: str | None = None,
         reference_text: str | None = None,
-    ) -> tuple[dict[str, Any], np.ndarray] | None:
+    ) -> dict[str, Any] | None:
         try:
             if waveform.size == 0:
                 logger.warning("Skipping empty waveform")
@@ -396,53 +365,19 @@ class QwenOmniASRAdapter:
             )
             return None
 
-        return inputs, waveform
+        return inputs
 
     def _prepare_batch(
         self,
         waveforms: list[np.ndarray],
         languages: list[str | None] | None = None,
         reference_texts: list[str | None] | None = None,
-    ) -> list[tuple[dict[str, Any], np.ndarray] | None]:
+    ) -> list[dict[str, Any] | None]:
         langs = languages or [None] * len(waveforms)
         refs = reference_texts or [None] * len(waveforms)
         return [
             self._prepare_single(waveform, language, reference_text)
             for waveform, language, reference_text in zip(waveforms, langs, refs, strict=True)
-        ]
-
-    def _prepare_turn2_single(
-        self,
-        waveform: np.ndarray,
-        pred_text: str,
-        language: str | None = None,
-        reference_text: str | None = None,
-    ) -> dict[str, Any] | None:
-        try:
-            messages = self._build_turn2_messages(waveform, pred_text, language, reference_text)
-            inputs = self._pack_vllm_inputs(messages)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to preprocess Turn 2 audio (shape={}): {}",
-                getattr(waveform, "shape", None),
-                exc,
-            )
-            return None
-
-        return inputs
-
-    def _prepare_turn2_batch(
-        self,
-        waveforms: list[np.ndarray],
-        pred_texts: list[str],
-        languages: list[str | None] | None = None,
-        reference_texts: list[str | None] | None = None,
-    ) -> list[dict[str, Any] | None]:
-        langs = languages or [None] * len(waveforms)
-        refs = reference_texts or [None] * len(waveforms)
-        return [
-            self._prepare_turn2_single(w, pt, lang, ref)
-            for w, pt, lang, ref in zip(waveforms, pred_texts, langs, refs, strict=True)
         ]
 
     @staticmethod
@@ -471,30 +406,23 @@ class QwenOmniASRAdapter:
             texts[idx] = self._first_output_text(out)
         return texts
 
-    def _run_two_turn(
+    def _run_inference(
         self,
         waveforms: list[np.ndarray],
         languages: list[str | None] | None = None,
         reference_texts: list[str | None] | None = None,
-    ) -> tuple[list[str], list[str], set[int]]:
-        """Run batched two-turn inference on in-memory waveforms.
-
-        Returns ``(pred_texts, disfluency_texts, skipped_indices)``.
-        ``disfluency_texts`` is all empty strings when ``followup_prompt``
-        is not set.
-        """
+    ) -> tuple[list[str], set[int]]:
+        """Run batched inference on in-memory waveforms."""
         n = len(waveforms)
 
-        # -- Turn 1 ----------------------------------------------------------
         prepared = self._prepare_batch(waveforms, languages, reference_texts)
         valid_indices = [i for i, p in enumerate(prepared) if p is not None]
-        valid_inputs = [prepared[i][0] for i in valid_indices]
-        prepared_waveforms: dict[int, np.ndarray] = {i: prepared[i][1] for i in valid_indices}
+        valid_inputs = [p for p in prepared if p is not None]
         skipped_indices = set(range(n)) - set(valid_indices)
 
         if not valid_inputs:
             logger.warning(f"All {n} audio samples in batch failed preprocessing")
-            return [""] * n, [""] * n, skipped_indices
+            return [""] * n, skipped_indices
 
         if len(valid_inputs) < n:
             logger.warning(f"Skipped {n - len(valid_inputs)}/{n} corrupt audio samples")
@@ -504,35 +432,9 @@ class QwenOmniASRAdapter:
         if empty_output_indices:
             skipped_indices.update(empty_output_indices)
             logger.warning(
-                "Skipping {}/{} audio samples with empty Turn 1 vLLM output",
+                "Skipping {}/{} audio samples with empty vLLM output",
                 len(empty_output_indices),
                 len(valid_indices),
             )
 
-        # -- Turn 2 (disfluency refinement) -----------------------------------
-        if not self.followup_prompt:
-            return pred_texts, [""] * n, skipped_indices
-
-        t2_indices = [i for i in valid_indices if i not in skipped_indices and pred_texts[i]]
-        if not t2_indices:
-            return pred_texts, [""] * n, skipped_indices
-
-        langs = languages or [None] * n
-        refs = reference_texts or [None] * n
-        t2_prepared = self._prepare_turn2_batch(
-            [prepared_waveforms[i] for i in t2_indices],
-            [pred_texts[i] for i in t2_indices],
-            [langs[i] for i in t2_indices],
-            [refs[i] for i in t2_indices],
-        )
-
-        t2_valid = [(i, p) for i, p in zip(t2_indices, t2_prepared, strict=False) if p is not None]
-        if not t2_valid:
-            logger.warning("All Turn 2 samples failed preprocessing")
-            return pred_texts, [""] * n, skipped_indices
-
-        t2_valid_indices = [i for i, _ in t2_valid]
-        t2_inputs = [p for _, p in t2_valid]
-        disfluency_texts = self._infer_turn(t2_inputs, t2_valid_indices, n)
-
-        return pred_texts, disfluency_texts, skipped_indices
+        return pred_texts, skipped_indices

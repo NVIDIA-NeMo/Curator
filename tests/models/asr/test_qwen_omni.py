@@ -207,26 +207,6 @@ def test_qwen_adapter_infer_turn_raises_on_vllm_count_mismatch() -> None:
         adapter._infer_turn(inputs=[{"prompt": "a"}, {"prompt": "b"}], indices=[0, 1], n=2)
 
 
-def test_qwen_adapter_turn2_extends_shared_audio_prompt_messages() -> None:
-    adapter = QwenOmniASRAdapter(
-        model_id="mock/qwen-omni",
-        prompt_text="Transcribe {language}.",
-        followup_prompt="Refine {language}.",
-        system_prompt="System {language}.",
-    )
-    waveform = np.zeros(_SR, dtype=np.float32)
-
-    turn1_messages = adapter._build_messages(waveform, "English")
-    turn2_messages = adapter._build_turn2_messages(waveform, "draft text", "English")
-
-    assert [message["role"] for message in turn2_messages[:2]] == [message["role"] for message in turn1_messages]
-    assert turn2_messages[0]["content"][0]["text"] == turn1_messages[0]["content"][0]["text"]
-    assert turn2_messages[1]["content"][0]["text"] == turn1_messages[1]["content"][0]["text"]
-    assert turn2_messages[1]["content"][1]["audio"] is waveform
-    assert turn2_messages[2] == {"role": "assistant", "content": [{"type": "text", "text": "draft text"}]}
-    assert turn2_messages[3] == {"role": "user", "content": [{"type": "text", "text": "Refine English."}]}
-
-
 def test_qwen_adapter_audio_text_prompt_order_matches_official_asr_recipe() -> None:
     adapter = QwenOmniASRAdapter(
         model_id="mock/qwen-omni",
@@ -252,18 +232,13 @@ def test_qwen_adapter_prompt_replaces_language_and_reference_transcript() -> Non
         model_id="mock/qwen-omni",
         prompt_text="Transcribe {language}: {transcript}",
         en_prompt_text="English prompt {transcript}",
-        followup_prompt="Refine {language}: {transcript}",
     )
     waveform = np.zeros(_SR, dtype=np.float32)
 
-    turn1_messages = adapter._build_messages(waveform, "English", "hello reference")
-    turn2_messages = adapter._build_turn2_messages(waveform, "draft", "Spanish", "hola ref")
+    messages = adapter._build_messages(waveform, "English", "hello reference")
 
-    assert turn1_messages[-1]["content"][0]["text"] == "English prompt hello reference"
-    assert turn1_messages[-1]["content"][1]["audio"] is waveform
-    assert turn2_messages[0]["content"][0]["text"] == "Transcribe Spanish: hola ref"
-    assert turn2_messages[0]["content"][1]["audio"] is waveform
-    assert turn2_messages[2]["content"][0]["text"] == "Refine Spanish: hola ref"
+    assert messages[-1]["content"][0]["text"] == "English prompt hello reference"
+    assert messages[-1]["content"][1]["audio"] is waveform
 
 
 def test_qwen_adapter_missing_reference_placeholder_skips_before_prompt_packing() -> None:
@@ -280,7 +255,7 @@ def test_qwen_adapter_missing_reference_placeholder_skips_before_prompt_packing(
 
 
 def test_qwen_adapter_transcribe_batch_packages_results() -> None:
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt="refine")
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
     items = [
         {
             "waveform": np.zeros(_SR, dtype=np.float32),
@@ -300,31 +275,14 @@ def test_qwen_adapter_transcribe_batch_packages_results() -> None:
         adapter,
         generated_batches=[
             [_vllm_output("text-a"), _vllm_output("text-b")],
-            [_vllm_output("refined-a"), _vllm_output("")],
         ],
     ) as (llm, _):
         results = adapter.transcribe_batch(items)
 
     assert [r.text for r in results] == ["text-a", "text-b", ""]
-    assert [r.secondary_text for r in results] == ["refined-a", "", ""]
     assert [r.skipped for r in results] == [False, False, True]
-    assert llm.generate.call_count == 2
+    assert llm.generate.call_count == 1
     assert len(llm.generate.call_args_list[0].args[0]) == 2
-    assert len(llm.generate.call_args_list[1].args[0]) == 2
-
-
-def test_qwen_adapter_single_turn_drops_secondary_text() -> None:
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt=None)
-    with _mock_external_qwen_runtime(
-        adapter,
-        generated_batches=[[_vllm_output("text-a")]],
-    ):
-        results = adapter.transcribe_batch(
-            [
-                {"waveform": np.zeros(_SR, dtype=np.float32), "sample_rate": _SR},
-            ]
-        )
-    assert results[0].secondary_text is None
 
 
 def test_qwen_adapter_rejects_non_16khz_audio_before_inference() -> None:
@@ -354,10 +312,8 @@ def test_qwen_adapter_prepare_single_uses_stage_normalized_waveform_unchanged() 
         prepared = adapter._prepare_single(waveform, "English")
 
     assert prepared is not None
-    inputs, prepared_waveform = prepared
-    assert len(inputs["multi_modal_data"]["audio"]) == 1
-    assert inputs["multi_modal_data"]["audio"][0] is waveform
-    assert prepared_waveform is waveform
+    assert len(prepared["multi_modal_data"]["audio"]) == 1
+    assert prepared["multi_modal_data"]["audio"][0] is waveform
 
 
 def test_qwen_adapter_prepare_single_skips_too_short_waveform_before_preprocess() -> None:
@@ -483,24 +439,21 @@ def test_qwen_adapter_load_model_cleans_up_partial_engine_when_processor_fails()
     assert adapter._processor is None
 
 
-def test_qwen_adapter_marks_empty_turn1_outputs_skipped_and_excludes_turn2() -> None:
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", followup_prompt="refine")
+def test_qwen_adapter_marks_empty_outputs_skipped() -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
     waveform_a = np.ones(_SR, dtype=np.float32)
     waveform_b = np.ones(_SR, dtype=np.float32)
     with _mock_external_qwen_runtime(
         adapter,
         generated_batches=[
             [_vllm_output(""), _vllm_output("text-b")],
-            [_vllm_output("refined-b")],
         ],
     ) as (llm, _):
-        pred_texts, disfluency_texts, skipped_indices = adapter._run_two_turn(
+        pred_texts, skipped_indices = adapter._run_inference(
             [waveform_a, waveform_b],
             ["English", "English"],
         )
 
     assert pred_texts == ["", "text-b"]
-    assert disfluency_texts == ["", "refined-b"]
     assert skipped_indices == {0}
-    assert llm.generate.call_count == 2
-    assert len(llm.generate.call_args_list[1].args[0]) == 1
+    assert llm.generate.call_count == 1

@@ -60,8 +60,6 @@ stages:
       prompt_file: ${prompt_file}
       en_prompt_text: null
       en_prompt_file: null
-      followup_prompt: null
-      followup_prompt_file: null
       system_prompt: null
       system_prompt_file: null
       prompt_content_order: text_audio

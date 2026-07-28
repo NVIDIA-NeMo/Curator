@@ -468,8 +468,6 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
         "prompt_file": None,
         "en_prompt_text": None,
         "en_prompt_file": None,
-        "followup_prompt": None,
-        "followup_prompt_file": None,
         "system_prompt": None,
         "system_prompt_file": None,
         "prompt_content_order": "text_audio",

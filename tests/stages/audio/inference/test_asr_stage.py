@@ -79,7 +79,7 @@ def test_empty_batch_does_not_create_an_unparented_sentinel() -> None:
 def test_basic_inference_single_turn() -> None:
     stage = _make_stage()
     stage._adapter.transcribe_batch.return_value = [
-        ASRResult(text="hello world", secondary_text="must not be persisted"),
+        ASRResult(text="hello world"),
     ]
 
     results = stage.process_batch([_make_task()])
