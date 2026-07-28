@@ -12,123 +12,121 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Model-only adapter for Faster-Whisper ASR."""
+"""Faster-Whisper implementation of the shared ASR adapter."""
 
 from __future__ import annotations
 
 import gc
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-import torch
-import torchaudio.functional as torchaudio_functional
-from loguru import logger
 
-from nemo_curator.models.base import ModelInterface
+from nemo_curator.models.asr.base import ASRResult
 
-_TARGET_SAMPLE_RATE = 16000
+_TARGET_SAMPLE_RATE = 16_000
+_LANGUAGE_ALIASES = {
+    "fil": "tl",
+    "in": "id",
+    "iw": "he",
+    "ji": "yi",
+    "jv": "jw",
+    "nb": "no",
+}
 
 
-class FasterWhisperASR(ModelInterface):
-    """Own Faster-Whisper lifecycle and waveform-to-text inference."""
+def _whisper_model_class() -> type:
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as error:
+        msg = "Faster-Whisper ASR requires the 'faster-whisper' package"
+        raise ImportError(msg) from error
+    return WhisperModel
 
-    def __init__(  # noqa: PLR0913
-        self,
-        model_size_or_path: str = "large-v3",
-        device: str = "cuda",
-        compute_type: str = "float16",
-        beam_size: int = 5,
-        vad_filter: bool = True,
-        without_timestamps: bool = True,
-    ) -> None:
-        self.model_size_or_path = model_size_or_path
-        self.device = device
-        self.compute_type = compute_type
-        self.beam_size = beam_size
-        self.vad_filter = vad_filter
-        self.without_timestamps = without_timestamps
-        self._model: Any | None = None
-        self._resolved_device = device
 
-    @property
-    def model_id_names(self) -> list[str]:
-        return [self.model_size_or_path]
+@dataclass
+class FasterWhisperASR:
+    """Run Faster-Whisper on mono 16 kHz waveforms prepared by ``ASRStage``."""
 
-    def setup(self) -> None:
-        try:
-            from faster_whisper import WhisperModel
-        except ImportError as error:
-            msg = "Faster-Whisper ASR requires the 'faster-whisper' package"
-            raise ImportError(msg) from error
+    model_id: str = "large-v3"
+    revision: str | None = None
+    compute_type: str = "float16"
+    beam_size: int = 5
+    vad_filter: bool = True
+    without_timestamps: bool = True
+    cpu_compute_type: str = "int8"
+    _model: Any | None = field(default=None, init=False, repr=False)
 
-        resolved_device = self.device
-        if resolved_device == "auto":
-            resolved_device = "cuda" if torch.cuda.is_available() else "cpu"
-        elif resolved_device == "cuda" and not torch.cuda.is_available():
-            logger.warning("CUDA is unavailable; Faster-Whisper is falling back to CPU")
-            resolved_device = "cpu"
+    def __post_init__(self) -> None:
+        if not self.model_id:
+            msg = "FasterWhisperASR.model_id must be non-empty"
+            raise ValueError(msg)
+        if self.revision is not None:
+            msg = "Faster-Whisper adapter does not support revision pinning"
+            raise ValueError(msg)
 
-        compute_type = self.compute_type
-        if resolved_device == "cpu" and compute_type == "float16":
-            compute_type = "int8"
+    @classmethod
+    def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
+        """Populate Faster-Whisper's node-local cache without allocating a GPU."""
+        if revision is not None:
+            msg = "Faster-Whisper adapter does not support revision pinning"
+            raise ValueError(msg)
+        _whisper_model_class()(model_id, device="cpu", compute_type="int8")
 
-        self._resolved_device = resolved_device
-        self._model = WhisperModel(
-            self.model_size_or_path,
-            device=resolved_device,
+    def load_model(self, *, num_gpus: int) -> None:
+        if self._model is not None:
+            return
+        if num_gpus < 0:
+            msg = "num_gpus must be non-negative"
+            raise ValueError(msg)
+
+        device = "cuda" if num_gpus else "cpu"
+        compute_type = self.compute_type if num_gpus else self.cpu_compute_type
+        self._model = _whisper_model_class()(
+            self.model_id,
+            device=device,
             compute_type=compute_type,
         )
 
-    def teardown(self) -> None:
+    def unload_model(self) -> None:
         self._model = None
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        try:
+            import torch
 
-    @staticmethod
-    def _prepare_waveform(waveform: np.ndarray, sample_rate: int) -> np.ndarray:
-        tensor = torch.from_numpy(np.asarray(waveform, dtype=np.float32))
-        if tensor.ndim > 1:
-            tensor = tensor.mean(dim=-1)
-        tensor = tensor.unsqueeze(0)
-        if int(sample_rate) != _TARGET_SAMPLE_RATE:
-            tensor = torchaudio_functional.resample(
-                tensor,
-                orig_freq=int(sample_rate),
-                new_freq=_TARGET_SAMPLE_RATE,
-            )
-        return tensor.squeeze(0).contiguous().numpy()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
 
-    def generate(
-        self,
-        waveforms: list[np.ndarray],
-        sample_rates: list[int],
-        language_codes: list[str],
-    ) -> tuple[list[str], list[str]]:
+    def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         if self._model is None:
-            msg = "FasterWhisperASR.setup() must be called before generate()"
+            msg = "FasterWhisperASR is not initialized; call load_model() first"
             raise RuntimeError(msg)
-        if not (len(waveforms) == len(sample_rates) == len(language_codes)):
-            msg = "waveforms, sample_rates, and language_codes must have equal lengths"
-            raise ValueError(msg)
 
-        texts: list[str] = []
-        for waveform, sample_rate, language in zip(
-            waveforms,
-            sample_rates,
-            language_codes,
-            strict=True,
-        ):
-            if np.asarray(waveform).size == 0:
-                texts.append("")
+        results: list[ASRResult] = []
+        for item in items:
+            waveform = np.asarray(item.get("waveform"), dtype=np.float32)
+            if waveform.size == 0:
+                results.append(ASRResult(text="", skipped=True, skip_reason="empty_audio"))
                 continue
-            audio = self._prepare_waveform(waveform, sample_rate)
+            if waveform.ndim != 1:
+                msg = f"ASRStage must provide a mono 1-D waveform, got shape {waveform.shape}"
+                raise ValueError(msg)
+            sample_rate = int(item.get("sample_rate") or 0)
+            if sample_rate != _TARGET_SAMPLE_RATE:
+                msg = f"ASRStage must provide {_TARGET_SAMPLE_RATE} Hz audio; received {sample_rate} Hz"
+                raise ValueError(msg)
+
+            raw_language = str(item.get("language_code") or "").strip().lower()
+            language = _LANGUAGE_ALIASES.get(raw_language, raw_language) or None
             segments, _ = self._model.transcribe(
-                audio,
+                np.ascontiguousarray(waveform),
                 language=language,
                 beam_size=self.beam_size,
                 vad_filter=self.vad_filter,
                 without_timestamps=self.without_timestamps,
             )
-            texts.append(" ".join(segment.text for segment in segments).strip())
-        return texts, list(language_codes)
+            text = " ".join(segment.text for segment in segments).strip()
+            results.append(ASRResult(text=text, extras={"language_code": language}))
+        return results

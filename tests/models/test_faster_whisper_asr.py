@@ -13,36 +13,77 @@
 # limitations under the License.
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
+from nemo_curator.models.asr.base import ASRAdapter
 from nemo_curator.models.faster_whisper_asr import FasterWhisperASR
 
 
-def test_adapter_transcribes_waveform_and_forces_language() -> None:
-    model = FasterWhisperASR(device="cpu", compute_type="int8")
-    model._model = MagicMock()
-    model._model.transcribe.return_value = (
+def _item(*, sample_rate: int = 16_000, language_code: str = "en") -> dict[str, object]:
+    return {
+        "waveform": np.zeros(160, dtype=np.float32),
+        "sample_rate": sample_rate,
+        "language_code": language_code,
+    }
+
+
+def test_adapter_conforms_to_shared_protocol() -> None:
+    assert isinstance(FasterWhisperASR(), ASRAdapter)
+
+
+def test_download_weights_uses_cpu_only() -> None:
+    model_class = MagicMock()
+
+    with patch("nemo_curator.models.faster_whisper_asr._whisper_model_class", return_value=model_class):
+        FasterWhisperASR.download_weights_on_node("large-v3")
+
+    model_class.assert_called_once_with("large-v3", device="cpu", compute_type="int8")
+
+
+def test_load_model_uses_stage_owned_gpu_count() -> None:
+    model_class = MagicMock()
+    adapter = FasterWhisperASR(compute_type="float16")
+
+    with patch("nemo_curator.models.faster_whisper_asr._whisper_model_class", return_value=model_class):
+        adapter.load_model(num_gpus=1)
+
+    model_class.assert_called_once_with("large-v3", device="cuda", compute_type="float16")
+
+
+def test_adapter_transcribes_waveform_and_maps_language_alias() -> None:
+    adapter = FasterWhisperASR()
+    adapter._model = MagicMock()
+    adapter._model.transcribe.return_value = (
         iter([SimpleNamespace(text="hello"), SimpleNamespace(text="world")]),
         object(),
     )
 
-    texts, languages = model.generate(
-        [np.zeros(160, dtype=np.float32)],
-        [16000],
-        ["en"],
-    )
+    results = adapter.transcribe_batch([_item(language_code="fil")])
 
-    assert texts == ["hello world"]
-    assert languages == ["en"]
-    assert model._model.transcribe.call_args.kwargs["language"] == "en"
+    assert [result.text for result in results] == ["hello world"]
+    assert results[0].extras["language_code"] == "tl"
+    assert adapter._model.transcribe.call_args.kwargs["language"] == "tl"
 
 
-def test_adapter_rejects_mismatched_cardinality() -> None:
-    model = FasterWhisperASR()
-    model._model = MagicMock()
+def test_adapter_preserves_empty_positions() -> None:
+    adapter = FasterWhisperASR()
+    adapter._model = MagicMock()
+    item = _item()
+    item["waveform"] = np.zeros(0, dtype=np.float32)
 
-    with pytest.raises(ValueError, match="equal lengths"):
-        model.generate([np.zeros(1)], [], ["en"])
+    results = adapter.transcribe_batch([item])
+
+    assert results[0].skipped is True
+    assert results[0].skip_reason == "empty_audio"
+    adapter._model.transcribe.assert_not_called()
+
+
+def test_adapter_requires_upstream_resampling() -> None:
+    adapter = FasterWhisperASR()
+    adapter._model = MagicMock()
+
+    with pytest.raises(ValueError, match="ASRStage must provide 16000 Hz"):
+        adapter.transcribe_batch([_item(sample_rate=8_000)])
