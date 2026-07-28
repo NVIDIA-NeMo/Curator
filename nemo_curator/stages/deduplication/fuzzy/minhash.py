@@ -207,6 +207,9 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         Random seed for reproducible minhash generation
     use_64bit_hash : bool, default=False
         Whether to use 64-bit hash functions (vs 32-bit)
+    normalize_text : bool, default=False
+        Whether to normalize text before computing minhashes
+        Current normalization is limited to lowercase and trim whitespace
     read_format : Literal["jsonl", "parquet"], default="jsonl"
         Format of input files
     read_kwargs : dict[str, Any] | None, default=None
@@ -234,6 +237,7 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         num_hashes: int = 260,
         seed: int = 42,
         use_64bit_hash: bool = False,
+        normalize_text: bool = False,
         read_format: Literal["jsonl", "parquet"] = "jsonl",
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
@@ -249,6 +253,7 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         self.num_hashes = num_hashes
         self.seed = seed
         self.use_64bit_hash = use_64bit_hash
+        self.normalize_text = normalize_text
         self.read_format = read_format
         self.read_kwargs = read_kwargs or {}
         self.write_kwargs = write_kwargs or {}
@@ -291,6 +296,10 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         """Define outputs - produces FileGroupTask with minhash files."""
         return (["data"], [])
 
+    def _normalize_text(self, text_series: cudf.Series) -> cudf.Series:
+        """Normalize text to lowercase and trim whitespace."""
+        return text_series.str.lower().str.normalize_spaces()
+
     def process(self, task: FileGroupTask) -> FileGroupTask:
         """
         Process a group of files to compute minhashes.
@@ -320,7 +329,11 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
             raise ValueError(msg)
 
         result_df = df[[CURATOR_DEDUP_ID_STR]]
-        result_df[self.minhash_field] = self.minhash_processor.compute_minhashes(df[self.text_field])
+        text_for_minhash = df[self.text_field]
+        if self.normalize_text:
+            with self._time_metric("normalize_text_time"):
+                text_for_minhash = self._normalize_text(text_for_minhash)
+        result_df[self.minhash_field] = self.minhash_processor.compute_minhashes(text_for_minhash)
 
         # Write output file
         self.write_parquet(df=result_df, filepath=output_file, **self.write_kwargs)
