@@ -91,6 +91,7 @@ runs:
           --shm-size=64g \
           --env HF_TOKEN=${HF_TOKEN} \
           --env RUN_ID=${{ github.run_id }} \
+          --env UV_HTTP_TIMEOUT=${UV_HTTP_TIMEOUT:-60} \
           --workdir /opt/Curator \
           --volume ${{ inputs.test-data-path }}:/home/TestData \
           ${{ inputs.container-image }} \
