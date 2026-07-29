@@ -247,7 +247,7 @@ def test_supported_language_filter_skips_before_adapter_call() -> None:
     stage._adapter.transcribe_batch.assert_not_called()
     stage._load_audio.assert_not_called()
     assert results[0].data["pred_text"] == ""
-    assert "_skipme" not in results[0].data
+    assert results[0].data["_skipme"] == "language_not_supported"
     assert results[0].data["additional_notes"]["ASR_inference"] == "skipped (unsupported language: pl)"
     assert results[0].data["additional_notes"]["pred_text"] == "lang_not_supported:pl"
 
@@ -260,7 +260,7 @@ def test_supported_language_filter_annotates_missing_language() -> None:
     stage._adapter.transcribe_batch.assert_not_called()
     stage._load_audio.assert_not_called()
     assert results[0].data["pred_text"] == ""
-    assert "_skipme" not in results[0].data
+    assert results[0].data["_skipme"] == "language_missing"
     assert results[0].data["additional_notes"]["ASR_inference"] == "skipped (missing language)"
     assert results[0].data["additional_notes"]["pred_text"] == "language_missing"
 

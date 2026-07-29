@@ -407,7 +407,12 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 index,
                 ASRResult(
                     text="",
-                    skipped=False,
+                    skipped=True,
+                    skip_reason=(
+                        "language_not_supported"
+                        if str(item.get("language_code", "") or "").strip()
+                        else "language_missing"
+                    ),
                     unsupported_language=str(item.get("language_code", "") or "").strip().lower() or None,
                 ),
             )
