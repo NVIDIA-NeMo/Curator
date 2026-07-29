@@ -40,6 +40,57 @@ Standard fields included in audio manifests:
 
 ## Export Configuration
 
+### Terminal performance summary
+
+`ManifestWriterStage` can emit one run-level `perf_summary.json` beside the
+JSONL manifest:
+
+```python
+from nemo_curator.stages.audio.common import ManifestWriterStage
+
+pipeline.add_stage(
+    ManifestWriterStage(
+        output_path="/output/audio.jsonl",
+        write_perf_stats=True,
+        duration_key="duration",
+        # Defaults to perf_summary.json beside output_path when omitted.
+        perf_summary_path="/output/perf_summary.json",
+        perf_run_id="run-2026-07-29",
+        perf_executor="RayDataExecutor",
+        perf_pipeline_metadata={"pipeline": "qwen-omni"},
+    )
+)
+```
+
+The artifact is finalized once during writer teardown, including successful
+zero-row runs. It contains run/executor metadata, input/output row and audio
+totals, writer timing, and per-stage latency, throughput, actor, and GPU
+breakdowns when the corresponding telemetry is available.
+
+`ManifestReaderStage` supplies the input row boundary and sums non-negative,
+finite `duration` values from the input manifest. If no source stage supplies
+an input boundary, `rows_in` is JSON `null`. If any input row lacks a valid
+duration, `input_hours` is `null` rather than a misleading partial total.
+`null` means "unavailable" and is distinct from a measured empty input, which
+is `0`. The terminal writer always supplies the output boundary, including a
+measured zero for a successful empty run.
+
+Stages are keyed by their stable execution-plan ID when supplied, while
+`stage_name` remains the display label. This keeps two distinct stages with
+the same public name separate. GPU efficiency uses distinct assigned physical
+devices, so a tensor-parallel actor using two GPUs contributes two GPU units,
+not one actor unit.
+
+For remote output, use a location visible to the terminal writer and driver.
+Collection is fail-open: unavailable NVML fields are omitted rather than
+failing manifest export. See [Monitoring](/reference/infra/monitoring) for
+stage and executor enablement.
+
+`perf_pipeline_metadata` is serialized exactly as supplied. Do not place
+credentials, access tokens, private prompts, or other secrets in that mapping.
+The summary schema is additive: consumers should ignore unknown fields and
+treat omitted optional telemetry as unavailable.
+
 <Tabs>
 <Tab title="Using JsonlWriter">
 

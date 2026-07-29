@@ -159,6 +159,19 @@ Rows are handled differently depending on where processing fails:
 Inspect `_skipme` and `additional_notes` before consuming a completed
 manifest.
 
+The terminal writer also emits `qwen_omni_perf_summary.json` by default. The
+summary is written once when the run finishes and includes rows/audio totals,
+stage timing, throughput, and writer cost. Override
+`perf_summary_path=/shared/run/perf_summary.json` when the driver and workers
+need a shared destination. When extended backend telemetry is enabled, the
+same artifact adds stable stage IDs, per-actor placement, assigned physical
+GPUs, and windowed utilization without changing the output manifest rows.
+The manifest reader supplies `rows_in` and sums non-negative finite `duration`
+values for `input_hours`. If a source does not publish the row boundary,
+`rows_in` is `null`; if any input row lacks a valid duration, `input_hours` is
+`null` instead of a partial total. Pipeline metadata is copied verbatim into
+the JSON, so do not put credentials or secrets in the YAML metadata mapping.
+
 ## Languages and prompts
 
 The default uses the reference runner's inline prompt `Transcribe the audio.`

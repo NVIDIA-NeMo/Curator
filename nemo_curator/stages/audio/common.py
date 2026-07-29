@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+import math
 import os
 import time
 from dataclasses import dataclass, field
@@ -25,9 +26,11 @@ from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.audio.io.manifest_writer_utils import AudioManifestWriterMetrics
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 def get_audio_duration(audio_filepath: str) -> float:
@@ -162,11 +165,22 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                         )
                         count += 1
             logger.info(f"ManifestReaderStage: loaded {count} entries from {manifest}")
+        input_durations = [
+            float(result.data["duration"])
+            for result in results
+            if isinstance(result.data.get("duration"), (int, float))
+            and not isinstance(result.data["duration"], bool)
+            and math.isfinite(float(result.data["duration"]))
+            and float(result.data["duration"]) >= 0
+        ]
         self._log_metrics(
             {
                 "process_time": time.perf_counter() - t0,
                 "manifests_read": len(paths),
                 "entries_read": len(results),
+                "pipeline_input_rows": len(results),
+                "pipeline_input_audio_rows": len(input_durations),
+                "pipeline_input_audio_s": sum(input_durations),
             }
         )
         return results
@@ -247,11 +261,27 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     output_path: str
     name: str = "manifest_writer"
+    write_perf_stats: bool = False
+    duration_key: str = "duration"
+    perf_summary_path: str | None = None
+    perf_run_id: str = ""
+    perf_executor: str = ""
+    perf_pipeline_metadata: dict[str, Any] | None = None
+    _writer_metrics: AudioManifestWriterMetrics = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.output_path:
             msg = "output_path is required for ManifestWriterStage"
             raise ValueError(msg)
+        self._writer_metrics = self._new_writer_metrics()
+
+    def _new_writer_metrics(self) -> AudioManifestWriterMetrics:
+        """Create one accumulator whose lifetime is exactly one pipeline run."""
+        return AudioManifestWriterMetrics(
+            stage_name=self.name,
+            duration_key=self.duration_key,
+            write_perf_stats=self.write_perf_stats,
+        )
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Truncate the output file once on the driver before processing starts."""
@@ -261,6 +291,8 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             self._fs.makedirs(parent_dir, exist_ok=True)
         with self._fs.open(self._path, "w", encoding="utf-8"):
             pass
+        if self.write_perf_stats:
+            self._writer_metrics = self._new_writer_metrics()
         logger.info(f"ManifestWriterStage: writing to {self.output_path}")
 
     def setup_on_node(
@@ -275,14 +307,120 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             self._fs.makedirs(parent_dir, exist_ok=True)
 
     def process(self, task: AudioTask) -> AudioTask:
+        if self.write_perf_stats:
+            self._writer_metrics.record_invocation(1)
+        write_t0 = time.perf_counter()
         with self._fs.open(self._path, "a", encoding="utf-8") as f:
             f.write(json.dumps(task.data, ensure_ascii=False) + "\n")
+        if self.write_perf_stats:
+            self._writer_metrics.add_manifest_write_time(time.perf_counter() - write_t0)
+            self._writer_metrics.record_task(task)
         return AudioTask(
             dataset_name=task.dataset_name,
             data=task.data,
             _metadata=task._metadata,
             _stage_perf=list(task._stage_perf),
         )
+
+    def _resolved_perf_summary_path(self) -> str:
+        if self.perf_summary_path:
+            return self.perf_summary_path
+        parent, separator, _filename = self.output_path.rpartition("/")
+        return f"{parent}{separator}perf_summary.json" if separator else "perf_summary.json"
+
+    def _write_perf_summary(self) -> None:
+        summary_path = self._resolved_perf_summary_path()
+        perf_fs, perf_path = url_to_fs(summary_path)
+        parent_dir = "/".join(perf_path.split("/")[:-1])
+        if parent_dir:
+            perf_fs.makedirs(parent_dir, exist_ok=True)
+        summary = self._writer_metrics.build_perf_summary(
+            run_id=self.perf_run_id,
+            executor=self.perf_executor,
+            pipeline_metadata=self.perf_pipeline_metadata,
+        )
+        write_t0 = time.perf_counter()
+        with perf_fs.open(perf_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+        self._writer_metrics.add_perf_write_time(time.perf_counter() - write_t0)
+
+    def record_external_stage_perf(self, perf_stats: StagePerfStats) -> bool:
+        """Merge executor-owned metrics into an existing terminal summary."""
+        if not self.write_perf_stats:
+            return False
+        stage_summary = self._writer_metrics.build_external_stage_summary(perf_stats)
+        if not stage_summary:
+            return False
+        summary_path = self._resolved_perf_summary_path()
+        perf_fs, perf_path = url_to_fs(summary_path)
+        try:
+            with perf_fs.open(perf_path, encoding="utf-8") as f:
+                summary = json.load(f)
+        except (FileNotFoundError, OSError, ValueError, TypeError):
+            summary = self._writer_metrics.build_perf_summary(
+                run_id=self.perf_run_id,
+                executor=self.perf_executor,
+                pipeline_metadata=self.perf_pipeline_metadata,
+            )
+        stages = summary.setdefault("stages", {})
+        if not isinstance(stages, dict):
+            stages = {}
+            summary["stages"] = stages
+        stage_key = str(getattr(perf_stats, "stage_id", "") or perf_stats.stage_name)
+        stages[stage_key] = stage_summary
+        with perf_fs.open(perf_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+        return True
+
+    def record_external_stage_perfs(self, perf_stats: list[StagePerfStats]) -> bool:
+        """Replace extended-stage entries with the authoritative run record set."""
+        if not self.write_perf_stats or not perf_stats:
+            return False
+        authoritative = AudioManifestWriterMetrics(
+            stage_name=self.name,
+            duration_key=self.duration_key,
+            write_perf_stats=True,
+        )
+        authoritative.record_stage_perf(perf_stats)
+        stage_summaries = authoritative.build_stage_summaries()
+        if not stage_summaries:
+            return False
+
+        summary_path = self._resolved_perf_summary_path()
+        perf_fs, perf_path = url_to_fs(summary_path)
+        parent_dir = "/".join(perf_path.split("/")[:-1])
+        if parent_dir:
+            perf_fs.makedirs(parent_dir, exist_ok=True)
+        try:
+            with perf_fs.open(perf_path, encoding="utf-8") as f:
+                summary = json.load(f)
+        except (FileNotFoundError, OSError, ValueError, TypeError):
+            summary = self._writer_metrics.build_perf_summary(
+                run_id=self.perf_run_id,
+                executor=self.perf_executor,
+                pipeline_metadata=self.perf_pipeline_metadata,
+            )
+        stages = summary.setdefault("stages", {})
+        if not isinstance(stages, dict):
+            stages = {}
+            summary["stages"] = stages
+        replaced_invocations = sum(
+            float(stages.get(stage_key, {}).get("invocation_count", 0.0) or 0.0)
+            for stage_key in stage_summaries
+            if isinstance(stages.get(stage_key), dict)
+        )
+        stages.update(stage_summaries)
+        summary["perf_invocations_counted"] = (
+            max(int(summary.get("perf_invocations_counted", 0) or 0) - round(replaced_invocations), 0)
+            + authoritative.perf_invocations_counted
+        )
+        with perf_fs.open(perf_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+        return True
+
+    def teardown(self) -> None:
+        if self.write_perf_stats:
+            self._write_perf_summary()
 
     def num_workers(self) -> int | None:
         return 1

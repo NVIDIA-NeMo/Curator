@@ -427,6 +427,7 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
     pipeline = create_pipeline_from_yaml(cfg, log_config=False)
     resample_stage = pipeline.stages[1]
     stage = pipeline.stages[2]
+    writer = pipeline.stages[3]
     executor = create_executor_from_yaml(cfg)
 
     assert resample_stage.__class__.__name__ == "ResampleAudioStage"
@@ -462,6 +463,15 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
     ]
     assert stage.batch_size == 32
     assert stage.resources.gpus == 2
+    assert writer.write_perf_stats is True
+    assert writer.duration_key == "duration"
+    assert writer.perf_summary_path.endswith("qwen_omni_perf_summary.json")
+    assert writer.perf_run_id == "qwen-omni"
+    assert writer.perf_executor == "ray_data"
+    assert writer.perf_pipeline_metadata == {
+        "pipeline_name": "qwen_omni_inprocess",
+        "model_id": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+    }
     assert dict(stage.adapter_kwargs) == {
         "prompt_text": "Transcribe the audio.",
         "prompt_file": None,
