@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import gc
-import time
 from dataclasses import dataclass, field
 from numbers import Integral, Real
 from typing import Any
@@ -40,6 +39,27 @@ def _nemo_asr_module() -> Any:  # noqa: ANN401
     return nemo_asr
 
 
+def normalize_nemo_transcriptions(outputs: object) -> list[str]:
+    """Normalize the output shapes returned by supported NeMo ASR models."""
+    if isinstance(outputs, tuple):
+        outputs = outputs[0]
+    if outputs is None:
+        return []
+    if not isinstance(outputs, list):
+        msg = f"Unsupported NeMo transcription output type: {type(outputs).__name__}"
+        raise TypeError(msg)
+
+    texts: list[str] = []
+    for output in outputs:
+        primary = (output[0] if output else "") if isinstance(output, list) else output
+        text = getattr(primary, "text", primary)
+        if not isinstance(text, str):
+            msg = f"Unsupported NeMo transcription item type: {type(primary).__name__}"
+            raise TypeError(msg)
+        texts.append(text)
+    return texts
+
+
 @dataclass
 class NeMoASRAdapter:
     """Run a pretrained NeMo checkpoint using waveforms prepared by ``ASRStage``."""
@@ -52,7 +72,6 @@ class NeMoASRAdapter:
     local_attention_context_size: tuple[int, int] = (128, 128)
     refresh_cache: bool = False
     strict: bool = True
-    last_metrics: dict[str, float] = field(default_factory=dict)
     _model: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -146,18 +165,9 @@ class NeMoASRAdapter:
         except ImportError:
             pass
 
-    def estimate_item_cost(self, item: dict[str, Any]) -> float | None:
-        """Prefer explicit encoder/VRAM estimates, then audio duration."""
-        for key in ("estimated_vram_units", "estimated_encoder_tokens", "audio_seconds"):
-            value = item.get(key)
-            if isinstance(value, Real):
-                return max(0.0, float(value))
-        return None
-
     def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         """Transcribe one adapter call while preserving input order."""
         if not items:
-            self.last_metrics = self._metrics(input_count=0, valid_count=0, elapsed_s=0.0)
             return []
         if self._model is None:
             msg = "NeMoASRAdapter is not initialized; call load_model() first"
@@ -185,10 +195,8 @@ class NeMoASRAdapter:
 
         results = [ASRResult(text="", skipped=True, skip_reason="empty_audio") for _ in items]
         if not waveforms:
-            self.last_metrics = self._metrics(input_count=len(items), valid_count=0, elapsed_s=0.0)
             return results
 
-        started = time.perf_counter()
         outputs = self._model.transcribe(
             audio=waveforms,
             batch_size=len(waveforms),
@@ -196,19 +204,13 @@ class NeMoASRAdapter:
             num_workers=self.num_workers,
             verbose=self.verbose,
         )
-        elapsed_s = time.perf_counter() - started
-        texts = self._normalize_transcriptions(outputs)
+        texts = normalize_nemo_transcriptions(outputs)
         if len(texts) != len(valid_indices):
             msg = f"NeMo returned {len(texts)} transcriptions for {len(valid_indices)} valid inputs"
             raise RuntimeError(msg)
 
         for index, text in zip(valid_indices, texts, strict=True):
             results[index] = ASRResult(text=text)
-        self.last_metrics = self._metrics(
-            input_count=len(items),
-            valid_count=len(valid_indices),
-            elapsed_s=elapsed_s,
-        )
         return results
 
     def _model_sample_rate(self) -> int:
@@ -224,35 +226,3 @@ class NeMoASRAdapter:
             if isinstance(value, Real) and value > 0:
                 return int(value)
         return _DEFAULT_SAMPLE_RATE
-
-    @staticmethod
-    def _normalize_transcriptions(outputs: object) -> list[str]:
-        if isinstance(outputs, tuple):
-            outputs = outputs[0]
-        if outputs is None:
-            return []
-        if not isinstance(outputs, list):
-            msg = f"Unsupported NeMo transcription output type: {type(outputs).__name__}"
-            raise TypeError(msg)
-
-        texts: list[str] = []
-        for output in outputs:
-            primary = (output[0] if output else "") if isinstance(output, list) else output
-            text = getattr(primary, "text", primary)
-            if not isinstance(text, str):
-                msg = f"Unsupported NeMo transcription item type: {type(primary).__name__}"
-                raise TypeError(msg)
-            texts.append(text)
-        return texts
-
-    @staticmethod
-    def _metrics(*, input_count: int, valid_count: int, elapsed_s: float) -> dict[str, float]:
-        return {
-            "utterances_input": float(input_count),
-            "utterances_valid": float(valid_count),
-            "utterances_skipped_preprocess": float(input_count - valid_count),
-            "transcribe_calls": float(valid_count > 0),
-            "transcribe_items": float(valid_count),
-            "requested_batch_size": float(valid_count),
-            "transcribe_time_s": float(elapsed_s),
-        }

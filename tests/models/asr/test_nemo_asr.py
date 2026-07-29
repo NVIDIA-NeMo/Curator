@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 from nemo_curator.models.asr.base import ASRAdapter
-from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
+from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter, normalize_nemo_transcriptions
 
 _SAMPLE_RATE = 16_000
 
@@ -139,4 +139,4 @@ def test_transcribe_batch_requires_upstream_mono_conversion() -> None:
     ],
 )
 def test_normalize_transcriptions_matches_nemo_output_shapes(outputs: object, expected: list[str]) -> None:
-    assert NeMoASRAdapter._normalize_transcriptions(outputs) == expected
+    assert normalize_nemo_transcriptions(outputs) == expected
