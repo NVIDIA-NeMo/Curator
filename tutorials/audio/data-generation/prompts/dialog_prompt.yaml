@@ -1,0 +1,55 @@
+system: |
+  You are a simulator for two-speaker dialogs.
+  Given a user topic, output only a valid JSON object—no Python dicts, no extra commentary.
+  This is a JSON Schema which you must follow. Do not deviate from it.
+
+  Schema (must match exactly):
+  {
+    "type": "object",
+    "properties": {
+      "turns": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "speaker":   { "type": "string" },
+            "overlap":   { "type": "number" },
+            "utterance": { "type": "string" }
+          },
+          "required": ["speaker", "overlap", "utterance"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["turns"],
+    "additionalProperties": false
+  }
+
+  Here is an example of the JSON which is following the schema and valid:
+  {"turns": [{"speaker": "speaker_0", "overlap": 0, "utterance": "Hello, how are you? I've been meaning to tell you about something interesting that happened to me yesterday. It was quite an experience."}, {"speaker": "speaker_1", "overlap": -1.2, "utterance": "Oh, really?"}, {"speaker": "speaker_0", "overlap": 0.3, "utterance": "Yeah! So I was walking down the street when I saw this amazing thing. I couldn't believe my eyes. It made me think about a lot of things."}]}
+
+  Formatting rules:
+  1. Output valid JSON (double quotes, commas, brackets) exactly matching the schema above.
+  2. Keys inside each turn object must be only "speaker", "overlap", "utterance".
+  3. No typos anywhere—if you introduce a typo, the JSON is invalid.
+  4. No extra keys, no commentary, no Python-style quotes or None.
+
+  Conversation content rules:
+  - Exactly TWO speakers: "speaker_0" and "speaker_1".
+  - Each utterance: 2-5 sentences, 4-25 words; include disfluencies (uh, hmm, laughter).
+  - Turns should have VERY DIFFERENT duration - make it UNBALANCED.
+  - ONE speaker should be more dominant (60-70% of talking time), other responds/listens more.
+  - Each overlap: number between -2.0 and 0.7 (negative = pause before speaking, positive = interruption).
+  - Use negative overlap (-1.0 to -2.0) for natural pauses on SOME turns (15-25% of turns should have pauses).
+  - Realistic informal tone with natural two-person conversation dynamics.
+  - The dialog should have 30-40 turns.
+  - IMPORTANT: Speaker imbalance - one speaker should lead/dominate the conversation.
+
+  Overlap timing (range: -2.0 to 2.5) - USE VARIETY, include MANY overlaps:
+  - POSITIVE overlaps (0.4-2.5): Make this the VAST majority of the turns.
+  - NEGATIVE overlaps (-0.5 to -2.0): Use regularly for pausing to think, hesitation, awkward silences. Around 7-9 turns should have negative overlap.
+  - NEAR-ZERO overlaps (-0.3 to 0.4): Use this for smooth conversation flow.
+  - Important: Don't use only zero overlap! Mix in plenty of positive and negative overlaps to create realistic conversation dynamics.
+
+user: |
+  Topic: "$topic"

@@ -1,0 +1,197 @@
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+###############################################################################
+# Multi-Speaker Conversation Data Generation Pipeline
+###############################################################################
+#
+# End-to-end pipeline for generating multi-speaker conversation audio:
+#   LLM conversation generation -> TTS synthesis -> MFA alignment -> merge
+#
+# Pipeline stages:
+#   0. ManifestReader          - Read input topics JSONL
+#   1. vLLMInference           - Generate multi-turn conversations via LLM
+#   2. ChatterboxTTSStage      - Synthesize per-turn audio
+#   3. MFAAlignmentStage       - Forced alignment (TextGrid -> RTTM/CTM)
+#   4. MergeConversationSDP    - Merge turns into multi-speaker conversations
+#   5. ManifestWriterStage     - Write output manifest
+#
+# Usage (from Curator repo root):
+#   python tutorials/audio/data-generation/main.py \
+#     --config-path . \
+#     --config-name pipeline \
+#     input_manifest=tutorials/audio/data-generation/topics/topics_dialog.jsonl \
+#     output_dir=/data/conversations \
+#     reference_voices_dataset=/data/reference_voices \
+#     prompt_file=tutorials/audio/data-generation/prompts/dialog_prompt.yaml
+#
+#   # Override LLM model and number of conversations
+#   python tutorials/audio/data-generation/main.py \
+#     --config-path . \
+#     --config-name pipeline \
+#     input_manifest=topics/topics_dialog.jsonl \
+#     output_dir=/data/output \
+#     reference_voices_dataset=/data/voices \
+#     prompt_file=prompts/dialog_prompt.yaml \
+#     llm_model=Qwen/Qwen2.5-7B-Instruct-1M \
+#     stages.2.exaggeration="[0.25, 0.85]"
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  Multi-Speaker Conversation Data Generation
+  ###########################################
+
+  Generates synthetic multi-speaker conversation audio from topic prompts.
+  The pipeline chains four core stages:
+
+  1. **LLM Conversation Generation** (``vLLMInference``):
+     Takes topic strings and generates structured multi-turn conversations
+     via a vLLM-served language model. Each turn includes speaker label,
+     overlap timing, and utterance text.
+
+  2. **TTS Synthesis** (``ChatterboxTTSStage``):
+     Synthesizes audio for each conversation turn using Chatterbox TTS
+     with voice cloning from reference audio.
+
+  3. **MFA Alignment** (``MFAAlignmentStage``):
+     Runs Montreal Forced Aligner on each synthesized turn to produce
+     word-level TextGrid alignments, converted to RTTM and CTM.
+
+  4. **Conversation Merging** (``MergeConversationSDPStage``):
+     Merges all turns of each conversation into per-speaker WAVs,
+     multi-channel audio, mixed mono, and combined RTTM/CTM/seglst.
+
+  **Required arguments**:
+
+  * **input_manifest**: Path to JSONL with ``{"topic": "..."}`` entries
+  * **output_dir**: Root directory for all generated outputs
+  * **reference_voices_dataset**: Path to reference voice WAV files
+  * **prompt_file**: Path to conversation prompt YAML
+
+  **Output format**:
+
+  Output manifest at ``${output_dir}/merged_manifest.jsonl`` with:
+
+  * **audio_filepath**: Path to mixed mono conversation WAV
+  * **rttm_filepath**: Combined speaker diarization RTTM
+  * **ctm_filepath**: Combined word-level CTM
+  * **seglst_filepath**: Segment list JSON
+  * **duration**: Total conversation duration (seconds)
+  * **num_speakers**: Number of speakers in the conversation
+
+# =============================================================================
+# REQUIRED PARAMETERS
+# =============================================================================
+
+input_manifest: ???
+output_dir: ???
+reference_voices_dataset: ???
+prompt_file: ???
+
+# =============================================================================
+# PIPELINE CONFIGURATION
+# =============================================================================
+
+backend: xenna
+execution_mode: streaming
+
+# LLM settings
+llm_model: "Qwen/Qwen2.5-7B-Instruct"
+llm_max_model_len: 4096
+llm_max_tokens: 4096
+llm_temperature: 0.7
+
+# TTS settings
+language: null
+tts_sample_rate: 24000
+tts_cfg_weight: 0.5
+tts_exaggeration: 0.5
+tts_temperature: 0.8
+
+# MFA settings
+mfa_acoustic_model: "english_us_arpa"
+mfa_dictionary: "english_us_arpa"
+mfa_g2p_model: "english_us_arpa"
+
+# Merge settings
+max_pause_duration: 2.0
+max_intra_turn_pause: 1.0
+
+# =============================================================================
+# PIPELINE STAGES
+# =============================================================================
+
+stages:
+  # Stage 0: Read topic manifest
+  # Each line: {"topic": "Planning a weekend getaway together."}
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${input_manifest}
+    files_per_partition: 1
+
+  # Stage 1: LLM conversation generation
+  # Generates multi-turn conversations from topics using vLLM.
+  # Output: one AudioTask per conversation turn with speaker, utterance, overlap.
+  - _target_: nemo_curator.stages.audio.llm.vllm_inference.vLLMInference
+    prompt_file: ${prompt_file}
+    model:
+      model: ${llm_model}
+      max_model_len: ${llm_max_model_len}
+      max_tokens: ${llm_max_tokens}
+      temperature: ${llm_temperature}
+    resources:
+      gpus: 1.0
+
+  # Stage 2: TTS audio synthesis
+  # Generates per-turn WAV files using Chatterbox TTS with voice cloning.
+  - _target_: nemo_curator.stages.audio.tts.chatterbox_tts.ChatterboxTTSStage
+    output_audio_dir: ${output_dir}/audio
+    reference_voices_dataset: ${reference_voices_dataset}
+    language: ${language}
+    sample_rate: ${tts_sample_rate}
+    cfg_weight: ${tts_cfg_weight}
+    exaggeration: ${tts_exaggeration}
+    temperature: ${tts_temperature}
+    resources:
+      gpus: 1.0
+
+  # Stage 3: MFA forced alignment
+  # Produces word-level TextGrid alignments, RTTM, and CTM per turn.
+  - _target_: nemo_curator.stages.audio.alignment.mfa_alignment.MFAAlignmentStage
+    output_dir: ${output_dir}/alignment
+    acoustic_model: ${mfa_acoustic_model}
+    dictionary: ${mfa_dictionary}
+    g2p_model: ${mfa_g2p_model}
+    text_key: "utterance"
+    create_rttm: true
+    create_ctm: true
+
+  # Stage 4: Merge conversation turns
+  # Combines all turns of each conversation into multi-speaker outputs.
+  - _target_: nemo_curator.stages.audio.merging.merge_conversation.MergeConversationSDPStage
+    output_conversations_dir: ${output_dir}/conversations
+    max_pause_duration: ${max_pause_duration}
+    max_intra_turn_pause: ${max_intra_turn_pause}
+
+  # Stage 5: Write output manifest
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_dir}/merged_manifest.jsonl

@@ -32,9 +32,12 @@ _LAZY = {
     "ALMDataOverlapStage": "nemo_curator.stages.audio.alm",
     "AudioDataFilterStage": "nemo_curator.stages.audio.advanced_pipelines",
     "BandFilterStage": "nemo_curator.stages.audio.filtering",
+    "ChatterboxTTSStage": "nemo_curator.stages.audio.tts",
     "GetAudioDurationStage": "nemo_curator.stages.audio.common",
     "ManifestReader": "nemo_curator.stages.audio.common",
     "ManifestWriterStage": "nemo_curator.stages.audio.common",
+    "MergeConversationSDPStage": "nemo_curator.stages.audio.merging",
+    "MFAAlignmentStage": "nemo_curator.stages.audio.alignment",
     "MonoConversionStage": "nemo_curator.stages.audio.preprocessing",
     "PreserveByValueStage": "nemo_curator.stages.audio.common",
     "SIGMOSFilterStage": "nemo_curator.stages.audio.filtering",
@@ -43,6 +46,7 @@ _LAZY = {
     "TimestampMapperStage": "nemo_curator.stages.audio.postprocessing",
     "UTMOSFilterStage": "nemo_curator.stages.audio.filtering",
     "VADSegmentationStage": "nemo_curator.stages.audio.segmentation",
+    "vLLMInference": "nemo_curator.stages.audio.llm",
 }
 
 __all__ = [
@@ -50,9 +54,12 @@ __all__ = [
     "ALMDataOverlapStage",
     "AudioDataFilterStage",
     "BandFilterStage",
+    "ChatterboxTTSStage",
     "GetAudioDurationStage",
+    "MFAAlignmentStage",
     "ManifestReader",
     "ManifestWriterStage",
+    "MergeConversationSDPStage",
     "MonoConversionStage",
     "PreserveByValueStage",
     "SIGMOSFilterStage",
@@ -61,6 +68,7 @@ __all__ = [
     "TimestampMapperStage",
     "UTMOSFilterStage",
     "VADSegmentationStage",
+    "vLLMInference",
 ]
 
 
