@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable
+
+import pandas as pd
+import pyarrow as pa
 import pytest
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.tasks import Task
+from nemo_curator.tasks import DocumentBatch, Task
 
 
 class MockTask(Task[dict]):
@@ -64,6 +68,22 @@ class BackendConfiguredStage(ConcreteProcessingStage):
 
     def num_workers(self) -> int | None:
         return 2
+
+
+@pytest.mark.parametrize("table_factory", [pa.table, pd.DataFrame], ids=["pyarrow", "pandas"])
+def test_validate_input_with_tabular_columns(
+    table_factory: Callable[[dict[str, list[str]]], pa.Table | pd.DataFrame],
+) -> None:
+    class TextProcessingStage(ConcreteProcessingStage):
+        def inputs(self) -> tuple[list[str], list[str]]:
+            return ["data"], ["text content"]
+
+    stage = TextProcessingStage()
+    valid_batch = DocumentBatch(dataset_name="test", data=table_factory({"text content": ["hello"]}))
+    missing_batch = DocumentBatch(dataset_name="test", data=table_factory({"other": ["hello"]}))
+
+    assert stage.validate_input(valid_batch)
+    assert not stage.validate_input(missing_batch)
 
 
 class TestProcessingStageWith:
@@ -532,6 +552,20 @@ class MockStageC(ProcessingStage[MockTask, MockTask]):
         return [], []
 
 
+class MockFanoutStage(ProcessingStage[MockTask, MockTask]):
+    name = "MockFanoutStage"
+
+    def process(self, task: MockTask) -> list[MockTask]:
+        return [task]
+
+
+class MockOptionalFanoutStage(ProcessingStage[MockTask, MockTask]):
+    name = "MockOptionalFanoutStage"
+
+    def process(self, task: MockTask) -> MockTask | list[MockTask]:
+        return task
+
+
 class ConcreteCompositeStage(CompositeStage[MockTask, MockTask]):
     """Concrete implementation of CompositeStage for testing."""
 
@@ -752,3 +786,23 @@ class TestCompositeStageWith:
             "xenna_only": True,
         }
         assert modified_stages[0].num_workers() == 4
+
+
+class TestProcessingStageFanoutDetection:
+    def test_base_ray_stage_spec_marks_non_list_outputs_as_non_fanout(self):
+        stage = MockStageA()
+
+        assert stage.is_fanout_stage() is False
+        assert stage.ray_stage_spec()["is_fanout_stage"] is False
+
+    def test_base_ray_stage_spec_marks_list_outputs_as_fanout(self):
+        stage = MockFanoutStage()
+
+        assert stage.is_fanout_stage() is True
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True
+
+    def test_base_ray_stage_spec_marks_union_list_outputs_as_fanout(self):
+        stage = MockOptionalFanoutStage()
+
+        assert stage.is_fanout_stage() is True
+        assert stage.ray_stage_spec()["is_fanout_stage"] is True

@@ -23,7 +23,11 @@ from pathlib import Path
 from PIL import Image
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.stages.synthetic.omni.io import JsonlSampleWriterStage, merge_output_shards
+from nemo_curator.stages.synthetic.omni.io import (
+    HFDatasetImageReaderStage,
+    JsonlSampleWriterStage,
+    merge_output_shards,
+)
 from nemo_curator.tasks.image import ImageSampleTask, ImageTaskData
 from nemo_curator.tasks.ocr import OCRData
 
@@ -58,6 +62,12 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
     with path.open("w") as f:
         for rec in records:
             f.write(json.dumps(rec) + "\n")
+
+
+def test_hf_dataset_image_reader_ray_stage_spec(tmp_path: Path) -> None:
+    stage = HFDatasetImageReaderStage(dataset_name="unused", image_dir=tmp_path)
+
+    assert stage.ray_stage_spec()["is_fanout_stage"] is True
 
 
 class TestJsonlSampleWriterStage:

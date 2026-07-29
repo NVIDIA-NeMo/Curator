@@ -1,0 +1,83 @@
+# Qwen3-Omni in-process ASR pipeline.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/qwen_omni_inprocess \
+#     --config-name pipeline \
+#     manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+manifest_path: ???
+output_path: ./qwen_omni_output.jsonl
+workspace_dir: /tmp/qwen_omni_workspace
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
+default_language: null
+supported_language_codes: [en, zh, ko, ja, de, ru, it, fr, es, pt, ms, nl, id, tr, vi, yue, ar, ur]
+prompt_text: Transcribe the audio.
+prompt_file: null
+pred_text_key: pred_text
+gpus_per_actor: 2
+backend: ray_data
+execution_mode: streaming
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: "ResampleAudio"
+    resampled_audio_dir: ${resampled_audio_dir}
+    target_sample_rate: 16000
+    target_format: "wav"
+    target_nchannels: 1
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
+    model_id: ${model_id}
+    default_language: ${default_language}
+    supported_language_codes: ${supported_language_codes}
+    pred_text_key: ${pred_text_key}
+    batch_size: 32
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: ${gpus_per_actor}
+    adapter_kwargs:
+      prompt_text: ${prompt_text}
+      prompt_file: ${prompt_file}
+      en_prompt_text: null
+      en_prompt_file: null
+      system_prompt: null
+      system_prompt_file: null
+      prompt_content_order: text_audio
+      max_output_tokens: 256
+      vllm_kwargs:
+        max_model_len: 32768
+        max_num_seqs: 16
+        gpu_memory_utilization: 0.95
+        dtype: auto
+        trust_remote_code: true
+        enable_prefix_caching: true
+        prefix_caching_hash_algo: xxhash
+        limit_mm_per_prompt:
+          image: 1
+          video: 1
+          audio: 2
+        seed: 1234
+      sampling_kwargs:
+        temperature: 0.0
+        top_k: 1
+        repetition_penalty: 1.0
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_path}
