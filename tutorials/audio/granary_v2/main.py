@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import hydra
-from nemo_curator.stages.audio.pipeline_utils import resolve_model_route
 from omegaconf import DictConfig, OmegaConf
 
 from nemo_curator.config.run import (
@@ -33,6 +32,8 @@ from tutorials.audio.granary_v2.pipeline_config import (
 
 @hydra.main(version_base=None, config_path=".", config_name="pipeline")
 def main(cfg: DictConfig) -> None:
+    from nemo_curator.stages.audio.pipeline_utils import resolve_model_route
+
     route = resolve_model_route(
         str(cfg.language),
         primary=cfg.get("primary_model"),
