@@ -84,6 +84,11 @@ class Session:
     # before and after each benchmark run. If None, any usage > 0 triggers a warning.
     # Entries can override this value.
     gpu_mem_use_warning_threshold: float | None = None
+    # Optional session metadata. viewer_url is the resolved link exposed to sinks;
+    # viewer_url_template is rendered into viewer_url once the session name/path is known.
+    viewer_url: str | None = None
+    viewer_url_template: str | None = None
+    run_reason: str | None = None
     # Global ray settings inherited by all entries; per-entry ray sections override these values.
     ray: dict = field(default_factory=dict)
     path_resolver: PathResolver = None
@@ -117,6 +122,16 @@ class Session:
 
         if not isinstance(self.max_timeout_s, int) or isinstance(self.max_timeout_s, bool) or self.max_timeout_s <= 0:
             msg = f"Invalid max_timeout_s: {self.max_timeout_s}; must be a positive integer."
+            raise ValueError(msg)
+
+        for field_name in ("viewer_url", "viewer_url_template", "run_reason"):
+            value = getattr(self, field_name)
+            if value is not None and not isinstance(value, str):
+                msg = f"Invalid {field_name}: {value}; must be a string when set."
+                raise ValueError(msg)
+
+        if self.viewer_url is not None and self.viewer_url_template is not None:
+            msg = "viewer_url and viewer_url_template are mutually exclusive; set only one."
             raise ValueError(msg)
 
         # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
