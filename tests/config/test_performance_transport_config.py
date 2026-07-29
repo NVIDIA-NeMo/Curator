@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
 from omegaconf import OmegaConf
 
 from nemo_curator.config.run import create_executor_from_yaml, create_pipeline_from_yaml
@@ -38,3 +40,12 @@ def test_yaml_applies_extended_metrics_and_executor_config() -> None:
     assert pipeline.stages[0].extended_performance_metrics is True
     assert executor is not None
     assert executor.config["pipeline_hardware_sampler_enabled"] is True
+
+
+def test_qwen_tutorial_writes_complete_performance_report() -> None:
+    config_path = Path(__file__).parents[2] / "tutorials/audio/qwen_omni_inprocess/pipeline.yaml"
+    cfg = OmegaConf.load(config_path)
+
+    assert cfg.performance_report_path == "./qwen_omni_performance.json"
+    assert cfg.stages[2].extended_performance_metrics is True
+    assert cfg.stages[3].performance_report_path == cfg.performance_report_path

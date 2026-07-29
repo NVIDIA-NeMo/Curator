@@ -221,7 +221,7 @@ class TerminalAudioPerformanceWriterMixin:
             self._writer_metrics._perf_summary.record_stage_perf(self._external_perf_stats)
             self._write_perf_summary()
 
-    def finalize_performance_report(
+    def _finalize_audio_performance_summary(
         self,
         tasks: list[Task],
         *,

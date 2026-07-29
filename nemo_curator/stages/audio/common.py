@@ -17,7 +17,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import soundfile
 import torch
@@ -33,6 +33,10 @@ from nemo_curator.stages.audio.metrics.performance import _valid_audio_duration
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
+from nemo_curator.utils.file_utils import write_json_file
+
+if TYPE_CHECKING:
+    from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 def get_audio_duration(audio_filepath: str) -> float:
@@ -260,6 +264,9 @@ class ManifestWriterStage(TerminalAudioPerformanceWriterMixin, ProcessingStage[A
 
     Args:
         output_path: Destination JSONL path (local or cloud).
+        performance_report_path: Optional JSON destination for all raw
+            pipeline invocation metrics. Supports local and cloud paths through
+            fsspec.
         write_perf_stats: Write one terminal ``perf_summary.json`` for each
             successful pipeline run. Disabled by default.
         duration_key: Output manifest field containing audio seconds.
@@ -275,6 +282,7 @@ class ManifestWriterStage(TerminalAudioPerformanceWriterMixin, ProcessingStage[A
 
     output_path: str
     name: str = "manifest_writer"
+    performance_report_path: str | None = None
     write_perf_stats: bool = False
     duration_key: str = "duration"
     perf_summary_path: str | None = None
@@ -343,6 +351,50 @@ class ManifestWriterStage(TerminalAudioPerformanceWriterMixin, ProcessingStage[A
     def _default_perf_summary_path(self) -> str:
         parent, separator, _filename = self.output_path.rpartition("/")
         return f"{parent}{separator}perf_summary.json" if separator else "perf_summary.json"
+
+    def finalize_performance_report(
+        self,
+        _tasks: list[AudioTask],
+        *,
+        performance_records: list["StagePerfStats"],
+        wall_time_s: float,
+    ) -> None:
+        """Write all driver-collected invocation metrics through the existing writer."""
+        self._write_raw_performance_report(
+            performance_records=performance_records,
+            wall_time_s=wall_time_s,
+        )
+        self._finalize_audio_performance_summary(
+            _tasks,
+            performance_records=performance_records,
+            wall_time_s=wall_time_s,
+        )
+
+    def _write_raw_performance_report(
+        self,
+        *,
+        performance_records: list["StagePerfStats"],
+        wall_time_s: float,
+    ) -> None:
+        """Persist the raw report so specialized writers can reuse the contract."""
+        if self.performance_report_path is None:
+            return
+        report_fs, report_path = url_to_fs(self.performance_report_path)
+        write_json_file(
+            report_path,
+            {
+                "schema_version": 1,
+                "pipeline_name": str((self._curator_pipeline_metadata or {}).get("pipeline_name", "")),
+                "run_id": self._curator_run_id,
+                "executor": self._curator_executor,
+                "pipeline": self._curator_pipeline_metadata or {},
+                "wall_time_s": wall_time_s,
+                "record_count": len(performance_records),
+                "records": [record.to_extended_dict() for record in performance_records],
+            },
+            report_fs,
+        )
+        logger.info(f"ManifestWriterStage: wrote performance report to {self.performance_report_path}")
 
     def num_workers(self) -> int | None:
         return 1
