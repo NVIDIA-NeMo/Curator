@@ -18,6 +18,7 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.perf_identity import ExtendedPerfStageAdapterMixin
 from nemo_curator.backends.utils import (
     get_worker_metadata_and_node_id,
     get_worker_metadata_and_node_id_with_perf,
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
 
 
-class RayActorPoolRAFTAdapter(BaseStageAdapter):
+class RayActorPoolRAFTAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter):
     """RAFT Actor adapter for Ray Actor Pool backend.
 
     This adapter extends RayActorPoolStageAdapter and adds RAFT capabilities

@@ -25,7 +25,11 @@ from nemo_curator.backends.base import (
     NodeInfo,
     WorkerMetadata,
 )
-from nemo_curator.backends.perf_identity import build_xenna_perf_identity, stamp_worker_metadata
+from nemo_curator.backends.perf_identity import (
+    ExtendedPerfStageAdapterMixin,
+    build_xenna_perf_identity,
+    stamp_worker_metadata,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import Task
 
@@ -55,7 +59,7 @@ class CuratorRuntimeEnv:
         return f"runtime_env_keys: {', '.join(self._runtime_env.keys())}"
 
 
-class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
+class XennaStageAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter, pipelines_v1.Stage):
     """Adapts ProcessingStage to Xenna.
     Args:
         stage: ProcessingStage to adapt

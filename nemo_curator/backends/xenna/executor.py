@@ -20,13 +20,14 @@ from cosmos_xenna.utils.verbosity import VerbosityLevel
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.perf_telemetry import PerformanceTelemetryExecutorMixin
 from nemo_curator.backends.utils import register_loguru_serializer
 from nemo_curator.backends.xenna.adapter import create_named_xenna_stage_adapter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
 
 
-class XennaExecutor(BaseExecutor):
+class XennaExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
     """Executor that runs pipelines using Cosmos-Xenna.
     This executor provides integration between the nemo-curator pipeline framework
     and the Cosmos-Xenna execution engine for distributed processing.
@@ -64,9 +65,7 @@ class XennaExecutor(BaseExecutor):
             "log_worker_allocation_layout": True,
         }
 
-    def execute(  # noqa: C901, PLR0915
-        self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None
-    ) -> list[Task]:
+    def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
         """Execute the pipeline using Cosmos-Xenna.
 
         Args:
@@ -171,17 +170,16 @@ class XennaExecutor(BaseExecutor):
             stage_perf_collector = self._start_stage_perf_collector(stages)
             # Run the pipeline (this will re-initialize ray but that'll be a no-op and the ray.init above will take precedence)
             results = pipelines_v1.run_pipeline(pipeline_spec)
-            stage_perf_records = self._stop_stage_perf_collector(stage_perf_collector, stages)
+            final_results = results or []
+            self._finalize_performance_telemetry(
+                stages=stages,
+                tasks=final_results,
+                stage_perf_collector=stage_perf_collector,
+                hardware_sampler=hardware_sampler,
+            )
             stage_perf_collector = None
-            stage_perf_published = self._publish_collected_stage_perf(stages, stage_perf_records)
-            if results and not stage_perf_published:
-                self._attach_unpublished_stage_perf(results, stage_perf_records)
-            hardware_perf = self._stop_pipeline_hardware_sampler(hardware_sampler)
             hardware_sampler = []
-            hardware_perf_published = self._publish_external_perf(stages, hardware_perf)
-            if results and not hardware_perf_published:
-                self._attach_pipeline_hardware_perf(results, hardware_perf)
-            logger.info(f"Pipeline completed successfully with {len(results) if results else 0} output tasks")
+            logger.info(f"Pipeline completed successfully with {len(final_results)} output tasks")
         except Exception as e:
             logger.error(f"Pipeline execution failed: {e}")
             raise
@@ -194,7 +192,7 @@ class XennaExecutor(BaseExecutor):
                     self._stop_pipeline_hardware_sampler(hardware_sampler)
             finally:
                 ray.shutdown()
-        return results or []
+        return final_results
 
     def _get_pipeline_config(self, key: str) -> Any:  # noqa: ANN401
         """Get configuration value with fallback to defaults."""

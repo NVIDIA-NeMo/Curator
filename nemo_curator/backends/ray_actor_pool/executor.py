@@ -23,6 +23,7 @@ from ray.util.actor_pool import ActorPool
 from tqdm import tqdm
 
 from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.perf_telemetry import PerformanceTelemetryExecutorMixin
 from nemo_curator.backends.utils import RayStageSpecKeys, execute_setup_on_node, register_loguru_serializer
 from nemo_curator.tasks import EmptyTask, Task
 
@@ -49,7 +50,7 @@ def _parse_runtime_env(runtime_env: dict) -> dict:
     return user_runtime_env
 
 
-class RayActorPoolExecutor(BaseExecutor):
+class RayActorPoolExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
     """Ray-based executor using ActorPool for better resource management.
 
     This executor:
@@ -163,14 +164,14 @@ class RayActorPoolExecutor(BaseExecutor):
         else:
             # Return final results directly - no need for ray.get()
             final_results = current_tasks or []
-            stage_perf_records = self._stop_stage_perf_collector(stage_perf_collector, stages)
+            self._finalize_performance_telemetry(
+                stages=stages,
+                tasks=final_results,
+                stage_perf_collector=stage_perf_collector,
+                hardware_sampler=hardware_sampler,
+            )
             stage_perf_collector = None
-            if not self._publish_collected_stage_perf(stages, stage_perf_records):
-                self._attach_unpublished_stage_perf(final_results, stage_perf_records)
-            hardware_perf = self._stop_pipeline_hardware_sampler(hardware_sampler)
             hardware_sampler = []
-            if not self._publish_external_perf(stages, hardware_perf):
-                self._attach_pipeline_hardware_perf(final_results, hardware_perf)
             logger.info(f"\nPipeline completed. Final results: {len(final_results)} tasks")
 
             return final_results

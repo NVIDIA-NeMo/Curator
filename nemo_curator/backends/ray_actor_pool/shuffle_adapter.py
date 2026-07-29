@@ -19,6 +19,7 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.perf_identity import ExtendedPerfStageAdapterMixin
 from nemo_curator.backends.utils import (
     RayStageSpecKeys,
     get_worker_metadata_and_node_id,
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
 
 # TODO: Remove once UCX memory usage with GPU staging buffers is fixed.
 @ray.remote(runtime_env={"env_vars": {"UCX_RNDV_FRAG_MEM_TYPES": "host"}})
-class ShuffleStageAdapter(BaseStageAdapter):
+class ShuffleStageAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter):
     """Ray actor that wraps a shuffle stage and its actor.
 
     This adapter manages the lifecycle of a shuffle actor (like LSHActor)

@@ -20,6 +20,7 @@ from loguru import logger
 from ray.data import Dataset, TaskPoolStrategy
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.perf_identity import ExtendedPerfStageAdapterMixin
 from nemo_curator.backends.utils import (
     RayStageSpecKeys,
     get_worker_metadata_and_node_id,
@@ -32,7 +33,7 @@ from .utils import get_actor_compute_strategy_for_stage, get_configured_actor_po
 CURATOR_MANAGED_MAP_BATCHES_KWARGS = {"compute", "max_calls", "num_cpus", "num_gpus"}
 
 
-class RayDataStageAdapter(BaseStageAdapter):
+class RayDataStageAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter):
     """Adapts ProcessingStage to Ray Data operations.
 
     This adapter converts stages to work with Ray Data datasets by:

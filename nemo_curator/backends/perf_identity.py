@@ -28,7 +28,11 @@ from __future__ import annotations
 import os
 import socket
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from loguru import logger
+
+from nemo_curator.utils.performance_utils import norm_gpu_uuid
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
@@ -300,17 +304,8 @@ def _parse_int_indices(values: object) -> tuple[int, ...]:
     return tuple(out)
 
 
-def _normalize_gpu_uuid(value: object) -> str:
-    try:
-        text = value.decode() if isinstance(value, bytes) else str(value)
-    except Exception:  # noqa: BLE001
-        text = ""
-    text = text.strip().lower()
-    return text.removeprefix("gpu-")
-
-
 def _wanted_gpu_uuid_tokens(tokens: tuple[str, ...]) -> list[tuple[str, str]]:
-    return [(token, normalized) for token in tokens if (normalized := _normalize_gpu_uuid(token))]
+    return [(token, normalized) for token in tokens if (normalized := norm_gpu_uuid(token))]
 
 
 def _nvml_uuid_index_map() -> dict[str, int]:
@@ -326,7 +321,7 @@ def _nvml_uuid_index_map() -> dict[str, int]:
         for index in range(int(pynvml.nvmlDeviceGetCount())):
             try:
                 handle = pynvml.nvmlDeviceGetHandleByIndex(index)
-                uuid = _normalize_gpu_uuid(pynvml.nvmlDeviceGetUUID(handle))
+                uuid = norm_gpu_uuid(pynvml.nvmlDeviceGetUUID(handle))
             except Exception:  # noqa: BLE001
                 continue
             if uuid:
@@ -466,3 +461,57 @@ def apply_worker_perf_identity(stage_perf_stats: StagePerfStats, identity: Worke
     stage_perf_stats.hostname = identity.hostname
     stage_perf_stats.gpu_indices = list(identity.gpu_indices)
     stage_perf_stats.gpu_uuids = list(identity.gpu_uuids)
+
+
+class ExtendedPerfStageAdapterMixin:
+    """Opt-in backend telemetry layered onto #2223's adapter hooks."""
+
+    stage: Any
+    _perf_identity: WorkerPerfIdentity
+    _gpu_sampler: Any
+
+    def _setup_performance_telemetry(self, worker_metadata: WorkerMetadata | None) -> None:
+        if not bool(getattr(self.stage, "extended_performance_metrics", False)):
+            self._perf_identity = WorkerPerfIdentity()
+            self._gpu_sampler = None
+            return
+
+        self._perf_identity = read_worker_metadata_identity(str(self.stage.name), worker_metadata)
+        self._gpu_sampler = None
+        resources = getattr(self.stage, "resources", None)
+        if resources is None or not getattr(resources, "requires_gpu", False):
+            return
+        gpu_uuids = tuple(self._perf_identity.gpu_uuids)
+        if not gpu_uuids:
+            return
+        try:
+            from nemo_curator.utils.gpu_sampler import GpuUtilSampler
+
+            sampler = GpuUtilSampler(gpu_uuids=gpu_uuids, sample_all_visible=False)
+            sampler.start()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("GPU sampler unavailable for {}: {}", self.stage.name, exc)
+            return
+        self._gpu_sampler = sampler
+
+    def _enrich_stage_perf_record(self, stage_perf_stats: StagePerfStats, results: list[Any]) -> None:
+        if not bool(getattr(self.stage, "extended_performance_metrics", False)):
+            return
+        sampler = getattr(self, "_gpu_sampler", None)
+        if sampler is not None:
+            stage_perf_stats.custom_metrics.update(
+                sampler.window_metrics(stage_perf_stats.window_start_s, stage_perf_stats.window_end_s)
+            )
+        apply_worker_perf_identity(stage_perf_stats, self._perf_identity)
+        try:
+            from nemo_curator.utils.stage_perf_collector import record_stage_perf
+
+            record_stage_perf(self.stage, stage_perf_stats, attached_to_output=bool(results))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Stage performance collector unavailable for {}: {}", self.stage.name, exc)
+
+    def _teardown_performance_telemetry(self) -> None:
+        sampler = getattr(self, "_gpu_sampler", None)
+        if sampler is not None:
+            sampler.stop()
+        self._gpu_sampler = None

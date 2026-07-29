@@ -36,6 +36,8 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from nemo_curator.utils.performance_utils import norm_gpu_uuid as norm_uuid
+
 PIPELINE_HARDWARE_WALL_TIME_KEY = "pipeline_hardware_wall_time_s"
 PIPELINE_HARDWARE_UTIL_MEAN_KEY = "pipeline_hardware_gpu_util_pct_mean_all_sampled"
 PIPELINE_HARDWARE_MEM_MEAN_KEY = "pipeline_hardware_gpu_mem_used_pct_mean_all_sampled"
@@ -110,12 +112,6 @@ class _GpuStreamingAggregate:
             metrics["gpu_mem_used_pct_min"] = self.mem_min
             metrics["gpu_mem_used_pct_max"] = self.mem_max
         return metrics
-
-
-def norm_uuid(value: object) -> str:
-    """Normalize a GPU UUID for comparison (drop ``GPU-`` prefix, lowercase)."""
-    text = value.decode() if isinstance(value, bytes) else str(value)
-    return text.strip().lower().removeprefix("gpu-")
 
 
 def actor_gpu_window_metrics(
@@ -283,7 +279,7 @@ class GpuUtilSampler:
                     for k, aggregate in enumerate(self._aggregates):
                         aggregate.add(utils[k], mems[k], read_error=read_errors[k])
                 else:
-                    self._samples.append((time.time(), utils, mems))
+                    self._samples.append((time.perf_counter(), utils, mems))
             self._stop.wait(self._interval_s)
 
     def window_stats(self, t0: float, t1: float) -> dict[str, dict[str, float]]:

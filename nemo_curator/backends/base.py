@@ -12,16 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nemo_curator.backends.failed_task_markers import record_failed_tasks
-from nemo_curator.backends.perf_identity import apply_worker_perf_identity, read_worker_metadata_identity
 from nemo_curator.backends.slurm_array import (
     filter_slurm_array_source_tasks,
     resolve_slurm_array_config,
@@ -29,7 +27,7 @@ from nemo_curator.backends.slurm_array import (
 from nemo_curator.core.utils import ignore_ray_head_node
 from nemo_curator.tasks import Task
 from nemo_curator.tasks.sentinels import FailedTask, NoneTask
-from nemo_curator.utils.performance_utils import StagePerfStats, StageTimer
+from nemo_curator.utils.performance_utils import StageTimer
 from nemo_curator.utils.resumability_client import (
     completed_resumability_sources,
     flush_resumability_deltas,
@@ -58,20 +56,11 @@ class NodeInfo:
 class WorkerMetadata:
     """Generic worker metadata for setup_on_node calls across backends.
     Simplified to match Xenna's structure. The allocation field can contain
-    backend-specific allocation information. Backends may also stamp performance
-    identity fields at worker setup.
+    backend-specific allocation information.
     """
 
     worker_id: str = ""
     allocation: Any = None  # Backend-specific allocation info
-    actor_id: str = ""
-    node_id: str = ""
-    gpu_id: str = ""
-    physical_address: str = ""
-    pod_ip: str = ""
-    hostname: str = ""
-    gpu_indices: list[int] = field(default_factory=list)
-    gpu_uuids: list[str] = field(default_factory=list)
 
 
 class BaseExecutor(ABC):
@@ -85,119 +74,12 @@ class BaseExecutor(ABC):
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
         """Execute the pipeline."""
 
-    def _start_pipeline_hardware_sampler(self) -> list[Any]:
-        if not bool(self.config.get("pipeline_hardware_sampler_enabled", False)):
-            return []
-        try:
-            from nemo_curator.utils.pipeline_hardware_sampler import start_pipeline_hardware_samplers
-
-            interval_s = float(self.config.get("pipeline_hardware_sampler_interval_s", 0.5))
-            startup_timeout_s = float(self.config.get("pipeline_hardware_sampler_startup_timeout_s", 5.0))
-            return start_pipeline_hardware_samplers(interval_s=interval_s, startup_timeout_s=startup_timeout_s)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Pipeline hardware sampler disabled: {}", exc)
-            return []
-
-    def _stop_pipeline_hardware_sampler(self, sampler_actors: list[Any]) -> StagePerfStats | None:
-        if not sampler_actors:
-            return None
-        try:
-            from nemo_curator.utils.pipeline_hardware_sampler import stop_pipeline_hardware_samplers
-
-            stop_timeout_s = float(self.config.get("pipeline_hardware_sampler_stop_timeout_s", 10.0))
-            metrics = stop_pipeline_hardware_samplers(sampler_actors, stop_timeout_s=stop_timeout_s)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Pipeline hardware sampler stop failed: {}", exc)
-            return None
-        wall_time_s = float(metrics.pop("pipeline_hardware_wall_time_s", 0.0))
-        return StagePerfStats(
-            stage_name="pipeline_hardware_sampler",
-            process_time=wall_time_s,
-            num_items_processed=1,
-            custom_metrics=metrics,
-        )
-
-    @staticmethod
-    def _attach_pipeline_hardware_perf(tasks: list[Task], perf_stats: StagePerfStats | None) -> None:
-        if perf_stats is None:
-            return
-        for task in tasks:
-            task.add_stage_perf(perf_stats)
-
-    def _publish_external_perf(self, stages: list["ProcessingStage"], perf_stats: StagePerfStats | None) -> bool:
-        """Publish a run-level performance record to the last accepting stage."""
-        if perf_stats is None:
-            return False
-        for stage in reversed(stages):
-            recorder = getattr(stage, "record_external_stage_perf", None)
-            if not callable(recorder):
-                continue
-            try:
-                if bool(recorder(perf_stats)):
-                    return True
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("External perf publish failed for stage {}: {}", stage, exc)
-        return False
-
-    def _start_stage_perf_collector(self, stages: list["ProcessingStage"]) -> Any | None:  # noqa: ANN401
-        """Start run-scoped transport for authoritative extended telemetry."""
-        try:
-            from nemo_curator.utils.stage_perf_collector import start_stage_perf_collector
-
-            return start_stage_perf_collector(stages)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Stage performance collector disabled: {}", exc)
-            return None
-
-    def _stop_stage_perf_collector(
-        self,
-        collector: Any | None,  # noqa: ANN401
-        stages: list["ProcessingStage"],
-    ) -> list[Any]:
-        """Drain run-scoped extended telemetry and remove its collector."""
-        try:
-            from nemo_curator.utils.stage_perf_collector import stop_stage_perf_collector
-
-            return stop_stage_perf_collector(collector, stages)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Stage performance collector stop failed: {}", exc)
-            return []
-
-    def _publish_collected_stage_perf(self, stages: list["ProcessingStage"], records: list[Any]) -> bool:
-        """Publish the full authoritative record set to the terminal consumer."""
-        if not records:
-            return False
-        perf_stats = [record.perf_stats for record in records]
-        for stage in reversed(stages):
-            recorder = getattr(stage, "record_external_stage_perfs", None)
-            if not callable(recorder):
-                continue
-            try:
-                if bool(recorder(perf_stats)):
-                    return True
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("Collected stage perf publish failed for stage {}: {}", stage, exc)
-        return False
-
-    @staticmethod
-    def _attach_unpublished_stage_perf(tasks: list[Task], records: list[Any]) -> None:
-        """Preserve only records that did not already travel on a surviving task."""
-        unattached = [record.perf_stats for record in records if not record.attached_to_output]
-        for task in tasks:
-            for perf_stats in unattached:
-                task.add_stage_perf(perf_stats)
-
 
 class BaseStageAdapter:
     """Adapts ProcessingStage to an execution backend, if needed."""
 
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
-
-    def _cache_perf_identity(self) -> None:
-        """Copy backend-stamped identity from fixed worker metadata."""
-        worker_metadata = getattr(self, "_worker_metadata", None)
-        self._perf_identity = read_worker_metadata_identity(str(self.stage.name), worker_metadata)
 
     def process_batch(self, tasks: list[Task]) -> list[Task]:
         """Process a batch of tasks.
@@ -216,13 +98,10 @@ class BaseStageAdapter:
         input_size = sum(task.num_items for task in tasks)
         # Initialize performance timer for this batch
         self._timer.reinit(input_size)
-        extended_metrics = bool(getattr(self.stage, "extended_performance_metrics", False))
 
-        window_start = time.time() if extended_metrics else 0.0
         with self._timer.time_process(input_size):
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
-        window_end = time.time() if extended_metrics else 0.0
 
         # A returned ``None`` ("filter this slot") becomes a NoneTask so every
         # output is a real Task that gets a task_id. Sentinels (NoneTask /
@@ -237,7 +116,9 @@ class BaseStageAdapter:
         is_source_stage = getattr(self.stage, "is_source_stage", False)
         failed_tasks = [r for r in results if isinstance(r, FailedTask)]
         if failed_tasks and is_source_stage:
-            msg = f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
+            msg = (
+                f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
+            )
             raise ValueError(msg)
 
         # Record failed tasks for later inspection or retry bookkeeping.
@@ -263,49 +144,16 @@ class BaseStageAdapter:
         # Sentinels never propagate to the next stage.
         results = [r for r in results if not _is_sentinel(r)]
 
-        self._attach_stage_perf(results, window_start, window_end, extended_metrics=extended_metrics)
-        return results
-
-    def _attach_stage_perf(
-        self,
-        results: list[Task],
-        window_start: float,
-        window_end: float,
-        *,
-        extended_metrics: bool,
-    ) -> None:
-        """Attach one invocation record, with optional extended diagnostics."""
+        # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
-        if extended_metrics:
-            stage_perf_stats.invocation_id = uuid.uuid4().hex
+        # Consume and attach any custom metrics recorded by the stage during this call
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
-        if extended_metrics:
-            self._add_gpu_sampler_metrics(stage_perf_stats, window_start, window_end)
-            if not hasattr(self, "_perf_identity") or self._perf_identity is None:
-                self._cache_perf_identity()
-            apply_worker_perf_identity(stage_perf_stats, self._perf_identity)
-            try:
-                from nemo_curator.utils.stage_perf_collector import record_stage_perf
-
-                record_stage_perf(
-                    self.stage,
-                    stage_perf_stats,
-                    attached_to_output=bool(results),
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("Stage performance collector unavailable for {}: {}", self.stage.name, exc)
         for task in results:
             task.add_stage_perf(stage_perf_stats)
 
-    def _add_gpu_sampler_metrics(
-        self, stage_perf_stats: StagePerfStats, window_start: float, window_end: float
-    ) -> None:
-        """Add optional per-device diagnostics for one invocation window."""
-        sampler = getattr(self, "_gpu_sampler", None)
-        if sampler is not None:
-            stage_perf_stats.custom_metrics.update(sampler.window_metrics(window_start, window_end))
+        return results
 
     def _post_process_task_ids(self, input_tasks: list[Task], output_tasks: list[Task]) -> list[Task]:
         """Assign a deterministic ``task_id`` (parent id + own segment) to every
@@ -452,36 +300,8 @@ class BaseStageAdapter:
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker
         """
-        self._worker_metadata = worker_metadata
-        if bool(getattr(self.stage, "extended_performance_metrics", False)):
-            self._cache_perf_identity()
-        else:
-            self._perf_identity = None
         self.stage.setup(worker_metadata)
-        self._gpu_sampler = self._maybe_start_gpu_sampler()
-
-    def _maybe_start_gpu_sampler(self) -> object | None:
-        """Start a background NVML sampler for an assigned GPU stage."""
-        if not bool(getattr(self.stage, "extended_performance_metrics", False)):
-            return None
-        resources = getattr(self.stage, "resources", None)
-        if resources is None or not getattr(resources, "requires_gpu", False):
-            return None
-        try:
-            from nemo_curator.utils.gpu_sampler import GpuUtilSampler
-
-            gpu_uuids = tuple(getattr(self._perf_identity, "gpu_uuids", ()) or ())
-            if not gpu_uuids:
-                return None
-            sampler = GpuUtilSampler(gpu_uuids=gpu_uuids, sample_all_visible=False)
-            sampler.start()
-        except Exception:  # noqa: BLE001
-            return None
-        return sampler
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""
-        sampler = getattr(self, "_gpu_sampler", None)
-        if sampler is not None:
-            sampler.stop()
         self.stage.teardown()
