@@ -44,12 +44,6 @@ BYTES_PER_GB = 1024.0 * 1024.0 * 1024.0
 DEFAULT_PERCENTILES: tuple[int, ...] = (50, 95)
 
 
-def norm_uuid(value: object) -> str:
-    """Normalize a GPU UUID for optional actor-topology enrichment."""
-    text = value.decode() if isinstance(value, bytes) else str(value)
-    return text.strip().lower().removeprefix("gpu-")
-
-
 # ---------------------------------------------------------------------------
 # Unit conversions
 # ---------------------------------------------------------------------------

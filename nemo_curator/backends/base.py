@@ -15,7 +15,7 @@
 import time
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -57,11 +57,21 @@ class NodeInfo:
 class WorkerMetadata:
     """Generic worker metadata for setup_on_node calls across backends.
     Simplified to match Xenna's structure. The allocation field can contain
-    backend-specific allocation information.
+    backend-specific allocation information. Optional performance identity is
+    transported here so telemetry providers do not need backend-specific stage
+    APIs.
     """
 
     worker_id: str = ""
     allocation: Any = None  # Backend-specific allocation info
+    actor_id: str = ""
+    node_id: str = ""
+    gpu_id: str = ""
+    physical_address: str = ""
+    pod_ip: str = ""
+    hostname: str = ""
+    gpu_indices: list[int] = field(default_factory=list)
+    gpu_uuids: list[str] = field(default_factory=list)
 
 
 class BaseExecutor(ABC):
@@ -163,6 +173,9 @@ class BaseStageAdapter:
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
+        enrich_perf = getattr(self, "_enrich_stage_perf_record", None)
+        if callable(enrich_perf):
+            enrich_perf(stage_perf_stats, results)
         for task in results:
             task.add_stage_perf(stage_perf_stats)
 
@@ -313,8 +326,15 @@ class BaseStageAdapter:
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker
         """
+        self._worker_metadata = worker_metadata
         self.stage.setup(worker_metadata)
+        setup_perf = getattr(self, "_setup_performance_telemetry", None)
+        if callable(setup_perf):
+            setup_perf(worker_metadata)
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""
+        teardown_perf = getattr(self, "_teardown_performance_telemetry", None)
+        if callable(teardown_perf):
+            teardown_perf()
         self.stage.teardown()

@@ -28,6 +28,26 @@ def make_dummy_task(stage_name: str, process_time: float, custom: float = 0.0) -
 class TestTaskPerfUtils:
     """Test cases for TaskPerfUtils class."""
 
+    def test_collect_stage_metrics_ignores_identity_transport(self) -> None:
+        perf = StagePerfStats(
+            stage_name="StageGpu",
+            process_time=1.5,
+            num_items_processed=4,
+            custom_metrics={"io": 2.0},
+            actor_id="StageGpu:actor-deadbeef",
+            node_id="node-2",
+            gpu_id="node-2:1",
+        )
+        task = EmptyTask(dataset_name="test", data=None, _stage_perf=[perf])
+
+        metrics = TaskPerfUtils.collect_stage_metrics([task])
+
+        assert "actor_id" not in metrics["StageGpu"]
+        assert "node_id" not in metrics["StageGpu"]
+        assert "gpu_id" not in metrics["StageGpu"]
+        assert np.allclose(metrics["StageGpu"]["process_time"], np.array([1.5]))
+        assert np.allclose(metrics["StageGpu"]["custom.io"], np.array([2.0]))
+
     def test_collect_stage_metrics_from_workflow_result(self) -> None:
         """Test collecting stage metrics from WorkflowRunResult."""
         workflow_result = WorkflowRunResult(workflow_name="unit")
