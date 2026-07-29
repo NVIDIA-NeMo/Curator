@@ -35,8 +35,8 @@ from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask
-
-from .waveform_utils import audio_item_id_from_path
+from nemo_curator.utils.client_utils import is_remote_url
+from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 
 @dataclass
@@ -151,8 +151,8 @@ class AudioFileReaderStage(ProcessingStage[AudioTask, AudioTask]):
             strictly_positive=True,
         )
         planned_segment_num_samples = self._planned_segment_num_samples(data_entry, segment_duration_s)
-        data_entry.setdefault(self.audio_item_id_key, audio_item_id_from_path(audio_path))
-        if self._is_remote_path(audio_path):
+        data_entry.setdefault(self.audio_item_id_key, self._audio_item_id(audio_path))
+        if is_remote_url(audio_path):
             msg = (
                 "AudioFileReaderStage only accepts local audio paths. "
                 "Stage remote Swift/S3 audio with the launcher before Curator starts."
@@ -268,8 +268,10 @@ class AudioFileReaderStage(ProcessingStage[AudioTask, AudioTask]):
         return task
 
     @staticmethod
-    def _is_remote_path(path: str) -> bool:
-        return "://" in str(path)
+    def _audio_item_id(audio_path: str) -> str:
+        """Build a stable, readable item id with Curator's canonical path hash."""
+        stem = os.path.splitext(os.path.basename(audio_path))[0] or "audio"
+        return f"{stem}_{get_deterministic_hash([audio_path])}"
 
     def _run_ffmpeg(self, cmd: list[str]) -> subprocess.CompletedProcess[bytes]:
         completed = subprocess.run(  # noqa: S603
@@ -294,7 +296,7 @@ class AudioFileReaderStage(ProcessingStage[AudioTask, AudioTask]):
         segment_start_s: float | None = None,
         segment_duration_s: float | None = None,
     ) -> tuple[torch.Tensor, int]:
-        if self._is_remote_path(input_audio_path):
+        if is_remote_url(input_audio_path):
             msg = (
                 "AudioFileReaderStage only accepts local audio paths. "
                 "Stage remote Swift/S3 audio with the launcher before Curator starts."
