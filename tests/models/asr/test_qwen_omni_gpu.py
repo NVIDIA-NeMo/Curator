@@ -34,7 +34,7 @@ pytestmark = pytest.mark.gpu
 
 _MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 _SAMPLE_RATE = 16000
-_FIXTURE_PATH = Path(__file__).parents[3] / "fixtures/audio/qwen_omni/audio_1_5s_16khz_mono.wav"
+_FIXTURE_PATH = Path(__file__).parents[2] / "fixtures/audio/qwen_omni/audio_1_5s_16khz_mono.wav"
 
 
 def _load_short_fixture() -> np.ndarray:
