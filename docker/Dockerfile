@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     curl \
     git \
+    libmagic1t64 \
     vim && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -61,11 +62,6 @@ ENV UV_LINK_MODE=copy
 RUN uv venv ${UV_PROJECT_ENVIRONMENT} --python /usr/bin/python3.13 --system-site-packages --seed
 
 FROM build AS nemo_curator_dep
-
-# Install FFmpeg
-COPY docker/common/install_ffmpeg.sh .
-RUN bash install_ffmpeg.sh && \
-    rm install_ffmpeg.sh
 
 # Install etcd + nats-server (required by the Dynamo inference backend)
 COPY docker/common/install_etcd_nats.sh .
@@ -93,7 +89,16 @@ RUN if [ -n "${CURATOR_EXTRA}" ]; then \
     else \
         uv sync --link-mode copy --locked ${CURATOR_GROUPS} --no-cache; \
     fi && \
-    find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} +
+    find /opt/venv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} + && \
+    # Address GHSA-72hv-8253-57qq: jackson-core bundled in ray_dist.jar (jackson-core 2.16.1 < 2.18.6)
+    # Ray's Java support is not used; deleting the JAR removes the vulnerable jackson-core classes.
+    # TODO: Remove once Ray upgrades bundled jackson-core to >=2.18.6 (https://github.com/ray-project/ray/issues/35949)
+    find /opt/venv -name "ray_dist.jar" -delete && \
+    if find /opt/venv -name "ray_dist.jar" | grep -q .; then \
+        echo "ERROR: GHSA-72hv-8253-57qq not fixed — ray_dist.jar still present after deletion" && exit 1; \
+    fi && \
+    # Strip opencv-python-headless (ffmpeg CVE carrier); tolerate arm64 where vllm doesn't pull it.
+    (uv pip uninstall opencv-python-headless || true)
 
 # Install nemotron-ocr (C++/CUDA extension — requires no-build-isolation)
 # GIT_LFS_SKIP_SMUDGE=1: clone source only, model weights are mounted at runtime

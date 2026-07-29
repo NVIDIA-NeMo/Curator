@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking"))
 
 from runner.session import Session
+from runner.utils import merge_config_files
 
 _RESULTS_PATH = str(Path(__file__).resolve().parent)
 
@@ -78,6 +79,42 @@ def test_session_rejects_invalid_max_timeout_s(bad_max_timeout_s: object) -> Non
         )
 
 
+def test_session_accepts_run_metadata() -> None:
+    session = Session.from_dict(
+        _config(
+            [{"name": "entry_a", "script": "benchmark.py"}],
+            viewer_url_template="http://viewer/run?dir={session_path_url}",
+            run_reason="release candidate check",
+        )
+    )
+
+    assert session.viewer_url is None
+    assert session.viewer_url_template == "http://viewer/run?dir={session_path_url}"
+    assert session.run_reason == "release candidate check"
+
+
+def test_session_rejects_viewer_url_and_viewer_url_template() -> None:
+    with pytest.raises(ValueError, match="viewer_url and viewer_url_template are mutually exclusive"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py"}],
+                viewer_url="http://viewer/run/entry_a",
+                viewer_url_template="http://viewer/run?dir={session_path_url}",
+            )
+        )
+
+
+@pytest.mark.parametrize("field_name", ["viewer_url", "viewer_url_template", "run_reason"])
+def test_session_rejects_invalid_run_metadata_type(field_name: str) -> None:
+    with pytest.raises(ValueError, match=f"Invalid {field_name}"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py"}],
+                **{field_name: True},
+            )
+        )
+
+
 def test_session_applies_max_timeout_s_after_default_timeout_s() -> None:
     with pytest.raises(ValueError, match=r"entry_a.*timeout_s=120.*max_timeout_s=100"):
         Session.from_dict(
@@ -85,6 +122,71 @@ def test_session_applies_max_timeout_s_after_default_timeout_s() -> None:
                 [{"name": "entry_a", "script": "benchmark.py"}],
                 default_timeout_s=120,
                 max_timeout_s=100,
+            )
+        )
+
+
+def test_session_loads_data_setups_from_merged_config(tmp_path: Path) -> None:
+    benchmark_config = tmp_path / "benchmark.yaml"
+    benchmark_config.write_text(
+        f"""
+paths:
+  - name: results_path
+    host_path: {_RESULTS_PATH}
+entries:
+  - name: entry_a
+    script: benchmark.py
+default_timeout_s: 123
+"""
+    )
+    data_setup_config = tmp_path / "data-setup.yaml"
+    data_setup_config.write_text(
+        """
+data_setups:
+  - name: dataset_a
+    script: prepare_dataset.py
+    args: --output-path {results_path}/dataset_a
+"""
+    )
+
+    session = Session.from_dict(merge_config_files([benchmark_config, data_setup_config]))
+
+    assert len(session.data_setups) == 1
+    data_setup = session.data_setups[0]
+    assert data_setup.name == "dataset_a"
+    assert data_setup.script == "prepare_dataset.py"
+    assert data_setup.args == "--output-path {results_path}/dataset_a"
+    assert data_setup.timeout_s == 123
+    assert data_setup.script_base_path == Path(__file__).resolve().parents[3] / "benchmarking" / "data_prep"
+
+
+def test_session_rejects_non_list_data_setups() -> None:
+    with pytest.raises(TypeError, match="'data_setups' must be a list"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py"}],
+                data_setups={"name": "dataset_a", "script": "prepare_dataset.py"},
+            )
+        )
+
+
+def test_session_rejects_data_setup_missing_required_field() -> None:
+    with pytest.raises(ValueError, match=r"missing required fields.*script"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py"}],
+                data_setups=[{"name": "dataset_a"}],
+            )
+        )
+
+
+def test_session_rejects_duplicate_data_setup_names() -> None:
+    setup = {"name": "dataset_a", "script": "prepare_dataset.py"}
+    with pytest.raises(ValueError, match="Duplicate data setup name"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py"}],
+                data_setups=[setup, setup],
             )
         )
 

@@ -135,6 +135,9 @@ navigation:
               - page: Overview
                 path: ./main/pages/about/release-notes/index.mdx
                 slug: ""
+              - page: 26.07 Migration Checklist
+                path: ./main/pages/about/release-notes/26-07-migration.mdx
+                slug: 26-07-migration
               - page: Migration FAQ
                 path: ./main/pages/about/release-notes/migration-faq.mdx
                 slug: migration-faq
@@ -321,6 +324,15 @@ navigation:
               - page: Multilingual Q&A
                 path: ./main/pages/curate-text/synthetic/multilingual-qa.mdx
                 slug: multilingual-qa
+              - section: Nemotron OCR
+                slug: nemotron-ocr
+                contents:
+                  - page: Overview
+                    path: ./main/pages/curate-text/synthetic/nemotron-ocr/index.mdx
+                    slug: ""
+                  - page: Tutorial
+                    path: ./main/pages/curate-text/synthetic/nemotron-ocr/tutorial.mdx
+                    slug: tutorial
               - section: Nemotron-CC
                 slug: nemotron-cc
                 contents:
@@ -474,6 +486,9 @@ navigation:
               - page: ALM Tutorial
                 path: ./main/pages/curate-audio/tutorials/alm.mdx
                 slug: alm
+              - page: Long-Form Audio Cutting for ALM Pretraining
+                path: ./main/pages/curate-audio/tutorials/audio-pretrain.mdx
+                slug: audio-pretrain
               - page: ReadSpeech Tutorial
                 path: ./main/pages/curate-audio/tutorials/readspeech.mdx
                 slug: readspeech
@@ -591,9 +606,6 @@ navigation:
               - page: Requirements
                 path: ./main/pages/admin/deployment/requirements.mdx
                 slug: requirements
-              - page: Deploy Image Curation on Slurm
-                path: ./main/pages/admin/deployment/slurm/image.mdx
-                slug: slurm-image
               - page: Multi-Node Ray on Slurm
                 path: ./main/pages/admin/deployment/slurm/multi-node-ray.mdx
                 slug: slurm-multi-node-ray
@@ -633,6 +645,9 @@ navigation:
               - page: Execution Backends
                 path: ./main/pages/reference/infrastructure/execution-backends.mdx
                 slug: execution-backends
+              - page: Stage Worker Sizing
+                path: ./main/pages/reference/infrastructure/stage-worker-sizing.mdx
+                slug: stage-worker-sizing
               - page: Per-Stage Runtime Environments
                 path: ./main/pages/reference/infrastructure/per-stage-runtime.mdx
                 slug: per-stage-runtime
@@ -681,9 +696,6 @@ navigation:
               - page: XennaExecutor
                 path: ./main/pages/api-reference/executors/xenna-executor.mdx
                 slug: xenna-executor
-              - page: Experimental
-                path: ./main/pages/api-reference/executors/experimental.mdx
-                slug: experimental
           - page: Resources
             path: ./main/pages/api-reference/resources.mdx
             slug: resources

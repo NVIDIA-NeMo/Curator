@@ -62,6 +62,7 @@ from runner.utils import (
     remove_disabled_blocks,
     resolve_env_vars,
 )
+from runner.viewer_url import resolve_viewer_url
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -148,6 +149,89 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
 
     result_data["requirements_not_met"] = requirements_data
     return meets_requirements
+
+
+def run_data_setup_entry(
+    setup_entry: Entry,
+    path_resolver: PathResolver,
+    dataset_resolver: DatasetResolver,
+    setup_root_path: Path,
+) -> bool:
+    """Run one data-prep command before benchmark entries."""
+    setup_path = (setup_root_path / setup_entry.name).absolute()
+    logs_path = setup_path / "logs"
+    stdouterr_path = logs_path / "stdouterr.log"
+    create_or_overwrite_dir(setup_path)
+    ensure_dir(logs_path)
+
+    cmd = setup_entry.get_command_to_run(setup_path, path_resolver, dataset_resolver)
+    logger.info(f"🔧 Running data setup {setup_entry.name}")
+    logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+    started_exec = time.time()
+    result_data: dict[str, Any] = {
+        "name": setup_entry.name,
+        "success": False,
+        "cmd": cmd,
+        "exec_started_at": started_exec,
+        "logs_dir": logs_path,
+    }
+    try:
+        run_data = run_command_with_timeout(
+            command=cmd,
+            timeout=setup_entry.timeout_s,
+            stdouterr_path=stdouterr_path,
+            run_id=f"data_setup-{setup_entry.name}-{int(started_exec)}",
+            fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
+        )
+        duration = time.time() - started_exec
+        success = run_data["returncode"] == 0 and not run_data["timed_out"]
+        result_data.update(
+            {
+                "exec_time_s": duration,
+                "exit_code": run_data["returncode"],
+                "timed_out": run_data["timed_out"],
+                "success": success,
+            }
+        )
+        if success:
+            logger.info(f"\tData setup {setup_entry.name} completed in {duration:.1f}s")
+        else:
+            logger.error(f"\tData setup {setup_entry.name} failed in {duration:.1f}s")
+            if run_data["timed_out"]:
+                logger.warning(f"\t⏰ Timed out after {setup_entry.timeout_s}s")
+            logger.error(f"\t➡️  Full output here: {stdouterr_path}")
+        return success
+    finally:
+        (setup_path / "results.json").write_text(json.dumps(get_obj_for_json(result_data)))
+
+
+def run_data_setups(
+    setup_entries: list[Entry],
+    path_resolver: PathResolver,
+    dataset_resolver: DatasetResolver,
+    session_path: Path,
+) -> bool:
+    """Run all configured data setup entries before benchmark execution."""
+    if not setup_entries:
+        return True
+
+    setup_root_path = session_path / "data_setup"
+    create_or_overwrite_dir(setup_root_path)
+    logger.info("Data setup entries to be run before benchmarks:")
+    for idx, setup_entry in enumerate(setup_entries, start=1):
+        logger.info(f"\t{idx}. {setup_entry.name}")
+
+    overall_success = True
+    for setup_entry in setup_entries:
+        overall_success &= run_data_setup_entry(
+            setup_entry=setup_entry,
+            path_resolver=path_resolver,
+            dataset_resolver=dataset_resolver,
+            setup_root_path=setup_root_path,
+        )
+        if not overall_success:
+            break
+    return overall_success
 
 
 def run_entry(  # noqa: PLR0913
@@ -295,7 +379,7 @@ def run_entry(  # noqa: PLR0913
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:  # noqa: C901, PLR0912, PLR0915
+def main() -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
@@ -303,7 +387,7 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
         action="append",
         required=True,
         help=(
-            "Path to YAML config for the benchmark entries, machine paths, etc. Can be "
+            "Path to YAML config for benchmark entries, data setups, machine paths, etc. Can be "
             "specified multiple times to merge configs."
         ),
     )
@@ -349,12 +433,19 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
             "replaced with an empty string and a warning is logged."
         ),
     )
-    parser.add_argument(
+    viewer_url_group = parser.add_mutually_exclusive_group()
+    viewer_url_group.add_argument(
         "--viewer-url",
         default=None,
+        help=("Resolved run-viewer URL to surface in sinks. Overrides viewer_url_template from YAML config when set."),
+    )
+    viewer_url_group.add_argument(
+        "--viewer-url-template",
+        default=None,
         help=(
-            "Run-viewer URL to surface in sinks (e.g. Slack parent message footer). "
-            "When set, the Slack sink renders a 'Results viewer' section linking to this URL."
+            "Run-viewer URL template to render after the session path is known. Supports "
+            "{results_path}, {results_path_url}, {session_name}, {session_name_url}, "
+            "{session_path}, and {session_path_url}. Mutually exclusive with --viewer-url."
         ),
     )
     parser.add_argument(
@@ -397,7 +488,7 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
             entry_filter_expr=args.entries,
             entries_exact=entries_exact_list,
         )
-    except ValueError as e:
+    except (TypeError, ValueError) as e:
         logger.error(str(e))
         return 1
 
@@ -415,21 +506,41 @@ def main() -> int:  # noqa: C901, PLR0912, PLR0915
     session_path = (session.results_path / session_name).absolute()
     ensure_dir(session_path)
 
+    if args.reason:
+        session.run_reason = args.reason
+    if args.viewer_url:
+        session.viewer_url = args.viewer_url
+        session.viewer_url_template = None
+    elif args.viewer_url_template:
+        session.viewer_url = None
+        session.viewer_url_template = args.viewer_url_template
+    try:
+        # viewer_url must have paths that are visible outside of a
+        # container, meaning host paths that are mapped to container
+        # mounts (if any) will be "unmapped".
+        session.viewer_url = resolve_viewer_url(
+            viewer_url=session.viewer_url,
+            viewer_url_template=session.viewer_url_template,
+            results_path=session.path_resolver.unmap_container_path(session.results_path),
+            session_name=session_name,
+            session_path=session.path_resolver.unmap_container_path(session_path),
+        )
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
+
     session_overall_success = True
     logger.info(f"Started session {session_name}...")
     env_dict = dump_env(session_obj=session, output_path=session_path)
 
-    # Record an optional free-text reason for the run (e.g. "regression check after MR !2442").
-    # Appears in env.json and the Slack environment block. No-op when unset.
-    if args.reason:
-        env_dict["run_reason"] = args.reason
-
-    # Surface an optional run-viewer URL in the Slack sink. Patch sink_config in-process
-    # so we don't have to teach the YAML config loader about a per-launch viewer URL.
-    if args.viewer_url:
-        for sink in session.sinks:
-            if getattr(sink, "name", None) == "slack":
-                sink.sink_config["viewer_url"] = args.viewer_url
+    if not run_data_setups(
+        setup_entries=session.data_setups,
+        path_resolver=session.path_resolver,
+        dataset_resolver=session.dataset_resolver,
+        session_path=session_path,
+    ):
+        logger.error("Data setup failed; benchmark entries will not be run.")
+        return 1
 
     for sink in session.sinks:
         sink.initialize(session_name=session_name, session=session, env_dict=env_dict)

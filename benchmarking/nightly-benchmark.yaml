@@ -114,17 +114,22 @@ datasets:
     - type: "wav"
       path: "{datasets_path}/read_speech"
   # Persistent on-disk location for the FLEURS dataset (transcript <split>.tsv +
-  # extracted <split>/ audio). The nightly entries below run with
-  # --no-auto-download, so this must be pre-staged once on the benchmark machine
-  # via:
+  # extracted <split>/ audio). Pre-stage it once on the benchmark machine via:
   #   python benchmarking/data_prep/prepare_fleurs_data.py \
   #       --output-path {datasets_path}/fleurs
-  # (downloads from Hugging Face once; defaults to --lang hy_am --split train).
-  # Every subsequent run then reuses it and never re-fetches (avoids HTTP 429).
   - name: "fleurs_hy_am"
     formats:
     - type: "files"
       path: "{datasets_path}/fleurs"
+  # Three real AMI SDM meetings (~1.25 hours total) with multiple speakers and
+  # overlap. Pre-stage this dataset and the local PyAnnote snapshot once via:
+  #   python benchmarking/data_prep/prepare_audio_tagging_data.py \
+  #       --output-path {datasets_path}/audio_tagging_ami_sdm \
+  #       --model-output-path {model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
+  - name: "audio_tagging_ami_sdm"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/audio_tagging_ami_sdm"
 # Timeout knobs consumed by tools/generate_ci_tests.py to compute each SLURM job's wall-clock:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
@@ -146,9 +151,7 @@ sinks:
     live_updates: true
     channel_id: ${SLACK_CHANNEL_ID}
     default_metrics: ["exec_time_s"]
-    # Temporarily disable @-mentions on failure while the test suite is being
-    # stabilized. Flip back to true (or remove this line) once runs are clean.
-    ping_users_on_failure: false
+    ping_users_on_failure: true
 #  - name: gdrive
 #    enabled: false
 #    drive_folder_id: ${GDRIVE_FOLDER_ID}
@@ -877,6 +880,7 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
+      --transcode-encoder=libopenh264
     timeout_s: 900
     sink_data:
       - name: slack
@@ -900,6 +904,7 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
+      --transcode-encoder=libopenh264
     timeout_s: 800
     sink_data:
       - name: slack
@@ -923,6 +928,7 @@ entries:
       --no-generate-embeddings
       --video-dir={dataset:videos,mp4}
       --video-limit=1000
+      --transcode-encoder=libopenh264
     timeout_s: 400
     sink_data:
       - name: slack
@@ -947,6 +953,7 @@ entries:
       --no-generate-embeddings
       --video-dir={dataset:videos,mp4}
       --video-limit=1000
+      --transcode-encoder=libopenh264
     timeout_s: 800
     sink_data:
       - name: slack
@@ -974,6 +981,7 @@ entries:
       --no-generate-embeddings
       --enhance-captions
       --video-limit=256
+      --transcode-encoder=libopenh264
     timeout_s: 1800
     sink_data:
       - name: slack
@@ -1000,6 +1008,7 @@ entries:
       --no-generate-embeddings
       --enhance-captions
       --video-limit=256
+      --transcode-encoder=libopenh264
     timeout_s: 1800
     sink_data:
       - name: slack
@@ -1089,6 +1098,7 @@ entries:
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=1000
+      --transcode-encoder=libopenh264
     timeout_s: 800
     sink_data:
       - name: slack
@@ -1116,7 +1126,8 @@ entries:
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=1000
-    timeout_s: 1200
+      --transcode-encoder=libopenh264
+    timeout_s: 1800
     sink_data:
       - name: slack
         ping_on_failure:
@@ -1179,19 +1190,36 @@ entries:
     ray:
       num_gpus: 0
 
+  # Consumes the pre-staged AMI data and local PyAnnote snapshot produced by
+  # benchmarking/data_prep/prepare_audio_tagging_data.py. Nightly passes
+  # --no-auto-download and does not require HF_TOKEN or network access.
   - name: audio_tagging_tts_xenna
     enabled: true
     script: audio_tagging_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={session_entry_dir}/input.jsonl
-      --hf-token=${HF_SECRET_KEY}
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:audio_tagging_ami_sdm,files}
+      --no-auto-download
+      --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
       --max-segment-length=40
       --asr-batch-size=50
       --executor=xenna
     timeout_s: 3600
     sink_data:
       - name: slack
+        additional_metrics:
+          - num_input_rows
+          - num_output_rows
+          - input_output_row_count_match
+          - num_tasks_processed
+          - num_tasks_with_segments
+          - num_segments_processed
+          - segment_output_coverage_ratio
+          - stage_execution_coverage_ratio
+          - total_audio_duration_hours
+          - tagged_audio_duration_hours
+          - throughput_audio_hours_per_hour
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
     ray:
@@ -1201,21 +1229,56 @@ entries:
     requirements:
       - metric: is_success
         exact_value: true
+      - metric: input_output_row_count_match
+        exact_value: true
+      - metric: num_input_rows
+        exact_value: 3
+      - metric: num_output_rows
+        exact_value: 3
+      - metric: num_tasks_with_segments
+        exact_value: 3
+      - metric: num_segments_processed
+        min_value: 100
+      - metric: segment_output_coverage_ratio
+        min_value: 0.7
+      - metric: stage_execution_coverage_ratio
+        exact_value: 1.0
+      - metric: total_audio_duration_hours
+        min_value: 1.2
+      - metric: tagged_audio_duration_hours
+        min_value: 0.2
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
 
+  # The repeat entry exercises ~2.50 source-audio hours while reading EOS once.
   - name: audio_tagging_tts_xenna_repeat
     enabled: true
     script: audio_tagging_benchmark.py
     args: >-
       --benchmark-results-path={session_entry_dir}
-      --input-manifest={session_entry_dir}/input.jsonl
+      --scratch-output-path={session_entry_dir}/scratch
+      --raw-data-dir={dataset:audio_tagging_ami_sdm,files}
+      --no-auto-download
+      --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
       --repeat-factor=2
-      --hf-token=${HF_SECRET_KEY}
       --max-segment-length=40
       --asr-batch-size=50
       --executor=xenna
     timeout_s: 3600
     sink_data:
       - name: slack
+        additional_metrics:
+          - num_input_rows
+          - num_output_rows
+          - input_output_row_count_match
+          - num_tasks_processed
+          - num_tasks_with_segments
+          - num_segments_processed
+          - segment_output_coverage_ratio
+          - stage_execution_coverage_ratio
+          - total_audio_duration_hours
+          - tagged_audio_duration_hours
+          - throughput_audio_hours_per_hour
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
     ray:
@@ -1225,6 +1288,26 @@ entries:
     requirements:
       - metric: is_success
         exact_value: true
+      - metric: input_output_row_count_match
+        exact_value: true
+      - metric: num_input_rows
+        exact_value: 6
+      - metric: num_output_rows
+        exact_value: 6
+      - metric: num_tasks_with_segments
+        exact_value: 6
+      - metric: num_segments_processed
+        min_value: 200
+      - metric: segment_output_coverage_ratio
+        min_value: 0.7
+      - metric: stage_execution_coverage_ratio
+        exact_value: 1.0
+      - metric: total_audio_duration_hours
+        min_value: 2.4
+      - metric: tagged_audio_duration_hours
+        min_value: 0.4
+      - metric: throughput_audio_hours_per_hour
+        min_value: 1.0
 
   - name: interleaved_filter_xenna
     enabled: false

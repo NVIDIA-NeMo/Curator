@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.alm.pretrain.utils import (
     _AUDIO_PATH_RESOLUTION_MODES,
     _MANIFEST_SHARD_EXT,
@@ -154,9 +153,6 @@ class ReadLongFormManifestStage(ProcessingStage[EmptyTask, AudioTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.audio_filepath_key, "id", "segments"]
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_FANOUT_STAGE: True}
 
     def num_workers(self) -> int | None:
         return 1

@@ -129,8 +129,14 @@ class PrepareModuleSegmentsStage(ProcessingStage[AudioTask, AudioTask]):
         return words
 
     def is_valid_segment(self, segment: dict[str, Any]) -> bool:
-        """Return False if segment is a single over-long word or has no text."""
+        """Return False if a segment has invalid duration, no text, or one over-long word."""
         words = segment.get("words", [])
+        if not words:
+            return False
+        start = segment.get("start", words[0].get("start"))
+        end = segment.get("end", words[-1].get("end"))
+        if start is None or end is None or end <= start:
+            return False
         if len(words) == 1:
             w = words[0]
             if (w.get("end", 0) - w.get("start", 0)) > self.max_duration:

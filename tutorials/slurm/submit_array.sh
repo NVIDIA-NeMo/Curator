@@ -1,10 +1,39 @@
 #!/bin/bash
-# Slurm array submit script for tutorials/slurm/array_pipeline.py.
-# Refer to the README for more details.
+# =============================================================================
+# NeMo Curator — Slurm array submit script
 #
-# Usage:
+# Splits a large directory of JSONL or Parquet files across independent Slurm
+# array tasks.  Each task starts its own Curator pipeline and processes only
+# the files assigned to its shard.  See the README for full details.
+#
+# ── Configure before submitting ──────────────────────────────────────────────
+#   Required — set these before calling sbatch; the script exits immediately
+#   with a clear error if any are missing:
+#
+#     INPUT_DIR       — directory containing JSONL/Parquet source files
+#     OUTPUT_DIR      — directory where processed output files are written
+#     CONTAINER_IMAGE — NeMo Curator NGC container tag (see
+#                       https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator)
+#
+#   Optional (sensible defaults are used when not set):
+#
+#     CURATOR_DIR         — root of the NeMo Curator checkout (auto-detected)
+#     CHECKPOINT_PATH     — completion-manifest store (defaults to OUTPUT_DIR)
+#     CONTAINER_MOUNTS    — extra bind-mounts (auto-built from the paths above)
+#     INPUT_FILE_TYPE     — "jsonl" (default) or "parquet"
+#     OUTPUT_FILE_TYPE    — "jsonl" (default) or "parquet"
+#     FILES_PER_PARTITION — source files per Dask partition (default: 1)
+#
+# ── Minimal usage ────────────────────────────────────────────────────────────
+#   export INPUT_DIR=/shared/data/my-dataset
+#   export OUTPUT_DIR=/shared/output/my-dataset
+#   export CONTAINER_IMAGE=nvcr.io/nvidia/nemo-curator:<tag>
 #   sbatch --array=0-19 tutorials/slurm/submit_array.sh
+#
+# ── Override resources without editing this file ─────────────────────────────
+#   sbatch --array=0-19 --nodes=2 --cpus-per-task=32 tutorials/slurm/submit_array.sh
 #   MINIMUM_SHARD_INDEX=1 sbatch --array=1-20 tutorials/slurm/submit_array.sh
+# =============================================================================
 
 #SBATCH --job-name=curator-array
 #SBATCH --nodes=1
@@ -27,16 +56,37 @@ fi
 
 CURATOR_DIR="${CURATOR_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 
-INPUT_DIR="${INPUT_DIR:-/path/to/your/input/directory}"
-OUTPUT_DIR="${OUTPUT_DIR:-/path/to/your/output/directory}"
+# ---------------------------------------------------------------------------
+# Required variables — fail fast with a clear message if any are not set
+# ---------------------------------------------------------------------------
+if [[ -z "${INPUT_DIR:-}" ]]; then
+    echo "ERROR: INPUT_DIR is not set." >&2
+    echo "  Set it before calling sbatch:" >&2
+    echo "    export INPUT_DIR=/path/to/your/input/directory" >&2
+    echo "    sbatch --array=0-19 tutorials/slurm/submit_array.sh" >&2
+    exit 2
+fi
+if [[ -z "${OUTPUT_DIR:-}" ]]; then
+    echo "ERROR: OUTPUT_DIR is not set." >&2
+    echo "  Set it before calling sbatch:" >&2
+    echo "    export OUTPUT_DIR=/path/to/your/output/directory" >&2
+    echo "    sbatch --array=0-19 tutorials/slurm/submit_array.sh" >&2
+    exit 2
+fi
+# CONTAINER_IMAGE and CONTAINER_MOUNTS are interpolated directly into the srun
+# flags below; they are not forwarded as environment variables into the container.
+if [[ -z "${CONTAINER_IMAGE:-}" ]]; then
+    echo "ERROR: CONTAINER_IMAGE is not set." >&2
+    echo "  Choose a tag from https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator" >&2
+    echo "  then set it before calling sbatch:" >&2
+    echo "    export CONTAINER_IMAGE=nvcr.io/nvidia/nemo-curator:<tag>" >&2
+    echo "    sbatch --array=0-19 tutorials/slurm/submit_array.sh" >&2
+    exit 2
+fi
 
 # Retry attempts must reuse this path. Completion manifests live under
 # ${CHECKPOINT_PATH}/.nemo_curator_metadata/.slurm_array_completion/.
 CHECKPOINT_PATH="${CHECKPOINT_PATH:-${OUTPUT_DIR}}"
-
-CONTAINER_IMAGE="${CONTAINER_IMAGE:-nvcr.io/nvidia/nemo-curator:26.02}"
-# CONTAINER_IMAGE and CONTAINER_MOUNTS are interpolated directly into the srun
-# flags below; they are not forwarded as environment variables into the container.
 
 DEFAULT_CONTAINER_MOUNTS="${CURATOR_DIR}:${CURATOR_DIR},${INPUT_DIR}:${INPUT_DIR},${OUTPUT_DIR}:${OUTPUT_DIR}"
 if [[ "${CHECKPOINT_PATH}" != "${OUTPUT_DIR}" ]]; then
