@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import json
-import math
 import os
 import time
 from dataclasses import dataclass, field
@@ -30,6 +29,7 @@ from nemo_curator.stages.audio.io.manifest_writer_utils import (
     AudioManifestWriterMetrics,
     TerminalAudioPerformanceWriterMixin,
 )
+from nemo_curator.stages.audio.metrics.performance import _valid_audio_duration
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
@@ -168,19 +168,11 @@ class ManifestReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
                         )
                         count += 1
             logger.info(f"ManifestReaderStage: loaded {count} entries from {manifest}")
-        duration_values: list[float] = []
-        for item in results:
-            if self.duration_key not in item.data:
-                continue
-            raw_duration = item.data[self.duration_key]
-            if isinstance(raw_duration, bool):
-                continue
-            try:
-                duration_s = float(raw_duration)
-            except (TypeError, ValueError):
-                continue
-            if math.isfinite(duration_s) and duration_s >= 0:
-                duration_values.append(duration_s)
+        duration_values = [
+            duration
+            for item in results
+            if (duration := _valid_audio_duration(item.data, self.duration_key)) is not None
+        ]
         self._log_metrics(
             {
                 "process_time": time.perf_counter() - t0,

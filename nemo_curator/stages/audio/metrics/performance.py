@@ -13,18 +13,7 @@
 # limitations under the License.
 # ruff: noqa: C901, PLR0912, PLR0915
 
-"""Reusable audio pipeline performance summary helpers.
-
-Audio stages emit counters/timings via ``_log_metrics()``; backends attach
-them to ``Task._stage_perf`` as ``StagePerfStats``. Terminal stages feed those
-into ``AudioPerformanceSummary`` to build the published ``perf_summary.json``.
-
-Key types: ``AudioStageMetrics`` (typed current-producer metrics),
-``AudioStageSamples`` (per-invocation samples for percentiles),
-``AudioStageCallerContext`` (GPU/actor fields not derivable from perf stats),
-and ``AudioPerformanceSummary`` (the dedup'ing accumulator). All
-post-processing lives in ``performance_utils.py``; this file only collects.
-"""
+"""Build terminal audio pipeline performance summaries."""
 
 from __future__ import annotations
 
@@ -32,168 +21,64 @@ import contextlib
 import math
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
-from nemo_curator.stages.audio.metrics.performance_utils import (
-    DEFAULT_PERCENTILES,
-    add_ratio,
-    audio_hours_per_gpu_hour,
-    bytes_to_mb,
-    estimate_wallclock_s,
-    seconds_to_hours,
-    summarize_samples,
-)
 from nemo_curator.utils.performance_utils import norm_gpu_uuid
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from nemo_curator.tasks import Task
     from nemo_curator.utils.performance_utils import StagePerfStats
 
-# GPU-util metrics ride custom_metrics as ``<base>::<uuid>``, sampled per GPU
-# and summarized as percentiles -- excluded from scalar totals so they are
-# never summed into a meaningless aggregate.
 _GPU_SAMPLE_KEYS = frozenset({"gpu_util_pct", "gpu_mem_used_pct"})
+DEFAULT_PERCENTILES = (50, 95)
 
 
 def _gpu_sample_base(key: str) -> str:
-    """Base metric name of a (possibly UUID-namespaced) GPU sample key."""
     return key.split("::", 1)[0]
 
 
-@dataclass
-class AudioStageMetrics:
-    """Typed metrics with stable cross-stage or current producer semantics.
+def seconds_to_hours(seconds: float) -> float:
+    return float(seconds) / 3600.0
 
-    The accumulator preserves unrecognized numeric values in ``extras`` without
-    publishing producer-specific composites for features owned by other PRs.
-    Default 0.0 means "not emitted"; ``to_dict()`` strips zeros so JSON only
-    carries populated keys.
-    """
 
-    # ----- universal counters -----
-    input_tasks: float = 0.0
-    output_tasks: float = 0.0
-    # Standard pipeline-boundary counters. Source-like stages emit the input
-    # pair; terminal writers emit the output pair. The top-level summary uses
-    # stage order rather than recognizing concrete reader/writer class names.
-    pipeline_input_rows: float = 0.0
-    pipeline_input_audio_s: float = 0.0
-    pipeline_input_duration_rows: float = 0.0
-    pipeline_output_rows: float = 0.0
-    pipeline_output_audio_s: float = 0.0
-    pipeline_output_duration_rows: float = 0.0
-    # ----- audio volume scalars -----
-    audio_duration_s: float = 0.0
-    # Legacy aliases for older stages; new stages emit ``audio_duration_s``.
-    audio_duration: float = 0.0
-    duration: float = 0.0
-    input_duration: float = 0.0
-    filtered_dur: float = 0.0
-    waveform_bytes: float = 0.0
+def bytes_to_mb(value: float) -> float:
+    return float(value) / (1024.0 * 1024.0)
 
-    # ----- text/transcript output -----
-    output_chars: float = 0.0
-    output_tokens: float = 0.0
 
-    # ----- inference timing -----
-    inference_time_s: float = 0.0
-    inference_time: float = 0.0  # legacy alias
-    adapter_inference_calls: float = 0.0
-    adapter_inference_items: float = 0.0
+def add_ratio(entry: dict[str, Any], name: str, numerator: float, denominator: float) -> None:
+    if numerator > 0 and denominator > 0:
+        entry[name] = float(numerator) / float(denominator)
 
-    # ----- inference / filter / tagging utterance accounting -----
-    utterances_input: float = 0.0
-    utterances_processed: float = 0.0
-    utterances_skipped: float = 0.0
-    utterances_selected: float = 0.0
-    utterances_eligible: float = 0.0
-    utterances_restored: float = 0.0
-    utterances_kept_as_is: float = 0.0
-    utterances_filtered: float = 0.0
-    utterances_newly_flagged: float = 0.0
-    utterances_recovered: float = 0.0
 
-    # ----- text-filter rejection reasons -----
-    pnc_rejected: float = 0.0
-    empty_after_regex: float = 0.0
-    wrong_language: float = 0.0
-    low_probability: float = 0.0
+def _percentile(values: list[float], p: int) -> float:
+    rank = (len(values) - 1) * p / 100.0
+    low = int(rank)
+    high = min(low + 1, len(values) - 1)
+    return values[low] + (rank - low) * (values[high] - values[low])
 
-    # ----- preserve-by-value / generic batch filter -----
-    input_count: float = 0.0
-    output_count: float = 0.0
-    filtered_count: float = 0.0
 
-    # ----- manifest reader -----
-    manifests_read: float = 0.0
-    entries_read: float = 0.0
+def summarize_samples(
+    values: Iterable[float],
+    name: str,
+    percentiles: Iterable[int] = DEFAULT_PERCENTILES,
+) -> dict[str, float]:
+    samples = sorted(float(value) for value in values)
+    return {f"{name}_p{p}": _percentile(samples, p) for p in percentiles} if samples else {}
 
-    # ----- ALM data overlap / builder -----
-    filter_time: float = 0.0
-    input_windows: float = 0.0
-    output_windows: float = 0.0
-    segments_processed: float = 0.0
-    windows_created: float = 0.0
 
-    # ----- audio split / merge / resample / NeMo ASR align -----
-    splits_produced: float = 0.0
-    splits_joined: float = 0.0
-    words_aligned: float = 0.0
-    segments_merged: float = 0.0
-    skipped_conversion: float = 0.0
-    entries_processed: float = 0.0
-    files_transcribed: float = 0.0
-    process_time: float = 0.0  # legacy custom timer some stages emit
+def audio_hours_per_gpu_hour(audio_seconds: float, gpu_seconds: float) -> float | None:
+    if audio_seconds <= 0 or gpu_seconds <= 0:
+        return None
+    return audio_seconds / gpu_seconds
 
-    # ----- speaker diarization -----
-    segments_detected: float = 0.0
-    overlap_segments_detected: float = 0.0
-    speakers_detected: float = 0.0
 
-    # ----- VAD -----
-    vad_segments_detected: float = 0.0
-    skipped_short: float = 0.0
-
-    # ----- terminal manifest writer -----
-    writer_process_calls: float = 0.0
-    writer_invocation_count: float = 0.0
-    writer_items_processed: float = 0.0
-    manifest_write_time_s: float = 0.0
-
-    # forward-compat: any emitted scalar this dataclass doesn't know
-    extras: dict[str, float] = field(default_factory=dict)
-
-    @classmethod
-    def known_field_names(cls) -> set[str]:
-        return {f.name for f in fields(cls) if f.name != "extras"}
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> AudioStageMetrics:
-        known = cls.known_field_names()
-        kwargs: dict[str, float] = {}
-        extras: dict[str, float] = {}
-        for k, v in (d or {}).items():
-            if not isinstance(v, (int, float, bool)):
-                continue
-            fv = float(v)
-            if k in known:
-                kwargs[k] = fv
-            else:
-                extras[k] = fv
-        return cls(extras=extras, **kwargs)
-
-    def to_dict(self) -> dict[str, float]:
-        """Serialise only populated fields (zeros are omitted)."""
-        out: dict[str, float] = {}
-        for f in fields(self):
-            if f.name == "extras":
-                continue
-            v = getattr(self, f.name)
-            if v != 0.0:
-                out[f.name] = v
-        out.update({k: v for k, v in self.extras.items() if v != 0.0})
-        return out
+def estimate_wallclock_s(total_process_time_s: float, actor_count: float | None = None) -> float | None:
+    if actor_count and actor_count > 0:
+        return total_process_time_s / actor_count
+    return total_process_time_s if total_process_time_s > 0 else None
 
 
 @dataclass
@@ -263,53 +148,17 @@ class AudioStageCallerContext:
     wallclock_s: float | None = None  # overrides estimate if provided
 
 
-def serialize_stage_perf(stage_perf_list: list[StagePerfStats]) -> list[dict[str, Any]]:
-    """Serialise a task's stage performance chain to JSON-friendly dicts."""
-    result: list[dict[str, Any]] = []
-    for perf in stage_perf_list:
-        entry: dict[str, Any] = {
-            "invocation_id": getattr(perf, "invocation_id", ""),
-            "stage_id": getattr(perf, "stage_id", ""),
-            "stage_name": perf.stage_name,
-            "process_time": perf.process_time,
-            "actor_idle_time": perf.actor_idle_time,
-            "num_items_processed": perf.num_items_processed,
-        }
-        for boundary_field in ("window_start_s", "window_end_s"):
-            boundary_value = getattr(perf, boundary_field, 0.0)
-            if boundary_value:
-                entry[boundary_field] = boundary_value
-        # Identity labels (best-effort; empty when unresolved).
-        for identity_field in ("actor_id", "node_id", "gpu_id", "physical_address", "pod_ip", "hostname"):
-            identity_value = getattr(perf, identity_field, "")
-            if identity_value:
-                entry[identity_field] = identity_value
-        gpu_indices = getattr(perf, "gpu_indices", None) or []
-        gpu_uuids = getattr(perf, "gpu_uuids", None) or []
-        if gpu_indices:
-            entry["gpu_indices"] = [int(idx) for idx in gpu_indices]
-        if gpu_uuids:
-            entry["gpu_uuids"] = list(gpu_uuids)
-        if perf.custom_metrics:
-            entry["custom_metrics"] = dict(perf.custom_metrics)
-        result.append(entry)
-    return result
-
-
-def _task_audio_seconds(task: Task, duration_key: str) -> tuple[float, bool]:
-    data = getattr(task, "data", {})
+def _valid_audio_duration(data: object, duration_key: str) -> float | None:
     if not isinstance(data, dict) or duration_key not in data:
-        return 0.0, False
+        return None
     raw_duration = data[duration_key]
     if isinstance(raw_duration, bool):
-        return 0.0, False
+        return None
     try:
         seconds = float(raw_duration)
     except (TypeError, ValueError):
-        return 0.0, False
-    if not math.isfinite(seconds) or seconds < 0:
-        return 0.0, False
-    return seconds, True
+        return None
+    return seconds if math.isfinite(seconds) and seconds >= 0 else None
 
 
 def _build_stage_summary(  # noqa: PLR0913
@@ -336,8 +185,11 @@ def _build_stage_summary(  # noqa: PLR0913
     total_time = stage_totals.get("process_time", 0.0)
     total_items = stage_totals.get("num_items_processed", 0.0)
 
-    metrics = AudioStageMetrics.from_dict(custom_totals)
-    custom_sums = metrics.to_dict()
+    custom_sums = {
+        key: float(value)
+        for key, value in custom_totals.items()
+        if isinstance(value, (int, float, bool)) and value != 0 and _gpu_sample_base(key) not in _GPU_SAMPLE_KEYS
+    }
     # A measured empty boundary is different from an unavailable boundary.
     # Preserve these keys when a producer explicitly emitted zero.
     for boundary_key in (
@@ -395,11 +247,21 @@ def _build_stage_summary(  # noqa: PLR0913
         entry.update(samples.summarize())
 
     # ----- audio-domain throughput composites -----
-    audio_seconds = metrics.audio_duration_s or metrics.audio_duration or metrics.duration
-    inference_time = metrics.inference_time_s or metrics.inference_time
-    output_tokens = metrics.output_tokens
-    output_chars = metrics.output_chars
-    waveform_mb = bytes_to_mb(metrics.waveform_bytes)
+    def metric(*names: str) -> float:
+        return next(
+            (
+                float(custom_totals[name])
+                for name in names
+                if isinstance(custom_totals.get(name), (int, float, bool)) and custom_totals[name] != 0
+            ),
+            0.0,
+        )
+
+    audio_seconds = metric("audio_duration_s", "audio_duration", "duration")
+    inference_time = metric("inference_time_s", "inference_time")
+    output_tokens = metric("output_tokens")
+    output_chars = metric("output_chars")
+    waveform_mb = bytes_to_mb(metric("waveform_bytes"))
 
     # Both default to the audio duration the stage saw; filter stages may
     # override audio_hours_out via custom_metrics.
@@ -425,36 +287,38 @@ def _build_stage_summary(  # noqa: PLR0913
     add_ratio(entry, "throughput_output_chars_per_process_s", output_chars, total_time)
     add_ratio(entry, "throughput_output_chars_per_inference_s", output_chars, inference_time)
     add_ratio(entry, "throughput_waveform_mb_per_process_s", waveform_mb, total_time)
-    if metrics.adapter_inference_calls > 0:
-        entry["adapter_inference_call_count"] = metrics.adapter_inference_calls
-        entry["adapter_inference_items"] = metrics.adapter_inference_items
+    adapter_calls = metric("adapter_inference_calls")
+    adapter_items = metric("adapter_inference_items")
+    if adapter_calls > 0:
+        entry["adapter_inference_call_count"] = adapter_calls
+        entry["adapter_inference_items"] = adapter_items
     add_ratio(
         entry,
         "avg_adapter_inference_batch_size",
-        metrics.adapter_inference_items,
-        metrics.adapter_inference_calls,
+        adapter_items,
+        adapter_calls,
     )
     add_ratio(
         entry,
         "avg_audio_s_per_adapter_inference_call",
         audio_seconds,
-        metrics.adapter_inference_calls,
+        adapter_calls,
     )
     add_ratio(
         entry,
         "adapter_inference_calls_per_stage_invocation",
-        metrics.adapter_inference_calls,
+        adapter_calls,
         invocation_count,
     )
 
     # ----- pipeline-structure ratios -----
-    add_ratio(entry, "output_tasks_per_input_task", metrics.output_tasks, metrics.input_tasks)
+    add_ratio(entry, "output_tasks_per_input_task", metric("output_tasks"), metric("input_tasks"))
 
     # Generic item-fate aliases: populate from whichever stage-specific
     # counter is non-zero.
-    items_skipped = metrics.utterances_skipped or metrics.skipped_short
-    items_filtered = metrics.utterances_filtered or metrics.filtered_count
-    items_recovered = metrics.utterances_recovered
+    items_skipped = metric("utterances_skipped", "skipped_short")
+    items_filtered = metric("utterances_filtered", "filtered_count")
+    items_recovered = metric("utterances_recovered")
     if items_skipped > 0:
         entry["items_skipped"] = items_skipped
     if items_filtered > 0:
@@ -465,7 +329,7 @@ def _build_stage_summary(  # noqa: PLR0913
         entry["output_tokens"] = output_tokens
 
     # filter/tagging stages: per-input-utterance ratios
-    utterances_input = metrics.utterances_input or metrics.input_tasks
+    utterances_input = metric("utterances_input", "input_tasks")
     if utterances_input > 0:
         for metric_name in (
             "utterances_selected",
@@ -482,13 +346,13 @@ def _build_stage_summary(  # noqa: PLR0913
             "wrong_language",
             "low_probability",
         ):
-            value = getattr(metrics, metric_name, 0.0)
+            value = metric(metric_name)
             add_ratio(entry, f"{metric_name}_per_input_utterance", value, utterances_input)
 
     return entry
 
 
-@dataclass
+@dataclass(repr=False)
 class AudioPerformanceSummary:
     """Accumulate and summarise audio task performance metrics.
 
@@ -499,62 +363,53 @@ class AudioPerformanceSummary:
     duration_key: str = "duration"
     _stage_totals: dict[str, dict[str, float]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(float)),
-        repr=False,
     )
     _stage_custom_totals: dict[str, dict[str, float]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(float)),
-        repr=False,
     )
     _stage_samples: dict[str, AudioStageSamples] = field(
         default_factory=lambda: defaultdict(AudioStageSamples),
-        repr=False,
     )
-    _stage_names: dict[str, str] = field(default_factory=dict, repr=False)
-    _stage_window_bounds: dict[str, tuple[float, float]] = field(default_factory=dict, repr=False)
-    _seen_perf_invocations: set[str] = field(default_factory=set, repr=False)
+    _stage_names: dict[str, str] = field(default_factory=dict)
+    _stage_window_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
+    _seen_perf_invocations: set[str] = field(default_factory=set)
     # Per-(stage, actor) scheduling breakdown for any record with a resolved
     # actor_id (GPU and CPU stages). GPU actors also carry physical address +
     # NVML util/mem percentiles.
     _stage_actor_samples: dict[str, dict[str, AudioStageSamples]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(AudioStageSamples)),
-        repr=False,
     )
     _stage_actor_items: dict[str, dict[str, float]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(float)),
-        repr=False,
     )
     _stage_actor_audio_s: dict[str, dict[str, float]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(float)),
-        repr=False,
     )
     _stage_actor_location: dict[str, dict[str, dict[str, Any]]] = field(
         default_factory=lambda: defaultdict(dict),
-        repr=False,
     )
     # Per-GPU NVML samples nested stage -> actor -> address ("<host>:<idx>"),
     # rolled up under each actor's ``gpus`` block. ``_gpu_unit_meta`` holds
     # per-address metadata (gpu_index, gpu_uuid).
     _stage_actor_gpu_util: dict[str, dict[str, dict[str, list[float]]]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list))),
-        repr=False,
     )
     _stage_actor_gpu_mem: dict[str, dict[str, dict[str, list[float]]]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list))),
-        repr=False,
     )
-    _gpu_unit_meta: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
+    _gpu_unit_meta: dict[str, dict[str, Any]] = field(default_factory=dict)
     # _stage_gpus: per-actor addresses ("<host>:<idx,idx>"); _stage_gpu_units:
     # individual devices ("<host>:<idx>") so gpu_count is true under tensor-parallel.
-    _stage_gpus: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
-    _stage_gpu_units: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
-    _stage_actors: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
-    _actor_node: dict[str, str] = field(default_factory=dict, repr=False)
-    _total_utterances: int = field(default=0, repr=False)
-    _duration_utterances: int = field(default=0, repr=False)
-    _total_audio_seconds: float = field(default=0.0, repr=False)
-    _dataset_names: set[str] = field(default_factory=set, repr=False)
-    _output_column_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int), repr=False)
-    _wall_start_s: float = field(default_factory=time.perf_counter, repr=False)
+    _stage_gpus: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
+    _stage_gpu_units: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
+    _stage_actors: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
+    _actor_node: dict[str, str] = field(default_factory=dict)
+    _total_utterances: int = 0
+    _duration_utterances: int = 0
+    _total_audio_seconds: float = 0.0
+    _dataset_names: set[str] = field(default_factory=set)
+    _output_column_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    _wall_start_s: float = field(default_factory=time.perf_counter)
 
     @property
     def total_utterances(self) -> int:
@@ -565,15 +420,8 @@ class AudioPerformanceSummary:
         return self._total_audio_seconds
 
     @property
-    def perf_invocations_counted(self) -> int:
-        return len(self._seen_perf_invocations)
-
-    @property
     def duration_utterances(self) -> int:
         return self._duration_utterances
-
-    def reset_wall_timer(self) -> None:
-        self._wall_start_s = time.perf_counter()
 
     # -----------------------------------------------------------------------
     # Recording
@@ -581,10 +429,10 @@ class AudioPerformanceSummary:
 
     def record_task(self, task: Task, *, include_stage_perf: bool = True) -> None:
         """Record one audio task and optionally its attached stage perf chain."""
-        audio_seconds, has_duration = _task_audio_seconds(task, self.duration_key)
+        audio_seconds = _valid_audio_duration(getattr(task, "data", None), self.duration_key)
         self._total_utterances += 1
-        self._duration_utterances += int(has_duration)
-        self._total_audio_seconds += audio_seconds
+        self._duration_utterances += int(audio_seconds is not None)
+        self._total_audio_seconds += audio_seconds or 0.0
         dataset_name = str(getattr(task, "dataset_name", "") or "").strip()
         if dataset_name:
             self._dataset_names.add(dataset_name)

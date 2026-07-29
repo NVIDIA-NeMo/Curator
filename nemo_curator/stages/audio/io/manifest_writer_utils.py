@@ -25,50 +25,25 @@ from fsspec.core import url_to_fs
 from nemo_curator.stages.audio.metrics.performance import AudioPerformanceSummary
 
 if TYPE_CHECKING:
-    from nemo_curator.tasks import AudioTask, Task
+    from nemo_curator.tasks import Task
     from nemo_curator.utils.performance_utils import StagePerfStats
 
 
-@dataclass
+@dataclass(repr=False)
 class AudioManifestWriterMetrics:
     """Writer-local metrics and terminal perf-summary accumulator."""
 
     stage_name: str
     duration_key: str = "duration"
     write_perf_stats: bool = False
-    _perf_summary: AudioPerformanceSummary = field(init=False, repr=False)
-    _writer_manifest_write_time_s: float = field(default=0.0, repr=False)
-    _writer_invocation_count: int = field(default=0, repr=False)
-    _writer_items_processed: int = field(default=0, repr=False)
-    _writer_custom_metrics: dict[str, float] = field(default_factory=dict, repr=False)
+    _perf_summary: AudioPerformanceSummary = field(init=False)
+    _writer_manifest_write_time_s: float = 0.0
+    _writer_invocation_count: int = 0
+    _writer_items_processed: int = 0
+    _writer_custom_metrics: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self._perf_summary = AudioPerformanceSummary(duration_key=self.duration_key)
-
-    @property
-    def total_utterances(self) -> int:
-        return self._perf_summary.total_utterances
-
-    @property
-    def total_audio_seconds(self) -> float:
-        return self._perf_summary.total_audio_seconds
-
-    @property
-    def items_processed(self) -> int:
-        return self._writer_items_processed
-
-    def record_invocation(self, item_count: int) -> None:
-        self._writer_invocation_count += 1
-        self._writer_items_processed += item_count
-
-    def add_manifest_write_time(self, elapsed_s: float) -> None:
-        self._writer_manifest_write_time_s += elapsed_s
-
-    def add_writer_metric(self, name: str, value: float) -> None:
-        self._writer_custom_metrics[name] = self._writer_custom_metrics.get(name, 0.0) + float(value)
-
-    def record_task(self, task: AudioTask) -> None:
-        self._perf_summary.record_task(task, include_stage_perf=self.write_perf_stats)
 
     def record_output_invocation(
         self,
@@ -80,10 +55,11 @@ class AudioManifestWriterMetrics:
         """Record one writer call and return its task-carried metric delta."""
         previous_audio_s = self._perf_summary.total_audio_seconds
         previous_duration_rows = self._perf_summary.duration_utterances
-        self.record_invocation(len(tasks))
-        self.add_manifest_write_time(manifest_write_time_s)
+        self._writer_invocation_count += 1
+        self._writer_items_processed += len(tasks)
+        self._writer_manifest_write_time_s += manifest_write_time_s
         for task in tasks:
-            self.record_task(task)
+            self._perf_summary.record_task(task, include_stage_perf=self.write_perf_stats)
         metrics = {
             "manifest_write_time_s": float(manifest_write_time_s),
             "writer_process_calls": 1.0,
@@ -96,20 +72,8 @@ class AudioManifestWriterMetrics:
         for name, value in (extra_metrics or {}).items():
             metric_value = float(value)
             metrics[name] = metrics.get(name, 0.0) + metric_value
-            self.add_writer_metric(name, metric_value)
+            self._writer_custom_metrics[name] = self._writer_custom_metrics.get(name, 0.0) + metric_value
         return metrics
-
-    def record_stage_perf(self, perf_stats: list[StagePerfStats]) -> None:
-        """Record executor-owned invocations that did not reach an output task."""
-        self._perf_summary.record_stage_perf(perf_stats)
-
-    def build_stage_summaries(self) -> dict[str, dict[str, Any]]:
-        """Build only accumulated stage entries for external merge."""
-        return self._perf_summary.build_stage_summaries()
-
-    @property
-    def perf_invocations_counted(self) -> int:
-        return self._perf_summary.perf_invocations_counted
 
     def build_writer_summary(self) -> dict[str, Any]:
         writer_total_time = self._writer_manifest_write_time_s
@@ -132,18 +96,17 @@ class AudioManifestWriterMetrics:
             },
         }
 
-    def build_perf_summary(  # noqa: PLR0913
+    def build_perf_summary(
         self,
         *,
         stage_id: str = "",
         wall_time_s: float | None = None,
-        writer_summary: dict[str, Any] | None = None,
         run_id: str = "",
         executor: str = "",
         pipeline_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         writer_key = stage_id or self.stage_name
-        resolved_writer_summary = dict(writer_summary or self.build_writer_summary())
+        resolved_writer_summary = self.build_writer_summary()
         if writer_key != self.stage_name:
             resolved_writer_summary.setdefault("stage_name", self.stage_name)
         recorded_stages = self._perf_summary.build_stage_summaries()
@@ -245,10 +208,7 @@ class TerminalAudioPerformanceWriterMixin:
             json.dump(summary, f, indent=2, ensure_ascii=False)
 
     def record_external_stage_perf(self, perf_stats: StagePerfStats) -> bool:
-        if not self.write_perf_stats:
-            return False
-        self._external_perf_stats.append(perf_stats)
-        return True
+        return self.record_external_stage_perfs([perf_stats])
 
     def record_external_stage_perfs(self, perf_stats: list[StagePerfStats]) -> bool:
         if not self.write_perf_stats:
@@ -258,7 +218,7 @@ class TerminalAudioPerformanceWriterMixin:
 
     def teardown(self) -> None:
         if self.write_perf_stats and not self._curator_run_id:
-            self._writer_metrics.record_stage_perf(self._external_perf_stats)
+            self._writer_metrics._perf_summary.record_stage_perf(self._external_perf_stats)
             self._write_perf_summary()
 
     def finalize_performance_summary(
@@ -276,9 +236,8 @@ class TerminalAudioPerformanceWriterMixin:
             write_perf_stats=True,
         )
         for task in tasks:
-            final_metrics.record_invocation(1)
-            final_metrics.record_task(task)
-        final_metrics.record_stage_perf([*self._external_perf_stats, *external_perf_stats])
+            final_metrics.record_output_invocation([task], manifest_write_time_s=0.0)
+        final_metrics._perf_summary.record_stage_perf([*self._external_perf_stats, *external_perf_stats])
         self._writer_metrics = final_metrics
         self._write_perf_summary(wall_time_s=wall_time_s)
         self._external_perf_stats = []

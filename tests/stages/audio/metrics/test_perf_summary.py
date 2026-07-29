@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the identity-driven perf summary and per-actor (GPU/CPU) scheduling breakdown."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -21,15 +19,12 @@ from dataclasses import dataclass, field
 from nemo_curator.stages.audio.metrics.performance import (
     AudioPerformanceSummary,
     AudioStageCallerContext,
-    serialize_stage_perf,
 )
 from nemo_curator.tasks import AudioTask
 
 
 @dataclass
 class _PerfRecord:
-    """Duck-typed record proving summaries do not require the telemetry PR."""
-
     stage_name: str
     process_time: float = 0.0
     actor_idle_time: float = 0.0
@@ -58,7 +53,6 @@ def _perf(
     items: int = 32,
     audio_s: float = 100.0,
 ) -> _PerfRecord:
-    """A GPU-stage record keyed by physical address ``<host>:<idx[,idx]>`` (blank addr -> CPU stage)."""
     node_id = ""
     gpu_indices: list[int] = []
     if addr:
@@ -78,48 +72,13 @@ def _perf(
     )
 
 
-# ----------------------------------------------------------------------
-# Serialization + fingerprint
-# ----------------------------------------------------------------------
-
-
-def test_serialize_stage_perf_carries_identity_when_present() -> None:
-    [entry] = serialize_stage_perf(
-        [
-            _PerfRecord(
-                stage_name="FastConformer_inference",
-                process_time=1.0,
-                actor_id="S:actor-ab",
-                node_id="node-1",
-                gpu_id="node-1:2",
-                physical_address="10.0.0.5:2",
-            )
-        ]
-    )
-    assert entry["physical_address"] == "10.0.0.5:2"  # canonical address
-    assert entry["gpu_id"] == "node-1:2"  # legacy label still carried
-    assert entry["actor_id"] == "S:actor-ab"
-    assert entry["node_id"] == "node-1"
-
-
-def test_serialize_stage_perf_omits_blank_identity() -> None:
-    [entry] = serialize_stage_perf(
-        [_PerfRecord(stage_name="FastConformer_inference", process_time=1.0)]
-    )  # no identity resolved (CPU / non-Ray)
-    assert "physical_address" not in entry
-    assert "gpu_id" not in entry
-    assert "actor_id" not in entry
-    assert "node_id" not in entry
-
-
 def test_fingerprint_distinguishes_actors_with_equal_timings() -> None:
-    """Two records byte-identical except for identity must NOT dedup to one."""
     summary = AudioPerformanceSummary(duration_key="duration")
     a = _perf(addr="10.0.0.5:0", actor_id="S:actor-a")
     b = _perf(addr="10.0.0.5:1", actor_id="S:actor-b")
     summary.record_stage_perf([a, b])
     stage = summary.build_stage_summaries()["FastConformer_inference"]
-    assert stage["invocation_count"] == 2.0  # both counted, not collapsed by dedup
+    assert stage["invocation_count"] == 2.0
 
 
 def test_same_named_stages_remain_distinct_by_planned_stage_id() -> None:
@@ -166,6 +125,7 @@ def test_tensor_parallel_gpu_efficiency_uses_physical_gpu_count() -> None:
     )
 
     stage = summary.build_stage_summaries()["qwen_omni"]
+    assert stage["actor_count"] == 1.0
     assert stage["gpu_count"] == 2.0
     assert stage["audio_hours_per_gpu_hour"] == 0.5
 
@@ -270,13 +230,7 @@ def test_stage_summary_sums_model_finish_reason_counts() -> None:
     assert custom["model_turn1_finish_reason_length_count"] == 3.0
 
 
-# ----------------------------------------------------------------------
-# Per-GPU scheduling breakdown + topology
-# ----------------------------------------------------------------------
-
-
 def test_per_actor_carries_physical_address_and_topology() -> None:
-    """A tensor-parallel actor on 2 GPUs is one address but counts as 2 devices."""
     summary = AudioPerformanceSummary()
     summary.record_stage_perf(
         [
@@ -297,43 +251,19 @@ def test_per_actor_carries_physical_address_and_topology() -> None:
         ]
     )
     stage = summary.build_stage_summaries()["FastConformer_inference"]
-    # Topology: 1 per-actor address, but 2 distinct physical devices.
     assert stage["gpu_addresses"] == ["10.244.181.136:0,1"]
     assert stage["gpu_count"] == 2.0
 
-    per_actor = stage["per_actor"]["S:actor-a"]  # keyed by actor_id
-    assert per_actor["physical_address"] == "10.244.181.136:0,1"  # canonical GPU id, as a field
+    per_actor = stage["per_actor"]["S:actor-a"]
+    assert per_actor["physical_address"] == "10.244.181.136:0,1"
     assert per_actor["node_id"] == "node-0"
     assert per_actor["pod_ip"] == "10.244.181.136"
     assert per_actor["hostname"] == "worker-0"
     assert per_actor["gpu_indices"] == [0, 1]
 
 
-def test_gpu_efficiency_uses_physical_gpu_count_not_actor_count() -> None:
-    summary = AudioPerformanceSummary()
-    summary.record_stage_perf(
-        [
-            _PerfRecord(
-                stage_name="QwenOmni",
-                process_time=10.0,
-                num_items_processed=1,
-                custom_metrics={"audio_duration_s": 20.0},
-                actor_id="actor-a",
-                physical_address="host:0,1",
-                gpu_indices=[0, 1],
-            )
-        ]
-    )
-
-    stage = summary.build_stage_summaries()["QwenOmni"]
-    assert stage["actor_count"] == 1.0
-    assert stage["gpu_count"] == 2.0
-    assert stage["audio_hours_per_gpu_hour"] == 1.0
-
-
 def test_per_actor_scheduling_breakdown_and_topology() -> None:
     summary = AudioPerformanceSummary(duration_key="duration")
-    # actor-a on GPU 0 (two invocations); actor-b on GPU 1 (two invocations).
     records = [
         _perf(addr="10.0.0.5:0", actor_id="S:actor-a", idle=0.10, items=32, audio_s=100.0),
         _perf(addr="10.0.0.5:0", actor_id="S:actor-a", idle=0.30, items=32, audio_s=120.0),
@@ -343,7 +273,6 @@ def test_per_actor_scheduling_breakdown_and_topology() -> None:
     summary.record_stage_perf(records)
     stage = summary.build_stage_summaries()["FastConformer_inference"]
 
-    # Topology
     assert stage["gpu_addresses"] == ["10.0.0.5:0", "10.0.0.5:1"]
     assert stage["gpu_count"] == 2.0
     assert stage["actor_count"] == 2.0
@@ -354,7 +283,7 @@ def test_per_actor_scheduling_breakdown_and_topology() -> None:
     a = per_actor["S:actor-a"]
     assert a["physical_address"] == "10.0.0.5:0"
     assert a["node_id"] == "10.0.0.5"
-    assert a["items_processed"] == 64.0  # 32 + 32
+    assert a["items_processed"] == 64.0
     assert a["audio_hours_in"] == (100.0 + 120.0) / 3600.0
     assert "batch_size_p50" in a
     assert "queue_wait_s_p50" in a
@@ -362,14 +291,12 @@ def test_per_actor_scheduling_breakdown_and_topology() -> None:
 
     b = per_actor["S:actor-b"]
     assert b["physical_address"] == "10.0.0.5:1"
-    assert b["items_processed"] == 32.0  # 16 + 16
+    assert b["items_processed"] == 32.0
     assert b["audio_hours_in"] == (50.0 + 70.0) / 3600.0
 
 
 def test_per_actor_gpus_block_is_keyed_per_physical_device() -> None:
-    """A tensor-parallel actor reports ONE address but a nested per-device (``<host>:<idx>``) GPU map."""
     summary = AudioPerformanceSummary()
-    # Actor on 2 GPUs; the sampler namespaces each device's util by UUID (``gpu_util_pct::<uuid>``).
     summary.record_stage_perf(
         [
             _PerfRecord(
@@ -393,7 +320,6 @@ def test_per_actor_gpus_block_is_keyed_per_physical_device() -> None:
     )
     stage = summary.build_stage_summaries()["FastConformer_inference"]
     gpus = stage["per_actor"]["FastConformer_inference:actor-a"]["gpus"]
-    # One entry per physical device, keyed by <host>:<idx> -- not averaged across the actor.
     assert set(gpus) == {"10.0.0.5:0", "10.0.0.5:1"}
     assert gpus["10.0.0.5:0"]["gpu_index"] == 0
     assert gpus["10.0.0.5:0"]["gpu_uuid"] == "GPU-aaa"
@@ -401,7 +327,6 @@ def test_per_actor_gpus_block_is_keyed_per_physical_device() -> None:
     assert gpus["10.0.0.5:0"]["gpu_mem_used_pct_p50"] == 70.0
     assert gpus["10.0.0.5:1"]["gpu_index"] == 1
     assert gpus["10.0.0.5:1"]["gpu_util_pct_p50"] == 40.0
-    # The per-GPU util is NOT summed into the stage's scalar custom-metric totals.
     assert "gpu_util_pct::aaa" not in stage.get("custom_metrics_sum", {})
 
 
@@ -428,7 +353,7 @@ def test_pipeline_throughput_rollup_unions_gpu_addresses() -> None:
     pt = out["pipeline_throughput"]
     assert pt["gpu_addresses"] == ["10.0.0.5:0", "10.0.0.6:0"]
     assert pt["gpu_count"] == 2.0
-    assert pt["audio_hours_per_wallclock_hour"] == 2.0  # 2 audio-h / 1 wall-h
+    assert pt["audio_hours_per_wallclock_hour"] == 2.0
 
 
 def test_summary_uses_first_input_boundary_and_last_output_boundary() -> None:
@@ -584,14 +509,9 @@ def test_summary_describes_pipeline_dataset_and_output_columns() -> None:
     assert out["output_schema"]["column_row_counts"]["text"] == 1
 
 
-# ----------------------------------------------------------------------
-# Graceful absence when identity is unresolved (CPU / non-Ray)
-# ----------------------------------------------------------------------
-
-
 def test_no_identity_emits_no_per_actor_or_topology() -> None:
     summary = AudioPerformanceSummary(duration_key="duration")
-    summary.record_stage_perf([_perf(), _perf(idle=0.5)])  # blank address/actor
+    summary.record_stage_perf([_perf(), _perf(idle=0.5)])
     stage = summary.build_stage_summaries()["FastConformer_inference"]
     assert "per_actor" not in stage
     assert "gpu_addresses" not in stage
@@ -602,13 +522,7 @@ def test_no_identity_emits_no_per_actor_or_topology() -> None:
     assert "gpu_addresses" not in out.get("pipeline_throughput", {})
 
 
-# ----------------------------------------------------------------------
-# Mixed pipeline: GPU stages and CPU stages coexist in one summary
-# ----------------------------------------------------------------------
-
-
 def _cpu_perf(stage_name: str, actor_id: str) -> _PerfRecord:
-    """A CPU-stage record: actor + node resolved, but no GPU (no ``physical_address`` / ``gpu_id``)."""
     return _PerfRecord(
         stage_name=stage_name,
         process_time=0.5,
@@ -619,29 +533,7 @@ def _cpu_perf(stage_name: str, actor_id: str) -> _PerfRecord:
     )
 
 
-def test_cpu_stage_gets_per_actor_but_no_gpu_fields() -> None:
-    """A CPU stage gets actor_count + per_actor, but no gpu_addresses / gpu_count / GPU fields."""
-    summary = AudioPerformanceSummary(duration_key="duration")
-    summary.record_stage_perf(
-        [
-            _cpu_perf("ManifestWriter", "ManifestWriter:actor-cpu01"),
-        ]
-    )
-    stage = summary.build_stage_summaries()["ManifestWriter"]
-    assert stage["actor_count"] == 1.0
-    assert stage["total_items_processed"] == 64.0
-    assert "gpu_addresses" not in stage
-    assert "gpu_count" not in stage
-
-    per_actor = stage["per_actor"]["ManifestWriter:actor-cpu01"]
-    assert per_actor["items_processed"] == 64.0
-    assert per_actor["node_id"] == "node-0"
-    assert "physical_address" not in per_actor  # CPU actor: no GPU
-    assert "gpu_indices" not in per_actor
-
-
 def test_mixed_gpu_and_cpu_stages_in_one_pipeline() -> None:
-    """GPU and CPU stages coexist: both get per_actor, only the GPU stage gets topology; rollup unions GPU addresses."""
     summary = AudioPerformanceSummary(duration_key="duration")
     summary.record_stage_perf(
         [
@@ -659,11 +551,16 @@ def test_mixed_gpu_and_cpu_stages_in_one_pipeline() -> None:
 
     cpu_stage = stages["ManifestWriter"]
     assert cpu_stage["actor_count"] == 1.0
-    assert set(cpu_stage["per_actor"]) == {"ManifestWriter:actor-cpu01"}  # CPU gets per_actor too
+    assert cpu_stage["total_items_processed"] == 64.0
     assert "gpu_addresses" not in cpu_stage
+    assert "gpu_count" not in cpu_stage
+    cpu_actor = cpu_stage["per_actor"]["ManifestWriter:actor-cpu01"]
+    assert cpu_actor["items_processed"] == 64.0
+    assert cpu_actor["node_id"] == "node-0"
+    assert "physical_address" not in cpu_actor
+    assert "gpu_indices" not in cpu_actor
 
-    # Pipeline rollup unions ONLY the GPU addresses (the CPU stage contributes none).
-    summary._total_audio_seconds = 100.0  # exercise the throughput branch
+    summary._total_audio_seconds = 100.0
     pt = summary.build_summary(wall_time_s=50.0)["pipeline_throughput"]
     assert pt["gpu_addresses"] == ["10.0.0.5:0"]
     assert pt["gpu_count"] == 1.0

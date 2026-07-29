@@ -162,29 +162,14 @@ manifest.
 ## Performance summary
 
 The tutorial enables `ManifestWriterStage.write_perf_stats` and writes
-`qwen_omni_perf_summary.json` beside the output manifest by default. Override
-it with:
-
-```bash
-perf_summary_path=/shared/output/qwen_perf_summary.json
-```
-
-The Qwen-Omni path is a production metric producer. `ASRStage` measures the
-audio seconds and waveform bytes presented to the adapter, adapter call and
-item counts, inference time, generated characters, generated token IDs,
-skipped utterances, and vLLM finish reasons. The terminal summary combines
-those values with framework stage timings and input/output row and duration
-boundaries.
-
-The artifact is finalized once after a successful run, including a run that
-produces zero output rows. `input_hours` or `output_hours` is `null` when the
-corresponding manifest rows do not all contain a valid `duration`; `null`
-means unavailable, while `0` means a measured empty boundary. Actor/GPU
-topology is included only when the selected backend supplies it.
-
-The manifest reader accepts only non-negative finite duration values. Pipeline
-metadata is copied verbatim into the JSON, so do not put credentials or secrets
-in the YAML metadata mapping.
+`qwen_omni_perf_summary.json`; override `perf_summary_path` as needed.
+`ASRStage` contributes audio volume, inference, adapter, output, skip, and
+finish-reason metrics. The summary is finalized after every successful run,
+including zero-output runs; incomplete duration coverage produces `null`,
+while a measured empty boundary produces `0`. Metadata is copied verbatim, so
+do not include secrets. See
+[Save & Export Audio Data](https://docs.nvidia.com/nemo/curator/latest/curate-audio/save-export.html#manifest-writer-with-a-terminal-performance-summary)
+for the complete artifact and configuration contract.
 
 ## Languages and prompts
 
@@ -204,8 +189,6 @@ annotated with `language_missing` unless `default_language` is explicitly set.
 
 This is a functional, local manifest-to-transcript example. It does not
 provide recovery ASR, hallucination filtering, WER calculation,
-duration-aware bucketing, sharded resumability, or a controlled benchmark
-harness. The performance summary reports the run that happened; it does not
-replace a repeatable benchmark methodology.
+duration-aware bucketing, sharded resumability, or controlled benchmarking.
 Validate output quality and row accounting on representative audio before
 larger runs.

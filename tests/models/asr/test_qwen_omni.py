@@ -61,7 +61,7 @@ def _fake_process_mm_info(
 
 
 def _vllm_output(text: str) -> SimpleNamespace:
-    return SimpleNamespace(outputs=[SimpleNamespace(text=text, token_ids=[0])])
+    return SimpleNamespace(outputs=[SimpleNamespace(text=text, token_ids=[0], finish_reason="stop")])
 
 
 @contextmanager
@@ -128,6 +128,7 @@ def test_qwen_adapter_infer_batch_returns_length_stopped_output() -> None:
         texts = adapter._infer_batch(inputs=[{"prompt": "a"}], indices=[0], n=1)
 
     assert texts == ["partial"]
+    assert adapter._last_output_metrics == [{"output_tokens": 2.0, "model_finish_reason_length_count": 1.0}]
 
 
 def test_qwen_adapter_infer_batch_accepts_explicit_stop_at_token_cap() -> None:
@@ -234,43 +235,13 @@ def test_qwen_adapter_transcribe_batch_packages_results() -> None:
 
     assert [r.text for r in results] == ["text-a", "text-b", ""]
     assert [r.skipped for r in results] == [False, False, True]
-    assert [r.extras.get("output_tokens", 0.0) for r in results] == [1.0, 1.0, 0.0]
+    assert [r.extras for r in results] == [
+        {"output_tokens": 1.0, "model_finish_reason_stop_count": 1.0},
+        {"output_tokens": 1.0, "model_finish_reason_stop_count": 1.0},
+        {},
+    ]
     assert llm.generate.call_count == 1
     assert len(llm.generate.call_args_list[0].args[0]) == 2
-
-
-def test_qwen_adapter_exposes_token_and_finish_reason_metrics() -> None:
-    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
-    with _mock_external_qwen_runtime(
-        adapter,
-        generated_batches=[
-            [
-                SimpleNamespace(
-                    outputs=[
-                        SimpleNamespace(
-                            text="partial",
-                            token_ids=[10, 11, 12],
-                            finish_reason="length",
-                        )
-                    ]
-                )
-            ]
-        ],
-    ):
-        [result] = adapter.transcribe_batch(
-            [
-                {
-                    "waveform": np.ones(_SR, dtype=np.float32),
-                    "sample_rate": _SR,
-                    "language": "English",
-                }
-            ]
-        )
-
-    assert result.extras == {
-        "output_tokens": 3.0,
-        "model_finish_reason_length_count": 1.0,
-    }
 
 
 def test_qwen_adapter_rejects_non_16khz_audio_before_inference() -> None:

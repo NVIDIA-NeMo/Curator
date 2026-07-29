@@ -95,11 +95,15 @@ def test_empty_batch_does_not_create_an_unparented_sentinel() -> None:
 
 def test_basic_inference() -> None:
     stage = _make_stage()
+    stage._curator_stage_id = "002:ASR_inference"
     stage._adapter.transcribe_batch.return_value = [
-        ASRResult(text="hello world"),
+        ASRResult(
+            text="hello world",
+            extras={"output_tokens": 3.0, "model_finish_reason_stop_count": 1.0},
+        ),
     ]
 
-    results = stage.process_batch([_make_task()])
+    results = BaseStageAdapter(stage).process_batch([_make_task()])
 
     assert results[0].data["pred_text"] == "hello world"
     assert results[0].data == {
@@ -117,24 +121,7 @@ def test_basic_inference() -> None:
     }
     assert inferred_item["waveform"].shape == (_SR,)
     assert inferred_item["sample_rate"] == _SR
-
-
-def test_qwen_consumer_emits_terminal_summary_metrics() -> None:
-    stage = _make_stage()
-    stage._curator_stage_id = "002:ASR_inference"
-    stage._adapter.transcribe_batch.return_value = [
-        ASRResult(
-            text="hello",
-            extras={
-                "output_tokens": 3.0,
-                "model_finish_reason_stop_count": 1.0,
-            },
-        )
-    ]
-
-    [result] = BaseStageAdapter(stage).process_batch([_make_task()])
-
-    [perf] = result._stage_perf
+    [perf] = results[0]._stage_perf
     metrics = perf.custom_metrics
     assert perf.stage_id == "002:ASR_inference"
     assert perf.invocation_id
@@ -143,7 +130,7 @@ def test_qwen_consumer_emits_terminal_summary_metrics() -> None:
     assert metrics["waveform_bytes"] == float(_SR * np.dtype(np.float32).itemsize)
     assert metrics["adapter_inference_calls"] == 1.0
     assert metrics["adapter_inference_items"] == 1.0
-    assert metrics["output_chars"] == 5.0
+    assert metrics["output_chars"] == 11.0
     assert metrics["output_tokens"] == 3.0
     assert metrics["model_finish_reason_stop_count"] == 1.0
 

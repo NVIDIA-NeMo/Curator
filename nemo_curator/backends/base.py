@@ -97,12 +97,13 @@ class BaseExecutor(ABC):
             logger.debug("Stage performance collector disabled: {}", exc)
             return None
 
-    def _finish_stage_perf_collector(
+    def _stop_stage_perf_collector(
         self,
         collector: Any | None,  # noqa: ANN401
         stages: list["ProcessingStage"],
+        *,
+        keep_records: bool,
     ) -> None:
-        """Drain the collector into driver-owned records after a successful run."""
         try:
             from nemo_curator.utils.stage_perf_collector import stop_stage_perf_collector
 
@@ -110,25 +111,11 @@ class BaseExecutor(ABC):
         except Exception as exc:  # noqa: BLE001
             logger.debug("Stage performance collector stop failed: {}", exc)
             records = []
-        self._external_perf_records = [record.perf_stats for record in records]
-
-    @staticmethod
-    def _discard_stage_perf_collector(
-        collector: Any | None,  # noqa: ANN401
-        stages: list["ProcessingStage"],
-    ) -> None:
-        """Best-effort cleanup for an unsuccessful executor run."""
-        try:
-            from nemo_curator.utils.stage_perf_collector import stop_stage_perf_collector
-
-            stop_stage_perf_collector(collector, stages)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Stage performance collector cleanup failed: {}", exc)
+        self._external_perf_records = records if keep_records else []
 
     def consume_external_perf_records(self) -> list[Any]:
         """Return and clear the authoritative invocation records for this run."""
-        records = list(self._external_perf_records)
-        self._external_perf_records = []
+        records, self._external_perf_records = self._external_perf_records, []
         return records
 
 
@@ -224,7 +211,7 @@ class BaseStageAdapter:
         try:
             from nemo_curator.utils.stage_perf_collector import record_stage_perf
 
-            record_stage_perf(self.stage, stage_perf_stats, attached_to_output=bool(results))
+            record_stage_perf(self.stage, stage_perf_stats)
         except Exception as exc:  # noqa: BLE001
             logger.debug("Stage performance collector publish failed for {}: {}", self.stage.name, exc)
 

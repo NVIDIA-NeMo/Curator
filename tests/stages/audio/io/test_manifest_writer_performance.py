@@ -31,6 +31,14 @@ from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.performance_utils import StagePerfStats
 
 
+def _writer(tmp_path: Path, **kwargs: object) -> ManifestWriterStage:
+    return ManifestWriterStage(
+        output_path=str(tmp_path / "output.jsonl"),
+        perf_summary_path=str(tmp_path / "perf.json"),
+        **kwargs,
+    )
+
+
 class _InlineExecutor:
     """Small executor for exercising the driver-owned terminal lifecycle."""
 
@@ -74,12 +82,10 @@ class _FilteredInlineExecutor(_InlineExecutor):
 
 
 def test_manifest_writer_emits_fastconformer_performance_summary(tmp_path: Path) -> None:
-    output_path = tmp_path / "output.jsonl"
     perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(output_path),
+    writer = _writer(
+        tmp_path,
         write_perf_stats=True,
-        perf_summary_path=str(perf_path),
         perf_run_id="run-123",
         perf_executor="RayDataExecutor",
         perf_pipeline_metadata={"pipeline_name": "granary-v2", "backend": "ray_data"},
@@ -114,11 +120,7 @@ def test_manifest_writer_emits_fastconformer_performance_summary(tmp_path: Path)
 
 def test_persisted_writer_summary_omits_unmeasurable_summary_write_time(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
-        write_perf_stats=True,
-        perf_summary_path=str(perf_path),
-    )
+    writer = _writer(tmp_path, write_perf_stats=True)
     writer.setup()
     writer.process(AudioTask(dataset_name="test", data={"duration": 1.0}))
     writer.teardown()
@@ -130,11 +132,7 @@ def test_persisted_writer_summary_omits_unmeasurable_summary_write_time(tmp_path
 
 def test_manifest_writer_defers_summary_until_teardown(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
-        write_perf_stats=True,
-        perf_summary_path=str(perf_path),
-    )
+    writer = _writer(tmp_path, write_perf_stats=True)
     writer.setup()
 
     with mock.patch.object(writer, "_write_perf_summary", wraps=writer._write_perf_summary) as write_summary:
@@ -155,11 +153,7 @@ def test_manifest_writer_defers_summary_until_teardown(tmp_path: Path) -> None:
 
 def test_manifest_writer_setup_resets_all_run_scoped_metrics(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
-        write_perf_stats=True,
-        perf_summary_path=str(perf_path),
-    )
+    writer = _writer(tmp_path, write_perf_stats=True)
 
     writer.setup()
     writer.process(
@@ -185,11 +179,7 @@ def test_manifest_writer_setup_resets_all_run_scoped_metrics(tmp_path: Path) -> 
 
 def test_manifest_writer_disabled_mode_does_not_create_summary(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
-        write_perf_stats=False,
-        perf_summary_path=str(perf_path),
-    )
+    writer = _writer(tmp_path, write_perf_stats=False)
     writer.setup()
     writer.process(AudioTask(dataset_name="test", data={"duration": 1.0}))
     writer.teardown()
@@ -199,11 +189,10 @@ def test_manifest_writer_disabled_mode_does_not_create_summary(tmp_path: Path) -
 
 def test_manifest_writer_uses_custom_duration_key(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
+    writer = _writer(
+        tmp_path,
         write_perf_stats=True,
         duration_key="clip_duration_s",
-        perf_summary_path=str(perf_path),
     )
     writer.setup()
     writer.process(AudioTask(dataset_name="test", data={"clip_duration_s": 7.5}))
@@ -216,11 +205,7 @@ def test_manifest_writer_uses_custom_duration_key(tmp_path: Path) -> None:
 
 def test_manifest_writer_finalizes_enabled_empty_summary(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
-        write_perf_stats=True,
-        perf_summary_path=str(perf_path),
-    )
+    writer = _writer(tmp_path, write_perf_stats=True)
     writer.setup()
     writer.teardown()
 
@@ -229,31 +214,9 @@ def test_manifest_writer_finalizes_enabled_empty_summary(tmp_path: Path) -> None
     assert summary["stages"]["manifest_writer"]["total_items_processed"] == 0.0
 
 
-def test_manifest_writer_resets_all_metrics_between_direct_runs(tmp_path: Path) -> None:
-    perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
-        write_perf_stats=True,
-        perf_summary_path=str(perf_path),
-    )
-    for name in ("first", "second"):
-        writer.setup()
-        writer.process(AudioTask(dataset_name=name, data={"duration": 2.0}))
-        writer.teardown()
-
-    summary = json.loads(perf_path.read_text())
-    assert summary["rows_out"] == 1.0
-    assert summary["output_hours"] == 2.0 / 3600.0
-    assert summary["dataset_names"] == ["second"]
-
-
 def test_pipeline_finalizes_one_empty_summary_with_auto_context(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
-        write_perf_stats=True,
-        perf_summary_path=str(perf_path),
-    )
+    writer = _writer(tmp_path, write_perf_stats=True)
 
     with mock.patch.object(writer, "_write_perf_summary", wraps=writer._write_perf_summary) as write_summary:
         result = Pipeline(name="empty-writer", stages=[writer]).run(
@@ -276,11 +239,7 @@ def test_pipeline_finalizes_one_empty_summary_with_auto_context(tmp_path: Path) 
 
 def test_pipeline_preserves_executor_reported_all_filtered_invocation(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
-        write_perf_stats=True,
-        perf_summary_path=str(perf_path),
-    )
+    writer = _writer(tmp_path, write_perf_stats=True)
     Pipeline(name="filtered", stages=[writer]).run(
         executor=_FilteredInlineExecutor(),  # type: ignore[arg-type]
         initial_tasks=[],
@@ -308,11 +267,7 @@ def test_real_executor_preserves_all_filtered_invocation(
         name="all-filtered",
         stages=[
             PreserveByValueStage(input_value_key="keep", target_value=1),
-            ManifestWriterStage(
-                output_path=str(tmp_path / "output.jsonl"),
-                write_perf_stats=True,
-                perf_summary_path=str(perf_path),
-            ),
+            _writer(tmp_path, write_perf_stats=True),
         ],
     )
 
@@ -349,11 +304,10 @@ def test_pipeline_uses_public_reader_and_writer_custom_duration_key(tmp_path: Pa
         name="custom-duration",
         stages=[
             ManifestReader(manifest_path=str(input_path), duration_key="seconds"),
-            ManifestWriterStage(
-                output_path=str(tmp_path / "output.jsonl"),
+            _writer(
+                tmp_path,
                 duration_key="seconds",
                 write_perf_stats=True,
-                perf_summary_path=str(perf_path),
             ),
         ],
     )
@@ -370,10 +324,9 @@ def test_pipeline_uses_public_reader_and_writer_custom_duration_key(tmp_path: Pa
 
 def test_missing_duration_is_unavailable_not_measured_zero(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
+    writer = _writer(
+        tmp_path,
         write_perf_stats=True,
-        perf_summary_path=str(perf_path),
         duration_key="seconds",
     )
     writer.setup()
@@ -387,27 +340,9 @@ def test_missing_duration_is_unavailable_not_measured_zero(tmp_path: Path) -> No
     assert summary["total_audio_seconds"] is None
 
 
-def test_disabled_writer_never_creates_summary(tmp_path: Path) -> None:
-    perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
-        write_perf_stats=False,
-        perf_summary_path=str(perf_path),
-    )
-    writer.setup()
-    writer.process(AudioTask(dataset_name="test", data={"duration": 1.0}))
-    writer.teardown()
-
-    assert not perf_path.exists()
-
-
 def test_final_write_preserves_executor_owned_external_stage(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
-    writer = ManifestWriterStage(
-        output_path=str(tmp_path / "output.jsonl"),
-        write_perf_stats=True,
-        perf_summary_path=str(perf_path),
-    )
+    writer = _writer(tmp_path, write_perf_stats=True)
     writer.setup()
     accepted = writer.record_external_stage_perf(
         StagePerfStats(

@@ -115,10 +115,6 @@ class Pipeline:
         # counters that a sink consumes its outputs (see
         # ``BaseStageAdapter._apply_resumability_counters``).
         self._assign_source_sink_roles()
-        self._assign_stage_ids()
-
-    def _assign_stage_ids(self) -> None:
-        """Assign collision-free identifiers in planned execution order."""
         for stage_index, stage in enumerate(self.stages):
             stage._curator_stage_id = f"{stage_index:03d}:{stage.name}"
 

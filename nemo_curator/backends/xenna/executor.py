@@ -163,7 +163,7 @@ class XennaExecutor(BaseExecutor):
             stage_perf_collector = self._start_stage_perf_collector(stages)
             # Run the pipeline (this will re-initialize ray but that'll be a no-op and the ray.init above will take precedence)
             results = pipelines_v1.run_pipeline(pipeline_spec)
-            self._finish_stage_perf_collector(stage_perf_collector, stages)
+            self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=True)
             stage_perf_collector = None
             logger.info(f"Pipeline completed successfully with {len(results) if results else 0} output tasks")
         except Exception as e:
@@ -171,11 +171,9 @@ class XennaExecutor(BaseExecutor):
             raise
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
-            try:
-                if stage_perf_collector is not None:
-                    self._discard_stage_perf_collector(stage_perf_collector, stages)
-            finally:
-                ray.shutdown()
+            if stage_perf_collector is not None:
+                self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=False)
+            ray.shutdown()
         return results if results else []
 
     def _get_pipeline_config(self, key: str) -> Any:  # noqa: ANN401

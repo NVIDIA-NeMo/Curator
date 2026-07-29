@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import ray
@@ -30,33 +29,18 @@ if TYPE_CHECKING:
 _COLLECTOR_NAME_ATTR = "_curator_stage_perf_collector_name"
 
 
-@dataclass
-class CollectedStagePerf:
-    """One invocation record plus whether it also travelled on output tasks."""
-
-    perf_stats: StagePerfStats
-    attached_to_output: bool
-
-
 @ray.remote(num_cpus=0)
 class _StagePerfCollector:
-    """Small run-scoped actor retaining terminal-summary invocation records."""
-
     def __init__(self) -> None:
-        self._records: list[CollectedStagePerf] = []
+        self._records: list[StagePerfStats] = []
 
     def ready(self) -> bool:
         return True
 
-    def record(self, perf_stats: StagePerfStats, attached_to_output: bool) -> None:
-        self._records.append(
-            CollectedStagePerf(
-                perf_stats=perf_stats,
-                attached_to_output=attached_to_output,
-            )
-        )
+    def record(self, perf_stats: StagePerfStats) -> None:
+        self._records.append(perf_stats)
 
-    def drain(self) -> list[CollectedStagePerf]:
+    def drain(self) -> list[StagePerfStats]:
         records = self._records
         self._records = []
         return records
@@ -77,8 +61,6 @@ def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any | None:  # 
 def record_stage_perf(
     stage: ProcessingStage,
     perf_stats: StagePerfStats,
-    *,
-    attached_to_output: bool,
 ) -> bool:
     """Synchronously publish one record so the driver cannot drain too early."""
     collector_name = str(getattr(stage, _COLLECTOR_NAME_ATTR, "") or "")
@@ -86,7 +68,7 @@ def record_stage_perf(
         return False
     try:
         collector = ray.get_actor(collector_name)
-        ray.get(collector.record.remote(perf_stats, attached_to_output))
+        ray.get(collector.record.remote(perf_stats))
     except Exception as exc:  # noqa: BLE001
         logger.debug("Stage performance collector publish failed for {}: {}", stage.name, exc)
         return False
@@ -96,7 +78,7 @@ def record_stage_perf(
 def stop_stage_perf_collector(
     collector: Any | None,  # noqa: ANN401
     stages: list[ProcessingStage],
-) -> list[CollectedStagePerf]:
+) -> list[StagePerfStats]:
     """Drain and remove the collector, clearing its run-scoped stage routing."""
     if collector is None:
         return []
