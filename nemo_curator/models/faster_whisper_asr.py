@@ -35,13 +35,22 @@ _LANGUAGE_ALIASES = {
 }
 
 
-def _whisper_model_class() -> type:
+def _faster_whisper_stack() -> tuple[type, Any]:
     try:
         from faster_whisper import WhisperModel
+        from faster_whisper.utils import download_model
     except ImportError as error:
         msg = "Faster-Whisper ASR requires the 'faster-whisper' package"
         raise ImportError(msg) from error
-    return WhisperModel
+    return WhisperModel, download_model
+
+
+def _whisper_model_class() -> type:
+    return _faster_whisper_stack()[0]
+
+
+def _download_whisper_model(model_id: str, revision: str | None) -> None:
+    _faster_whisper_stack()[1](model_id, revision=revision)
 
 
 @dataclass
@@ -61,17 +70,11 @@ class FasterWhisperASR:
         if not self.model_id:
             msg = "FasterWhisperASR.model_id must be non-empty"
             raise ValueError(msg)
-        if self.revision is not None:
-            msg = "Faster-Whisper adapter does not support revision pinning"
-            raise ValueError(msg)
 
     @classmethod
     def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
         """Populate Faster-Whisper's node-local cache without allocating a GPU."""
-        if revision is not None:
-            msg = "Faster-Whisper adapter does not support revision pinning"
-            raise ValueError(msg)
-        _whisper_model_class()(model_id, device="cpu", compute_type="int8")
+        _download_whisper_model(model_id, revision)
 
     def load_model(self, *, num_gpus: int) -> None:
         if self._model is not None:
@@ -86,6 +89,7 @@ class FasterWhisperASR:
             self.model_id,
             device=device,
             compute_type=compute_type,
+            revision=self.revision,
         )
 
     def unload_model(self) -> None:
