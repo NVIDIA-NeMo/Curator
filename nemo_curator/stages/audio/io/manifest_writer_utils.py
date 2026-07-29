@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -39,7 +38,6 @@ class AudioManifestWriterMetrics:
     write_perf_stats: bool = False
     _perf_summary: AudioPerformanceSummary = field(init=False, repr=False)
     _writer_manifest_write_time_s: float = field(default=0.0, repr=False)
-    _writer_perf_write_time_s: float = field(default=0.0, repr=False)
     _writer_invocation_count: int = field(default=0, repr=False)
     _writer_items_processed: int = field(default=0, repr=False)
     _writer_custom_metrics: dict[str, float] = field(default_factory=dict, repr=False)
@@ -65,9 +63,6 @@ class AudioManifestWriterMetrics:
 
     def add_manifest_write_time(self, elapsed_s: float) -> None:
         self._writer_manifest_write_time_s += elapsed_s
-
-    def add_perf_write_time(self, elapsed_s: float) -> None:
-        self._writer_perf_write_time_s += elapsed_s
 
     def add_writer_metric(self, name: str, value: float) -> None:
         self._writer_custom_metrics[name] = self._writer_custom_metrics.get(name, 0.0) + float(value)
@@ -117,7 +112,7 @@ class AudioManifestWriterMetrics:
         return self._perf_summary.perf_invocations_counted
 
     def build_writer_summary(self) -> dict[str, Any]:
-        writer_total_time = self._writer_manifest_write_time_s + self._writer_perf_write_time_s
+        writer_total_time = self._writer_manifest_write_time_s
         return {
             "total_process_time_s": writer_total_time,
             "total_items_processed": float(self._writer_items_processed),
@@ -127,7 +122,6 @@ class AudioManifestWriterMetrics:
             ),
             "custom_metrics_sum": {
                 "manifest_write_time_s": self._writer_manifest_write_time_s,
-                "perf_write_time_s": self._writer_perf_write_time_s,
                 "writer_process_calls": float(self._writer_invocation_count),
                 "writer_invocation_count": float(self._writer_invocation_count),
                 "writer_items_processed": float(self._writer_items_processed),
@@ -247,10 +241,8 @@ class TerminalAudioPerformanceWriterMixin:
             except (FileNotFoundError, OSError, ValueError, TypeError):
                 pass
         summary["status"] = status
-        write_t0 = time.perf_counter()
         with perf_fs.open(perf_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
-        self._writer_metrics.add_perf_write_time(time.perf_counter() - write_t0)
 
     def record_external_stage_perf(self, perf_stats: StagePerfStats) -> bool:
         if not self.write_perf_stats:

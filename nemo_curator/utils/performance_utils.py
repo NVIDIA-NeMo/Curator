@@ -47,8 +47,9 @@ class StagePerfStats:
         stage_id: Stable per-plan identifier assigned by ``Pipeline.build()``.
             Empty for records created outside a planned pipeline.
         invocation_id: Unique identifier for one ``process_batch`` call.
-        window_start_s: Monotonic timestamp immediately before the stage call.
-        window_end_s: Monotonic timestamp immediately after the stage call.
+        window_start_s: Unix wall-clock timestamp immediately before the stage
+            call, suitable for a synchronized cross-host envelope.
+        window_end_s: Unix wall-clock timestamp immediately after the stage call.
         actor_id: Best-effort worker identity supplied by an optional backend.
         node_id: Best-effort node identity supplied by an optional backend.
         gpu_id: Best-effort display label for the assigned GPU.

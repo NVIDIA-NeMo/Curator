@@ -16,9 +16,17 @@ import json
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.common import ManifestWriterStage
+from nemo_curator.stages.audio.common import (
+    ManifestReader,
+    ManifestWriterStage,
+    PreserveByValueStage,
+)
 from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.performance_utils import StagePerfStats
 
@@ -102,6 +110,22 @@ def test_manifest_writer_emits_fastconformer_performance_summary(tmp_path: Path)
     assert summary["pipeline"] == {"pipeline_name": "granary-v2", "backend": "ray_data"}
     assert summary["stages"]["FastConformer_inference"]["throughput_audio_s_per_process_s"] == 2.0
     assert summary["stages"]["manifest_writer"]["custom_metrics_sum"]["pipeline_output_rows"] == 1.0
+
+
+def test_persisted_writer_summary_omits_unmeasurable_summary_write_time(tmp_path: Path) -> None:
+    perf_path = tmp_path / "perf.json"
+    writer = ManifestWriterStage(
+        output_path=str(tmp_path / "output.jsonl"),
+        write_perf_stats=True,
+        perf_summary_path=str(perf_path),
+    )
+    writer.setup()
+    writer.process(AudioTask(dataset_name="test", data={"duration": 1.0}))
+    writer.teardown()
+
+    writer_summary = json.loads(perf_path.read_text())["stages"]["manifest_writer"]
+    assert "perf_write_time_s" not in writer_summary["custom_metrics_sum"]
+    assert writer_summary["total_process_time_s"] == writer_summary["custom_metrics_sum"]["manifest_write_time_s"]
 
 
 def test_manifest_writer_defers_summary_until_teardown(tmp_path: Path) -> None:
@@ -265,6 +289,83 @@ def test_pipeline_preserves_executor_reported_all_filtered_invocation(tmp_path: 
     summary = json.loads(perf_path.read_text())
     assert summary["rows_out"] == 0.0
     assert summary["stages"]["001:filter"]["items_filtered"] == 2.0
+
+
+@pytest.mark.parametrize(
+    ("executor_type", "config"),
+    [
+        pytest.param(RayDataExecutor, {}, id="ray-data"),
+        pytest.param(XennaExecutor, {"execution_mode": "batch"}, id="xenna-batch"),
+    ],
+)
+def test_real_executor_preserves_all_filtered_invocation(
+    tmp_path: Path,
+    executor_type: type[RayDataExecutor] | type[XennaExecutor],
+    config: dict[str, str],
+) -> None:
+    perf_path = tmp_path / "perf.json"
+    pipeline = Pipeline(
+        name="all-filtered",
+        stages=[
+            PreserveByValueStage(input_value_key="keep", target_value=1),
+            ManifestWriterStage(
+                output_path=str(tmp_path / "output.jsonl"),
+                write_perf_stats=True,
+                perf_summary_path=str(perf_path),
+            ),
+        ],
+    )
+
+    result = pipeline.run(
+        executor=executor_type(config=config),
+        initial_tasks=[
+            AudioTask(dataset_name="test", data={"keep": 0, "duration": 1.0}),
+            AudioTask(dataset_name="test", data={"keep": 0, "duration": 2.0}),
+        ],
+    )
+
+    assert result == []
+    summary = json.loads(perf_path.read_text())
+    filter_summary = summary["stages"]["000:PreserveByValueStage"]
+    assert filter_summary["total_items_processed"] == 2.0
+    assert filter_summary["items_filtered"] == 2.0
+    assert filter_summary["custom_metrics_sum"]["input_count"] == 2.0
+    assert summary["rows_out"] == 0.0
+
+
+def test_pipeline_uses_public_reader_and_writer_custom_duration_key(tmp_path: Path) -> None:
+    input_path = tmp_path / "input.jsonl"
+    input_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"audio_filepath": "a.wav", "seconds": 2.5}),
+                json.dumps({"audio_filepath": "b.wav", "seconds": 1.5}),
+            ]
+        )
+        + "\n"
+    )
+    perf_path = tmp_path / "perf.json"
+    pipeline = Pipeline(
+        name="custom-duration",
+        stages=[
+            ManifestReader(manifest_path=str(input_path), duration_key="seconds"),
+            ManifestWriterStage(
+                output_path=str(tmp_path / "output.jsonl"),
+                duration_key="seconds",
+                write_perf_stats=True,
+                perf_summary_path=str(perf_path),
+            ),
+        ],
+    )
+
+    result = pipeline.run(executor=RayDataExecutor())
+
+    assert len(result or []) == 2
+    summary = json.loads(perf_path.read_text())
+    assert summary["rows_in"] == 2.0
+    assert summary["rows_out"] == 2.0
+    assert summary["input_hours"] == 4.0 / 3600.0
+    assert summary["output_hours"] == 4.0 / 3600.0
 
 
 def test_missing_duration_is_unavailable_not_measured_zero(tmp_path: Path) -> None:

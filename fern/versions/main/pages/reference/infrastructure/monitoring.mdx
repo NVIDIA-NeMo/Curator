@@ -12,6 +12,12 @@ modality: "universal"
 
 NeMo Curator supports integration with **Prometheus** and **Grafana**, the industry-standard open-source monitoring stack.
 
+For a completed audio pipeline, `ManifestWriterStage` can also write a
+terminal performance summary with row, duration, stage, and throughput
+metrics. See [Save & Export Audio Data](/curate-audio/save-export#manifest-writer-with-a-terminal-performance-summary).
+That JSON artifact complements the live time-series monitoring described
+here; it does not replace Prometheus or Grafana.
+
 **Prometheus** is a time-series database and monitoring system that:
 - Collects metrics from your pipeline at regular intervals (for example, every 15 seconds).
 - Stores metrics like CPU usage, GPU memory, worker counts, and task throughput.

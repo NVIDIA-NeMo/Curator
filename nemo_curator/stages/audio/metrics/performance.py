@@ -160,7 +160,6 @@ class AudioStageMetrics:
     writer_invocation_count: float = 0.0
     writer_items_processed: float = 0.0
     manifest_write_time_s: float = 0.0
-    perf_write_time_s: float = 0.0
 
     # forward-compat: any emitted scalar this dataclass doesn't know
     extras: dict[str, float] = field(default_factory=dict)

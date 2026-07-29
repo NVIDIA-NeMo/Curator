@@ -320,12 +320,14 @@ class TestManifestReaderDirectory:
 
     def test_composite_discovers_nested_directory(self) -> None:
         nested = self._nested_dir()
-        composite = ManifestReader(manifest_path=str(nested))
+        composite = ManifestReader(manifest_path=str(nested), duration_key="seconds")
         stages = composite.decompose()
 
         partitioner = stages[0]
+        reader = stages[1]
         assert partitioner.file_paths == str(nested)
         assert partitioner.file_extensions == [".jsonl", ".json"]
+        assert reader.duration_key == "seconds"
 
     def test_ignores_non_jsonl_files(self) -> None:
         nested = self._nested_dir()

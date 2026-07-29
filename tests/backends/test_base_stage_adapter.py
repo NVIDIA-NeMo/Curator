@@ -19,6 +19,7 @@ from pytest import MonkeyPatch
 
 import nemo_curator.backends.base as base_module
 from nemo_curator.backends.slurm_array import SlurmArrayConfig
+from nemo_curator.stages.audio.metrics.performance import AudioPerformanceSummary
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import EmptyTask, FileGroupTask, Task
 from nemo_curator.tasks.sentinels import FailedTask
@@ -68,6 +69,46 @@ class TestBaseStageAdapter:
         assert perf.window_end_s >= perf.window_start_s > 0
         assert "stage_id" not in dict(perf.items())
         assert "invocation_id" not in dict(perf.items())
+
+    def test_cross_host_envelope_uses_wall_clock_not_monotonic_epoch(self, monkeypatch: MonkeyPatch) -> None:
+        class _Clock:
+            def __init__(self, *, monotonic_start: float) -> None:
+                self._perf_values = iter((monotonic_start, monotonic_start + 10.0))
+                self._wall_values = iter((1_800_000_000.0, 1_800_000_010.0))
+
+            def perf_counter(self) -> float:
+                return next(self._perf_values)
+
+            def time(self) -> float:
+                return next(self._wall_values)
+
+        records = []
+        for monotonic_start, host in ((1000.0, "host-a"), (10.0, "host-b")):
+            monkeypatch.setattr(base_module, "time", _Clock(monotonic_start=monotonic_start))
+            stage = _SourceFanoutStage(partitions=[[f"{host}.parquet"]])
+            stage._curator_stage_id = "000:source"
+            [result] = base_module.BaseStageAdapter(stage).process_batch([EmptyTask()])
+            [perf] = result._stage_perf
+            assert perf.process_time == 10.0
+            assert perf.window_start_s == 1_800_000_000.0
+            assert perf.window_end_s == 1_800_000_010.0
+            perf.actor_id = host
+            perf.node_id = host
+            perf.physical_address = f"{host}:0"
+            perf.gpu_indices = [0]
+            perf.custom_metrics = {"audio_duration_s": 3600.0}
+            records.append(perf)
+
+        summary = AudioPerformanceSummary()
+        summary.record_stage_perf(records)
+        stage_summary = summary.build_stage_summaries()["000:source"]
+
+        # Two simultaneous ten-second invocations on two GPUs process two audio
+        # hours. The arbitrary local monotonic epochs (1000 and 10) cannot turn
+        # the stage envelope into 1000 seconds.
+        assert stage_summary["total_process_time_s"] == 20.0
+        assert stage_summary["gpu_count"] == 2.0
+        assert stage_summary["audio_hours_per_gpu_hour"] == 360.0
 
     def test_process_batch_delegates_slurm_array_filtering(self, monkeypatch: MonkeyPatch) -> None:
         calls = {}

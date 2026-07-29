@@ -211,6 +211,8 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
         blocksize: Target size per partition (e.g., "100MB"). Ignored if files_per_partition is set.
         file_extensions: File extensions to filter. Defaults to [".jsonl", ".json"].
         storage_options: Storage options for cloud paths (S3, GCS credentials, endpoints).
+        duration_key: Manifest field containing audio duration in seconds.
+            Defaults to ``"duration"``.
     """
 
     manifest_path: str | list[str]
@@ -219,6 +221,7 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
     blocksize: int | str | None = None
     file_extensions: list[str] = field(default_factory=lambda: [".jsonl", ".json"])
     storage_options: dict[str, Any] | None = None
+    duration_key: str = "duration"
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -235,7 +238,7 @@ class ManifestReader(CompositeStage[EmptyTask, AudioTask]):
                 file_extensions=self.file_extensions,
                 storage_options=self.storage_options,
             ),
-            ManifestReaderStage(),
+            ManifestReaderStage(duration_key=self.duration_key),
         ]
 
     def get_description(self) -> str:
