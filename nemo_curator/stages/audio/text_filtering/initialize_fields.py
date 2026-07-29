@@ -97,8 +97,3 @@ class InitializeFieldsStage(ProcessingStage[AudioTask, AudioTask]):
     def process(self, task: AudioTask) -> AudioTask:
         self._initialize(task)
         return task
-
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        for task in tasks:
-            self._initialize(task)
-        return tasks
