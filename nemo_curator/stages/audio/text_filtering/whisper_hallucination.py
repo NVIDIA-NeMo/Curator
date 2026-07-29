@@ -104,7 +104,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     _phrases: set[str] = field(default_factory=set, init=False, repr=False)
-    _setup_called: bool = field(default=False, init=False, repr=False)
     _n_processed: int = field(default=0, init=False, repr=False)
     _n_flagged: int = field(default=0, init=False, repr=False)
 
@@ -117,15 +116,11 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         with open(self.common_hall_file, encoding="utf-8") as f:
             phrases = {line.strip() for line in f if line.strip()}
         self._phrases = phrases
-        self._setup_called = True
         logger.info(
             "WhisperHallucinationStage: loaded {} phrases from {}",
             len(phrases),
             self.common_hall_file,
         )
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.text_key, self.skip_me_key, self.duration_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.skip_me_key, self.notes_key]
@@ -164,7 +159,7 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         lang = str(task.data.get(self.language_key, "")).lower().strip()
         return lang in AGGLUTINATIVE_COMPOUNDING_LANGS
 
-    def _process_single(self, task: AudioTask) -> AudioTask:
+    def process(self, task: AudioTask) -> AudioTask:
         current_flag = str(task.data.get(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
             _set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
@@ -211,25 +206,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         else:
             _set_note(task.data, self.name, "passed", self.notes_key)
         return task
-
-    def _ensure_setup(self, caller: str) -> None:
-        if self._setup_called:
-            return
-        logger.warning(
-            "WhisperHallucinationStage ({}): setup() was not called before {}(). "
-            "Calling setup() now - check that your executor invokes setup() on each worker.",
-            self.name,
-            caller,
-        )
-        self.setup()
-
-    def process(self, task: AudioTask) -> AudioTask:
-        self._ensure_setup("process")
-        return self._process_single(task)
-
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        self._ensure_setup("process_batch")
-        return [self._process_single(task) for task in tasks]
 
     def teardown(self) -> None:
         logger.info("[{}] done - processed={}, flagged={}", self.name, self._n_processed, self._n_flagged)

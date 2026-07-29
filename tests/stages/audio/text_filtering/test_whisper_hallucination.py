@@ -83,15 +83,6 @@ def test_frequent_phrase_strips_trailing_comma(tmp_path: Path) -> None:
     assert "Hallucination" in result.data[_SKIP_KEY]
 
 
-def test_setup_called_lazily_when_skipped(tmp_path: Path) -> None:
-    p = tmp_path / "phrases.txt"
-    p.write_text("Thank you\n", encoding="utf-8")
-    stage = WhisperHallucinationStage(common_hall_file=str(p))
-    task = AudioTask(data={_TEXT_KEY: "Thank you", _SKIP_KEY: ""})
-    result = stage.process(task)
-    assert "Hallucination" in result.data[_SKIP_KEY]
-
-
 def test_non_string_text_returns_task_unchanged(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
     task = AudioTask(data={_TEXT_KEY: None, _SKIP_KEY: ""})
@@ -293,16 +284,8 @@ def test_process_batch_flags_each_row_independently(tmp_path: Path) -> None:
     assert "Hallucination" in results[1].data[_SKIP_KEY]
 
 
-def test_process_batch_calls_setup_lazily(tmp_path: Path) -> None:
-    p = tmp_path / "phrases.txt"
-    p.write_text("Thank you\n", encoding="utf-8")
-    stage = WhisperHallucinationStage(common_hall_file=str(p))
-    results = stage.process_batch([AudioTask(data={_TEXT_KEY: "Thank you", _SKIP_KEY: ""})])
-    assert "Hallucination" in results[0].data[_SKIP_KEY]
-
-
 def test_missing_text_key_is_treated_as_empty(tmp_path: Path) -> None:
-    """text_key is declared an optional input, so its absence must not raise."""
+    """The filter treats a missing transcript as empty text."""
     stage = _make_stage(tmp_path, [])
     task = AudioTask(data={_SKIP_KEY: ""})
     result = stage.process(task)
@@ -317,9 +300,10 @@ def test_prefix_match_length_is_a_constant_not_a_constructor_argument() -> None:
 
 def test_stage_declares_its_io_contract(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
-    _required_in, optional_in = stage.inputs()
+    required_attrs, required_columns = stage.inputs()
     _required_out, optional_out = stage.outputs()
-    assert {_TEXT_KEY, _SKIP_KEY, "duration"} <= set(optional_in)
+    assert required_attrs == []
+    assert required_columns == []
     assert {_SKIP_KEY, "additional_notes"} <= set(optional_out)
 
 
