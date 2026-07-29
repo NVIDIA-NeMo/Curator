@@ -104,6 +104,10 @@ class RayDataExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
                 current_dataset = adapter.process_dataset(current_dataset)
         except Exception as e:
             logger.error(f"Error during pipeline execution: {e}")
+            if stage_perf_collector is not None:
+                self._stop_stage_perf_collector(stage_perf_collector, stages)
+            if hardware_sampler:
+                self._stop_pipeline_hardware_sampler(hardware_sampler)
             raise
         else:
             # Convert final dataset back to tasks
@@ -120,10 +124,6 @@ class RayDataExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
-            if stage_perf_collector is not None:
-                self._stop_stage_perf_collector(stage_perf_collector, stages)
-            if hardware_sampler:
-                self._stop_pipeline_hardware_sampler(hardware_sampler)
             ray.shutdown()
         return output_tasks
 
