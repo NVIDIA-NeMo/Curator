@@ -19,6 +19,7 @@ import numpy as np
 
 from nemo_curator.stages.audio.alm.sharded_manifest_writer import ShardedManifestWriterStage
 from nemo_curator.tasks import AudioTask
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 def _task(index: int, total: int) -> AudioTask:
@@ -27,6 +28,7 @@ def _task(index: int, total: int) -> AudioTask:
         data={
             "text": f"row {index}",
             "score": np.float32(index),
+            "duration": 2.0,
             "waveform": np.zeros(8, dtype=np.float32),
         },
         _metadata={"_shard_key": "corpus/en/manifest_0", "_shard_total": total},
@@ -55,3 +57,43 @@ def test_setup_recovers_partial_line_count(tmp_path: Path) -> None:
     writer.setup()
 
     assert writer._shard_counts["corpus/manifest"] == 2
+
+
+def test_perf_summary_uses_shared_metrics_and_accepts_external_telemetry(tmp_path: Path) -> None:
+    writer = ShardedManifestWriterStage(
+        output_dir=str(tmp_path),
+        write_perf_stats=True,
+        perf_run_id="run-123",
+        perf_executor="RayDataExecutor",
+        perf_pipeline_metadata={"pipeline_name": "granary-v2", "backend": "ray_data"},
+    )
+    writer.setup_on_node()
+    writer.setup()
+
+    writer.process_batch([_task(1, 2), _task(2, 2)])
+
+    summary_path = tmp_path / "perf_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["rows_out"] == 2.0
+    assert summary["output_hours"] == 4.0 / 3600.0
+    assert summary["run_id"] == "run-123"
+    assert summary["executor"] == "RayDataExecutor"
+    assert summary["pipeline"] == {"pipeline_name": "granary-v2", "backend": "ray_data"}
+    writer_summary = summary["stages"]["sharded_manifest_writer"]
+    assert writer_summary["total_items_processed"] == 2.0
+    assert writer_summary["invocation_count"] == 1.0
+    assert writer_summary["custom_metrics_sum"]["pipeline_output_rows"] == 2.0
+    assert writer._writer_metrics.shard_count("corpus/en/manifest_0") == 2
+
+    assert writer.record_external_stage_perf(
+        StagePerfStats(
+            stage_name="pipeline_hardware_sampler",
+            process_time=3.0,
+            num_items_processed=1,
+            custom_metrics={"gpu_utilization_mean": 75.0},
+        )
+    )
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    external = summary["stages"]["pipeline_hardware_sampler"]
+    assert external["total_process_time_s"] == 3.0
+    assert external["custom_metrics_sum"]["gpu_utilization_mean"] == 75.0
