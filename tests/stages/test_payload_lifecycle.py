@@ -69,6 +69,23 @@ class _FakeFastConformerConsumer(ProcessingStage[object, object]):
         return results
 
 
+@dataclass
+class _DropConsumer(ProcessingStage[object, object]):
+    name: str = "drop"
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def process(self, task: object) -> object:
+        return task
+
+    def process_batch(self, tasks: list[object]) -> list[object]:
+        return []
+
+
 def _payload_ref(payload_id: str = "payload") -> PayloadRef:
     return PayloadRef(
         payload_id=payload_id,
@@ -263,4 +280,20 @@ def test_structural_envelope_materialize_consume_release_composition(
     assert final[0].marker == "structural"
     assert final[0].items[0].data["pred_text"] == "samples=4"
     assert "waveform_ref" not in final[0].items[0].data
+    assert released == ["payload"]
+
+
+def test_payload_wrapper_releases_ref_when_consumer_drops_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    released: list[str] = []
+    monkeypatch.setattr(payload_lifecycle, "resolve_payload_refs_batched", lambda _refs: [torch.zeros((1, 4))])
+    monkeypatch.setattr(
+        payload_lifecycle,
+        "release_payload_ref",
+        lambda payload_ref: released.append(payload_ref.payload_id),
+    )
+    task = AudioTask(data={"waveform_ref": _payload_ref()})
+
+    results = PayloadResolvingStage(wrapped_stage=_DropConsumer()).process_batch([task])
+
+    assert results == []
     assert released == ["payload"]

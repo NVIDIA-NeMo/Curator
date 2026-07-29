@@ -48,6 +48,23 @@ def payload_lifecycle_enabled(config: dict[str, Any]) -> bool:
     return bool(lifecycle.get("enabled", False))
 
 
+def cleanup_stage_run_resources(stages: list[ProcessingStage]) -> None:
+    """Release run-scoped resources created by payload helper stages.
+
+    Detached Ray actors must be removed while the executor still has a live
+    Ray connection, so the Ray Data executor invokes this payload-owned helper
+    immediately before ``ray.shutdown()``.
+    """
+    for stage in reversed(stages):
+        cleanup = getattr(stage, "cleanup_run_resources", None)
+        if not callable(cleanup):
+            continue
+        try:
+            cleanup()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Run-scoped cleanup failed for stage {}: {}", stage, exc)
+
+
 def expand_payload_lifecycle_stages(
     stages: list[ProcessingStage],
     config: dict[str, Any],
@@ -92,8 +109,6 @@ def expand_payload_lifecycle_stages(
     )
     planned_consumers = _prepare_consumers(consumers, spec)
     replacements = {id(original): planned for original, planned in zip(consumers, planned_consumers, strict=True)}
-    for consumer in planned_consumers:
-        consumer._curator_tracks_payload_refs = True
 
     expanded: list[ProcessingStage] = []
     for index, stage in enumerate(stages):

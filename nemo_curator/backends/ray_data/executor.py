@@ -108,7 +108,9 @@ class RayDataExecutor(BaseExecutor):
         finally:
             try:
                 # Must precede shutdown: killing named actors needs a live connection.
-                self._cleanup_stage_run_resources(stages)
+                from nemo_curator.pipeline.payload_lifecycle import cleanup_stage_run_resources
+
+                cleanup_stage_run_resources(stages)
             finally:
                 # This ensures we unset all the env vars set above during initialize and kill the pending actors.
                 ray.shutdown()

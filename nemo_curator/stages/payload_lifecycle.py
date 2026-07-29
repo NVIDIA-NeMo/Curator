@@ -34,6 +34,7 @@ from nemo_curator.pipeline.payload_refs import (
     PayloadRef,
     _get_named_actor,
     iter_payload_items,
+    iter_payload_refs,
     map_payload_items,
     release_payload_ref,
     resolve_payload_refs_batched,
@@ -160,6 +161,25 @@ def _payload_size_bytes(payload: Any) -> int:
         return len(payload)
     msg = f"Cannot determine payload size for {type(payload).__name__}"
     raise TypeError(msg)
+
+
+def _payload_ref_index(values: list[Any]) -> dict[tuple[str | None, str, str], PayloadRef]:
+    refs: dict[tuple[str | None, str, str], PayloadRef] = {}
+    for value in values:
+        for payload_ref in iter_payload_refs(value):
+            key = (payload_ref.actor_namespace, payload_ref.store_actor_name, payload_ref.payload_id)
+            refs[key] = payload_ref
+    return refs
+
+
+def _release_dropped_payload_refs(
+    input_refs: dict[tuple[str | None, str, str], PayloadRef],
+    results: list[Any],
+) -> None:
+    output_keys = set(_payload_ref_index(results))
+    for key, payload_ref in input_refs.items():
+        if key not in output_keys:
+            release_payload_ref(payload_ref)
 
 
 def _lease_expiry(ttl_s: float) -> float | None:
@@ -706,6 +726,7 @@ class PayloadResolvingStage(PayloadAwareStageMixin, ProcessingStage[Any, Any]):
         return results[0]
 
     def process_batch(self, tasks: list[Any]) -> list[Any]:
+        input_refs = _payload_ref_index(tasks)
         audio_leaves = [leaf for task in tasks for leaf in iter_payload_items(task) if isinstance(leaf, AudioTask)]
         inserted = self.resolve_payload_refs_for_batch(audio_leaves)
         hydrated = [map_payload_items(task, lambda leaf: leaf) for task in tasks]
@@ -713,9 +734,11 @@ class PayloadResolvingStage(PayloadAwareStageMixin, ProcessingStage[Any, Any]):
             results = self.wrapped_stage.process_batch(hydrated)
         except Exception:
             self.drop_resolved_payloads(inserted)
+            _release_dropped_payload_refs(input_refs, [])
             raise
         self.drop_resolved_payloads(inserted)
         self._drop_output_payloads(results)
+        _release_dropped_payload_refs(input_refs, results)
         return results
 
     def _drop_output_payloads(self, values: list[Any]) -> None:
