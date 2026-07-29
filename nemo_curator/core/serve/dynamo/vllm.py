@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 import ray
 from loguru import logger
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.version import Version
 
 from nemo_curator.core.serve.base import BaseModelConfig
 from nemo_curator.core.serve.dynamo.infra import (
@@ -67,9 +68,29 @@ _ACTOR_VENV_OVERRIDES_PATH = Path(tempfile.gettempdir()) / "nemo_curator_dynamo_
 _ACTOR_VENV_NIXL_CU13_EXCLUSION = "nixl-cu13 ; sys_platform == 'never'"
 # The CUDA build the actor venv must match (torch ecosystem + vllm wheel variant).
 _ACTOR_VENV_CUDA_TAG = "cu129"
-# Latest known nightly that includes ai-dynamo/dynamo#10380 while ai-dynamo[vllm]
-# still pins vLLM 0.22.x. Newer 1.3.0 nightlies moved to vLLM 0.23.0.
-_DYNAMO_NIGHTLY_VERSION = "1.3.0.dev20260615"
+_DYNAMO_MIN_VERSION = Version("1.3.0")
+
+
+def _dynamo_runtime_packages() -> list[str]:
+    """Return actor packages matched to the Dynamo release in the base environment."""
+    try:
+        installed_version = Version(importlib.metadata.version("ai-dynamo"))
+    except importlib.metadata.PackageNotFoundError:
+        version_specifier = f">={_DYNAMO_MIN_VERSION}"
+    else:
+        if installed_version.is_prerelease or installed_version < _DYNAMO_MIN_VERSION:
+            msg = (
+                f"Dynamo actor environments require a publicly released ai-dynamo>={_DYNAMO_MIN_VERSION}; "
+                f"found {installed_version}"
+            )
+            raise RuntimeError(msg)
+        version_specifier = f"=={installed_version}"
+    return [
+        f"ai-dynamo[vllm]{version_specifier}",
+        f"ai-dynamo-runtime{version_specifier}",
+        "nixl-cu12>=0.10.0",
+        "cuda-toolkit[nvcc]==12.9.1; platform_machine == 'aarch64' and sys_platform == 'linux'",
+    ]
 
 
 def _vllm_cu129_index_url() -> str | None:
@@ -82,7 +103,7 @@ def _vllm_cu129_index_url() -> str | None:
     publishes a per-version cu129 wheel index at ``wheels.vllm.ai/<v>/cu129``;
     pointing at the pinned version means its ``+cu129`` local build sorts above
     the default cu130 wheel under unsafe-best-match. Derived from ai-dynamo's
-    own metadata so a nightly bump (which changes the vllm pin) needs no edit.
+    own metadata so a release bump (which can change the vllm pin) needs no edit.
 
     Returns None if ai-dynamo (or its vllm pin) can't be found — only happens
     when the dynamo backend isn't actually installed, where this is unused.
@@ -132,10 +153,7 @@ _ACTOR_VENV_UV_OPTIONS = [
 
 DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
     "uv": {
-        "packages": [
-            f"ai-dynamo[vllm]=={_DYNAMO_NIGHTLY_VERSION}",
-            f"ai-dynamo-runtime=={_DYNAMO_NIGHTLY_VERSION}",
-        ],
+        "packages": _dynamo_runtime_packages(),
         "uv_pip_install_options": _ACTOR_VENV_UV_OPTIONS,
     },
     "config": {"setup_timeout_seconds": 600},
