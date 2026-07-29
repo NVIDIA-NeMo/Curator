@@ -28,7 +28,14 @@ class _Stage(ProcessingStage):
 
 
 def test_record_stage_perf_is_noop_without_collector() -> None:
-    assert record_stage_perf(_Stage(), StagePerfStats(stage_name="stage")) is False
+    assert (
+        record_stage_perf(
+            _Stage(),
+            StagePerfStats(stage_name="stage"),
+            attached_to_output=False,
+        )
+        is False
+    )
 
 
 def test_record_stage_perf_waits_for_collector_ack() -> None:
@@ -41,7 +48,15 @@ def test_record_stage_perf_waits_for_collector_ack() -> None:
         patch("nemo_curator.utils.stage_perf_collector.ray.get_actor", return_value=collector) as get_actor,
         patch("nemo_curator.utils.stage_perf_collector.ray.get") as ray_get,
     ):
-        assert record_stage_perf(stage, StagePerfStats(stage_name="stage")) is True
+        assert (
+            record_stage_perf(
+                stage,
+                StagePerfStats(stage_name="stage"),
+                attached_to_output=True,
+            )
+            is True
+        )
 
     get_actor.assert_called_once_with("collector")
+    collector.record.remote.assert_called_once()
     ray_get.assert_called_once_with(record_ref)

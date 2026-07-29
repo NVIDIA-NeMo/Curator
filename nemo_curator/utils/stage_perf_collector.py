@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run-scoped transport for stage invocations that may produce no output."""
+"""Run-scoped transport for stage invocations, including zero-output calls."""
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -26,49 +27,58 @@ if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
     from nemo_curator.utils.performance_utils import StagePerfStats
 
-_COLLECTOR_NAME_ATTR = "_curator_stage_perf_collector_name"
+COLLECTOR_NAME_ATTR = "_curator_stage_perf_collector_name"
 
 
 @ray.remote(num_cpus=0)
 class _StagePerfCollector:
     def __init__(self) -> None:
-        self._records: list[StagePerfStats] = []
+        self._records: list[tuple[StagePerfStats, bool]] = []
 
     def ready(self) -> bool:
         return True
 
-    def record(self, perf_stats: StagePerfStats) -> None:
-        self._records.append(perf_stats)
+    def record(self, perf_stats: StagePerfStats, attached_to_output: bool) -> None:
+        self._records.append((perf_stats, attached_to_output))
 
-    def drain(self) -> list[StagePerfStats]:
-        records = self._records
-        self._records = []
+    def drain(self) -> list[tuple[StagePerfStats, bool]]:
+        records, self._records = self._records, []
         return records
 
 
+def performance_collection_enabled(stages: list[ProcessingStage]) -> bool:
+    """Return whether any stage or terminal consumer requests full collection."""
+    return any(
+        bool(getattr(stage, "extended_performance_metrics", False)) or bool(getattr(stage, "write_perf_stats", False))
+        for stage in stages
+    )
+
+
 def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any | None:  # noqa: ANN401
-    """Start one collector only when a terminal writer summary is enabled."""
-    if not any(bool(getattr(stage, "write_perf_stats", False)) for stage in stages):
+    """Start one collector when extended metrics or a terminal consumer is enabled."""
+    if not performance_collection_enabled(stages):
         return None
     name = f"curator-stage-perf-{uuid.uuid4().hex}"
     collector = _StagePerfCollector.options(name=name).remote()
     ray.get(collector.ready.remote())
     for stage in stages:
-        setattr(stage, _COLLECTOR_NAME_ATTR, name)
+        setattr(stage, COLLECTOR_NAME_ATTR, name)
     return collector
 
 
 def record_stage_perf(
     stage: ProcessingStage,
     perf_stats: StagePerfStats,
+    *,
+    attached_to_output: bool,
 ) -> bool:
     """Synchronously publish one record so the driver cannot drain too early."""
-    collector_name = str(getattr(stage, _COLLECTOR_NAME_ATTR, "") or "")
+    collector_name = str(getattr(stage, COLLECTOR_NAME_ATTR, "") or "")
     if not collector_name:
         return False
     try:
         collector = ray.get_actor(collector_name)
-        ray.get(collector.record.remote(perf_stats))
+        ray.get(collector.record.remote(perf_stats, attached_to_output))
     except Exception as exc:  # noqa: BLE001
         logger.debug("Stage performance collector publish failed for {}: {}", stage.name, exc)
         return False
@@ -78,8 +88,8 @@ def record_stage_perf(
 def stop_stage_perf_collector(
     collector: Any | None,  # noqa: ANN401
     stages: list[ProcessingStage],
-) -> list[StagePerfStats]:
-    """Drain and remove the collector, clearing its run-scoped stage routing."""
+) -> list[tuple[StagePerfStats, bool]]:
+    """Drain and remove the collector, clearing its run-scoped routing."""
     if collector is None:
         return []
     try:
@@ -89,9 +99,7 @@ def stop_stage_perf_collector(
         return []
     finally:
         for stage in stages:
-            if hasattr(stage, _COLLECTOR_NAME_ATTR):
-                delattr(stage, _COLLECTOR_NAME_ATTR)
-        try:
+            with contextlib.suppress(AttributeError):
+                delattr(stage, COLLECTOR_NAME_ATTR)
+        with contextlib.suppress(Exception):
             ray.kill(collector, no_restart=True)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Stage performance collector cleanup failed: {}", exc)

@@ -45,10 +45,8 @@ class StagePerfStats:
         num_items_processed: Number of items processed in this stage.
         custom_metrics: Custom metrics to track.
         stage_id: Stable per-plan identifier assigned by ``Pipeline.build()``.
-            Empty for records created outside a planned pipeline.
         invocation_id: Unique identifier for one ``process_batch`` call.
-        window_start_s: Unix wall-clock timestamp immediately before the stage
-            call, suitable for a synchronized cross-host envelope.
+        window_start_s: Unix wall-clock timestamp immediately before the stage call.
         window_end_s: Unix wall-clock timestamp immediately after the stage call.
         actor_id: Best-effort worker identity supplied by an optional backend.
         node_id: Best-effort node identity supplied by an optional backend.
@@ -97,7 +95,6 @@ class StagePerfStats:
                 for key in set(self.custom_metrics.keys()) | set(other.custom_metrics.keys())
             },
             stage_id=self.stage_id if self.stage_id == other.stage_id else "",
-            # A sum represents more than one invocation.
             invocation_id="",
             window_start_s=min(value for value in (self.window_start_s, other.window_start_s) if value > 0)
             if self.window_start_s > 0 or other.window_start_s > 0
@@ -143,11 +140,7 @@ class StagePerfStats:
         self.gpu_uuids = []
 
     def to_dict(self) -> dict[str, float | int]:
-        """Convert numeric metric values to the legacy public dictionary.
-
-        Execution identity is transport metadata. Keeping it out of this
-        numeric mapping preserves existing ``TaskPerfUtils`` consumers.
-        """
+        """Convert numeric metrics to the legacy public dictionary."""
         return {
             "stage_name": self.stage_name,
             "process_time": self.process_time,
@@ -156,6 +149,10 @@ class StagePerfStats:
             "num_items_processed": self.num_items_processed,
             "custom_metrics": dict(self.custom_metrics),
         }
+
+    def to_extended_dict(self) -> dict[str, object]:
+        """Convert to the complete invocation-telemetry schema."""
+        return attrs.asdict(self)
 
     def items(self) -> list[tuple[str, float | int]]:
         """Returns (metric_name, metric_value) pairs

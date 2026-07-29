@@ -297,7 +297,7 @@ class ManifestWriterStage(TerminalAudioPerformanceWriterMixin, ProcessingStage[A
         with self._fs.open(self._path, "w", encoding="utf-8"):
             pass
 
-    def prepare_performance_summary(self) -> None:
+    def prepare_performance_report(self) -> None:
         """Prepare driver-owned output paths and clean run-scoped state."""
         self._reset_writer_metrics()
         self._prepare_output_path()

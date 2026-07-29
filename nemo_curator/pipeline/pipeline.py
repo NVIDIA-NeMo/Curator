@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import time
 import uuid
@@ -71,6 +72,7 @@ class Pipeline:
         self.description = description
         self.stages: list[ProcessingStage] = stages or []
         self.config = config or {}
+        self.performance_records: list[Any] = []
 
     def add_stage(self, stage: ProcessingStage) -> "Pipeline":
         """Add a stage to the pipeline.
@@ -257,6 +259,7 @@ class Pipeline:
         executor: BaseExecutor | None = None,
         initial_tasks: list[Task] | None = None,
         checkpoint_path: str | Path | None = None,
+        performance_report_path: str | Path | None = None,
     ) -> list[Task] | None:
         """Run the pipeline.
 
@@ -269,10 +272,13 @@ class Pipeline:
                 tracked (in a ``.nemo_curator_metadata`` subdir) and skipped on
                 rerun. Multiple runs (e.g. a SLURM array) may share the directory
                 — each writes its own LMDB file, so there is no contention.
+            performance_report_path (str | Path, optional): Local JSON path for
+                complete driver-owned performance records.
 
         Returns:
             list[Task] | None: List of tasks
         """
+        self.performance_records = []
         self.build()
 
         if checkpoint_path is not None:
@@ -340,31 +346,38 @@ class Pipeline:
                 minimum_shard_index=slurm_array.minimum_shard_index,
             )
 
-        for stage in reversed(self.stages):
-            prepare_perf = getattr(stage, "prepare_performance_summary", None)
-            if callable(prepare_perf):
-                prepare_perf()
-                break
+        performance_consumer = next(
+            (
+                stage
+                for stage in reversed(self.stages)
+                if callable(getattr(stage, "finalize_performance_report", None))
+            ),
+            None,
+        )
+        if performance_consumer is not None:
+            prepare_report = getattr(performance_consumer, "prepare_performance_report", None)
+            if callable(prepare_report):
+                prepare_report()
 
         run_started_s = time.perf_counter()
         if checkpoint_path is None:
             result = executor.execute(self.stages, initial_tasks)
         else:
             result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
-        wall_time_s = time.perf_counter() - run_started_s
+        wall_time_s = max(time.perf_counter() - run_started_s, 0.0)
 
         consume_external_perf = getattr(executor, "consume_external_perf_records", None)
-        external_perf_stats = consume_external_perf() if callable(consume_external_perf) else []
+        consumed_records = consume_external_perf() if callable(consume_external_perf) else []
+        self.performance_records = list(consumed_records) if isinstance(consumed_records, (list, tuple)) else []
         output_tasks = result if isinstance(result, list) else []
-        for stage in reversed(self.stages):
-            finalize_perf = getattr(stage, "finalize_performance_summary", None)
-            if callable(finalize_perf):
-                finalize_perf(
-                    output_tasks,
-                    external_perf_stats=external_perf_stats,
-                    wall_time_s=wall_time_s,
-                )
-                break
+        if performance_consumer is not None:
+            performance_consumer.finalize_performance_report(
+                output_tasks,
+                performance_records=self.performance_records,
+                wall_time_s=wall_time_s,
+            )
+        if performance_report_path is not None:
+            self.write_performance_report(performance_report_path)
 
         if completion_manifest is not None:
             if failed_task_manifest_exists():
@@ -377,6 +390,23 @@ class Pipeline:
                 logger.info(f"Wrote Slurm array completion manifest to {manifest_file}")
 
         return result
+
+    def write_performance_report(self, path: str | Path) -> Path:
+        """Write the current run's complete driver-owned telemetry to JSON."""
+        report_path = Path(path).expanduser().absolute()
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": 1,
+            "pipeline_name": self.name,
+            "record_count": len(self.performance_records),
+            "records": [record.to_extended_dict() for record in self.performance_records],
+        }
+        report_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        logger.info(f"Wrote performance telemetry report to {report_path}")
+        return report_path
 
     def _run_with_resumability(
         self,

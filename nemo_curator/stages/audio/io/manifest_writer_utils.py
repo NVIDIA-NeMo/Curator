@@ -221,11 +221,11 @@ class TerminalAudioPerformanceWriterMixin:
             self._writer_metrics._perf_summary.record_stage_perf(self._external_perf_stats)
             self._write_perf_summary()
 
-    def finalize_performance_summary(
+    def finalize_performance_report(
         self,
         tasks: list[Task],
         *,
-        external_perf_stats: list[StagePerfStats],
+        performance_records: list[StagePerfStats],
         wall_time_s: float,
     ) -> None:
         if not self.write_perf_stats:
@@ -237,7 +237,7 @@ class TerminalAudioPerformanceWriterMixin:
         )
         for task in tasks:
             final_metrics.record_output_invocation([task], manifest_write_time_s=0.0)
-        final_metrics._perf_summary.record_stage_perf([*self._external_perf_stats, *external_perf_stats])
+        final_metrics._perf_summary.record_stage_perf([*self._external_perf_stats, *performance_records])
         self._writer_metrics = final_metrics
         self._write_perf_summary(wall_time_s=wall_time_s)
         self._external_perf_stats = []

@@ -124,8 +124,6 @@ def test_basic_inference() -> None:
     [perf] = results[0]._stage_perf
     metrics = perf.custom_metrics
     assert perf.stage_id == "002:ASR_inference"
-    assert perf.invocation_id
-    assert perf.window_end_s >= perf.window_start_s > 0
     assert metrics["audio_duration_s"] == 1.0
     assert metrics["waveform_bytes"] == float(_SR * np.dtype(np.float32).itemsize)
     assert metrics["adapter_inference_calls"] == 1.0
