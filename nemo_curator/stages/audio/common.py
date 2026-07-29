@@ -300,6 +300,18 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         wall_time_s: float,
     ) -> None:
         """Write all driver-collected invocation metrics through the existing writer."""
+        self._write_raw_performance_report(
+            performance_records=performance_records,
+            wall_time_s=wall_time_s,
+        )
+
+    def _write_raw_performance_report(
+        self,
+        *,
+        performance_records: list["StagePerfStats"],
+        wall_time_s: float,
+    ) -> None:
+        """Persist the raw report so specialized writers can reuse the contract."""
         if self.performance_report_path is None:
             return
         report_fs, report_path = url_to_fs(self.performance_report_path)
