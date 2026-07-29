@@ -89,6 +89,14 @@ executor_config:
   pipeline_hardware_sampler_interval_s: 0.5
 ```
 
+After a successful run, the generic YAML runner writes the complete actor and
+run-level records to `performance_report_path` (by default,
+`./qwen_omni_performance.json`). The report is independent of output-task
+survival, so invocation and hardware records remain available even if a stage
+filters every row. Python callers can also inspect
+`pipeline.performance_records` or call
+`pipeline.write_performance_report(path)`.
+
 Both collectors are fail-open: inability to initialize NVML diagnostics does
 not fail transcription. An ASR call shorter than the actor sampler's 0.2
 second interval can legitimately contain identity and timing without an

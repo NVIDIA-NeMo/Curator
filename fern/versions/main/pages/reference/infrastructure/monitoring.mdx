@@ -80,6 +80,8 @@ rather than an unbounded history.
 YAML pipelines pass the same mapping at the top level:
 
 ```yaml
+performance_report_path: ./performance_telemetry.json
+
 executor_config:
   pipeline_hardware_sampler_enabled: true
   pipeline_hardware_sampler_interval_s: 0.5
@@ -89,10 +91,25 @@ stages:
     extended_performance_metrics: true
 ```
 
-If a terminal stage implements Curator's external performance consumer hook,
-authoritative invocation and run-level records are published there. Otherwise,
-records that could not travel on a surviving output task are attached to final
-returned tasks when possible.
+The generic YAML runner writes `performance_report_path` after successful
+execution. The JSON report contains complete invocation identity, placement,
+GPU, window, and custom-metric fields. It is still written when every task is
+filtered and the pipeline returns no output tasks.
+
+Python callers can use the same sink directly:
+
+```python
+results = pipeline.run(
+    executor=executor,
+    performance_report_path="./performance_telemetry.json",
+)
+records = pipeline.performance_records
+```
+
+`Pipeline.run()` drains the executor's authoritative external records into
+`pipeline.performance_records` after every successful run. The optional report
+path persists those records; callers that prefer a different format can call
+`pipeline.write_performance_report(path)` later or consume the in-memory list.
 
 ## Setting Up Monitoring
 

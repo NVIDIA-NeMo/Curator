@@ -12,14 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.base import BaseExecutor
+    from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
@@ -68,8 +74,9 @@ class Pipeline:
         self.description = description
         self.stages: list[ProcessingStage] = stages or []
         self.config = config or {}
+        self.performance_records: list[StagePerfStats] = []
 
-    def add_stage(self, stage: ProcessingStage) -> "Pipeline":
+    def add_stage(self, stage: ProcessingStage) -> Pipeline:
         """Add a stage to the pipeline.
 
         Args:
@@ -234,6 +241,7 @@ class Pipeline:
         executor: BaseExecutor | None = None,
         initial_tasks: list[Task] | None = None,
         checkpoint_path: str | Path | None = None,
+        performance_report_path: str | Path | None = None,
     ) -> list[Task] | None:
         """Run the pipeline.
 
@@ -246,10 +254,16 @@ class Pipeline:
                 tracked (in a ``.nemo_curator_metadata`` subdir) and skipped on
                 rerun. Multiple runs (e.g. a SLURM array) may share the directory
                 — each writes its own LMDB file, so there is no contention.
+            performance_report_path (str | Path, optional): Local JSON report
+                path for complete external invocation and run-level telemetry.
+                The report is written after successful execution, including when
+                no output tasks survive. Records are always available in
+                ``performance_records`` after a successful run.
 
         Returns:
             list[Task] | None: List of tasks
         """
+        self.performance_records = []
         self.build()
 
         if checkpoint_path is not None:
@@ -321,6 +335,11 @@ class Pipeline:
         else:
             result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
 
+        consume_external = getattr(type(executor), "consume_external_perf_records", None)
+        self.performance_records = consume_external(executor) if callable(consume_external) else []
+        if performance_report_path is not None:
+            self.write_performance_report(performance_report_path)
+
         if completion_manifest is not None:
             if failed_task_manifest_exists():
                 logger.warning(
@@ -332,6 +351,30 @@ class Pipeline:
                 logger.info(f"Wrote Slurm array completion manifest to {manifest_file}")
 
         return result
+
+    def write_performance_report(self, path: str | Path) -> Path:
+        """Write the current run's complete external telemetry to JSON.
+
+        Args:
+            path: Local destination. Parent directories are created.
+
+        Returns:
+            The resolved report path.
+        """
+        report_path = Path(path).expanduser().absolute()
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": 1,
+            "pipeline_name": self.name,
+            "record_count": len(self.performance_records),
+            "records": [record.to_extended_dict() for record in self.performance_records],
+        }
+        report_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        logger.info(f"Wrote performance telemetry report to {report_path}")
+        return report_path
 
     def _run_with_resumability(
         self,

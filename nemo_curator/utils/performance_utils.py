@@ -146,6 +146,29 @@ class StagePerfStats:
             "custom_metrics": dict(self.custom_metrics),
         }
 
+    def to_extended_dict(self) -> dict[str, object]:
+        """Convert to the complete invocation-telemetry dictionary schema.
+
+        ``to_dict`` intentionally retains the pre-existing summary schema.
+        Telemetry reports use this separate method so identity, placement, and
+        sampling-window fields are not silently discarded.
+        """
+        return {
+            **self.to_dict(),
+            "stage_id": self.stage_id,
+            "invocation_id": self.invocation_id,
+            "window_start_s": self.window_start_s,
+            "window_end_s": self.window_end_s,
+            "actor_id": self.actor_id,
+            "node_id": self.node_id,
+            "gpu_id": self.gpu_id,
+            "physical_address": self.physical_address,
+            "pod_ip": self.pod_ip,
+            "hostname": self.hostname,
+            "gpu_indices": list(self.gpu_indices),
+            "gpu_uuids": list(self.gpu_uuids),
+        }
+
     def items(self) -> list[tuple[str, float | int]]:
         """Returns (metric_name, metric_value) pairs
         custom_metrics are flattened into the format (custom.<metric_name>, metric_value)

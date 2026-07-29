@@ -464,7 +464,7 @@ def apply_worker_perf_identity(stage_perf_stats: StagePerfStats, identity: Worke
 
 
 class ExtendedPerfStageAdapterMixin:
-    """Opt-in backend telemetry layered onto #2223's adapter hooks."""
+    """Opt-in backend telemetry layered onto the base adapter timer."""
 
     stage: Any
     _perf_identity: WorkerPerfIdentity

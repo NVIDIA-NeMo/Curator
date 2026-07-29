@@ -37,6 +37,7 @@ from nemo_curator.utils.resumability_client import (
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 def _is_sentinel(task: Task) -> bool:
@@ -83,6 +84,15 @@ class BaseExecutor(ABC):
     @abstractmethod
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
         """Execute the pipeline."""
+
+    def consume_external_perf_records(self) -> list["StagePerfStats"]:
+        """Return and clear driver-owned telemetry records after execution.
+
+        Executors without external telemetry use the empty default. Telemetry
+        executors override this method so ``Pipeline.run`` can finalize records
+        independently of whether any output tasks survive.
+        """
+        return []
 
 
 class BaseStageAdapter:

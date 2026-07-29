@@ -12,11 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Executor-side collection for opt-in performance telemetry.
-
-This mixin intentionally implements #2223's ``consume_external_perf_records``
-contract instead of duplicating terminal-writer discovery or summary logic.
-"""
+"""Executor-side collection for opt-in performance telemetry."""
 
 from __future__ import annotations
 
@@ -32,7 +28,7 @@ if TYPE_CHECKING:
 
 
 class PerformanceTelemetryExecutorMixin:
-    """Collect backend-owned invocation and hardware records for #2223."""
+    """Collect backend-owned invocation and hardware records for the driver."""
 
     config: dict[str, Any]
     _external_perf_records: list[StagePerfStats]
@@ -103,8 +99,7 @@ class PerformanceTelemetryExecutorMixin:
         external = [record.perf_stats for record in records]
 
         # Direct executor callers still receive records that could not travel on
-        # a surviving output. Pipeline's terminal summary deduplicates them by
-        # invocation id when it consumes the authoritative external list.
+        # a surviving output. Pipeline consumes the authoritative external list.
         unattached = [record.perf_stats for record in records if not record.attached_to_output]
         for task in tasks:
             for perf_stats in unattached:
@@ -118,7 +113,7 @@ class PerformanceTelemetryExecutorMixin:
         self._external_perf_records = external
 
     def consume_external_perf_records(self) -> list[StagePerfStats]:
-        """Return and clear records retained for #2223's driver finalizer."""
+        """Return and clear records retained for the pipeline driver."""
         records = list(getattr(self, "_external_perf_records", []))
         self._external_perf_records = []
         return records

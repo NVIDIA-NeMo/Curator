@@ -12,15 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
+from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
+from nemo_curator.backends.perf_telemetry import PerformanceTelemetryExecutorMixin
 from nemo_curator.pipeline.pipeline import Pipeline, assign_root_task_ids
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import EmptyTask, Task
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 @dataclass
@@ -45,6 +50,95 @@ class _SimpleTask(Task[list[int]]):
 
     def validate(self) -> bool:
         return True
+
+
+@dataclass
+class _DropAllStage(ProcessingStage[Task, Task]):
+    name: str = "drop_all"
+    extended_performance_metrics: bool = True
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return [], []
+
+    def process(self, task: Task) -> None:
+        return None
+
+
+class _ZeroOutputTelemetryExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
+    def execute(
+        self,
+        stages: list[ProcessingStage],
+        initial_tasks: list[Task] | None = None,
+    ) -> list[Task]:
+        results = BaseStageAdapter(stages[0]).process_batch(initial_tasks or [EmptyTask()])
+        assert results == []
+        self._external_perf_records = [
+            StagePerfStats(
+                stage_name=stages[0].name,
+                stage_id=stages[0]._curator_stage_id,
+                invocation_id="invocation-zero-output",
+                window_start_s=10.0,
+                window_end_s=11.0,
+                actor_id="actor-1",
+                node_id="node-1",
+                gpu_id="0",
+                gpu_indices=[0],
+                gpu_uuids=["GPU-abc"],
+                custom_metrics={"gpu_0_samples": 5.0},
+            ),
+            StagePerfStats(
+                stage_name="pipeline_hardware_sampler",
+                custom_metrics={"pipeline_hardware_sample_count": 7.0},
+            ),
+        ]
+        return results
+
+
+def test_zero_output_pipeline_persists_external_performance_records(tmp_path: Path):
+    report_path = tmp_path / "reports" / "performance.json"
+    executor = _ZeroOutputTelemetryExecutor()
+    pipeline = Pipeline(name="zero-output", stages=[_DropAllStage()])
+
+    result = pipeline.run(
+        executor=executor,
+        initial_tasks=[_SimpleTask(dataset_name="test", data=[1])],
+        performance_report_path=report_path,
+    )
+
+    assert result == []
+    assert [record.stage_name for record in pipeline.performance_records] == [
+        "drop_all",
+        "pipeline_hardware_sampler",
+    ]
+    assert executor.consume_external_perf_records() == []
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["schema_version"] == 1
+    assert report["pipeline_name"] == "zero-output"
+    assert report["record_count"] == 2
+    assert report["records"][0] == {
+        "actor_id": "actor-1",
+        "actor_idle_time": 0.0,
+        "custom_metrics": {"gpu_0_samples": 5.0},
+        "gpu_id": "0",
+        "gpu_indices": [0],
+        "gpu_uuids": ["GPU-abc"],
+        "hostname": "",
+        "input_data_size_mb": 0.0,
+        "invocation_id": "invocation-zero-output",
+        "node_id": "node-1",
+        "num_items_processed": 0,
+        "physical_address": "",
+        "pod_ip": "",
+        "process_time": 0.0,
+        "stage_id": "0000:drop_all",
+        "stage_name": "drop_all",
+        "window_end_s": 11.0,
+        "window_start_s": 10.0,
+    }
 
 
 def test_pipeline_uses_xenna_executor_by_default():

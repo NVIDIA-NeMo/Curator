@@ -41,7 +41,7 @@ def create_ray_client_from_yaml(cfg: DictConfig) -> RayClient:
 
 def create_executor_from_yaml(cfg: DictConfig) -> BaseExecutor | None:
     """Create the configured pipeline executor, if executor settings are present."""
-    if "backend" not in cfg and "execution_mode" not in cfg:
+    if "backend" not in cfg and "execution_mode" not in cfg and "executor_config" not in cfg:
         return None
 
     backend = str(cfg.get("backend", "xenna"))
@@ -145,7 +145,12 @@ def main(cfg: DictConfig) -> None:
 
     # Execute pipeline
     print("Starting pipeline execution...")
-    _results = pipeline.run() if executor is None else pipeline.run(executor=executor)
+    run_kwargs: dict[str, Any] = {}
+    if executor is not None:
+        run_kwargs["executor"] = executor
+    if performance_report_path := cfg.get("performance_report_path"):
+        run_kwargs["performance_report_path"] = str(performance_report_path)
+    pipeline.run(**run_kwargs)
 
     print("\nPipeline completed!")
 

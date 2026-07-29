@@ -426,6 +426,37 @@ def test_executor_passes_generic_executor_config(mock_get_class: MagicMock):
     )
 
 
+@patch("hydra.utils.get_class")
+def test_executor_config_only_defaults_to_xenna(mock_get_class: MagicMock):
+    executor_cls = MagicMock()
+    mock_get_class.return_value = executor_cls
+    cfg = OmegaConf.create(
+        {
+            "executor_config": {
+                "pipeline_hardware_sampler_enabled": True,
+                "pipeline_hardware_sampler_interval_s": 0.5,
+            },
+            "stages": [
+                {
+                    "_target_": "package.GpuStage",
+                    "extended_performance_metrics": True,
+                }
+            ],
+        }
+    )
+
+    create_executor_from_yaml(cfg)
+
+    mock_get_class.assert_called_once_with("nemo_curator.backends.xenna.XennaExecutor")
+    executor_cls.assert_called_once_with(
+        config={
+            "pipeline_hardware_sampler_enabled": True,
+            "pipeline_hardware_sampler_interval_s": 0.5,
+            "execution_mode": "streaming",
+        }
+    )
+
+
 def test_unknown_executor_backend_raises_error():
     cfg = OmegaConf.create({"backend": "unknown"})
 
@@ -456,6 +487,31 @@ def test_main_passes_configured_executor_to_pipeline(
     mock_create_ray_client.return_value.start.assert_called_once_with()
     mock_create_pipeline.return_value.run.assert_called_once_with(executor=executor)
     mock_create_ray_client.return_value.stop.assert_called_once_with()
+
+
+@patch("nemo_curator.config.run.create_executor_from_yaml")
+@patch("nemo_curator.config.run.create_pipeline_from_yaml")
+@patch("nemo_curator.config.run.create_ray_client_from_yaml")
+def test_main_passes_performance_report_path_to_pipeline(
+    mock_create_ray_client: MagicMock,
+    mock_create_pipeline: MagicMock,
+    mock_create_executor: MagicMock,
+):
+    cfg = OmegaConf.create(
+        {
+            "stages": [],
+            "performance_report_path": "./performance_telemetry.json",
+        }
+    )
+    executor = mock_create_executor.return_value
+
+    main.__wrapped__(cfg)
+
+    mock_create_pipeline.return_value.run.assert_called_once_with(
+        executor=executor,
+        performance_report_path="./performance_telemetry.json",
+    )
+    mock_create_ray_client.return_value.start.assert_called_once_with()
 
 
 def test_qwen_tutorial_yaml_matches_reference_runner_config():
@@ -555,3 +611,4 @@ def test_qwen_tutorial_enables_extended_performance_telemetry():
     assert cfg.stages[2].extended_performance_metrics is True
     assert cfg.executor_config.pipeline_hardware_sampler_enabled is True
     assert cfg.executor_config.pipeline_hardware_sampler_interval_s == 0.5
+    assert cfg.performance_report_path == "./qwen_omni_performance.json"
