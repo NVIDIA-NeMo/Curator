@@ -258,10 +258,10 @@ class PerformanceTelemetryAdapterMixin:
         )
 
     def _enrich_stage_perf_record(self, stats: StagePerfStats, _results: list[Task]) -> None:
-        if self._performance_telemetry is not None:
-            self._performance_telemetry.enrich(stats)
+        if telemetry := getattr(self, "_performance_telemetry", None):
+            telemetry.enrich(stats)
 
     def _teardown_performance_telemetry(self) -> None:
-        if self._performance_telemetry is not None:
-            self._performance_telemetry.close()
+        if telemetry := getattr(self, "_performance_telemetry", None):
+            telemetry.close()
             self._performance_telemetry = None

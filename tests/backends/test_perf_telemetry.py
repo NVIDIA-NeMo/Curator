@@ -124,6 +124,10 @@ class _GpuStage(ProcessingStage[Task, Task]):
         return task
 
 
+class _UninstrumentedStage(_GpuStage):
+    extended_performance_metrics = False
+
+
 class _TelemetryAdapter(PerformanceTelemetryAdapterMixin, BaseStageAdapter):
     pass
 
@@ -170,6 +174,14 @@ def test_backend_adapter_owns_opt_in_sampler_identity_and_cleanup(monkeypatch: p
     assert perf.actor_id == "gpu_stage:actor-a"
     assert perf.gpu_indices == [1]
     assert perf.custom_metrics == {"stage_metric": 2.0, "gpu_util_pct::a": 75.0}
+
+
+def test_backend_enrichment_hook_is_safe_before_optional_setup() -> None:
+    adapter = _TelemetryAdapter(_UninstrumentedStage())
+
+    result = adapter.process_batch([_Task(dataset_name="test", data=[1])])
+
+    assert result[0]._stage_perf[-1].actor_id == ""
 
 
 class _RemoteMethod:
