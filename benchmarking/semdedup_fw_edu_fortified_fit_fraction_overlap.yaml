@@ -1,0 +1,111 @@
+paths:
+  - name: "datasets_path"
+    host_path: "/raid/praateekm/datasets"
+    container_path: "/datasets"
+  - name: "results_path"
+    host_path: "/raid/praateekm/curator-nightly/results"
+  - name: "raytmp_path"
+    host_path: "/raid/praateekm/curator-nightly/raytmp"
+    container_path: "/raytmp"
+
+gpu_stats_recorder:
+  interval_s: 5.0
+
+delete_scratch: false
+default_timeout_s: 7200
+max_timeout_s: 10800
+cleanup_timeout_s: 60
+min_timeout_s: 600
+
+sinks: []
+
+datasets:
+  - name: "fineweb_edu_fortified"
+    formats:
+      - type: "parquet"
+        path: "{datasets_path}/fineweb-edu-fortified"
+
+entries:
+  - name: semdedup_fw_edu_fortified_fitfrac0_05
+    enabled: true
+    script: semdedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:fineweb_edu_fortified,parquet}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/duplicate_ids
+      --executor=xenna
+      --n-clusters=1000
+      --id-field=id
+      --embedding-field=embedding
+      --embedding-dim=384
+      --input-filetype=parquet
+      --eps=0.01
+      --which-to-keep=hard
+      --pairwise-batch-size=8192
+      --dataset-size-ratio=1.0
+      --fit-data-fraction=0.05
+    timeout_s: 7200
+    delete_scratch: false
+    ray:
+      num_cpus: 64
+      num_gpus: 3
+    requirements:
+      - metric: num_duplicates
+        min_value: 1
+
+  - name: semdedup_fw_edu_fortified_fitfrac0_15
+    enabled: true
+    script: semdedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:fineweb_edu_fortified,parquet}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/duplicate_ids
+      --executor=xenna
+      --n-clusters=1000
+      --id-field=id
+      --embedding-field=embedding
+      --embedding-dim=384
+      --input-filetype=parquet
+      --eps=0.01
+      --which-to-keep=hard
+      --pairwise-batch-size=8192
+      --dataset-size-ratio=1.0
+      --fit-data-fraction=0.15
+    timeout_s: 7200
+    delete_scratch: false
+    ray:
+      num_cpus: 64
+      num_gpus: 3
+    requirements:
+      - metric: num_duplicates
+        min_value: 1
+
+  - name: semdedup_fw_edu_fortified_fitfrac0_15_bs4096
+    enabled: true
+    script: semdedup_identification_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:fineweb_edu_fortified,parquet}
+      --cache-path={session_entry_dir}/scratch/cache
+      --output-path={session_entry_dir}/duplicate_ids
+      --executor=xenna
+      --n-clusters=1000
+      --id-field=id
+      --embedding-field=embedding
+      --embedding-dim=384
+      --input-filetype=parquet
+      --eps=0.01
+      --which-to-keep=hard
+      --pairwise-batch-size=4096
+      --dataset-size-ratio=1.0
+      --fit-data-fraction=0.15
+    timeout_s: 10800
+    delete_scratch: false
+    ray:
+      num_cpus: 64
+      num_gpus: 3
+    requirements:
+      - metric: num_duplicates
+        min_value: 1

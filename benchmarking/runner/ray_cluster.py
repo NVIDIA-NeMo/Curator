@@ -53,8 +53,15 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
     include_dashboard: bool = True,
 ) -> tuple[RayClient, Path]:
     """Setup a Ray cluster and set the RAY_ADDRESS environment variable and return the Ray client and temp dir."""
-    # Create a short temp dir to avoid Unix socket path length limits
-    short_temp_path = Path(f"/tmp/ray_{uuid.uuid4().hex[:8]}")  # noqa: S108
+    # Keep Ray temp data with the entry scratch artifacts so benchmark runs do
+    # not spill onto the host root filesystem.
+    env_temp_root = os.environ.get("CURATOR_BENCHMARK_RAY_TMP_ROOT")
+    if env_temp_root:
+        temp_root = Path(env_temp_root)
+    else:
+        temp_root = ray_log_path.parent.parent / "scratch" / "ray_tmp" if ray_log_path else Path("/tmp")  # noqa: S108
+    # Create a short temp dir to avoid Unix socket path length limits.
+    short_temp_path = temp_root / f"ray_{uuid.uuid4().hex[:8]}"
     short_temp_path.mkdir(parents=True, exist_ok=True)
 
     # Capture stdout/stderr to a file if provided, otherwise suppress it
