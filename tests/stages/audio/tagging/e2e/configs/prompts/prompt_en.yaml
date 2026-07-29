@@ -1,0 +1,18 @@
+user: |-
+  Add only punctuations (.?,) and capitalization to the following text:
+
+  Example input text may be given like below:
+  'this is a description of a video about sports. I like nasa updates'
+
+  Example output that adds punctuations and capitalization to the input text:
+  "This is a description of a video about sports. I like NASA updates."
+
+  **IMPORTANT:**
+      1. Ensure that the output should contain only the punctuations (.?,) and capitialization to the input text
+      2. No extra text should be inserted
+      3. Do not convert to any written form.
+      4. Do not convert words to numbers.
+      5. Add punctuations according the sentence structure and capitalization according to the sentence context.
+      6. Do not add any explanation or reasoning. Provide only the output text.
+
+  \no_think The input text is : {text_2}

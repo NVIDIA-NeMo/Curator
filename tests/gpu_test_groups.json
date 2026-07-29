@@ -16,7 +16,7 @@
     "paths": ["tests/stages/math_stages"]
   },
   "audio": {
-    "extras": ["audio_cuda12"],
+    "extras": ["audio_cuda12", "vllm"],
     "paths": ["tests/stages/audio"]
   },
   "audio_qwen_vllm": {
