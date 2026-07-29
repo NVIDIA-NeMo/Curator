@@ -17,11 +17,15 @@ from typing import ClassVar
 from unittest import mock
 
 from nemo_curator.backends.base import BaseStageAdapter, WorkerMetadata
-from nemo_curator.backends.perf_identity import WorkerPerfIdentity
+from nemo_curator.backends.perf_identity import ExtendedPerfStageAdapterMixin, WorkerPerfIdentity
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import Task
 from nemo_curator.utils import gpu_sampler
+
+
+class _TelemetryAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter):
+    pass
 
 
 class _GpuStage(ProcessingStage[Task, Task]):
@@ -69,7 +73,7 @@ class _FakeSampler:
 def test_actor_sampler_targets_only_assigned_gpu_uuids(monkeypatch) -> None:  # noqa: ANN001
     _FakeSampler.calls.clear()
     monkeypatch.setattr(gpu_sampler, "GpuUtilSampler", _FakeSampler)
-    adapter = BaseStageAdapter(_GpuStage())
+    adapter = _TelemetryAdapter(_GpuStage())
     adapter._perf_identity = WorkerPerfIdentity(gpu_uuids=("GPU-a", "GPU-b"))
 
     sampler = adapter._maybe_start_gpu_sampler()
@@ -81,7 +85,7 @@ def test_actor_sampler_targets_only_assigned_gpu_uuids(monkeypatch) -> None:  # 
 def test_actor_sampler_does_not_guess_when_gpu_assignment_is_unknown(monkeypatch) -> None:  # noqa: ANN001
     _FakeSampler.calls.clear()
     monkeypatch.setattr(gpu_sampler, "GpuUtilSampler", _FakeSampler)
-    adapter = BaseStageAdapter(_GpuStage())
+    adapter = _TelemetryAdapter(_GpuStage())
     adapter._perf_identity = WorkerPerfIdentity()
 
     assert adapter._maybe_start_gpu_sampler() is None
@@ -92,7 +96,7 @@ def test_extended_perf_attaches_invocation_identity_metrics_and_stops_sampler(mo
     _FakeSampler.calls.clear()
     _FakeSampler.stops = 0
     monkeypatch.setattr(gpu_sampler, "GpuUtilSampler", _FakeSampler)
-    adapter = BaseStageAdapter(_GpuStage())
+    adapter = _TelemetryAdapter(_GpuStage())
     adapter.setup(
         WorkerMetadata(
             actor_id="gpu_stage:actor-a",
@@ -120,7 +124,7 @@ def test_extended_perf_attaches_invocation_identity_metrics_and_stops_sampler(mo
 def test_extended_perf_publishes_fully_filtered_invocation_out_of_band() -> None:
     stage = _FilteringGpuStage()
     stage._curator_stage_id = "0002:gpu_stage"
-    adapter = BaseStageAdapter(stage)
+    adapter = _TelemetryAdapter(stage)
     adapter._perf_identity = WorkerPerfIdentity(actor_id="actor")
 
     with mock.patch("nemo_curator.utils.stage_perf_collector.record_stage_perf", return_value=True) as publish:

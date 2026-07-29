@@ -477,13 +477,16 @@ class ExtendedPerfStageAdapterMixin:
             return
 
         self._perf_identity = read_worker_metadata_identity(str(self.stage.name), worker_metadata)
-        self._gpu_sampler = None
+        self._gpu_sampler = self._maybe_start_gpu_sampler()
+
+    def _maybe_start_gpu_sampler(self) -> Any | None:  # noqa: ANN401
+        """Start actor-local sampling only for explicitly assigned GPU UUIDs."""
         resources = getattr(self.stage, "resources", None)
         if resources is None or not getattr(resources, "requires_gpu", False):
-            return
+            return None
         gpu_uuids = tuple(self._perf_identity.gpu_uuids)
         if not gpu_uuids:
-            return
+            return None
         try:
             from nemo_curator.utils.gpu_sampler import GpuUtilSampler
 
@@ -491,8 +494,8 @@ class ExtendedPerfStageAdapterMixin:
             sampler.start()
         except Exception as exc:  # noqa: BLE001
             logger.debug("GPU sampler unavailable for {}: {}", self.stage.name, exc)
-            return
-        self._gpu_sampler = sampler
+            return None
+        return sampler
 
     def _enrich_stage_perf_record(self, stage_perf_stats: StagePerfStats, results: list[Any]) -> None:
         if not bool(getattr(self.stage, "extended_performance_metrics", False)):
