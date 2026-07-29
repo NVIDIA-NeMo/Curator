@@ -116,8 +116,8 @@ audio_common = [
     "librosa",
     "scipy",
     "pydub>=0.25.1",
-    "transformers",
-    "accelerate",
+    "transformers>=4.57.6,<5.0",
+    "accelerate>=1.12.0",
     "nemo_text_processing; platform_machine == 'x86_64' and platform_system != 'Darwin'",  # pulls pynini, which ships x86_64-only wheels and fails to build on aarch64
     "opencc-python-reimplemented",
     "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
@@ -134,6 +134,7 @@ audio_cuda12 = [
     "nemo_curator[cuda12]",
     "nvidia-cudnn-cu12",
     "onnxruntime-gpu>=1.20.1,<1.24; platform_machine == 'x86_64'",
+    "qwen-omni-utils>=0.0.9",
     "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 
@@ -212,6 +213,11 @@ text_cpu = [
     "sentence-transformers",
 ]
 
+lance = [
+    "lance-ray>=0.4",
+    "pylance>=7",
+]
+
 text_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
@@ -247,6 +253,7 @@ video_media = [
 math_cpu = [
     "nemo_curator[text_cpu]",  # Math examples use text processing utilities
     "boto3>=1.35",  # S3 range requests for Common Crawl WARC fetching
+    "python-magic==0.4.24",  # Python bindings for the libmagic runtime
 ]
 
 math_cuda12 = [
@@ -289,6 +296,7 @@ all = [
     "nemo_curator[image_cuda12]",
     "nemo_curator[inference_server]",
     "nemo_curator[interleaved_cuda12]",
+    "nemo_curator[lance]",
     "nemo_curator[math_cuda12]",
     "nemo_curator[sdg_cuda12]",
     "nemo_curator[text_cuda12]",

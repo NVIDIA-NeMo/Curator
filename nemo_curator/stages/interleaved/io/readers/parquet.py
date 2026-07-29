@@ -22,7 +22,7 @@ import pyarrow.parquet as pq
 from fsspec.core import url_to_fs
 from pyarrow.fs import FSSpecHandler, PyFileSystem
 
-from nemo_curator.core.utils import split_table_by_group_max_bytes
+from nemo_curator.core.utils import split_table_by_group
 from nemo_curator.stages.interleaved.utils import resolve_storage_options
 from nemo_curator.tasks import FileGroupTask, InterleavedBatch
 from nemo_curator.tasks.interleaved import INTERLEAVED_SCHEMA, RESERVED_COLUMNS
@@ -113,7 +113,7 @@ class InterleavedParquetReaderStage(BaseInterleavedReader):
             base = self.schema if self.schema is not None else INTERLEAVED_SCHEMA
             combined = pa.Table.from_pylist([], schema=base)
 
-        splits = split_table_by_group_max_bytes(combined, "sample_id", self.max_batch_bytes)
+        splits = split_table_by_group(combined, "sample_id", max_batch_bytes=self.max_batch_bytes)
         batches: list[InterleavedBatch] = []
         for idx, split in enumerate(splits):
             f"{task.task_id}_processed" if len(splits) == 1 else f"{task.task_id}_processed_{idx:05d}"

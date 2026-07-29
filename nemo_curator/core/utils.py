@@ -214,54 +214,63 @@ def init_cluster(  # noqa: PLR0913
     return proc
 
 
-def split_table_by_group_max_bytes(
+def split_table_by_group(
     table: pa.Table,
     group_column: str,
-    max_batch_bytes: int | None,
+    *,
+    max_batch_bytes: int | None = None,
+    max_batch_rows: int | None = None,
 ) -> list[pa.Table]:
-    """Split an Arrow table by approximate byte size without splitting group rows.
+    """Split an Arrow table without reordering or splitting consecutive groups.
 
-    Each unique value in ``group_column`` is kept in a single output table.
-    If a single group exceeds ``max_batch_bytes``, it is still emitted as one chunk.
-
-    Note: null values in ``group_column`` are grouped together (consecutive
-    nulls are not split).  Callers should ensure the column is non-nullable
-    or handle nulls upstream.
+    Rows for each group must be consecutive. If a single group exceeds a batch
+    limit, it is still emitted as one chunk.
     """
-    if max_batch_bytes is None or table.num_rows == 0:
-        return [table]
-    if max_batch_bytes <= 0:
-        msg = f"max_batch_bytes must be > 0, got {max_batch_bytes}"
-        raise ValueError(msg)
+    for name, value in (("max_batch_bytes", max_batch_bytes), ("max_batch_rows", max_batch_rows)):
+        if value is not None and value <= 0:
+            msg = f"{name} must be > 0, got {value}"
+            raise ValueError(msg)
+
     if group_column not in table.column_names:
         msg = f"Group column '{group_column}' not found in table"
         raise ValueError(msg)
-
-    sort_indices = pc.sort_indices(table, sort_keys=[(group_column, "ascending")])
-    table = table.take(sort_indices)
-    col = table[group_column]
-    n = table.num_rows
-
-    if n <= 1:
+    if table.num_rows == 0:
         return [table]
 
-    ne = pc.not_equal(col.slice(1), col.slice(0, n - 1))
-    split_points = pc.indices_nonzero(ne).to_pylist()
-    group_starts = [0, *(p + 1 for p in split_points)]
-    group_ends = [*(p + 1 for p in split_points), n]
+    chunked = table[group_column]
+    groups = chunked.combine_chunks() if len(chunked.chunks) > 1 else chunked.chunks[0]
+    if pc.any(pc.is_null(groups)).as_py():
+        msg = f"Group column '{group_column}' contains null values"
+        raise ValueError(msg)
+    if max_batch_bytes is None and max_batch_rows is None:
+        return [table]
 
-    avg_bytes_per_row = table.nbytes / n
-    chunk_split_indices: list[int] = []
+    num_rows = table.num_rows
+    group_change = pc.not_equal(groups.slice(1), groups.slice(0, num_rows - 1))
+    group_ends = [*(point + 1 for point in pc.indices_nonzero(group_change).to_pylist()), num_rows]
+
+    split_points: list[int] = []
+    chunk_start = 0
     chunk_bytes = 0.0
-    for i, (gs, ge) in enumerate(zip(group_starts, group_ends, strict=True)):
-        group_bytes = (ge - gs) * avg_bytes_per_row
-        if i > 0 and chunk_bytes > 0 and (chunk_bytes + group_bytes > max_batch_bytes):
-            chunk_split_indices.append(gs)
+    chunk_rows = 0
+    avg_bytes_per_row = table.nbytes / num_rows
+    for group_end in group_ends:
+        group_start = chunk_start + chunk_rows
+        group_rows = group_end - group_start
+        group_bytes = group_rows * avg_bytes_per_row
+        exceeds_batch_limit = chunk_rows > 0 and (
+            (max_batch_bytes is not None and chunk_bytes + group_bytes > max_batch_bytes)
+            or (max_batch_rows is not None and chunk_rows + group_rows > max_batch_rows)
+        )
+        if exceeds_batch_limit:
+            split_points.append(group_start)
+            chunk_start = group_start
             chunk_bytes = 0.0
-        chunk_bytes += group_bytes
+            chunk_rows = 0
 
-    if not chunk_split_indices:
-        return [table]
-    all_starts = [0, *chunk_split_indices]
-    all_ends = [*chunk_split_indices, n]
-    return [table.slice(s, e - s) for s, e in zip(all_starts, all_ends, strict=True)]
+        chunk_bytes += group_bytes
+        chunk_rows += group_rows
+
+    starts = [0, *split_points]
+    ends = [*split_points, num_rows]
+    return [table.slice(start, end - start) for start, end in zip(starts, ends, strict=True)]
