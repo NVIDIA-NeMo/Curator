@@ -12,9 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
+from types import SimpleNamespace
+from unittest import mock
 
+import pytest
+from cosmos_xenna.utils.verbosity import VerbosityLevel
+
+from nemo_curator.backends.perf_identity import WorkerPerfIdentity
 from nemo_curator.backends.xenna import executor as xenna_executor
+from nemo_curator.backends.xenna.adapter import XennaStageAdapter
 from nemo_curator.backends.xenna.executor import XennaExecutor
 from nemo_curator.stages.base import ProcessingStage, Resources
 from nemo_curator.tasks import EmptyTask
@@ -41,6 +47,48 @@ class ConfigurableStage(ProcessingStage[EmptyTask, EmptyTask]):
 
     def process(self, task: EmptyTask) -> EmptyTask:
         return task
+
+
+def test_xenna_verbosity_none_uses_default() -> None:
+    executor = XennaExecutor(config={"actor_pool_verbosity_level": None})
+
+    assert executor._get_verbosity_config("actor_pool_verbosity_level") is VerbosityLevel.INFO
+
+
+def test_xenna_verbosity_bad_string_has_helpful_error() -> None:
+    executor = XennaExecutor(config={"actor_pool_verbosity_level": "loud"})
+
+    with pytest.raises(ValueError, match="Invalid Xenna verbosity config actor_pool_verbosity_level='loud'"):
+        executor._get_verbosity_config("actor_pool_verbosity_level")
+
+
+def test_xenna_worker_setup_preserves_node_identity_from_node_setup() -> None:
+    stage = ConfigurableStage()
+    stage.extended_performance_metrics = True
+    adapter = XennaStageAdapter(stage)
+    node_info = SimpleNamespace(node_id="node-a")
+    worker_metadata = SimpleNamespace(worker_id="worker-a", allocation=None)
+
+    def build_identity(
+        stage_name: str,
+        *,
+        worker_id: str,
+        node_id: str,
+        allocation: object,
+        requires_gpu: bool,
+    ) -> WorkerPerfIdentity:
+        del allocation, requires_gpu
+        return WorkerPerfIdentity(actor_id=f"{stage_name}:{worker_id}", node_id=node_id)
+
+    with mock.patch(
+        "nemo_curator.backends.xenna.adapter.build_xenna_perf_identity",
+        side_effect=build_identity,
+    ) as identity_builder:
+        adapter.setup_on_node(node_info, worker_metadata)
+        adapter.setup(worker_metadata)
+
+    assert [call.kwargs["node_id"] for call in identity_builder.call_args_list] == ["node-a", "node-a"]
+    assert adapter._perf_identity.node_id == "node-a"
 
 
 def test_xenna_executor_uses_stage_num_workers_when_xenna_spec_has_no_worker_sizing(

@@ -89,6 +89,11 @@ def test_validate_input_with_tabular_columns(
 class TestProcessingStageWith:
     """Test the with_ method for ProcessingStage."""
 
+    def test_observability_defaults(self):
+        stage = ConcreteProcessingStage()
+
+        assert stage.extended_performance_metrics is False
+
     def test_all(self):
         stage = ConcreteProcessingStage()
         assert stage.resources == Resources(cpus=2.0)
@@ -164,6 +169,14 @@ class TestProcessingStageWith:
         assert stage.name == "ConcreteProcessingStage"
         assert stage.batch_size == 2
         assert stage.resources == Resources(cpus=2.0)
+
+    def test_extended_performance_metrics_is_an_additive_override(self):
+        stage = ConcreteProcessingStage()
+
+        stage_new = stage.with_(extended_performance_metrics=True)
+
+        assert stage.extended_performance_metrics is False
+        assert stage_new.extended_performance_metrics is True
 
     def test_with_method_thread_safety(self):
         """Test that with_ method is thread-safe."""

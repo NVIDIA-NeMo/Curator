@@ -73,6 +73,28 @@ explicit:
 Keeping these values in the YAML makes any future drift from the reference
 configuration visible in code review.
 
+## Performance telemetry
+
+The Qwen ASR stage is a concrete consumer of Curator's opt-in extended
+performance telemetry. Its YAML sets
+`extended_performance_metrics: true`, so every ASR batch records a stable
+invocation ID, Ray/Xenna actor and node identity, assigned physical GPU UUIDs,
+and windowed NVML utilization for those assigned devices.
+
+The executor also enables one aggregate hardware sampler per live Ray node:
+
+```yaml
+executor_config:
+  pipeline_hardware_sampler_enabled: true
+  pipeline_hardware_sampler_interval_s: 0.5
+```
+
+Both collectors are fail-open: inability to initialize NVML diagnostics does
+not fail transcription. An ASR call shorter than the actor sampler's 0.2
+second interval can legitimately contain identity and timing without an
+in-window utilization sample. Ray Data and Xenna support the configuration;
+the Ray Actor Pool executor supports it when constructed directly.
+
 The engine settings live under `adapter_kwargs.vllm_kwargs`; sampling settings
 live under `adapter_kwargs.sampling_kwargs`. They are forwarded to Curator's
 shared vLLM construction path and vLLM's `SamplingParams`, respectively.

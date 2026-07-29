@@ -29,6 +29,9 @@ pred_text_key: pred_text
 gpus_per_actor: 2
 backend: ray_data
 execution_mode: streaming
+executor_config:
+  pipeline_hardware_sampler_enabled: true
+  pipeline_hardware_sampler_interval_s: 0.5
 
 stages:
   - _target_: nemo_curator.stages.audio.common.ManifestReader
@@ -49,6 +52,7 @@ stages:
     supported_language_codes: ${supported_language_codes}
     pred_text_key: ${pred_text_key}
     batch_size: 32
+    extended_performance_metrics: true
     resources:
       _target_: nemo_curator.stages.resources.Resources
       gpus: ${gpus_per_actor}

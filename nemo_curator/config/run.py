@@ -51,17 +51,26 @@ def create_executor_from_yaml(cfg: DictConfig) -> BaseExecutor | None:
         raise ValueError(msg)
 
     executor_cls = hydra.utils.get_class(_EXECUTOR_TARGETS[backend])
+    executor_config_node = cfg.get("executor_config")
+    executor_config = (
+        OmegaConf.to_container(executor_config_node, resolve=True) if executor_config_node is not None else {}
+    )
+    executor_config = executor_config or {}
+    if not isinstance(executor_config, dict):
+        msg = "executor_config must be a mapping."
+        raise TypeError(msg)
     if backend == "xenna":
         execution_mode = str(cfg.get("execution_mode", "streaming"))
         if execution_mode not in _XENNA_EXECUTION_MODES:
             choices = ", ".join(sorted(_XENNA_EXECUTION_MODES))
             msg = f"Unknown Xenna execution mode '{execution_mode}'. Choose from: {choices}."
             raise ValueError(msg)
+        executor_config.setdefault("execution_mode", execution_mode)
         logger.info(f"Using executor backend '{backend}' in '{execution_mode}' mode.")
-        return executor_cls(config={"execution_mode": execution_mode})
+        return executor_cls(config=executor_config)
 
     logger.info(f"Using executor backend '{backend}'.")
-    return executor_cls()
+    return executor_cls(config=executor_config) if executor_config else executor_cls()
 
 
 def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
@@ -76,15 +85,20 @@ def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
     cfg_dict = OmegaConf.to_container(stage_cfg, resolve=True)
 
     stage_resources = cfg_dict.pop("resources", None)
+    extended_performance_metrics = cfg_dict.pop("extended_performance_metrics", None)
 
     stage = hydra.utils.instantiate(cfg_dict)
 
+    with_kwargs: dict[str, Any] = {}
     if stage_resources:
         if isinstance(stage_resources, dict) and "_target_" in stage_resources:
             resources_obj = hydra.utils.instantiate(stage_resources)
         else:
             resources_obj = Resources(**stage_resources)
-        with_kwargs: dict[str, Any] = {"resources": resources_obj}
+        with_kwargs["resources"] = resources_obj
+    if extended_performance_metrics is not None:
+        with_kwargs["extended_performance_metrics"] = bool(extended_performance_metrics)
+    if with_kwargs:
         stage = stage.with_(**with_kwargs)
         logger.info(f"Applied .with_() to '{stage.name}': {with_kwargs}")
 

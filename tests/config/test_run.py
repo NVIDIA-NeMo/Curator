@@ -205,6 +205,27 @@ def test_pipeline_with_hydra_instantiated_resources():
     assert pipeline.stages[0].resources.gpus == 2.0
 
 
+def test_pipeline_applies_extended_performance_metrics_with_stage_override():
+    cfg = OmegaConf.create(
+        {
+            "stages": [
+                {
+                    "_target_": "nemo_curator.stages.text.filters.score_filter.ScoreFilter",
+                    "filter_obj": {
+                        "_target_": "nemo_curator.stages.text.filters.heuristic.string.NonAlphaNumericFilter",
+                    },
+                    "text_field": "text",
+                    "extended_performance_metrics": True,
+                }
+            ]
+        }
+    )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+
+    assert pipeline.stages[0].extended_performance_metrics is True
+
+
 def test_pipeline_with_multiple_stages():
     from nemo_curator.stages.text.modifiers import Modify
     from nemo_curator.stages.text.modifiers.string import UrlRemover
@@ -381,6 +402,30 @@ def test_ray_data_does_not_receive_xenna_execution_mode(mock_get_class: MagicMoc
     executor_cls.assert_called_once_with()
 
 
+@patch("hydra.utils.get_class")
+def test_executor_passes_generic_executor_config(mock_get_class: MagicMock):
+    executor_cls = MagicMock()
+    mock_get_class.return_value = executor_cls
+    cfg = OmegaConf.create(
+        {
+            "backend": "ray_data",
+            "executor_config": {
+                "pipeline_hardware_sampler_enabled": True,
+                "pipeline_hardware_sampler_interval_s": 0.25,
+            },
+        }
+    )
+
+    create_executor_from_yaml(cfg)
+
+    executor_cls.assert_called_once_with(
+        config={
+            "pipeline_hardware_sampler_enabled": True,
+            "pipeline_hardware_sampler_interval_s": 0.25,
+        }
+    )
+
+
 def test_unknown_executor_backend_raises_error():
     cfg = OmegaConf.create({"backend": "unknown"})
 
@@ -493,4 +538,20 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
         },
     }
     assert executor.__class__.__name__ == "RayDataExecutor"
-    assert executor.config == {}
+    assert executor.config == {
+        "pipeline_hardware_sampler_enabled": True,
+        "pipeline_hardware_sampler_interval_s": 0.5,
+    }
+
+
+def test_qwen_tutorial_enables_extended_performance_telemetry():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "qwen_omni_inprocess"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=["manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl"],
+        )
+
+    assert cfg.stages[2].extended_performance_metrics is True
+    assert cfg.executor_config.pipeline_hardware_sampler_enabled is True
+    assert cfg.executor_config.pipeline_hardware_sampler_interval_s == 0.5

@@ -105,7 +105,12 @@ class Pipeline:
         self.stages = execution_stages
         self.decomposition_info = decomposition_info
 
-        # 3. Source / sink defaults: at most one stage may be explicitly
+        # 3. Assign an execution-plan identity independently of the public name.
+        # Names are user-facing and need not be unique.
+        for index, stage in enumerate(self.stages):
+            stage._curator_stage_id = f"{index:04d}:{stage.name}"
+
+        # 4. Source / sink defaults: at most one stage may be explicitly
         # marked; if none, the first stage is the source and the last is
         # the sink. The source flag activates content-based ids in the
         # default ``process_batch``; the sink flag tells the resumability

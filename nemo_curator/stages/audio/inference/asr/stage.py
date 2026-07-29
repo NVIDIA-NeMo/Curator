@@ -22,6 +22,7 @@ predictions. The concrete adapter is resolved at runtime from
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -393,8 +394,13 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 }
             )
 
+        inference_time_s = 0.0
+        adapter_inference_calls = 0.0
         if adapter_items:
+            inference_t0 = time.perf_counter()
             adapter_results = self._adapter.transcribe_batch(adapter_items)
+            inference_time_s = time.perf_counter() - inference_t0
+            adapter_inference_calls = 1.0
             if len(adapter_results) != len(adapter_items):
                 msg = (
                     f"Adapter returned {len(adapter_results)} results for "
@@ -402,7 +408,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 )
                 raise RuntimeError(msg)
             by_index.update(zip(adapter_indices, adapter_results, strict=True))
-        return [
+        results = [
             by_index.get(
                 index,
                 ASRResult(
@@ -418,6 +424,21 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             )
             for index, item in enumerate(items)
         ]
+        audio_duration_s = sum(float(len(item["waveform"])) / float(item["sample_rate"]) for item in adapter_items)
+        skipped = sum(1 for result in results if result.skipped)
+        self._log_metrics(
+            {
+                "audio_duration_s": audio_duration_s,
+                "inference_time_s": inference_time_s,
+                "adapter_inference_calls": adapter_inference_calls,
+                "adapter_inference_items": float(len(adapter_items)),
+                "utterances_input": float(len(items)),
+                "utterances_processed": float(len(results) - skipped),
+                "utterances_skipped": float(skipped),
+                "output_chars": float(sum(len(result.text) for result in results)),
+            }
+        )
+        return results
 
     def assemble(
         self,

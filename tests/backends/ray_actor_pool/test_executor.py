@@ -16,12 +16,61 @@ from unittest import mock
 
 import pytest
 
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.ray_actor_pool.adapter import RayActorPoolStageAdapter
 from nemo_curator.backends.ray_actor_pool.executor import _parse_runtime_env
 from nemo_curator.backends.ray_actor_pool.utils import calculate_optimal_actors_for_stage
+from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import EmptyTask
+
+
+class _AdapterStage(ProcessingStage[EmptyTask, EmptyTask]):
+    name = "adapter_stage"
+    resources = Resources(cpus=1.0)
+    batch_size = 1
+
+    def process(self, task: EmptyTask) -> EmptyTask:
+        return task
 
 
 class TestRayActorPoolExecutor:
+    def test_adapter_uses_perf_setup_only_when_enabled(self) -> None:
+        metadata = (NodeInfo(node_id="node"), WorkerMetadata(worker_id="worker"))
+        ordinary_stage = _AdapterStage()
+        extended_stage = _AdapterStage()
+        extended_stage.extended_performance_metrics = True
+
+        with (
+            mock.patch(
+                "nemo_curator.backends.ray_actor_pool.adapter.get_worker_metadata_and_node_id",
+                return_value=metadata,
+            ) as plain_metadata,
+            mock.patch(
+                "nemo_curator.backends.ray_actor_pool.adapter.get_worker_metadata_and_node_id_with_perf",
+                return_value=metadata,
+            ) as perf_metadata,
+        ):
+            ordinary_adapter = RayActorPoolStageAdapter(ordinary_stage)
+            assert not hasattr(ordinary_adapter, "_worker_metadata")
+            plain_metadata.assert_called_once_with()
+            perf_metadata.assert_not_called()
+
+        with (
+            mock.patch(
+                "nemo_curator.backends.ray_actor_pool.adapter.get_worker_metadata_and_node_id",
+                return_value=metadata,
+            ) as plain_metadata,
+            mock.patch(
+                "nemo_curator.backends.ray_actor_pool.adapter.get_worker_metadata_and_node_id_with_perf",
+                return_value=metadata,
+            ) as perf_metadata,
+        ):
+            extended_adapter = RayActorPoolStageAdapter(extended_stage)
+            assert extended_adapter._worker_metadata is metadata[1]
+            plain_metadata.assert_not_called()
+            perf_metadata.assert_called_once_with(extended_stage.name, requires_gpu=False)
+
     def test_parse_runtime_env(self):
         # With noset defined we should override it to be empty
         with_noset_defined = {"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": mock.ANY}}

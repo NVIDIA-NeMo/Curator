@@ -19,7 +19,11 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
+from nemo_curator.backends.utils import (
+    RayStageSpecKeys,
+    get_worker_metadata_and_node_id,
+    get_worker_metadata_and_node_id_with_perf,
+)
 from nemo_curator.tasks import FileGroupTask
 
 if TYPE_CHECKING:
@@ -55,7 +59,13 @@ class ShuffleStageAdapter(BaseStageAdapter):
         """
         super().__init__(stage)
         # Get runtime context for worker metadata (copied from RayActorPoolStageAdapter)
-        node_info, worker_metadata = get_worker_metadata_and_node_id()
+        if bool(getattr(stage, "extended_performance_metrics", False)):
+            requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
+            node_info, worker_metadata = get_worker_metadata_and_node_id_with_perf(
+                str(stage.name), requires_gpu=requires_gpu
+            )
+        else:
+            node_info, worker_metadata = get_worker_metadata_and_node_id()
 
         # Create WorkerMetadata with actor information
         self.worker_metadata = worker_metadata
@@ -108,7 +118,8 @@ class ShuffleStageAdapter(BaseStageAdapter):
         """Setup shuffle workers and stage"""
         self.setup_worker(root_address)
         # call the stage's setup method
-        super().setup(worker_metadata)
+        resolved_metadata = worker_metadata if worker_metadata is not None else self.worker_metadata
+        super().setup(resolved_metadata)
 
     def setup_root(self) -> None:
         """Setup the root actor."""
@@ -144,4 +155,4 @@ class ShuffleStageAdapter(BaseStageAdapter):
 
     def teardown(self) -> None:
         """Clean up resources."""
-        self.stage.teardown()
+        super().teardown()

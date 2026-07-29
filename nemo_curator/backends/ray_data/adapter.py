@@ -20,7 +20,11 @@ from loguru import logger
 from ray.data import Dataset, TaskPoolStrategy
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
+from nemo_curator.backends.utils import (
+    RayStageSpecKeys,
+    get_worker_metadata_and_node_id,
+    get_worker_metadata_and_node_id_with_perf,
+)
 from nemo_curator.stages.base import ProcessingStage
 
 from .utils import get_actor_compute_strategy_for_stage, get_configured_actor_pool_sizing_keys, is_actor_stage
@@ -164,7 +168,13 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
             """Initialize the stage processor."""
             super().__init__(stage)
             self.setup_done = False
-            node_info, worker_metadata = get_worker_metadata_and_node_id()
+            requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
+            if bool(getattr(stage, "extended_performance_metrics", False)):
+                node_info, worker_metadata = get_worker_metadata_and_node_id_with_perf(
+                    str(stage.name), requires_gpu=requires_gpu
+                )
+            else:
+                node_info, worker_metadata = get_worker_metadata_and_node_id()
             self.setup_on_node(node_info, worker_metadata)
             self.setup(worker_metadata)
 
@@ -193,10 +203,21 @@ def create_task_from_stage(stage: ProcessingStage) -> Callable[[dict[str, Any]],
     """
     # Create the adapter instance
     adapter = RayDataStageAdapter(stage)
+    extended_perf = bool(getattr(stage, "extended_performance_metrics", False))
+    setup_done = not extended_perf
 
     # Create a standalone function that wraps the adapter's processing logic
     def stage_map_fn(batch: dict[str, Any]) -> dict[str, Any]:
         """Dynamically named map function that processes a batch of Task objects."""
+        nonlocal setup_done
+        if not setup_done:
+            requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
+            _node_info, worker_metadata = get_worker_metadata_and_node_id_with_perf(
+                str(stage.name),
+                requires_gpu=requires_gpu,
+            )
+            adapter.setup(worker_metadata)
+            setup_done = True
         return adapter._process_batch_internal(batch)
 
     # Set the function name to include the stage name with Task suffix
