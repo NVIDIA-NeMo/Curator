@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -56,11 +57,13 @@ class NodeInfo:
 class WorkerMetadata:
     """Generic worker metadata for setup_on_node calls across backends.
     Simplified to match Xenna's structure. The allocation field can contain
-    backend-specific allocation information.
+    backend-specific allocation information and ``perf_identity`` can carry an
+    optional backend-owned immutable identity value.
     """
 
     worker_id: str = ""
     allocation: Any = None  # Backend-specific allocation info
+    perf_identity: Any = None
 
 
 class BaseExecutor(ABC):
@@ -69,10 +72,43 @@ class BaseExecutor(ABC):
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         self.config = config or {}
         self.ignore_head_node = ignore_head_node or ignore_ray_head_node()
+        self._external_perf_records: list[Any] = []
 
     @abstractmethod
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
         """Execute the pipeline."""
+
+    @staticmethod
+    def _start_stage_perf_collector(stages: list["ProcessingStage"]) -> Any | None:  # noqa: ANN401
+        """Start the run-scoped collector when performance collection is enabled."""
+        try:
+            from nemo_curator.utils.stage_perf_collector import start_stage_perf_collector
+
+            return start_stage_perf_collector(stages)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Stage performance collector disabled: {}", exc)
+            return None
+
+    def _stop_stage_perf_collector(
+        self,
+        collector: Any | None,  # noqa: ANN401
+        stages: list["ProcessingStage"],
+        *,
+        keep_records: bool,
+    ) -> None:
+        try:
+            from nemo_curator.utils.stage_perf_collector import stop_stage_perf_collector
+
+            records = stop_stage_perf_collector(collector, stages)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Stage performance collector stop failed: {}", exc)
+            records = []
+        self._external_perf_records = [stats for stats, _attached in records] if keep_records else []
+
+    def consume_external_perf_records(self) -> list[Any]:
+        """Return and clear the authoritative invocation records for this run."""
+        records, self._external_perf_records = self._external_perf_records, []
+        return records
 
 
 class BaseStageAdapter:
@@ -81,7 +117,7 @@ class BaseStageAdapter:
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
 
-    def process_batch(self, tasks: list[Task]) -> list[Task]:
+    def process_batch(self, tasks: list[Task]) -> list[Task]:  # noqa: C901
         """Process a batch of tasks.
 
         Args:
@@ -99,9 +135,14 @@ class BaseStageAdapter:
         # Initialize performance timer for this batch
         self._timer.reinit(input_size)
 
+        capture_metrics = bool(getattr(self.stage, "_curator_stage_perf_collector_name", ""))
+        window_start_s = time.time() if capture_metrics else 0.0
+        process_start_s = time.perf_counter() if capture_metrics else 0.0
         with self._timer.time_process(input_size):
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
+        process_elapsed_s = max(time.perf_counter() - process_start_s, 0.0) if capture_metrics else 0.0
+        window_end_s = time.time() if capture_metrics else 0.0
 
         # A returned ``None`` ("filter this slot") becomes a NoneTask so every
         # output is a real Task that gets a task_id. Sentinels (NoneTask /
@@ -116,9 +157,7 @@ class BaseStageAdapter:
         is_source_stage = getattr(self.stage, "is_source_stage", False)
         failed_tasks = [r for r in results if isinstance(r, FailedTask)]
         if failed_tasks and is_source_stage:
-            msg = (
-                f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
-            )
+            msg = f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
             raise ValueError(msg)
 
         # Record failed tasks for later inspection or retry bookkeeping.
@@ -146,12 +185,31 @@ class BaseStageAdapter:
 
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
+        if capture_metrics:
+            stage_perf_stats.process_time = process_elapsed_s
+            stage_perf_stats.invocation_id = uuid.uuid4().hex
+            stage_perf_stats.window_start_s = window_start_s
+            stage_perf_stats.window_end_s = window_end_s
         # Consume and attach any custom metrics recorded by the stage during this call
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
+        enrich_perf = getattr(self, "_enrich_stage_perf_record", None)
+        if callable(enrich_perf):
+            enrich_perf(stage_perf_stats, results)
         for task in results:
             task.add_stage_perf(stage_perf_stats)
+        if capture_metrics:
+            try:
+                from nemo_curator.utils.stage_perf_collector import record_stage_perf
+
+                record_stage_perf(
+                    self.stage,
+                    stage_perf_stats,
+                    attached_to_output=bool(results),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Stage performance collector publish failed for {}: {}", self.stage.name, exc)
 
         return results
 
@@ -300,8 +358,17 @@ class BaseStageAdapter:
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker
         """
+        self._worker_metadata = worker_metadata
         self.stage.setup(worker_metadata)
+        setup_perf = getattr(self, "_setup_performance_telemetry", None)
+        if callable(setup_perf):
+            setup_perf(worker_metadata)
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""
-        self.stage.teardown()
+        try:
+            self.stage.teardown()
+        finally:
+            teardown_perf = getattr(self, "_teardown_performance_telemetry", None)
+            if callable(teardown_perf):
+                teardown_perf()

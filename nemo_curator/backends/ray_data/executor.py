@@ -69,6 +69,8 @@ class RayDataExecutor(BaseExecutor):
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
         tasks: list[Task] = initial_tasks or [EmptyTask()]
         output_tasks: list[Task] = []
+        self._external_perf_records = []
+        stage_perf_collector = None
         # When runtime_env with pip is used, Ray's pip plugin sets up per-stage virtualenvs
         # lazily on first task dispatch by cloning the current virtualenv. The NeMo Curator
         # container's /opt/venv is created with `uv venv --seed` so pip is available in clones.
@@ -78,6 +80,7 @@ class RayDataExecutor(BaseExecutor):
             ray.init(
                 ignore_reinit_error=True, runtime_env={"env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": ""}}
             )
+            stage_perf_collector = self._start_stage_perf_collector(stages)
 
             # Convert tasks to dataset
             current_dataset = self._tasks_to_dataset(tasks)
@@ -104,9 +107,13 @@ class RayDataExecutor(BaseExecutor):
             # Convert final dataset back to tasks
             # TODO: add pipeline configuration to check if user wants to return last stages output to driver
             output_tasks = self._dataset_to_tasks(current_dataset)
+            self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=True)
+            stage_perf_collector = None
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
+            if stage_perf_collector is not None:
+                self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=False)
             ray.shutdown()
         return output_tasks
 
