@@ -20,16 +20,8 @@ from cosmos_xenna.pipelines.private.resources import NodeInfo as XennaNodeInfo
 from cosmos_xenna.pipelines.private.resources import Resources as XennaResources
 from cosmos_xenna.pipelines.private.resources import WorkerMetadata as XennaWorkerMetadata
 
-from nemo_curator.backends.base import (
-    BaseStageAdapter,
-    NodeInfo,
-    WorkerMetadata,
-)
-from nemo_curator.backends.perf_identity import (
-    ExtendedPerfStageAdapterMixin,
-    build_xenna_perf_identity,
-    stamp_worker_metadata,
-)
+from nemo_curator.backends.base import BaseStageAdapter, NodeInfo, WorkerMetadata
+from nemo_curator.backends.perf_identity import build_xenna_perf_identity
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import Task
 
@@ -59,7 +51,7 @@ class CuratorRuntimeEnv:
         return f"runtime_env_keys: {', '.join(self._runtime_env.keys())}"
 
 
-class XennaStageAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter, pipelines_v1.Stage):
+class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
     """Adapts ProcessingStage to Xenna.
     Args:
         stage: ProcessingStage to adapt
@@ -109,6 +101,22 @@ class XennaStageAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter, pipelin
         # Use the base stage's monitoring capability
         return self.process_batch(tasks)
 
+    def _worker_metadata(self, metadata: XennaWorkerMetadata, node_id: str) -> WorkerMetadata:
+        identity = None
+        if getattr(self.processing_stage, "extended_performance_metrics", False):
+            identity = build_xenna_perf_identity(
+                str(self.processing_stage.name),
+                worker_id=metadata.worker_id,
+                node_id=node_id,
+                allocation=metadata.allocation,
+                requires_gpu=self.processing_stage.resources.requires_gpu,
+            )
+        return WorkerMetadata(
+            worker_id=metadata.worker_id,
+            allocation=metadata.allocation,
+            perf_identity=identity,
+        )
+
     def setup_on_node(self, node_info: XennaNodeInfo, worker_metadata: XennaWorkerMetadata) -> None:
         """Setup the stage on a node - Xenna-specific signature.
         This method is called by Xenna with its specific types. We convert them
@@ -120,21 +128,7 @@ class XennaStageAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter, pipelin
         # Convert Xenna's types to our generic types (simplified)
         self._node_id = node_info.node_id
         generic_node_info = NodeInfo(node_id=node_info.node_id)
-        requires_gpu = bool(getattr(getattr(self.processing_stage, "resources", None), "requires_gpu", False))
-        generic_worker_metadata = WorkerMetadata(
-            worker_id=worker_metadata.worker_id,
-            allocation=worker_metadata.allocation,
-        )
-        if bool(getattr(self.processing_stage, "extended_performance_metrics", False)):
-            identity = build_xenna_perf_identity(
-                str(self.processing_stage.name),
-                worker_id=worker_metadata.worker_id,
-                node_id=node_info.node_id,
-                allocation=worker_metadata.allocation,
-                requires_gpu=requires_gpu,
-            )
-            stamp_worker_metadata(generic_worker_metadata, identity)
-        super().setup_on_node(generic_node_info, generic_worker_metadata)
+        super().setup_on_node(generic_node_info, self._worker_metadata(worker_metadata, node_info.node_id))
 
     def setup(self, worker_metadata: XennaWorkerMetadata) -> None:
         """Setup the stage per worker - Xenna-specific signature.
@@ -143,23 +137,7 @@ class XennaStageAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter, pipelin
         Args:
             worker_metadata: Xenna's WorkerMetadata object
         """
-        # Convert Xenna's WorkerMetadata to our generic type
-        requires_gpu = bool(getattr(getattr(self.processing_stage, "resources", None), "requires_gpu", False))
-        generic_worker_metadata = WorkerMetadata(
-            worker_id=worker_metadata.worker_id,
-            allocation=worker_metadata.allocation,
-        )
-        if bool(getattr(self.processing_stage, "extended_performance_metrics", False)):
-            identity = build_xenna_perf_identity(
-                str(self.processing_stage.name),
-                worker_id=worker_metadata.worker_id,
-                node_id=self._node_id,
-                allocation=worker_metadata.allocation,
-                requires_gpu=requires_gpu,
-            )
-            stamp_worker_metadata(generic_worker_metadata, identity)
-
-        super().setup(generic_worker_metadata)
+        super().setup(self._worker_metadata(worker_metadata, self._node_id))
 
 
 def create_named_xenna_stage_adapter(stage: ProcessingStage) -> XennaStageAdapter:

@@ -84,34 +84,19 @@ class RayDataExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
             hardware_sampler = self._start_pipeline_hardware_sampler()
             stage_perf_collector = self._start_stage_perf_collector(stages)
 
-            # Convert tasks to dataset
             current_dataset = self._tasks_to_dataset(tasks)
-
-            # Execute setup on node for all stages
             execute_setup_on_node(stages, ignore_head_node=self.ignore_head_node)
             logger.info(f"Setup on node complete for all stages. Starting Ray Data pipeline with {len(stages)} stages")
-
-            # Process through each stage
             for i, stage in enumerate(stages):
-                # TODO: add pipeline level config for verbosity
                 logger.info(f"Processing stage {i + 1}/{len(stages)}: {stage}")
                 logger.info(f"  CPU cores: {stage.resources.cpus}, GPU ratio: {stage.resources.gpus}")
-
-                # Create adapter for this stage
-                adapter = RayDataStageAdapter(stage)
-
-                # Apply stage transformation
-                current_dataset = adapter.process_dataset(current_dataset)
+                current_dataset = RayDataStageAdapter(stage).process_dataset(current_dataset)
         except Exception as e:
             logger.error(f"Error during pipeline execution: {e}")
-            if stage_perf_collector is not None:
-                self._stop_stage_perf_collector(stage_perf_collector, stages)
-            if hardware_sampler:
-                self._stop_pipeline_hardware_sampler(hardware_sampler)
+            self._stop_stage_perf_collector(stage_perf_collector, stages)
+            self._stop_pipeline_hardware_sampler(hardware_sampler)
             raise
         else:
-            # Convert final dataset back to tasks
-            # TODO: add pipeline configuration to check if user wants to return last stages output to driver
             output_tasks = self._dataset_to_tasks(current_dataset)
             self._finalize_performance_telemetry(
                 stages=stages,
@@ -119,8 +104,6 @@ class RayDataExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
                 stage_perf_collector=stage_perf_collector,
                 hardware_sampler=hardware_sampler,
             )
-            stage_perf_collector = None
-            hardware_sampler = []
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.

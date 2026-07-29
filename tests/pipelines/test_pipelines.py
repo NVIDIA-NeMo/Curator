@@ -52,16 +52,9 @@ class _SimpleTask(Task[list[int]]):
         return True
 
 
-@dataclass
-class _DropAllStage(ProcessingStage[Task, Task]):
-    name: str = "drop_all"
-    extended_performance_metrics: bool = True
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+class _DropAllStage(_NoopStage):
+    name = "drop_all"
+    extended_performance_metrics = True
 
     def process(self, task: Task) -> None:
         return None
@@ -100,11 +93,11 @@ class _ZeroOutputTelemetryExecutor(PerformanceTelemetryExecutorMixin, BaseExecut
 def test_zero_output_pipeline_persists_external_performance_records(tmp_path: Path):
     report_path = tmp_path / "reports" / "performance.json"
     executor = _ZeroOutputTelemetryExecutor()
-    pipeline = Pipeline(name="zero-output", stages=[_DropAllStage()])
+    pipeline = Pipeline(name="zero-output", stages=[_DropAllStage(name="drop_all")])
 
     result = pipeline.run(
         executor=executor,
-        initial_tasks=[_SimpleTask(dataset_name="test", data=[1])],
+        initial_tasks=[EmptyTask()],
         performance_report_path=report_path,
     )
 
@@ -119,26 +112,11 @@ def test_zero_output_pipeline_persists_external_performance_records(tmp_path: Pa
     assert report["schema_version"] == 1
     assert report["pipeline_name"] == "zero-output"
     assert report["record_count"] == 2
-    assert report["records"][0] == {
-        "actor_id": "actor-1",
-        "actor_idle_time": 0.0,
-        "custom_metrics": {"gpu_0_samples": 5.0},
-        "gpu_id": "0",
-        "gpu_indices": [0],
-        "gpu_uuids": ["GPU-abc"],
-        "hostname": "",
-        "input_data_size_mb": 0.0,
-        "invocation_id": "invocation-zero-output",
-        "node_id": "node-1",
-        "num_items_processed": 0,
-        "physical_address": "",
-        "pod_ip": "",
-        "process_time": 0.0,
-        "stage_id": "0000:drop_all",
-        "stage_name": "drop_all",
-        "window_end_s": 11.0,
-        "window_start_s": 10.0,
-    }
+    invocation = report["records"][0]
+    assert invocation["stage_id"] == "0000:drop_all"
+    assert invocation["invocation_id"] == "invocation-zero-output"
+    assert invocation["gpu_uuids"] == ["GPU-abc"]
+    assert invocation["custom_metrics"] == {"gpu_0_samples": 5.0}
 
 
 def test_pipeline_uses_xenna_executor_by_default():

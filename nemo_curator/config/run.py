@@ -145,11 +145,9 @@ def main(cfg: DictConfig) -> None:
 
     # Execute pipeline
     print("Starting pipeline execution...")
-    run_kwargs: dict[str, Any] = {}
-    if executor is not None:
-        run_kwargs["executor"] = executor
-    if performance_report_path := cfg.get("performance_report_path"):
-        run_kwargs["performance_report_path"] = str(performance_report_path)
+    run_kwargs = {"executor": executor} if executor is not None else {}
+    if report_path := cfg.get("performance_report_path"):
+        run_kwargs["performance_report_path"] = str(report_path)
     pipeline.run(**run_kwargs)
 
     print("\nPipeline completed!")

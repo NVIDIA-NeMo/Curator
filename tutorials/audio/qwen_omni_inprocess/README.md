@@ -75,33 +75,20 @@ configuration visible in code review.
 
 ## Performance telemetry
 
-The Qwen ASR stage is a concrete consumer of Curator's opt-in extended
-performance telemetry. Its YAML sets
-`extended_performance_metrics: true`, so every ASR batch records a stable
-invocation ID, Ray/Xenna actor and node identity, assigned physical GPU UUIDs,
-and windowed NVML utilization for those assigned devices.
-
-The executor also enables one aggregate hardware sampler per live Ray node:
+The YAML opts Qwen ASR into invocation identity, assigned-GPU NVML metrics, and
+one aggregate hardware sampler per Ray node:
 
 ```yaml
+performance_report_path: ./qwen_omni_performance.json
 executor_config:
   pipeline_hardware_sampler_enabled: true
-  pipeline_hardware_sampler_interval_s: 0.5
+stages:
+  - extended_performance_metrics: true
 ```
 
-After a successful run, the generic YAML runner writes the complete actor and
-run-level records to `performance_report_path` (by default,
-`./qwen_omni_performance.json`). The report is independent of output-task
-survival, so invocation and hardware records remain available even if a stage
-filters every row. Python callers can also inspect
-`pipeline.performance_records` or call
-`pipeline.write_performance_report(path)`.
-
-Both collectors are fail-open: inability to initialize NVML diagnostics does
-not fail transcription. An ASR call shorter than the actor sampler's 0.2
-second interval can legitimately contain identity and timing without an
-in-window utilization sample. Ray Data and Xenna support the configuration;
-the Ray Actor Pool executor supports it when constructed directly.
+The report is written after successful runs, including zero-output runs.
+Python callers can instead inspect `pipeline.performance_records`. Sampling is
+fail-open, so unavailable NVML metrics do not fail transcription.
 
 The engine settings live under `adapter_kwargs.vllm_kwargs`; sampling settings
 live under `adapter_kwargs.sampling_kwargs`. They are forwarded to Curator's

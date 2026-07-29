@@ -18,18 +18,14 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.perf_identity import ExtendedPerfStageAdapterMixin
-from nemo_curator.backends.utils import (
-    get_worker_metadata_and_node_id,
-    get_worker_metadata_and_node_id_with_perf,
-)
+from nemo_curator.backends.utils import get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
 
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
 
 
-class RayActorPoolRAFTAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter):
+class RayActorPoolRAFTAdapter(BaseStageAdapter):
     """RAFT Actor adapter for Ray Actor Pool backend.
 
     This adapter extends RayActorPoolStageAdapter and adds RAFT capabilities
@@ -52,13 +48,10 @@ class RayActorPoolRAFTAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter):
         super().__init__(stage)
 
         # Get runtime context for worker metadata (copied from RayActorPoolStageAdapter)
-        if bool(getattr(stage, "extended_performance_metrics", False)):
-            requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
-            node_info, worker_metadata = get_worker_metadata_and_node_id_with_perf(
-                str(stage.name), requires_gpu=requires_gpu
-            )
-        else:
-            node_info, worker_metadata = get_worker_metadata_and_node_id()
+        node_info, worker_metadata = get_worker_metadata_and_node_id(
+            str(stage.name) if getattr(stage, "extended_performance_metrics", False) else None,
+            requires_gpu=stage.resources.requires_gpu,
+        )
 
         # Create WorkerMetadata with actor information
         self.worker_metadata = worker_metadata
@@ -162,8 +155,7 @@ class RayActorPoolRAFTAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter):
             self.stage._actor_pool_size = self._pool_size
             self.stage._actor_index = self._index
             # This calls the stage's setup method
-            resolved_metadata = worker_metadata if worker_metadata is not None else self.worker_metadata
-            super().setup(resolved_metadata)
+            super().setup(worker_metadata)
         except Exception as e:
             logger.error(f"An error occurred while setting up {self._name}: {e}.")
             raise

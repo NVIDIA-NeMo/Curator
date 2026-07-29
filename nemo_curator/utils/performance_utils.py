@@ -74,12 +74,7 @@ class StagePerfStats:
     gpu_uuids: list[str] = attrs.field(factory=list)
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
-        """Add stats while retaining identity only for one shared worker."""
-        same_worker = (
-            self.actor_id == other.actor_id
-            and self.node_id == other.node_id
-            and self.physical_address == other.physical_address
-        )
+        """Add two StagePerfStats."""
         return StagePerfStats(
             stage_name=self.stage_name,
             process_time=self.process_time + other.process_time,
@@ -90,20 +85,6 @@ class StagePerfStats:
                 key: self.custom_metrics.get(key, 0.0) + other.custom_metrics.get(key, 0.0)
                 for key in set(self.custom_metrics.keys()) | set(other.custom_metrics.keys())
             },
-            stage_id=self.stage_id if self.stage_id == other.stage_id else "",
-            invocation_id="",
-            window_start_s=min(value for value in (self.window_start_s, other.window_start_s) if value > 0)
-            if self.window_start_s > 0 or other.window_start_s > 0
-            else 0.0,
-            window_end_s=max(self.window_end_s, other.window_end_s),
-            actor_id=self.actor_id if same_worker else "",
-            node_id=self.node_id if same_worker else "",
-            gpu_id=self.gpu_id if same_worker else "",
-            physical_address=self.physical_address if same_worker else "",
-            pod_ip=self.pod_ip if same_worker else "",
-            hostname=self.hostname if same_worker else "",
-            gpu_indices=list(self.gpu_indices) if same_worker else [],
-            gpu_uuids=list(self.gpu_uuids) if same_worker else [],
         )
 
     def __radd__(self, other: int | StagePerfStats) -> StagePerfStats:
@@ -147,27 +128,8 @@ class StagePerfStats:
         }
 
     def to_extended_dict(self) -> dict[str, object]:
-        """Convert to the complete invocation-telemetry dictionary schema.
-
-        ``to_dict`` intentionally retains the pre-existing summary schema.
-        Telemetry reports use this separate method so identity, placement, and
-        sampling-window fields are not silently discarded.
-        """
-        return {
-            **self.to_dict(),
-            "stage_id": self.stage_id,
-            "invocation_id": self.invocation_id,
-            "window_start_s": self.window_start_s,
-            "window_end_s": self.window_end_s,
-            "actor_id": self.actor_id,
-            "node_id": self.node_id,
-            "gpu_id": self.gpu_id,
-            "physical_address": self.physical_address,
-            "pod_ip": self.pod_ip,
-            "hostname": self.hostname,
-            "gpu_indices": list(self.gpu_indices),
-            "gpu_uuids": list(self.gpu_uuids),
-        }
+        """Convert to the complete invocation-telemetry schema."""
+        return attrs.asdict(self)
 
     def items(self) -> list[tuple[str, float | int]]:
         """Returns (metric_name, metric_value) pairs

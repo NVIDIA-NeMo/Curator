@@ -15,7 +15,7 @@
 import time
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -58,20 +58,12 @@ class NodeInfo:
 class WorkerMetadata:
     """Generic worker metadata for setup_on_node calls across backends.
     Simplified to match Xenna's structure. The allocation field can contain
-    backend-specific allocation information. Backends may also stamp
-    performance identity fields at worker setup.
+    backend-specific allocation information.
     """
 
     worker_id: str = ""
     allocation: Any = None  # Backend-specific allocation info
-    actor_id: str = ""
-    node_id: str = ""
-    gpu_id: str = ""
-    physical_address: str = ""
-    pod_ip: str = ""
-    hostname: str = ""
-    gpu_indices: list[int] = field(default_factory=list)
-    gpu_uuids: list[str] = field(default_factory=list)
+    perf_identity: Any = None
 
 
 class BaseExecutor(ABC):
@@ -165,8 +157,7 @@ class BaseStageAdapter:
         # Sentinels never propagate to the next stage.
         results = [r for r in results if not _is_sentinel(r)]
 
-        # Log performance stats and enrich opt-in records through the
-        # backend-specific telemetry mixin.
+        # Log performance stats and enrich opt-in records.
         _, stage_perf_stats = self._timer.log_stats()
         stage_perf_stats.stage_id = str(getattr(self.stage, "_curator_stage_id", "") or "")
         if extended_metrics:
@@ -177,9 +168,9 @@ class BaseStageAdapter:
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
-        enrich_perf = getattr(self, "_enrich_stage_perf_record", None)
-        if callable(enrich_perf):
-            enrich_perf(stage_perf_stats, results)
+        telemetry = getattr(self, "_performance_telemetry", None)
+        if telemetry is not None:
+            telemetry.enrich(stage_perf_stats, attached_to_output=bool(results))
         for task in results:
             task.add_stage_perf(stage_perf_stats)
 
@@ -330,17 +321,20 @@ class BaseStageAdapter:
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker
         """
-        self._worker_metadata = worker_metadata
+        worker_metadata = worker_metadata or getattr(self, "worker_metadata", None)
         self.stage.setup(worker_metadata)
-        setup_perf = getattr(self, "_setup_performance_telemetry", None)
-        if callable(setup_perf):
-            setup_perf(worker_metadata)
+        self._performance_telemetry = None
+        if bool(getattr(self.stage, "extended_performance_metrics", False)):
+            from nemo_curator.backends.perf_identity import StageTelemetry
+
+            self._performance_telemetry = StageTelemetry(self.stage, worker_metadata)
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""
         try:
             self.stage.teardown()
         finally:
-            teardown_perf = getattr(self, "_teardown_performance_telemetry", None)
-            if callable(teardown_perf):
-                teardown_perf()
+            telemetry = getattr(self, "_performance_telemetry", None)
+            if telemetry is not None:
+                telemetry.close()
+                self._performance_telemetry = None

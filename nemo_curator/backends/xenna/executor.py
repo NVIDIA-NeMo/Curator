@@ -58,11 +58,6 @@ class XennaExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
             "execution_mode": "streaming",
             "cpu_allocation_percentage": 0.95,
             "autoscale_interval_s": 180,
-            "actor_pool_verbosity_level": "INFO",
-            "monitoring_verbosity_level": "INFO",
-            "autoscaler_verbosity_level": "INFO",
-            "executor_verbosity_level": "INFO",
-            "log_worker_allocation_layout": True,
         }
 
     def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
@@ -129,21 +124,21 @@ class XennaExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
         if exec_mode == pipelines_v1.ExecutionMode.STREAMING:
             streaming_config = pipelines_v1.StreamingSpecificSpec(
                 autoscale_interval_s=self._get_pipeline_config("autoscale_interval_s"),
-                autoscaler_verbosity_level=self._get_verbosity_config("autoscaler_verbosity_level"),
-                executor_verbosity_level=self._get_verbosity_config("executor_verbosity_level"),
+                autoscaler_verbosity_level=VerbosityLevel.INFO,  # TODO: Move this to pipeline config
+                executor_verbosity_level=VerbosityLevel.INFO,
             )
 
         # Create pipeline configuration
         pipeline_config = pipelines_v1.PipelineConfig(
             execution_mode=exec_mode,
             logging_interval_s=self._get_pipeline_config("logging_interval"),
-            log_worker_allocation_layout=bool(self._get_pipeline_config("log_worker_allocation_layout")),
+            log_worker_allocation_layout=True,
             return_last_stage_outputs=True,
             ignore_failures=self._get_pipeline_config("ignore_failures"),
             cpu_allocation_percentage=self._get_pipeline_config("cpu_allocation_percentage"),
             mode_specific=streaming_config,
-            actor_pool_verbosity_level=self._get_verbosity_config("actor_pool_verbosity_level"),
-            monitoring_verbosity_level=self._get_verbosity_config("monitoring_verbosity_level"),
+            actor_pool_verbosity_level=VerbosityLevel.INFO,  # TODO: Move this to pipeline config
+            monitoring_verbosity_level=VerbosityLevel.INFO,
         )
 
         # Create pipeline specification
@@ -197,24 +192,3 @@ class XennaExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
     def _get_pipeline_config(self, key: str) -> Any:  # noqa: ANN401
         """Get configuration value with fallback to defaults."""
         return self.config.get(key, self._default_pipeline_config.get(key))
-
-    def _get_verbosity_config(self, key: str) -> VerbosityLevel:
-        """Get Xenna verbosity level from enum, integer, or string config."""
-        value = self._get_pipeline_config(key)
-        if value is None:
-            value = self._default_pipeline_config.get(key, "INFO")
-        if isinstance(value, VerbosityLevel):
-            return value
-        if isinstance(value, str):
-            try:
-                return VerbosityLevel[value.upper()]
-            except KeyError as exc:
-                valid = ", ".join(level.name for level in VerbosityLevel)
-                msg = f"Invalid Xenna verbosity config {key}={value!r}; expected one of: {valid}"
-                raise ValueError(msg) from exc
-        try:
-            return VerbosityLevel(value)
-        except ValueError as exc:
-            valid = ", ".join(level.name for level in VerbosityLevel)
-            msg = f"Invalid Xenna verbosity config {key}={value!r}; expected one of: {valid}"
-            raise ValueError(msg) from exc

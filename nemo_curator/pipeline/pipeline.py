@@ -335,8 +335,7 @@ class Pipeline:
         else:
             result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
 
-        consume_external = getattr(type(executor), "consume_external_perf_records", None)
-        self.performance_records = consume_external(executor) if callable(consume_external) else []
+        self.performance_records = executor.consume_external_perf_records()
         if performance_report_path is not None:
             self.write_performance_report(performance_report_path)
 
@@ -353,14 +352,7 @@ class Pipeline:
         return result
 
     def write_performance_report(self, path: str | Path) -> Path:
-        """Write the current run's complete external telemetry to JSON.
-
-        Args:
-            path: Local destination. Parent directories are created.
-
-        Returns:
-            The resolved report path.
-        """
+        """Write the current run's complete external telemetry to JSON."""
         report_path = Path(path).expanduser().absolute()
         report_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {

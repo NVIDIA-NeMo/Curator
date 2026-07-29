@@ -18,6 +18,7 @@ import pytest
 from ray.data import ActorPoolStrategy, TaskPoolStrategy
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.perf_identity import WorkerPerfIdentity
 from nemo_curator.backends.ray_data.adapter import RayDataStageAdapter, create_actor_from_stage, create_task_from_stage
 from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage, Resources
@@ -72,39 +73,19 @@ class ConfigurableTaskStage(ConfigurableActorStage):
 
 
 class TestRayDataStageAdapter:
-    def test_actor_worker_perf_identity_is_opt_in(self):
+    @pytest.mark.parametrize(("enabled", "stage_name"), [(False, None), (True, "configurable_actor")])
+    def test_actor_worker_perf_identity_is_opt_in(self, enabled: bool, stage_name: str | None):
         metadata = (NodeInfo(node_id="node"), WorkerMetadata(worker_id="worker"))
-        ordinary_stage = ConfigurableActorStage()
-        extended_stage = ConfigurableActorStage()
-        extended_stage.extended_performance_metrics = True
+        stage = ConfigurableActorStage()
+        stage.extended_performance_metrics = enabled
 
-        with (
-            mock.patch(
-                "nemo_curator.backends.ray_data.adapter.get_worker_metadata_and_node_id",
-                return_value=metadata,
-            ) as plain_metadata,
-            mock.patch(
-                "nemo_curator.backends.ray_data.adapter.get_worker_metadata_and_node_id_with_perf",
-                return_value=metadata,
-            ) as perf_metadata,
-        ):
-            create_actor_from_stage(ordinary_stage)()
-            plain_metadata.assert_called_once_with()
-            perf_metadata.assert_not_called()
+        with mock.patch(
+            "nemo_curator.backends.ray_data.adapter.get_worker_metadata_and_node_id",
+            return_value=metadata,
+        ) as get_metadata:
+            create_actor_from_stage(stage)()
 
-        with (
-            mock.patch(
-                "nemo_curator.backends.ray_data.adapter.get_worker_metadata_and_node_id",
-                return_value=metadata,
-            ) as plain_metadata,
-            mock.patch(
-                "nemo_curator.backends.ray_data.adapter.get_worker_metadata_and_node_id_with_perf",
-                return_value=metadata,
-            ) as perf_metadata,
-        ):
-            create_actor_from_stage(extended_stage)()
-            plain_metadata.assert_not_called()
-            perf_metadata.assert_called_once_with(extended_stage.name, requires_gpu=False)
+        get_metadata.assert_called_once_with(stage_name, requires_gpu=False)
 
     def test_task_worker_initializes_extended_perf_identity_once(self):
         stage = ConfigurableTaskStage()
@@ -113,14 +94,16 @@ class TestRayDataStageAdapter:
             NodeInfo(node_id="node-a"),
             WorkerMetadata(
                 worker_id="worker-a",
-                actor_id="configurable_task:actor-worker-a",
-                node_id="node-a",
+                perf_identity=WorkerPerfIdentity(
+                    actor_id="configurable_task:actor-worker-a",
+                    node_id="node-a",
+                ),
             ),
         )
         stage_map_fn = create_task_from_stage(stage)
 
         with mock.patch(
-            "nemo_curator.backends.ray_data.adapter.get_worker_metadata_and_node_id_with_perf",
+            "nemo_curator.backends.ray_data.adapter.get_worker_metadata_and_node_id",
             return_value=metadata,
         ) as perf_metadata:
             first = stage_map_fn({"item": [EmptyTask()]})["item"][0]

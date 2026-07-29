@@ -19,6 +19,8 @@ import pytest
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.backends.ray_actor_pool.adapter import RayActorPoolStageAdapter
 from nemo_curator.backends.ray_actor_pool.executor import _parse_runtime_env
+from nemo_curator.backends.ray_actor_pool.raft_adapter import RayActorPoolRAFTAdapter
+from nemo_curator.backends.ray_actor_pool.shuffle_adapter import ShuffleStageAdapter
 from nemo_curator.backends.ray_actor_pool.utils import calculate_optimal_actors_for_stage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -34,42 +36,42 @@ class _AdapterStage(ProcessingStage[EmptyTask, EmptyTask]):
         return task
 
 
+def test_specialized_adapters_forward_constructor_metadata() -> None:
+    raft = object.__new__(RayActorPoolRAFTAdapter)
+    raft.worker_metadata = WorkerMetadata(worker_id="raft")
+    raft.root_unique_id = 1
+    raft._pool_size = 1
+    raft._index = 0
+    raft._name = "raft"
+    raft._raft_handle = mock.sentinel.raft_handle
+    raft.stage = mock.MagicMock()
+    with mock.patch.object(raft, "_setup_nccl"), mock.patch.object(raft, "_setup_raft"):
+        raft.setup()
+    raft.stage.setup.assert_called_once_with(raft.worker_metadata)
+
+    shuffle = object.__new__(ShuffleStageAdapter.__ray_metadata__.modified_class)
+    shuffle.worker_metadata = WorkerMetadata(worker_id="shuffle")
+    shuffle.stage = mock.MagicMock()
+    with mock.patch.object(shuffle, "setup_worker"):
+        shuffle.setup(b"root")
+    shuffle.stage.setup.assert_called_once_with(shuffle.worker_metadata)
+
+
 class TestRayActorPoolExecutor:
-    def test_adapter_uses_perf_setup_only_when_enabled(self) -> None:
+    @pytest.mark.parametrize(("enabled", "stage_name"), [(False, None), (True, "adapter_stage")])
+    def test_adapter_uses_perf_setup_only_when_enabled(self, enabled: bool, stage_name: str | None) -> None:
         metadata = (NodeInfo(node_id="node"), WorkerMetadata(worker_id="worker"))
-        ordinary_stage = _AdapterStage()
-        extended_stage = _AdapterStage()
-        extended_stage.extended_performance_metrics = True
+        stage = _AdapterStage()
+        stage.extended_performance_metrics = enabled
 
-        with (
-            mock.patch(
-                "nemo_curator.backends.ray_actor_pool.adapter.get_worker_metadata_and_node_id",
-                return_value=metadata,
-            ) as plain_metadata,
-            mock.patch(
-                "nemo_curator.backends.ray_actor_pool.adapter.get_worker_metadata_and_node_id_with_perf",
-                return_value=metadata,
-            ) as perf_metadata,
-        ):
-            ordinary_adapter = RayActorPoolStageAdapter(ordinary_stage)
-            assert not hasattr(ordinary_adapter, "_worker_metadata")
-            plain_metadata.assert_called_once_with()
-            perf_metadata.assert_not_called()
+        with mock.patch(
+            "nemo_curator.backends.ray_actor_pool.adapter.get_worker_metadata_and_node_id",
+            return_value=metadata,
+        ) as get_metadata:
+            adapter = RayActorPoolStageAdapter(stage)
 
-        with (
-            mock.patch(
-                "nemo_curator.backends.ray_actor_pool.adapter.get_worker_metadata_and_node_id",
-                return_value=metadata,
-            ) as plain_metadata,
-            mock.patch(
-                "nemo_curator.backends.ray_actor_pool.adapter.get_worker_metadata_and_node_id_with_perf",
-                return_value=metadata,
-            ) as perf_metadata,
-        ):
-            extended_adapter = RayActorPoolStageAdapter(extended_stage)
-            assert extended_adapter._worker_metadata is metadata[1]
-            plain_metadata.assert_not_called()
-            perf_metadata.assert_called_once_with(extended_stage.name, requires_gpu=False)
+        assert (adapter._performance_telemetry is not None) is enabled
+        get_metadata.assert_called_once_with(stage_name, requires_gpu=False)
 
     def test_parse_runtime_env(self):
         # With noset defined we should override it to be empty

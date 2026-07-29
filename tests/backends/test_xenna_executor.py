@@ -16,7 +16,6 @@ from types import SimpleNamespace
 from unittest import mock
 
 import pytest
-from cosmos_xenna.utils.verbosity import VerbosityLevel
 
 from nemo_curator.backends.perf_identity import WorkerPerfIdentity
 from nemo_curator.backends.xenna import executor as xenna_executor
@@ -49,19 +48,6 @@ class ConfigurableStage(ProcessingStage[EmptyTask, EmptyTask]):
         return task
 
 
-def test_xenna_verbosity_none_uses_default() -> None:
-    executor = XennaExecutor(config={"actor_pool_verbosity_level": None})
-
-    assert executor._get_verbosity_config("actor_pool_verbosity_level") is VerbosityLevel.INFO
-
-
-def test_xenna_verbosity_bad_string_has_helpful_error() -> None:
-    executor = XennaExecutor(config={"actor_pool_verbosity_level": "loud"})
-
-    with pytest.raises(ValueError, match="Invalid Xenna verbosity config actor_pool_verbosity_level='loud'"):
-        executor._get_verbosity_config("actor_pool_verbosity_level")
-
-
 def test_xenna_worker_setup_preserves_node_identity_from_node_setup() -> None:
     stage = ConfigurableStage()
     stage.extended_performance_metrics = True
@@ -88,7 +74,7 @@ def test_xenna_worker_setup_preserves_node_identity_from_node_setup() -> None:
         adapter.setup(worker_metadata)
 
     assert [call.kwargs["node_id"] for call in identity_builder.call_args_list] == ["node-a", "node-a"]
-    assert adapter._perf_identity.node_id == "node-a"
+    assert adapter._performance_telemetry.identity.node_id == "node-a"
 
 
 def test_xenna_executor_uses_stage_num_workers_when_xenna_spec_has_no_worker_sizing(

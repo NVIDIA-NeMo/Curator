@@ -479,39 +479,17 @@ def test_main_passes_configured_executor_to_pipeline(
     mock_create_pipeline: MagicMock,
     mock_create_executor: MagicMock,
 ):
-    cfg = OmegaConf.create({"stages": []})
+    cfg = OmegaConf.create({"stages": [], "performance_report_path": "./performance.json"})
     executor = mock_create_executor.return_value
 
     main.__wrapped__(cfg)
 
     mock_create_ray_client.return_value.start.assert_called_once_with()
-    mock_create_pipeline.return_value.run.assert_called_once_with(executor=executor)
-    mock_create_ray_client.return_value.stop.assert_called_once_with()
-
-
-@patch("nemo_curator.config.run.create_executor_from_yaml")
-@patch("nemo_curator.config.run.create_pipeline_from_yaml")
-@patch("nemo_curator.config.run.create_ray_client_from_yaml")
-def test_main_passes_performance_report_path_to_pipeline(
-    mock_create_ray_client: MagicMock,
-    mock_create_pipeline: MagicMock,
-    mock_create_executor: MagicMock,
-):
-    cfg = OmegaConf.create(
-        {
-            "stages": [],
-            "performance_report_path": "./performance_telemetry.json",
-        }
-    )
-    executor = mock_create_executor.return_value
-
-    main.__wrapped__(cfg)
-
     mock_create_pipeline.return_value.run.assert_called_once_with(
         executor=executor,
-        performance_report_path="./performance_telemetry.json",
+        performance_report_path="./performance.json",
     )
-    mock_create_ray_client.return_value.start.assert_called_once_with()
+    mock_create_ray_client.return_value.stop.assert_called_once_with()
 
 
 def test_qwen_tutorial_yaml_matches_reference_runner_config():
@@ -598,17 +576,7 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
         "pipeline_hardware_sampler_enabled": True,
         "pipeline_hardware_sampler_interval_s": 0.5,
     }
-
-
-def test_qwen_tutorial_enables_extended_performance_telemetry():
-    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "qwen_omni_inprocess"
-    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
-        cfg = compose(
-            config_name="pipeline",
-            overrides=["manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl"],
-        )
-
-    assert cfg.stages[2].extended_performance_metrics is True
+    assert stage.extended_performance_metrics is True
     assert cfg.executor_config.pipeline_hardware_sampler_enabled is True
     assert cfg.executor_config.pipeline_hardware_sampler_interval_s == 0.5
     assert cfg.performance_report_path == "./qwen_omni_performance.json"

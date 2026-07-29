@@ -20,12 +20,7 @@ from loguru import logger
 from ray.data import Dataset, TaskPoolStrategy
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.perf_identity import ExtendedPerfStageAdapterMixin
-from nemo_curator.backends.utils import (
-    RayStageSpecKeys,
-    get_worker_metadata_and_node_id,
-    get_worker_metadata_and_node_id_with_perf,
-)
+from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
 
 from .utils import get_actor_compute_strategy_for_stage, get_configured_actor_pool_sizing_keys, is_actor_stage
@@ -33,7 +28,7 @@ from .utils import get_actor_compute_strategy_for_stage, get_configured_actor_po
 CURATOR_MANAGED_MAP_BATCHES_KWARGS = {"compute", "max_calls", "num_cpus", "num_gpus"}
 
 
-class RayDataStageAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter):
+class RayDataStageAdapter(BaseStageAdapter):
     """Adapts ProcessingStage to Ray Data operations.
 
     This adapter converts stages to work with Ray Data datasets by:
@@ -169,13 +164,10 @@ def create_actor_from_stage(stage: ProcessingStage) -> type[RayDataStageAdapter]
             """Initialize the stage processor."""
             super().__init__(stage)
             self.setup_done = False
-            requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
-            if bool(getattr(stage, "extended_performance_metrics", False)):
-                node_info, worker_metadata = get_worker_metadata_and_node_id_with_perf(
-                    str(stage.name), requires_gpu=requires_gpu
-                )
-            else:
-                node_info, worker_metadata = get_worker_metadata_and_node_id()
+            node_info, worker_metadata = get_worker_metadata_and_node_id(
+                str(stage.name) if getattr(stage, "extended_performance_metrics", False) else None,
+                requires_gpu=stage.resources.requires_gpu,
+            )
             self.setup_on_node(node_info, worker_metadata)
             self.setup(worker_metadata)
 
@@ -212,10 +204,9 @@ def create_task_from_stage(stage: ProcessingStage) -> Callable[[dict[str, Any]],
         """Dynamically named map function that processes a batch of Task objects."""
         nonlocal setup_done
         if not setup_done:
-            requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
-            _node_info, worker_metadata = get_worker_metadata_and_node_id_with_perf(
+            _node_info, worker_metadata = get_worker_metadata_and_node_id(
                 str(stage.name),
-                requires_gpu=requires_gpu,
+                requires_gpu=stage.resources.requires_gpu,
             )
             adapter.setup(worker_metadata)
             setup_done = True

@@ -19,12 +19,7 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter
-from nemo_curator.backends.perf_identity import ExtendedPerfStageAdapterMixin
-from nemo_curator.backends.utils import (
-    RayStageSpecKeys,
-    get_worker_metadata_and_node_id,
-    get_worker_metadata_and_node_id_with_perf,
-)
+from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from nemo_curator.tasks import FileGroupTask
 
 if TYPE_CHECKING:
@@ -35,7 +30,7 @@ if TYPE_CHECKING:
 
 # TODO: Remove once UCX memory usage with GPU staging buffers is fixed.
 @ray.remote(runtime_env={"env_vars": {"UCX_RNDV_FRAG_MEM_TYPES": "host"}})
-class ShuffleStageAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter):
+class ShuffleStageAdapter(BaseStageAdapter):
     """Ray actor that wraps a shuffle stage and its actor.
 
     This adapter manages the lifecycle of a shuffle actor (like LSHActor)
@@ -60,13 +55,10 @@ class ShuffleStageAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter):
         """
         super().__init__(stage)
         # Get runtime context for worker metadata (copied from RayActorPoolStageAdapter)
-        if bool(getattr(stage, "extended_performance_metrics", False)):
-            requires_gpu = bool(getattr(getattr(stage, "resources", None), "requires_gpu", False))
-            node_info, worker_metadata = get_worker_metadata_and_node_id_with_perf(
-                str(stage.name), requires_gpu=requires_gpu
-            )
-        else:
-            node_info, worker_metadata = get_worker_metadata_and_node_id()
+        node_info, worker_metadata = get_worker_metadata_and_node_id(
+            str(stage.name) if getattr(stage, "extended_performance_metrics", False) else None,
+            requires_gpu=stage.resources.requires_gpu,
+        )
 
         # Create WorkerMetadata with actor information
         self.worker_metadata = worker_metadata
@@ -119,8 +111,7 @@ class ShuffleStageAdapter(ExtendedPerfStageAdapterMixin, BaseStageAdapter):
         """Setup shuffle workers and stage"""
         self.setup_worker(root_address)
         # call the stage's setup method
-        resolved_metadata = worker_metadata if worker_metadata is not None else self.worker_metadata
-        super().setup(resolved_metadata)
+        super().setup(worker_metadata)
 
     def setup_root(self) -> None:
         """Setup the root actor."""

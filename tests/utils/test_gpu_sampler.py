@@ -19,7 +19,6 @@ import pytest
 from nemo_curator.utils import gpu_sampler
 from nemo_curator.utils.gpu_sampler import (
     GpuUtilSampler,
-    actor_gpu_window_metrics,
     aggregate_pipeline_hardware_metrics,
     norm_uuid,
     pipeline_node_hardware_metrics,
@@ -81,19 +80,6 @@ def test_gpu_sampler_uses_stage_window_wall_clock(monkeypatch: pytest.MonkeyPatc
             "gpu_util_pct": 75.0,
             "gpu_mem_used_pct": 50.0,
         }
-    }
-
-
-def test_actor_gpu_window_metrics_flattens_diagnostics_and_gpu_stats() -> None:
-    metrics = actor_gpu_window_metrics(
-        {"aaa": {"gpu_util_pct": 75.0, "gpu_mem_used_pct": 50.0}},
-        diagnostics={"gpu_sampler_active": 1.0},
-    )
-
-    assert metrics == {
-        "gpu_sampler_active": 1.0,
-        "gpu_util_pct::aaa": 75.0,
-        "gpu_mem_used_pct::aaa": 50.0,
     }
 
 
