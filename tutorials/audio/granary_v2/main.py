@@ -20,8 +20,11 @@ import hydra
 from nemo_curator.stages.audio.pipeline_utils import resolve_model_route
 from omegaconf import DictConfig, OmegaConf
 
-from nemo_curator.backends.ray_data import RayDataExecutor
-from nemo_curator.config.run import create_pipeline_from_yaml
+from nemo_curator.config.run import (
+    create_executor_from_yaml,
+    create_pipeline_from_yaml,
+    create_ray_client_from_yaml,
+)
 from tutorials.audio.granary_v2.pipeline_config import (
     GranaryV2PipelineSettings,
     build_stage_configs,
@@ -61,7 +64,12 @@ def main(cfg: DictConfig) -> None:
         }
     )
     pipeline = create_pipeline_from_yaml(runtime_cfg)
-    pipeline.run(RayDataExecutor())
+    ray_client = create_ray_client_from_yaml(runtime_cfg)
+    ray_client.start()
+    try:
+        pipeline.run(executor=create_executor_from_yaml(runtime_cfg))
+    finally:
+        ray_client.stop()
 
 
 if __name__ == "__main__":
