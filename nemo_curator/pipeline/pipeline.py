@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import os
 import time
 import uuid
@@ -259,7 +258,6 @@ class Pipeline:
         executor: BaseExecutor | None = None,
         initial_tasks: list[Task] | None = None,
         checkpoint_path: str | Path | None = None,
-        performance_report_path: str | Path | None = None,
     ) -> list[Task] | None:
         """Run the pipeline.
 
@@ -272,9 +270,6 @@ class Pipeline:
                 tracked (in a ``.nemo_curator_metadata`` subdir) and skipped on
                 rerun. Multiple runs (e.g. a SLURM array) may share the directory
                 — each writes its own LMDB file, so there is no contention.
-            performance_report_path (str | Path, optional): Local JSON path for
-                complete driver-owned performance records.
-
         Returns:
             list[Task] | None: List of tasks
         """
@@ -376,9 +371,6 @@ class Pipeline:
                 performance_records=self.performance_records,
                 wall_time_s=wall_time_s,
             )
-        if performance_report_path is not None:
-            self.write_performance_report(performance_report_path)
-
         if completion_manifest is not None:
             if failed_task_manifest_exists():
                 logger.warning(
@@ -390,23 +382,6 @@ class Pipeline:
                 logger.info(f"Wrote Slurm array completion manifest to {manifest_file}")
 
         return result
-
-    def write_performance_report(self, path: str | Path) -> Path:
-        """Write the current run's complete driver-owned telemetry to JSON."""
-        report_path = Path(path).expanduser().absolute()
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": 1,
-            "pipeline_name": self.name,
-            "record_count": len(self.performance_records),
-            "records": [record.to_extended_dict() for record in self.performance_records],
-        }
-        report_path.write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        logger.info(f"Wrote performance telemetry report to {report_path}")
-        return report_path
 
     def _run_with_resumability(
         self,
