@@ -94,9 +94,6 @@ class SEDPostprocessingStage(ProcessingStage[AudioTask, AudioTask]):
         task.data.pop(self.framewise_key, None)
         return task
 
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        return [self.process(task) for task in tasks]
-
     def _detect_all_events(self, data: dict) -> list[dict]:
         """Detect events for all SUPERCLASS_GROUPS and return a merged, sorted list."""
         import numpy as np
