@@ -28,7 +28,7 @@ from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
-from nemo_curator.utils.file_utils import write_json_file
+from nemo_curator.utils.file_utils import write_json_file_streaming_array
 
 if TYPE_CHECKING:
     from nemo_curator.utils.performance_utils import StagePerfStats
@@ -315,7 +315,13 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         if self.performance_report_path is None:
             return
         report_fs, report_path = url_to_fs(self.performance_report_path)
-        write_json_file(
+        iter_dicts = getattr(performance_records, "iter_dicts", None)
+        record_dicts = (
+            iter_dicts()
+            if callable(iter_dicts)
+            else (record.to_extended_dict() for record in performance_records)
+        )
+        write_json_file_streaming_array(
             report_path,
             {
                 "schema_version": 1,
@@ -325,9 +331,10 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
                 "pipeline": self._curator_pipeline_metadata or {},
                 "wall_time_s": wall_time_s,
                 "record_count": len(performance_records),
-                "records": [record.to_extended_dict() for record in performance_records],
             },
-            report_fs,
+            array_key="records",
+            items=record_dicts,
+            fs=report_fs,
         )
         logger.info(f"ManifestWriterStage: wrote performance report to {self.performance_report_path}")
 

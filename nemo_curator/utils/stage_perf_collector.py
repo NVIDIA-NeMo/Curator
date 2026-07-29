@@ -17,33 +17,117 @@
 from __future__ import annotations
 
 import contextlib
+import json
+import tempfile
 import uuid
+from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import ray
 from loguru import logger
+from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
+
     from nemo_curator.stages.base import ProcessingStage
     from nemo_curator.utils.performance_utils import StagePerfStats
 
 COLLECTOR_NAME_ATTR = "_curator_stage_perf_collector_name"
 
 
+class _StagePerfSpool:
+    """Append invocation records to disk without retaining them in memory."""
+
+    def __init__(self, path: str) -> None:
+        self._path = path
+        self._record_count = 0
+        self._file = Path(path).open("w", encoding="utf-8")  # noqa: SIM115
+
+    def record(self, perf_stats: StagePerfStats) -> None:
+        json.dump(perf_stats.to_extended_dict(), self._file, sort_keys=True)
+        self._file.write("\n")
+        self._record_count += 1
+
+    def finish(self) -> tuple[str, int]:
+        self._file.close()
+        return self._path, self._record_count
+
+
+@dataclass
+class PerformanceRecordStore:
+    """Re-iterable, disk-backed stage-invocation records."""
+
+    path: str = ""
+    record_count: int = 0
+
+    @classmethod
+    def from_records(cls, records: Iterable[StagePerfStats]) -> PerformanceRecordStore:
+        """Spool an existing iterable without creating another in-memory copy."""
+        spool = _StagePerfSpool(_new_spool_path())
+        for record in records:
+            spool.record(record)
+        path, record_count = spool.finish()
+        store = cls(path=path, record_count=record_count)
+        if record_count == 0:
+            store.cleanup()
+        return store
+
+    def __iter__(self) -> Iterator[StagePerfStats]:
+        from nemo_curator.utils.performance_utils import StagePerfStats
+
+        for payload in self.iter_dicts():
+            yield StagePerfStats(**payload)
+
+    def __len__(self) -> int:
+        return self.record_count
+
+    def iter_dicts(self) -> Iterator[dict[str, Any]]:
+        """Yield complete invocation dictionaries one at a time."""
+        if not self.path:
+            return
+        with Path(self.path).open(encoding="utf-8") as records_file:
+            for line in records_file:
+                yield json.loads(line)
+
+    def cleanup(self) -> None:
+        """Remove the run-scoped spool after its records are no longer needed."""
+        if not self.path:
+            return
+        spool_path = Path(self.path)
+        with contextlib.suppress(OSError):
+            spool_path.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            spool_path.parent.rmdir()
+        self.path = ""
+        self.record_count = 0
+
+
+@dataclass(frozen=True)
+class _StagePerfCollectorHandle:
+    actor: Any
+    spool_path: str
+
+
+def _new_spool_path() -> str:
+    spool_dir = Path(tempfile.mkdtemp(prefix="curator-stage-perf-"))
+    return str(spool_dir / "records.jsonl")
+
+
 @ray.remote(num_cpus=0)
 class _StagePerfCollector:
-    def __init__(self) -> None:
-        self._records: list[tuple[StagePerfStats, bool]] = []
+    def __init__(self, spool_path: str) -> None:
+        self._spool = _StagePerfSpool(spool_path)
 
     def ready(self) -> bool:
         return True
 
-    def record(self, perf_stats: StagePerfStats, attached_to_output: bool) -> None:
-        self._records.append((perf_stats, attached_to_output))
+    def record(self, perf_stats: StagePerfStats, _attached_to_output: bool) -> None:
+        self._spool.record(perf_stats)
 
-    def drain(self) -> list[tuple[StagePerfStats, bool]]:
-        records, self._records = self._records, []
-        return records
+    def finish(self) -> tuple[str, int]:
+        return self._spool.finish()
 
 
 def performance_collection_enabled(stages: list[ProcessingStage]) -> bool:
@@ -59,11 +143,17 @@ def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any | None:  # 
     if not performance_collection_enabled(stages):
         return None
     name = f"curator-stage-perf-{uuid.uuid4().hex}"
-    collector = _StagePerfCollector.options(name=name).remote()
-    ray.get(collector.ready.remote())
+    spool_path = _new_spool_path()
+    driver_node_id = ray.get_runtime_context().get_node_id()
+    collector = _StagePerfCollector.options(
+        name=name,
+        scheduling_strategy=NodeAffinitySchedulingStrategy(driver_node_id, soft=False),
+    ).remote(spool_path)
+    handle = _StagePerfCollectorHandle(actor=collector, spool_path=spool_path)
+    ray.get(handle.actor.ready.remote())
     for stage in stages:
         setattr(stage, COLLECTOR_NAME_ATTR, name)
-    return collector
+    return handle
 
 
 def record_stage_perf(
@@ -86,20 +176,23 @@ def record_stage_perf(
 
 
 def stop_stage_perf_collector(
-    collector: Any | None,  # noqa: ANN401
+    collector: _StagePerfCollectorHandle | None,
     stages: list[ProcessingStage],
-) -> list[tuple[StagePerfStats, bool]]:
+) -> PerformanceRecordStore:
     """Drain and remove the collector, clearing its run-scoped routing."""
     if collector is None:
-        return []
+        return PerformanceRecordStore()
     try:
-        return list(ray.get(collector.drain.remote()))
+        path, record_count = ray.get(collector.actor.finish.remote())
+        return PerformanceRecordStore(path=path, record_count=record_count)
     except Exception as exc:  # noqa: BLE001
-        logger.debug("Stage performance collector drain failed: {}", exc)
-        return []
+        logger.debug("Stage performance collector finish failed: {}", exc)
+        failed_store = PerformanceRecordStore(path=collector.spool_path)
+        failed_store.cleanup()
+        return PerformanceRecordStore()
     finally:
         for stage in stages:
             with contextlib.suppress(AttributeError):
                 delattr(stage, COLLECTOR_NAME_ATTR)
         with contextlib.suppress(Exception):
-            ray.kill(collector, no_restart=True)
+            ray.kill(collector.actor, no_restart=True)
