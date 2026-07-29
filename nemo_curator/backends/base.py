@@ -99,13 +99,19 @@ class BaseExecutor(ABC):
         try:
             from nemo_curator.utils.stage_perf_collector import stop_stage_perf_collector
 
-            records = stop_stage_perf_collector(collector, stages)
+            record_store = stop_stage_perf_collector(collector, stages)
         except Exception as exc:  # noqa: BLE001
             logger.debug("Stage performance collector stop failed: {}", exc)
-            records = []
-        self._external_perf_records = [stats for stats, _attached in records] if keep_records else []
+            record_store = None
+        if keep_records:
+            self._external_perf_records = record_store
+        else:
+            cleanup = getattr(record_store, "cleanup", None)
+            if callable(cleanup):
+                cleanup()
+            self._external_perf_records = []
 
-    def consume_external_perf_records(self) -> list[Any]:
+    def consume_external_perf_records(self) -> Any:  # noqa: ANN401
         """Return and clear the authoritative invocation records for this run."""
         records, self._external_perf_records = self._external_perf_records, []
         return records

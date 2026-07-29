@@ -13,11 +13,14 @@
 # limitations under the License.
 
 import json
+import tracemalloc
+from pathlib import Path
 
 from fsspec.core import url_to_fs
 
 from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.utils.performance_utils import StagePerfStats
+from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
 
 
 def test_manifest_writer_persists_all_performance_records_through_fsspec() -> None:
@@ -43,7 +46,8 @@ def test_manifest_writer_persists_all_performance_records_through_fsspec() -> No
         )
     ]
 
-    writer.finalize_performance_report([], performance_records=records, wall_time_s=2.0)
+    record_store = PerformanceRecordStore.from_records(records)
+    writer.finalize_performance_report([], performance_records=record_store, wall_time_s=2.0)
 
     fs, resolved_path = url_to_fs(report_path)
     with fs.open(resolved_path, encoding="utf-8") as report_file:
@@ -56,3 +60,33 @@ def test_manifest_writer_persists_all_performance_records_through_fsspec() -> No
     assert report["record_count"] == 1
     assert report["records"][0]["custom_metrics"] == {"audio_duration_s": 12.0}
     assert report["records"][0]["gpu_indices"] == [0, 1]
+    record_store.cleanup()
+
+
+def test_manifest_writer_streams_high_cardinality_record_store(tmp_path: Path) -> None:
+    report_path = tmp_path / "performance.json"
+    writer = ManifestWriterStage(
+        output_path=str(tmp_path / "output.jsonl"),
+        performance_report_path=str(report_path),
+    )
+    record = StagePerfStats(
+        stage_name="ASR",
+        invocation_id="invocation",
+        process_time=1.5,
+        custom_metrics={"audio_duration_s": 12.0},
+    )
+    record_store = PerformanceRecordStore.from_records(record for _ in range(50_000))
+
+    tracemalloc.start()
+    try:
+        writer.finalize_performance_report([], performance_records=record_store, wall_time_s=2.0)
+        _current_bytes, peak_bytes = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert peak_bytes < 2 * 1024 * 1024
+    with report_path.open(encoding="utf-8") as report_file:
+        report = json.load(report_file)
+    assert report["record_count"] == 50_000
+    assert len(report["records"]) == 50_000
+    record_store.cleanup()

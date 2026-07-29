@@ -99,7 +99,7 @@ class Pipeline:
         self.description = description
         self.stages: list[ProcessingStage] = stages or []
         self.config = config or {}
-        self.performance_records: list[Any] = []
+        self.performance_records: Any = None
 
     def add_stage(self, stage: ProcessingStage) -> "Pipeline":
         """Add a stage to the pipeline.
@@ -296,7 +296,10 @@ class Pipeline:
         Returns:
             list[Task] | None: List of tasks
         """
-        self.performance_records = []
+        cleanup_previous_records = getattr(self.performance_records, "cleanup", None)
+        if callable(cleanup_previous_records):
+            cleanup_previous_records()
+        self.performance_records = None
         self.build()
 
         if checkpoint_path is not None:
@@ -386,7 +389,14 @@ class Pipeline:
 
         consume_external_perf = getattr(executor, "consume_external_perf_records", None)
         consumed_records = consume_external_perf() if callable(consume_external_perf) else []
-        self.performance_records = list(consumed_records) if isinstance(consumed_records, (list, tuple)) else []
+        from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
+
+        if isinstance(consumed_records, PerformanceRecordStore):
+            self.performance_records = consumed_records
+        elif isinstance(consumed_records, (list, tuple)):
+            self.performance_records = PerformanceRecordStore.from_records(consumed_records)
+        else:
+            self.performance_records = PerformanceRecordStore()
         output_tasks = result if isinstance(result, list) else []
         if performance_consumer is not None:
             performance_consumer.finalize_performance_report(
