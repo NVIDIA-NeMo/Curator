@@ -403,7 +403,7 @@ class IndicConformerHybridASR:
         decode_mode: str | None = None,
     ) -> tuple[list[str], list[str]]:
         if self._model is None:
-            msg = "Model not initialized. Call setup() first."
+            msg = "Model not initialized. Call load_model() first."
             raise RuntimeError(msg)
         mode = (decode_mode or self.decode_mode).lower()
         import torch
