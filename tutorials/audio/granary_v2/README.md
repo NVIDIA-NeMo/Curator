@@ -33,7 +33,9 @@ postprocessing pair. Leave it null to omit both stages.
 The input YAML follows the NeMo Speech `input_cfg` contract. Output shards
 mirror their stable input-relative keys and gain a sibling `.jsonl.done`
 marker only after the expected number of rows has been written. Re-running the
-same command skips completed shards and recovers partial writer counts.
+same command skips completed shards and recovers partial writer counts. The
+terminal writer also emits `output_dir/perf_summary.json` using the shared
+audio performance-summary schema.
 
 The configuration is source-mergeable independently because stage targets are
 stored as Hydra strings. It becomes runnable after the corresponding stage PRs

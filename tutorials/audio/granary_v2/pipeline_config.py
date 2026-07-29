@@ -238,6 +238,12 @@ def build_stage_configs(settings: GranaryV2PipelineSettings) -> list[dict[str, A
             {
                 "_target_": ("nemo_curator.stages.audio.alm.sharded_manifest_writer.ShardedManifestWriterStage"),
                 "output_dir": settings.output_dir,
+                "write_perf_stats": True,
+                "perf_executor": "RayDataExecutor",
+                "perf_pipeline_metadata": {
+                    "pipeline_name": "granary-v2",
+                    "backend": "ray_data",
+                },
             },
         ]
     )

@@ -64,6 +64,12 @@ def test_default_contract_is_complete_and_ordered() -> None:
     assert stages[2]["pred_text_key"] == "primary_model_prediction"
     assert stages[4]["pred_text_key"] == "fallback_model_prediction"
     assert stages[-1]["output_dir"] == "output"
+    assert stages[-1]["write_perf_stats"] is True
+    assert stages[-1]["perf_executor"] == "RayDataExecutor"
+    assert stages[-1]["perf_pipeline_metadata"] == {
+        "pipeline_name": "granary-v2",
+        "backend": "ray_data",
+    }
 
 
 def test_sed_is_an_atomic_optional_pair_before_asr() -> None:
