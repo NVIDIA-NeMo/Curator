@@ -135,6 +135,15 @@ class TestPipelineBuild:
         with pytest.raises(ValueError, match="multiple sink stages marked"):
             Pipeline(name="t", stages=[t0, t1]).build()
 
+    def test_assigns_stable_unique_ids_to_same_named_stages(self) -> None:
+        first = _NoopStage(name="duplicate")
+        second = _NoopStage(name="duplicate")
+
+        Pipeline(name="t", stages=[first, second]).build()
+
+        assert first._curator_stage_id == "0000:duplicate"
+        assert second._curator_stage_id == "0001:duplicate"
+
 
 class TestRootTaskIds:
     """``assign_root_task_ids`` roots user-provided initial tasks under the

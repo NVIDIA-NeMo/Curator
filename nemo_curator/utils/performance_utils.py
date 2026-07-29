@@ -28,6 +28,12 @@ if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
 
 
+def norm_gpu_uuid(value: object) -> str:
+    """Normalize a GPU UUID for comparison (drop ``GPU-`` prefix, lowercase)."""
+    text = value.decode() if isinstance(value, bytes) else str(value)
+    return text.strip().lower().removeprefix("gpu-")
+
+
 @attrs.define
 class StagePerfStats:
     """Statistics for tracking stage performance metrics.
@@ -38,6 +44,14 @@ class StagePerfStats:
         input_data_size_mb: Size of input data in megabytes.
         num_items_processed: Number of items processed in this stage.
         custom_metrics: Custom metrics to track.
+        stage_id: Stable execution-plan identifier. Unlike ``stage_name``,
+            this distinguishes separate stages that share a display name.
+        invocation_id: Unique id for one ``process_batch`` call.
+        window_start_s: Wall-clock timestamp immediately before the stage call.
+        window_end_s: Wall-clock timestamp immediately after the stage call.
+        actor_id: Best-effort label of the producing actor. Empty when unknown.
+        node_id: Best-effort node label. Empty when unknown.
+        gpu_id: Best-effort GPU label. Empty for CPU stages or when unknown.
     """
 
     stage_name: str
@@ -46,9 +60,26 @@ class StagePerfStats:
     input_data_size_mb: float = 0.0
     num_items_processed: int = 0
     custom_metrics: dict[str, float] = attrs.field(factory=dict)
+    stage_id: str = ""
+    invocation_id: str = ""
+    window_start_s: float = 0.0
+    window_end_s: float = 0.0
+    actor_id: str = ""
+    node_id: str = ""
+    gpu_id: str = ""
+    physical_address: str = ""
+    pod_ip: str = ""
+    hostname: str = ""
+    gpu_indices: list[int] = attrs.field(factory=list)
+    gpu_uuids: list[str] = attrs.field(factory=list)
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
-        """Add two StagePerfStats."""
+        """Add stats while retaining identity only for one shared worker."""
+        same_worker = (
+            self.actor_id == other.actor_id
+            and self.node_id == other.node_id
+            and self.physical_address == other.physical_address
+        )
         return StagePerfStats(
             stage_name=self.stage_name,
             process_time=self.process_time + other.process_time,
@@ -59,6 +90,20 @@ class StagePerfStats:
                 key: self.custom_metrics.get(key, 0.0) + other.custom_metrics.get(key, 0.0)
                 for key in set(self.custom_metrics.keys()) | set(other.custom_metrics.keys())
             },
+            stage_id=self.stage_id if self.stage_id == other.stage_id else "",
+            invocation_id="",
+            window_start_s=min(value for value in (self.window_start_s, other.window_start_s) if value > 0)
+            if self.window_start_s > 0 or other.window_start_s > 0
+            else 0.0,
+            window_end_s=max(self.window_end_s, other.window_end_s),
+            actor_id=self.actor_id if same_worker else "",
+            node_id=self.node_id if same_worker else "",
+            gpu_id=self.gpu_id if same_worker else "",
+            physical_address=self.physical_address if same_worker else "",
+            pod_ip=self.pod_ip if same_worker else "",
+            hostname=self.hostname if same_worker else "",
+            gpu_indices=list(self.gpu_indices) if same_worker else [],
+            gpu_uuids=list(self.gpu_uuids) if same_worker else [],
         )
 
     def __radd__(self, other: int | StagePerfStats) -> StagePerfStats:
@@ -77,10 +122,29 @@ class StagePerfStats:
         self.input_data_size_mb = 0.0
         self.num_items_processed = 0
         self.custom_metrics = {}
+        self.stage_id = ""
+        self.invocation_id = ""
+        self.window_start_s = 0.0
+        self.window_end_s = 0.0
+        self.actor_id = ""
+        self.node_id = ""
+        self.gpu_id = ""
+        self.physical_address = ""
+        self.pod_ip = ""
+        self.hostname = ""
+        self.gpu_indices = []
+        self.gpu_uuids = []
 
     def to_dict(self) -> dict[str, float | int]:
-        """Convert the stats to a dictionary."""
-        return attrs.asdict(self)
+        """Convert to the stable main-branch public dictionary schema."""
+        return {
+            "stage_name": self.stage_name,
+            "process_time": self.process_time,
+            "actor_idle_time": self.actor_idle_time,
+            "input_data_size_mb": self.input_data_size_mb,
+            "num_items_processed": self.num_items_processed,
+            "custom_metrics": dict(self.custom_metrics),
+        }
 
     def items(self) -> list[tuple[str, float | int]]:
         """Returns (metric_name, metric_value) pairs
