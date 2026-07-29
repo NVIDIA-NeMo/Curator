@@ -79,6 +79,42 @@ def test_session_rejects_invalid_max_timeout_s(bad_max_timeout_s: object) -> Non
         )
 
 
+def test_session_accepts_run_metadata() -> None:
+    session = Session.from_dict(
+        _config(
+            [{"name": "entry_a", "script": "benchmark.py"}],
+            viewer_url_template="http://viewer/run?dir={session_path_url}",
+            run_reason="release candidate check",
+        )
+    )
+
+    assert session.viewer_url is None
+    assert session.viewer_url_template == "http://viewer/run?dir={session_path_url}"
+    assert session.run_reason == "release candidate check"
+
+
+def test_session_rejects_viewer_url_and_viewer_url_template() -> None:
+    with pytest.raises(ValueError, match="viewer_url and viewer_url_template are mutually exclusive"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py"}],
+                viewer_url="http://viewer/run/entry_a",
+                viewer_url_template="http://viewer/run?dir={session_path_url}",
+            )
+        )
+
+
+@pytest.mark.parametrize("field_name", ["viewer_url", "viewer_url_template", "run_reason"])
+def test_session_rejects_invalid_run_metadata_type(field_name: str) -> None:
+    with pytest.raises(ValueError, match=f"Invalid {field_name}"):
+        Session.from_dict(
+            _config(
+                [{"name": "entry_a", "script": "benchmark.py"}],
+                **{field_name: True},
+            )
+        )
+
+
 def test_session_applies_max_timeout_s_after_default_timeout_s() -> None:
     with pytest.raises(ValueError, match=r"entry_a.*timeout_s=120.*max_timeout_s=100"):
         Session.from_dict(
