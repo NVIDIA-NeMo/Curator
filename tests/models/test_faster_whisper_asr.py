@@ -34,23 +34,21 @@ def test_adapter_conforms_to_shared_protocol() -> None:
     assert isinstance(FasterWhisperASR(), ASRAdapter)
 
 
-def test_download_weights_uses_cpu_only() -> None:
-    model_class = MagicMock()
+def test_download_weights_uses_download_only() -> None:
+    with patch("nemo_curator.models.faster_whisper_asr._download_whisper_model") as download_model:
+        FasterWhisperASR.download_weights_on_node("large-v3", revision="abc123")
 
-    with patch("nemo_curator.models.faster_whisper_asr._whisper_model_class", return_value=model_class):
-        FasterWhisperASR.download_weights_on_node("large-v3")
-
-    model_class.assert_called_once_with("large-v3", device="cpu", compute_type="int8")
+    download_model.assert_called_once_with("large-v3", "abc123")
 
 
 def test_load_model_uses_stage_owned_gpu_count() -> None:
     model_class = MagicMock()
-    adapter = FasterWhisperASR(compute_type="float16")
+    adapter = FasterWhisperASR(compute_type="float16", revision="abc123")
 
     with patch("nemo_curator.models.faster_whisper_asr._whisper_model_class", return_value=model_class):
         adapter.load_model(num_gpus=1)
 
-    model_class.assert_called_once_with("large-v3", device="cuda", compute_type="float16")
+    model_class.assert_called_once_with("large-v3", device="cuda", compute_type="float16", revision="abc123")
 
 
 def test_adapter_transcribes_waveform_and_maps_language_alias() -> None:
