@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run-scoped Ray actors and executor hooks for opt-in telemetry."""
+"""Run-scoped Ray actors and executor hooks for opt-in hardware telemetry."""
 
 from __future__ import annotations
 
 import contextlib
 import time
-import uuid
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import ray
 from loguru import logger
@@ -30,75 +29,6 @@ from nemo_curator.utils.gpu_sampler import (
     pipeline_node_hardware_metrics,
 )
 from nemo_curator.utils.performance_utils import StagePerfStats
-
-if TYPE_CHECKING:
-    from nemo_curator.stages.base import ProcessingStage
-    from nemo_curator.tasks import Task
-
-_COLLECTOR_ATTR = "_curator_stage_perf_collector_name"
-
-
-@ray.remote(num_cpus=0)
-class _StagePerfCollector:
-    def __init__(self) -> None:
-        self.records: list[tuple[StagePerfStats, bool]] = []
-
-    def ready(self) -> bool:
-        return True
-
-    def record(self, stats: StagePerfStats, attached: bool) -> None:
-        self.records.append((stats, attached))
-
-    def drain(self) -> list[tuple[StagePerfStats, bool]]:
-        records, self.records = self.records, []
-        return records
-
-
-def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any | None:  # noqa: ANN401
-    if not any(getattr(stage, "extended_performance_metrics", False) for stage in stages):
-        return None
-    name = f"curator-stage-perf-{uuid.uuid4().hex}"
-    collector = _StagePerfCollector.options(name=name).remote()
-    ray.get(collector.ready.remote())
-    for stage in stages:
-        setattr(stage, _COLLECTOR_ATTR, name)
-    return collector
-
-
-def record_stage_perf(
-    stage: ProcessingStage,
-    stats: StagePerfStats,
-    *,
-    attached_to_output: bool,
-) -> bool:
-    name = str(getattr(stage, _COLLECTOR_ATTR, "") or "")
-    if not name:
-        return False
-    try:
-        ray.get(ray.get_actor(name).record.remote(stats, attached_to_output))
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Stage performance collector publish failed for {}: {}", stage.name, exc)
-        return False
-    return True
-
-
-def stop_stage_perf_collector(
-    collector: Any | None,  # noqa: ANN401
-    stages: list[ProcessingStage],
-) -> list[tuple[StagePerfStats, bool]]:
-    if collector is None:
-        return []
-    try:
-        return list(ray.get(collector.drain.remote()))
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Stage performance collector drain failed: {}", exc)
-        return []
-    finally:
-        for stage in stages:
-            with contextlib.suppress(AttributeError):
-                delattr(stage, _COLLECTOR_ATTR)
-        with contextlib.suppress(Exception):
-            ray.kill(collector, no_restart=True)
 
 
 class _PipelineHardwareSampler:
@@ -185,7 +115,7 @@ def stop_pipeline_hardware_samplers(actors: list[Any], timeout_s: float) -> dict
 
 
 class PerformanceTelemetryExecutorMixin:
-    """Collect backend-owned invocation and hardware records for the driver."""
+    """Add backend-owned aggregate hardware records to shared telemetry."""
 
     config: dict[str, Any]
     _external_perf_records: list[StagePerfStats]
@@ -220,48 +150,8 @@ class PerformanceTelemetryExecutorMixin:
             custom_metrics=metrics,
         )
 
-    @staticmethod
-    def _start_stage_perf_collector(stages: list[ProcessingStage]) -> Any | None:  # noqa: ANN401
-        try:
-            return start_stage_perf_collector(stages)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Stage performance collector disabled: {}", exc)
-            return None
-
-    @staticmethod
-    def _stop_stage_perf_collector(
-        collector: object | None,
-        stages: list[ProcessingStage],
-    ) -> list[tuple[StagePerfStats, bool]]:
-        try:
-            return stop_stage_perf_collector(collector, stages)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Stage performance collector stop failed: {}", exc)
-            return []
-
-    def _finalize_performance_telemetry(
-        self,
-        *,
-        stages: list[ProcessingStage],
-        tasks: list[Task],
-        stage_perf_collector: object | None,
-        hardware_sampler: list[Any],
-    ) -> None:
-        records = self._stop_stage_perf_collector(stage_perf_collector, stages)
-        external = [stats for stats, _ in records]
-        for task in tasks:
-            for stats, attached in records:
-                if not attached:
-                    task.add_stage_perf(stats)
-
+    def _finalize_pipeline_hardware_sampler(self, hardware_sampler: list[Any], *, keep_record: bool) -> None:
+        """Stop pipeline samplers and optionally append their aggregate record."""
         hardware = self._stop_pipeline_hardware_sampler(hardware_sampler)
-        if hardware is not None:
-            external.append(hardware)
-            for task in tasks:
-                task.add_stage_perf(hardware)
-        self._external_perf_records = external
-
-    def consume_external_perf_records(self) -> list[StagePerfStats]:
-        records = list(getattr(self, "_external_perf_records", []))
-        self._external_perf_records = []
-        return records
+        if keep_record and hardware is not None:
+            self._external_perf_records.append(hardware)

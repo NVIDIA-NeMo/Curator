@@ -37,7 +37,6 @@ from nemo_curator.utils.resumability_client import (
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
-    from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 def _is_sentinel(task: Task) -> bool:
@@ -58,7 +57,8 @@ class NodeInfo:
 class WorkerMetadata:
     """Generic worker metadata for setup_on_node calls across backends.
     Simplified to match Xenna's structure. The allocation field can contain
-    backend-specific allocation information.
+    backend-specific allocation information and ``perf_identity`` can carry an
+    optional backend-owned immutable identity value.
     """
 
     worker_id: str = ""
@@ -72,19 +72,43 @@ class BaseExecutor(ABC):
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         self.config = config or {}
         self.ignore_head_node = ignore_head_node or ignore_ray_head_node()
+        self._external_perf_records: list[Any] = []
 
     @abstractmethod
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
         """Execute the pipeline."""
 
-    def consume_external_perf_records(self) -> list["StagePerfStats"]:
-        """Return and clear driver-owned telemetry records after execution.
+    @staticmethod
+    def _start_stage_perf_collector(stages: list["ProcessingStage"]) -> Any | None:  # noqa: ANN401
+        """Start the run-scoped collector when performance collection is enabled."""
+        try:
+            from nemo_curator.utils.stage_perf_collector import start_stage_perf_collector
 
-        Executors without external telemetry use the empty default. Telemetry
-        executors override this method so ``Pipeline.run`` can finalize records
-        independently of whether any output tasks survive.
-        """
-        return []
+            return start_stage_perf_collector(stages)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Stage performance collector disabled: {}", exc)
+            return None
+
+    def _stop_stage_perf_collector(
+        self,
+        collector: Any | None,  # noqa: ANN401
+        stages: list["ProcessingStage"],
+        *,
+        keep_records: bool,
+    ) -> None:
+        try:
+            from nemo_curator.utils.stage_perf_collector import stop_stage_perf_collector
+
+            records = stop_stage_perf_collector(collector, stages)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Stage performance collector stop failed: {}", exc)
+            records = []
+        self._external_perf_records = [stats for stats, _attached in records] if keep_records else []
+
+    def consume_external_perf_records(self) -> list[Any]:
+        """Return and clear the authoritative invocation records for this run."""
+        records, self._external_perf_records = self._external_perf_records, []
+        return records
 
 
 class BaseStageAdapter:
@@ -110,13 +134,15 @@ class BaseStageAdapter:
         input_size = sum(task.num_items for task in tasks)
         # Initialize performance timer for this batch
         self._timer.reinit(input_size)
-        extended_metrics = bool(getattr(self.stage, "extended_performance_metrics", False))
 
-        window_start = time.time() if extended_metrics else 0.0
+        capture_metrics = bool(getattr(self.stage, "_curator_stage_perf_collector_name", ""))
+        window_start_s = time.time() if capture_metrics else 0.0
+        process_start_s = time.perf_counter() if capture_metrics else 0.0
         with self._timer.time_process(input_size):
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
-        window_end = time.time() if extended_metrics else 0.0
+        process_elapsed_s = max(time.perf_counter() - process_start_s, 0.0) if capture_metrics else 0.0
+        window_end_s = time.time() if capture_metrics else 0.0
 
         # A returned ``None`` ("filter this slot") becomes a NoneTask so every
         # output is a real Task that gets a task_id. Sentinels (NoneTask /
@@ -157,22 +183,33 @@ class BaseStageAdapter:
         # Sentinels never propagate to the next stage.
         results = [r for r in results if not _is_sentinel(r)]
 
-        # Log performance stats and enrich opt-in records.
+        # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
-        stage_perf_stats.stage_id = str(getattr(self.stage, "_curator_stage_id", "") or "")
-        if extended_metrics:
+        if capture_metrics:
+            stage_perf_stats.process_time = process_elapsed_s
             stage_perf_stats.invocation_id = uuid.uuid4().hex
-            stage_perf_stats.window_start_s = window_start
-            stage_perf_stats.window_end_s = window_end
+            stage_perf_stats.window_start_s = window_start_s
+            stage_perf_stats.window_end_s = window_end_s
         # Consume and attach any custom metrics recorded by the stage during this call
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
-        telemetry = getattr(self, "_performance_telemetry", None)
-        if telemetry is not None:
-            telemetry.enrich(stage_perf_stats, attached_to_output=bool(results))
+        enrich_perf = getattr(self, "_enrich_stage_perf_record", None)
+        if callable(enrich_perf):
+            enrich_perf(stage_perf_stats, results)
         for task in results:
             task.add_stage_perf(stage_perf_stats)
+        if capture_metrics:
+            try:
+                from nemo_curator.utils.stage_perf_collector import record_stage_perf
+
+                record_stage_perf(
+                    self.stage,
+                    stage_perf_stats,
+                    attached_to_output=bool(results),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Stage performance collector publish failed for {}: {}", self.stage.name, exc)
 
         return results
 
@@ -321,20 +358,17 @@ class BaseStageAdapter:
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker
         """
-        worker_metadata = worker_metadata or getattr(self, "worker_metadata", None)
+        self._worker_metadata = worker_metadata
         self.stage.setup(worker_metadata)
-        self._performance_telemetry = None
-        if bool(getattr(self.stage, "extended_performance_metrics", False)):
-            from nemo_curator.backends.perf_identity import StageTelemetry
-
-            self._performance_telemetry = StageTelemetry(self.stage, worker_metadata)
+        setup_perf = getattr(self, "_setup_performance_telemetry", None)
+        if callable(setup_perf):
+            setup_perf(worker_metadata)
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""
         try:
             self.stage.teardown()
         finally:
-            telemetry = getattr(self, "_performance_telemetry", None)
-            if telemetry is not None:
-                telemetry.close()
-                self._performance_telemetry = None
+            teardown_perf = getattr(self, "_teardown_performance_telemetry", None)
+            if callable(teardown_perf):
+                teardown_perf()

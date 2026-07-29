@@ -95,6 +95,7 @@ class RayActorPoolExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
             return []
 
         session_id = uuid.uuid4().bytes
+        self._external_perf_records = []
         hardware_sampler: list[Any] = []
         stage_perf_collector = None
         current_tasks: list[Task] = []
@@ -164,13 +165,9 @@ class RayActorPoolExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
         else:
             # Return final results directly - no need for ray.get()
             final_results = current_tasks or []
-            self._finalize_performance_telemetry(
-                stages=stages,
-                tasks=final_results,
-                stage_perf_collector=stage_perf_collector,
-                hardware_sampler=hardware_sampler,
-            )
+            self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=True)
             stage_perf_collector = None
+            self._finalize_pipeline_hardware_sampler(hardware_sampler, keep_record=True)
             hardware_sampler = []
             logger.info(f"\nPipeline completed. Final results: {len(final_results)} tasks")
 
@@ -179,9 +176,9 @@ class RayActorPoolExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
             # Clean up all Ray resources including named actors
             logger.info("Shutting down Ray to clean up all resources...")
             if stage_perf_collector is not None:
-                self._stop_stage_perf_collector(stage_perf_collector, stages)
+                self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=False)
             if hardware_sampler:
-                self._stop_pipeline_hardware_sampler(hardware_sampler)
+                self._finalize_pipeline_hardware_sampler(hardware_sampler, keep_record=False)
             ray.shutdown()
 
     def _create_actor_pool(self, stage: "ProcessingStage", num_actors: int) -> ActorPool:

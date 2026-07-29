@@ -12,20 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-
-import json
+import os
+import time
+import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from loguru import logger
 
+from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import EmptyTask, Task
-
-if TYPE_CHECKING:
-    from nemo_curator.backends.base import BaseExecutor
-    from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 def assign_root_task_ids(initial_tasks: list[Task]) -> list[Task]:
@@ -74,9 +71,9 @@ class Pipeline:
         self.description = description
         self.stages: list[ProcessingStage] = stages or []
         self.config = config or {}
-        self.performance_records: list[StagePerfStats] = []
+        self.performance_records: list[Any] = []
 
-    def add_stage(self, stage: ProcessingStage) -> Pipeline:
+    def add_stage(self, stage: ProcessingStage) -> "Pipeline":
         """Add a stage to the pipeline.
 
         Args:
@@ -112,18 +109,38 @@ class Pipeline:
         self.stages = execution_stages
         self.decomposition_info = decomposition_info
 
-        # 3. Assign an execution-plan identity independently of the public name.
-        # Names are user-facing and need not be unique.
-        for index, stage in enumerate(self.stages):
-            stage._curator_stage_id = f"{index:04d}:{stage.name}"
-
-        # 4. Source / sink defaults: at most one stage may be explicitly
+        # 3. Source / sink defaults: at most one stage may be explicitly
         # marked; if none, the first stage is the source and the last is
         # the sink. The source flag activates content-based ids in the
         # default ``process_batch``; the sink flag tells the resumability
         # counters that a sink consumes its outputs (see
         # ``BaseStageAdapter._apply_resumability_counters``).
         self._assign_source_sink_roles()
+        for stage_index, stage in enumerate(self.stages):
+            stage._curator_stage_id = f"{stage_index:03d}:{stage.name}"
+
+    def _set_execution_context(self, executor: BaseExecutor) -> None:
+        """Stamp one run's driver-owned identity onto every planned stage."""
+        run_id = os.environ.get("PIPELINE_RUN_ID", "").strip() or uuid.uuid4().hex
+        executor_name = type(executor).__name__
+        pipeline_metadata = {
+            "pipeline_name": self.name,
+            "pipeline_description": self.description or "",
+            "stages": [
+                {
+                    "stage_id": stage._curator_stage_id,
+                    "name": stage.name,
+                    "type": f"{type(stage).__module__}.{type(stage).__name__}",
+                    "batch_size": stage.batch_size,
+                    "num_workers": stage.num_workers(),
+                }
+                for stage in self.stages
+            ],
+        }
+        for stage in self.stages:
+            stage._curator_run_id = run_id
+            stage._curator_executor = executor_name
+            stage._curator_pipeline_metadata = pipeline_metadata
 
     def _assign_source_sink_roles(self) -> None:
         explicit_sources = [s for s in self.stages if s.is_source_stage]
@@ -236,12 +253,11 @@ class Pipeline:
 
         return "\n".join(lines)
 
-    def run(  # noqa: C901, PLR0912
+    def run(  # noqa: C901, PLR0912, PLR0915
         self,
         executor: BaseExecutor | None = None,
         initial_tasks: list[Task] | None = None,
         checkpoint_path: str | Path | None = None,
-        performance_report_path: str | Path | None = None,
     ) -> list[Task] | None:
         """Run the pipeline.
 
@@ -254,12 +270,6 @@ class Pipeline:
                 tracked (in a ``.nemo_curator_metadata`` subdir) and skipped on
                 rerun. Multiple runs (e.g. a SLURM array) may share the directory
                 — each writes its own LMDB file, so there is no contention.
-            performance_report_path (str | Path, optional): Local JSON report
-                path for complete external invocation and run-level telemetry.
-                The report is written after successful execution, including when
-                no output tasks survive. Records are always available in
-                ``performance_records`` after a successful run.
-
         Returns:
             list[Task] | None: List of tasks
         """
@@ -282,6 +292,7 @@ class Pipeline:
             from nemo_curator.backends.xenna import XennaExecutor
 
             executor = XennaExecutor()
+        self._set_execution_context(executor)
 
         from nemo_curator.core.serve import is_inference_server_active
 
@@ -330,15 +341,36 @@ class Pipeline:
                 minimum_shard_index=slurm_array.minimum_shard_index,
             )
 
+        performance_consumer = next(
+            (
+                stage
+                for stage in reversed(self.stages)
+                if callable(getattr(stage, "finalize_performance_report", None))
+            ),
+            None,
+        )
+        if performance_consumer is not None:
+            prepare_report = getattr(performance_consumer, "prepare_performance_report", None)
+            if callable(prepare_report):
+                prepare_report()
+
+        run_started_s = time.perf_counter()
         if checkpoint_path is None:
             result = executor.execute(self.stages, initial_tasks)
         else:
             result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+        wall_time_s = max(time.perf_counter() - run_started_s, 0.0)
 
-        self.performance_records = executor.consume_external_perf_records()
-        if performance_report_path is not None:
-            self.write_performance_report(performance_report_path)
-
+        consume_external_perf = getattr(executor, "consume_external_perf_records", None)
+        consumed_records = consume_external_perf() if callable(consume_external_perf) else []
+        self.performance_records = list(consumed_records) if isinstance(consumed_records, (list, tuple)) else []
+        output_tasks = result if isinstance(result, list) else []
+        if performance_consumer is not None:
+            performance_consumer.finalize_performance_report(
+                output_tasks,
+                performance_records=self.performance_records,
+                wall_time_s=wall_time_s,
+            )
         if completion_manifest is not None:
             if failed_task_manifest_exists():
                 logger.warning(
@@ -350,23 +382,6 @@ class Pipeline:
                 logger.info(f"Wrote Slurm array completion manifest to {manifest_file}")
 
         return result
-
-    def write_performance_report(self, path: str | Path) -> Path:
-        """Write the current run's complete external telemetry to JSON."""
-        report_path = Path(path).expanduser().absolute()
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": 1,
-            "pipeline_name": self.name,
-            "record_count": len(self.performance_records),
-            "records": [record.to_extended_dict() for record in self.performance_records],
-        }
-        report_path.write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        logger.info(f"Wrote performance telemetry report to {report_path}")
-        return report_path
 
     def _run_with_resumability(
         self,

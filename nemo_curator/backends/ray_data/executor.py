@@ -70,8 +70,9 @@ class RayDataExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
         tasks: list[Task] = initial_tasks or [EmptyTask()]
         output_tasks: list[Task] = []
-        hardware_sampler: list[Any] = []
+        self._external_perf_records = []
         stage_perf_collector = None
+        hardware_sampler: list[Any] = []
         # When runtime_env with pip is used, Ray's pip plugin sets up per-stage virtualenvs
         # lazily on first task dispatch by cloning the current virtualenv. The NeMo Curator
         # container's /opt/venv is created with `uv venv --seed` so pip is available in clones.
@@ -84,29 +85,42 @@ class RayDataExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
             hardware_sampler = self._start_pipeline_hardware_sampler()
             stage_perf_collector = self._start_stage_perf_collector(stages)
 
+            # Convert tasks to dataset
             current_dataset = self._tasks_to_dataset(tasks)
+
+            # Execute setup on node for all stages
             execute_setup_on_node(stages, ignore_head_node=self.ignore_head_node)
             logger.info(f"Setup on node complete for all stages. Starting Ray Data pipeline with {len(stages)} stages")
+
+            # Process through each stage
             for i, stage in enumerate(stages):
+                # TODO: add pipeline level config for verbosity
                 logger.info(f"Processing stage {i + 1}/{len(stages)}: {stage}")
                 logger.info(f"  CPU cores: {stage.resources.cpus}, GPU ratio: {stage.resources.gpus}")
-                current_dataset = RayDataStageAdapter(stage).process_dataset(current_dataset)
+
+                # Create adapter for this stage
+                adapter = RayDataStageAdapter(stage)
+
+                # Apply stage transformation
+                current_dataset = adapter.process_dataset(current_dataset)
         except Exception as e:
             logger.error(f"Error during pipeline execution: {e}")
-            self._stop_stage_perf_collector(stage_perf_collector, stages)
-            self._stop_pipeline_hardware_sampler(hardware_sampler)
             raise
         else:
+            # Convert final dataset back to tasks
+            # TODO: add pipeline configuration to check if user wants to return last stages output to driver
             output_tasks = self._dataset_to_tasks(current_dataset)
-            self._finalize_performance_telemetry(
-                stages=stages,
-                tasks=output_tasks,
-                stage_perf_collector=stage_perf_collector,
-                hardware_sampler=hardware_sampler,
-            )
+            self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=True)
+            stage_perf_collector = None
+            self._finalize_pipeline_hardware_sampler(hardware_sampler, keep_record=True)
+            hardware_sampler = []
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
+            if stage_perf_collector is not None:
+                self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=False)
+            if hardware_sampler:
+                self._finalize_pipeline_hardware_sampler(hardware_sampler, keep_record=False)
             ray.shutdown()
         return output_tasks
 

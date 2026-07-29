@@ -19,6 +19,7 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.perf_identity import PerformanceTelemetryAdapterMixin
 from nemo_curator.backends.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from nemo_curator.tasks import FileGroupTask
 
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
 
 # TODO: Remove once UCX memory usage with GPU staging buffers is fixed.
 @ray.remote(runtime_env={"env_vars": {"UCX_RNDV_FRAG_MEM_TYPES": "host"}})
-class ShuffleStageAdapter(BaseStageAdapter):
+class ShuffleStageAdapter(PerformanceTelemetryAdapterMixin, BaseStageAdapter):
     """Ray actor that wraps a shuffle stage and its actor.
 
     This adapter manages the lifecycle of a shuffle actor (like LSHActor)
@@ -111,7 +112,7 @@ class ShuffleStageAdapter(BaseStageAdapter):
         """Setup shuffle workers and stage"""
         self.setup_worker(root_address)
         # call the stage's setup method
-        super().setup(worker_metadata)
+        super().setup(worker_metadata or self.worker_metadata)
 
     def setup_root(self) -> None:
         """Setup the root actor."""

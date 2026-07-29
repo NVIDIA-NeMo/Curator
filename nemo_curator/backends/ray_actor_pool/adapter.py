@@ -15,11 +15,12 @@
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.perf_identity import PerformanceTelemetryAdapterMixin
 from nemo_curator.backends.utils import get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
 
 
-class RayActorPoolStageAdapter(BaseStageAdapter):
+class RayActorPoolStageAdapter(PerformanceTelemetryAdapterMixin, BaseStageAdapter):
     """Adapts ProcessingStage to Ray actors for use with ActorPool.
 
     This adapter is designed to work with Ray's ActorPool for better

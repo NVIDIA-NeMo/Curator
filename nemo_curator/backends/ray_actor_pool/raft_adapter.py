@@ -18,6 +18,7 @@ import ray
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.backends.perf_identity import PerformanceTelemetryAdapterMixin
 from nemo_curator.backends.utils import get_worker_metadata_and_node_id
 from nemo_curator.stages.base import ProcessingStage
 
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
 
 
-class RayActorPoolRAFTAdapter(BaseStageAdapter):
+class RayActorPoolRAFTAdapter(PerformanceTelemetryAdapterMixin, BaseStageAdapter):
     """RAFT Actor adapter for Ray Actor Pool backend.
 
     This adapter extends RayActorPoolStageAdapter and adds RAFT capabilities
@@ -155,7 +156,7 @@ class RayActorPoolRAFTAdapter(BaseStageAdapter):
             self.stage._actor_pool_size = self._pool_size
             self.stage._actor_index = self._index
             # This calls the stage's setup method
-            super().setup(worker_metadata)
+            super().setup(worker_metadata or self.worker_metadata)
         except Exception as e:
             logger.error(f"An error occurred while setting up {self._name}: {e}.")
             raise

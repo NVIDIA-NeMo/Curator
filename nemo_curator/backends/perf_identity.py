@@ -29,6 +29,7 @@ from nemo_curator.utils.performance_utils import norm_gpu_uuid
 if TYPE_CHECKING:
     from nemo_curator.backends.base import WorkerMetadata
     from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.tasks import Task
     from nemo_curator.utils.performance_utils import StagePerfStats
 
 
@@ -213,7 +214,7 @@ def apply_worker_perf_identity(stats: StagePerfStats, identity: WorkerPerfIdenti
 
 
 class StageTelemetry:
-    """Worker-local sampler and record publisher for one opted-in stage."""
+    """Worker-local identity and sampler for one opted-in stage."""
 
     def __init__(self, stage: ProcessingStage, worker_metadata: WorkerMetadata | None) -> None:
         self.stage = stage
@@ -232,18 +233,35 @@ class StageTelemetry:
             logger.debug("GPU sampler unavailable for {}: {}", stage.name, exc)
             self.sampler = None
 
-    def enrich(self, stats: StagePerfStats, *, attached_to_output: bool) -> None:
+    def enrich(self, stats: StagePerfStats) -> None:
         if self.sampler is not None:
             stats.custom_metrics.update(self.sampler.window_metrics(stats.window_start_s, stats.window_end_s))
         apply_worker_perf_identity(stats, self.identity)
-        try:
-            from nemo_curator.backends.perf_telemetry import record_stage_perf
-
-            record_stage_perf(self.stage, stats, attached_to_output=attached_to_output)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Stage performance collector unavailable for {}: {}", self.stage.name, exc)
 
     def close(self) -> None:
         if self.sampler is not None:
             self.sampler.stop()
             self.sampler = None
+
+
+class PerformanceTelemetryAdapterMixin:
+    """Implement the shared adapter hooks with backend identity and NVML data."""
+
+    stage: ProcessingStage
+    _performance_telemetry: StageTelemetry | None
+
+    def _setup_performance_telemetry(self, worker_metadata: WorkerMetadata | None) -> None:
+        self._performance_telemetry = (
+            StageTelemetry(self.stage, worker_metadata)
+            if bool(getattr(self.stage, "extended_performance_metrics", False))
+            else None
+        )
+
+    def _enrich_stage_perf_record(self, stats: StagePerfStats, _results: list[Task]) -> None:
+        if self._performance_telemetry is not None:
+            self._performance_telemetry.enrich(stats)
+
+    def _teardown_performance_telemetry(self) -> None:
+        if self._performance_telemetry is not None:
+            self._performance_telemetry.close()
+            self._performance_telemetry = None

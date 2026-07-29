@@ -117,15 +117,6 @@ def test_basic_inference() -> None:
     }
     assert inferred_item["waveform"].shape == (_SR,)
     assert inferred_item["sample_rate"] == _SR
-    metrics = stage._consume_custom_metrics()
-    assert metrics["audio_duration_s"] == 1.0
-    assert metrics["adapter_inference_calls"] == 1.0
-    assert metrics["adapter_inference_items"] == 1.0
-    assert metrics["utterances_input"] == 1.0
-    assert metrics["utterances_processed"] == 1.0
-    assert metrics["utterances_skipped"] == 0.0
-    assert metrics["output_chars"] == 11.0
-    assert metrics["inference_time_s"] >= 0.0
 
 
 def test_adapter_not_initialized_raises() -> None:

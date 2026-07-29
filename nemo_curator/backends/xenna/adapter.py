@@ -19,9 +19,10 @@ from cosmos_xenna.pipelines import v1 as pipelines_v1
 from cosmos_xenna.pipelines.private.resources import NodeInfo as XennaNodeInfo
 from cosmos_xenna.pipelines.private.resources import Resources as XennaResources
 from cosmos_xenna.pipelines.private.resources import WorkerMetadata as XennaWorkerMetadata
+from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter, NodeInfo, WorkerMetadata
-from nemo_curator.backends.perf_identity import build_xenna_perf_identity
+from nemo_curator.backends.perf_identity import PerformanceTelemetryAdapterMixin, build_xenna_perf_identity
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import Task
 
@@ -51,7 +52,7 @@ class CuratorRuntimeEnv:
         return f"runtime_env_keys: {', '.join(self._runtime_env.keys())}"
 
 
-class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
+class XennaStageAdapter(PerformanceTelemetryAdapterMixin, BaseStageAdapter, pipelines_v1.Stage):
     """Adapts ProcessingStage to Xenna.
     Args:
         stage: ProcessingStage to adapt
@@ -69,6 +70,7 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
     @property
     def required_resources(self) -> XennaResources:
         """Get the resources required for this stage."""
+        logger.info(f"Resources: {self.processing_stage.resources}")
         return XennaResources(
             cpus=self.processing_stage.resources.cpus,
             gpus=self.processing_stage.resources.gpus,

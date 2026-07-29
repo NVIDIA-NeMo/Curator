@@ -74,7 +74,7 @@ class XennaExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
         stage_specs = []
 
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
-        initial_tasks = initial_tasks or [EmptyTask()]
+        initial_tasks = initial_tasks if initial_tasks else [EmptyTask()]
 
         for stage in stages:
             # Get stage configuration
@@ -147,8 +147,9 @@ class XennaExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
         # Log pipeline configuration
         logger.info(f"Execution mode: {exec_mode.name}")
 
-        hardware_sampler: list[Any] = []
+        self._external_perf_records = []
         stage_perf_collector = None
+        hardware_sampler: list[Any] = []
         try:
             register_loguru_serializer()
             # Prevent Ray from overriding accelerator env vars when num_gpus=0, letting Xenna manage them instead.
@@ -165,29 +166,22 @@ class XennaExecutor(PerformanceTelemetryExecutorMixin, BaseExecutor):
             stage_perf_collector = self._start_stage_perf_collector(stages)
             # Run the pipeline (this will re-initialize ray but that'll be a no-op and the ray.init above will take precedence)
             results = pipelines_v1.run_pipeline(pipeline_spec)
-            final_results = results or []
-            self._finalize_performance_telemetry(
-                stages=stages,
-                tasks=final_results,
-                stage_perf_collector=stage_perf_collector,
-                hardware_sampler=hardware_sampler,
-            )
+            self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=True)
             stage_perf_collector = None
+            self._finalize_pipeline_hardware_sampler(hardware_sampler, keep_record=True)
             hardware_sampler = []
-            logger.info(f"Pipeline completed successfully with {len(final_results)} output tasks")
+            logger.info(f"Pipeline completed successfully with {len(results) if results else 0} output tasks")
         except Exception as e:
             logger.error(f"Pipeline execution failed: {e}")
             raise
         finally:
             # This ensures we unset all the env vars set above during initialize and kill the pending actors.
-            try:
-                if stage_perf_collector is not None:
-                    self._stop_stage_perf_collector(stage_perf_collector, stages)
-                if hardware_sampler:
-                    self._stop_pipeline_hardware_sampler(hardware_sampler)
-            finally:
-                ray.shutdown()
-        return final_results
+            if stage_perf_collector is not None:
+                self._stop_stage_perf_collector(stage_perf_collector, stages, keep_records=False)
+            if hardware_sampler:
+                self._finalize_pipeline_hardware_sampler(hardware_sampler, keep_record=False)
+            ray.shutdown()
+        return results if results else []
 
     def _get_pipeline_config(self, key: str) -> Any:  # noqa: ANN401
         """Get configuration value with fallback to defaults."""

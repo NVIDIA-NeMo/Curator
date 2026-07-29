@@ -23,6 +23,7 @@ import pytest
 from nemo_curator.backends import perf_telemetry
 from nemo_curator.backends.base import BaseStageAdapter, WorkerMetadata
 from nemo_curator.backends.perf_identity import (
+    PerformanceTelemetryAdapterMixin,
     WorkerPerfIdentity,
     build_ray_perf_identity,
     build_xenna_perf_identity,
@@ -123,9 +124,8 @@ class _GpuStage(ProcessingStage[Task, Task]):
         return task
 
 
-class _DropStage(_GpuStage):
-    def process(self, task: Task) -> None:
-        self._log_metric("filtered_items", task.num_items)
+class _TelemetryAdapter(PerformanceTelemetryAdapterMixin, BaseStageAdapter):
+    pass
 
 
 class _Sampler:
@@ -145,11 +145,11 @@ class _Sampler:
         type(self).stops += 1
 
 
-def test_base_adapter_owns_opt_in_sampler_identity_and_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_backend_adapter_owns_opt_in_sampler_identity_and_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
     _Sampler.calls.clear()
     _Sampler.stops = 0
     monkeypatch.setattr(gpu_sampler, "GpuUtilSampler", _Sampler)
-    adapter = BaseStageAdapter(_GpuStage())
+    adapter = _TelemetryAdapter(_GpuStage())
     adapter.setup(
         WorkerMetadata(
             perf_identity=WorkerPerfIdentity(
@@ -170,44 +170,6 @@ def test_base_adapter_owns_opt_in_sampler_identity_and_cleanup(monkeypatch: pyte
     assert perf.actor_id == "gpu_stage:actor-a"
     assert perf.gpu_indices == [1]
     assert perf.custom_metrics == {"stage_metric": 2.0, "gpu_util_pct::a": 75.0}
-
-
-def test_fully_filtered_invocation_is_published_out_of_band() -> None:
-    stage = _DropStage()
-    stage._curator_stage_id = "0002:gpu_stage"
-    adapter = BaseStageAdapter(stage)
-    adapter.setup(WorkerMetadata(perf_identity=WorkerPerfIdentity(actor_id="actor")))
-
-    with mock.patch("nemo_curator.backends.perf_telemetry.record_stage_perf", return_value=True) as publish:
-        assert adapter.process_batch([_Task(dataset_name="test", data=[1, 2])]) == []
-
-    stats = publish.call_args.args[1]
-    assert stats.stage_id == "0002:gpu_stage"
-    assert stats.invocation_id
-    assert stats.custom_metrics["filtered_items"] == 2.0
-    assert publish.call_args.kwargs == {"attached_to_output": False}
-
-
-def test_record_stage_perf_waits_for_ack() -> None:
-    stage = _GpuStage()
-    assert (
-        perf_telemetry.record_stage_perf(stage, StagePerfStats(stage_name="gpu_stage"), attached_to_output=False)
-        is False
-    )
-    stage._curator_stage_perf_collector_name = "collector"
-    collector = mock.MagicMock()
-    record_ref = collector.record.remote.return_value
-
-    with (
-        mock.patch.object(perf_telemetry.ray, "get_actor", return_value=collector),
-        mock.patch.object(perf_telemetry.ray, "get") as ray_get,
-    ):
-        assert perf_telemetry.record_stage_perf(
-            stage,
-            StagePerfStats(stage_name="gpu_stage"),
-            attached_to_output=True,
-        )
-    ray_get.assert_called_once_with(record_ref)
 
 
 class _RemoteMethod:
@@ -243,6 +205,18 @@ def test_pipeline_sampler_uses_node_affinity(monkeypatch: pytest.MonkeyPatch) ->
 
     assert len(actors) == 1
     assert _RemoteClass.options_call == {"scheduling_strategy": {"node_id": "node-id"}}
+
+
+def test_pipeline_hardware_record_appends_to_shared_collector_records() -> None:
+    executor = perf_telemetry.PerformanceTelemetryExecutorMixin()
+    existing = StagePerfStats(stage_name="ASR")
+    hardware = StagePerfStats(stage_name="pipeline_hardware_sampler")
+    executor._external_perf_records = [existing]
+
+    with mock.patch.object(executor, "_stop_pipeline_hardware_sampler", return_value=hardware):
+        executor._finalize_pipeline_hardware_sampler([mock.sentinel.actor], keep_record=True)
+
+    assert executor._external_perf_records == [existing, hardware]
 
 
 def test_pipeline_sampler_covers_each_live_node(shared_ray_client: None) -> None:  # noqa: ARG001

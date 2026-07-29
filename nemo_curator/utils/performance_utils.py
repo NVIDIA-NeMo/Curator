@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 
 def norm_gpu_uuid(value: object) -> str:
-    """Normalize a GPU UUID for comparison (drop ``GPU-`` prefix, lowercase)."""
+    """Normalize a GPU UUID for transport and topology comparisons."""
     text = value.decode() if isinstance(value, bytes) else str(value)
     return text.strip().lower().removeprefix("gpu-")
 
@@ -44,14 +44,18 @@ class StagePerfStats:
         input_data_size_mb: Size of input data in megabytes.
         num_items_processed: Number of items processed in this stage.
         custom_metrics: Custom metrics to track.
-        stage_id: Stable execution-plan identifier. Unlike ``stage_name``,
-            this distinguishes separate stages that share a display name.
-        invocation_id: Unique id for one ``process_batch`` call.
-        window_start_s: Wall-clock timestamp immediately before the stage call.
-        window_end_s: Wall-clock timestamp immediately after the stage call.
-        actor_id: Best-effort label of the producing actor. Empty when unknown.
-        node_id: Best-effort node label. Empty when unknown.
-        gpu_id: Best-effort GPU label. Empty for CPU stages or when unknown.
+        stage_id: Stable per-plan identifier assigned by ``Pipeline.build()``.
+        invocation_id: Unique identifier for one ``process_batch`` call.
+        window_start_s: Unix wall-clock timestamp immediately before the stage call.
+        window_end_s: Unix wall-clock timestamp immediately after the stage call.
+        actor_id: Best-effort worker identity supplied by an optional backend.
+        node_id: Best-effort node identity supplied by an optional backend.
+        gpu_id: Best-effort display label for the assigned GPU.
+        physical_address: Backend-independent ``<host>:<gpu_indices>`` label.
+        pod_ip: Kubernetes pod IP when available.
+        hostname: Worker hostname when available.
+        gpu_indices: Physical GPU indices assigned to the worker.
+        gpu_uuids: Physical GPU UUIDs assigned to the worker.
     """
 
     stage_name: str
@@ -75,6 +79,11 @@ class StagePerfStats:
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
         """Add two StagePerfStats."""
+        same_worker = (
+            self.actor_id == other.actor_id
+            and self.node_id == other.node_id
+            and self.physical_address == other.physical_address
+        )
         return StagePerfStats(
             stage_name=self.stage_name,
             process_time=self.process_time + other.process_time,
@@ -85,6 +94,20 @@ class StagePerfStats:
                 key: self.custom_metrics.get(key, 0.0) + other.custom_metrics.get(key, 0.0)
                 for key in set(self.custom_metrics.keys()) | set(other.custom_metrics.keys())
             },
+            stage_id=self.stage_id if self.stage_id == other.stage_id else "",
+            invocation_id="",
+            window_start_s=min(value for value in (self.window_start_s, other.window_start_s) if value > 0)
+            if self.window_start_s > 0 or other.window_start_s > 0
+            else 0.0,
+            window_end_s=max(self.window_end_s, other.window_end_s),
+            actor_id=self.actor_id if same_worker else "",
+            node_id=self.node_id if same_worker else "",
+            gpu_id=self.gpu_id if same_worker else "",
+            physical_address=self.physical_address if same_worker else "",
+            pod_ip=self.pod_ip if same_worker else "",
+            hostname=self.hostname if same_worker else "",
+            gpu_indices=list(self.gpu_indices) if same_worker else [],
+            gpu_uuids=list(self.gpu_uuids) if same_worker else [],
         )
 
     def __radd__(self, other: int | StagePerfStats) -> StagePerfStats:
@@ -117,7 +140,7 @@ class StagePerfStats:
         self.gpu_uuids = []
 
     def to_dict(self) -> dict[str, float | int]:
-        """Convert to the stable main-branch public dictionary schema."""
+        """Convert numeric metrics to the legacy public dictionary."""
         return {
             "stage_name": self.stage_name,
             "process_time": self.process_time,
@@ -156,6 +179,7 @@ class StageTimer:
             stage: The stage to track.
         """
         self._stage_name = str(stage.name)
+        self._stage_id = str(getattr(stage, "_curator_stage_id", "") or "")
         self._reset()
         self._last_active_time = time.time()
         self._initialized = False
@@ -222,6 +246,7 @@ class StageTimer:
 
         stage_perf_stats = StagePerfStats(
             stage_name=self._stage_name,
+            stage_id=self._stage_id,
             process_time=process_data_dur_s,
             actor_idle_time=idle_time_s,
             input_data_size_mb=input_data_size_mb,
