@@ -12,9 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
-from pathlib import Path
-
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import Task
@@ -62,17 +59,15 @@ class _Executor:
         return records
 
 
-def test_pipeline_assigns_stable_ids_and_fans_out_one_record_drain(tmp_path: Path) -> None:
+def test_pipeline_assigns_stable_ids_and_fans_out_one_record_drain() -> None:
     first = _TerminalConsumer()
     terminal = _TerminalConsumer()
     executor = _Executor()
-    report_path = tmp_path / "raw-performance.json"
     pipeline = Pipeline(name="performance", stages=[first, terminal])
 
     result = pipeline.run(
         executor=executor,  # type: ignore[arg-type]
         initial_tasks=[],
-        performance_report_path=report_path,
     )
 
     assert result == []
@@ -87,8 +82,3 @@ def test_pipeline_assigns_stable_ids_and_fans_out_one_record_drain(tmp_path: Pat
     assert len(records) == 1
     assert wall_time_s >= 0.0
     assert executor.records == []
-
-    report = json.loads(report_path.read_text())
-    assert report["schema_version"] == 1
-    assert report["record_count"] == 1
-    assert report["records"][0]["invocation_id"] == "invocation-1"

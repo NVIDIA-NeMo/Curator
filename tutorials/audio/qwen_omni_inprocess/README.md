@@ -11,6 +11,10 @@ tutorial-specific Python runner is needed. The YAML selects the executor
 backend and, for Xenna, its execution mode; the generic runner constructs that
 executor and passes it to `Pipeline.run()`.
 
+The run also writes every collected stage invocation to
+`qwen_omni_performance.json`. This raw report is independent of manifest rows:
+it retains calls that emit no output and does not aggregate records.
+
 ## Requirements
 
 - x86_64 Linux with CUDA
@@ -81,6 +85,32 @@ under `adapter_kwargs.vllm_kwargs`, and sampling settings live under
 shared vLLM construction path, and vLLM's `SamplingParams`, respectively.
 Do not put `tensor_parallel_size` in `vllm_kwargs`: `gpus_per_actor` is the
 single GPU-count setting and the stage derives tensor parallelism from it.
+
+## Raw performance report
+
+The Qwen ASR stage enables `extended_performance_metrics`, which starts one
+run-scoped collector for the whole pipeline. The JSON at
+`performance_report_path` therefore contains the complete invocation records
+from the reader, resampler, ASR, and manifest writer stages. Each record
+includes its stable stage and invocation IDs, timing window, item and byte
+counts, custom metrics, and any worker or GPU identity supplied by the active
+backend.
+
+Override the destination like any other Hydra value:
+
+```bash
+python nemo_curator/config/run.py \
+  --config-path ../../tutorials/audio/qwen_omni_inprocess \
+  --config-name pipeline \
+  manifest_path=/data/input.jsonl \
+  performance_report_path=s3://bucket/runs/qwen/performance.json
+```
+
+`ManifestWriterStage` uses Curator's existing fsspec JSON write utility, so
+local paths and configured remote filesystems share the same schema. The
+driver asks the terminal manifest writer to write the report after a successful
+pipeline execution, including an empty `records` list when no invocations were
+collected.
 
 ## Select the executor
 

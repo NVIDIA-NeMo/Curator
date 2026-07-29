@@ -17,7 +17,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import soundfile
 import torch
@@ -28,6 +28,10 @@ from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
+from nemo_curator.utils.file_utils import write_json_file
+
+if TYPE_CHECKING:
+    from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 def get_audio_duration(audio_filepath: str) -> float:
@@ -243,10 +247,14 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         output_path: Destination JSONL path (local or cloud).
+        performance_report_path: Optional JSON destination for all raw
+            pipeline invocation metrics. Supports local and cloud paths through
+            fsspec.
     """
 
     output_path: str
     name: str = "manifest_writer"
+    performance_report_path: str | None = None
 
     def __post_init__(self) -> None:
         if not self.output_path:
@@ -283,6 +291,33 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             _metadata=task._metadata,
             _stage_perf=list(task._stage_perf),
         )
+
+    def finalize_performance_report(
+        self,
+        _tasks: list[AudioTask],
+        *,
+        performance_records: list["StagePerfStats"],
+        wall_time_s: float,
+    ) -> None:
+        """Write all driver-collected invocation metrics through the existing writer."""
+        if self.performance_report_path is None:
+            return
+        report_fs, report_path = url_to_fs(self.performance_report_path)
+        write_json_file(
+            report_path,
+            {
+                "schema_version": 1,
+                "pipeline_name": str((self._curator_pipeline_metadata or {}).get("pipeline_name", "")),
+                "run_id": self._curator_run_id,
+                "executor": self._curator_executor,
+                "pipeline": self._curator_pipeline_metadata or {},
+                "wall_time_s": wall_time_s,
+                "record_count": len(performance_records),
+                "records": [record.to_extended_dict() for record in performance_records],
+            },
+            report_fs,
+        )
+        logger.info(f"ManifestWriterStage: wrote performance report to {self.performance_report_path}")
 
     def num_workers(self) -> int | None:
         return 1
