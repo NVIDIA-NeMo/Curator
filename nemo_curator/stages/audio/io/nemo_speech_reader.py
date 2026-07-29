@@ -34,17 +34,9 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
-
-try:
-    from nemo_curator.backends.utils import RayStageSpecKeys
-except (ImportError, ModuleNotFoundError):
-    try:
-        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
-    except (ImportError, ModuleNotFoundError):
-        RayStageSpecKeys = None
-
 from nemo.collections.common.data.lhotse.nemo_adapters import expand_sharded_filepaths as _expand_nemo_path
 
+from nemo_curator.backends.utils import RayStageSpecKeys
 from nemo_curator.stages.audio.io.shard_key import derive_manifest_shard_key
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
@@ -197,11 +189,9 @@ class NeMoSpeechDiscoveryStage(ProcessingStage[EmptyTask, FileGroupTask]):
 
     def ray_stage_spec(self) -> dict[str, Any]:
         # Fan out per-shard tasks into one block each so the reader runs in parallel.
-        if RayStageSpecKeys is not None:
-            return {
-                RayStageSpecKeys.IS_FANOUT_STAGE: True,
-            }
-        return {"is_fanout_stage": True}
+        return {
+            RayStageSpecKeys.IS_FANOUT_STAGE: True,
+        }
 
     def _scan_completed_shards(self) -> set[str]:
         if not self.output_dir or not os.path.isdir(self.output_dir):
@@ -341,14 +331,9 @@ class NeMoSpeechReaderStage(ProcessingStage[FileGroupTask, AudioTask]):
     def ray_stage_spec(self) -> dict[str, Any]:
         # Fan out AudioTask outputs into 1-row blocks for parallel downstream GPU
         # stages; concurrency caps how many reader tasks run at once (see read_concurrency).
-        if RayStageSpecKeys is not None:
-            return {
-                RayStageSpecKeys.IS_FANOUT_STAGE: True,
-                RayStageSpecKeys.RAY_REMOTE_ARGS: {"concurrency": self.read_concurrency},
-            }
         return {
-            "is_fanout_stage": True,
-            "ray_remote_args": {"concurrency": self.read_concurrency},
+            RayStageSpecKeys.IS_FANOUT_STAGE: True,
+            RayStageSpecKeys.RAY_REMOTE_ARGS: {"concurrency": self.read_concurrency},
         }
 
     @staticmethod

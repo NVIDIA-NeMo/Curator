@@ -71,6 +71,15 @@ def test_perf_summary_uses_shared_metrics_and_accepts_external_telemetry(tmp_pat
     writer.setup()
 
     writer.process_batch([_task(1, 2), _task(2, 2)])
+    assert writer.record_external_stage_perf(
+        StagePerfStats(
+            stage_name="pipeline_hardware_sampler",
+            process_time=3.0,
+            num_items_processed=1,
+            custom_metrics={"gpu_utilization_mean": 75.0},
+        )
+    )
+    writer.teardown()
 
     summary_path = tmp_path / "perf_summary.json"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
@@ -83,17 +92,7 @@ def test_perf_summary_uses_shared_metrics_and_accepts_external_telemetry(tmp_pat
     assert writer_summary["total_items_processed"] == 2.0
     assert writer_summary["invocation_count"] == 1.0
     assert writer_summary["custom_metrics_sum"]["pipeline_output_rows"] == 2.0
-    assert writer._writer_metrics.shard_count("corpus/en/manifest_0") == 2
-
-    assert writer.record_external_stage_perf(
-        StagePerfStats(
-            stage_name="pipeline_hardware_sampler",
-            process_time=3.0,
-            num_items_processed=1,
-            custom_metrics={"gpu_utilization_mean": 75.0},
-        )
-    )
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert writer_summary["custom_metrics_sum"]["done_marker_write_time_s"] > 0.0
     external = summary["stages"]["pipeline_hardware_sampler"]
     assert external["total_process_time_s"] == 3.0
     assert external["custom_metrics_sum"]["gpu_utilization_mean"] == 75.0

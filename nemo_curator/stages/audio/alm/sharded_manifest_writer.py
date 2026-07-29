@@ -26,14 +26,16 @@ from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.backends.utils import RayStageSpecKeys
-from nemo_curator.stages.audio.io.manifest_writer_utils import AudioManifestWriterMetrics
+from nemo_curator.stages.audio.io.manifest_writer_utils import (
+    AudioManifestWriterMetrics,
+    TerminalAudioPerformanceWriterMixin,
+)
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, FileGroupTask
-from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 @dataclass
-class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
+class ShardedManifestWriterStage(TerminalAudioPerformanceWriterMixin, ProcessingStage[AudioTask, FileGroupTask]):
     """Write AudioTasks to per-shard JSONL files mirroring the input manifest path structure.
 
     Output structure mirrors the input manifest paths::
@@ -69,11 +71,15 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         if not self.output_dir:
             msg = "output_dir is required for ShardedManifestWriterStage"
             raise ValueError(msg)
-        self._writer_metrics = AudioManifestWriterMetrics(
-            stage_name=self.name,
-            duration_key=self.duration_key,
-            write_perf_stats=self.write_perf_stats,
-        )
+        self._reset_writer_metrics()
+
+    def _default_perf_summary_path(self) -> str:
+        return os.path.join(self.output_dir, "perf_summary.json")
+
+    def prepare_performance_summary(self) -> None:
+        """Reset driver-owned metrics and remove the previous run summary."""
+        self._reset_writer_metrics()
+        self._remove_existing_perf_summary()
 
     def setup_on_node(
         self,
@@ -98,8 +104,7 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         Shards with a ``.done`` marker are skipped — they are already
         finalized and the reader will skip them on resume.
         """
-        if self.write_perf_stats:
-            self._writer_metrics.reset_wall_timer()
+        self._reset_writer_metrics()
         if not os.path.isdir(self.output_dir):
             return
 
@@ -137,82 +142,37 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
         row = {key: value for key, value in task.data.items() if key not in self.ephemeral_keys}
         return json.dumps(row, ensure_ascii=False, default=self._json_default)
 
-    def _resolved_perf_summary_path(self) -> str:
-        return self.perf_summary_path or os.path.join(self.output_dir, "perf_summary.json")
-
-    def _write_perf_summary(self) -> None:
-        summary_path = self._resolved_perf_summary_path()
-        parent_dir = os.path.dirname(summary_path)
-        if parent_dir:
-            os.makedirs(parent_dir, exist_ok=True)
-        summary = self._writer_metrics.build_perf_summary(
-            run_id=self.perf_run_id,
-            executor=self.perf_executor,
-            pipeline_metadata=self.perf_pipeline_metadata,
-        )
-        write_t0 = time.perf_counter()
-        with open(summary_path, "w", encoding="utf-8") as f:
-            json.dump(summary, f, indent=2, ensure_ascii=False)
-        self._writer_metrics.add_perf_write_time(time.perf_counter() - write_t0)
-
-    def record_external_stage_perf(self, perf_stats: StagePerfStats) -> bool:
-        """Merge executor-owned telemetry into the terminal summary."""
-        if not self.write_perf_stats:
-            return False
-        stage_summary = self._writer_metrics.build_external_stage_summary(perf_stats)
-        if not stage_summary:
-            return False
-        summary_path = self._resolved_perf_summary_path()
-        try:
-            with open(summary_path, encoding="utf-8") as f:
-                summary = json.load(f)
-        except (FileNotFoundError, OSError, ValueError, TypeError):
-            summary = self._writer_metrics.build_perf_summary(
-                run_id=self.perf_run_id,
-                executor=self.perf_executor,
-                pipeline_metadata=self.perf_pipeline_metadata,
-            )
-        stages = summary.setdefault("stages", {})
-        if not isinstance(stages, dict):
-            stages = {}
-            summary["stages"] = stages
-        stages[perf_stats.stage_name] = stage_summary
-        parent_dir = os.path.dirname(summary_path)
-        if parent_dir:
-            os.makedirs(parent_dir, exist_ok=True)
-        with open(summary_path, "w", encoding="utf-8") as f:
-            json.dump(summary, f, indent=2, ensure_ascii=False)
-        return True
-
     def process(self, task: AudioTask) -> FileGroupTask:
         shard_key = task._metadata.get("_shard_key", "unknown/shard_0")
 
         out_path = os.path.join(self.output_dir, f"{shard_key}.jsonl")
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-        if self.write_perf_stats:
-            self._writer_metrics.record_invocation(1)
         write_t0 = time.perf_counter()
         with open(out_path, "a", encoding="utf-8") as f:
             f.write(self._serialize(task) + "\n")
-        if self.write_perf_stats:
-            self._writer_metrics.add_manifest_write_time(time.perf_counter() - write_t0)
+        manifest_write_time_s = time.perf_counter() - write_t0
 
         self._shard_counts[shard_key] += 1
 
         shard_total = task._metadata.get("_shard_total", 0)
+        done_write_time_s = 0.0
         if shard_total > 0 and self._shard_counts[shard_key] >= shard_total:
             done_path = os.path.join(self.output_dir, f"{shard_key}.jsonl.done")
             done_t0 = time.perf_counter()
             with open(done_path, "w") as f:
                 f.write(f"{self._shard_counts[shard_key]}\n")
-            if self.write_perf_stats:
-                self._writer_metrics.add_done_write_time(time.perf_counter() - done_t0)
+            done_write_time_s = time.perf_counter() - done_t0
             logger.info(f"Shard {shard_key} complete: {self._shard_counts[shard_key]} utterances, wrote {done_path}")
 
         if self.write_perf_stats:
-            self._writer_metrics.record_task(task, shard_key=shard_key)
-            self._write_perf_summary()
+            self._log_metrics(
+                self._writer_metrics.record_output_invocation(
+                    [task],
+                    manifest_write_time_s=manifest_write_time_s,
+                    extra_metrics={"done_marker_write_time_s": done_write_time_s},
+                )
+            )
 
         return FileGroupTask(
             dataset_name=task.dataset_name,
@@ -221,13 +181,11 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             _stage_perf=task._stage_perf,
         )
 
-    def process_batch(self, tasks: list[AudioTask]) -> list[FileGroupTask]:  # noqa: C901
+    def process_batch(self, tasks: list[AudioTask]) -> list[FileGroupTask]:
         """One open+write+close per (batch, shard) instead of one per row."""
         # Ray Data passes tasks as an ndarray, so use len() not `if not tasks`.
         if len(tasks) == 0:
             return []
-        if self.write_perf_stats:
-            self._writer_metrics.record_invocation(len(tasks))
 
         by_shard: dict[str, list[AudioTask]] = defaultdict(list)
         for task in tasks:
@@ -235,6 +193,8 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             by_shard[shard_key].append(task)
 
         results: list[FileGroupTask] = []
+        manifest_write_time_s = 0.0
+        done_write_time_s = 0.0
         for shard_key, shard_tasks in by_shard.items():
             out_path = os.path.join(self.output_dir, f"{shard_key}.jsonl")
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -243,8 +203,7 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
             with open(out_path, "a", encoding="utf-8") as f:
                 for task in shard_tasks:
                     f.write(self._serialize(task) + "\n")
-            if self.write_perf_stats:
-                self._writer_metrics.add_manifest_write_time(time.perf_counter() - write_t0)
+            manifest_write_time_s += time.perf_counter() - write_t0
 
             # Update count only after data is on disk, so .done reflects it.
             self._shard_counts[shard_key] += len(shard_tasks)
@@ -255,15 +214,12 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
                 done_t0 = time.perf_counter()
                 with open(done_path, "w") as f:
                     f.write(f"{self._shard_counts[shard_key]}\n")
-                if self.write_perf_stats:
-                    self._writer_metrics.add_done_write_time(time.perf_counter() - done_t0)
+                done_write_time_s += time.perf_counter() - done_t0
                 logger.info(
                     f"Shard {shard_key} complete: {self._shard_counts[shard_key]} utterances, wrote {done_path}"
                 )
 
             for task in shard_tasks:
-                if self.write_perf_stats:
-                    self._writer_metrics.record_task(task, shard_key=shard_key)
                 results.append(
                     FileGroupTask(
                         dataset_name=task.dataset_name,
@@ -274,12 +230,17 @@ class ShardedManifestWriterStage(ProcessingStage[AudioTask, FileGroupTask]):
                 )
 
         if self.write_perf_stats:
-            self._write_perf_summary()
+            self._log_metrics(
+                self._writer_metrics.record_output_invocation(
+                    tasks,
+                    manifest_write_time_s=manifest_write_time_s,
+                    extra_metrics={"done_marker_write_time_s": done_write_time_s},
+                )
+            )
         return results
 
     def teardown(self) -> None:
-        if self.write_perf_stats and self._writer_metrics.items_processed > 0:
-            self._write_perf_summary()
+        super().teardown()
         total = sum(self._shard_counts.values())
         done = sum(1 for k in self._shard_counts if os.path.exists(os.path.join(self.output_dir, f"{k}.jsonl.done")))
         logger.info(
