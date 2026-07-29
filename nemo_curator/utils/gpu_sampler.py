@@ -279,7 +279,10 @@ class GpuUtilSampler:
                     for k, aggregate in enumerate(self._aggregates):
                         aggregate.add(utils[k], mems[k], read_error=read_errors[k])
                 else:
-                    self._samples.append((time.perf_counter(), utils, mems))
+                    # StagePerfStats windows are Unix wall-clock timestamps.
+                    # Keep samples in the same clock domain so actor-level
+                    # window filtering can retain measurements from the call.
+                    self._samples.append((time.time(), utils, mems))
             self._stop.wait(self._interval_s)
 
     def window_stats(self, t0: float, t1: float) -> dict[str, dict[str, float]]:

@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from types import SimpleNamespace
+
 import pytest
 
+from nemo_curator.utils import gpu_sampler
 from nemo_curator.utils.gpu_sampler import (
     GpuUtilSampler,
     actor_gpu_window_metrics,
@@ -21,6 +24,18 @@ from nemo_curator.utils.gpu_sampler import (
     norm_uuid,
     pipeline_node_hardware_metrics,
 )
+
+
+class _OneSampleStop:
+    def __init__(self) -> None:
+        self._checks = 0
+
+    def is_set(self) -> bool:
+        self._checks += 1
+        return self._checks > 1
+
+    def wait(self, _interval_s: float) -> None:
+        return None
 
 
 def test_norm_uuid_is_public_normalizer() -> None:
@@ -44,6 +59,29 @@ def test_gpu_sampler_reports_inactive_diagnostics_without_nvml(monkeypatch: pyte
     assert diagnostics["gpu_sampler_target_uuid_count"] == 1.0
     assert diagnostics["gpu_sampler_handle_count"] == 0.0
     assert diagnostics["gpu_sampler_sample_all_visible"] == 1.0
+
+
+def test_gpu_sampler_uses_stage_window_wall_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    wall_clock_s = 1_785_323_000.0
+    monkeypatch.setattr(gpu_sampler.time, "time", lambda: wall_clock_s)
+    monkeypatch.setattr(gpu_sampler.time, "perf_counter", lambda: 123.0)
+    sampler = GpuUtilSampler(gpu_uuids=("GPU-abc",), sample_all_visible=False)
+    sampler._handles = [object()]
+    sampler._handle_keys = ["abc"]
+    sampler._pynvml = SimpleNamespace(
+        nvmlDeviceGetUtilizationRates=lambda _handle: SimpleNamespace(gpu=75),
+        nvmlDeviceGetMemoryInfo=lambda _handle: SimpleNamespace(used=50, total=100),
+    )
+    sampler._stop = _OneSampleStop()
+
+    sampler._loop()
+
+    assert sampler.window_stats(wall_clock_s - 1.0, wall_clock_s + 1.0) == {
+        "abc": {
+            "gpu_util_pct": 75.0,
+            "gpu_mem_used_pct": 50.0,
+        }
+    }
 
 
 def test_actor_gpu_window_metrics_flattens_diagnostics_and_gpu_stats() -> None:
