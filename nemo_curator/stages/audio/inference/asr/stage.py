@@ -22,6 +22,7 @@ predictions. The concrete adapter is resolved at runtime from
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -332,6 +333,13 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             items,
             results,
         )
+        self._log_metrics(
+            {
+                "input_tasks": len(tasks),
+                "output_tasks": len(tasks),
+                "output_exists_reused": output_exists_skipped,
+            }
+        )
         if self.waveform_key and not self.keep_waveform:
             for task in tasks:
                 task.data.pop(self.waveform_key, None)
@@ -394,7 +402,9 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             )
 
         if adapter_items:
+            inference_t0 = time.perf_counter()
             adapter_results = self._adapter.transcribe_batch(adapter_items)
+            inference_time_s = time.perf_counter() - inference_t0
             if len(adapter_results) != len(adapter_items):
                 msg = (
                     f"Adapter returned {len(adapter_results)} results for "
@@ -402,6 +412,37 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                 )
                 raise RuntimeError(msg)
             by_index.update(zip(adapter_indices, adapter_results, strict=True))
+        else:
+            adapter_results = []
+            inference_time_s = 0.0
+
+        output_tokens = 0.0
+        finish_reason_metrics: dict[str, float] = {}
+        for result in adapter_results:
+            for key, value in result.extras.items():
+                if key == "output_tokens" and isinstance(value, (int, float)):
+                    output_tokens += float(value)
+                elif key.startswith("model_finish_reason_") and isinstance(value, (int, float)):
+                    finish_reason_metrics[key] = finish_reason_metrics.get(key, 0.0) + float(value)
+        audio_duration_s = sum(float(item["waveform"].size) / float(item["sample_rate"]) for item in adapter_items)
+        waveform_bytes = sum(float(item["waveform"].nbytes) for item in adapter_items)
+        self._log_metrics(
+            {
+                "audio_duration_s": audio_duration_s,
+                "waveform_bytes": waveform_bytes,
+                "inference_time_s": inference_time_s,
+                "adapter_inference_calls": float(bool(adapter_items)),
+                "adapter_inference_items": len(adapter_items),
+                "utterances_input": len(items),
+                "utterances_processed": sum(not result.skipped for result in adapter_results),
+                "utterances_skipped": sum(result.skipped for result in adapter_results)
+                + (len(items) - len(adapter_items)),
+                "output_chars": sum(len(result.text) for result in adapter_results),
+                "output_tokens": output_tokens,
+                **finish_reason_metrics,
+            }
+        )
+
         return [
             by_index.get(
                 index,

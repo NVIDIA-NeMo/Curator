@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -74,6 +75,15 @@ class BaseExecutor(ABC):
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
         """Execute the pipeline."""
 
+    def consume_external_perf_records(self) -> list[Any]:
+        """Return run-owned records that could not travel on output tasks.
+
+        Backends with a zero-output telemetry collector override this method.
+        The default keeps performance summaries independent of that optional
+        capability.
+        """
+        return []
+
 
 class BaseStageAdapter:
     """Adapts ProcessingStage to an execution backend, if needed."""
@@ -99,9 +109,11 @@ class BaseStageAdapter:
         # Initialize performance timer for this batch
         self._timer.reinit(input_size)
 
+        window_start_s = time.perf_counter()
         with self._timer.time_process(input_size):
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
+        window_end_s = time.perf_counter()
 
         # A returned ``None`` ("filter this slot") becomes a NoneTask so every
         # output is a real Task that gets a task_id. Sentinels (NoneTask /
@@ -116,9 +128,7 @@ class BaseStageAdapter:
         is_source_stage = getattr(self.stage, "is_source_stage", False)
         failed_tasks = [r for r in results if isinstance(r, FailedTask)]
         if failed_tasks and is_source_stage:
-            msg = (
-                f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
-            )
+            msg = f"Source stage {self.stage.name} emitted FailedTask, which is not supported."
             raise ValueError(msg)
 
         # Record failed tasks for later inspection or retry bookkeeping.
@@ -146,6 +156,9 @@ class BaseStageAdapter:
 
         # Log performance stats and add to result tasks
         _, stage_perf_stats = self._timer.log_stats()
+        stage_perf_stats.invocation_id = uuid.uuid4().hex
+        stage_perf_stats.window_start_s = window_start_s
+        stage_perf_stats.window_end_s = window_end_s
         # Consume and attach any custom metrics recorded by the stage during this call
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:

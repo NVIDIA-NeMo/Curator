@@ -159,18 +159,32 @@ Rows are handled differently depending on where processing fails:
 Inspect `_skipme` and `additional_notes` before consuming a completed
 manifest.
 
-The terminal writer also emits `qwen_omni_perf_summary.json` by default. The
-summary is written once when the run finishes and includes rows/audio totals,
-stage timing, throughput, and writer cost. Override
-`perf_summary_path=/shared/run/perf_summary.json` when the driver and workers
-need a shared destination. When extended backend telemetry is enabled, the
-same artifact adds stable stage IDs, per-actor placement, assigned physical
-GPUs, and windowed utilization without changing the output manifest rows.
-The manifest reader supplies `rows_in` and sums non-negative finite `duration`
-values for `input_hours`. If a source does not publish the row boundary,
-`rows_in` is `null`; if any input row lacks a valid duration, `input_hours` is
-`null` instead of a partial total. Pipeline metadata is copied verbatim into
-the JSON, so do not put credentials or secrets in the YAML metadata mapping.
+## Performance summary
+
+The tutorial enables `ManifestWriterStage.write_perf_stats` and writes
+`qwen_omni_perf_summary.json` beside the output manifest by default. Override
+it with:
+
+```bash
+perf_summary_path=/shared/output/qwen_perf_summary.json
+```
+
+The Qwen-Omni path is a production metric producer. `ASRStage` measures the
+audio seconds and waveform bytes presented to the adapter, adapter call and
+item counts, inference time, generated characters, generated token IDs,
+skipped utterances, and vLLM finish reasons. The terminal summary combines
+those values with framework stage timings and input/output row and duration
+boundaries.
+
+The artifact is finalized once after a successful run, including a run that
+produces zero output rows. `input_hours` or `output_hours` is `null` when the
+corresponding manifest rows do not all contain a valid `duration`; `null`
+means unavailable, while `0` means a measured empty boundary. Actor/GPU
+topology is included only when the selected backend supplies it.
+
+The manifest reader accepts only non-negative finite duration values. Pipeline
+metadata is copied verbatim into the JSON, so do not put credentials or secrets
+in the YAML metadata mapping.
 
 ## Languages and prompts
 
@@ -190,6 +204,8 @@ annotated with `language_missing` unless `default_language` is explicitly set.
 
 This is a functional, local manifest-to-transcript example. It does not
 provide recovery ASR, hallucination filtering, WER calculation,
-duration-aware bucketing, sharded resumability, or benchmark reporting.
+duration-aware bucketing, sharded resumability, or a controlled benchmark
+harness. The performance summary reports the run that happened; it does not
+replace a repeatable benchmark methodology.
 Validate output quality and row accounting on representative audio before
 larger runs.

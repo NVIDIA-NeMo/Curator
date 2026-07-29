@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 
 from nemo_curator.stages.audio.metrics.performance import (
     AudioPerformanceSummary,
+    AudioStageCallerContext,
     serialize_stage_perf,
 )
 from nemo_curator.tasks import AudioTask
@@ -37,6 +38,8 @@ class _PerfRecord:
     custom_metrics: dict[str, float] = field(default_factory=dict)
     stage_id: str = ""
     invocation_id: str = ""
+    window_start_s: float = 0.0
+    window_end_s: float = 0.0
     actor_id: str = ""
     node_id: str = ""
     gpu_id: str = ""
@@ -119,30 +122,68 @@ def test_fingerprint_distinguishes_actors_with_equal_timings() -> None:
     assert stage["invocation_count"] == 2.0  # both counted, not collapsed by dedup
 
 
-def test_same_named_stages_are_keyed_by_stable_stage_id() -> None:
+def test_same_named_stages_remain_distinct_by_planned_stage_id() -> None:
     summary = AudioPerformanceSummary()
     summary.record_stage_perf(
         [
             _PerfRecord(
                 stage_name="duplicate",
-                stage_id="0001:duplicate",
-                invocation_id="one",
+                stage_id="001:duplicate",
+                invocation_id="first",
                 process_time=1.0,
             ),
             _PerfRecord(
                 stage_name="duplicate",
-                stage_id="0002:duplicate",
-                invocation_id="two",
+                stage_id="002:duplicate",
+                invocation_id="second",
                 process_time=2.0,
             ),
         ]
     )
 
     stages = summary.build_stage_summaries()
-    assert list(stages) == ["0001:duplicate", "0002:duplicate"]
-    assert stages["0001:duplicate"]["stage_name"] == "duplicate"
-    assert stages["0001:duplicate"]["total_process_time_s"] == 1.0
-    assert stages["0002:duplicate"]["total_process_time_s"] == 2.0
+    assert set(stages) == {"001:duplicate", "002:duplicate"}
+    assert stages["001:duplicate"]["stage_name"] == "duplicate"
+    assert stages["001:duplicate"]["total_process_time_s"] == 1.0
+    assert stages["002:duplicate"]["stage_name"] == "duplicate"
+    assert stages["002:duplicate"]["total_process_time_s"] == 2.0
+
+
+def test_tensor_parallel_gpu_efficiency_uses_physical_gpu_count() -> None:
+    summary = AudioPerformanceSummary()
+    summary.record_stage_perf(
+        [
+            _PerfRecord(
+                stage_name="qwen_omni",
+                process_time=3600.0,
+                num_items_processed=1,
+                custom_metrics={"audio_duration_s": 3600.0},
+                actor_id="actor-1",
+                physical_address="host:0,1",
+                gpu_indices=[0, 1],
+            )
+        ]
+    )
+
+    stage = summary.build_stage_summaries()["qwen_omni"]
+    assert stage["gpu_count"] == 2.0
+    assert stage["audio_hours_per_gpu_hour"] == 0.5
+
+
+def test_gpu_efficiency_prefers_measured_gpu_hours() -> None:
+    summary = AudioPerformanceSummary()
+    summary.record_stage_perf(
+        [
+            _PerfRecord(
+                stage_name="qwen_omni",
+                process_time=10.0,
+                custom_metrics={"audio_duration_s": 3600.0},
+            )
+        ]
+    )
+
+    stage = summary.build_stage_summaries({"qwen_omni": AudioStageCallerContext(gpu_hours=4.0)})["qwen_omni"]
+    assert stage["audio_hours_per_gpu_hour"] == 0.25
 
 
 def test_stage_summary_exposes_adapter_inference_call_count() -> None:
@@ -479,7 +520,7 @@ def test_summary_marks_partial_input_audio_boundary_as_unavailable() -> None:
                 stage_name="manifest_reader",
                 custom_metrics={
                     "pipeline_input_rows": 3.0,
-                    "pipeline_input_audio_rows": 2.0,
+                    "pipeline_input_duration_rows": 2.0,
                     "pipeline_input_audio_s": 4.0,
                 },
             )

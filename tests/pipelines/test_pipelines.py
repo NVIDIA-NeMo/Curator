@@ -122,6 +122,15 @@ class TestPipelineBuild:
         assert [s.is_source_stage for s in (s0, s1, s2)] == [False, True, False]
         assert [s.is_sink_stage for s in (s0, s1, s2)] == [False, True, False]
 
+    def test_duplicate_display_names_receive_distinct_stable_ids(self) -> None:
+        first = _NoopStage(name="duplicate")
+        second = _NoopStage(name="duplicate")
+
+        Pipeline(name="t", stages=[first, second]).build()
+
+        assert first._curator_stage_id == "000:duplicate"
+        assert second._curator_stage_id == "001:duplicate"
+
     def test_multiple_explicit_marks_raise(self) -> None:
         s0, s1 = _NoopStage(name="s0"), _NoopStage(name="s1")
         s0.is_source_stage = True

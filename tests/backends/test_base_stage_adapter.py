@@ -56,6 +56,19 @@ class _FailedSourceStage(ProcessingStage[Task, Task]):
 
 
 class TestBaseStageAdapter:
+    def test_attaches_planned_stage_and_invocation_identity(self) -> None:
+        stage = _SourceFanoutStage(partitions=[["a.parquet"]])
+        stage._curator_stage_id = "000:source"
+
+        [result] = base_module.BaseStageAdapter(stage).process_batch([EmptyTask()])
+
+        [perf] = result._stage_perf
+        assert perf.stage_id == "000:source"
+        assert perf.invocation_id
+        assert perf.window_end_s >= perf.window_start_s > 0
+        assert "stage_id" not in dict(perf.items())
+        assert "invocation_id" not in dict(perf.items())
+
     def test_process_batch_delegates_slurm_array_filtering(self, monkeypatch: MonkeyPatch) -> None:
         calls = {}
         slurm_array = SlurmArrayConfig(shard_index=0, total_shards=1)

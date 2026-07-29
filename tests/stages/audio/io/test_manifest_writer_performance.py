@@ -14,12 +14,55 @@
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
-from nemo_curator.stages.audio.common import ManifestReaderStage, ManifestWriterStage
-from nemo_curator.tasks import AudioTask, FileGroupTask
+from nemo_curator.backends.base import BaseStageAdapter
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.common import ManifestWriterStage
+from nemo_curator.tasks import AudioTask
 from nemo_curator.utils.performance_utils import StagePerfStats
+
+
+class _InlineExecutor:
+    """Small executor for exercising the driver-owned terminal lifecycle."""
+
+    def execute(
+        self,
+        stages: list[ManifestWriterStage],
+        initial_tasks: list[AudioTask] | None = None,
+    ) -> list[AudioTask]:
+        adapter = BaseStageAdapter(stages[-1])
+        adapter.setup()
+        results = adapter.process_batch(initial_tasks or [])
+        adapter.teardown()
+        return results
+
+
+class _FilteredInlineExecutor(_InlineExecutor):
+    def execute(
+        self,
+        stages: list[ManifestWriterStage],
+        initial_tasks: list[AudioTask] | None = None,
+    ) -> list[AudioTask]:
+        results = super().execute(stages, initial_tasks)
+        accepted = stages[-1].record_external_stage_perfs(
+            [
+                StagePerfStats(
+                    stage_name="filter",
+                    stage_id="001:filter",
+                    invocation_id="filtered-1",
+                    process_time=0.5,
+                    num_items_processed=2,
+                    custom_metrics={
+                        "input_count": 2.0,
+                        "output_count": 0.0,
+                        "filtered_count": 2.0,
+                    },
+                )
+            ]
+        )
+        assert accepted is True
+        return results
 
 
 def test_manifest_writer_emits_fastconformer_performance_summary(tmp_path: Path) -> None:
@@ -61,22 +104,29 @@ def test_manifest_writer_emits_fastconformer_performance_summary(tmp_path: Path)
     assert summary["stages"]["manifest_writer"]["custom_metrics_sum"]["pipeline_output_rows"] == 1.0
 
 
-def test_manifest_writer_writes_one_summary_for_many_rows(tmp_path: Path) -> None:
+def test_manifest_writer_defers_summary_until_teardown(tmp_path: Path) -> None:
+    perf_path = tmp_path / "perf.json"
     writer = ManifestWriterStage(
         output_path=str(tmp_path / "output.jsonl"),
         write_perf_stats=True,
-        perf_summary_path=str(tmp_path / "perf.json"),
+        perf_summary_path=str(perf_path),
     )
     writer.setup()
-    task = AudioTask(dataset_name="test", data={"duration": 1.0})
 
     with mock.patch.object(writer, "_write_perf_summary", wraps=writer._write_perf_summary) as write_summary:
-        for _ in range(3):
-            writer.process(task)
+        for index in range(3):
+            writer.process(
+                AudioTask(
+                    dataset_name="test",
+                    data={"audio_filepath": f"{index}.wav", "duration": 1.0},
+                )
+            )
+            assert not perf_path.exists()
         write_summary.assert_not_called()
         writer.teardown()
+        write_summary.assert_called_once_with()
 
-    write_summary.assert_called_once_with()
+    assert json.loads(perf_path.read_text())["rows_out"] == 3.0
 
 
 def test_manifest_writer_setup_resets_all_run_scoped_metrics(tmp_path: Path) -> None:
@@ -148,7 +198,6 @@ def test_manifest_writer_finalizes_enabled_empty_summary(tmp_path: Path) -> None
         perf_summary_path=str(perf_path),
     )
     writer.setup()
-
     writer.teardown()
 
     summary = json.loads(perf_path.read_text())
@@ -156,36 +205,102 @@ def test_manifest_writer_finalizes_enabled_empty_summary(tmp_path: Path) -> None
     assert summary["stages"]["manifest_writer"]["total_items_processed"] == 0.0
 
 
-def test_manifest_writer_merges_authoritative_zero_output_invocation(tmp_path: Path) -> None:
+def test_manifest_writer_resets_all_metrics_between_direct_runs(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
     writer = ManifestWriterStage(
         output_path=str(tmp_path / "output.jsonl"),
         write_perf_stats=True,
         perf_summary_path=str(perf_path),
     )
-    writer.setup()
-    writer.teardown()
-    perf = SimpleNamespace(
-        stage_name="filter",
-        stage_id="0001:filter",
-        invocation_id="filtered-invocation",
-        process_time=2.0,
-        actor_idle_time=0.0,
-        num_items_processed=4,
-        custom_metrics={"utterances_filtered": 4.0},
-        actor_id="",
-    )
-
-    assert writer.record_external_stage_perfs([perf]) is True
+    for name in ("first", "second"):
+        writer.setup()
+        writer.process(AudioTask(dataset_name=name, data={"duration": 2.0}))
+        writer.teardown()
 
     summary = json.loads(perf_path.read_text())
-    stage = summary["stages"]["0001:filter"]
-    assert stage["stage_name"] == "filter"
-    assert stage["invocation_count"] == 1.0
-    assert stage["custom_metrics_sum"]["utterances_filtered"] == 4.0
+    assert summary["rows_out"] == 1.0
+    assert summary["output_hours"] == 2.0 / 3600.0
+    assert summary["dataset_names"] == ["second"]
 
 
-def test_manifest_writer_external_merge_keeps_exact_total_invocation_count(tmp_path: Path) -> None:
+def test_pipeline_finalizes_one_empty_summary_with_auto_context(tmp_path: Path) -> None:
+    perf_path = tmp_path / "perf.json"
+    writer = ManifestWriterStage(
+        output_path=str(tmp_path / "output.jsonl"),
+        write_perf_stats=True,
+        perf_summary_path=str(perf_path),
+    )
+
+    with mock.patch.object(writer, "_write_perf_summary", wraps=writer._write_perf_summary) as write_summary:
+        result = Pipeline(name="empty-writer", stages=[writer]).run(
+            executor=_InlineExecutor(),  # type: ignore[arg-type]
+            initial_tasks=[],
+        )
+
+    assert result == []
+    write_summary.assert_called_once()
+    summary = json.loads(perf_path.read_text())
+    assert summary["status"] == "completed"
+    assert summary["rows_out"] == 0.0
+    assert summary["output_hours"] == 0.0
+    assert summary["run_id"]
+    assert summary["executor"] == "_InlineExecutor"
+    assert summary["pipeline"]["pipeline_name"] == "empty-writer"
+    assert summary["pipeline_wall_time_s"] >= 0.0
+    assert summary["stages"]["000:manifest_writer"]["stage_name"] == "manifest_writer"
+
+
+def test_pipeline_preserves_executor_reported_all_filtered_invocation(tmp_path: Path) -> None:
+    perf_path = tmp_path / "perf.json"
+    writer = ManifestWriterStage(
+        output_path=str(tmp_path / "output.jsonl"),
+        write_perf_stats=True,
+        perf_summary_path=str(perf_path),
+    )
+    Pipeline(name="filtered", stages=[writer]).run(
+        executor=_FilteredInlineExecutor(),  # type: ignore[arg-type]
+        initial_tasks=[],
+    )
+
+    summary = json.loads(perf_path.read_text())
+    assert summary["rows_out"] == 0.0
+    assert summary["stages"]["001:filter"]["items_filtered"] == 2.0
+
+
+def test_missing_duration_is_unavailable_not_measured_zero(tmp_path: Path) -> None:
+    perf_path = tmp_path / "perf.json"
+    writer = ManifestWriterStage(
+        output_path=str(tmp_path / "output.jsonl"),
+        write_perf_stats=True,
+        perf_summary_path=str(perf_path),
+        duration_key="seconds",
+    )
+    writer.setup()
+    writer.process(AudioTask(dataset_name="test", data={"audio_filepath": "a.wav"}))
+    writer.teardown()
+
+    summary = json.loads(perf_path.read_text())
+    assert summary["rows_out"] == 1.0
+    assert summary["output_duration_rows"] == 0.0
+    assert summary["output_hours"] is None
+    assert summary["total_audio_seconds"] is None
+
+
+def test_disabled_writer_never_creates_summary(tmp_path: Path) -> None:
+    perf_path = tmp_path / "perf.json"
+    writer = ManifestWriterStage(
+        output_path=str(tmp_path / "output.jsonl"),
+        write_perf_stats=False,
+        perf_summary_path=str(perf_path),
+    )
+    writer.setup()
+    writer.process(AudioTask(dataset_name="test", data={"duration": 1.0}))
+    writer.teardown()
+
+    assert not perf_path.exists()
+
+
+def test_final_write_preserves_executor_owned_external_stage(tmp_path: Path) -> None:
     perf_path = tmp_path / "perf.json"
     writer = ManifestWriterStage(
         output_path=str(tmp_path / "output.jsonl"),
@@ -193,74 +308,18 @@ def test_manifest_writer_external_merge_keeps_exact_total_invocation_count(tmp_p
         perf_summary_path=str(perf_path),
     )
     writer.setup()
-    writer.process(
-        AudioTask(
-            dataset_name="test",
-            data={"duration": 1.0},
-            _stage_perf=[
-                SimpleNamespace(
-                    stage_name="ordinary",
-                    stage_id="0001:ordinary",
-                    invocation_id="ordinary-1",
-                    process_time=1.0,
-                    actor_idle_time=0.0,
-                    num_items_processed=1,
-                    custom_metrics={},
-                    actor_id="",
-                ),
-                SimpleNamespace(
-                    stage_name="extended",
-                    stage_id="0002:extended",
-                    invocation_id="extended-1",
-                    process_time=1.0,
-                    actor_idle_time=0.0,
-                    num_items_processed=1,
-                    custom_metrics={},
-                    actor_id="",
-                ),
-            ],
-        )
-    )
-    writer.teardown()
-
-    authoritative = [
-        SimpleNamespace(
-            stage_name="extended",
-            stage_id="0002:extended",
-            invocation_id=invocation_id,
+    accepted = writer.record_external_stage_perf(
+        StagePerfStats(
+            stage_name="pipeline_hardware_sampler",
             process_time=1.0,
-            actor_idle_time=0.0,
-            num_items_processed=1,
-            custom_metrics={},
-            actor_id="",
-        )
-        for invocation_id in ("extended-1", "extended-zero-output")
-    ]
-    assert writer.record_external_stage_perfs(authoritative) is True
-
-    summary = json.loads(perf_path.read_text())
-    assert summary["perf_invocations_counted"] == 3
-    assert summary["stages"]["0001:ordinary"]["invocation_count"] == 1.0
-    assert summary["stages"]["0002:extended"]["invocation_count"] == 2.0
-
-
-def test_manifest_reader_emits_real_input_boundary_metrics(tmp_path: Path) -> None:
-    manifest = tmp_path / "input.jsonl"
-    manifest.write_text(
-        "\n".join(
-            [
-                json.dumps({"audio_filepath": "a.wav", "duration": 1.25}),
-                json.dumps({"audio_filepath": "b.wav", "duration": 2.75}),
-                json.dumps({"audio_filepath": "c.wav"}),
-            ]
+            invocation_id="hardware-1",
+            custom_metrics={"gpu_util_pct": 75.0},
         )
     )
-    reader = ManifestReaderStage()
+    writer.process(AudioTask(dataset_name="test", data={"duration": 1.0}))
+    writer.teardown()
 
-    rows = reader.process(FileGroupTask(dataset_name="test", data=[str(manifest)]))
-    metrics = reader._consume_custom_metrics()
-
-    assert len(rows) == 3
-    assert metrics["pipeline_input_rows"] == 3.0
-    assert metrics["pipeline_input_audio_rows"] == 2.0
-    assert metrics["pipeline_input_audio_s"] == 4.0
+    assert accepted is True
+    summary = json.loads(perf_path.read_text())
+    assert "pipeline_hardware_sampler" in summary["stages"]
+    assert summary["rows_out"] == 1.0

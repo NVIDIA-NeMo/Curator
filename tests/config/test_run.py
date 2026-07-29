@@ -465,12 +465,11 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
     assert stage.resources.gpus == 2
     assert writer.write_perf_stats is True
     assert writer.duration_key == "duration"
-    assert writer.perf_summary_path.endswith("qwen_omni_perf_summary.json")
-    assert writer.perf_run_id == "qwen-omni"
-    assert writer.perf_executor == "ray_data"
+    assert writer.perf_summary_path == "./qwen_omni_perf_summary.json"
     assert writer.perf_pipeline_metadata == {
-        "pipeline_name": "qwen_omni_inprocess",
+        "consumer": "qwen_omni_inprocess",
         "model_id": "Qwen/Qwen3-Omni-30B-A3B-Instruct",
+        "backend": "ray_data",
     }
     assert dict(stage.adapter_kwargs) == {
         "prompt_text": "Transcribe the audio.",

@@ -164,6 +164,7 @@ class QwenOmniASRAdapter:
         self._processor: Any = None
         self._llm: Any = None
         self._sampling_params: Any = None
+        self._last_output_metrics: list[dict[str, float]] = []
 
     @staticmethod
     def _load_text(text: str | None, file_path: str | None) -> str | None:
@@ -267,6 +268,7 @@ class QwenOmniASRAdapter:
             ASRResult(
                 text=pred,
                 skipped=(i in skipped_indices),
+                extras=dict(self._last_output_metrics[i]) if i < len(self._last_output_metrics) else {},
             )
             for i, pred in enumerate(pred_texts)
         ]
@@ -380,10 +382,24 @@ class QwenOmniASRAdapter:
         """
         outputs = self._generate(inputs)
         texts: list[str] = [""] * n
+        output_metrics: list[dict[str, float]] = [{} for _ in range(n)]
         # strict=True: a count mismatch means a broken engine contract; fail
         # loud rather than silently emit empty text with skipped=False.
         for idx, out in zip(indices, outputs, strict=True):
             texts[idx] = self._first_output_text(out)
+            sequences = getattr(out, "outputs", None) or []
+            if not sequences:
+                continue
+            sequence = sequences[0]
+            token_ids = getattr(sequence, "token_ids", None)
+            if token_ids is not None:
+                output_metrics[idx]["output_tokens"] = float(len(token_ids))
+            finish_reason = str(getattr(sequence, "finish_reason", "") or "").strip().lower()
+            if finish_reason:
+                safe_reason = "".join(char if char.isalnum() else "_" for char in finish_reason).strip("_")
+                if safe_reason:
+                    output_metrics[idx][f"model_finish_reason_{safe_reason}_count"] = 1.0
+        self._last_output_metrics = output_metrics
         return texts
 
     def _run_inference(
@@ -400,6 +416,7 @@ class QwenOmniASRAdapter:
         skipped_indices = set(range(n)) - set(valid_indices)
 
         if not valid_inputs:
+            self._last_output_metrics = [{} for _ in range(n)]
             logger.warning(f"All {n} audio samples in batch failed preprocessing")
             return [""] * n, skipped_indices
 

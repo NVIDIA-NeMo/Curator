@@ -119,6 +119,35 @@ def test_basic_inference() -> None:
     assert inferred_item["sample_rate"] == _SR
 
 
+def test_qwen_consumer_emits_terminal_summary_metrics() -> None:
+    stage = _make_stage()
+    stage._curator_stage_id = "002:ASR_inference"
+    stage._adapter.transcribe_batch.return_value = [
+        ASRResult(
+            text="hello",
+            extras={
+                "output_tokens": 3.0,
+                "model_finish_reason_stop_count": 1.0,
+            },
+        )
+    ]
+
+    [result] = BaseStageAdapter(stage).process_batch([_make_task()])
+
+    [perf] = result._stage_perf
+    metrics = perf.custom_metrics
+    assert perf.stage_id == "002:ASR_inference"
+    assert perf.invocation_id
+    assert perf.window_end_s >= perf.window_start_s > 0
+    assert metrics["audio_duration_s"] == 1.0
+    assert metrics["waveform_bytes"] == float(_SR * np.dtype(np.float32).itemsize)
+    assert metrics["adapter_inference_calls"] == 1.0
+    assert metrics["adapter_inference_items"] == 1.0
+    assert metrics["output_chars"] == 5.0
+    assert metrics["output_tokens"] == 3.0
+    assert metrics["model_finish_reason_stop_count"] == 1.0
+
+
 def test_adapter_not_initialized_raises() -> None:
     stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
     with pytest.raises(RuntimeError, match="setup"):

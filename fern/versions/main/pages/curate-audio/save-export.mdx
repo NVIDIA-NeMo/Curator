@@ -112,6 +112,39 @@ pipeline.add_stage(
 
 </Tab>
 
+<Tab title="Manifest with performance summary">
+
+```python
+from nemo_curator.stages.audio.common import ManifestWriterStage
+
+pipeline.add_stage(
+    ManifestWriterStage(
+        output_path="/shared/output/manifest.jsonl",
+        write_perf_stats=True,
+        perf_summary_path="/shared/output/perf_summary.json",
+        duration_key="duration",
+    )
+)
+```
+
+The writer publishes one run-level performance artifact after successful
+pipeline execution. The artifact is also created when the pipeline produces
+zero output rows. If `perf_summary_path` is omitted, it is written as
+`perf_summary.json` beside `output_path`.
+
+`duration_key` must identify the manifest field containing audio seconds.
+Duration-derived fields are `null` when one or more rows do not provide a
+valid duration; this distinguishes unavailable measurements from a measured
+zero. Planned stages receive stable IDs, so repeated display names remain
+separate in the `stages` mapping.
+
+For multi-node execution, both output paths must resolve to shared storage.
+Actor and GPU topology fields are best effort and appear only when the backend
+provides that identity. Caller-supplied `perf_pipeline_metadata` is serialized
+as provided and is not automatically redacted.
+
+</Tab>
+
 </Tabs>
 
 ## Directory Structure

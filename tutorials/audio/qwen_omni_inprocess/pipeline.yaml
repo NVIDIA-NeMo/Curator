@@ -85,8 +85,7 @@ stages:
     write_perf_stats: true
     duration_key: duration
     perf_summary_path: ${perf_summary_path}
-    perf_run_id: qwen-omni
-    perf_executor: ${backend}
     perf_pipeline_metadata:
-      pipeline_name: qwen_omni_inprocess
+      consumer: qwen_omni_inprocess
       model_id: ${model_id}
+      backend: ${backend}

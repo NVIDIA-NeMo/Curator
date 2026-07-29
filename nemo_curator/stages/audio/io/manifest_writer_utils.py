@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run-scoped metrics for the terminal audio manifest writer."""
+"""Run-scoped performance accounting for the terminal audio manifest writer."""
 
 from __future__ import annotations
 
@@ -67,9 +67,9 @@ class AudioManifestWriterMetrics:
     def record_task(self, task: AudioTask) -> None:
         self._perf_summary.record_task(task, include_stage_perf=self.write_perf_stats)
 
-    def record_stage_perf(self, stage_perf: list[StagePerfStats]) -> None:
-        """Record executor-published authoritative invocation telemetry."""
-        self._perf_summary.record_stage_perf(stage_perf)
+    def record_stage_perf(self, perf_stats: list[StagePerfStats]) -> None:
+        """Record executor-owned invocations that did not reach an output task."""
+        self._perf_summary.record_stage_perf(perf_stats)
 
     def build_stage_summaries(self) -> dict[str, dict[str, Any]]:
         """Build only accumulated stage entries for external merge."""
@@ -96,26 +96,32 @@ class AudioManifestWriterMetrics:
                 "writer_items_processed": float(self._writer_items_processed),
                 "pipeline_output_rows": float(self._perf_summary.total_utterances),
                 "pipeline_output_audio_s": self._perf_summary.total_audio_seconds,
+                "pipeline_output_duration_rows": float(self._perf_summary.duration_utterances),
             },
         }
 
-    def build_perf_summary(
+    def build_perf_summary(  # noqa: PLR0913
         self,
         *,
+        stage_id: str = "",
+        wall_time_s: float | None = None,
+        writer_summary: dict[str, Any] | None = None,
         run_id: str = "",
         executor: str = "",
         pipeline_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        writer_key = stage_id or self.stage_name
+        resolved_writer_summary = dict(writer_summary or self.build_writer_summary())
+        if writer_key != self.stage_name:
+            resolved_writer_summary.setdefault("stage_name", self.stage_name)
+        recorded_stages = self._perf_summary.build_stage_summaries()
+        extra_stage_summaries = None
+        if writer_key not in recorded_stages:
+            extra_stage_summaries = {writer_key: resolved_writer_summary}
         return self._perf_summary.build_summary(
-            extra_stage_summaries={self.stage_name: self.build_writer_summary()},
+            extra_stage_summaries=extra_stage_summaries,
+            wall_time_s=wall_time_s,
             run_id=run_id,
             executor=executor,
             pipeline_metadata=pipeline_metadata,
         )
-
-    def build_external_stage_summary(self, perf_stats: StagePerfStats) -> dict[str, Any] | None:
-        """Render one externally collected perf record in the normal stage-summary shape."""
-        perf_summary = AudioPerformanceSummary(duration_key=self.duration_key)
-        perf_summary.record_stage_perf([perf_stats])
-        stage_key = str(getattr(perf_stats, "stage_id", "") or perf_stats.stage_name)
-        return perf_summary.build_stage_summaries().get(stage_key)

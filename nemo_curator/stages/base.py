@@ -122,6 +122,11 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     resources = Resources(cpus=1.0)
     batch_size = 1
     runtime_env: ClassVar[dict[str, Any] | None] = None
+    # Framework-owned execution identity populated by ``Pipeline``.
+    _curator_stage_id: str = ""
+    _curator_run_id: str = ""
+    _curator_executor: str = ""
+    _curator_pipeline_metadata: dict[str, Any] | None = None
 
     # Source / sink role flags. User-overridable on the stage class or
     # instance. If neither is set explicitly on any stage in the pipeline,

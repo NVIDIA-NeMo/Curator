@@ -38,6 +38,11 @@ class StagePerfStats:
         input_data_size_mb: Size of input data in megabytes.
         num_items_processed: Number of items processed in this stage.
         custom_metrics: Custom metrics to track.
+        stage_id: Stable per-plan identifier assigned by ``Pipeline.build()``.
+            Empty for records created outside a planned pipeline.
+        invocation_id: Unique identifier for one ``process_batch`` call.
+        window_start_s: Monotonic timestamp immediately before the stage call.
+        window_end_s: Monotonic timestamp immediately after the stage call.
     """
 
     stage_name: str
@@ -46,6 +51,10 @@ class StagePerfStats:
     input_data_size_mb: float = 0.0
     num_items_processed: int = 0
     custom_metrics: dict[str, float] = attrs.field(factory=dict)
+    stage_id: str = ""
+    invocation_id: str = ""
+    window_start_s: float = 0.0
+    window_end_s: float = 0.0
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
         """Add two StagePerfStats."""
@@ -59,6 +68,13 @@ class StagePerfStats:
                 key: self.custom_metrics.get(key, 0.0) + other.custom_metrics.get(key, 0.0)
                 for key in set(self.custom_metrics.keys()) | set(other.custom_metrics.keys())
             },
+            stage_id=self.stage_id if self.stage_id == other.stage_id else "",
+            # A sum represents more than one invocation.
+            invocation_id="",
+            window_start_s=min(value for value in (self.window_start_s, other.window_start_s) if value > 0)
+            if self.window_start_s > 0 or other.window_start_s > 0
+            else 0.0,
+            window_end_s=max(self.window_end_s, other.window_end_s),
         )
 
     def __radd__(self, other: int | StagePerfStats) -> StagePerfStats:
@@ -77,10 +93,25 @@ class StagePerfStats:
         self.input_data_size_mb = 0.0
         self.num_items_processed = 0
         self.custom_metrics = {}
+        self.stage_id = ""
+        self.invocation_id = ""
+        self.window_start_s = 0.0
+        self.window_end_s = 0.0
 
     def to_dict(self) -> dict[str, float | int]:
-        """Convert the stats to a dictionary."""
-        return attrs.asdict(self)
+        """Convert numeric metric values to the legacy public dictionary.
+
+        Execution identity is transport metadata. Keeping it out of this
+        numeric mapping preserves existing ``TaskPerfUtils`` consumers.
+        """
+        return {
+            "stage_name": self.stage_name,
+            "process_time": self.process_time,
+            "actor_idle_time": self.actor_idle_time,
+            "input_data_size_mb": self.input_data_size_mb,
+            "num_items_processed": self.num_items_processed,
+            "custom_metrics": dict(self.custom_metrics),
+        }
 
     def items(self) -> list[tuple[str, float | int]]:
         """Returns (metric_name, metric_value) pairs
@@ -107,6 +138,7 @@ class StageTimer:
             stage: The stage to track.
         """
         self._stage_name = str(stage.name)
+        self._stage_id = str(getattr(stage, "_curator_stage_id", "") or "")
         self._reset()
         self._last_active_time = time.time()
         self._initialized = False
@@ -173,6 +205,7 @@ class StageTimer:
 
         stage_perf_stats = StagePerfStats(
             stage_name=self._stage_name,
+            stage_id=self._stage_id,
             process_time=process_data_dur_s,
             actor_idle_time=idle_time_s,
             input_data_size_mb=input_data_size_mb,

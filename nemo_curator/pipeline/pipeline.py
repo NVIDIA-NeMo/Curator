@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -112,6 +115,35 @@ class Pipeline:
         # counters that a sink consumes its outputs (see
         # ``BaseStageAdapter._apply_resumability_counters``).
         self._assign_source_sink_roles()
+        self._assign_stage_ids()
+
+    def _assign_stage_ids(self) -> None:
+        """Assign collision-free identifiers in planned execution order."""
+        for stage_index, stage in enumerate(self.stages):
+            stage._curator_stage_id = f"{stage_index:03d}:{stage.name}"
+
+    def _set_execution_context(self, executor: BaseExecutor) -> None:
+        """Stamp one run's driver-owned identity onto every planned stage."""
+        run_id = os.environ.get("PIPELINE_RUN_ID", "").strip() or uuid.uuid4().hex
+        executor_name = type(executor).__name__
+        pipeline_metadata = {
+            "pipeline_name": self.name,
+            "pipeline_description": self.description or "",
+            "stages": [
+                {
+                    "stage_id": stage._curator_stage_id,
+                    "name": stage.name,
+                    "type": f"{type(stage).__module__}.{type(stage).__name__}",
+                    "batch_size": stage.batch_size,
+                    "num_workers": stage.num_workers(),
+                }
+                for stage in self.stages
+            ],
+        }
+        for stage in self.stages:
+            stage._curator_run_id = run_id
+            stage._curator_executor = executor_name
+            stage._curator_pipeline_metadata = pipeline_metadata
 
     def _assign_source_sink_roles(self) -> None:
         explicit_sources = [s for s in self.stages if s.is_source_stage]
@@ -224,7 +256,7 @@ class Pipeline:
 
         return "\n".join(lines)
 
-    def run(  # noqa: C901, PLR0912
+    def run(  # noqa: C901, PLR0912, PLR0915
         self,
         executor: BaseExecutor | None = None,
         initial_tasks: list[Task] | None = None,
@@ -263,6 +295,7 @@ class Pipeline:
             from nemo_curator.backends.xenna import XennaExecutor
 
             executor = XennaExecutor()
+        self._set_execution_context(executor)
 
         from nemo_curator.core.serve import is_inference_server_active
 
@@ -311,10 +344,31 @@ class Pipeline:
                 minimum_shard_index=slurm_array.minimum_shard_index,
             )
 
+        for stage in reversed(self.stages):
+            prepare_perf = getattr(stage, "prepare_performance_summary", None)
+            if callable(prepare_perf):
+                prepare_perf()
+                break
+
+        run_started_s = time.perf_counter()
         if checkpoint_path is None:
             result = executor.execute(self.stages, initial_tasks)
         else:
             result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
+        wall_time_s = time.perf_counter() - run_started_s
+
+        consume_external_perf = getattr(executor, "consume_external_perf_records", None)
+        external_perf_stats = consume_external_perf() if callable(consume_external_perf) else []
+        output_tasks = result if isinstance(result, list) else []
+        for stage in reversed(self.stages):
+            finalize_perf = getattr(stage, "finalize_performance_summary", None)
+            if callable(finalize_perf):
+                finalize_perf(
+                    output_tasks,
+                    external_perf_stats=external_perf_stats,
+                    wall_time_s=wall_time_s,
+                )
+                break
 
         if completion_manifest is not None:
             if failed_task_manifest_exists():

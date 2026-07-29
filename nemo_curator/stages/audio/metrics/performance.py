@@ -19,7 +19,7 @@ Audio stages emit counters/timings via ``_log_metrics()``; backends attach
 them to ``Task._stage_perf`` as ``StagePerfStats``. Terminal stages feed those
 into ``AudioPerformanceSummary`` to build the published ``perf_summary.json``.
 
-Key types: ``AudioStageMetrics`` (superset of every scalar custom metric),
+Key types: ``AudioStageMetrics`` (typed current-producer metrics),
 ``AudioStageSamples`` (per-invocation samples for percentiles),
 ``AudioStageCallerContext`` (GPU/actor fields not derivable from perf stats),
 and ``AudioPerformanceSummary`` (the dedup'ing accumulator). All
@@ -29,12 +29,14 @@ post-processing lives in ``performance_utils.py``; this file only collects.
 from __future__ import annotations
 
 import contextlib
+import math
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Any
 
 from nemo_curator.stages.audio.metrics.performance_utils import (
+    DEFAULT_PERCENTILES,
     add_ratio,
     audio_hours_per_gpu_hour,
     bytes_to_mb,
@@ -61,12 +63,12 @@ def _gpu_sample_base(key: str) -> str:
 
 @dataclass
 class AudioStageMetrics:
-    """Superset of every scalar custom metric the audio pipeline emits.
+    """Typed metrics with stable cross-stage or current producer semantics.
 
-    Stages populate only relevant fields via ``_log_metrics``; the accumulator
-    sums them and rebuilds an ``AudioStageMetrics`` per stage. Default 0.0 means
-    "not emitted"; ``to_dict()`` strips zeros so JSON only carries populated
-    keys. Adding a metric is one field here plus the producer's ``_log_metrics``.
+    The accumulator preserves unrecognized numeric values in ``extras`` without
+    publishing producer-specific composites for features owned by other PRs.
+    Default 0.0 means "not emitted"; ``to_dict()`` strips zeros so JSON only
+    carries populated keys.
     """
 
     # ----- universal counters -----
@@ -76,14 +78,11 @@ class AudioStageMetrics:
     # pair; terminal writers emit the output pair. The top-level summary uses
     # stage order rather than recognizing concrete reader/writer class names.
     pipeline_input_rows: float = 0.0
-    pipeline_input_audio_rows: float = 0.0
     pipeline_input_audio_s: float = 0.0
+    pipeline_input_duration_rows: float = 0.0
     pipeline_output_rows: float = 0.0
     pipeline_output_audio_s: float = 0.0
-    # Actor-pattern fix for stages the framework's num_items_processed cannot
-    # count (e.g. discovery synthesises work from config, so input is seen as 0).
-    total_items_emitted: float = 0.0
-
+    pipeline_output_duration_rows: float = 0.0
     # ----- audio volume scalars -----
     audio_duration_s: float = 0.0
     # Legacy aliases for older stages; new stages emit ``audio_duration_s``.
@@ -92,30 +91,16 @@ class AudioStageMetrics:
     input_duration: float = 0.0
     filtered_dur: float = 0.0
     waveform_bytes: float = 0.0
-    # "Truthful bytes loaded" for stages that load data themselves (tar reader)
-    # where framework's input_data_size_mb is unavailable. Producer-opt-in.
-    bytes_loaded: float = 0.0
 
     # ----- text/transcript output -----
     output_chars: float = 0.0
     output_tokens: float = 0.0
-    turn1_output_tokens: float = 0.0
-    turn2_output_tokens: float = 0.0
 
     # ----- inference timing -----
     inference_time_s: float = 0.0
     inference_time: float = 0.0  # legacy alias
     adapter_inference_calls: float = 0.0
     adapter_inference_items: float = 0.0
-
-    # ----- model-side internal timers / counters -----
-    model_turn1_prep_time_s: float = 0.0
-    model_turn1_generation_time_s: float = 0.0
-    model_turn2_prep_time_s: float = 0.0
-    model_turn2_generation_time_s: float = 0.0
-    model_turn1_valid_inputs: float = 0.0
-    model_turn2_valid_inputs: float = 0.0
-    model_utterances_skipped_preprocess: float = 0.0
 
     # ----- inference / filter / tagging utterance accounting -----
     utterances_input: float = 0.0
@@ -254,7 +239,7 @@ class AudioStageSamples:
         if audio_s_f > 0:
             self.audio_duration_s_per_invocation.append(audio_s_f)
 
-    def summarize(self, percentiles: tuple[int, ...] = (50, 95)) -> dict[str, float]:
+    def summarize(self, percentiles: tuple[int, ...] = DEFAULT_PERCENTILES) -> dict[str, float]:
         """Render the percentile-derived view (only populated keys)."""
         out: dict[str, float] = {}
         out.update(summarize_samples(self.invocation_process_times_s, "invocation_process_time_s", percentiles))
@@ -285,14 +270,16 @@ def serialize_stage_perf(stage_perf_list: list[StagePerfStats]) -> list[dict[str
     for perf in stage_perf_list:
         entry: dict[str, Any] = {
             "invocation_id": getattr(perf, "invocation_id", ""),
+            "stage_id": getattr(perf, "stage_id", ""),
             "stage_name": perf.stage_name,
             "process_time": perf.process_time,
             "actor_idle_time": perf.actor_idle_time,
             "num_items_processed": perf.num_items_processed,
         }
-        stage_id = getattr(perf, "stage_id", "")
-        if stage_id:
-            entry["stage_id"] = stage_id
+        for boundary_field in ("window_start_s", "window_end_s"):
+            boundary_value = getattr(perf, boundary_field, 0.0)
+            if boundary_value:
+                entry[boundary_field] = boundary_value
         # Identity labels (best-effort; empty when unresolved).
         for identity_field in ("actor_id", "node_id", "gpu_id", "physical_address", "pod_ip", "hostname"):
             identity_value = getattr(perf, identity_field, "")
@@ -310,15 +297,20 @@ def serialize_stage_perf(stage_perf_list: list[StagePerfStats]) -> list[dict[str
     return result
 
 
-def _task_audio_seconds(task: Task, duration_key: str) -> float:
+def _task_audio_seconds(task: Task, duration_key: str) -> tuple[float, bool]:
     data = getattr(task, "data", {})
-    if not isinstance(data, dict):
-        return 0.0
+    if not isinstance(data, dict) or duration_key not in data:
+        return 0.0, False
+    raw_duration = data[duration_key]
+    if isinstance(raw_duration, bool):
+        return 0.0, False
     try:
-        seconds = float(data.get(duration_key, 0.0))
+        seconds = float(raw_duration)
     except (TypeError, ValueError):
-        return 0.0
-    return seconds if seconds > 0 else 0.0
+        return 0.0, False
+    if not math.isfinite(seconds) or seconds < 0:
+        return 0.0, False
+    return seconds, True
 
 
 def _build_stage_summary(  # noqa: PLR0913
@@ -351,21 +343,14 @@ def _build_stage_summary(  # noqa: PLR0913
     # Preserve these keys when a producer explicitly emitted zero.
     for boundary_key in (
         "pipeline_input_rows",
-        "pipeline_input_audio_rows",
         "pipeline_input_audio_s",
+        "pipeline_input_duration_rows",
         "pipeline_output_rows",
         "pipeline_output_audio_s",
+        "pipeline_output_duration_rows",
     ):
         if boundary_key in custom_totals:
             custom_sums[boundary_key] = float(custom_totals[boundary_key])
-
-    # Actor-pattern stages lack framework num_items_processed; fall back to
-    # total_items_emitted to keep throughput ratios meaningful.
-    if total_items == 0.0 and metrics.total_items_emitted > 0:
-        total_items = metrics.total_items_emitted
-        entry["total_items_processed"] = total_items
-    if metrics.total_items_emitted > 0:
-        entry["total_items_emitted"] = metrics.total_items_emitted
 
     add_ratio(entry, "avg_invocation_time_s", total_time, invocation_count)
     add_ratio(entry, "throughput_items_per_s", total_items, total_time)
@@ -375,15 +360,15 @@ def _build_stage_summary(  # noqa: PLR0913
     actor_count_p50 = None
     if ctx.actor_count_samples:
         actor_count_p50 = summarize_samples(ctx.actor_count_samples, "actor_count").get("actor_count_p50")
-
     identity_actor_count = float((stage_identity or {}).get("actor_count", 0.0) or 0.0)
-    effective_actor_count = actor_count_p50 or identity_actor_count or None
+    wallclock_actor_count = actor_count_p50 or identity_actor_count or None
+
     wallclock_s = (
         ctx.wallclock_s
         if ctx.wallclock_s is not None
         else estimate_wallclock_s(
             total_process_time_s=total_time,
-            actor_count=effective_actor_count,
+            actor_count=wallclock_actor_count,
         )
     )
     if ctx.gpu_hours > 0:
@@ -416,7 +401,6 @@ def _build_stage_summary(  # noqa: PLR0913
     output_tokens = metrics.output_tokens
     output_chars = metrics.output_chars
     waveform_mb = bytes_to_mb(metrics.waveform_bytes)
-    bytes_loaded_mb = bytes_to_mb(metrics.bytes_loaded)
 
     # Both default to the audio duration the stage saw; filter stages may
     # override audio_hours_out via custom_metrics.
@@ -425,12 +409,8 @@ def _build_stage_summary(  # noqa: PLR0913
         entry["audio_hours_out"] = seconds_to_hours(audio_seconds)
 
     gpu_count = float((stage_identity or {}).get("gpu_count", 0.0) or 0.0)
-    gpu_seconds = (
-        ctx.gpu_hours * 3600.0
-        if ctx.gpu_hours > 0
-        else (wallclock_s * gpu_count if wallclock_s and gpu_count > 0 else 0.0)
-    )
-    if audio_seconds > 0 and gpu_seconds > 0:
+    gpu_seconds = ctx.gpu_hours * 3600.0 if ctx.gpu_hours > 0 else (wallclock_s or 0.0) * gpu_count
+    if gpu_seconds > 0:
         ah_per_gpu_h = audio_hours_per_gpu_hour(audio_seconds, gpu_seconds)
         if ah_per_gpu_h is not None:
             entry["audio_hours_per_gpu_hour"] = ah_per_gpu_h
@@ -446,7 +426,6 @@ def _build_stage_summary(  # noqa: PLR0913
     add_ratio(entry, "throughput_output_chars_per_process_s", output_chars, total_time)
     add_ratio(entry, "throughput_output_chars_per_inference_s", output_chars, inference_time)
     add_ratio(entry, "throughput_waveform_mb_per_process_s", waveform_mb, total_time)
-    add_ratio(entry, "throughput_bytes_loaded_mb_per_process_s", bytes_loaded_mb, total_time)
     if metrics.adapter_inference_calls > 0:
         entry["adapter_inference_call_count"] = metrics.adapter_inference_calls
         entry["adapter_inference_items"] = metrics.adapter_inference_items
@@ -471,9 +450,10 @@ def _build_stage_summary(  # noqa: PLR0913
 
     # ----- pipeline-structure ratios -----
     add_ratio(entry, "output_tasks_per_input_task", metrics.output_tasks, metrics.input_tasks)
+
     # Generic item-fate aliases: populate from whichever stage-specific
     # counter is non-zero.
-    items_skipped = metrics.utterances_skipped or metrics.model_utterances_skipped_preprocess or metrics.skipped_short
+    items_skipped = metrics.utterances_skipped or metrics.skipped_short
     items_filtered = metrics.utterances_filtered or metrics.filtered_count
     items_recovered = metrics.utterances_recovered
     if items_skipped > 0:
@@ -530,8 +510,9 @@ class AudioPerformanceSummary:
         default_factory=lambda: defaultdict(AudioStageSamples),
         repr=False,
     )
-    _seen_perf_invocations: set[str] = field(default_factory=set, repr=False)
     _stage_names: dict[str, str] = field(default_factory=dict, repr=False)
+    _stage_window_bounds: dict[str, tuple[float, float]] = field(default_factory=dict, repr=False)
+    _seen_perf_invocations: set[str] = field(default_factory=set, repr=False)
     # Per-(stage, actor) scheduling breakdown for any record with a resolved
     # actor_id (GPU and CPU stages). GPU actors also carry physical address +
     # NVML util/mem percentiles.
@@ -570,6 +551,7 @@ class AudioPerformanceSummary:
     _stage_actors: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set), repr=False)
     _actor_node: dict[str, str] = field(default_factory=dict, repr=False)
     _total_utterances: int = field(default=0, repr=False)
+    _duration_utterances: int = field(default=0, repr=False)
     _total_audio_seconds: float = field(default=0.0, repr=False)
     _dataset_names: set[str] = field(default_factory=set, repr=False)
     _output_column_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int), repr=False)
@@ -587,6 +569,10 @@ class AudioPerformanceSummary:
     def perf_invocations_counted(self) -> int:
         return len(self._seen_perf_invocations)
 
+    @property
+    def duration_utterances(self) -> int:
+        return self._duration_utterances
+
     def reset_wall_timer(self) -> None:
         self._wall_start_s = time.perf_counter()
 
@@ -596,8 +582,9 @@ class AudioPerformanceSummary:
 
     def record_task(self, task: Task, *, include_stage_perf: bool = True) -> None:
         """Record one audio task and optionally its attached stage perf chain."""
-        audio_seconds = _task_audio_seconds(task, self.duration_key)
+        audio_seconds, has_duration = _task_audio_seconds(task, self.duration_key)
         self._total_utterances += 1
+        self._duration_utterances += int(has_duration)
         self._total_audio_seconds += audio_seconds
         dataset_name = str(getattr(task, "dataset_name", "") or "").strip()
         if dataset_name:
@@ -631,6 +618,8 @@ class AudioPerformanceSummary:
                 round(perf.process_time, 9),
                 round(perf.actor_idle_time, 9),
                 perf.num_items_processed,
+                round(float(getattr(perf, "window_start_s", 0.0)), 9),
+                round(float(getattr(perf, "window_end_s", 0.0)), 9),
                 tuple((k, round(float(v), 9)) for k, v in custom),
             )
         )
@@ -651,13 +640,14 @@ class AudioPerformanceSummary:
                 # optional observability, so malformed records must not break
                 # terminal manifest writing.
                 continue
+            stage_key = str(getattr(perf, "stage_id", "") or perf.stage_name)
+            self._stage_names.setdefault(stage_key, str(perf.stage_name))
             invocation_id = getattr(perf, "invocation_id", "") or self._fingerprint_perf(perf)
+            invocation_id = f"{stage_key}:{invocation_id}"
             if invocation_id in self._seen_perf_invocations:
                 continue
             self._seen_perf_invocations.add(invocation_id)
 
-            stage_key = str(getattr(perf, "stage_id", "") or perf.stage_name)
-            self._stage_names.setdefault(stage_key, str(perf.stage_name))
             totals = self._stage_totals[stage_key]
             totals["process_time"] += perf.process_time
             totals["actor_idle_time"] += perf.actor_idle_time
@@ -671,6 +661,14 @@ class AudioPerformanceSummary:
                     self._stage_custom_totals[stage_key][key] += float(value)
 
             self._stage_samples[stage_key].add(perf)
+            window_start_s = float(getattr(perf, "window_start_s", 0.0) or 0.0)
+            window_end_s = float(getattr(perf, "window_end_s", 0.0) or 0.0)
+            if window_end_s >= window_start_s > 0:
+                previous = self._stage_window_bounds.get(stage_key)
+                self._stage_window_bounds[stage_key] = (
+                    min(previous[0], window_start_s) if previous else window_start_s,
+                    max(previous[1], window_end_s) if previous else window_end_s,
+                )
             self._record_actor_breakdown(perf, stage_key)
 
     def _record_actor_breakdown(self, perf: StagePerfStats, stage_key: str) -> None:
@@ -767,18 +765,21 @@ class AudioPerformanceSummary:
     # Building the published summary
     # -----------------------------------------------------------------------
 
-    def _stage_identity_meta(self, stage_name: str) -> dict[str, Any]:
+    def _stage_identity_meta(self, stage_key: str) -> dict[str, Any]:
         """Topology labels for a stage: gpu_addresses, gpu_count, actor_count.
 
         ``gpu_count`` counts distinct physical devices (a TP actor on 2 GPUs
         counts as 2). Keys are omitted for stages without resolved identity.
         """
         meta: dict[str, Any] = {}
-        addresses = sorted(self._stage_gpus.get(stage_name, set()))
+        stage_name = self._stage_names.get(stage_key, stage_key)
+        if stage_key != stage_name:
+            meta["stage_name"] = stage_name
+        addresses = sorted(self._stage_gpus.get(stage_key, set()))
         if addresses:
             meta["gpu_addresses"] = addresses
-            meta["gpu_count"] = float(len(self._stage_gpu_units.get(stage_name, addresses)))
-        actors = self._stage_actors.get(stage_name, set())
+            meta["gpu_count"] = float(len(self._stage_gpu_units.get(stage_key, addresses)))
+        actors = self._stage_actors.get(stage_key, set())
         if actors:
             meta["actor_count"] = float(len(actors))
         return meta
@@ -843,24 +844,30 @@ class AudioPerformanceSummary:
     ) -> dict[str, dict[str, Any]]:
         """Build per-stage aggregate summaries from accumulated metrics."""
         ctx_by_stage = stage_caller_context or {}
-        summaries = {
-            stage_key: _build_stage_summary(
+        result: dict[str, dict[str, Any]] = {}
+        for stage_key, totals in self._stage_totals.items():
+            context = ctx_by_stage.get(stage_key)
+            if context is None:
+                context = ctx_by_stage.get(self._stage_names.get(stage_key, stage_key))
+            window_bounds = self._stage_window_bounds.get(stage_key)
+            if window_bounds:
+                context = replace(
+                    context or AudioStageCallerContext(),
+                    wallclock_s=max(window_bounds[1] - window_bounds[0], 0.0),
+                )
+            result[stage_key] = _build_stage_summary(
                 dict(totals),
                 dict(self._stage_custom_totals.get(stage_key, {})),
                 samples=self._stage_samples.get(stage_key),
-                caller_context=ctx_by_stage.get(stage_key)
-                or ctx_by_stage.get(self._stage_names.get(stage_key, stage_key)),
+                caller_context=context,
                 stage_identity=self._stage_identity_meta(stage_key),
                 actor_breakdown=self._build_per_actor(stage_key),
             )
-            for stage_key, totals in self._stage_totals.items()
-        }
-        for stage_key, entry in summaries.items():
             display_name = self._stage_names.get(stage_key, stage_key)
             if stage_key != display_name:
-                entry["stage_id"] = stage_key
-                entry["stage_name"] = display_name
-        return summaries
+                result[stage_key]["stage_id"] = stage_key
+                result[stage_key]["stage_name"] = display_name
+        return result
 
     def build_summary(  # noqa: PLR0913
         self,
@@ -887,22 +894,38 @@ class AudioPerformanceSummary:
         if extra_stage_summaries:
             stages_summary.update(extra_stage_summaries)
 
-        input_boundary = self._pipeline_boundary(
+        rows_in, input_audio_s, input_duration_rows = self._pipeline_boundary(
             stages_summary,
             rows_key="pipeline_input_rows",
             audio_key="pipeline_input_audio_s",
-            audio_rows_key="pipeline_input_audio_rows",
+            duration_rows_key="pipeline_input_duration_rows",
         )
-        output_boundary = self._pipeline_boundary(
+        rows_out, output_audio_s, output_duration_rows = self._pipeline_boundary(
             stages_summary,
             rows_key="pipeline_output_rows",
             audio_key="pipeline_output_audio_s",
+            duration_rows_key="pipeline_output_duration_rows",
             reverse=True,
         )
-        rows_in, input_audio_s = input_boundary if input_boundary is not None else (None, None)
-        rows_out, output_audio_s = output_boundary if output_boundary is not None else (None, None)
-        input_hours = seconds_to_hours(input_audio_s) if input_audio_s is not None else None
-        output_hours = seconds_to_hours(output_audio_s) if output_audio_s is not None else None
+        if rows_out is None and self._total_utterances > 0:
+            rows_out = float(self._total_utterances)
+            output_audio_s = self._total_audio_seconds
+            output_duration_rows = float(self._duration_utterances)
+
+        input_complete = (
+            rows_in is not None
+            and input_audio_s is not None
+            and input_duration_rows is not None
+            and (rows_in == 0 or input_duration_rows >= rows_in)
+        )
+        output_complete = (
+            rows_out is not None
+            and output_audio_s is not None
+            and output_duration_rows is not None
+            and (rows_out == 0 or output_duration_rows >= rows_out)
+        )
+        input_hours = seconds_to_hours(input_audio_s) if input_complete and input_audio_s is not None else None
+        output_hours = seconds_to_hours(output_audio_s) if output_complete and output_audio_s is not None else None
 
         summary: dict[str, Any] = {
             # proposed-structure top-level
@@ -912,9 +935,11 @@ class AudioPerformanceSummary:
             "output_hours": output_hours,
             "rows_in": rows_in,
             "rows_out": rows_out,
-            "total_audio_seconds": output_audio_s,
+            "input_duration_rows": input_duration_rows,
+            "output_duration_rows": output_duration_rows,
+            "total_audio_seconds": output_audio_s if output_complete else None,
             "total_audio_hours": output_hours,
-            "writer_wall_time_s": resolved_wall_time_s,
+            "pipeline_wall_time_s": resolved_wall_time_s,
             "perf_invocations_counted": len(self._seen_perf_invocations),
             "pipeline": dict(pipeline_metadata or {}),
             "dataset_names": sorted(self._dataset_names),
@@ -928,7 +953,7 @@ class AudioPerformanceSummary:
         # Cluster-level rollup (scheduling only). Hardware rollups are deferred
         # to the NVML/DCGM proposal; only identity-derivable fields emitted here.
         pipeline_throughput: dict[str, Any] = {}
-        if resolved_wall_time_s > 0 and output_audio_s is not None and output_audio_s > 0:
+        if resolved_wall_time_s > 0 and output_complete and output_audio_s is not None and output_audio_s > 0:
             pipeline_throughput["audio_hours_per_wallclock_hour"] = seconds_to_hours(
                 output_audio_s
             ) / seconds_to_hours(resolved_wall_time_s)
@@ -937,6 +962,11 @@ class AudioPerformanceSummary:
             all_units = {unit for units in self._stage_gpu_units.values() for unit in units}
             pipeline_throughput["gpu_addresses"] = all_addresses
             pipeline_throughput["gpu_count"] = float(len(all_units or all_addresses))
+            if output_complete and output_audio_s is not None:
+                gpu_seconds = resolved_wall_time_s * pipeline_throughput["gpu_count"]
+                pipeline_gpu_efficiency = audio_hours_per_gpu_hour(output_audio_s, gpu_seconds)
+                if pipeline_gpu_efficiency is not None:
+                    pipeline_throughput["audio_hours_per_gpu_hour"] = pipeline_gpu_efficiency
         if pipeline_throughput:
             summary["pipeline_throughput"] = pipeline_throughput
 
@@ -948,10 +978,10 @@ class AudioPerformanceSummary:
         *,
         rows_key: str,
         audio_key: str,
-        audio_rows_key: str | None = None,
+        duration_rows_key: str,
         reverse: bool = False,
-    ) -> tuple[float, float | None] | None:
-        """Return a measured boundary, or ``None`` when no producer supplied it."""
+    ) -> tuple[float | None, float | None, float | None]:
+        """Return rows/audio from the first matching stage in traversal order."""
         stage_values = list(stages_summary.values())
         if reverse:
             stage_values.reverse()
@@ -960,10 +990,9 @@ class AudioPerformanceSummary:
             if not isinstance(custom, dict) or rows_key not in custom:
                 continue
             rows = float(custom.get(rows_key, 0.0) or 0.0)
-            audio_s = float(custom.get(audio_key, 0.0) or 0.0) if audio_key in custom else None
-            if audio_rows_key and audio_rows_key in custom:
-                audio_rows = float(custom.get(audio_rows_key, 0.0) or 0.0)
-                if audio_rows < rows:
-                    audio_s = None
-            return rows, audio_s
-        return None
+            if audio_key not in custom:
+                return rows, None, 0.0
+            audio_s = float(custom.get(audio_key, 0.0) or 0.0)
+            duration_rows = float(custom.get(duration_rows_key, 0.0) or 0.0) if duration_rows_key in custom else rows
+            return rows, audio_s, duration_rows
+        return None, None, None
