@@ -241,7 +241,7 @@ jobs:
         run: |
           set -o pipefail
           INSTALLER="${{ matrix.installer }}"
-          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "inference_server" "text_cuda12" "inference_server")
+          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "inference_server" "text_cuda12")
           RESULTS=""
           FAILED=0
 
@@ -260,7 +260,14 @@ jobs:
 
             # Install
             if [ "$INSTALLER" = "pip" ]; then
-              INSTALL_CMD="pip install --no-cache-dir '.[$extra]'"
+              if [ "$extra" = "inference_server" ]; then
+                INSTALL_CMD="pip install --no-cache-dir \
+                  --extra-index-url https://download.pytorch.org/whl/cu129 \
+                  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+                  '.[$extra]'"
+              else
+                INSTALL_CMD="pip install --no-cache-dir '.[$extra]'"
+              fi
             else
               INSTALL_CMD="uv sync --locked --link-mode copy --extra $extra"
             fi

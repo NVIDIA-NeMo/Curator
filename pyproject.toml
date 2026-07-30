@@ -84,7 +84,6 @@ cv2 = [
 ]
 vllm = [
     "vllm[flashinfer,runai,otel]==0.22.0+cu129; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
-    "cuda-toolkit[nvcc]==12.9.1; platform_machine == 'aarch64' and platform_system == 'Linux'",
 ]
 
 # Inference Server (Ray Serve + vLLM) - for serving LLMs alongside Curator pipelines
@@ -92,9 +91,8 @@ inference_server = [
     "nemo_curator[cuda12]",
     "nemo_curator[vllm]",
     "ai-dynamo>=1.3.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
-    "ai-dynamo-runtime>=1.3.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
-    "ray[serve,llm]>=2.56.1",
+    "ray[serve]>=2.56.1",
     "ray-haproxy==2.8.20; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
 ]
 
@@ -335,10 +333,6 @@ package = true
 managed = true
 default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
-# Default mode: only pick a prerelease when a requirement carries an explicit
-# prerelease marker or when every version in range is a prerelease. Avoids
-# blanket prereleases elsewhere.
-prerelease = "if-necessary-or-explicit"
 constraint-dependencies = [
     "aiohttp>=3.13.3", # Addresses CVE GHSA-6mq8-rvhq-8wgg
     "cryptography>=46.0.6", # Address CVE GHSA-m959-cc7f-wv43
@@ -370,15 +364,10 @@ override-dependencies = [
     "torchvision==0.26.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
     "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # pin to torchcodec 0.11.x for torch 2.11 ABI compatibility; torchcodec does not declare a torch dep, so the resolver cannot enforce the match; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 12 backend on both supported Linux architectures.
-    "nixl-cu13; sys_platform == 'never'", # ray[llm]/nixl hard-pin the CUDA-13 NIXL backend. On this CUDA-12.9 image vLLM's eager `import nixl_ep` would load cu13's nixl_ep_cpp.so and dlopen the absent libcudart.so.13. Drop it; the nixl meta + nixl-cu12 backend (nixl's own default) remain.
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
     "sqlfluff>=4.2.0", # Address CVE-2026-46373/46374 (parser DoS); overrides data-designer-engine==0.5.5 sqlfluff<4 cap
 ]
 
-
-[[tool.uv.index]]
-name = "nvidia"
-url = "https://pypi.nvidia.com"
 
 [[tool.uv.index]]
 name = "pypi"
@@ -412,8 +401,6 @@ torchcodec = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
-ai-dynamo = { index = "nvidia" }
-ai-dynamo-runtime = { index = "nvidia" }
 vllm = [
     { index = "vllm-cu129", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
 ]

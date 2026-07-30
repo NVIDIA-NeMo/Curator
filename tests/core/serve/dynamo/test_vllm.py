@@ -415,74 +415,9 @@ class TestEnsureActorOverridesOnAllNodes:
         assert override_path.read_text() == f"ray=={ray.__version__}\n{dynamo_vllm._ACTOR_VENV_NIXL_CU13_EXCLUSION}\n"
 
 
-def test_dynamo_runtime_packages_pin_installed_release() -> None:
-    with mock.patch.object(dynamo_vllm.importlib.metadata, "version", return_value="1.3.0.post1"):
-        assert dynamo_vllm._dynamo_runtime_packages() == [
-            "ai-dynamo[vllm]==1.3.0.post1",
-            "ai-dynamo-runtime==1.3.0.post1",
-            "nixl-cu12>=0.10.0",
-            "cuda-toolkit[nvcc]==12.9.1; platform_machine == 'aarch64' and sys_platform == 'linux'",
-        ]
+def test_dynamo_runtime_env_matches_base_environment() -> None:
+    installed_version = dynamo_vllm.importlib.metadata.version("ai-dynamo")
 
-
-def test_dynamo_runtime_packages_fall_back_to_supported_minimum() -> None:
-    with mock.patch.object(
-        dynamo_vllm.importlib.metadata,
-        "version",
-        side_effect=dynamo_vllm.importlib.metadata.PackageNotFoundError(),
-    ):
-        assert dynamo_vllm._dynamo_runtime_packages() == [
-            "ai-dynamo[vllm]>=1.3.0",
-            "ai-dynamo-runtime>=1.3.0",
-            "nixl-cu12>=0.10.0",
-            "cuda-toolkit[nvcc]==12.9.1; platform_machine == 'aarch64' and sys_platform == 'linux'",
-        ]
-
-
-def test_dynamo_runtime_packages_reject_installed_nightly() -> None:
-    with (
-        mock.patch.object(dynamo_vllm.importlib.metadata, "version", return_value="1.3.0.dev20260720"),
-        pytest.raises(RuntimeError, match="publicly released ai-dynamo"),
-    ):
-        dynamo_vllm._dynamo_runtime_packages()
-
-
-def test_dynamo_runtime_packages_reject_unsupported_release() -> None:
-    with (
-        mock.patch.object(dynamo_vllm.importlib.metadata, "version", return_value="1.2.0"),
-        pytest.raises(RuntimeError, match=r"publicly released ai-dynamo>=1.3.0"),
-    ):
-        dynamo_vllm._dynamo_runtime_packages()
-
-
-def test_vllm_cu129_index_url_derives_from_dynamo_pin() -> None:
-    """Derives the per-version cu129 index from ai-dynamo's [vllm] pin, and returns
-    None (never a wrong, cu130-prone URL) when there's no exact pin or ai-dynamo is
-    absent; a malformed Requires-Dist line is skipped, not fatal."""
-    meta = dynamo_vllm.importlib.metadata
-    expected = f"https://wheels.vllm.ai/0.22.1/{dynamo_vllm._ACTOR_VENV_CUDA_TAG}"
-
-    # Exact [vllm]-extra pin wins; a malformed sibling line is skipped, not fatal.
-    with mock.patch.object(
-        meta, "requires", return_value=["bad req!!!", "vllm[flashinfer]==0.22.1 ; extra == 'vllm'"]
-    ):
-        assert dynamo_vllm._vllm_cu129_index_url() == expected
-    # A vllm pin for a different extra must not win over the [vllm] extra pin.
-    with mock.patch.object(
-        meta,
-        "requires",
-        return_value=[
-            "vllm==0.99.0 ; extra == 'sglang'",
-            "vllm[flashinfer]==0.22.1 ; extra == 'vllm'",
-        ],
-    ):
-        assert dynamo_vllm._vllm_cu129_index_url() == expected
-    # No vllm requirement -> None.
-    with mock.patch.object(meta, "requires", return_value=["ray>=2.55.0 ; extra == 'vllm'"]):
-        assert dynamo_vllm._vllm_cu129_index_url() is None
-    # No exact `==` pin -> None rather than guessing an index.
-    with mock.patch.object(meta, "requires", return_value=["vllm>=0.20 ; extra == 'vllm'"]):
-        assert dynamo_vllm._vllm_cu129_index_url() is None
-    # ai-dynamo not installed -> None.
-    with mock.patch.object(meta, "requires", side_effect=meta.PackageNotFoundError()):
-        assert dynamo_vllm._vllm_cu129_index_url() is None
+    assert dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"] == [f"ai-dynamo[vllm]=={installed_version}"]
+    assert "https://pypi.nvidia.com" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
+    assert "--prerelease" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS

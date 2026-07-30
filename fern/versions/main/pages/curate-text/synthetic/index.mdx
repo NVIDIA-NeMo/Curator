@@ -51,13 +51,13 @@ flowchart LR
     B --> C["LLM Generation<br/>(OpenAI-compatible)"]
     C --> D["Postprocessing<br/>(Cleanup, Filtering)"]
     D --> E["Output Dataset<br/>(Parquet/JSONL)"]
-    
+
     F["LLM Client<br/>(NVIDIA API,<br/>InferenceServer,<br/>vLLM, TGI)"] -.->|"API Calls"| C
-    
+
     classDef stage fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
     classDef infra fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
     classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px,color:#000
-    
+
     class A,B,C,D stage
     class E output
     class F infra
@@ -74,13 +74,16 @@ Before using synthetic data generation, ensure you have:
 2. **NeMo Curator with text extras**
 
    ```bash
-   uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[text_cuda12]
+   uv pip install nemo-curator[text_cuda12]
    ```
 
 3. **Local inference** (optional) — to serve models alongside your pipeline:
 
    ```bash
-   uv pip install nemo-curator[inference_server]
+   python -m pip install \
+     --extra-index-url https://download.pytorch.org/whl/cu129 \
+     --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+     "nemo-curator[inference_server]"
    ```
 
    Refer to the [Inference Server](/curate-text/synthetic/inference-server) guide for setup details.

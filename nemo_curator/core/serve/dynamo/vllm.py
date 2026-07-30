@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING, Any
 import ray
 from loguru import logger
 from packaging.requirements import InvalidRequirement, Requirement
-from packaging.version import Version
 
 from nemo_curator.core.serve.base import BaseModelConfig
 from nemo_curator.core.serve.dynamo.infra import (
@@ -53,61 +52,24 @@ if TYPE_CHECKING:
     from nemo_curator.core.serve.placement import ReplicaBundleSpec
 
 
-# The actor venv ``uv pip install`` needs overrides that pyproject's ``[tool.uv]``
-# can't reach (Ray runs it in an empty cwd). uv has no inline override syntax —
-# only ``--override <file>`` — so we materialize a constraints file at a fixed path
-# on every node via ``ensure_actor_overrides_on_all_nodes``. It carries:
-#   * ``ray==<driver version>`` — ai-dynamo[vllm]'s [vllm] extra has a hard ray pin,
-#     but Ray refuses actor venvs whose ray differs from the cluster head's. Derived
-#     from the driver's ``ray.__version__`` so a future Curator ray bump needs no edit.
-#   * ``nixl-cu13`` dropped — ai-dynamo[vllm] pulls the CUDA-13 NIXL backend, whose
-#     eagerly-imported ``nixl_ep_cpp.so`` dlopens libcudart.so.13 (absent on this
-#     CUDA-12.9 image). The base image excludes it via pyproject, but that override
-#     doesn't reach this standalone install; re-apply it here so the cu12 backend wins.
+# Ray creates the actor venv outside the project directory, so reapply the
+# driver Ray pin and CUDA-13 NIXL exclusion through an override file.
 _ACTOR_VENV_OVERRIDES_PATH = Path(tempfile.gettempdir()) / "nemo_curator_dynamo_actor_overrides.txt"
 _ACTOR_VENV_NIXL_CU13_EXCLUSION = "nixl-cu13 ; sys_platform == 'never'"
-# The CUDA build the actor venv must match (torch ecosystem + vllm wheel variant).
 _ACTOR_VENV_CUDA_TAG = "cu129"
-_DYNAMO_MIN_VERSION = Version("1.3.0")
 
 
 def _dynamo_runtime_packages() -> list[str]:
-    """Return actor packages matched to the Dynamo release in the base environment."""
+    """Install Dynamo's vLLM extra without upgrading the base Dynamo release."""
     try:
-        installed_version = Version(importlib.metadata.version("ai-dynamo"))
+        installed_version = importlib.metadata.version("ai-dynamo")
     except importlib.metadata.PackageNotFoundError:
-        version_specifier = f">={_DYNAMO_MIN_VERSION}"
-    else:
-        if installed_version.is_prerelease or installed_version < _DYNAMO_MIN_VERSION:
-            msg = (
-                f"Dynamo actor environments require a publicly released ai-dynamo>={_DYNAMO_MIN_VERSION}; "
-                f"found {installed_version}"
-            )
-            raise RuntimeError(msg)
-        version_specifier = f"=={installed_version}"
-    return [
-        f"ai-dynamo[vllm]{version_specifier}",
-        f"ai-dynamo-runtime{version_specifier}",
-        "nixl-cu12>=0.10.0",
-        "cuda-toolkit[nvcc]==12.9.1; platform_machine == 'aarch64' and sys_platform == 'linux'",
-    ]
+        return ["ai-dynamo[vllm]>=1.3.0"]
+    return [f"ai-dynamo[vllm]=={installed_version}"]
 
 
 def _vllm_cu129_index_url() -> str | None:
-    """The vLLM cu129 wheel index for the exact version ai-dynamo[vllm] pins.
-
-    ai-dynamo's [vllm] extra pins an exact vllm (e.g. ``==0.22.1``) that may
-    differ from Curator's base vllm — the base installs ai-dynamo WITHOUT its
-    [vllm] extra, so its vllm comes from Curator's own pin, while the actor
-    venv installs ``ai-dynamo[vllm]`` and must honor ai-dynamo's pin. vLLM
-    publishes a per-version cu129 wheel index at ``wheels.vllm.ai/<v>/cu129``;
-    pointing at the pinned version means its ``+cu129`` local build sorts above
-    the default cu130 wheel under unsafe-best-match. Derived from ai-dynamo's
-    own metadata so a release bump (which can change the vllm pin) needs no edit.
-
-    Returns None if ai-dynamo (or its vllm pin) can't be found — only happens
-    when the dynamo backend isn't actually installed, where this is unused.
-    """
+    """Return the CUDA 12.9 wheel index for Dynamo's pinned vLLM version."""
     try:
         requirements = importlib.metadata.requires("ai-dynamo") or []
     except importlib.metadata.PackageNotFoundError:
@@ -116,9 +78,7 @@ def _vllm_cu129_index_url() -> str | None:
         try:
             req = Requirement(raw)
         except InvalidRequirement:
-            continue  # a malformed Requires-Dist line must not break module import
-        # Match vllm only as it applies under the [vllm] extra we install (skip a vllm
-        # pin that some other ai-dynamo extra might add under a different marker).
+            continue
         if req.name != "vllm" or (req.marker is not None and not req.marker.evaluate({"extra": "vllm"})):
             continue
         pinned = next((spec.version for spec in req.specifier if spec.operator in ("==", "===")), None)
@@ -127,13 +87,8 @@ def _vllm_cu129_index_url() -> str | None:
     return None
 
 
-# Ray builds the actor venv with a bare ``uv pip install`` in an empty cwd, so it
-# inherits none of the project's ``[tool.uv]`` index/source/prerelease config — only
-# what we pass here. Force CUDA 12.9 the way vLLM documents for uv: --torch-backend
-# routes the torch ecosystem to the cu129 index, and the per-version cu129 vllm index
-# (see ``_vllm_cu129_index_url``) keeps vllm on cu129. ``unsafe-best-match`` is REQUIRED
-# so nixl resolves (its version is split across pypi.nvidia.com and PyPI, which the
-# default first-match strategy can't combine).
+# The actor install must select CUDA 12.9 Torch and vLLM wheels even though
+# public PyPI also contains a wheel with the same base vLLM version.
 _ACTOR_VENV_UV_OPTIONS = [
     "--override",
     str(_ACTOR_VENV_OVERRIDES_PATH),
@@ -141,15 +96,9 @@ _ACTOR_VENV_UV_OPTIONS = [
     _ACTOR_VENV_CUDA_TAG,
     "--index-strategy",
     "unsafe-best-match",
-    "--prerelease",
-    "if-necessary-or-explicit",
-    *(
-        arg
-        for url in ("https://pypi.nvidia.com", _vllm_cu129_index_url())
-        if url is not None
-        for arg in ("--extra-index-url", url)
-    ),
 ]
+if _vllm_index_url := _vllm_cu129_index_url():
+    _ACTOR_VENV_UV_OPTIONS.extend(["--extra-index-url", _vllm_index_url])
 
 DYNAMO_VLLM_RUNTIME_ENV: dict[str, Any] = {
     "uv": {

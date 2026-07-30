@@ -212,6 +212,19 @@ NeMo Curator provides several installation extras to install only the components
 | **sdg_cpu** | `uv pip install nemo-curator[sdg_cpu]` | CPU-only synthetic data generation with Data Designer |
 | **sdg_cuda12** | `uv pip install nemo-curator[sdg_cuda12]` | GPU-accelerated synthetic data generation with local inference server support |
 
+For pip installations of `inference_server` or an extra that includes it, add
+the public PyTorch and vLLM CUDA 12.9 wheel indexes:
+
+```bash
+python -m pip install \
+  --extra-index-url https://download.pytorch.org/whl/cu129 \
+  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  "nemo-curator[inference_server]"
+```
+
+All remaining dependencies, including Dynamo, NIXL, and RAPIDS packages, are
+resolved from public PyPI.
+
 <Note>
 **Development Dependencies**: For development tools (pre-commit, ruff, pytest), use `uv sync --group dev --group linting --group test` instead of pip extras. Development dependencies are managed as dependency groups, not optional dependencies.
 </Note>
@@ -252,7 +265,7 @@ try:
         print(f"✓ GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     else:
         print("⚠ No GPU detected")
-    
+
     # Check cuDF for GPU deduplication
     import cudf
     print("✓ cuDF available for GPU-accelerated deduplication")
