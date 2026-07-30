@@ -416,8 +416,13 @@ class TestEnsureActorOverridesOnAllNodes:
 
 
 def test_dynamo_runtime_env_matches_base_environment() -> None:
-    installed_version = dynamo_vllm.importlib.metadata.version("ai-dynamo")
+    try:
+        installed_version = dynamo_vllm.importlib.metadata.version("ai-dynamo")
+    except dynamo_vllm.importlib.metadata.PackageNotFoundError:
+        expected_packages = ["ai-dynamo[vllm]"]
+    else:
+        expected_packages = [f"ai-dynamo[vllm]=={installed_version}"]
 
-    assert dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"] == [f"ai-dynamo[vllm]=={installed_version}"]
+    assert dynamo_vllm.DYNAMO_VLLM_RUNTIME_ENV["uv"]["packages"] == expected_packages
     assert "https://pypi.nvidia.com" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
     assert "--prerelease" not in dynamo_vllm._ACTOR_VENV_UV_OPTIONS
