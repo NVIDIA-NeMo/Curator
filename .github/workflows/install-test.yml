@@ -242,17 +242,6 @@ jobs:
           set -o pipefail
           INSTALLER="${{ matrix.installer }}"
           GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "inference_server" "text_cuda12")
-          declare -A VLLM_EXTRAS=(
-            [all]=1
-            [inference_server]=1
-            [interleaved_cuda12]=1
-            [math_cuda12]=1
-            [sdg_cuda12]=1
-            [text_cuda12]=1
-            [video_cuda12]=1
-            [video_media]=1
-            [vllm]=1
-          )
           RESULTS=""
           FAILED=0
 
@@ -271,14 +260,10 @@ jobs:
 
             # Install
             if [ "$INSTALLER" = "pip" ]; then
-              if [ -n "${VLLM_EXTRAS[$extra]:-}" ]; then
-                INSTALL_CMD="pip install --no-cache-dir \
-                  --extra-index-url https://download.pytorch.org/whl/cu129 \
-                  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
-                  '.[$extra]'"
-              else
-                INSTALL_CMD="pip install --no-cache-dir '.[$extra]'"
-              fi
+              INSTALL_CMD="pip install --no-cache-dir \
+                --extra-index-url https://download.pytorch.org/whl/cu129 \
+                --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+                '.[$extra]'"
             else
               INSTALL_CMD="uv sync --locked --link-mode copy --extra $extra"
             fi
