@@ -23,7 +23,7 @@ from nemo_curator.stages.text.filters.fasttext import FastTextLangId
 @pytest.mark.parametrize(
     ("label", "expected_language"),
     [
-        ("__label__en", "en"),
+        ("__label__en", "EN"),
         ("__label__eng_Latn", "eng_Latn"),
     ],
 )
@@ -39,6 +39,7 @@ def test_score_document_preserves_complete_fasttext_label(label: str, expected_l
     ("language_filter", "prediction", "expected"),
     [
         ("en", "en", True),
+        ("en", "EN", True),
         ("EN", "en", True),
         ("eng", "eng_Latn", True),
         ("eng_Latn", "eng_Latn", True),

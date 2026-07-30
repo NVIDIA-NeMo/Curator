@@ -58,7 +58,7 @@ class FastTextQualityFilter(DocumentFilter):
 class FastTextLangId(DocumentFilter):
     """Identify and optionally filter languages predicted by a FastText model.
 
-    Language labels may be simple codes such as ``en`` or language-script
+    Language labels may be simple codes such as ``EN`` or language-script
     combinations such as ``eng_Latn``. A language-only filter matches every
     script for that language, while a language-script filter requires an exact
     match. Matching is case-insensitive.
@@ -89,6 +89,8 @@ class FastTextLangId(DocumentFilter):
         label, score = model.predict([pp], k=1)
         score = score[0][0].item()
         lang_code = label[0][0].removeprefix("__label__")
+        if "_" not in lang_code:
+            lang_code = lang_code.upper()
 
         # Need to convert it to a string to allow backend conversions
         return str([score, lang_code])
