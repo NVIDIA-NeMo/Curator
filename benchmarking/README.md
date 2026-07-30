@@ -5,6 +5,7 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Nightly Benchmark Ownership](#nightly-benchmark-ownership)
 - [Concepts](#concepts)
 - [Configuration](#configuration)
 - [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
@@ -73,6 +74,32 @@ This is especially useful during active development and debugging since it avoid
 **4. View results:**
 
 Results are written to the `results_path` specified in your configuration, organized by session timestamp.
+
+---
+
+## Nightly Benchmark Ownership
+
+Curator owns the benchmark workload: `benchmarking/nightly-benchmark.yaml`,
+the benchmark runner, benchmark scripts, data setup scripts, and local developer
+tools such as `benchmarking/tools/run.sh`.
+
+The scheduled nightly run is orchestrated outside of the Curator repository by
+CI infrastructure. That pipeline reads Curator's
+`benchmarking/nightly-benchmark.yaml`, generates one scheduler job per enabled
+entry, and starts each job in a benchmark runtime environment.
+
+Each generated job invokes Curator's `benchmarking/run.py` for its assigned
+entry. The jobs share a session name and results root so their per-entry outputs
+are collected as one logical nightly benchmark session. The CI layer also
+provides environment-specific path overrides, such as mapping the public
+benchmark config's logical dataset and results paths to the storage locations
+available in that runtime environment.
+
+CI-only files that control job generation, path mapping, and runtime launch
+behavior live in a CI orchestration repository outside Curator. Keeping those
+files out of Curator lets benchmark infrastructure change independently of the
+Curator source ref or prebuilt Curator image being benchmarked, which is
+important for release-candidate and historical-image runs.
 
 ---
 
