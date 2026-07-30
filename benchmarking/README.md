@@ -202,7 +202,7 @@ sinks:
 # Optional: Global Ray settings inherited by all entries; per-entry ray sections override these values
 ray:
   num_cpus: 64
-  num_gpus: 4
+  num_gpus: 8
   enable_object_spilling: false
 
 # Optional: Define datasets for template substitution
@@ -418,7 +418,7 @@ Global defaults (applies to all entries unless overridden):
 ```yaml
 ray:
   num_cpus: 64
-  num_gpus: 4
+  num_gpus: 8
   enable_object_spilling: false
 ```
 

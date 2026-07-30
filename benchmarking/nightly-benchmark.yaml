@@ -172,7 +172,7 @@ gpu_mem_use_warning_threshold: 0.01
 # Global ray settings inherited by all entries. Per-entry ray sections override these values.
 ray:
   num_cpus: 64
-  num_gpus: 4
+  num_gpus: 8
   enable_object_spilling: false
 
 entries:
@@ -761,10 +761,6 @@ entries:
       --enable-utmos
       --enable-band-filter
       --enable-speaker-separation
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
     sink_data:
       - name: slack
         additional_metrics:
@@ -796,10 +792,6 @@ entries:
       --enable-utmos
       --enable-band-filter
       --enable-speaker-separation
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
     sink_data:
       - name: slack
         additional_metrics:
