@@ -80,8 +80,8 @@ Before using synthetic data generation, ensure you have:
 3. **Local inference** (optional) — to serve models alongside your pipeline:
 
    ```bash
-   python -m pip install \
-     --extra-index-url https://download.pytorch.org/whl/cu129 \
+   uv pip install \
+     --torch-backend cu129 \
      --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
      "nemo-curator[inference_server]"
    ```

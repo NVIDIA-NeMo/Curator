@@ -35,8 +35,8 @@ The old `InferenceModelConfig` class was removed. Migrate to the backend-specifi
 Install the inference-server extra:
 
 ```bash
-python -m pip install \
-  --extra-index-url https://download.pytorch.org/whl/cu129 \
+uv pip install \
+  --torch-backend cu129 \
   --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
   "nemo-curator[inference_server]"
 ```
