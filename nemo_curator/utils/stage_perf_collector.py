@@ -20,9 +20,10 @@ import contextlib
 import json
 import tempfile
 import uuid
-from dataclasses import dataclass
+import weakref
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 import ray
 from loguru import logger
@@ -55,12 +56,42 @@ class _StagePerfSpool:
         return self._path, self._record_count
 
 
+def _cleanup_spool_path(path: str) -> None:
+    """Remove one owned spool file and its now-empty temporary directory."""
+    if not path:
+        return
+    spool_path = Path(path)
+    with contextlib.suppress(OSError):
+        spool_path.unlink(missing_ok=True)
+    with contextlib.suppress(OSError):
+        spool_path.parent.rmdir()
+
+
 @dataclass
 class PerformanceRecordStore:
-    """Re-iterable, disk-backed stage-invocation records."""
+    """Re-iterable, disk-backed stage-invocation records.
+
+    The store owns its temporary spool until ``close()``/``cleanup()`` is
+    called or the last store reference is released. It can also be used as a
+    context manager for deterministic cleanup.
+    """
 
     path: str = ""
     record_count: int = 0
+    _finalizer: weakref.finalize | None = field(
+        init=False,
+        default=None,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        if self.path:
+            self._finalizer = weakref.finalize(
+                self,
+                _cleanup_spool_path,
+                self.path,
+            )
 
     @classmethod
     def from_records(cls, records: Iterable[StagePerfStats]) -> PerformanceRecordStore:
@@ -83,6 +114,12 @@ class PerformanceRecordStore:
     def __len__(self) -> int:
         return self.record_count
 
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        self.close()
+
     def iter_dicts(self) -> Iterator[dict[str, Any]]:
         """Yield complete invocation dictionaries one at a time."""
         if not self.path:
@@ -93,15 +130,16 @@ class PerformanceRecordStore:
 
     def cleanup(self) -> None:
         """Remove the run-scoped spool after its records are no longer needed."""
-        if not self.path:
-            return
-        spool_path = Path(self.path)
-        with contextlib.suppress(OSError):
-            spool_path.unlink(missing_ok=True)
-        with contextlib.suppress(OSError):
-            spool_path.parent.rmdir()
+        if self._finalizer is not None and self._finalizer.alive:
+            self._finalizer()
+        else:
+            _cleanup_spool_path(self.path)
         self.path = ""
         self.record_count = 0
+
+    def close(self) -> None:
+        """Release the owned spool explicitly."""
+        self.cleanup()
 
 
 @dataclass(frozen=True)

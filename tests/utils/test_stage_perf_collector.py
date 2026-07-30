@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
+import subprocess
+import sys
 import tracemalloc
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -22,6 +25,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import Task
 from nemo_curator.utils.performance_utils import StagePerfStats
 from nemo_curator.utils.stage_perf_collector import (
+    PerformanceRecordStore,
     _StagePerfSpool,
     record_stage_perf,
     start_stage_perf_collector,
@@ -89,6 +93,57 @@ def test_collector_returns_disk_backed_record_store() -> None:
     assert record_store.path
     assert [record.invocation_id for record in record_store] == ["invocation-1"]
     record_store.cleanup()
+
+
+def test_record_store_cleans_spool_when_last_owner_is_released() -> None:
+    record_store = PerformanceRecordStore.from_records([StagePerfStats(stage_name="stage")])
+    spool_path = Path(record_store.path)
+
+    assert spool_path.is_file()
+    del record_store
+    gc.collect()
+
+    assert not spool_path.exists()
+    assert not spool_path.parent.exists()
+
+
+def test_record_store_context_manager_preserves_iteration_until_close() -> None:
+    with PerformanceRecordStore.from_records(
+        [StagePerfStats(stage_name="stage", invocation_id="invocation-1")]
+    ) as record_store:
+        spool_path = Path(record_store.path)
+        assert [record.invocation_id for record in record_store] == ["invocation-1"]
+        assert [record.invocation_id for record in record_store] == ["invocation-1"]
+
+    assert not spool_path.exists()
+    assert not spool_path.parent.exists()
+    assert record_store.path == ""
+    assert len(record_store) == 0
+
+
+def test_record_store_cleans_spool_at_normal_process_exit(tmp_path: Path) -> None:
+    path_record = tmp_path / "spool-path.txt"
+    script = """
+from pathlib import Path
+import sys
+
+from nemo_curator.utils.performance_utils import StagePerfStats
+from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
+
+store = PerformanceRecordStore.from_records(
+    StagePerfStats(stage_name="stage") for _ in range(50_000)
+)
+Path(sys.argv[1]).write_text(store.path, encoding="utf-8")
+"""
+
+    subprocess.run(  # noqa: S603
+        [sys.executable, "-c", script, str(path_record)],
+        check=True,
+    )
+    spool_path = Path(path_record.read_text(encoding="utf-8"))
+
+    assert not spool_path.exists()
+    assert not spool_path.parent.exists()
 
 
 def test_high_cardinality_spool_has_bounded_memory(tmp_path: Path) -> None:
