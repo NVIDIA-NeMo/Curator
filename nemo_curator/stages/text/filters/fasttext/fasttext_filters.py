@@ -56,12 +56,20 @@ class FastTextQualityFilter(DocumentFilter):
 
 
 class FastTextLangId(DocumentFilter):
+    """Identify and optionally filter languages predicted by a FastText model.
+
+    Language labels may be simple codes such as ``en`` or language-script
+    combinations such as ``eng_Latn``. A language-only filter matches every
+    script for that language, while a language-script filter requires an exact
+    match. Matching is case-insensitive.
+    """
+
     def __init__(self, model_path: str | None = None, min_langid_score: float = 0.3, lang: str | None = None):
         if model_path is None:
             msg = "Must provide a valid path to a FastText model to identify languages with this filter"
             raise ValueError(msg)
         self._model_path = model_path
-        self._lang_code = lang.upper() if lang else None
+        self._lang_code = lang.casefold() if lang else None
         self._cutoff = min_langid_score
         self._name = "lang_id"
 
@@ -73,14 +81,14 @@ class FastTextLangId(DocumentFilter):
     def load_model(self) -> None:
         self._fasttext_langid_model = fasttext.load_model(self._model_path)
 
-    def score_document(self, text: str) -> list[float | str]:
+    def score_document(self, text: str) -> str:
         # See setup() function in modules/filter.py
         model = self._fasttext_langid_model
 
         pp = text.strip().replace("\n", " ")
         label, score = model.predict([pp], k=1)
         score = score[0][0].item()
-        lang_code = label[0][0][-2:].upper()
+        lang_code = label[0][0].removeprefix("__label__")
 
         # Need to convert it to a string to allow backend conversions
         return str([score, lang_code])
@@ -89,10 +97,14 @@ class FastTextLangId(DocumentFilter):
         if isinstance(score, str):
             score_lang = eval(score)  # noqa: S307
             score = score_lang[0]
-            lang = score_lang[1].upper()
-        else :
+            lang = score_lang[1].casefold()
+        else:
             msg = "score must be a string convertible to list"
             raise TypeError(msg)
         if self._lang_code:
-            return score >= self._cutoff and lang == self._lang_code
+            if "_" in self._lang_code:
+                language_matches = lang == self._lang_code
+            else:
+                language_matches = lang.split("_", maxsplit=1)[0] == self._lang_code
+            return score >= self._cutoff and language_matches
         return score >= self._cutoff
