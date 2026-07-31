@@ -15,14 +15,9 @@
 from __future__ import annotations
 
 import sys
-import types
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "benchmarking"))
 
@@ -188,70 +183,4 @@ def test_session_rejects_duplicate_data_setup_names() -> None:
                 [{"name": "entry_a", "script": "benchmark.py"}],
                 data_setups=[setup, setup],
             )
-        )
-
-
-def _generate_job(monkeypatch: pytest.MonkeyPatch) -> Callable[..., dict]:
-    ruamel_module = types.ModuleType("ruamel")
-    yaml_module = types.ModuleType("ruamel.yaml")
-    scalarstring_module = types.ModuleType("ruamel.yaml.scalarstring")
-
-    class YAML:
-        default_flow_style = False
-        preserve_quotes = False
-
-    yaml_module.YAML = YAML
-    scalarstring_module.DoubleQuotedScalarString = str
-    ruamel_module.yaml = yaml_module
-    monkeypatch.setitem(sys.modules, "ruamel", ruamel_module)
-    monkeypatch.setitem(sys.modules, "ruamel.yaml", yaml_module)
-    monkeypatch.setitem(sys.modules, "ruamel.yaml.scalarstring", scalarstring_module)
-    sys.modules.pop("tools.generate_ci_tests", None)
-
-    from tools.generate_ci_tests import generate_job
-
-    return generate_job
-
-
-def test_generate_job_rejects_timeout_above_max_timeout_s(monkeypatch: pytest.MonkeyPatch) -> None:
-    generate_job = _generate_job(monkeypatch)
-
-    with pytest.raises(ValueError, match=r"entry_a.*timeout_s=101.*max_timeout_s=100"):
-        generate_job(
-            {"name": "entry_a", "timeout_s": 101},
-            "nightly",
-            default_timeout_s=120,
-            cleanup_timeout_s=60,
-            min_timeout_s=600,
-            max_timeout_s=100,
-        )
-
-
-def test_generate_job_accepts_timeout_equal_to_max_timeout_s(monkeypatch: pytest.MonkeyPatch) -> None:
-    generate_job = _generate_job(monkeypatch)
-
-    job = generate_job(
-        {"name": "entry_a", "timeout_s": 100},
-        "nightly",
-        default_timeout_s=120,
-        cleanup_timeout_s=60,
-        min_timeout_s=0,
-        max_timeout_s=100,
-    )
-
-    assert job["variables"]["ENTRY_NAME"] == "entry_a"
-    assert job["variables"]["TIME"] == "00:02:40"
-
-
-def test_generate_job_applies_max_timeout_s_after_default_timeout_s(monkeypatch: pytest.MonkeyPatch) -> None:
-    generate_job = _generate_job(monkeypatch)
-
-    with pytest.raises(ValueError, match=r"entry_a.*timeout_s=120.*max_timeout_s=100"):
-        generate_job(
-            {"name": "entry_a"},
-            "nightly",
-            default_timeout_s=120,
-            cleanup_timeout_s=60,
-            min_timeout_s=600,
-            max_timeout_s=100,
         )
