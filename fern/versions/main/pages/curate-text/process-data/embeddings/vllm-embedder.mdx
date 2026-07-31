@@ -16,10 +16,12 @@ Generate text embeddings using vLLM's optimized inference engine. The `VLLMEmbed
 **Installation**: The vLLM embedder is included in the `text_cuda12` installation. Install it with:
 
 ```bash
-uv pip install nemo_curator[text_cuda12]
+uv pip install --override text_cuda12-overrides.txt "nemo-curator[text_cuda12]"
 ```
 
-vLLM is only available on x86_64 Linux systems.
+First download the override file and add the CUDA indexes as shown in the
+[installation guide](/get-started/installation). Standard pip is not supported
+for this extra.
 </Note>
 
 ## How It Works
@@ -126,4 +128,3 @@ VLLMEmbeddingModelStage(
 ## Resources
 
 The `VLLMEmbeddingModelStage` requests 1 CPU and 1 GPU per worker by default. For multi-GPU models, configure `tensor_parallel_size` in `vllm_init_kwargs`.
-

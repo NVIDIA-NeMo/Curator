@@ -14,7 +14,10 @@ For comprehensive documentation, refer to the [Synthetic Data Generation Guide](
 ```bash
 export NVIDIA_API_KEY="your-api-key-here"
 ```
-- **NeMo Curator**: Installed with text extras (`uv pip install "nemo-curator[text_cuda12]"`)
+- **NeMo Curator**: Installed with text extras using the supported command in the
+  [installation guide](https://docs.nvidia.com/nemo/curator/latest/get-started/installation).
+  Standard pip is not supported for `text_cuda12`; use `uv pip install` with
+  Curator's override file, or `uv sync --extra text_cuda12` from a source checkout.
 
 
 ## SDG Backends

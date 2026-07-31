@@ -248,6 +248,16 @@ jobs:
           for extra in "${GPU_EXTRAS[@]}"; do
             echo "::group::🎮 Testing: $extra ($INSTALLER) - Install Only"
 
+            # Standard pip cannot resolve vLLM 0.22's numba==0.65.0 with
+            # RAPIDS 25.10's numba<0.62 requirement. uv pip is tested below
+            # with Curator's explicit override file.
+            if [ "$INSTALLER" = "pip" ] && [ "$extra" = "text_cuda12" ]; then
+              echo "⏭️ $extra: standard pip is not supported; use uv pip with the Curator override"
+              RESULTS="$RESULTS\n| $extra | ⏭️ Not supported |"
+              echo "::endgroup::"
+              continue
+            fi
+
             # Setup isolated environment
             if [ "$INSTALLER" = "pip" ]; then
               python -m venv "venv_$extra"
@@ -256,6 +266,9 @@ jobs:
             else
               rm -rf .venv
               uv cache clean
+              if [ "$extra" = "text_cuda12" ]; then
+                uv venv --python 3.13
+              fi
             fi
 
             # Install
@@ -264,6 +277,12 @@ jobs:
                 --extra-index-url https://download.pytorch.org/whl/cu129 \
                 --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
                 '.[$extra]'"
+            elif [ "$extra" = "text_cuda12" ]; then
+              INSTALL_CMD="uv pip install --no-cache \
+                --override requirements/text_cuda12-overrides.txt \
+                --torch-backend cu129 \
+                --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+                '.[text_cuda12]'"
             else
               INSTALL_CMD="uv sync --locked --link-mode copy --extra $extra"
             fi

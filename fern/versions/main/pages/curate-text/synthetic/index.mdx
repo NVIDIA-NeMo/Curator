@@ -74,8 +74,12 @@ Before using synthetic data generation, ensure you have:
 2. **NeMo Curator with text extras**
 
    ```bash
-   uv pip install nemo-curator[text_cuda12]
+   uv pip install --override text_cuda12-overrides.txt "nemo-curator[text_cuda12]"
    ```
+
+   First download the override file and add the CUDA indexes as shown in the
+   [installation guide](/get-started/installation). Standard pip is not
+   supported for this extra.
 
 3. **Local inference** (optional) — to serve models alongside your pipeline:
 
