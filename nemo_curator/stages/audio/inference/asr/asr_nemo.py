@@ -20,7 +20,6 @@ import nemo.collections.asr as nemo_asr
 import torch
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.models.asr.nemo_asr import normalize_nemo_transcriptions
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -94,7 +93,17 @@ class InferenceAsrNemoStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.filepath_key, self.pred_text_key]
 
     def transcribe(self, files: list[str]) -> list[str]:
-        return normalize_nemo_transcriptions(self.asr_model.transcribe(files))
+        outputs = self.asr_model.transcribe(files)
+
+        if isinstance(outputs, tuple):
+            outputs = outputs[0]
+
+        if outputs and isinstance(outputs[0], list):
+            if outputs[0] and hasattr(outputs[0][0], "text"):
+                return [inner[0].text for inner in outputs]
+            return [inner[0] for inner in outputs]
+
+        return [output.text for output in outputs]
 
     def process(self, task: AudioTask) -> AudioTask:
         msg = "InferenceAsrNemoStage only supports process_batch"
