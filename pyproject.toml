@@ -209,7 +209,8 @@ text_cpu = [
     # Aegis
     "peft",
     # Modifiers
-    "ftfy",
+    # Avoid pip backtracking to legacy html5lib releases on Python 3.13.
+    "ftfy>=6.3.1",
     # Embedders
     "sentence-transformers",
 ]
