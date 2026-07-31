@@ -70,7 +70,7 @@ pipeline.run(executor)
 | `model_identifier` | `str` | Required | Hugging Face model name or path for the embedding model |
 | `vllm_init_kwargs` | `dict` | `None` | Additional keyword arguments passed to `vllm.LLM()` for engine configuration |
 | `text_field` | `str` | `"text"` | Name of the input text column in the data |
-| `pretokenize` | `bool` | `False` | Tokenize text on CPU before passing to vLLM. Whether this improves throughput is model-dependent |
+| `pretokenize` | `bool` | `True` | Tokenize text on CPU before passing to vLLM. Whether this improves throughput is model-dependent |
 | `embedding_field` | `str` | `"embeddings"` | Name of the output embedding column |
 | `max_chars` | `int` | `None` | Maximum characters per document (truncates before tokenization) |
 | `cache_dir` | `str` | `None` | Directory for caching downloaded model files |
@@ -109,16 +109,16 @@ When `pretokenize=True`, the stage:
 2. Tokenizes the input text batch on CPU with truncation to `max_model_len`
 3. Passes token IDs directly to vLLM using `TokensPrompt`
 
-Whether to use pretokenization depends on the model. For `google/embeddinggemma-300m` (the default for semantic deduplication), `pretokenize=False` is recommended and is the default. For other models, benchmarks show pretokenization can provide better per-task throughput by reducing GPU idle time during tokenization.
+The stage defaults to `pretokenize=True` because benchmarks show that CPU tokenization can improve per-task throughput by reducing GPU idle time. The benefit is model-dependent, so set `pretokenize=False` to let vLLM tokenize internally when that performs better for your workload. `SemanticDeduplicationStage` currently overrides this stage default with `embedding_pretokenize=False`; set that option to `True` to enable pretokenization in semantic deduplication pipelines.
 
 ```python
-# Direct text mode (recommended for google/embeddinggemma-300m)
+# Direct text mode (opt out of the default CPU pretokenization)
 VLLMEmbeddingModelStage(
     model_identifier="google/embeddinggemma-300m",
     pretokenize=False,  # vLLM handles tokenization internally
 )
 
-# Pretokenize mode (can improve throughput for other models)
+# Pretokenize mode (the default)
 VLLMEmbeddingModelStage(
     model_identifier="intfloat/e5-large-v2",
     pretokenize=True,  # Tokenize on CPU, embed on GPU
