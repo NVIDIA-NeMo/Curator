@@ -14,10 +14,24 @@ For comprehensive documentation, refer to the [Synthetic Data Generation Guide](
 ```bash
 export NVIDIA_API_KEY="your-api-key-here"
 ```
-- **NeMo Curator**: Installed with text extras using the supported command in the
-  [installation guide](https://docs.nvidia.com/nemo/curator/latest/get-started/installation).
-  Standard pip is not supported for `text_cuda12`; use `uv pip install` with
-  Curator's override file, or `uv sync --extra text_cuda12` from a source checkout.
+- **NeMo Curator**: Install `sdg_cpu` when using a remote endpoint:
+
+  ```bash
+  uv pip install "nemo-curator[sdg_cpu]"
+  ```
+
+  For local Ray Serve + vLLM inference on GPU, install `sdg_cuda12`:
+
+  ```bash
+  uv pip install \
+    --torch-backend cu129 \
+    --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+    "nemo-curator[sdg_cuda12]"
+  ```
+
+  NDD is provided by the SDG extras, not the text extras. See the
+  [installation guide](https://docs.nvidia.com/nemo/curator/latest/get-started/installation)
+  for other installation paths.
 
 
 ## SDG Backends

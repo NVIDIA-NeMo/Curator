@@ -91,8 +91,10 @@ python tutorials/quickstart.py
 
 Standard `pip install` is not supported for `text_cuda12` because vLLM and
 RAPIDS declare incompatible Numba requirements. The supported `uv pip install`
-command above applies Curator's tested override. From a source checkout, `uv
-sync --extra text_cuda12` applies the same override automatically.
+command above applies Curator's tested override. Any `uv pip install` command
+that includes `text_cuda12`, including `nemo-curator[all]`, needs the override
+file. From a source checkout, `uv sync --extra text_cuda12` and `uv sync
+--extra all` apply the project override automatically.
 
 ### Path C — Docker (recommended for video and audio)
 

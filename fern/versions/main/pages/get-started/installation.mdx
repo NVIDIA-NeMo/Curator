@@ -70,10 +70,18 @@ Install NeMo Curator from the Python Package Index using `uv` for proper depende
 3. Install NeMo Curator:
 
    ```bash
-   uv pip install torch wheel_stub psutil setuptools setuptools_scm
-   echo "transformers==4.55.2" > override.txt
-   uv pip install --no-build-isolation "nemo-curator[all]" --override override.txt
+   curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda12-overrides.txt
+   uv pip install --torch-backend cu129 torch wheel_stub psutil setuptools setuptools_scm
+   uv pip install --no-build-isolation \
+     --override text_cuda12-overrides.txt \
+     --torch-backend cu129 \
+     --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+     "nemo-curator[all]"
    ```
+
+   The `all` extra includes `text_cuda12`, so `uv pip install` requires the
+   same override file. Source installs with `uv sync --all-extras` read the
+   equivalent overrides directly from `pyproject.toml`.
 
 </Tab>
 
