@@ -19,6 +19,7 @@ import logging
 import time
 import urllib.request
 from dataclasses import dataclass, field
+from typing import Any
 
 from loguru import logger
 
@@ -47,6 +48,7 @@ class InferenceServer:
     port: int = DEFAULT_SERVE_PORT
     health_check_timeout_s: int = DEFAULT_SERVE_HEALTH_TIMEOUT_S
     verbose: bool = False
+    server_kwargs: dict[str, Any] = field(default_factory=dict)
 
     _started: bool = field(init=False, default=False, repr=False)
     _backend_impl: InferenceBackend | None = field(init=False, default=None, repr=False)
