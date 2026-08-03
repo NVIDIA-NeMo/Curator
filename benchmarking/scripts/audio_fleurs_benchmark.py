@@ -53,7 +53,6 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913, PLR0915
     split: str,
     wer_threshold: float,
     gpus: int,
-    asr_stage_num_workers: int | None = None,
     executor: str = "xenna",
     raw_data_dir: str | None = None,
     auto_download: bool = True,
@@ -66,11 +65,6 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913, PLR0915
     benchmark_results_path = Path(benchmark_results_path)
     scratch_output_path = Path(scratch_output_path)
     results_dir = benchmark_results_path / "results"
-
-    if asr_stage_num_workers is not None and asr_stage_num_workers < 1:
-        msg = "asr_stage_num_workers must be at least 1"
-        raise ValueError(msg)
-    asr_worker_config = {"num_workers": asr_stage_num_workers} if asr_stage_num_workers is not None else {}
 
     # Prefer a dataset pre-staged on disk (no network I/O). Fall back to
     # auto-downloading into a per-run scratch dir, caching by content hash under a
@@ -97,8 +91,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913, PLR0915
         logger.info(f"Language: {lang}")
         logger.info(f"Split: {split}")
         logger.info(f"WER threshold: {wer_threshold}")
-        logger.info(f"GPUs per ASR worker: {gpus}")
-        logger.info(f"ASR stage workers: {asr_stage_num_workers}")
+        logger.info(f"GPUs: {gpus}")
         logger.info(f"Auto download: {auto_download}")
         logger.info(f"HF cache dir: {hf_cache_dir}")
         logger.info(f"Data dir: {data_dir}")
@@ -116,9 +109,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913, PLR0915
                 auto_download=auto_download,
             ).with_(batch_size=4)
         )
-        pipeline.add_stage(
-            InferenceAsrNemoStage(model_name=model_name).with_(resources=Resources(gpus=gpus), **asr_worker_config)
-        )
+        pipeline.add_stage(InferenceAsrNemoStage(model_name=model_name).with_(resources=Resources(gpus=gpus)))
         pipeline.add_stage(
             GetPairwiseWerStage(
                 text_key="text",
@@ -176,7 +167,6 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913, PLR0915
             "split": split,
             "wer_threshold": wer_threshold,
             "gpus": gpus,
-            "asr_stage_num_workers": asr_stage_num_workers,
             "benchmark_results_path": str(benchmark_results_path),
             "scratch_output_path": str(scratch_output_path),
             "raw_data_dir": str(data_dir),
@@ -202,13 +192,7 @@ def main() -> int:
     parser.add_argument("--split", default="dev", help="Dataset split to use")
     parser.add_argument("--wer-threshold", type=float, default=5.5, help="WER threshold for filtering")
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
-    parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs per ASR worker")
-    parser.add_argument(
-        "--asr-stage-num-workers",
-        type=int,
-        default=None,
-        help="Fixed number of ASR stage workers to run. Defaults to executor-managed worker sizing.",
-    )
+    parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs to use")
     parser.add_argument(
         "--raw-data-dir",
         default=None,
@@ -223,7 +207,10 @@ def main() -> int:
         "--no-auto-download",
         dest="auto_download",
         action="store_false",
-        help=("Disable runtime Hugging Face download; read pre-staged data from <raw-data-dir>/<lang>/ instead."),
+        help=(
+            "Disable runtime Hugging Face download; read pre-staged data from "
+            "<raw-data-dir>/<lang>/ instead."
+        ),
     )
     parser.set_defaults(auto_download=True)
     parser.add_argument(
