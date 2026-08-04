@@ -130,7 +130,7 @@ datasets:
     formats:
     - type: "files"
       path: "{datasets_path}/audio_tagging_ami_sdm"
-# Timeout knobs consumed by tools/generate_ci_tests.py to compute each SLURM job's wall-clock:
+# Timeout knobs used by the benchmark runner and by external benchmark job generators:
 #   max(entry.timeout_s (or default_timeout_s) + cleanup_timeout_s, min_timeout_s)
 # default_timeout_s: per-entry default; max_timeout_s: per-entry ceiling after config merging;
 # cleanup_timeout_s: post-run cleanup buffer; min_timeout_s: floor covering container setup.
@@ -257,7 +257,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-identifier=google/embeddinggemma-300m
-      --model-variation=vllm_text
+      --model-variation=vllm_text_pretokenized
       --cache-dir={dataset:text_models_hf_cache,files}
     timeout_s: 800
     sink_data:
@@ -283,7 +283,7 @@ entries:
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-identifier=google/embeddinggemma-300m
-      --model-variation=vllm_text
+      --model-variation=vllm_text_pretokenized
       --cache-dir={dataset:text_models_hf_cache,files}
     timeout_s: 800
     sink_data:
@@ -881,7 +881,7 @@ entries:
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=1000
       --transcode-encoder=libopenh264
-    timeout_s: 800
+    timeout_s: 900
     sink_data:
       - name: slack
         ping_on_failure:

@@ -51,7 +51,10 @@ The `data-designer` package ships in the SDG extras only — `sdg_cpu`, or `sdg_
 For local model serving on GPU, install `sdg_cuda12`, which pulls in `cuda12`, `sdg_cpu`, and `inference_server` together:
 
 ```bash
-uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[sdg_cuda12]
+uv pip install \
+  --torch-backend cu129 \
+  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  "nemo-curator[sdg_cuda12]"
 ```
 
 ## DataDesignerStage

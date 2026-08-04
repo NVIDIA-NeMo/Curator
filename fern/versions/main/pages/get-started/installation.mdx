@@ -70,10 +70,18 @@ Install NeMo Curator from the Python Package Index using `uv` for proper depende
 3. Install NeMo Curator:
 
    ```bash
-   uv pip install torch wheel_stub psutil setuptools setuptools_scm
-   echo "transformers==4.55.2" > override.txt
-   uv pip install --no-build-isolation "nemo-curator[all]" --override override.txt
+   curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda12-overrides.txt
+   uv pip install --torch-backend cu129 torch wheel_stub psutil setuptools setuptools_scm
+   uv pip install --no-build-isolation \
+     --override text_cuda12-overrides.txt \
+     --torch-backend cu129 \
+     --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+     "nemo-curator[all]"
    ```
+
+   The `all` extra includes `text_cuda12`, so `uv pip install` requires the
+   same override file. Source installs with `uv sync --all-extras` read the
+   equivalent overrides directly from `pyproject.toml`.
 
 </Tab>
 
@@ -201,7 +209,7 @@ NeMo Curator provides several installation extras to install only the components
 | Extra | Installation Command | Description |
 | --- | --- | --- |
 | **text_cpu** | `uv pip install nemo-curator[text_cpu]` | CPU-only text processing and filtering |
-| **text_cuda12** | `uv pip install nemo-curator[text_cuda12]` | GPU-accelerated text processing with RAPIDS |
+| **text_cuda12** | `uv pip install --override text_cuda12-overrides.txt nemo-curator[text_cuda12]` | GPU-accelerated text processing with RAPIDS and vLLM; use the CUDA indexes shown below |
 | **audio_cpu** | `uv pip install nemo-curator[audio_cpu]` | CPU-only audio curation with NeMo Toolkit ASR |
 | **audio_cuda12** | `uv pip install nemo-curator[audio_cuda12]` | GPU-accelerated audio curation. When using `uv`, requires `transformers==4.55.2` override. |
 | **image_cpu** | `uv pip install nemo-curator[image_cpu]` | CPU-only image processing |
@@ -212,12 +220,42 @@ NeMo Curator provides several installation extras to install only the components
 | **sdg_cpu** | `uv pip install nemo-curator[sdg_cpu]` | CPU-only synthetic data generation with Data Designer |
 | **sdg_cuda12** | `uv pip install nemo-curator[sdg_cuda12]` | GPU-accelerated synthetic data generation with local inference server support |
 
+For pip installations of `inference_server` or an extra that includes it, add
+the public PyTorch and vLLM CUDA 12.9 wheel indexes:
+
+```bash
+python -m pip install \
+  --extra-index-url https://download.pytorch.org/whl/cu129 \
+  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  "nemo-curator[inference_server]"
+```
+
+All remaining dependencies, including Dynamo, NIXL, and RAPIDS packages, are
+resolved from public PyPI.
+
+For `text_cuda12`, download Curator's override file and use uv's pip-compatible
+installer with the CUDA 12.9 wheel source:
+
+```bash
+curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda12-overrides.txt
+uv pip install \
+  --override text_cuda12-overrides.txt \
+  --torch-backend cu129 \
+  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  "nemo-curator[text_cuda12]"
+```
+
 <Note>
 **Development Dependencies**: For development tools (pre-commit, ruff, pytest), use `uv sync --group dev --group linting --group test` instead of pip extras. Development dependencies are managed as dependency groups, not optional dependencies.
 </Note>
 
 <Warning>
-**pip is not supported for installing all extras together.** Some optional dependencies have conflicting transitive version requirements (for example, `nemo-toolkit[asr]` and `vllm` require incompatible versions of `transformers`). NeMo Curator uses [uv dependency overrides](https://docs.astral.sh/uv/concepts/dependencies/#dependency-overrides) to resolve these conflicts, which pip does not support. If you must use pip, install only one modality extra at a time (for example, `pip install nemo-curator[text_cpu]`). For multi-modality installations, use `uv` or the [NeMo Curator container](#container-installation).
+**Standard pip is not supported for `text_cuda12` or for installing all extras
+together.** vLLM 0.22 requires `numba==0.65.0`, while RAPIDS 25.10 declares
+`numba<0.62`. Use `uv pip install` with the explicit override shown above, `uv
+sync` from a source checkout, or the [NeMo Curator
+container](#container-installation). Plain `uv pip install` without the
+override cannot resolve this combination either.
 </Warning>
 
 ---
@@ -252,7 +290,7 @@ try:
         print(f"✓ GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     else:
         print("⚠ No GPU detected")
-    
+
     # Check cuDF for GPU deduplication
     import cudf
     print("✓ cuDF available for GPU-accelerated deduplication")
