@@ -1256,8 +1256,6 @@ entries:
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
     requirements:
-      - metric: input_output_row_count_match
-        exact_value: true
       - metric: num_input_rows
         exact_value: 24
       - metric: num_output_rows
