@@ -207,6 +207,9 @@ class Pipeline:
         for stage in stages:
             # Get the decomposed stages (returns [self] for regular stages)
             sub_stages = stage.decompose_and_apply_with() if isinstance(stage, CompositeStage) else [stage]
+            if isinstance(stage, CompositeStage) and stage.extended_performance_metrics:
+                for sub_stage in sub_stages:
+                    sub_stage.extended_performance_metrics = True
 
             if len(sub_stages) > 1:
                 # This was a composite stage
@@ -355,6 +358,9 @@ class Pipeline:
         )
 
         slurm_array = SlurmArrayConfig.from_env()
+        for stage in self.stages:
+            stage._curator_slurm_array_shard_index = slurm_array.shard_index if slurm_array is not None else None
+            stage._curator_slurm_array_total_shards = slurm_array.total_shards if slurm_array is not None else None
         completion_manifest = None
         if slurm_array is not None:
             is_driver = is_slurm_array_driver_process()

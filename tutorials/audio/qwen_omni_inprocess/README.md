@@ -28,7 +28,7 @@ under `resampled_audio_dir` before inference starts on those rows.
 From the Curator repository root, install the optional Qwen stack:
 
 ```bash
-uv sync --extra audio_cuda12 --extra vllm
+uv sync --extra audio_cuda12 --extra vllm --extra cloud_filesystems
 source .venv/bin/activate
 ```
 
@@ -92,9 +92,9 @@ The Qwen ASR stage enables `extended_performance_metrics`, which starts one
 run-scoped collector for the whole pipeline. The JSON at
 `performance_report_path` therefore contains the complete invocation records
 from the reader, resampler, ASR, and manifest writer stages. Each record
-includes its stable stage and invocation IDs, timing window, item and byte
-counts, custom metrics, and any worker or GPU identity supplied by the active
-backend.
+includes its stable stage and invocation IDs, timing window, item count,
+serialized manifest-payload byte count, custom metrics, and any worker or GPU
+identity supplied by the active backend.
 
 Override the destination like any other Hydra value:
 
