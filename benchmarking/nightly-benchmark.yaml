@@ -171,7 +171,7 @@ gpu_mem_use_warning_threshold: 0.01
 
 # Global ray settings inherited by all entries. Per-entry ray sections override these values.
 ray:
-  num_cpus: 64
+  num_cpus: 128
   num_gpus: 8
   enable_object_spilling: false
 
