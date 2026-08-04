@@ -22,8 +22,9 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from nemo_curator.models.asr import nemo_asr
 from nemo_curator.models.asr.base import ASRAdapter
-from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter, normalize_nemo_transcriptions
+from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
 
 _SAMPLE_RATE = 16_000
 
@@ -47,10 +48,11 @@ def test_nemo_adapter_conforms_to_asr_protocol() -> None:
     assert isinstance(NeMoASRAdapter(), ASRAdapter)
 
 
-def test_download_weights_uses_shared_classmethod_contract() -> None:
+def test_download_weights_uses_adapter_model_id() -> None:
     nemo_asr = MagicMock()
+    adapter = NeMoASRAdapter(model_id="nvidia/stt_en_fastconformer_ctc_large")
     with patch("nemo_curator.models.asr.nemo_asr._nemo_asr_module", return_value=nemo_asr):
-        NeMoASRAdapter.download_weights_on_node("nvidia/stt_en_fastconformer_ctc_large")
+        adapter.download_weights_on_node()
 
     nemo_asr.models.ASRModel.from_pretrained.assert_called_once_with(
         model_name="nvidia/stt_en_fastconformer_ctc_large",
@@ -146,5 +148,5 @@ def test_transcribe_batch_requires_upstream_mono_conversion() -> None:
         (["plain"], ["plain"]),
     ],
 )
-def test_normalize_transcriptions_matches_nemo_output_shapes(outputs: object, expected: list[str]) -> None:
-    assert normalize_nemo_transcriptions(outputs) == expected
+def test_extract_transcription_texts_matches_nemo_output_shapes(outputs: object, expected: list[str]) -> None:
+    assert nemo_asr._extract_nemo_transcription_texts(outputs) == expected

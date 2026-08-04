@@ -489,9 +489,13 @@ def test_skipped_result_sets_typed_skip_reason(result: ASRResult, expected_reaso
 
 @patch("nemo_curator.models.asr.qwen_omni.snapshot_download")
 def test_setup_on_node_downloads_weights(mock_download: MagicMock) -> None:
-    stage = ASRStage(adapter_target=_QWEN_ADAPTER_TARGET, model_id="mock/model")
+    stage = ASRStage(
+        adapter_target=_QWEN_ADAPTER_TARGET,
+        model_id="mock/model",
+        adapter_kwargs={"revision": "abc123"},
+    )
     stage.setup_on_node()
-    mock_download.assert_called_once_with("mock/model")
+    mock_download.assert_called_once_with("mock/model", revision="abc123")
 
 
 @patch(
@@ -529,18 +533,27 @@ def test_model_id_required() -> None:
         ASRStage(adapter_target=_QWEN_ADAPTER_TARGET)
 
 
+def test_stage_rejects_model_specific_revision_field() -> None:
+    with pytest.raises(TypeError, match="unexpected keyword argument 'revision'"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            revision="abc123",  # type: ignore[call-arg]
+        )
+
+
 def test_setup_uses_adapter_target_and_kwargs() -> None:
     """``setup()`` resolves adapter_target via hydra.utils.get_class and
-    constructs the adapter with model_id+revision+**adapter_kwargs."""
+    constructs the adapter with model_id plus its explicit adapter_kwargs."""
     stage = ASRStage(
         adapter_target=_QWEN_ADAPTER_TARGET,
         model_id="mock/model",
-        revision="abc123",
         adapter_kwargs={
+            "revision": "abc123",
             "vllm_kwargs": {
                 "max_model_len": 8192,
                 "enable_prefix_caching": False,
-            }
+            },
         },
         resources=Resources(gpus=2),
     )

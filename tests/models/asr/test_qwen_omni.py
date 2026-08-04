@@ -104,6 +104,15 @@ def _mock_qwen_model_load(
         yield llm_ctor, processor_cls.from_pretrained, sampling_ctor
 
 
+@patch("nemo_curator.models.asr.qwen_omni.snapshot_download")
+def test_qwen_adapter_download_weights_forwards_its_revision(mock_download: MagicMock) -> None:
+    adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni", revision="abc123")
+
+    adapter.download_weights_on_node()
+
+    mock_download.assert_called_once_with("mock/qwen-omni", revision="abc123")
+
+
 @pytest.mark.parametrize("num_gpus", [0, -1, 1.5, True])
 def test_qwen_adapter_load_model_requires_positive_integer_stage_gpu_count(num_gpus: object) -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")

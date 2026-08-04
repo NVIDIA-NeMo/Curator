@@ -121,7 +121,6 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     adapter_target: str
     model_id: str
     name: str = "ASR_inference"
-    revision: str | None = None
 
     # Task I/O keys.
     audio_filepath_key: str = "resampled_audio_filepath"
@@ -184,6 +183,13 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         """Resolve the configured adapter lazily to avoid importing optional model dependencies."""
         return hydra.utils.get_class(self.adapter_target)
 
+    def _create_adapter(self) -> ASRAdapter:
+        """Construct one adapter with only its explicitly configured options."""
+        return self._adapter_class()(
+            model_id=self.model_id,
+            **self.adapter_kwargs,
+        )
+
     def setup_on_node(
         self,
         _node_info: NodeInfo | None = None,
@@ -191,7 +197,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     ) -> None:
         """Cache model weights once per node (no GPU allocation)."""
         try:
-            self._adapter_class().download_weights_on_node(self.model_id, self.revision)
+            self._create_adapter().download_weights_on_node()
             logger.info(
                 "ASR weights cached on node for {} ({})",
                 self.model_id,
@@ -205,12 +211,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         if self._adapter is None:
-            cls = self._adapter_class()
-            adapter = cls(
-                model_id=self.model_id,
-                revision=self.revision,
-                **self.adapter_kwargs,
-            )
+            adapter = self._create_adapter()
             try:
                 adapter.load_model(num_gpus=self._adapter_gpu_count())
             except Exception:

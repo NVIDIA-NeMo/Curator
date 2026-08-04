@@ -421,6 +421,7 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
             overrides=[
                 "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
                 "pred_text_key=custom_prediction",
+                "model_revision=abc123",
             ],
         )
 
@@ -464,6 +465,7 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
     assert stage.batch_size == 32
     assert stage.resources.gpus == 2
     assert dict(stage.adapter_kwargs) == {
+        "revision": "abc123",
         "prompt_text": "Transcribe the audio.",
         "prompt_file": None,
         "en_prompt_text": None,

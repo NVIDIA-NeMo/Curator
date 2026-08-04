@@ -73,9 +73,12 @@ explicit:
 Keeping these values in the YAML makes any future drift from the reference
 configuration visible in code review.
 
-The engine settings live under `adapter_kwargs.vllm_kwargs`; sampling settings
-live under `adapter_kwargs.sampling_kwargs`. They are forwarded to Curator's
-shared vLLM construction path and vLLM's `SamplingParams`, respectively.
+The optional Hugging Face model revision lives at `adapter_kwargs.revision`
+(`model_revision` in the tutorial's top-level overrides), engine settings live
+under `adapter_kwargs.vllm_kwargs`, and sampling settings live under
+`adapter_kwargs.sampling_kwargs`. These are Qwen adapter settings, not generic
+`ASRStage` fields. They are forwarded to the Hugging Face download, Curator's
+shared vLLM construction path, and vLLM's `SamplingParams`, respectively.
 Do not put `tensor_parallel_size` in `vllm_kwargs`: `gpus_per_actor` is the
 single GPU-count setting and the stage derives tensor parallelism from it.
 

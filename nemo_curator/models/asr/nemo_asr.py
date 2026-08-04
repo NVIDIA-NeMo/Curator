@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import gc
 from dataclasses import dataclass, field
-from numbers import Integral, Real
+from numbers import Integral
 from typing import Any
 
 import numpy as np
@@ -39,8 +39,8 @@ def _nemo_asr_module() -> Any:  # noqa: ANN401
     return nemo_asr
 
 
-def normalize_nemo_transcriptions(outputs: object) -> list[str]:
-    """Normalize the output shapes returned by supported NeMo ASR models."""
+def _extract_nemo_transcription_texts(outputs: object) -> list[str]:
+    """Extract text from the output shapes used by supported NeMo ASR models."""
     if isinstance(outputs, tuple):
         outputs = outputs[0]
     if outputs is None:
@@ -66,7 +66,6 @@ class NeMoASRAdapter:
 
     Args:
         model_id: Pretrained NeMo ASR checkpoint name.
-        revision: Unsupported for NeMo checkpoints; must remain ``None``.
         num_workers: Data-loader workers used by NeMo's transcription call.
         verbose: Forward NeMo transcription progress output.
         enable_local_attention: Convert a compatible FastConformer checkpoint
@@ -77,7 +76,6 @@ class NeMoASRAdapter:
     """
 
     model_id: str = _DEFAULT_FASTCONFORMER_CTC_MODEL
-    revision: str | None = None
     num_workers: int = 0
     verbose: bool = False
     enable_local_attention: bool = False
@@ -90,7 +88,6 @@ class NeMoASRAdapter:
         if not self.model_id:
             msg = "NeMoASRAdapter.model_id must be non-empty"
             raise ValueError(msg)
-        self._reject_revision(self.revision)
         if self.num_workers < 0:
             msg = "NeMoASRAdapter.num_workers must be non-negative"
             raise ValueError(msg)
@@ -109,17 +106,9 @@ class NeMoASRAdapter:
             raise ValueError(msg)
         self.local_attention_context_size = (int(context_size[0]), int(context_size[1]))
 
-    @staticmethod
-    def _reject_revision(revision: str | None) -> None:
-        if revision is not None:
-            msg = "NeMo ASRModel.from_pretrained does not support revision pinning"
-            raise ValueError(msg)
-
-    @classmethod
-    def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
+    def download_weights_on_node(self) -> None:
         """Download a pretrained checkpoint without allocating a GPU model."""
-        cls._reject_revision(revision)
-        _nemo_asr_module().models.ASRModel.from_pretrained(model_name=model_id, return_model_file=True)
+        _nemo_asr_module().models.ASRModel.from_pretrained(model_name=self.model_id, return_model_file=True)
 
     def _load_checkpoint(self, device: Any) -> Any:  # noqa: ANN401
         return _nemo_asr_module().models.ASRModel.from_pretrained(
@@ -185,7 +174,6 @@ class NeMoASRAdapter:
             msg = "NeMoASRAdapter is not initialized; call load_model() first"
             raise RuntimeError(msg)
 
-        model_sample_rate = self._model_sample_rate()
         valid_indices: list[int] = []
         waveforms: list[np.ndarray] = []
         for index, item in enumerate(items):
@@ -196,9 +184,9 @@ class NeMoASRAdapter:
                 msg = f"ASRStage must provide a mono 1-D waveform, got shape {waveform.shape}"
                 raise ValueError(msg)
             sample_rate = int(item.get("sample_rate") or 0)
-            if sample_rate != model_sample_rate:
+            if sample_rate != _DEFAULT_SAMPLE_RATE:
                 msg = (
-                    f"ASRStage must provide {model_sample_rate} Hz audio for {self.model_id!r}; "
+                    f"ASRStage must provide {_DEFAULT_SAMPLE_RATE} Hz audio for {self.model_id!r}; "
                     f"received {sample_rate} Hz"
                 )
                 raise ValueError(msg)
@@ -216,7 +204,7 @@ class NeMoASRAdapter:
             num_workers=self.num_workers,
             verbose=self.verbose,
         )
-        texts = normalize_nemo_transcriptions(outputs)
+        texts = _extract_nemo_transcription_texts(outputs)
         if len(texts) != len(valid_indices):
             msg = f"NeMo returned {len(texts)} transcriptions for {len(valid_indices)} valid inputs"
             raise RuntimeError(msg)
@@ -224,17 +212,3 @@ class NeMoASRAdapter:
         for index, text in zip(valid_indices, texts, strict=True):
             results[index] = ASRResult(text=text)
         return results
-
-    def _model_sample_rate(self) -> int:
-        preprocessor = getattr(self._model, "preprocessor", None)
-        value = getattr(preprocessor, "_sample_rate", None)
-        if isinstance(value, Real) and value > 0:
-            return int(value)
-
-        config = getattr(self._model, "cfg", None)
-        get_value = getattr(config, "get", None)
-        if callable(get_value):
-            value = get_value("sample_rate")
-            if isinstance(value, Real) and value > 0:
-                return int(value)
-        return _DEFAULT_SAMPLE_RATE
