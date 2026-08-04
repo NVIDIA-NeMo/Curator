@@ -107,11 +107,7 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     run_time_taken = time.perf_counter() - run_start_time
     task_metrics = TaskPerfUtils.aggregate_task_metrics(workflow_run_result)
 
-    num_documents_processed = int(
-        TaskPerfUtils.get_unique_stage_stat(
-            workflow_run_result, stage_name="KMeansStage", stat="custom.num_rows", pipeline_name="kmeans"
-        )
-    )
+    num_documents_processed = int(task_metrics.get("kmeans_KMeansStage_custom.num_rows_sum", 0))
     logger.info(f"KMeansStage processed {num_documents_processed:,} rows")
 
     # Extract metrics from workflow result

@@ -25,10 +25,6 @@ def make_dummy_task(stage_name: str, process_time: float, custom: float = 0.0) -
     return EmptyTask(dataset_name="test", data=None, _stage_perf=[perf])
 
 
-def make_task_with_perf(perf: StagePerfStats) -> EmptyTask:
-    return EmptyTask(dataset_name="test", data=None, _stage_perf=[perf])
-
-
 class TestTaskPerfUtils:
     """Test cases for TaskPerfUtils class."""
 
@@ -66,10 +62,7 @@ class TestTaskPerfUtils:
             process_time=2.0,
             custom_metrics={"num_rows": 100.0},
         )
-        tasks = [
-            EmptyTask(dataset_name=f"output_{index}", data=None, _stage_perf=[shared_perf])
-            for index in range(3)
-        ]
+        tasks = [EmptyTask(dataset_name=f"output_{index}", data=None, _stage_perf=[shared_perf]) for index in range(3)]
 
         metrics = TaskPerfUtils.aggregate_task_metrics(tasks)
 
@@ -184,53 +177,3 @@ class TestTaskPerfUtils:
 
         result = TaskPerfUtils.get_aggregated_stage_stat(workflow_result, "writer_", "process_time")
         assert result == 4.0
-
-    def test_get_unique_stage_stat_counts_each_perf_record_once(self) -> None:
-        """Test unique stage stats do not over-count shared perf records."""
-        first_perf = StagePerfStats(stage_name="KMeansStage", num_items_processed=3, custom_metrics={"num_rows": 10})
-        second_perf = StagePerfStats(stage_name="KMeansStage", num_items_processed=4, custom_metrics={"num_rows": 20})
-        workflow_result = WorkflowRunResult(workflow_name="unit")
-        workflow_result.add_pipeline_tasks(
-            "kmeans",
-            [
-                make_task_with_perf(first_perf),
-                make_task_with_perf(first_perf),
-                make_task_with_perf(second_perf),
-            ],
-        )
-
-        result = TaskPerfUtils.get_unique_stage_stat(
-            workflow_result, stage_name="KMeansStage", stat="custom.num_rows", pipeline_name="kmeans"
-        )
-        assert result == 30
-
-        result = TaskPerfUtils.get_unique_stage_stat(
-            workflow_result, stage_name="KMeansStage", stat="num_items_processed", pipeline_name="kmeans"
-        )
-        assert result == 7
-
-    def test_get_unique_stage_stat_ignores_other_pipelines_stages_and_metrics(self) -> None:
-        """Test unique stage stats can be scoped to a specific pipeline and metric."""
-        workflow_result = WorkflowRunResult(workflow_name="unit")
-        workflow_result.add_pipeline_tasks(
-            "kmeans",
-            [
-                EmptyTask(
-                    dataset_name="test",
-                    data=None,
-                    _stage_perf=[
-                        StagePerfStats(stage_name="OtherStage", custom_metrics={"num_rows": 10}),
-                        StagePerfStats(stage_name="KMeansStage", custom_metrics={"other": 20}),
-                    ],
-                )
-            ],
-        )
-        workflow_result.add_pipeline_tasks(
-            "pairwise",
-            [make_task_with_perf(StagePerfStats(stage_name="KMeansStage", custom_metrics={"num_rows": 30}))],
-        )
-
-        result = TaskPerfUtils.get_unique_stage_stat(
-            workflow_result, stage_name="KMeansStage", stat="custom.num_rows", pipeline_name="kmeans"
-        )
-        assert result == 0
