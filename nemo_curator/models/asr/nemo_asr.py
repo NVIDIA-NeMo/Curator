@@ -62,7 +62,19 @@ def normalize_nemo_transcriptions(outputs: object) -> list[str]:
 
 @dataclass
 class NeMoASRAdapter:
-    """Run a pretrained NeMo checkpoint using waveforms prepared by ``ASRStage``."""
+    """Run a pretrained NeMo checkpoint using waveforms prepared by ``ASRStage``.
+
+    Args:
+        model_id: Pretrained NeMo ASR checkpoint name.
+        revision: Unsupported for NeMo checkpoints; must remain ``None``.
+        num_workers: Data-loader workers used by NeMo's transcription call.
+        verbose: Forward NeMo transcription progress output.
+        enable_local_attention: Convert a compatible FastConformer checkpoint
+            from global to local attention after loading.
+        local_attention_context_size: Left and right local-attention context.
+        refresh_cache: Forward NeMo's checkpoint cache refresh flag.
+        strict: Forward NeMo's strict checkpoint loading flag.
+    """
 
     model_id: str = _DEFAULT_FASTCONFORMER_CTC_MODEL
     revision: str | None = None
@@ -121,8 +133,8 @@ class NeMoASRAdapter:
         """Load one worker-local model on the device requested by ``ASRStage``."""
         if self._model is not None:
             return
-        if num_gpus < 0:
-            msg = "num_gpus must be non-negative"
+        if isinstance(num_gpus, bool) or not isinstance(num_gpus, Integral) or num_gpus not in {0, 1}:
+            msg = f"NeMoASRAdapter requires num_gpus to be 0 or 1, got {num_gpus!r}"
             raise ValueError(msg)
 
         import torch

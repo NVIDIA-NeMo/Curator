@@ -10,7 +10,7 @@ FLEURS contains spoken utterances across 100+ languages. This pipeline downloads
 
 ```mermaid
 flowchart LR
-    A["CreateInitialManifestFleursStage<br/><small>HF download + JSONL</small>"] --> B["InferenceAsrNemoStage<br/><small>GPU transcription</small>"]
+    A["CreateInitialManifestFleursStage<br/><small>HF download + JSONL</small>"] --> B["ASRStage + NeMoASRAdapter<br/><small>GPU transcription</small>"]
     B --> C["GetPairwiseWerStage<br/><small>WER computation</small>"]
     C --> D["GetAudioDurationStage<br/><small>duration calc</small>"]
     D --> E["PreserveByValueStage<br/><small>wer_pct ≤ threshold</small>"]
@@ -69,7 +69,7 @@ python tutorials/audio/fleurs/main.py \
   raw_data_dir=./example_audio/fleurs \
   data_split=dev \
   lang=en_us \
-  stages.1.model_name=nvidia/parakeet-tdt-0.6b-v2 \
+  stages.1.model_id=nvidia/parakeet-tdt-0.6b-v2 \
   wer_threshold=25.0 \
   backend=ray_data
 ```
@@ -80,7 +80,7 @@ python tutorials/audio/fleurs/main.py \
 | `lang` | FLEURS language code (e.g. `en_us`, `hy_am`) |
 | `data_split` | FLEURS split: `train`, `dev`, or `test` |
 | `wer_threshold` | Keep samples with `wer_pct ≤` this value (default: `5.5`) |
-| `stages.1.model_name` | NeMo ASR model for inference |
+| `stages.1.model_id` | NeMo ASR model for inference |
 | `stages.1.resources.gpus` | GPUs for ASR (`0` for CPU) |
 | `backend` | `xenna` (default) or `ray_data` |
 
@@ -101,9 +101,11 @@ Both backends run on top of Ray. `main.py` uses `RayClient` to manage the Ray cl
 
 Downloads the FLEURS split from HuggingFace (if not cached under `<raw_data_dir>/<lang>/`) and emits one `AudioTask` per utterance with `audio_filepath` and `text`.
 
-### 2. `InferenceAsrNemoStage`
+### 2. `ASRStage` + `NeMoASRAdapter`
 
-Runs a NeMo ASR model on each audio file (GPU-accelerated). Adds `pred_text` to the task data.
+`ASRStage` owns Curator task I/O, batching, resampling, and output assembly. The configured
+`NeMoASRAdapter` owns NeMo checkpoint download, model lifecycle, and transcription. Together
+they run a NeMo ASR model on each audio file and add `pred_text` to the task data.
 
 ### 3. `GetPairwiseWerStage`
 
@@ -201,14 +203,18 @@ from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.audio.inference.asr.asr_nemo import InferenceAsrNemoStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.audio.metrics.wer import GetPairwiseWerStage
 
 pipeline = Pipeline(
     name="fleurs-custom",
     stages=[
         CreateInitialManifestFleursStage(lang="en_us", split="dev", raw_data_dir="./data"),
-        InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2"),
+        ASRStage(
+            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+            model_id="nvidia/parakeet-tdt-0.6b-v2",
+            audio_filepath_key="audio_filepath",
+        ),
         GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer_pct"),
     ],
 )
@@ -226,7 +232,7 @@ finally:
 | Problem | Cause | Fix |
 |---|---|---|
 | Output directory already exists | Previous run left `${raw_data_dir}/result/${lang}/` | Remove the directory before re-running |
-| OOM during ASR inference | GPU VRAM too small for model + batch | Reduce `stages.0.batch_size` in `pipeline.yaml` or use a smaller model |
+| OOM during ASR inference | GPU VRAM too small for model + batch | Reduce `stages.1.batch_size` or use a smaller model |
 | CPU inference very slow | CPU is 10–50x slower than GPU | Set `stages.1.resources.gpus=1`; CPU is only for testing |
 | Empty output JSONL | `wer_threshold` too strict for the model+language pair | Increase `wer_threshold` or use a better-matching ASR model |
 | HuggingFace download fails | Network/auth issue | Check connectivity; some splits may need `huggingface-cli login` |

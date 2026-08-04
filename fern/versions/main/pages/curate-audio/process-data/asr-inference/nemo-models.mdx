@@ -10,7 +10,9 @@ modality: "audio-only"
 
 # NeMo ASR Models
 
-Use NeMo Framework's automatic speech recognition models for transcription in your audio curation pipelines. This guide covers basic usage and configuration.
+Use NeMo Framework's automatic speech recognition models through Curator's
+shared ASR adapter contract. `ASRStage` owns pipeline I/O and batching;
+`NeMoASRAdapter` owns the NeMo model lifecycle and inference.
 
 ## Model Selection
 
@@ -31,13 +33,14 @@ example_model = "nvidia/parakeet-tdt-0.6b-v2"
 ### Simple ASR Inference
 
 ```python
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
 # Create ASR inference stage with a model from NeMo Framework
-asr_stage = InferenceAsrNemoStage(
-    model_name="your_chosen_model_name",  # Select from NeMo Framework docs
-    filepath_key="audio_filepath",
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="your_chosen_model_name",  # Select from NeMo Framework docs
+    audio_filepath_key="audio_filepath",
     pred_text_key="pred_text"
 )
 
@@ -52,9 +55,10 @@ asr_stage = asr_stage.with_(
 
 ```python
 # Example with custom field names
-custom_asr = InferenceAsrNemoStage(
-    model_name="your_chosen_model_name",
-    filepath_key="custom_audio_path",
+custom_asr = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="your_chosen_model_name",
+    audio_filepath_key="custom_audio_path",
     pred_text_key="transcription"
 ).with_(
     batch_size=32,
@@ -67,11 +71,14 @@ custom_asr = InferenceAsrNemoStage(
 Models are automatically downloaded and cached when first loaded:
 
 ```python
-# Models are cached automatically on first use
-asr_stage = InferenceAsrNemoStage(model_name="your_chosen_model_name")
-
-# The setup() method handles model downloading and caching
-asr_stage.setup()
+# Models are cached automatically when Pipeline.run() initializes workers.
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    audio_filepath_key="audio_filepath",
+    model_id="your_chosen_model_name",
+)
+pipeline.add_stage(asr_stage)
+pipeline.run(executor)
 ```
 
 ## Resource Configuration
@@ -81,9 +88,11 @@ Configure GPU and CPU resources based on your hardware:
 ```python
 from nemo_curator.stages.resources import Resources
 
-# Single GPU configuration
-asr_stage = InferenceAsrNemoStage(
-    model_name="your_chosen_model_name"
+# One GPU per adapter worker
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    audio_filepath_key="audio_filepath",
+    model_id="your_chosen_model_name"
 ).with_(
     resources=Resources(
         cpus=4.0,
@@ -91,19 +100,10 @@ asr_stage = InferenceAsrNemoStage(
     ),
     batch_size=16
 )
-
-# Multi-GPU configuration
-multi_gpu_stage = InferenceAsrNemoStage(
-    model_name="your_chosen_model_name"
-).with_(
-    resources=Resources(
-        cpus=8.0,
-        gpus=2.0  # Use 2 GPUs
-    ),
-    batch_size=32
-)
 ```
 
 <Note>
-Resource requirements vary by model. Test with your specific model to determine optimal settings.
+Each NeMo adapter worker uses at most one GPU. Scale across files by allowing
+the executor to create more one-GPU workers, and tune `batch_size` for the
+selected checkpoint. Set `gpus=0` for CPU inference.
 </Note>

@@ -14,10 +14,11 @@ Perform automatic speech recognition (ASR) on audio files using NeMo Framework m
 
 ## How it Works
 
-The `InferenceAsrNemoStage` processes `AudioTask` objects by:
+The generic `ASRStage`, configured with `NeMoASRAdapter`, processes
+`AudioTask` objects by:
 
 1. **Input Validation**: Verifies required attributes and data structure
-2. **Model Loading**: Downloads and initializes NeMo ASR models on GPU or CPU
+2. **Model Loading**: Delegates NeMo checkpoint download and worker-local loading to the adapter
 3. **Batch Processing**: Groups audio files for efficient inference
 4. **Transcription**: Generates text predictions for each audio file
 5. **Output Creation**: Returns `AudioTask` with original data plus predicted transcriptions
@@ -27,13 +28,14 @@ The `InferenceAsrNemoStage` processes `AudioTask` objects by:
 ### Simple ASR Inference
 
 ```python
-from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.stages.resources import Resources
 
 # Create ASR inference stage
-asr_stage = InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
-    filepath_key="audio_filepath",
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    audio_filepath_key="audio_filepath",
     pred_text_key="pred_text"
 )
 
@@ -55,8 +57,10 @@ language_models = {
 }
 
 # Create stage for Armenian
-armenian_asr = InferenceAsrNemoStage(
-    model_name=language_models["hy_am"]
+armenian_asr = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    audio_filepath_key="audio_filepath",
+    model_id=language_models["hy_am"]
 )
 ```
 
@@ -83,7 +87,7 @@ from nemo_curator.stages.resources import Resources
 # GPU configuration
 asr_stage = asr_stage.with_(
     resources=Resources(
-        gpus=1.0,           # Number of GPUs (multi-GPU aware stages)
+        gpus=1.0,           # One GPU for each NeMo adapter worker
         cpus=4.0            # CPU cores
     )
 )
@@ -104,7 +108,8 @@ asr_stage = asr_stage.with_(
 <Note>
 `batch_size` controls the number of tasks the executor groups per call. The ASR stage defines `process_batch()` as its canonical method — the executor groups tasks by `batch_size` before calling it.
 
-Within a single `AudioTask`, `process_batch()` transcribes the audio file path.
+Within one executor batch, `ASRStage` loads and normalizes each waveform and
+the adapter makes one NeMo transcription call.
 </Note>
 
 ## Input Requirements
@@ -164,7 +169,7 @@ Processing behavior:
 - **Input structure validation**: The stage uses `validate_input()` to check required attributes/columns and raises `ValueError` if they are missing.
 - **Model loading failures**: `setup()` raises `RuntimeError` if model download or initialization fails.
 - **No automatic retries or auto-tuning**: The stage does not perform automatic batch size reduction or network retries.
-- **Missing files**: `AudioTask.validate()` can log file-existence warnings when code creates tasks; the stage does not auto-skip files.
+- **Missing or unreadable files**: The row is retained with an empty prediction and `"_skipme": "audio_load_error"`.
 
 ## Performance Optimization
 
@@ -172,8 +177,10 @@ Processing behavior:
 
 ```python
 # For large models or limited GPU memory
-asr_stage = InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    audio_filepath_key="audio_filepath",
+    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc"
 ).with_(
     batch_size=8,  # Reduce batch size
     resources=Resources(gpus=0.5)  # Share GPU resources

@@ -1,0 +1,55 @@
+# Minimal NeMo FastConformer ASR pipeline.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/nemo_fastconformer \
+#     --config-name pipeline \
+#     manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+manifest_path: ???
+output_path: ./nemo_fastconformer_output.jsonl
+workspace_dir: /tmp/nemo_fastconformer_workspace
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+model_id: nvidia/stt_en_fastconformer_ctc_large
+pred_text_key: pred_text
+gpus_per_actor: 1
+backend: ray_data
+execution_mode: streaming
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: ResampleAudio
+    resampled_audio_dir: ${resampled_audio_dir}
+    target_sample_rate: 16000
+    target_format: wav
+    target_nchannels: 1
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter
+    model_id: ${model_id}
+    pred_text_key: ${pred_text_key}
+    batch_size: 16
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: ${gpus_per_actor}
+    adapter_kwargs:
+      num_workers: 0
+      verbose: false
+      enable_local_attention: false
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_path}

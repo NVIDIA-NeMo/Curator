@@ -568,5 +568,48 @@ def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
         "max_inference_batch_size": 128,
         "vllm_kwargs": {"max_model_len": 8192},
     }
+
+    assert executor.__class__.__name__ == "RayDataExecutor"
+    assert executor.config == {}
+
+
+def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
+    config_dir = Path(__file__).parents[2] / "tutorials" / "audio" / "nemo_fastconformer"
+    with initialize_config_dir(config_dir=str(config_dir), version_base=None):
+        cfg = compose(
+            config_name="pipeline",
+            overrides=[
+                "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+                "pred_text_key=custom_prediction",
+            ],
+        )
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+    reader, resample_stage, stage, writer = pipeline.stages
+    executor = create_executor_from_yaml(cfg)
+
+    assert reader.__class__.__name__ == "ManifestReader"
+    assert resample_stage.__class__.__name__ == "ResampleAudioStage"
+    assert resample_stage.target_sample_rate == 16000
+    assert resample_stage.target_format == "wav"
+    assert resample_stage.target_nchannels == 1
+    assert Path(resample_stage.resampled_audio_dir).parts[-2:] == (
+        "nemo_fastconformer_workspace",
+        "audio_resampled",
+    )
+    assert stage.__class__.__name__ == "ASRStage"
+    assert stage.adapter_target == "nemo_curator.models.asr.nemo_asr.NeMoASRAdapter"
+    assert stage.model_id == "nvidia/stt_en_fastconformer_ctc_large"
+    assert stage.audio_filepath_key == "resampled_audio_filepath"
+    assert stage.target_sample_rate == 16000
+    assert stage.pred_text_key == "custom_prediction"
+    assert stage.batch_size == 16
+    assert stage.resources.gpus == 1
+    assert dict(stage.adapter_kwargs) == {
+        "num_workers": 0,
+        "verbose": False,
+        "enable_local_attention": False,
+    }
+    assert writer.__class__.__name__ == "ManifestWriterStage"
     assert executor.__class__.__name__ == "RayDataExecutor"
     assert executor.config == {}

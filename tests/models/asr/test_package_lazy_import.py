@@ -25,10 +25,11 @@ if TYPE_CHECKING:
 
 
 def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The package init must not pull in either concrete Qwen adapter."""
+    """The package init must not pull in concrete ASR adapters."""
     original_import = builtins.__import__
     blocked: list[str] = []
     concrete_modules = {
+        "nemo_curator.models.asr.nemo_asr",
         "nemo_curator.models.asr.qwen_asr",
         "nemo_curator.models.asr.qwen_omni",
     }
@@ -51,6 +52,7 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
     module_names = {
         "nemo_curator.models.asr",
         "nemo_curator.models.asr.base",
+        "nemo_curator.models.asr.nemo_asr",
         "nemo_curator.models.asr.qwen_asr",
         "nemo_curator.models.asr.qwen_omni",
     }
@@ -62,6 +64,7 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
         import nemo_curator.models.asr as asr_pkg
 
         assert blocked == []
+        assert "NeMoASRAdapter" not in vars(asr_pkg)
         assert "QwenASRAdapter" not in vars(asr_pkg)
         assert "QwenOmniASRAdapter" not in vars(asr_pkg)
     finally:
@@ -81,3 +84,11 @@ def test_hydra_resolves_both_qwen_adapters_from_module_paths() -> None:
     }
     for target, expected_name in targets.items():
         assert hydra.utils.get_class(target).__name__ == expected_name
+
+
+def test_hydra_resolves_nemo_adapter_from_module_path() -> None:
+    import hydra.utils
+
+    adapter_cls = hydra.utils.get_class("nemo_curator.models.asr.nemo_asr.NeMoASRAdapter")
+
+    assert adapter_cls.__name__ == "NeMoASRAdapter"

@@ -59,11 +59,12 @@ graph TD
 
 ### 2. ASR Model Integration
 
-**NeMo Framework Integration**: Leverages state-of-the-art ASR models
+**Adapter-based NeMo Framework Integration**: Leverages state-of-the-art ASR models
 
 - Automatic model downloading and caching for convenience
 - GPU-accelerated inference when hardware is available
 - Support for multilingual and domain-specific model variants
+- One shared `ASRStage` contract for task I/O, with `NeMoASRAdapter` for model-specific behavior
 
 **Model Management**: Efficient resource usage
 
@@ -110,22 +111,25 @@ manifest_reader = JsonlReader(
 ### Stage 2: ASR Model Setup
 
 ```python
+from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.resources import Resources
+
 # Model initialization
-asr_stage = InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    audio_filepath_key="audio_filepath",
+    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc"
 )
 
-# GPU/CPU device selection (based on configured resources)
-device = asr_stage.check_cuda()
-
-# Model loading
-asr_stage.setup()  # Downloads and loads model
+# The requested resource selects GPU (1.0) or CPU (0).
+asr_stage = asr_stage.with_(resources=Resources(gpus=1.0))
 ```
 
 ### Stage 3: Transcription Generation
 
 ```python
-# Don't call process() directly — the Pipeline/Executor handles dispatch:
+# Pipeline execution downloads the checkpoint once per node, loads one
+# worker-local adapter model, and dispatches batches.
 pipeline.add_stage(asr_stage)
 results = pipeline.run(executor)
 
@@ -193,8 +197,10 @@ duration_stage = GetAudioDurationStage(
 
 ```python
 # Optimize for memory-constrained environments
-asr_stage = InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_small"  # Smaller model
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    audio_filepath_key="audio_filepath",
+    model_id="nvidia/stt_en_fastconformer_hybrid_small"  # Smaller model
 ).with_(
     resources=Resources(gpus=0.5)  # Request fractional GPU using executor/backends
 )
@@ -204,8 +210,10 @@ asr_stage = InferenceAsrNemoStage(
 
 ```python
 # Configure resources for processing
-asr_stage = InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
+asr_stage = ASRStage(
+    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+    audio_filepath_key="audio_filepath",
+    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc"
 ).with_(
     resources=Resources(gpus=1.0)  # Dedicated GPU
 )
@@ -236,7 +244,11 @@ The ASR pipeline seamlessly integrates with text processing workflows:
 ```python
 # Audio → Text pipeline
 audio_to_text = [
-    InferenceAsrNemoStage(),  # Audio → Transcriptions
+    ASRStage(
+        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
+        audio_filepath_key="audio_filepath",
+        model_id="nvidia/stt_en_fastconformer_ctc_large",
+    ),  # Audio → Transcriptions
     AudioToDocumentStage(),   # AudioTask → DocumentBatch
     # Continue with text processing stages...
 ]

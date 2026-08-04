@@ -71,6 +71,14 @@ def test_load_model_uses_stage_owned_gpu_count_and_is_idempotent() -> None:
     assert load.call_args.args[0].type == "cpu"
 
 
+@pytest.mark.parametrize("num_gpus", [-1, 1.5, 2, True])
+def test_load_model_rejects_invalid_worker_gpu_counts(num_gpus: object) -> None:
+    adapter = NeMoASRAdapter()
+
+    with pytest.raises(ValueError, match="requires num_gpus to be 0 or 1"):
+        adapter.load_model(num_gpus=num_gpus)  # type: ignore[arg-type]
+
+
 def test_load_model_configures_local_attention_when_enabled() -> None:
     adapter = NeMoASRAdapter(enable_local_attention=True, local_attention_context_size=(64, 96))
     model = _mock_model([])
