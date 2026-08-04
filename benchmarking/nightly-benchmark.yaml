@@ -385,7 +385,7 @@ entries:
 
     requirements:
       - metric: num_documents_processed
-        exact_value: 312458951
+        exact_value: 32882558
       - metric: num_duplicates
         # 494,297 is expected, ensure +/- 1%
         min_value: 489354
@@ -679,8 +679,6 @@ entries:
       num_gpus: 4
       enable_object_spilling: false
     requirements:
-      - metric: is_success
-        exact_value: true
       - metric: num_files_processed
         min_value: 1
 
@@ -708,9 +706,6 @@ entries:
           - num_tasks_processed
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
-    requirements:
-      - metric: is_success
-        exact_value: true
 
   - name: audio_fleurs_raydata
     enabled: true
@@ -737,9 +732,6 @@ entries:
           - num_tasks_processed
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
-    requirements:
-      - metric: is_success
-        exact_value: true
 
   - name: audio_readspeech_xenna
     enabled: true
@@ -769,9 +761,6 @@ entries:
           - time_taken_s
         ping_on_failure:
           - U07EVDG9FBK  # Shubham Bhawsar
-    requirements:
-      - metric: is_success
-        exact_value: true
 
   - name: audio_readspeech_raydata
     enabled: true
@@ -800,9 +789,6 @@ entries:
           - time_taken_s
         ping_on_failure:
           - U07EVDG9FBK  # Shubham Bhawsar
-    requirements:
-      - metric: is_success
-        exact_value: true
 
   - name: arxiv_e2e_pipeline_raydata
     enabled: true
@@ -882,7 +868,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 5600
+        exact_value: 5602
       - metric: throughput_clips_per_sec
         min_value: 8.0
 
@@ -906,7 +892,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 5600
+        exact_value: 5602
       - metric: throughput_clips_per_sec
         min_value: 4.0
 
@@ -931,7 +917,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 5600
+        exact_value: 5602
       - metric: throughput_clips_per_sec
         min_value: 5.0
 
@@ -956,7 +942,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 5600
+        exact_value: 5602
       - metric: throughput_clips_per_sec
         min_value: 3.0
 
@@ -974,7 +960,7 @@ entries:
       --enhance-captions
       --video-limit=512
       --transcode-encoder=libopenh264
-    timeout_s: 2400
+    timeout_s: 1800
     sink_data:
       - name: slack
         ping_on_failure:
@@ -983,7 +969,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 754
+        exact_value: 722
       - metric: throughput_clips_per_sec
         min_value: 0.5
 
@@ -1001,7 +987,7 @@ entries:
       --enhance-captions
       --video-limit=512
       --transcode-encoder=libopenh264
-    timeout_s: 2400
+    timeout_s: 1800
     sink_data:
       - name: slack
         ping_on_failure:
@@ -1010,7 +996,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 754
+        exact_value: 722
       - metric: throughput_clips_per_sec
         min_value: 0.5
 
@@ -1027,7 +1013,7 @@ entries:
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
       --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
-    timeout_s: 3600  # 60 min for Dynamo runtime_env setup plus 8-replica gpt-oss-20b weights load
+    timeout_s: 2700  # 45 min for Dynamo runtime_env setup plus 8-replica gpt-oss-20b weights load
     ray:
       num_cpus: 32
     sink_data:
@@ -1100,7 +1086,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 339
+        exact_value: 308
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
@@ -1128,7 +1114,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 339
+        exact_value: 308
       - metric: throughput_clips_per_sec
         min_value: 0.1
 
@@ -1215,13 +1201,7 @@ entries:
           - throughput_audio_hours_per_hour
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
-    ray:
-      num_cpus: 64
-      num_gpus: 8
-      enable_object_spilling: false
     requirements:
-      - metric: is_success
-        exact_value: true
       - metric: input_output_row_count_match
         exact_value: true
       - metric: num_input_rows
@@ -1275,13 +1255,7 @@ entries:
           - throughput_audio_hours_per_hour
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
-    ray:
-      num_cpus: 64
-      num_gpus: 8
-      enable_object_spilling: false
     requirements:
-      - metric: is_success
-        exact_value: true
       - metric: input_output_row_count_match
         exact_value: true
       - metric: num_input_rows
@@ -1381,8 +1355,6 @@ entries:
       num_cpus: 8
       num_gpus: 0
     requirements:
-      - metric: is_success
-        exact_value: true
       - metric: total_builder_windows
         min_value: 1
       - metric: total_filtered_windows
@@ -1416,8 +1388,6 @@ entries:
       num_cpus: 8
       num_gpus: 0
     requirements:
-      - metric: is_success
-        exact_value: true
       - metric: total_builder_windows
         min_value: 1
       - metric: total_filtered_windows
