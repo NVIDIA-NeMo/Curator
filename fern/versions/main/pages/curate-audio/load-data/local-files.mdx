@@ -106,7 +106,7 @@ After creating your manifest, process it with NeMo Curator:
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
@@ -120,10 +120,8 @@ def process_local_audio_manifest(manifest_path: str, output_dir: str):
     pipeline.add_stage(JsonlReader(file_paths=manifest_path))
 
     # ASR processing
-    pipeline.add_stage(ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
-        audio_filepath_key="audio_filepath",
-        model_id="nvidia/stt_en_fastconformer_hybrid_large_pc"
+    pipeline.add_stage(InferenceAsrNemoStage(
+        model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
     ))
 
     # Calculate duration and filter

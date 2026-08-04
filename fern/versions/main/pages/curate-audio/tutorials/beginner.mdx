@@ -75,7 +75,7 @@ Import all necessary stages and components for the audio curation pipeline:
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
@@ -87,7 +87,7 @@ from nemo_curator.stages.resources import Resources
 - `Pipeline`: Container for organizing and executing processing stages
 - `XennaExecutor`: Backend executor for running the pipeline
 - `CreateInitialManifestFleursStage`: Downloads and prepares FLEURS dataset
-- `ASRStage`: Runs ASR inference with NeMo models
+- `InferenceAsrNemoStage`: Runs ASR inference with NeMo models
 - `GetPairwiseWerStage`: Calculates Word Error Rate
 - `PreserveByValueStage`: Filters data based on threshold values
 - `JsonlWriter`: Exports results in JSONL format
@@ -113,10 +113,8 @@ def create_audio_pipeline(args):
     
     # Stage 2: ASR inference
     pipeline.add_stage(
-        ASRStage(
-            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
-            audio_filepath_key="audio_filepath",
-            model_id=args.model_name,  # e.g., "nvidia/stt_hy_fastconformer_hybrid_large_pc"
+        InferenceAsrNemoStage(
+            model_name=args.model_name,  # e.g., "nvidia/stt_hy_fastconformer_hybrid_large_pc"
             pred_text_key="pred_text"  # Field name for ASR predictions
         ).with_(resources=Resources(gpus=1.0))  # Allocate 1 GPU
     )
@@ -164,7 +162,7 @@ def create_audio_pipeline(args):
 
 **Stage explanations:**
 1. **CreateInitialManifestFleursStage**: Downloads FLEURS dataset from Hugging Face and creates audio manifest
-2. **ASRStage**: Loads NeMo ASR model and generates transcriptions (requires GPU)
+2. **InferenceAsrNemoStage**: Loads NeMo ASR model and generates transcriptions (requires GPU)
 3. **GetPairwiseWerStage**: Compares ground truth and predictions to calculate WER
 4. **GetAudioDurationStage**: Reads audio files to extract duration metadata
 5. **PreserveByValueStage**: Filters samples, keeping only those with WER ≤ threshold
@@ -351,9 +349,9 @@ OSError: Model 'nvidia/stt_...' not found
 ### Performance Optimization
 
 - **Increase batch size** for faster processing (if GPU memory allows)
-- **Use multiple GPUs** by leaving each ASR stage at `Resources(gpus=1.0)`; the executor can create one adapter worker per available GPU
+- **Use multiple GPUs** by setting `Resources(gpus=2.0)` or higher
 - **Process subset of data** by using `split="dev"` (smaller than "train")
-- **Skip ASR inference** if you already have both predicted and target transcriptions. (remove ASRStage)
+- **Skip ASR inference** if you already have both predicted and target transcriptions. (remove InferenceAsrNemoStage)
 
 ## Next Steps
 

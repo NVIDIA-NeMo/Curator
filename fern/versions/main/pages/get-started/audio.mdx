@@ -124,7 +124,7 @@ Here's a simple example to get started with audio curation using the FLEURS data
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.resources import Resources
@@ -143,10 +143,8 @@ pipeline.add_stage(
 
 # 2. Perform ASR inference using NeMo model
 pipeline.add_stage(
-    ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
-        audio_filepath_key="audio_filepath",
-        model_id="nvidia/stt_hy_fastconformer_hybrid_large_pc"
+    InferenceAsrNemoStage(
+        model_name="nvidia/stt_hy_fastconformer_hybrid_large_pc"
     ).with_(resources=Resources(gpus=1.0))
 )
 

@@ -75,7 +75,7 @@ Load your custom manifest using the built-in `JsonlReader`:
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 
 # Create pipeline
@@ -91,10 +91,9 @@ pipeline.add_stage(
 
 # ASR inference (consumes DocumentBatch, produces AudioTask)
 pipeline.add_stage(
-    ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
-        model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
-        audio_filepath_key="audio_filepath",
+    InferenceAsrNemoStage(
+        model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
+        filepath_key="audio_filepath",
         pred_text_key="pred_text"
     )
 )
@@ -130,7 +129,7 @@ else:
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
@@ -148,10 +147,8 @@ def create_custom_audio_pipeline(manifest_path: str, output_path: str) -> Pipeli
     ))
     
     # ASR processing
-    pipeline.add_stage(ASRStage(
-        adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
-        audio_filepath_key="audio_filepath",
-        model_id="nvidia/stt_en_fastconformer_hybrid_large_pc"
+    pipeline.add_stage(InferenceAsrNemoStage(
+        model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
     ))
     
     # Quality assessment

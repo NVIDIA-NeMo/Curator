@@ -35,7 +35,7 @@ Audio-text integration in NeMo Curator operates on several levels:
 
 ```mermaid
 flowchart LR
-    A[Audio Files] --> B[ASRStage]
+    A[Audio Files] --> B[InferenceAsrNemoStage] 
     B --> C[AudioToDocumentStage]
     C --> D[ScoreFilter<br/>Text Processing]
     D --> E[Integrated Output]
@@ -51,7 +51,7 @@ The `AudioToDocumentStage` provides the conversion bridge between audio and text
 
 ```mermaid
 flowchart LR
-    A[Audio Files] --> B[ASRStage]
+    A[Audio Files] --> B[InferenceAsrNemoStage]
     C[Text Data] --> D[ScoreFilter<br/>Text Processing]
     B --> E[Cross-Modal<br/>Quality Assessment]
     D --> E
@@ -100,7 +100,7 @@ Start with audio processing, then apply text curation:
 
 ```mermaid
 flowchart TD
-    A[Audio Files] --> B[ASRStage<br/>ASR Transcription]
+    A[Audio Files] --> B[InferenceAsrNemoStage<br/>ASR Transcription]
     B --> C[GetPairwiseWerStage<br/>Calculate WER Metrics]
     C --> D[ScoreFilter<br/>WER-based Filtering]
     D --> E[AudioToDocumentStage<br/>Convert to DocumentBatch]
@@ -137,7 +137,7 @@ flowchart TD
     A[Text Corpus] --> B[ScoreFilter<br/>Text Quality Assessment]
     B --> C[Filter<br/>Initial Text Filtering]
     C --> D[Audio File Matching<br/>Custom Stage]
-    D --> E[ASRStage<br/>ASR Validation]
+    D --> E[InferenceAsrNemoStage<br/>ASR Validation]
     E --> F[GetPairwiseWerStage<br/>Cross-Modal Metrics]
     F --> G[ScoreFilter<br/>Consistency Filtering]
     G --> H[Validated Dataset]
@@ -263,7 +263,7 @@ NeMo Curator provides these audio quality assessment capabilities:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.filters import ScoreFilter
 from nemo_curator.stages.text.filters.heuristic import WordCountFilter  # Example filter
@@ -275,11 +275,7 @@ text_quality_filter = WordCountFilter(min_words=10)
 audio_pipeline = Pipeline(
     name="audio_processing",
     stages=[
-        ASRStage(
-            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
-            audio_filepath_key="audio_filepath",
-            model_id="stt_en_fastconformer_transducer_large",
-        ),
+        InferenceAsrNemoStage(model_name="stt_en_fastconformer_transducer_large"),
         AudioToDocumentStage()
     ]
 )
@@ -301,19 +297,12 @@ final_results = text_pipeline.run(executor, initial_tasks=audio_results)
 # Run a single pipeline that includes both audio and text stages using an executor
 from nemo_curator.pipeline import Pipeline
 
-pipeline = Pipeline(
-    name="audio_text",
-    stages=[
-        ASRStage(
-            adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
-            audio_filepath_key="audio_filepath",
-            model_id="stt_en_fastconformer_transducer_large",
-        ),
-        GetPairwiseWerStage(),
-        AudioToDocumentStage(),
-        ScoreFilter(filter_obj=text_quality_filter),
-    ],
-)
+pipeline = Pipeline(name="audio_text", stages=[
+    InferenceAsrNemoStage(model_name="stt_en_fastconformer_transducer_large"),
+    GetPairwiseWerStage(),
+    AudioToDocumentStage(),
+    ScoreFilter(filter_obj=text_quality_filter)
+])
 results = pipeline.run()
 ```
 

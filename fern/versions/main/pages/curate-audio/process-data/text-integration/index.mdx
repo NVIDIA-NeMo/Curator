@@ -89,7 +89,7 @@ The most common use case is adding `AudioToDocumentStage` at the end of your aud
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from nemo_curator.stages.audio.inference.asr.stage import ASRStage
+from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.common import GetAudioDurationStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
@@ -107,10 +107,8 @@ pipeline.add_stage(CreateInitialManifestFleursStage(
 ).with_(batch_size=8))
 
 # 2. Run ASR inference
-pipeline.add_stage(ASRStage(
-    adapter_target="nemo_curator.models.asr.nemo_asr.NeMoASRAdapter",
-    audio_filepath_key="audio_filepath",
-    model_id="nvidia/stt_en_fastconformer_hybrid_large_pc",
+pipeline.add_stage(InferenceAsrNemoStage(
+    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
     pred_text_key="pred_text"
 ).with_(resources=Resources(gpus=1.0)))
 
