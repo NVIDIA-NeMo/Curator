@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from task_metrics import sum_unique_stage_custom_metric
 from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow
@@ -108,8 +107,10 @@ def run_semdedup_identification_benchmark(  # noqa: PLR0913
     run_time_taken = time.perf_counter() - run_start_time
     task_metrics = TaskPerfUtils.aggregate_task_metrics(workflow_run_result)
 
-    num_documents_processed = sum_unique_stage_custom_metric(
-        workflow_run_result, pipeline_name="kmeans", stage_name="KMeansStage", metric_name="num_rows"
+    num_documents_processed = int(
+        TaskPerfUtils.get_unique_stage_stat(
+            workflow_run_result, stage_name="KMeansStage", stat="custom.num_rows", pipeline_name="kmeans"
+        )
     )
     logger.info(f"KMeansStage processed {num_documents_processed:,} rows")
 
