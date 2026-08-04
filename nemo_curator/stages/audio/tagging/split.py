@@ -21,10 +21,10 @@ import math
 import time
 from dataclasses import dataclass
 
+import torchaudio
 from fsspec.core import url_to_fs
 from loguru import logger
 
-from nemo_curator.stages.audio.common import load_audio_file, save_audio_file
 from nemo_curator.stages.audio.tagging.inference.nemo_asr_align import NeMoASRAlignerStage
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.tasks import AudioTask
@@ -112,12 +112,12 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
         _fs, resolved_path = url_to_fs(audio_path)
 
         # parent_url preserves protocol prefix (e.g. "s3://bucket/dir") for stored paths;
-        # resolved_parent is the fsspec-resolved counterpart for audio I/O.
+        # resolved_parent is the fsspec-resolved counterpart for torchaudio I/O.
         parent_url, filename = audio_path.rsplit("/", 1) if "/" in audio_path else ("", audio_path)
         resolved_parent = resolved_path.rsplit("/", 1)[0] if "/" in resolved_path else ""
         stem = filename.rsplit(".", 1)[0] if "." in filename else filename
 
-        audio, sr = load_audio_file(resolved_path, mono=False)
+        audio, sr = torchaudio.load(resolved_path)
 
         split_start = 0
         split_filepaths, actual_splits, split_durations = [], [], []
@@ -129,7 +129,7 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
             split_end = math.ceil(split * sr)
 
             if split_end - split_start > self.min_len * sr:
-                save_audio_file(split_resolved, audio[:, split_start:split_end], sr)
+                torchaudio.save(split_resolved, audio[:, split_start:split_end], sr)
                 split_filepaths.append(split_filepath)
                 actual_splits.append(split_start / sr)
                 split_durations.append((split_end - split_start) / sr)
@@ -142,7 +142,7 @@ class SplitLongAudioStage(ProcessingStage[AudioTask, AudioTask]):
         remaining_frames = last_frame - split_start
 
         if remaining_frames > self.min_len * sr:
-            save_audio_file(split_resolved, audio[:, split_start:], sr)
+            torchaudio.save(split_resolved, audio[:, split_start:], sr)
             split_filepaths.append(split_filepath)
             split_durations.append(remaining_frames / sr)
             actual_splits.append(split_start / sr)

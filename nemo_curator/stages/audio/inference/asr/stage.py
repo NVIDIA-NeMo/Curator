@@ -28,11 +28,10 @@ from typing import TYPE_CHECKING, Any
 import hydra.utils
 import numpy as np
 import torch
-import torchaudio.functional as taf
+import torchaudio
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
-from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -298,7 +297,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         audio as sample-major, so transpose it to the channel-first shape used
         by ``_prepare_waveform``.
         """
-        waveform, sample_rate = load_audio_file(audio_filepath, mono=True)
+        waveform, sample_rate = torchaudio.load(audio_filepath)
         return waveform.squeeze(0).numpy(), sample_rate
 
     def _prepare_waveform(self, waveform: object, sample_rate: object) -> np.ndarray:
@@ -315,7 +314,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             msg = f"waveform must be 1-D mono or 2-D channel-first audio, got shape {tuple(tensor.shape)}"
             raise ValueError(msg)
         if source_sample_rate != self.target_sample_rate:
-            tensor = taf.resample(
+            tensor = torchaudio.functional.resample(
                 tensor,
                 source_sample_rate,
                 self.target_sample_rate,

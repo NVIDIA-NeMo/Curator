@@ -100,7 +100,7 @@ class TestBaseASRProcessorStagePrepareSegmentBatch:
         result = stage._prepare_segment_batch_with_metadata([{}], cut_audio_segments=False)
         assert result == []
 
-    def test_cuts_segments_without_torchcodec(self, tmp_path: Path) -> None:
+    def test_cuts_segments_with_torchaudio(self, tmp_path: Path) -> None:
         sample_rate = 8000
         audio = np.linspace(-0.25, 0.25, sample_rate, dtype=np.float32)
         audio_path = tmp_path / "source.wav"

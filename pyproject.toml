@@ -387,6 +387,11 @@ name = "vllm-cu129"
 url = "https://wheels.vllm.ai/0.22.0/cu129"
 explicit = true
 
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.uv.sources]
 torch = [
     { index = "pytorch", marker = "sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')" },
@@ -401,7 +406,7 @@ torchvision = [
     { index = "pypi", marker = "sys_platform == 'darwin' or (platform_machine != 'x86_64' and platform_machine != 'aarch64')" },
 ]
 torchcodec = [
-    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pytorch-cpu", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
 vllm = [

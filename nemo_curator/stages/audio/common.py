@@ -298,13 +298,6 @@ def load_audio_file(audio_path: str, mono: bool = True) -> tuple[torch.Tensor, i
     return waveform, sample_rate
 
 
-def save_audio_file(audio_path: str, waveform: torch.Tensor, sample_rate: int) -> None:
-    """Save a channel-first waveform without routing audio I/O through TorchCodec."""
-    waveform = ensure_waveform_2d(waveform).detach().cpu()
-    data = waveform.squeeze(0).numpy() if waveform.shape[0] == 1 else waveform.T.contiguous().numpy()
-    soundfile.write(audio_path, data, sample_rate)
-
-
 def ensure_waveform_2d(waveform: Any) -> torch.Tensor:  # noqa: ANN401
     """Ensure waveform is a torch.Tensor in 2D (channels, samples) format."""
     if not torch.is_tensor(waveform):

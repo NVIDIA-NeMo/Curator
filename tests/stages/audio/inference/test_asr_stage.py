@@ -362,7 +362,7 @@ def test_in_memory_input_contract_requires_waveform_and_sample_rate() -> None:
     assert required_inputs == ["waveform", "sampling_rate"]
 
 
-def test_stage_loads_resampled_audio_without_torchcodec_and_preserves_sample_rate(tmp_path: Path) -> None:
+def test_stage_loads_resampled_audio_with_torchaudio_and_preserves_sample_rate(tmp_path: Path) -> None:
     decoded_sample_rate = 8000
     audio_path = tmp_path / "resampled.wav"
     sf.write(audio_path, np.ones(_SR, dtype=np.float32), decoded_sample_rate, subtype="FLOAT")

@@ -79,7 +79,7 @@ class TestSplitLongAudioStageProcessDatasetEntry:
         out = result.data
         assert out["split_filepaths"] == ["test_1_resampled.wav"]
 
-    def test_long_audio_round_trip_does_not_require_torchcodec(
+    def test_long_audio_round_trip_with_torchaudio(
         self,
         tmp_path: Path,
         audio_task: Callable[..., AudioTask],
