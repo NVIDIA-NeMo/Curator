@@ -37,6 +37,7 @@ from nemo_curator.stages.audio.common import (
     load_audio_file,
     resolve_model_path,
     resolve_waveform_from_item,
+    save_audio_file,
 )
 from nemo_curator.tasks import AudioTask, FileGroupTask
 from tests import FIXTURES_DIR
@@ -530,6 +531,18 @@ def test_load_audio_file(tmp_path: Path) -> None:
         waveform, sr = load_audio_file(str(tmp_path / "test.wav"), mono=True)
         assert sr == 16000
         assert waveform.shape == (1, 32000)
+
+
+def test_save_audio_file_round_trip(tmp_path: Path) -> None:
+    audio_path = tmp_path / "round-trip.wav"
+    waveform = torch.linspace(-0.25, 0.25, 32000).reshape(2, 16000)
+
+    save_audio_file(str(audio_path), waveform, 16000)
+    loaded, sample_rate = load_audio_file(str(audio_path), mono=False)
+
+    assert sample_rate == 16000
+    assert loaded.shape == waveform.shape
+    torch.testing.assert_close(loaded, waveform, atol=4e-5, rtol=0)
 
 
 def test_resolve_waveform_with_data() -> None:

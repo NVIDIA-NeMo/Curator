@@ -13,6 +13,10 @@
 # limitations under the License.
 
 from collections.abc import Callable
+from pathlib import Path
+
+import numpy as np
+import soundfile as sf
 
 from nemo_curator.stages.audio.tagging.split import (
     JoinSplitAudioMetadataStage,
@@ -61,7 +65,7 @@ class TestSplitLongAudioStageGetSplitPoints:
 
 
 class TestSplitLongAudioStageProcessDatasetEntry:
-    """Tests for SplitLongAudioStage.process (no actual audio I/O)."""
+    """Tests for SplitLongAudioStage.process."""
 
     def test_short_audio_passthrough(self, audio_task: Callable[..., AudioTask]) -> None:
         """When duration < suggested_max_len, entry returned with split_filepaths wrapping the filepath."""
@@ -74,6 +78,32 @@ class TestSplitLongAudioStageProcessDatasetEntry:
         result = stage.process(task)
         out = result.data
         assert out["split_filepaths"] == ["test_1_resampled.wav"]
+
+    def test_long_audio_round_trip_does_not_require_torchcodec(
+        self,
+        tmp_path: Path,
+        audio_task: Callable[..., AudioTask],
+    ) -> None:
+        sample_rate = 8000
+        audio_path = tmp_path / "long.wav"
+        sf.write(audio_path, np.zeros(sample_rate * 3, dtype=np.float32), sample_rate)
+        stage = SplitLongAudioStage(suggested_max_len=1.5, min_len=0.5)
+        task = audio_task(
+            duration=3.0,
+            segments=[
+                {"start": 0.0, "end": 1.0},
+                {"start": 1.0, "end": 2.0},
+                {"start": 2.0, "end": 3.0},
+            ],
+            audio_item_id="long",
+            resampled_audio_filepath=str(audio_path),
+        )
+
+        result = stage.process(task)
+
+        assert len(result.data["split_filepaths"]) == 3
+        assert result.data["split_offsets"] == [0.0, 1.0, 2.0]
+        assert all(sf.info(path).frames == sample_rate for path in result.data["split_filepaths"])
 
 
 class TestJoinSplitAudioMetadataStage:

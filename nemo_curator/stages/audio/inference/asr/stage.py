@@ -27,12 +27,12 @@ from typing import TYPE_CHECKING, Any
 
 import hydra.utils
 import numpy as np
-import soundfile
 import torch
-import torchaudio
+import torchaudio.functional as taf
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRAdapter, ASRResult
+from nemo_curator.stages.audio.common import load_audio_file
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
@@ -137,6 +137,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     extras_key: str | None = None
 
     skip_if_output_exists: bool = False
+    fail_on_audio_error: bool = False
 
     prefetch_fail_on_error: bool = True
 
@@ -297,10 +298,8 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         audio as sample-major, so transpose it to the channel-first shape used
         by ``_prepare_waveform``.
         """
-        waveform, sample_rate = soundfile.read(audio_filepath, dtype="float32")
-        if waveform.ndim == _CHANNEL_FIRST_DIMENSIONS:
-            waveform = waveform.T
-        return np.ascontiguousarray(waveform, dtype=np.float32), sample_rate
+        waveform, sample_rate = load_audio_file(audio_filepath, mono=True)
+        return waveform.squeeze(0).numpy(), sample_rate
 
     def _prepare_waveform(self, waveform: object, sample_rate: object) -> np.ndarray:
         """Return contiguous mono float32 samples at ``target_sample_rate``."""
@@ -316,7 +315,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
             msg = f"waveform must be 1-D mono or 2-D channel-first audio, got shape {tuple(tensor.shape)}"
             raise ValueError(msg)
         if source_sample_rate != self.target_sample_rate:
-            tensor = torchaudio.functional.resample(
+            tensor = taf.resample(
                 tensor,
                 source_sample_rate,
                 self.target_sample_rate,
@@ -390,7 +389,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                     audio_source = str(item["audio_filepath"])
                     waveform, sample_rate = self._load_audio(audio_source)
                 waveform = self._prepare_waveform(waveform, sample_rate)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
+                if self.fail_on_audio_error:
+                    msg = f"ASRStage ({self.adapter_target}): failed to prepare audio for task {item['task_id']} from {audio_source}"
+                    raise RuntimeError(msg) from exc
                 logger.warning(
                     "ASRStage ({}): failed to prepare audio for task {} from {}: {}",
                     self.adapter_target,
