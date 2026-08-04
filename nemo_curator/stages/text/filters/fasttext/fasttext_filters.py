@@ -69,7 +69,7 @@ class FastTextLangId(DocumentFilter):
             msg = "Must provide a valid path to a FastText model to identify languages with this filter"
             raise ValueError(msg)
         self._model_path = model_path
-        self._lang_code = lang.casefold() if lang else None
+        self._lang_code = lang or None
         self._cutoff = min_langid_score
         self._name = "lang_id"
 
@@ -89,8 +89,6 @@ class FastTextLangId(DocumentFilter):
         label, score = model.predict([pp], k=1)
         score = score[0][0].item()
         lang_code = label[0][0].removeprefix("__label__")
-        if "_" not in lang_code:
-            lang_code = lang_code.upper()
 
         # Need to convert it to a string to allow backend conversions
         return str([score, lang_code])
@@ -104,9 +102,10 @@ class FastTextLangId(DocumentFilter):
             msg = "score must be a string convertible to list"
             raise TypeError(msg)
         if self._lang_code:
-            if "_" in self._lang_code:
-                language_matches = lang == self._lang_code
+            lang_filter = self._lang_code.casefold()
+            if "_" in lang_filter:
+                language_matches = lang == lang_filter
             else:
-                language_matches = lang.split("_", maxsplit=1)[0] == self._lang_code
+                language_matches = lang.split("_", maxsplit=1)[0] == lang_filter
             return score >= self._cutoff and language_matches
         return score >= self._cutoff

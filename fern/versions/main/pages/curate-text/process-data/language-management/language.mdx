@@ -20,7 +20,7 @@ NeMo Curator's language identification system works through a three-step process
 
 2. **FastText Language Detection**: A FastText-compatible language identification model, such as [`lid.176.bin`](https://fasttext.cc/docs/en/language-identification.html) or [GlotLID](https://huggingface.co/cis-lmu/glotlid), analyzes the preprocessed text and returns:
    - A confidence score (0.0 to 1.0) indicating certainty of the prediction
-   - An uppercase language code (for example, `EN`) or a GlotLID language-script code (for example, `eng_Latn`)
+   - The model's language label (for example, `en`) or language-script label (for example, `eng_Latn`)
 
 3. **Filtering and Scoring**: The pipeline filters documents based on a configurable confidence threshold (`min_langid_score`) and stores both the confidence score and language code as metadata.
 
@@ -30,7 +30,7 @@ The `FastTextLangId` filter implements this workflow by:
 
 - Loading the FastText language identification model on worker initialization
 - Processing text through `model.predict()` with `k=1` to get the top language prediction
-- Removing the `__label__` prefix while preserving standard FastText's uppercase output and complete GlotLID labels (for example, `__label__en` becomes `EN` and `__label__eng_Latn` becomes `eng_Latn`)
+- Removing the `__label__` prefix while preserving the model label's original casing (for example, `__label__en` becomes `en` and `__label__eng_Latn` becomes `eng_Latn`)
 - Comparing confidence scores against the threshold to determine document retention
 - Returning results as `[confidence_score, language_code]` for downstream processing
 
@@ -132,7 +132,7 @@ The language identification process adds a score field to each document batch:
 
 1. **`language` field**: Contains the FastText language identification results as a string representation of a list with two elements (for backend compatibility):
    - Element 0: The confidence score (between 0 and 1)
-   - Element 1: The standard uppercase language code or complete GlotLID label without the `__label__` prefix (for example, `EN` or `eng_Latn`)
+   - Element 1: The model label without the `__label__` prefix and with its original casing preserved (for example, `en` or `eng_Latn`)
 
 2. **Task-based processing**: Curator processes documents in batches (tasks), and results are available through the task's Pandas DataFrame:
 
