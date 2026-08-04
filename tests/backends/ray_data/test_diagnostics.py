@@ -14,9 +14,11 @@
 
 from pathlib import Path
 
+import pytest
 import ray
 
 from nemo_curator.backends.ray_data.diagnostics import (
+    RAY_DATA_DIAGNOSTICS_ENV_VAR,
     DiagnosticsInstallStatus,
     execution_resource_fields,
     format_logfmt_event,
@@ -50,7 +52,11 @@ def test_logfmt_event_escapes_strings_and_flattens_resources() -> None:
     )
 
 
-def test_install_ray_data_diagnostics_is_idempotent() -> None:
+def test_install_ray_data_diagnostics_is_opt_in_and_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(RAY_DATA_DIAGNOSTICS_ENV_VAR, raising=False)
+    assert install_ray_data_diagnostics() is DiagnosticsInstallStatus.DISABLED
+
+    monkeypatch.setenv(RAY_DATA_DIAGNOSTICS_ENV_VAR, "1")
     first_status = install_ray_data_diagnostics()
     second_status = install_ray_data_diagnostics()
 
@@ -66,7 +72,11 @@ def test_install_ray_data_diagnostics_is_idempotent() -> None:
         assert second_status is DiagnosticsInstallStatus.NATIVE
 
 
-def test_scheduler_diagnostics_are_written_to_ray_session_log(shared_ray_client: None) -> None:  # noqa: ARG001
+def test_scheduler_diagnostics_are_written_to_ray_session_log(
+    shared_ray_client: None,  # noqa: ARG001
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(RAY_DATA_DIAGNOSTICS_ENV_VAR, "1")
     install_ray_data_diagnostics()
 
     ray.data.range(8, override_num_blocks=4).map_batches(

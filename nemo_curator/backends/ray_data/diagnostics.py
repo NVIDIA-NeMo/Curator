@@ -41,11 +41,14 @@ from typing import Any
 _SUPPORTED_RAY_VERSION = "2.56.1"
 _INSTALL_MARKER = "_nemo_curator_ray_data_diagnostics_installed"
 _INSTALL_LOCK = threading.Lock()
+RAY_DATA_DIAGNOSTICS_ENV_VAR = "NEMO_CURATOR_RAY_DATA_DIAGNOSTICS"
+_TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
 
 
 class DiagnosticsInstallStatus(StrEnum):
     """Result of attempting to enable Ray Data diagnostics."""
 
+    DISABLED = "disabled"
     INSTALLED = "installed"
     ALREADY_INSTALLED = "already_installed"
     NATIVE = "native"
@@ -94,6 +97,7 @@ def execution_resource_fields(prefix: str, resources: Any) -> dict[str, object]:
 def install_ray_data_diagnostics() -> DiagnosticsInstallStatus:
     """Install driver-side diagnostics without modifying the Ray installation.
 
+    Diagnostics are opt-in through ``NEMO_CURATOR_RAY_DATA_DIAGNOSTICS``.
     The shim is intentionally restricted to the Ray version whose private APIs
     it targets.  A future Ray release containing the upstream diagnostics is
     detected and left untouched.
@@ -102,6 +106,10 @@ def install_ray_data_diagnostics() -> DiagnosticsInstallStatus:
     import ray
 
     with _INSTALL_LOCK:
+        enabled = os.environ.get(RAY_DATA_DIAGNOSTICS_ENV_VAR, "").strip().lower()
+        if enabled not in _TRUE_ENV_VALUES:
+            return DiagnosticsInstallStatus.DISABLED
+
         if getattr(ray, _INSTALL_MARKER, False):
             return DiagnosticsInstallStatus.ALREADY_INSTALLED
 
@@ -127,11 +135,6 @@ def install_ray_data_diagnostics() -> DiagnosticsInstallStatus:
 
         if ray.__version__ != _SUPPORTED_RAY_VERSION:
             return DiagnosticsInstallStatus.UNSUPPORTED
-
-        # Ray Data defaults this logger to DEBUG and routes it to a session file.
-        # Preserve an explicit user override while ensuring the default is clear
-        # before Ray Data configures logging.
-        os.environ.setdefault("RAY_DATA_LOG_LEVEL", "DEBUG")
 
         _install_resource_admission_diagnostics(resource_manager_module, resource_policy_module)
         _install_downstream_capacity_diagnostics(downstream_policy_module)
@@ -235,20 +238,26 @@ def _install_resource_admission_diagnostics(  # noqa: C901
 
 def _install_downstream_capacity_diagnostics(downstream_policy_module: Any) -> None:
     policy_cls = downstream_policy_module.DownstreamCapacityBackpressurePolicy
-    original_should_apply = policy_cls._should_apply_backpressure
 
     def should_apply_backpressure(self: Any, op: Any) -> bool:
+        if self._should_skip_backpressure(op):
+            return False
+
+        utilized_fraction = downstream_policy_module.get_utilized_object_store_budget_fraction(
+            self._resource_manager,
+            op,
+            consider_downstream_ineligible_ops=True,
+        )
+        queue_ratio = self._get_queue_ratio(op)
+        if utilized_fraction is not None and utilized_fraction <= self.OBJECT_STORE_BUDGET_UTIL_THRESHOLD:
+            result = False
+        else:
+            result = queue_ratio > self._backpressure_capacity_ratio
+
         previous = self._prev_should_backpressure.get(op)
-        result = original_should_apply(self, op)
         if previous != result:
-            utilized_fraction = downstream_policy_module.get_utilized_object_store_budget_fraction(
-                self._resource_manager,
-                op,
-                consider_downstream_ineligible_ops=True,
-            )
             queue_bytes = self._get_queue_size_bytes(op)
             downstream_capacity_bytes = self._get_downstream_capacity_size_bytes(op)
-            queue_ratio = self._get_queue_ratio(op)
             downstream_policy_module.logger.debug(
                 format_logfmt_event(
                     "ray_data_downstream_capacity_admission",
@@ -263,6 +272,7 @@ def _install_downstream_capacity_diagnostics(downstream_policy_module: Any) -> N
                     },
                 )
             )
+            self._prev_should_backpressure[op] = result
         return result
 
     policy_cls._should_apply_backpressure = should_apply_backpressure
