@@ -81,13 +81,25 @@ class BaseExecutor(ABC):
     @staticmethod
     def _start_stage_perf_collector(stages: list["ProcessingStage"]) -> Any | None:  # noqa: ANN401
         """Start the run-scoped collector when performance collection is enabled."""
+        report_required = any(
+            (callable(request := getattr(stage, "requests_performance_records", None)) and request())
+            or bool(getattr(stage, "write_perf_stats", False))
+            for stage in stages
+        )
         try:
             from nemo_curator.utils.stage_perf_collector import start_stage_perf_collector
 
-            return start_stage_perf_collector(stages)
-        except Exception as exc:  # noqa: BLE001
+            collector = start_stage_perf_collector(stages)
+        except Exception as exc:
+            if report_required:
+                msg = f"Required stage performance collector failed to start: {exc}"
+                raise RuntimeError(msg) from exc
             logger.debug("Stage performance collector disabled: {}", exc)
             return None
+        if report_required and collector is None:
+            msg = "Required stage performance collector did not start"
+            raise RuntimeError(msg)
+        return collector
 
     def _stop_stage_perf_collector(
         self,
@@ -96,13 +108,24 @@ class BaseExecutor(ABC):
         *,
         keep_records: bool,
     ) -> None:
+        report_required = keep_records and any(
+            (callable(request := getattr(stage, "requests_performance_records", None)) and request())
+            or bool(getattr(stage, "write_perf_stats", False))
+            for stage in stages
+        )
         try:
             from nemo_curator.utils.stage_perf_collector import stop_stage_perf_collector
 
-            record_store = stop_stage_perf_collector(collector, stages)
-        except Exception as exc:  # noqa: BLE001
+            record_store = stop_stage_perf_collector(collector, stages, raise_on_failure=report_required)
+        except Exception as exc:
+            if report_required:
+                msg = f"Required stage performance collector failed to stop: {exc}"
+                raise RuntimeError(msg) from exc
             logger.debug("Stage performance collector stop failed: {}", exc)
             record_store = None
+        if report_required and record_store is None:
+            msg = "Required stage performance collector returned no record store"
+            raise RuntimeError(msg)
         if keep_records:
             self._external_perf_records = record_store
         else:
@@ -123,7 +146,7 @@ class BaseStageAdapter:
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
 
-    def process_batch(self, tasks: list[Task]) -> list[Task]:  # noqa: C901
+    def process_batch(self, tasks: list[Task]) -> list[Task]:  # noqa: C901, PLR0912, PLR0915
         """Process a batch of tasks.
 
         Args:
@@ -136,15 +159,15 @@ class BaseStageAdapter:
         if not hasattr(self, "_timer") or self._timer is None:
             self._timer = StageTimer(self.stage)
 
-        # Calculate input data size for timer
-        input_size = sum(task.num_items for task in tasks)
-        # Initialize performance timer for this batch
-        self._timer.reinit(input_size)
-
         capture_metrics = bool(getattr(self.stage, "_curator_stage_perf_collector_name", ""))
+        num_input_items = sum(task.num_items for task in tasks)
+        input_size_bytes = sum(task.input_data_size_bytes() for task in tasks) if capture_metrics else 0
+        # Initialize performance timer for this batch
+        self._timer.reinit(input_size_bytes)
+
         window_start_s = time.time() if capture_metrics else 0.0
         process_start_s = time.perf_counter() if capture_metrics else 0.0
-        with self._timer.time_process(input_size):
+        with self._timer.time_process(num_input_items):
             # Use the batch processing logic
             results = self.stage.process_batch(tasks)
         process_elapsed_s = max(time.perf_counter() - process_start_s, 0.0) if capture_metrics else 0.0
@@ -214,7 +237,10 @@ class BaseStageAdapter:
                     stage_perf_stats,
                     attached_to_output=bool(results),
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
+                if bool(getattr(self.stage, "_curator_stage_perf_report_required", False)):
+                    msg = f"Required stage performance collector publish failed for {self.stage.name}: {exc}"
+                    raise RuntimeError(msg) from exc
                 logger.debug("Stage performance collector publish failed for {}: {}", self.stage.name, exc)
 
         return results
@@ -375,6 +401,11 @@ class BaseStageAdapter:
         try:
             self.stage.teardown()
         finally:
-            teardown_perf = getattr(self, "_teardown_performance_telemetry", None)
-            if callable(teardown_perf):
-                teardown_perf()
+            try:
+                from nemo_curator.utils.stage_perf_collector import flush_stage_perf_records
+
+                flush_stage_perf_records(self.stage)
+            finally:
+                teardown_perf = getattr(self, "_teardown_performance_telemetry", None)
+                if callable(teardown_perf):
+                    teardown_perf()
