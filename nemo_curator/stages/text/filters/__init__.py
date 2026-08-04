@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .clinical import ClinicalSectionFilter
 from .doc_filter import DocumentFilter
 from .score_filter import Filter, Score, ScoreFilter
 
 __all__ = [
+    "ClinicalSectionFilter",
     "DocumentFilter",
     "Filter",
     "Score",

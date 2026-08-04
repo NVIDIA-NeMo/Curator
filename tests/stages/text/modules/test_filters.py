@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 
 from nemo_curator.stages.text.filters import DocumentFilter, Filter, Score, ScoreFilter
+from nemo_curator.stages.text.filters.clinical import ClinicalSectionFilter
 from nemo_curator.stages.text.filters.heuristic import (
     BoilerPlateStringFilter,
     BulletsFilter,
@@ -1314,3 +1315,125 @@ class TestClassifierFilters:
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+
+class TestClinicalSectionFilter:
+    def test_full_english_report_is_kept(self) -> None:
+        dataset = list_to_dataset(
+            [
+                "Chief complaint: chest pain. History: 65-year-old male, smoker. "
+                "Physical examination: normal heart sounds. Diagnosis: angina pectoris. "
+                "Plan: nitroglycerin and cardiology follow-up.",
+                "The quick brown fox jumps over the lazy dog. " * 20,
+            ]
+        )
+        filters = ScoreFilter(ClinicalSectionFilter(language="en", min_sections=2))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame(
+                {
+                    "text": [
+                        "Chief complaint: chest pain. History: 65-year-old male, smoker. "
+                        "Physical examination: normal heart sounds. Diagnosis: angina pectoris. "
+                        "Plan: nitroglycerin and cardiology follow-up.",
+                    ]
+                }
+            ),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_italian_report_is_kept(self) -> None:
+        dataset = list_to_dataset(
+            [
+                "Anamnesi: dolore toracico da tre giorni. Esame obiettivo: parametri nella norma. "
+                "Diagnosi: sospetta angina. Terapia: nitroderivati.",
+                "Testo del tutto generico senza alcuna struttura clinica riconoscibile.",
+            ]
+        )
+        filters = ScoreFilter(ClinicalSectionFilter(language="it", min_sections=2))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame(
+                {
+                    "text": [
+                        "Anamnesi: dolore toracico da tre giorni. Esame obiettivo: parametri nella norma. "
+                        "Diagnosi: sospetta angina. Terapia: nitroderivati.",
+                    ]
+                }
+            ),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_case_insensitive_matching(self) -> None:
+        dataset = list_to_dataset(["HISTORY: smoker. DIAGNOSIS: angina."])
+        clinical_filter = ClinicalSectionFilter(language="en", min_sections=2)
+
+        score = clinical_filter.score_document(dataset.to_pandas()["text"].iloc[0])
+
+        assert score == 2
+
+    def test_duplicate_sections_count_once(self) -> None:
+        clinical_filter = ClinicalSectionFilter(language="en", min_sections=2)
+        text = "Diagnosis: a. Diagnosis: b. Plan: c."
+
+        score = clinical_filter.score_document(text)
+
+        assert score == 2
+
+    def test_substrings_do_not_match(self) -> None:
+        clinical_filter = ClinicalSectionFilter(language="en")
+        text = "A historical analysis of planned economies."
+
+        score = clinical_filter.score_document(text)
+
+        assert score == 0
+
+    def test_empty_text_scores_zero(self) -> None:
+        clinical_filter = ClinicalSectionFilter(language="en")
+
+        score = clinical_filter.score_document("")
+
+        assert score == 0
+
+    def test_rejects_below_threshold(self) -> None:
+        dataset = list_to_dataset(["Diagnosis: angina. Plan: follow-up."])
+        filters = ScoreFilter(ClinicalSectionFilter(language="en", min_sections=3))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame(columns=["text"], index=pd.Index([], dtype=object)),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_keeps_at_exact_threshold(self) -> None:
+        dataset = list_to_dataset(["Diagnosis: angina. Plan: follow-up."])
+        filters = ScoreFilter(ClinicalSectionFilter(language="en", min_sections=2))
+
+        filtered_data = filters.process(dataset)
+
+        expected_data = DocumentBatch(
+            data=pd.DataFrame({"text": ["Diagnosis: angina. Plan: follow-up."]}),
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_unsupported_language_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported language"):
+            ClinicalSectionFilter(language="xx")
+
+    def test_min_sections_below_floor_raises(self) -> None:
+        with pytest.raises(ValueError, match="min_sections must be"):
+            ClinicalSectionFilter(min_sections=0)
+
+    @pytest.mark.parametrize("lang", ["en", "it", "es", "fr", "de"])
+    def test_all_supported_languages_instantiate(self, lang: str) -> None:
+        clinical_filter = ClinicalSectionFilter(language=lang)
+        assert clinical_filter.score_document("") == 0
