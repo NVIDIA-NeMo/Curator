@@ -14,6 +14,9 @@ executor and passes it to `Pipeline.run()`.
 The run also writes every collected stage invocation to
 `qwen_omni_performance.json`. This raw report is independent of manifest rows:
 it retains calls that emit no output and does not aggregate records.
+While this run-scoped collection is active, invocation records are kept in the
+collector instead of being copied onto every output task; this prevents fan-out
+stages from multiplying one call's metrics by their output cardinality.
 
 ## Requirements
 

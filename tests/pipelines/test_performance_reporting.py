@@ -24,6 +24,7 @@ from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, Task
 from nemo_curator.utils.performance_utils import StagePerfStats
+from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
 
 
 class _TerminalConsumer(ProcessingStage[Task, Task]):
@@ -51,19 +52,22 @@ class _TerminalConsumer(ProcessingStage[Task, Task]):
 
 class _Executor:
     def __init__(self) -> None:
-        self.records = [
-            StagePerfStats(
-                stage_name="duplicate",
-                invocation_id="invocation-1",
-                process_time=1.0,
-            )
-        ]
+        self.records: PerformanceRecordStore | None = PerformanceRecordStore.from_records(
+            [
+                StagePerfStats(
+                    stage_name="duplicate",
+                    invocation_id="invocation-1",
+                    process_time=1.0,
+                )
+            ]
+        )
 
     def execute(self, _stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
         return list(initial_tasks or [])
 
-    def consume_external_perf_records(self) -> list[StagePerfStats]:
-        records, self.records = self.records, []
+    def consume_external_perf_records(self) -> PerformanceRecordStore:
+        records, self.records = self.records, None
+        assert records is not None
         return records
 
 
@@ -89,7 +93,7 @@ def test_pipeline_assigns_stable_ids_and_fans_out_one_record_drain() -> None:
     assert records is pipeline.performance_records
     assert len(records) == 1
     assert wall_time_s >= 0.0
-    assert executor.records == []
+    assert executor.records is None
 
 
 @pytest.mark.parametrize(
