@@ -140,6 +140,13 @@ class TestRayDataStageAdapter:
         kwargs = _map_batches_kwargs(stage)
         assert kwargs["num_cpus"] == stage.resources.cpus
 
+    def test_process_dataset_forwards_max_concurrency_from_stage_spec(self):
+        stage = ConfigurableActorStage(ray_stage_spec={RayStageSpecKeys.MAX_CONCURRENCY: 2})
+
+        kwargs = _map_batches_kwargs(stage)
+
+        assert kwargs["max_concurrency"] == 2
+
 
 def _map_batches_kwargs(stage: ProcessingStage) -> dict[str, object]:
     dataset = RecordingDataset()

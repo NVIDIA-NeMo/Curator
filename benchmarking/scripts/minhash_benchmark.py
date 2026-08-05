@@ -84,6 +84,8 @@ def _build_pipeline(  # noqa: PLR0913
     pool: bool,
     minhash_num_workers: int | None,
     minhash_ray_data_initial_workers: int | None,
+    minhash_ray_data_max_concurrency: int | None,
+    minhash_ray_data_max_tasks_in_flight_per_actor: int | None,
 ) -> Pipeline:
     """Build a MinHash pipeline for the requested input task type."""
     if input_task_type == "DocumentBatch":
@@ -122,10 +124,15 @@ def _build_pipeline(  # noqa: PLR0913
     )
     if minhash_num_workers is not None:
         minhash_stage = minhash_stage.with_(num_workers=minhash_num_workers)
+    ray_stage_spec = {}
     if minhash_ray_data_initial_workers is not None:
-        minhash_stage = minhash_stage.with_(
-            ray_stage_spec={RayStageSpecKeys.INITIAL_WORKERS: minhash_ray_data_initial_workers}
-        )
+        ray_stage_spec[RayStageSpecKeys.INITIAL_WORKERS] = minhash_ray_data_initial_workers
+    if minhash_ray_data_max_concurrency is not None:
+        ray_stage_spec[RayStageSpecKeys.MAX_CONCURRENCY] = minhash_ray_data_max_concurrency
+    if minhash_ray_data_max_tasks_in_flight_per_actor is not None:
+        ray_stage_spec[RayStageSpecKeys.MAX_TASKS_IN_FLIGHT_PER_ACTOR] = minhash_ray_data_max_tasks_in_flight_per_actor
+    if ray_stage_spec:
+        minhash_stage = minhash_stage.with_(ray_stage_spec=ray_stage_spec)
     return Pipeline(name="minhash_benchmark_pipeline", stages=[input_stage, minhash_stage])
 
 
@@ -154,6 +161,8 @@ def run_minhash_benchmark(  # noqa: PLR0913
     pool: bool = True,
     minhash_num_workers: int | None = None,
     minhash_ray_data_initial_workers: int | None = None,
+    minhash_ray_data_max_concurrency: int | None = None,
+    minhash_ray_data_max_tasks_in_flight_per_actor: int | None = None,
     **kwargs: object,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run MinHash over a whole-file fraction of a JSONL or Parquet dataset."""
@@ -164,6 +173,14 @@ def run_minhash_benchmark(  # noqa: PLR0913
         if minhash_num_workers is not None:
             msg = "minhash_num_workers and minhash_ray_data_initial_workers are mutually exclusive"
             raise ValueError(msg)
+    ray_data_only_options = {
+        "minhash_ray_data_max_concurrency": minhash_ray_data_max_concurrency,
+        "minhash_ray_data_max_tasks_in_flight_per_actor": minhash_ray_data_max_tasks_in_flight_per_actor,
+    }
+    configured_ray_data_only_options = [name for name, value in ray_data_only_options.items() if value is not None]
+    if executor != "ray_data" and configured_ray_data_only_options:
+        msg = f"{', '.join(configured_ray_data_only_options)} are only supported by the ray_data executor"
+        raise ValueError(msg)
 
     input_path = input_path.absolute()
     output_path = output_path.absolute()
@@ -207,6 +224,8 @@ def run_minhash_benchmark(  # noqa: PLR0913
         pool=pool,
         minhash_num_workers=minhash_num_workers,
         minhash_ray_data_initial_workers=minhash_ray_data_initial_workers,
+        minhash_ray_data_max_concurrency=minhash_ray_data_max_concurrency,
+        minhash_ray_data_max_tasks_in_flight_per_actor=minhash_ray_data_max_tasks_in_flight_per_actor,
     )
     executor_obj = setup_executor(executor)
 
@@ -329,6 +348,18 @@ def main() -> int:
         type=int,
         default=None,
         help="Initial size of the autoscaling Ray Data MinHash actor pool",
+    )
+    parser.add_argument(
+        "--minhash-ray-data-max-concurrency",
+        type=int,
+        default=None,
+        help="Maximum concurrency of each Ray Data MinHash actor",
+    )
+    parser.add_argument(
+        "--minhash-ray-data-max-tasks-in-flight-per-actor",
+        type=int,
+        default=None,
+        help="Maximum submitted tasks in flight for each Ray Data MinHash actor",
     )
 
     args = parser.parse_args()

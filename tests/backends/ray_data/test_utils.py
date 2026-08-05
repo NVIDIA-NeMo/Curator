@@ -67,6 +67,12 @@ class TestGetActorComputeStrategyForStage:
         ("num_workers", "ray_stage_spec", "expected", "expected_warning"),
         [
             (4, {}, ActorPoolStrategy(size=4), None),
+            (
+                4,
+                {RayStageSpecKeys.MAX_TASKS_IN_FLIGHT_PER_ACTOR: 2},
+                ActorPoolStrategy(size=4, max_tasks_in_flight_per_actor=2),
+                None,
+            ),
             (0, {}, ActorPoolStrategy(min_size=1, max_size=None), None),
             (-1, {}, ActorPoolStrategy(min_size=1, max_size=None), None),
             (None, {}, ActorPoolStrategy(min_size=1, max_size=None), None),
@@ -78,6 +84,22 @@ class TestGetActorComputeStrategyForStage:
                     RayStageSpecKeys.INITIAL_WORKERS: 4,
                 },
                 ActorPoolStrategy(min_size=2, max_size=8, initial_size=4),
+                None,
+            ),
+            (
+                None,
+                {
+                    RayStageSpecKeys.MIN_WORKERS: 2,
+                    RayStageSpecKeys.MAX_WORKERS: 8,
+                    RayStageSpecKeys.INITIAL_WORKERS: 4,
+                    RayStageSpecKeys.MAX_TASKS_IN_FLIGHT_PER_ACTOR: 2,
+                },
+                ActorPoolStrategy(
+                    min_size=2,
+                    max_size=8,
+                    initial_size=4,
+                    max_tasks_in_flight_per_actor=2,
+                ),
                 None,
             ),
             (

@@ -133,6 +133,8 @@ class RayStageSpecKeys(str, Enum):
     MIN_WORKERS = "min_workers"
     MAX_WORKERS = "max_workers"
     INITIAL_WORKERS = "initial_workers"
+    MAX_CONCURRENCY = "max_concurrency"
+    MAX_TASKS_IN_FLIGHT_PER_ACTOR = "max_tasks_in_flight_per_actor"
     RAY_REMOTE_ARGS = "ray_remote_args"
     RAY_NUM_CPUS = "ray_num_cpus"
 

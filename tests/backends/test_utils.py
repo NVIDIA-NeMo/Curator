@@ -266,6 +266,8 @@ class TestRayStageSpecKeys:
             "min_workers",
             "max_workers",
             "initial_workers",
+            "max_concurrency",
+            "max_tasks_in_flight_per_actor",
         ]
         invalid_keys = ["invalid_key", "another_bad_key"]
 

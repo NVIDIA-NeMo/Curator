@@ -128,6 +128,9 @@ class RayDataStageAdapter(BaseStageAdapter):
 
         # Per-stage ray_remote_args (e.g. runtime_env with different pip versions per stage).
         ray_remote_args = copy.deepcopy(ray_stage_spec.get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {})
+        max_concurrency = ray_stage_spec.get(RayStageSpecKeys.MAX_CONCURRENCY)
+        if max_concurrency is not None:
+            ray_remote_args[RayStageSpecKeys.MAX_CONCURRENCY] = max_concurrency
         # If the stage declares runtime_env, forward it directly to Ray so Ray creates and
         # caches an isolated virtualenv for this stage's workers.
         if self.stage.runtime_env:
