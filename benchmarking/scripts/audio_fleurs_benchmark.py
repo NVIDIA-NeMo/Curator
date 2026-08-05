@@ -116,6 +116,7 @@ def run_audio_fleurs_benchmark(  # noqa: PLR0913, PLR0915
                 audio_filepath_key="audio_filepath",
                 batch_size=16,
                 fail_on_audio_error=True,
+                adapter_kwargs={"use_cuda_graph_decoder": False},
             ).with_(resources=Resources(gpus=gpus))
         )
         pipeline.add_stage(

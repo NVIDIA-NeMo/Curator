@@ -81,6 +81,7 @@ python tutorials/audio/fleurs/main.py \
 | `data_split` | FLEURS split: `train`, `dev`, or `test` |
 | `wer_threshold` | Keep samples with `wer_pct ≤` this value (default: `5.5`) |
 | `stages.1.model_id` | NeMo ASR model for inference |
+| `stages.1.adapter_kwargs.use_cuda_graph_decoder` | RNNT CUDA-graph decoder override. The FLEURS hybrid-RNNT default is `false` for broad driver compatibility. |
 | `stages.1.resources.gpus` | GPUs for ASR (`0` for CPU) |
 | `backend` | `xenna` (default) or `ray_data` |
 
@@ -233,6 +234,7 @@ finally:
 |---|---|---|
 | Output directory already exists | Previous run left `${raw_data_dir}/result/${lang}/` | Remove the directory before re-running |
 | OOM during ASR inference | GPU VRAM too small for model + batch | Reduce `stages.1.batch_size` or use a smaller model |
+| `CUDA error: invalid argument` in RNNT label-loop decoding | NeMo CUDA-graph decoder is unsupported by the local CUDA runtime/driver combination | Set `stages.1.adapter_kwargs.use_cuda_graph_decoder=false` (the supplied FLEURS config already does this) |
 | CPU inference very slow | CPU is 10–50x slower than GPU | Set `stages.1.resources.gpus=1`; CPU is only for testing |
 | Empty output JSONL | `wer_threshold` too strict for the model+language pair | Increase `wer_threshold` or use a better-matching ASR model |
 | HuggingFace download fails | Network/auth issue | Check connectivity; some splits may need `huggingface-cli login` |

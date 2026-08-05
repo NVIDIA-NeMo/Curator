@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from omegaconf import OmegaConf
 
 from nemo_curator.models.asr import nemo_asr
 from nemo_curator.models.asr.base import ASRAdapter
@@ -93,6 +94,25 @@ def test_load_model_configures_local_attention_when_enabled() -> None:
         att_context_size=[64, 96],
     )
     model.change_subsampling_conv_chunking_factor.assert_called_once_with(1)
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_load_model_configures_rnnt_cuda_graph_decoder_when_requested(enabled: bool) -> None:
+    adapter = NeMoASRAdapter(use_cuda_graph_decoder=enabled)
+    model = _mock_model([])
+    model.cfg = OmegaConf.create({"decoding": {"strategy": "greedy_batch", "greedy": {}}})
+
+    with patch.object(adapter, "_load_checkpoint", return_value=model):
+        adapter.load_model(num_gpus=0)
+
+    decoding_cfg = model.change_decoding_strategy.call_args.kwargs["decoding_cfg"]
+    assert decoding_cfg.strategy == "greedy_batch"
+    assert decoding_cfg.greedy.use_cuda_graph_decoder is enabled
+
+
+def test_nemo_adapter_rejects_invalid_cuda_graph_decoder_value() -> None:
+    with pytest.raises(TypeError, match="use_cuda_graph_decoder must be a boolean or None"):
+        NeMoASRAdapter(use_cuda_graph_decoder="false")  # type: ignore[arg-type]
 
 
 def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:

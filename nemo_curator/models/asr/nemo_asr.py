@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import gc
+from copy import deepcopy
 from dataclasses import dataclass, field
 from numbers import Integral
 from typing import Any
@@ -71,6 +72,10 @@ class NeMoASRAdapter:
         enable_local_attention: Convert a compatible FastConformer checkpoint
             from global to local attention after loading.
         local_attention_context_size: Left and right local-attention context.
+        use_cuda_graph_decoder: Override NeMo's RNNT CUDA-graph decoder. Leave
+            as ``None`` to preserve the checkpoint default. Set to ``False``
+            on GPU/driver combinations that do not support NeMo's label-loop
+            CUDA graph implementation.
         refresh_cache: Forward NeMo's checkpoint cache refresh flag.
         strict: Forward NeMo's strict checkpoint loading flag.
     """
@@ -80,6 +85,7 @@ class NeMoASRAdapter:
     verbose: bool = False
     enable_local_attention: bool = False
     local_attention_context_size: tuple[int, int] = (128, 128)
+    use_cuda_graph_decoder: bool | None = None
     refresh_cache: bool = False
     strict: bool = True
     _model: Any = field(default=None, init=False, repr=False)
@@ -93,6 +99,9 @@ class NeMoASRAdapter:
             raise ValueError(msg)
         if not isinstance(self.enable_local_attention, bool):
             msg = "NeMoASRAdapter.enable_local_attention must be a boolean"
+            raise TypeError(msg)
+        if self.use_cuda_graph_decoder is not None and not isinstance(self.use_cuda_graph_decoder, bool):
+            msg = "NeMoASRAdapter.use_cuda_graph_decoder must be a boolean or None"
             raise TypeError(msg)
         try:
             context_size = tuple(self.local_attention_context_size)
@@ -132,6 +141,8 @@ class NeMoASRAdapter:
         model = self._load_checkpoint(device)
         if self.enable_local_attention:
             self._configure_local_attention(model)
+        if self.use_cuda_graph_decoder is not None:
+            self._configure_rnnt_cuda_graph_decoder(model)
         self._model = model
 
     def _configure_local_attention(self, model: Any) -> None:  # noqa: ANN401
@@ -153,6 +164,23 @@ class NeMoASRAdapter:
             att_context_size=list(self.local_attention_context_size),
         )
         change_subsampling_chunking(1)
+
+    def _configure_rnnt_cuda_graph_decoder(self, model: Any) -> None:  # noqa: ANN401
+        """Override the CUDA-graph setting on a compatible NeMo RNNT decoder."""
+        from omegaconf import open_dict
+
+        change_decoding_strategy = getattr(model, "change_decoding_strategy", None)
+        model_cfg = getattr(model, "cfg", None)
+        decoding_cfg = getattr(model_cfg, "decoding", None)
+        greedy_cfg = getattr(decoding_cfg, "greedy", None)
+        if not callable(change_decoding_strategy) or decoding_cfg is None or greedy_cfg is None:
+            msg = f"NeMo checkpoint {self.model_id!r} does not expose a configurable RNNT decoder"
+            raise TypeError(msg)
+
+        decoding_cfg = deepcopy(decoding_cfg)
+        with open_dict(decoding_cfg.greedy):
+            decoding_cfg.greedy.use_cuda_graph_decoder = self.use_cuda_graph_decoder
+        change_decoding_strategy(decoding_cfg=decoding_cfg)
 
     def unload_model(self) -> None:
         """Release worker-local model and CUDA cache state."""
