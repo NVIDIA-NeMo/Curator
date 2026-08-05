@@ -41,7 +41,8 @@ class StagePerfStats:
         stage_name: Name of the processing stage.
         process_time: Total processing time in seconds.
         actor_idle_time: Time the actor spent idle in seconds.
-        input_data_size_mb: Size of input data in megabytes.
+        input_data_size_mb: Serialized input payload size in megabytes when
+            supplied by the task type's byte-size contract.
         num_items_processed: Number of items processed in this stage.
         custom_metrics: Custom metrics to track.
         stage_id: Stable per-plan identifier assigned by ``Pipeline.build()``.
@@ -193,11 +194,10 @@ class StageTimer:
         self._idle_time_s = 0.0
         self._startup_time_s = 0.0
 
-    def reinit(self, stage_input_size: int = 1) -> None:
+    def reinit(self, stage_input_size: int = 0) -> None:
         """Reinitialize the stage timer.
         Args:
-            stage: The stage to reinitialize the timer for.
-            stage_input_size: The size of the stage input.
+            stage_input_size: Serialized size of the stage input in bytes.
         """
         self._reset()
         self._input_data_size_b = stage_input_size

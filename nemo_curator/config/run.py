@@ -21,6 +21,7 @@ from omegaconf import DictConfig, OmegaConf
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.base import CompositeStage
 from nemo_curator.stages.resources import Resources
 
 _EXECUTOR_TARGETS = {
@@ -60,12 +61,20 @@ def create_executor_from_yaml(cfg: DictConfig) -> BaseExecutor | None:
         msg = "executor_config must be a mapping."
         raise TypeError(msg)
     if backend == "xenna":
-        execution_mode = str(cfg.get("execution_mode", "streaming"))
+        top_level_mode = cfg.get("execution_mode")
+        nested_mode = executor_config.get("execution_mode")
+        if top_level_mode is not None and nested_mode is not None and str(top_level_mode) != str(nested_mode):
+            msg = (
+                "Conflicting Xenna execution modes: "
+                f"execution_mode={top_level_mode!s} and executor_config.execution_mode={nested_mode!s}."
+            )
+            raise ValueError(msg)
+        execution_mode = str(top_level_mode if top_level_mode is not None else nested_mode or "streaming")
         if execution_mode not in _XENNA_EXECUTION_MODES:
             choices = ", ".join(sorted(_XENNA_EXECUTION_MODES))
             msg = f"Unknown Xenna execution mode '{execution_mode}'. Choose from: {choices}."
             raise ValueError(msg)
-        executor_config.setdefault("execution_mode", execution_mode)
+        executor_config["execution_mode"] = execution_mode
         logger.info(f"Using executor backend '{backend}' in '{execution_mode}' mode.")
         return executor_cls(config=executor_config)
 
@@ -86,7 +95,6 @@ def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
 
     stage_resources = cfg_dict.pop("resources", None)
     extended_performance_metrics = cfg_dict.pop("extended_performance_metrics", None)
-
     stage = hydra.utils.instantiate(cfg_dict)
 
     with_kwargs: dict[str, Any] = {}
@@ -96,11 +104,18 @@ def _instantiate_stage(stage_cfg: DictConfig) -> Any:  # noqa: ANN401
         else:
             resources_obj = Resources(**stage_resources)
         with_kwargs["resources"] = resources_obj
-    if extended_performance_metrics is not None:
+    if extended_performance_metrics is not None and not isinstance(stage, CompositeStage):
         with_kwargs["extended_performance_metrics"] = bool(extended_performance_metrics)
     if with_kwargs:
         stage = stage.with_(**with_kwargs)
         logger.info(f"Applied .with_() to '{stage.name}': {with_kwargs}")
+    if extended_performance_metrics is not None and isinstance(stage, CompositeStage):
+        stage.extended_performance_metrics = bool(extended_performance_metrics)
+        logger.info(
+            "Applied extended_performance_metrics={} to composite '{}'; it will propagate during decomposition.",
+            stage.extended_performance_metrics,
+            stage.name,
+        )
 
     return stage
 
