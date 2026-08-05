@@ -26,6 +26,7 @@ data_pools:
 
 sns:
   enabled: true
+  continue_on_error: true
   backend: "hybrid"
   direction: "bidirectional"
   mi_ratio: 0.75
@@ -36,6 +37,7 @@ sns:
   tau_forward_video: 0.10
   tau_backward: 0.10
   nvidia_model: "nvidia/omni-embed-nemotron-3b"
+  embedding_batch_size: 16
   grounding_dino_model_id: "IDEA-Research/grounding-dino-tiny"
   amdetr_repo_id: "lighthouse-emnlp2024/AM-DETR"
   cg_detr_checkpoint: "../model_files/best.ckpt"
@@ -44,6 +46,7 @@ sns:
 
 eee:
   backend: "hybrid"
+  continue_on_error: true
   experts: ["text-based", "fusion", "e2e"]
   embedding_dim: 2048
   batch_size: 1
@@ -51,13 +54,25 @@ eee:
   nvidia_text_describer_model: "nvidia/nemotron-nano-12b-v2-vl"
   nvidia_image_describer_model: "nvidia/nemotron-nano-12b-v2-vl"
   nvidia_video_describer_model: "nvidia/nemotron-nano-12b-v2-vl"
-  nvidia_audio_describer_model: "google/gemma-3n-e4b-it"
+  nvidia_audio_describer_model: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
   nvidia_embedding_model: "nvidia/llama-nemotron-embed-1b-v2"
   nvidia_multimodal_model: "nvidia/omni-embed-nemotron-3b"
+
+parallelism:
+  enabled: true
+  records_per_shard: 25
+  sns_workers: 2
+  eee_workers: 1
+  sns_gpus_per_worker: 0.5
+  eee_gpus_per_worker: 1.0
+  autoscale_interval_s: 10
+  logging_interval_s: 60
 
 projection:
   enabled: true
   backend: "torch"
+  device: "auto"
+  num_gpus: 1
   num_epochs: 1
   batch_size: 4
   hidden_layer_size: 256

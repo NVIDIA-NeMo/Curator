@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -81,30 +82,43 @@ class ProjectionTrainer:
         import torch.nn.functional as F
 
         torch.manual_seed(0)
+        device, gpu_count = _torch_device(self.config, torch)
+        if device.type == "cuda":
+            torch.cuda.manual_seed_all(0)
+
         raw_inputs = torch.tensor(_concat_raw_expert_embeddings(bundle), dtype=torch.float32)
         anchor_expert = "text-based" if "text-based" in bundle.experts else bundle.experts[0]
         anchors = torch.tensor(bundle.annotation_embeddings(anchor_expert), dtype=torch.float32)
         modalities = [str(record.get("modality", "")) for record in bundle.records]
 
-        model = _ProjectionMLP(
+        base_model = _ProjectionMLP(
             input_dim=raw_inputs.shape[1],
             output_dim=anchors.shape[1],
             hidden_dim=self.config.hidden_layer_size,
             num_layers=self.config.num_layers,
             dropout=self.config.dropout,
-        )
+        ).to(device)
+        model = torch.nn.DataParallel(base_model) if gpu_count > 1 else base_model
         optimizer = torch.optim.AdamW(model.parameters(), lr=self.config.learning_rate)
         batch_size = max(1, min(self.config.batch_size, raw_inputs.shape[0]))
         loss_history: list[float] = []
         epochs = max(1, self.config.num_epochs)
 
-        for _epoch in range(epochs):
+        started_at = time.monotonic()
+
+        print(
+            f"Projection training: {len(bundle.records)} records, {epochs} epochs, "
+            f"batch size {batch_size}, device {device}, GPUs {gpu_count}",
+            flush=True,
+        )
+
+        for epoch in range(epochs):
             permutation = torch.randperm(raw_inputs.shape[0])
             epoch_losses: list[float] = []
             for start in range(0, raw_inputs.shape[0], batch_size):
                 batch_idx = permutation[start : start + batch_size]
-                batch_raw = raw_inputs[batch_idx]
-                batch_anchors = anchors[batch_idx]
+                batch_raw = raw_inputs[batch_idx].to(device, non_blocking=True)
+                batch_anchors = anchors[batch_idx].to(device, non_blocking=True)
                 batch_modalities = [modalities[int(idx)] for idx in batch_idx]
 
                 projected = model(batch_raw)
@@ -120,19 +134,33 @@ class ProjectionTrainer:
                 loss.backward()
                 optimizer.step()
                 epoch_losses.append(float(loss.detach().cpu()))
-            loss_history.append(sum(epoch_losses) / len(epoch_losses))
+            epoch_loss = sum(epoch_losses) / len(epoch_losses)
+            loss_history.append(epoch_loss)
+            if self.config.verbose and (
+                epoch == 0 or (epoch + 1) % self.config.log_every_n_epochs == 0 or epoch + 1 == epochs
+            ):
+                elapsed = time.monotonic() - started_at
+                print(
+                    f"Projection epoch {epoch + 1}/{epochs}: loss={epoch_loss:.6f}, elapsed={elapsed:.1f}s",
+                    flush=True,
+                )
 
         model.eval()
         with torch.no_grad():
-            projected_tensor = F.normalize(model(raw_inputs), dim=1)
+            projected_tensor = F.normalize(model(raw_inputs.to(device)), dim=1)
+            annotation_tensor = F.normalize(anchors.to(device), dim=1)
+            recall = _torch_recall_at_k(
+                projected_tensor,
+                annotation_tensor,
+                k=min(self.config.eval_recall_k, len(bundle.records)),
+            )
         projected = projected_tensor.cpu().tolist()
-        annotations = F.normalize(anchors, dim=1).cpu().tolist()
-        recall = _recall_at_k(projected, annotations, k=min(self.config.eval_recall_k, len(projected)))
+        annotations = annotation_tensor.cpu().tolist()
 
         state_dict_path = None
         if self.config.save_weights_path:
             self.config.save_weights_path.parent.mkdir(parents=True, exist_ok=True)
-            torch.save(model.state_dict(), self.config.save_weights_path)
+            torch.save(base_model.state_dict(), self.config.save_weights_path)
             state_dict_path = str(self.config.save_weights_path)
 
         equal_weight = 1.0 / len(bundle.experts)
@@ -149,6 +177,9 @@ class ProjectionTrainer:
             "bias_loss_weight": self.config.bias_loss_weight,
             "scale_loss_weight": self.config.scale_loss_weight,
             "contrastive_temperature": self.config.contrastive_temperature,
+            "device": str(device),
+            "num_gpus": gpu_count,
+            "parallelism": "data_parallel" if gpu_count > 1 else "single_device",
             "state_dict_path": state_dict_path,
         }
         return ProjectionResult(
@@ -268,6 +299,36 @@ def _torch_available() -> bool:
     except ImportError:
         return False
     return True
+
+
+def _torch_device(config: ProjectionConfig, torch: Any) -> tuple[Any, int]:
+    """Choose the device from the GPUs assigned to this Curator worker."""
+
+    if config.device == "cpu" or config.num_gpus == 0:
+        return torch.device("cpu"), 0
+    if not torch.cuda.is_available():
+        if config.device == "cuda":
+            raise RuntimeError("Projection requested CUDA, but no CUDA device is visible")
+        return torch.device("cpu"), 0
+
+    visible_gpus = torch.cuda.device_count()
+    if visible_gpus < config.num_gpus:
+        raise RuntimeError(f"Projection requested {config.num_gpus} GPUs, but only {visible_gpus} are visible")
+    return torch.device("cuda:0"), config.num_gpus
+
+
+def _torch_recall_at_k(projected: Any, annotations: Any, k: int) -> dict[str, float]:
+    """Evaluate retrieval on the GPU instead of using the quadratic Python fallback."""
+
+    import torch
+
+    similarities = annotations @ projected.T
+    targets = torch.arange(similarities.shape[0], device=similarities.device).unsqueeze(1)
+    annotation_to_raw = (similarities.topk(k, dim=1).indices == targets).any(dim=1).float().mean()
+    raw_to_annotation = (similarities.T.topk(k, dim=1).indices == targets).any(dim=1).float().mean()
+    a2r = float(annotation_to_raw.cpu())
+    r2a = float(raw_to_annotation.cpu())
+    return {"annotation_to_raw": a2r, "raw_to_annotation": r2a, "average": (a2r + r2a) / 2.0}
 
 
 def _torch_contrastive_loss(projected: Any, anchors: Any, temperature: float) -> Any:

@@ -64,6 +64,7 @@ class DataPoolConfig:
 @dataclass
 class SNSConfig:
     enabled: bool = True
+    continue_on_error: bool = True
     backend: Literal["auto", "hybrid", "local", "api"] = "auto"
     direction: SNSDirection = "bidirectional"
     mi_ratio: float = 0.95
@@ -87,6 +88,7 @@ class SNSConfig:
     require_forward_models: bool = True
     use_ann_components: bool = True
     nvidia_model: str = "nvidia/omni-embed-nemotron-3b"
+    embedding_batch_size: int = 16
 
     @classmethod
     def from_dict(cls, value: dict[str, Any] | None) -> SNSConfig:
@@ -98,6 +100,8 @@ class SNSConfig:
             cfg.sns_output_dir = Path(sns_output_dir)
         if cg_detr_checkpoint:
             cfg.cg_detr_checkpoint = Path(cg_detr_checkpoint)
+        if cfg.embedding_batch_size < 1:
+            raise ValueError("sns.embedding_batch_size must be at least 1")
         return cfg
 
 
@@ -105,6 +109,7 @@ class SNSConfig:
 class EEEConfig:
     experts: list[ExpertName] = field(default_factory=lambda: ["text-based", "fusion", "e2e"])
     backend: Literal["hybrid", "local", "api"] = "hybrid"
+    continue_on_error: bool = True
     embedding_dim: int = 2048
     batch_size: int = 32
     text_prompt_base: str = "Describe this in detail."
@@ -114,7 +119,7 @@ class EEEConfig:
     nvidia_text_describer_model: str = "nvidia/nemotron-nano-12b-v2-vl"
     nvidia_image_describer_model: str = "nvidia/nemotron-nano-12b-v2-vl"
     nvidia_video_describer_model: str = "nvidia/nemotron-nano-12b-v2-vl"
-    nvidia_audio_describer_model: str = "google/gemma-3n-e4b-it"
+    nvidia_audio_describer_model: str = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
     nvidia_embedding_model: str = "nvidia/llama-nemotron-embed-1b-v2"
     nvidia_multimodal_model: str = "nvidia/omni-embed-nemotron-3b"
 
@@ -135,6 +140,8 @@ class EEEConfig:
 class ProjectionConfig:
     enabled: bool = True
     backend: Literal["auto", "linear", "torch"] = "auto"
+    device: Literal["auto", "cpu", "cuda"] = "auto"
+    num_gpus: int = 1
     num_epochs: int = 100
     batch_size: int = 128
     learning_rate: float = 1e-3
@@ -149,6 +156,7 @@ class ProjectionConfig:
     save_weights_path: Path | None = None
     eval_recall_k: int = 10
     verbose: bool = False
+    log_every_n_epochs: int = 100
 
     @classmethod
     def from_dict(cls, value: dict[str, Any] | None) -> ProjectionConfig:
@@ -157,6 +165,16 @@ class ProjectionConfig:
         cfg = cls(**{key: item for key, item in value.items() if key != "save_weights_path"})
         if save_weights_path:
             cfg.save_weights_path = Path(save_weights_path)
+        if cfg.num_gpus < 0:
+            raise ValueError("projection.num_gpus cannot be negative")
+        if cfg.device == "cuda" and cfg.num_gpus == 0:
+            raise ValueError("projection.device=cuda requires projection.num_gpus to be at least 1")
+        if cfg.num_epochs < 1:
+            raise ValueError("projection.num_epochs must be at least 1")
+        if cfg.batch_size < 1:
+            raise ValueError("projection.batch_size must be at least 1")
+        if cfg.log_every_n_epochs < 1:
+            raise ValueError("projection.log_every_n_epochs must be at least 1")
         return cfg
 
 
@@ -199,6 +217,37 @@ class RuntimeConfig:
 
 
 @dataclass
+class ParallelismConfig:
+    """Settings for the optional sharded SNS -> EEE streaming pipeline."""
+
+    enabled: bool = False
+    records_per_shard: int = 25
+    sns_workers: int = 1
+    eee_workers: int = 1
+    sns_gpus_per_worker: float = 1.0
+    eee_gpus_per_worker: float = 1.0
+    autoscale_interval_s: int = 10
+    logging_interval_s: int = 60
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any] | None) -> ParallelismConfig:
+        cfg = cls(**dict(value or {}))
+        if cfg.records_per_shard < 1:
+            raise ValueError("parallelism.records_per_shard must be at least 1")
+        if cfg.sns_workers < 1 or cfg.eee_workers < 1:
+            raise ValueError("parallelism worker counts must be at least 1")
+        if cfg.sns_gpus_per_worker <= 0 or cfg.eee_gpus_per_worker <= 0:
+            raise ValueError("parallelism GPU allocations must be greater than 0")
+        if cfg.autoscale_interval_s < 1 or cfg.logging_interval_s < 1:
+            raise ValueError("parallelism executor intervals must be at least 1 second")
+        return cfg
+
+    @property
+    def required_gpus(self) -> float:
+        return self.sns_workers * self.sns_gpus_per_worker + self.eee_workers * self.eee_gpus_per_worker
+
+
+@dataclass
 class ExperimentConfig:
     experiment_id: str
     output_dir: Path
@@ -208,6 +257,7 @@ class ExperimentConfig:
     projection: ProjectionConfig
     datablend: DatablendConfig
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    parallelism: ParallelismConfig = field(default_factory=ParallelismConfig)
     description: str = ""
     embedsim_config_name: str = ""
     reranking_enabled: bool = True
@@ -248,6 +298,7 @@ class ExperimentConfig:
             projection=ProjectionConfig.from_dict(projection_value),
             datablend=DatablendConfig.from_dict(datablend_value),
             runtime=RuntimeConfig.from_dict(value.get("runtime")),
+            parallelism=ParallelismConfig.from_dict(value.get("parallelism")),
             embedsim_config_name=str(value.get("embedsim_config_name", "")),
             reranking_enabled=bool(value.get("reranking_enabled", True)),
             random_shuffle=random_shuffle,

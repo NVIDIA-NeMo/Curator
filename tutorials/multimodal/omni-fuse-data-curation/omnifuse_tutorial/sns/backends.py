@@ -25,7 +25,7 @@ from typing import Any, Protocol
 
 from omnifuse_tutorial.data.io import cosine_similarity
 from omnifuse_tutorial.eee.backends import (
-    GEMMA_3N_E4B_MODEL,
+    NEMOTRON_3_NANO_OMNI_MODEL,
     _post_nvidia_json_with_retries,
     describe_file_with_nvidia_api,
 )
@@ -69,9 +69,11 @@ class LocalSNSBackend:
         self.device = resolve_device(runtime)
         self.offline_mode = resolve_offline_mode(runtime)
         self.omni_model = str(getattr(sns_config, "nvidia_model", "nvidia/omni-embed-nemotron-3b"))
+        self.embedding_batch_size = int(getattr(sns_config, "embedding_batch_size", 16))
         self._omni_runtime_cls = OmniEmbedNemotronRuntime
         self._omni: Any | None = None
         self._text_embedding_cache: dict[str, list[float]] = {}
+        self._media_embedding_cache: dict[str, list[float]] = {}
         self._description_backend = FullLocalEEEBackend(
             config=eee_config, runtime=runtime, embedding_dim=self.embedding_dim
         )
@@ -92,12 +94,17 @@ class LocalSNSBackend:
         right = _text_or_none(right) or ""
         if not left or not right:
             return 0.0
-        return cosine_similarity(self._embed_text(left), self._embed_text(right))
+        vectors = self._embed_texts([left, right], self.embedding_batch_size)
+        return cosine_similarity(vectors[0], vectors[1])
 
     def text_text_matrix(self, texts_a: list[str], texts_b: list[str], batch_size: int = 16) -> Any:
         import numpy as np
 
-        return np.array([[self.text_text(left, right) for right in texts_b] for left in texts_a], dtype=np.float32)
+        if not texts_a or not texts_b:
+            return np.zeros((len(texts_a), len(texts_b)), dtype=np.float32)
+        left = np.asarray(self._embed_texts(texts_a, batch_size), dtype=np.float32)
+        right = np.asarray(self._embed_texts(texts_b, batch_size), dtype=np.float32)
+        return left @ right.T
 
     def describe_record(self, record: dict[str, Any]) -> str:
         return self._description_backend.describe_record(record)
@@ -187,6 +194,7 @@ class LocalSNSBackend:
 
     def unload(self) -> None:
         self._text_embedding_cache.clear()
+        self._media_embedding_cache.clear()
         self._description_backend.unload()
         self._forward_models.unload()
         if self._omni is not None:
@@ -205,19 +213,35 @@ class LocalSNSBackend:
         return 0.0
 
     def _embed_text(self, text: str) -> list[float]:
-        if text not in self._text_embedding_cache:
-            self._text_embedding_cache[text] = self._resize_vector(self._ensure_omni().encode_text(text))
-        return self._text_embedding_cache[text]
+        return self._embed_texts([text], self.embedding_batch_size)[0]
+
+    def _embed_texts(self, texts: list[str], batch_size: int) -> list[list[float]]:
+        missing = list(dict.fromkeys(text for text in texts if text not in self._text_embedding_cache))
+        if missing:
+            vectors = self._ensure_omni().encode_texts(missing, batch_size=batch_size)
+            if len(vectors) != len(missing):
+                raise RuntimeError(f"Omni-Embed returned {len(vectors)} vectors for {len(missing)} texts")
+            for text, vector in zip(missing, vectors, strict=True):
+                self._text_embedding_cache[text] = self._resize_vector(vector)
+        return [self._text_embedding_cache[text] for text in texts]
 
     def _embed_media(self, value: Any, modality: str) -> list[float]:
+        cache_key = _media_cache_key(value, modality)
+        if cache_key is not None and cache_key in self._media_embedding_cache:
+            return self._media_embedding_cache[cache_key]
         omni = self._ensure_omni()
         if modality == "image":
-            return self._resize_vector(omni.encode_image(value))
-        if modality == "audio":
-            return self._resize_vector(omni.encode_audio(value))
-        if modality == "video":
-            return self._resize_vector(omni.encode_video(value))
-        raise ValueError(f"Unsupported media modality: {modality}")
+            vector = omni.encode_image(value)
+        elif modality == "audio":
+            vector = omni.encode_audio(value)
+        elif modality == "video":
+            vector = omni.encode_video(value)
+        else:
+            raise ValueError(f"Unsupported media modality: {modality}")
+        resized = self._resize_vector(vector)
+        if cache_key is not None:
+            self._media_embedding_cache[cache_key] = resized
+        return resized
 
     def _ensure_omni(self) -> Any:
         if self._omni is None:
@@ -260,13 +284,14 @@ class NvidiaApiSNSBackend:
         self.text_model = getattr(eee_config, "nvidia_text_describer_model", "nvidia/nemotron-nano-12b-v2-vl")
         self.image_model = getattr(eee_config, "nvidia_image_describer_model", "nvidia/nemotron-nano-12b-v2-vl")
         self.video_model = getattr(eee_config, "nvidia_video_describer_model", "nvidia/nemotron-nano-12b-v2-vl")
-        self.audio_model = getattr(eee_config, "nvidia_audio_describer_model", GEMMA_3N_E4B_MODEL)
+        self.audio_model = getattr(eee_config, "nvidia_audio_describer_model", NEMOTRON_3_NANO_OMNI_MODEL)
         self.embedding_model = getattr(
             eee_config,
             "nvidia_embedding_model",
             "nvidia/llama-nemotron-embed-1b-v2",
         )
         self.timeout = timeout
+        self.embedding_batch_size = int(getattr(sns_config, "embedding_batch_size", 16))
         self._embedding_cache: dict[str, list[float]] = {}
         self._description_cache: dict[str, str] = {}
 
@@ -284,15 +309,17 @@ class NvidiaApiSNSBackend:
         right = _text_or_none(right) or ""
         if not left or not right:
             return 0.0
-        return cosine_similarity(self._embed_text(left), self._embed_text(right))
+        vectors = self._embed_texts([left, right], self.embedding_batch_size)
+        return cosine_similarity(vectors[0], vectors[1])
 
     def text_text_matrix(self, texts_a: list[str], texts_b: list[str], batch_size: int = 16) -> Any:
         import numpy as np
 
-        return np.array(
-            [[self.text_text(left, right) for right in texts_b] for left in texts_a],
-            dtype=np.float32,
-        )
+        if not texts_a or not texts_b:
+            return np.zeros((len(texts_a), len(texts_b)), dtype=np.float32)
+        left = np.asarray(self._embed_texts(texts_a, batch_size), dtype=np.float32)
+        right = np.asarray(self._embed_texts(texts_b, batch_size), dtype=np.float32)
+        return left @ right.T
 
     def describe_record(self, record: dict[str, Any]) -> str:
         raw_text = _text_or_none(record.get("sns_raw_text")) or _text_or_none(record.get("raw_text"))
@@ -362,25 +389,32 @@ class NvidiaApiSNSBackend:
         )
 
     def _embed_text(self, text: str) -> list[float]:
-        if text in self._embedding_cache:
-            return self._embedding_cache[text]
-        response = _post_nvidia_json_with_retries(
-            url=f"{self.api_base_url}/embeddings",
-            headers=self._headers(),
-            payload={
-                "model": self.embedding_model,
-                "input": [text],
-                "input_type": "passage",
-                "encoding_format": "float",
-                "truncate": "END",
-            },
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        vector = [float(item) for item in response.json()["data"][0]["embedding"]]
-        vector = _resize_and_normalize(vector, self.embedding_dim)
-        self._embedding_cache[text] = vector
-        return vector
+        return self._embed_texts([text], self.embedding_batch_size)[0]
+
+    def _embed_texts(self, texts: list[str], batch_size: int) -> list[list[float]]:
+        missing = list(dict.fromkeys(text for text in texts if text not in self._embedding_cache))
+        for start in range(0, len(missing), batch_size):
+            chunk = missing[start : start + batch_size]
+            response = _post_nvidia_json_with_retries(
+                url=f"{self.api_base_url}/embeddings",
+                headers=self._headers(),
+                payload={
+                    "model": self.embedding_model,
+                    "input": chunk,
+                    "input_type": "passage",
+                    "encoding_format": "float",
+                    "truncate": "END",
+                },
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            data = sorted(response.json()["data"], key=lambda item: int(item.get("index", 0)))
+            if len(data) != len(chunk):
+                raise RuntimeError(f"NVIDIA embeddings returned {len(data)} vectors for {len(chunk)} texts")
+            for text, item in zip(chunk, data, strict=True):
+                vector = [float(value) for value in item["embedding"]]
+                self._embedding_cache[text] = _resize_and_normalize(vector, self.embedding_dim)
+        return [self._embedding_cache[text] for text in texts]
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -391,12 +425,7 @@ class NvidiaApiSNSBackend:
 
 
 class HybridSNSBackend:
-    """API-first SNS backend with local forward extraction and multimodal scoring.
-
-    Backward extraction and text-text decisions use NVIDIA API descriptions and
-    text embeddings. Image, audio, and video forward extraction stay local
-    because those steps require Grounding-DINO, AM-DETR, and CG-DETR.
-    """
+    """EmbedSim-style SNS: API descriptions with local extraction and similarity."""
 
     def __init__(self, sns_config: Any, eee_config: Any, runtime: Any | None = None):
         self.api = NvidiaApiSNSBackend(sns_config, eee_config)
@@ -413,10 +442,10 @@ class HybridSNSBackend:
         return self.local.video_text(video_data, text)
 
     def text_text(self, left: Any, right: Any, dim: int = 2048) -> float:
-        return self.api.text_text(left, right, dim)
+        return self.local.text_text(left, right, dim)
 
     def text_text_matrix(self, texts_a: list[str], texts_b: list[str], batch_size: int = 16) -> Any:
-        return self.api.text_text_matrix(texts_a, texts_b, batch_size)
+        return self.local.text_text_matrix(texts_a, texts_b, batch_size)
 
     def describe_record(self, record: dict[str, Any]) -> str:
         return self.api.describe_record(record)
@@ -425,8 +454,6 @@ class HybridSNSBackend:
         return self.local.forward_media(record, annotation)
 
     def raw_annotation_similarity(self, raw_value: Any, modality: str, annotation: str) -> float:
-        if modality == "text":
-            return self.api.text_text(raw_value, annotation, self.embedding_dim)
         return self.local.raw_annotation_similarity(raw_value, modality, annotation)
 
     def unload(self) -> None:
@@ -475,6 +502,19 @@ def _path_or_none(value: Any) -> Path | None:
         return Path(value)
     except OSError:
         return None
+
+
+def _media_cache_key(value: Any, modality: str) -> str | None:
+    if isinstance(value, dict):
+        value = value.get("file_path") or value.get("path") or value.get("raw_path")
+    path = _path_or_none(value)
+    if path is None:
+        return None
+    try:
+        stat = path.stat()
+        return f"{modality}:{path.resolve()}:{stat.st_size}:{stat.st_mtime_ns}"
+    except OSError:
+        return f"{modality}:{path}"
 
 
 def _changed_media(original: Any, candidate: Any) -> bool:

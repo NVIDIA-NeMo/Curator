@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "nemo-curator>=1.1.0,<2",
-    "numpy>=1.26",
+    "numpy>=1.26,<2.5",
     "pandas>=2.0",
     "pyyaml>=6.0",
     "requests>=2.31",
@@ -51,7 +51,7 @@ dev = [
 
 [tool.uv]
 override-dependencies = [
-    "numpy>=1.26",
+    "numpy>=1.26,<2.5",
     "transformers>=4.57,<5",
 ]
 
@@ -96,3 +96,6 @@ extend-ignore = [
     "TRY004",
     "TRY300",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]

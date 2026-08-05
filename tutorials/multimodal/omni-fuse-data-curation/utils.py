@@ -261,8 +261,16 @@ def validate_inputs(config: ExperimentConfig) -> dict[str, Any]:
         "records": len(records),
         "modalities": sorted({record["modality"] for record in records}),
         "sns_backend": config.sns.backend,
+        "sns_embedding_batch_size": config.sns.embedding_batch_size,
         "eee_backend": config.eee.backend,
         "experts": config.eee.experts,
+        "parallelism": {
+            "enabled": config.parallelism.enabled,
+            "records_per_shard": config.parallelism.records_per_shard,
+            "sns_workers": config.parallelism.sns_workers,
+            "eee_workers": config.parallelism.eee_workers,
+            "required_gpus": config.parallelism.required_gpus,
+        },
     }
 
 

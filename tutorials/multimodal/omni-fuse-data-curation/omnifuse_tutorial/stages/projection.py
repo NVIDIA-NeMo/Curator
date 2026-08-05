@@ -35,6 +35,16 @@ class ProjectionTrainingStage(ProcessingStage[Any, Any]):
     name: str = "ProjectionTraining"
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
+    def __post_init__(self) -> None:
+        """Reserve the GPUs that the trainer will see through CUDA_VISIBLE_DEVICES."""
+
+        if self.config is None:
+            return
+        projection = self.config.projection
+        uses_cuda = projection.backend != "linear" and projection.device != "cpu"
+        gpu_count = projection.num_gpus if uses_cuda else 0
+        self.resources = Resources(cpus=1.0, gpus=float(gpu_count))
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
@@ -49,9 +59,12 @@ class ProjectionTrainingStage(ProcessingStage[Any, Any]):
         if not isinstance(bundle, EmbeddingBundle):
             raise ValueError("ProjectionTrainingStage requires embedding_bundle metadata")
 
+        output_dir = self.config.run_dir / "projection"
+        if self.config.projection.save_weights_path is None:
+            self.config.projection.save_weights_path = output_dir / "model.pt"
+
         trainer = ProjectionTrainer(self.config.projection)
         result = trainer.train_and_project(bundle)
-        output_dir = self.config.run_dir / "projection"
         projected_path = write_npy(output_dir / "projected_embeddings.npy", result.projected_raw)
         annotations_path = write_npy(output_dir / "annotation_embeddings.npy", result.annotation_embeddings)
         model_path = write_json(output_dir / "model.json", result.model)

@@ -350,7 +350,35 @@ class OmniEmbedNemotronRuntime:
         self._model.eval()
 
     def encode_text(self, text: str) -> np.ndarray:
-        return self._get_embedding(text=text)
+        return self.encode_texts([text], batch_size=1)[0]
+
+    def encode_texts(self, texts: list[str], batch_size: int = 16) -> np.ndarray:
+        """Encode text in real model batches instead of one forward pass per string."""
+
+        if not texts:
+            return np.empty((0, self.dim), dtype=np.float32)
+        self._initialize()
+        processor = self._processor
+        batches: list[np.ndarray] = []
+        for start in range(0, len(texts), batch_size):
+            chunk = texts[start : start + batch_size]
+            text_inputs = [
+                processor.apply_chat_template(
+                    [{"role": "user", "content": [{"type": "text", "text": text}]}],
+                    add_generation_prompt=False,
+                    tokenize=False,
+                )
+                for text in chunk
+            ]
+            batch_dict = processor.tokenizer(
+                text_inputs,
+                return_tensors="pt",
+                truncation=True,
+                padding=True,
+                max_length=2048,
+            )
+            batches.append(self._pool_embeddings(batch_dict))
+        return np.concatenate(batches, axis=0)
 
     def encode_image(self, image: Any) -> np.ndarray:
         return self._get_embedding(image=image)
@@ -369,10 +397,8 @@ class OmniEmbedNemotronRuntime:
         video: Any | None = None,
     ) -> np.ndarray:
         self._initialize()
-        import torch
 
         processor = self._processor
-        model = self._model
         content: list[dict[str, Any]] = []
         image_input = None
         audio_input = None
@@ -427,15 +453,22 @@ class OmniEmbedNemotronRuntime:
         if image is None and video is None:
             processor_kwargs["text_kwargs"] = {"truncation": True, "max_length": 2048}
         batch_dict = processor(**processor_kwargs)
+        return self._pool_embeddings(batch_dict)[0]
+
+    def _pool_embeddings(self, batch_dict: dict[str, Any]) -> np.ndarray:
+        """Run and mean-pool an already tokenized model batch."""
+
+        import torch
+
         batch_dict = {key: value.to(self.device) for key, value in batch_dict.items() if value is not None}
         with torch.inference_mode():
-            outputs = model(**batch_dict, output_hidden_states=True)
+            outputs = self._model(**batch_dict, output_hidden_states=True)
             hidden = outputs.hidden_states[-1]
             mask = batch_dict["attention_mask"]
             hidden = hidden.masked_fill(~mask[..., None].bool(), 0.0)
             embedding = hidden.sum(dim=1) / mask.sum(dim=1)[..., None]
             embedding = torch.nn.functional.normalize(embedding, dim=-1)
-        return embedding.float().cpu().numpy()[0].astype(np.float32)
+        return embedding.float().cpu().numpy().astype(np.float32)
 
     def unload(self) -> None:
         self._model = None

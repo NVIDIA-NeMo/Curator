@@ -46,8 +46,8 @@ AUDIO_EXTENSIONS = {".wav", ".mp3"}
 TEXT_EXTENSIONS = {".txt", ".md", ".json", ".csv"}
 SUPPORTED_EXPERTS = {"text-based", "fusion", "e2e"}
 PHI4_MULTIMODAL_MODEL = "microsoft/phi-4-multimodal-instruct"
-GEMMA_3N_E4B_MODEL = "google/gemma-3n-e4b-it"
-AUDIO_URL_CHAT_MODELS = {PHI4_MULTIMODAL_MODEL, GEMMA_3N_E4B_MODEL}
+NEMOTRON_3_NANO_OMNI_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+AUDIO_CHAT_MODELS = {PHI4_MULTIMODAL_MODEL, NEMOTRON_3_NANO_OMNI_MODEL}
 NVCF_ASSET_UPLOAD_THRESHOLD_BYTES = 180 * 1024
 AUDIO_INLINE_PREVIEW_BYTES = 160 * 1024
 NVCF_ASSET_BASE_URL = "https://api.nvcf.nvidia.com/v2/nvcf"
@@ -101,7 +101,7 @@ class NvidiaApiEEEBackend:
         text_model: str = "nvidia/nemotron-nano-12b-v2-vl",
         image_model: str = "nvidia/nemotron-nano-12b-v2-vl",
         video_model: str = "nvidia/nemotron-nano-12b-v2-vl",
-        audio_model: str = GEMMA_3N_E4B_MODEL,
+        audio_model: str = NEMOTRON_3_NANO_OMNI_MODEL,
         embedding_model: str = "nvidia/llama-nemotron-embed-1b-v2",
         timeout: int = 120,
         batch_size: int = 4,
@@ -214,7 +214,7 @@ class HybridEEEBackend:
             text_model=getattr(config, "nvidia_text_describer_model", "nvidia/nemotron-nano-12b-v2-vl"),
             image_model=getattr(config, "nvidia_image_describer_model", "nvidia/nemotron-nano-12b-v2-vl"),
             video_model=getattr(config, "nvidia_video_describer_model", "nvidia/nemotron-nano-12b-v2-vl"),
-            audio_model=getattr(config, "nvidia_audio_describer_model", GEMMA_3N_E4B_MODEL),
+            audio_model=getattr(config, "nvidia_audio_describer_model", NEMOTRON_3_NANO_OMNI_MODEL),
             embedding_model=getattr(config, "nvidia_embedding_model", "nvidia/llama-nemotron-embed-1b-v2"),
             batch_size=int(getattr(config, "batch_size", 4)),
         )
@@ -259,8 +259,8 @@ def describe_file_with_nvidia_api(
     headers: dict[str, str],
     timeout: int,
 ) -> str:
-    if content_type == "input_audio" and model in AUDIO_URL_CHAT_MODELS:
-        return _describe_audio_url_chat_file(path, model, prompt, api_base_url, headers, timeout)
+    if content_type == "input_audio" and model in AUDIO_CHAT_MODELS:
+        return _describe_audio_chat_file(path, model, prompt, api_base_url, headers, timeout)
     return _describe_chat_completion_file(path, model, content_type, prompt, api_base_url, headers, timeout)
 
 
@@ -302,7 +302,7 @@ def _describe_chat_completion_file(
     return _response_text(response.json(), model, url)
 
 
-def _describe_audio_url_chat_file(
+def _describe_audio_chat_file(
     path: Path,
     model: str,
     prompt: str,
@@ -312,36 +312,39 @@ def _describe_audio_url_chat_file(
 ) -> str:
     audio_format = _audio_format(path)
     mime = "audio/wav" if audio_format == "wav" else "audio/mpeg"
-    request_headers = dict(headers)
-    used_asset = False
-    if path.stat().st_size > NVCF_ASSET_UPLOAD_THRESHOLD_BYTES:
-        asset_id = _upload_nvcf_asset(path, mime, headers, timeout)
-        request_headers = _headers_with_nvcf_asset(headers, asset_id)
-        used_asset = True
-        content: str | list[dict[str, Any]] = f'{prompt}\n<audio src="data:{mime};asset_id,{asset_id}" />'
-    else:
-        encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
-        content = [
-            {"type": "text", "text": prompt},
-            {"type": "audio_url", "audio_url": {"url": f"data:{mime};base64,{encoded}"}},
-        ]
+    content: str | list[dict[str, Any]] = _inline_audio_content(path, audio_format, prompt)
     url = f"{api_base_url}/chat/completions"
     payload = {
         "model": model,
-        "messages": [{"role": "user", "content": content}],
+        "messages": _audio_messages(content),
         "max_tokens": 512,
         "temperature": 0.2,
         "stream": False,
     }
-    response = _post_nvidia_json_with_retries(url, request_headers, payload, timeout)
-    response_headers = request_headers
-    if used_asset and _should_retry_inline_audio_preview(response):
-        content = _inline_audio_content(path, mime, prompt, preview=True)
-        payload = {**payload, "messages": [{"role": "user", "content": content}]}
-        response = _post_nvidia_json_with_retries(url, headers, payload, timeout)
-        response_headers = headers
+    response = _post_nvidia_json_with_retries(url, headers, payload, timeout)
+    response_headers = headers
+
+    if _should_fallback_to_asset(response):
+        asset_id = _upload_nvcf_asset(path, mime, headers, timeout)
+        request_headers = _headers_with_nvcf_asset(headers, asset_id)
+        asset_content = f'{prompt}\n<audio src="data:{mime};asset_id,{asset_id}" />'
+        payload = {**payload, "messages": _audio_messages(asset_content)}
+        response = _post_nvidia_json_with_retries(url, request_headers, payload, timeout)
+        response_headers = request_headers
+        if _should_retry_inline_audio_preview(response):
+            preview_content = _inline_audio_content(path, audio_format, prompt, preview=True)
+            payload = {**payload, "messages": _audio_messages(preview_content)}
+            response = _post_nvidia_json_with_retries(url, headers, payload, timeout)
+            response_headers = headers
     response = _resolve_nvidia_response(response, api_base_url, response_headers, timeout, model, url)
     return _response_text(response.json(), model, url)
+
+
+def _audio_messages(content: str | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {"role": "system", "content": "/no_think"},
+        {"role": "user", "content": content},
+    ]
 
 
 def _headers_with_nvcf_asset(headers: dict[str, str], asset_id: str) -> dict[str, str]:
@@ -385,7 +388,12 @@ def _upload_nvcf_asset(path: Path, mime: str, headers: dict[str, str], timeout: 
     return asset_id
 
 
-def _inline_audio_content(path: Path, mime: str, prompt: str, preview: bool = False) -> list[dict[str, Any]]:
+def _inline_audio_content(
+    path: Path,
+    audio_format: str,
+    prompt: str,
+    preview: bool = False,
+) -> list[dict[str, Any]]:
     if preview:
         prompt = (
             "Only the opening segment is attached because the full audio exceeds the current inline payload limit. "
@@ -397,7 +405,10 @@ def _inline_audio_content(path: Path, mime: str, prompt: str, preview: bool = Fa
     encoded = base64.b64encode(audio_bytes).decode("utf-8")
     return [
         {"type": "text", "text": prompt},
-        {"type": "audio_url", "audio_url": {"url": f"data:{mime};base64,{encoded}"}},
+        {
+            "type": "input_audio",
+            "input_audio": {"data": encoded, "format": audio_format},
+        },
     ]
 
 
@@ -456,6 +467,15 @@ def _is_missing_nvcf_asset_response(response: Any) -> bool:
 
 def _should_retry_inline_audio_preview(response: Any) -> bool:
     return _is_missing_nvcf_asset_response(response) or response.status_code in {413, 500, 502, 503, 504}
+
+
+def _should_fallback_to_asset(response: Any) -> bool:
+    if response.status_code == 413:
+        return True
+    if response.status_code != 400:
+        return False
+    message = response.text.lower()
+    return any(fragment in message for fragment in ("payload", "too large", "request size", "audio_url"))
 
 
 def _resolve_nvidia_response(
@@ -597,7 +617,7 @@ def backend_factory(config_or_name: Any, runtime: Any | None = None) -> EEEBacke
             text_model=getattr(config_or_name, "nvidia_text_describer_model", "nvidia/nemotron-nano-12b-v2-vl"),
             image_model=getattr(config_or_name, "nvidia_image_describer_model", "nvidia/nemotron-nano-12b-v2-vl"),
             video_model=getattr(config_or_name, "nvidia_video_describer_model", "nvidia/nemotron-nano-12b-v2-vl"),
-            audio_model=getattr(config_or_name, "nvidia_audio_describer_model", GEMMA_3N_E4B_MODEL),
+            audio_model=getattr(config_or_name, "nvidia_audio_describer_model", NEMOTRON_3_NANO_OMNI_MODEL),
             embedding_model=getattr(
                 config_or_name,
                 "nvidia_embedding_model",

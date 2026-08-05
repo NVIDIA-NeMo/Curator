@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -24,6 +25,7 @@ from omnifuse_tutorial.config.models import SNSConfig
 from omnifuse_tutorial.sns.backends import SNSBackend
 
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -33,6 +35,20 @@ class SNSProcessor:
     embedding_dim: int = 64
 
     def process_record(self, record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        try:
+            return self._process_record(record)
+        except Exception as exc:
+            if not self.config.continue_on_error:
+                raise
+            logger.warning(
+                "[%s] SNS processing failed, keeping original: %s: %s",
+                record.get("pair_id", "unknown"),
+                type(exc).__name__,
+                exc,
+            )
+            return self._error_fallback(record, exc)
+
+    def _process_record(self, record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         if not self.config.enabled:
             output = dict(record)
             output["sns_raw_text"] = record.get("raw_text")
@@ -45,16 +61,44 @@ class SNSProcessor:
         output["sns_annotation"] = _text_or_none(record.get("annotation")) or ""
         decisions: list[dict[str, Any]] = []
 
-        if self.config.direction in {"forward", "bidirectional"}:
+        if self.config.direction == "bidirectional":
+            forward_output, forward_decision = self._forward(output)
+            backward_output, backward_decision = self._backward(output)
+            output = dict(forward_output)
+            output["sns_annotation"] = backward_output["sns_annotation"]
+            decisions.extend((forward_decision, backward_decision))
+        elif self.config.direction == "forward":
             output, decision = self._forward(output)
             decisions.append(decision)
-        if self.config.direction in {"backward", "bidirectional"}:
+        elif self.config.direction == "backward":
             output, decision = self._backward(output)
             decisions.append(decision)
 
         accepted = any(item.get("accepted") for item in decisions)
         manifest = self._manifest(record, output, enabled=True, accepted=accepted, reason="processed")
         manifest["decisions"] = decisions
+        return output, manifest
+
+    def _error_fallback(
+        self,
+        record: dict[str, Any],
+        exc: Exception,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        output = dict(record)
+        output["sns_raw_text"] = _text_or_none(record.get("raw_text"))
+        output["sns_annotation"] = _text_or_none(record.get("annotation")) or ""
+        manifest = self._manifest(
+            record,
+            output,
+            enabled=self.config.enabled,
+            accepted=False,
+            reason="processing_error",
+        )
+        manifest["status"] = "error"
+        manifest["error"] = {
+            "type": type(exc).__name__,
+            "message": str(exc)[:1000],
+        }
         return output, manifest
 
     def _forward(self, record: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -67,12 +111,12 @@ class SNSProcessor:
         sentences = _sentences(raw_text)
         tau = self.config.tau_forward_text
         components = self._annotation_components(annotation)
-        kept = [
-            sentence
-            for sentence in sentences
-            if components
-            and max(self.backend.text_text(sentence, component, self.embedding_dim) for component in components) >= tau
-        ]
+        similarities = self.backend.text_text_matrix(
+            sentences,
+            components,
+            batch_size=self.config.embedding_batch_size,
+        )
+        kept = [sentence for sentence, row in zip(sentences, similarities, strict=True) if _row_max(row) >= tau]
         if not kept:
             return record, {"direction": "forward", "accepted": False, "reason": "no_sentence_above_threshold"}
 
@@ -102,10 +146,16 @@ class SNSProcessor:
             raw_description = self.backend.describe_record(record)
         annotation = _text_or_none(record.get("sns_annotation")) or _text_or_none(record.get("annotation")) or ""
         sentences = _sentences(annotation)
+        description_sentences = _sentences(raw_description) or [raw_description]
+        similarities = self.backend.text_text_matrix(
+            sentences,
+            description_sentences,
+            batch_size=self.config.embedding_batch_size,
+        )
         kept = [
             sentence
-            for sentence in sentences
-            if self.backend.text_text(sentence, raw_description, self.embedding_dim) >= self.config.tau_backward
+            for sentence, row in zip(sentences, similarities, strict=True)
+            if _row_max(row) >= self.config.tau_backward
         ]
         if not kept:
             return record, {
@@ -215,6 +265,11 @@ class SNSProcessor:
 def _sentences(text: str) -> list[str]:
     chunks = [chunk.strip() for chunk in SENTENCE_RE.split(_text_or_none(text) or "")]
     return [chunk for chunk in chunks if chunk]
+
+
+def _row_max(row: Any) -> float:
+    values = [float(value) for value in row]
+    return max(values, default=float("-inf"))
 
 
 def _text_or_none(value: Any) -> str | None:
