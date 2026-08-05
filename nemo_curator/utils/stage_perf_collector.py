@@ -198,14 +198,12 @@ def performance_report_requested(stages: list[ProcessingStage]) -> bool:
 
 
 def performance_collection_enabled(stages: list[ProcessingStage]) -> bool:
-    """Return whether any stage or terminal consumer requests full collection."""
-    return performance_report_requested(stages) or any(
-        bool(getattr(stage, "extended_performance_metrics", False)) for stage in stages
-    )
+    """Return whether a terminal consumer requests complete invocation records."""
+    return performance_report_requested(stages)
 
 
 def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any | None:  # noqa: ANN401
-    """Start one collector when extended metrics or a terminal consumer is enabled."""
+    """Start one collector when a terminal consumer requests complete records."""
     if not performance_collection_enabled(stages):
         return None
     name = f"curator-stage-perf-{uuid.uuid4().hex}"

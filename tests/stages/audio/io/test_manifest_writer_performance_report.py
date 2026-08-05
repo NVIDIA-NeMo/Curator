@@ -82,7 +82,6 @@ def test_manifest_writer_persists_all_performance_records_through_fsspec() -> No
             invocation_id="invocation-1",
             process_time=1.5,
             custom_metrics={"audio_duration_s": 12.0},
-            gpu_indices=[0, 1],
         )
     ]
 
@@ -99,7 +98,6 @@ def test_manifest_writer_persists_all_performance_records_through_fsspec() -> No
     assert report["wall_time_s"] == 2.0
     assert report["record_count"] == 1
     assert report["records"][0]["custom_metrics"] == {"audio_duration_s": 12.0}
-    assert report["records"][0]["gpu_indices"] == [0, 1]
     record_store.cleanup()
 
 

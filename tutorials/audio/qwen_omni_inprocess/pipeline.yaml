@@ -46,7 +46,6 @@ stages:
 
   - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
     adapter_target: nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter
-    extended_performance_metrics: true
     model_id: ${model_id}
     default_language: ${default_language}
     supported_language_codes: ${supported_language_codes}
