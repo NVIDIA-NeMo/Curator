@@ -16,10 +16,9 @@ from unittest.mock import patch
 
 import pytest
 
-from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter, WorkerMetadata
+from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask, Task
-from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 class _Stage(ProcessingStage[Task, Task]):
@@ -27,17 +26,6 @@ class _Stage(ProcessingStage[Task, Task]):
 
     def process(self, task: Task) -> Task:
         return task
-
-
-class _Adapter(BaseStageAdapter):
-    def _setup_performance_telemetry(self, worker_metadata: WorkerMetadata | None) -> None:
-        self.setup_metadata = worker_metadata
-
-    def _enrich_stage_perf_record(self, stats: StagePerfStats, _results: list[Task]) -> None:
-        stats.actor_id = "actor-1"
-
-    def _teardown_performance_telemetry(self) -> None:
-        self.telemetry_closed = True
 
 
 class _Executor(BaseExecutor):
@@ -50,25 +38,19 @@ class _RequiredReportStage(_Stage):
         return True
 
 
-def test_adapter_hooks_enrich_one_collector_record() -> None:
+def test_adapter_publishes_one_collector_record() -> None:
     stage = _Stage()
     stage._curator_stage_id = "000:stage"
     stage._curator_stage_perf_collector_name = "collector"
-    adapter = _Adapter(stage)
-    metadata = WorkerMetadata(worker_id="worker-1")
+    adapter = BaseStageAdapter(stage)
 
     with patch("nemo_curator.utils.stage_perf_collector.record_stage_perf", return_value=True) as publish:
-        adapter.setup(metadata)
         [result] = adapter.process_batch([EmptyTask()])
-        adapter.teardown()
 
     [perf] = result._stage_perf
-    assert adapter.setup_metadata is metadata
-    assert adapter.telemetry_closed is True
     assert perf.stage_id == "000:stage"
     assert perf.invocation_id
     assert perf.window_end_s >= perf.window_start_s > 0
-    assert perf.actor_id == "actor-1"
     publish.assert_called_once()
     assert publish.call_args.kwargs["attached_to_output"] is True
 
@@ -87,7 +69,7 @@ def test_required_collector_start_failure_is_not_silenced() -> None:
 def test_audio_input_byte_count_is_independent_of_item_count() -> None:
     stage = _Stage()
     stage._curator_stage_perf_collector_name = "collector"
-    adapter = _Adapter(stage)
+    adapter = BaseStageAdapter(stage)
     small = AudioTask(dataset_name="test", data={"text": "a"})
     large = AudioTask(dataset_name="test", data={"text": "a" * 1_000})
 

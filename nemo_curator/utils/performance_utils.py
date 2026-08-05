@@ -28,12 +28,6 @@ if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
 
 
-def norm_gpu_uuid(value: object) -> str:
-    """Normalize a GPU UUID for transport and topology comparisons."""
-    text = value.decode() if isinstance(value, bytes) else str(value)
-    return text.strip().lower().removeprefix("gpu-")
-
-
 @attrs.define
 class StagePerfStats:
     """Statistics for tracking stage performance metrics.
@@ -49,14 +43,6 @@ class StagePerfStats:
         invocation_id: Unique identifier for one ``process_batch`` call.
         window_start_s: Unix wall-clock timestamp immediately before the stage call.
         window_end_s: Unix wall-clock timestamp immediately after the stage call.
-        actor_id: Best-effort worker identity supplied by an optional backend.
-        node_id: Best-effort node identity supplied by an optional backend.
-        gpu_id: Best-effort display label for the assigned GPU.
-        physical_address: Backend-independent ``<host>:<gpu_indices>`` label.
-        pod_ip: Kubernetes pod IP when available.
-        hostname: Worker hostname when available.
-        gpu_indices: Physical GPU indices assigned to the worker.
-        gpu_uuids: Physical GPU UUIDs assigned to the worker.
     """
 
     stage_name: str
@@ -69,22 +55,9 @@ class StagePerfStats:
     invocation_id: str = ""
     window_start_s: float = 0.0
     window_end_s: float = 0.0
-    actor_id: str = ""
-    node_id: str = ""
-    gpu_id: str = ""
-    physical_address: str = ""
-    pod_ip: str = ""
-    hostname: str = ""
-    gpu_indices: list[int] = attrs.field(factory=list)
-    gpu_uuids: list[str] = attrs.field(factory=list)
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
         """Add two StagePerfStats."""
-        same_worker = (
-            self.actor_id == other.actor_id
-            and self.node_id == other.node_id
-            and self.physical_address == other.physical_address
-        )
         return StagePerfStats(
             stage_name=self.stage_name,
             process_time=self.process_time + other.process_time,
@@ -101,14 +74,6 @@ class StagePerfStats:
             if self.window_start_s > 0 or other.window_start_s > 0
             else 0.0,
             window_end_s=max(self.window_end_s, other.window_end_s),
-            actor_id=self.actor_id if same_worker else "",
-            node_id=self.node_id if same_worker else "",
-            gpu_id=self.gpu_id if same_worker else "",
-            physical_address=self.physical_address if same_worker else "",
-            pod_ip=self.pod_ip if same_worker else "",
-            hostname=self.hostname if same_worker else "",
-            gpu_indices=list(self.gpu_indices) if same_worker else [],
-            gpu_uuids=list(self.gpu_uuids) if same_worker else [],
         )
 
     def __radd__(self, other: int | StagePerfStats) -> StagePerfStats:
@@ -131,14 +96,6 @@ class StagePerfStats:
         self.invocation_id = ""
         self.window_start_s = 0.0
         self.window_end_s = 0.0
-        self.actor_id = ""
-        self.node_id = ""
-        self.gpu_id = ""
-        self.physical_address = ""
-        self.pod_ip = ""
-        self.hostname = ""
-        self.gpu_indices = []
-        self.gpu_uuids = []
 
     def to_dict(self) -> dict[str, float | int]:
         """Convert numeric metrics to the legacy public dictionary."""

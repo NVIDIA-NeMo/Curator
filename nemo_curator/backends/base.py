@@ -57,13 +57,11 @@ class NodeInfo:
 class WorkerMetadata:
     """Generic worker metadata for setup_on_node calls across backends.
     Simplified to match Xenna's structure. The allocation field can contain
-    backend-specific allocation information and ``perf_identity`` can carry an
-    optional backend-owned immutable identity value.
+    backend-specific allocation information.
     """
 
     worker_id: str = ""
     allocation: Any = None  # Backend-specific allocation info
-    perf_identity: Any = None
 
 
 class BaseExecutor(ABC):
@@ -146,7 +144,7 @@ class BaseStageAdapter:
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
 
-    def process_batch(self, tasks: list[Task]) -> list[Task]:  # noqa: C901, PLR0912, PLR0915
+    def process_batch(self, tasks: list[Task]) -> list[Task]:  # noqa: C901
         """Process a batch of tasks.
 
         Args:
@@ -223,9 +221,6 @@ class BaseStageAdapter:
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
-        enrich_perf = getattr(self, "_enrich_stage_perf_record", None)
-        if callable(enrich_perf):
-            enrich_perf(stage_perf_stats, results)
         for task in results:
             task.add_stage_perf(stage_perf_stats)
         if capture_metrics:
@@ -390,22 +385,13 @@ class BaseStageAdapter:
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker
         """
-        self._worker_metadata = worker_metadata
         self.stage.setup(worker_metadata)
-        setup_perf = getattr(self, "_setup_performance_telemetry", None)
-        if callable(setup_perf):
-            setup_perf(worker_metadata)
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""
         try:
             self.stage.teardown()
         finally:
-            try:
-                from nemo_curator.utils.stage_perf_collector import flush_stage_perf_records
+            from nemo_curator.utils.stage_perf_collector import flush_stage_perf_records
 
-                flush_stage_perf_records(self.stage)
-            finally:
-                teardown_perf = getattr(self, "_teardown_performance_telemetry", None)
-                if callable(teardown_perf):
-                    teardown_perf()
+            flush_stage_perf_records(self.stage)

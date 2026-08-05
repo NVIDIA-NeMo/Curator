@@ -47,6 +47,11 @@ class _Stage(ProcessingStage):
         return task
 
 
+class _ReportStage(_Stage):
+    def requests_performance_records(self) -> bool:
+        return True
+
+
 def test_record_stage_perf_is_noop_without_collector() -> None:
     assert (
         record_stage_perf(
@@ -134,8 +139,7 @@ def test_collector_start_failure_cleans_created_spool(tmp_path: Path) -> None:
     spool_dir = tmp_path / "spool"
     spool_dir.mkdir()
     spool_path = spool_dir / "records.jsonl"
-    stage = _Stage()
-    stage.extended_performance_metrics = True
+    stage = _ReportStage()
     runtime_context = MagicMock()
     runtime_context.get_node_id.return_value = "a" * 56
 
@@ -153,8 +157,7 @@ def test_collector_start_failure_cleans_created_spool(tmp_path: Path) -> None:
 
 @pytest.mark.usefixtures("shared_ray_client")
 def test_collector_returns_disk_backed_record_store() -> None:
-    stage = _Stage()
-    stage.extended_performance_metrics = True
+    stage = _ReportStage()
     collector = start_stage_perf_collector([stage])
     assert collector is not None
 

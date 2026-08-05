@@ -85,13 +85,12 @@ single GPU-count setting and the stage derives tensor parallelism from it.
 
 ## Raw performance report
 
-The Qwen ASR stage enables `extended_performance_metrics`, which starts one
-run-scoped collector for the whole pipeline. The JSON at
-`performance_report_path` therefore contains the complete invocation records
+Setting `performance_report_path` on the terminal manifest writer starts one
+run-scoped collector for the whole pipeline. The resulting JSON therefore
+contains the complete invocation records
 from the reader, resampler, ASR, and manifest writer stages. Each record
 includes its stable stage and invocation IDs, timing window, item count,
-serialized manifest-payload byte count, custom metrics, and any worker or GPU
-identity supplied by the active backend.
+serialized manifest-payload byte count, and custom metrics.
 
 Override the destination like any other Hydra value:
 
