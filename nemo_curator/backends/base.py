@@ -37,6 +37,7 @@ from nemo_curator.utils.resumability_client import (
 
 if TYPE_CHECKING:
     from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
 
 
 def _is_sentinel(task: Task) -> bool:
@@ -70,7 +71,7 @@ class BaseExecutor(ABC):
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         self.config = config or {}
         self.ignore_head_node = ignore_head_node or ignore_ray_head_node()
-        self._external_perf_records: list[Any] = []
+        self._external_perf_records: PerformanceRecordStore | None = None
 
     @abstractmethod
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
@@ -80,9 +81,7 @@ class BaseExecutor(ABC):
     def _start_stage_perf_collector(stages: list["ProcessingStage"]) -> Any | None:  # noqa: ANN401
         """Start the run-scoped collector when performance collection is enabled."""
         report_required = any(
-            (callable(request := getattr(stage, "requests_performance_records", None)) and request())
-            or bool(getattr(stage, "write_perf_stats", False))
-            for stage in stages
+            callable(request := getattr(stage, "requests_performance_records", None)) and request() for stage in stages
         )
         try:
             from nemo_curator.utils.stage_perf_collector import start_stage_perf_collector
@@ -107,9 +106,7 @@ class BaseExecutor(ABC):
         keep_records: bool,
     ) -> None:
         report_required = keep_records and any(
-            (callable(request := getattr(stage, "requests_performance_records", None)) and request())
-            or bool(getattr(stage, "write_perf_stats", False))
-            for stage in stages
+            callable(request := getattr(stage, "requests_performance_records", None)) and request() for stage in stages
         )
         try:
             from nemo_curator.utils.stage_perf_collector import stop_stage_perf_collector
@@ -130,12 +127,14 @@ class BaseExecutor(ABC):
             cleanup = getattr(record_store, "cleanup", None)
             if callable(cleanup):
                 cleanup()
-            self._external_perf_records = []
+            self._external_perf_records = None
 
-    def consume_external_perf_records(self) -> Any:  # noqa: ANN401
+    def consume_external_perf_records(self) -> "PerformanceRecordStore":
         """Return and clear the authoritative invocation records for this run."""
-        records, self._external_perf_records = self._external_perf_records, []
-        return records
+        from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
+
+        records, self._external_perf_records = self._external_perf_records, None
+        return records if records is not None else PerformanceRecordStore()
 
 
 class BaseStageAdapter:
@@ -144,7 +143,7 @@ class BaseStageAdapter:
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
 
-    def process_batch(self, tasks: list[Task]) -> list[Task]:  # noqa: C901
+    def process_batch(self, tasks: list[Task]) -> list[Task]:  # noqa: C901, PLR0912
         """Process a batch of tasks.
 
         Args:
@@ -221,17 +220,21 @@ class BaseStageAdapter:
         custom_metrics = self.stage._consume_custom_metrics()
         if custom_metrics:
             stage_perf_stats.custom_metrics.update(custom_metrics)
-        for task in results:
-            task.add_stage_perf(stage_perf_stats)
+        # Without a run-scoped collector, preserve the legacy task-attached path.
+        # With collection enabled, the collector is authoritative: copying the
+        # same invocation onto every fan-out output would multiply memory and
+        # serialization cost and invite consumers to over-count one call.
+        if not capture_metrics:
+            for task in results:
+                task.add_stage_perf(stage_perf_stats)
         if capture_metrics:
             try:
                 from nemo_curator.utils.stage_perf_collector import record_stage_perf
 
-                record_stage_perf(
-                    self.stage,
-                    stage_perf_stats,
-                    attached_to_output=bool(results),
-                )
+                # Publish once per process_batch invocation, outside the output
+                # loop. Publishing per output would over-estimate time, bytes,
+                # items, and custom metrics whenever one input fans out.
+                record_stage_perf(self.stage, stage_perf_stats)
             except Exception as exc:
                 if bool(getattr(self.stage, "_curator_stage_perf_report_required", False)):
                     msg = f"Required stage performance collector publish failed for {self.stage.name}: {exc}"

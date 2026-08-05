@@ -76,7 +76,7 @@ class RayDataExecutor(BaseExecutor):
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
         tasks: list[Task] = initial_tasks or [EmptyTask()]
         output_tasks: list[Task] = []
-        self._external_perf_records = []
+        self._external_perf_records = None
         stage_perf_collector = None
         # When runtime_env with pip is used, Ray's pip plugin sets up per-stage virtualenvs
         # lazily on first task dispatch by cloning the current virtualenv. The NeMo Curator

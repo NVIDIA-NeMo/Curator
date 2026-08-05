@@ -146,7 +146,7 @@ class XennaExecutor(BaseExecutor):
         # Log pipeline configuration
         logger.info(f"Execution mode: {exec_mode.name}")
 
-        self._external_perf_records = []
+        self._external_perf_records = None
         stage_perf_collector = None
         try:
             register_loguru_serializer()

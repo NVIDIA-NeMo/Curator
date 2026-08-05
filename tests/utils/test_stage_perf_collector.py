@@ -57,7 +57,6 @@ def test_record_stage_perf_is_noop_without_collector() -> None:
         record_stage_perf(
             _Stage(),
             StagePerfStats(stage_name="stage"),
-            attached_to_output=False,
         )
         is False
     )
@@ -75,13 +74,12 @@ def test_record_stage_perf_batches_acknowledgements_and_caches_actor_handle() ->
         side_effect=lambda refs: acknowledged_batches.append(list(refs)),
     ) as ray_get:
         for _ in range(MAX_PENDING_RECORDS - 1):
-            assert record_stage_perf(stage, StagePerfStats(stage_name="stage"), attached_to_output=True)
+            assert record_stage_perf(stage, StagePerfStats(stage_name="stage"))
         ray_get.assert_not_called()
         assert (
             record_stage_perf(
                 stage,
                 StagePerfStats(stage_name="stage"),
-                attached_to_output=True,
             )
             is True
         )
@@ -113,7 +111,7 @@ def test_required_publish_failure_is_not_silenced() -> None:
     setattr(stage, COLLECTOR_REQUIRED_ATTR, True)
 
     with pytest.raises(RuntimeError, match="Required stage performance publication failed"):
-        record_stage_perf(stage, StagePerfStats(stage_name="stage"), attached_to_output=False)
+        record_stage_perf(stage, StagePerfStats(stage_name="stage"))
 
 
 def test_required_finish_failure_is_not_silenced(tmp_path: Path) -> None:
@@ -164,7 +162,6 @@ def test_collector_returns_disk_backed_record_store() -> None:
     assert record_stage_perf(
         stage,
         StagePerfStats(stage_name="stage", invocation_id="invocation-1"),
-        attached_to_output=False,
     )
     record_store = stop_stage_perf_collector(collector, [stage])
 

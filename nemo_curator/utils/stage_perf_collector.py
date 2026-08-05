@@ -169,7 +169,7 @@ class _StagePerfCollector:
     def ready(self) -> bool:
         return True
 
-    def record(self, perf_stats: StagePerfStats, _attached_to_output: bool) -> None:
+    def record(self, perf_stats: StagePerfStats) -> None:
         try:
             self._spool.record(perf_stats)
         except Exception as exc:  # noqa: BLE001
@@ -191,8 +191,6 @@ def performance_report_requested(stages: list[ProcessingStage]) -> bool:
     for stage in stages:
         request_records = getattr(stage, "requests_performance_records", None)
         if callable(request_records) and request_records():
-            return True
-        if bool(getattr(stage, "write_perf_stats", False)):
             return True
     return False
 
@@ -235,8 +233,6 @@ def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any | None:  # 
 def record_stage_perf(
     stage: ProcessingStage,
     perf_stats: StagePerfStats,
-    *,
-    attached_to_output: bool,
 ) -> bool:
     """Publish asynchronously, acknowledging records in bounded batches."""
     collector = getattr(stage, COLLECTOR_ACTOR_ATTR, None)
@@ -251,7 +247,7 @@ def record_stage_perf(
     try:
         if collector is None:
             collector = ray.get_actor(collector_name)
-        pending_records.append(collector.record.remote(perf_stats, attached_to_output))
+        pending_records.append(collector.record.remote(perf_stats))
         if len(pending_records) >= MAX_PENDING_RECORDS:
             ray.get(pending_records)
             pending_records.clear()
