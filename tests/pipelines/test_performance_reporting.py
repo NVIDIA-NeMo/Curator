@@ -12,9 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+from pathlib import Path
+
+import pytest
+
+from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.audio.common import ManifestWriterStage
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import Task
+from nemo_curator.tasks import AudioTask, Task
 from nemo_curator.utils.performance_utils import StagePerfStats
 
 
@@ -82,3 +90,29 @@ def test_pipeline_assigns_stable_ids_and_fans_out_one_record_drain() -> None:
     assert len(records) == 1
     assert wall_time_s >= 0.0
     assert executor.records == []
+
+
+@pytest.mark.parametrize(
+    "executor",
+    [
+        pytest.param(RayDataExecutor(), id="ray-data"),
+        pytest.param(XennaExecutor(config={"execution_mode": "batch"}), id="xenna"),
+    ],
+)
+@pytest.mark.usefixtures("shared_ray_client")
+def test_report_path_alone_collects_records_end_to_end(executor: object, tmp_path: Path) -> None:
+    report_path = tmp_path / "performance.json"
+    writer = ManifestWriterStage(
+        output_path=str(tmp_path / "manifest.jsonl"),
+        performance_report_path=str(report_path),
+    )
+    pipeline = Pipeline(name="path-only", stages=[writer])
+
+    pipeline.run(
+        executor=executor,  # type: ignore[arg-type]
+        initial_tasks=[AudioTask(dataset_name="test", data={"text": "payload"})],
+    )
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["record_count"] >= 1
+    assert report["records"]

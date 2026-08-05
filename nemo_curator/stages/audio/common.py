@@ -14,6 +14,7 @@
 
 import json
 import os
+import posixpath
 import time
 from dataclasses import dataclass, field
 from operator import eq, ge, gt, le, lt, ne
@@ -22,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 import soundfile
 import torch
 from fsspec.core import url_to_fs
+from fsspec.implementations.local import LocalFileSystem
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -33,10 +35,40 @@ from nemo_curator.stages.audio.metrics.performance import _valid_audio_duration
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
-from nemo_curator.utils.file_utils import write_json_file
+from nemo_curator.utils.file_utils import write_json_file_streaming_array
 
 if TYPE_CHECKING:
+    import fsspec
+
     from nemo_curator.utils.performance_utils import StagePerfStats
+
+
+def _normalized_filesystem_path(fs: "fsspec.AbstractFileSystem", path: str) -> str:
+    if isinstance(fs, LocalFileSystem):
+        return os.path.realpath(os.path.abspath(path))
+    return posixpath.normpath(path)
+
+
+def _same_filesystem_path(left_url: str, right_url: str) -> bool:
+    """Return whether two URLs identify the same normalized fsspec destination."""
+    left_fs, left_path = url_to_fs(left_url)
+    right_fs, right_path = url_to_fs(right_url)
+    same_filesystem = left_fs is right_fs or (
+        type(left_fs) is type(right_fs)
+        and left_fs.protocol == right_fs.protocol
+        and left_fs.storage_options == right_fs.storage_options
+    )
+    return same_filesystem and _normalized_filesystem_path(left_fs, left_path) == _normalized_filesystem_path(
+        right_fs, right_path
+    )
+
+
+def _append_slurm_shard_suffix(path: str, shard_index: int, total_shards: int) -> str:
+    """Derive a deterministic per-shard filename without changing its directory."""
+    parent, filename = posixpath.split(path)
+    stem, suffix = posixpath.splitext(filename)
+    sharded_filename = f"{stem}.shard-{shard_index:05d}-of-{total_shards:05d}{suffix}"
+    return posixpath.join(parent, sharded_filename) if parent else sharded_filename
 
 
 def get_audio_duration(audio_filepath: str) -> float:
@@ -296,6 +328,15 @@ class ManifestWriterStage(TerminalAudioPerformanceWriterMixin, ProcessingStage[A
             msg = "output_path is required for ManifestWriterStage"
             raise ValueError(msg)
         self._reset_writer_metrics()
+        if self.performance_report_path is not None and _same_filesystem_path(
+            self.output_path, self.performance_report_path
+        ):
+            msg = "performance_report_path must not resolve to the manifest output_path"
+            raise ValueError(msg)
+
+    def requests_performance_records(self) -> bool:
+        """A configured raw report requires complete invocation collection."""
+        return self.performance_report_path is not None
 
     def _prepare_output_path(self) -> None:
         self._fs, self._path = url_to_fs(self.output_path)
@@ -380,7 +421,15 @@ class ManifestWriterStage(TerminalAudioPerformanceWriterMixin, ProcessingStage[A
         if self.performance_report_path is None:
             return
         report_fs, report_path = url_to_fs(self.performance_report_path)
-        write_json_file(
+        shard_index = self._curator_slurm_array_shard_index
+        total_shards = self._curator_slurm_array_total_shards
+        if shard_index is not None and total_shards is not None:
+            report_path = _append_slurm_shard_suffix(report_path, shard_index, total_shards)
+        iter_dicts = getattr(performance_records, "iter_dicts", None)
+        record_dicts = (
+            iter_dicts() if callable(iter_dicts) else (record.to_extended_dict() for record in performance_records)
+        )
+        write_json_file_streaming_array(
             report_path,
             {
                 "schema_version": 1,
@@ -390,11 +439,17 @@ class ManifestWriterStage(TerminalAudioPerformanceWriterMixin, ProcessingStage[A
                 "pipeline": self._curator_pipeline_metadata or {},
                 "wall_time_s": wall_time_s,
                 "record_count": len(performance_records),
-                "records": [record.to_extended_dict() for record in performance_records],
+                "slurm_array": (
+                    {"shard_index": shard_index, "total_shards": total_shards}
+                    if shard_index is not None and total_shards is not None
+                    else None
+                ),
             },
-            report_fs,
+            array_key="records",
+            items=record_dicts,
+            fs=report_fs,
         )
-        logger.info(f"ManifestWriterStage: wrote performance report to {self.performance_report_path}")
+        logger.info(f"ManifestWriterStage: wrote performance report to {report_path}")
 
     def num_workers(self) -> int | None:
         return 1

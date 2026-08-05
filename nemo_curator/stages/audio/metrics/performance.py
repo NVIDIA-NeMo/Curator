@@ -24,8 +24,6 @@ from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
-from nemo_curator.utils.performance_utils import norm_gpu_uuid
-
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -38,6 +36,12 @@ DEFAULT_PERCENTILES = (50, 95)
 
 def _gpu_sample_base(key: str) -> str:
     return key.split("::", 1)[0]
+
+
+def _normalized_gpu_uuid(value: object) -> str:
+    """Match backend-emitted metric suffixes without importing backend code."""
+    text = value.decode() if isinstance(value, bytes) else str(value)
+    return text.strip().lower().removeprefix("gpu-")
 
 
 def seconds_to_hours(seconds: float) -> float:
@@ -562,8 +566,8 @@ class AudioPerformanceSummary:
             return
         gpu_indices = list(getattr(perf, "gpu_indices", None) or [])
         gpu_uuids = list(getattr(perf, "gpu_uuids", None) or [])
-        uuid_to_index = {norm_gpu_uuid(u): idx for u, idx in zip(gpu_uuids, gpu_indices, strict=False)}
-        uuid_to_raw = {norm_gpu_uuid(u): u for u in gpu_uuids}
+        uuid_to_index = {_normalized_gpu_uuid(u): idx for u, idx in zip(gpu_uuids, gpu_indices, strict=False)}
+        uuid_to_raw = {_normalized_gpu_uuid(u): u for u in gpu_uuids}
         for key, value in custom.items():
             base = _gpu_sample_base(key)
             if base not in _GPU_SAMPLE_KEYS or "::" not in key:
