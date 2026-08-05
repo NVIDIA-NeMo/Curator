@@ -47,9 +47,11 @@ computes:
 ## Autoscaler — actor pool scaling (Actor stages only)
 
 **This section applies to Actor stages only** — stages that override `setup()` or
-request GPU resources. In Curator these are model inference stages (vLLM, NeMo).
-Task stages (stateless, CPU-only readers/filters/writers) use `TaskPoolStrategy`
-with fixed concurrency set by `num_workers()`. They have no ramp-up cost, no actor pool autoscaling complexity, and
+request both GPU and CPU resources. In Curator these are model inference stages (vLLM, NeMo).
+Task stages (stateless, CPU-only readers/filters/writers) use `TaskPoolStrategy`.
+If `num_workers()` is set, concurrency is capped at that value; otherwise the pool
+is uncapped (bounded only by backpressure policies). They have no ramp-up cost,
+no actor pool autoscaling complexity, and
 General Rules 1–4 below do not apply to them. Note: Task stages still
 participate in the resource budget system (they consume CPU from the shared
 pool) but the autoscaler never fires for them.
@@ -449,6 +451,6 @@ Curator wrapper and require setting `DataContext` directly before pipeline execu
 | Scale-up threshold | `DataContext.get_current().autoscaling_config.actor_pool_util_upscaling_threshold` or `RAY_DATA_DEFAULT_ACTOR_POOL_UTIL_UPSCALING_THRESHOLD` | Utilization threshold to trigger scale-up (default `1.75`) |
 | Scale-down threshold | `DataContext.get_current().autoscaling_config.actor_pool_util_downscaling_threshold` or `RAY_DATA_DEFAULT_ACTOR_POOL_UTIL_DOWNSCALING_THRESHOLD` | Utilization threshold to trigger scale-down (default `0.5`) |
 | Max actors per tick | `DataContext.get_current().autoscaling_config.actor_pool_max_upscaling_delta` or `RAY_DATA_DEFAULT_ACTOR_POOL_MAX_UPSCALING_DELTA` | Max actors added per scheduling tick (default `1`) |
-| Reserved fraction | `DataContext.get_current().op_resource_reservation_ratio` or `RAY_DATA_OP_RESERVATION_RATIO` | Fraction of CPUs reserved per operator vs. shared pool (default `0.5`) |
+| Reserved fraction | `DataContext.get_current().op_resource_reservation_ratio` or `RAY_DATA_OP_RESERVATION_RATIO` | Fraction of total resources (CPU, GPU, object store, heap) reserved per operator vs. shared pool (default `0.5`) |
 | Downstream capacity ratio | `DataContext.get_current().downstream_capacity_backpressure_ratio` or `RAY_DATA_DOWNSTREAM_CAPACITY_BACKPRESSURE_RATIO` | Queue/capacity ratio threshold before upstream is throttled (default `10.0`) |
 | Object store utilization threshold | `RAY_DATA_DOWNSTREAM_CAPACITY_OBJECT_STORE_BUDGET_UTIL_THRESHOLD` | Object store utilization fraction above which downstream capacity backpressure becomes active (default `0.5`). Lower this for pipelines with large blocks to apply backpressure sooner. |
