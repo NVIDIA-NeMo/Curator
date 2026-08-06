@@ -80,20 +80,19 @@ class BaseExecutor(ABC):
     @staticmethod
     def _start_stage_perf_collector(stages: list["ProcessingStage"]) -> Any | None:  # noqa: ANN401
         """Start the run-scoped collector when performance collection is enabled."""
-        report_required = any(
-            callable(request := getattr(stage, "requests_performance_records", None)) and request() for stage in stages
+        from nemo_curator.utils.stage_perf_collector import (
+            performance_report_requested,
+            start_stage_perf_collector,
         )
-        try:
-            from nemo_curator.utils.stage_perf_collector import start_stage_perf_collector
 
+        if not performance_report_requested(stages):
+            return None
+        try:
             collector = start_stage_perf_collector(stages)
         except Exception as exc:
-            if report_required:
-                msg = f"Required stage performance collector failed to start: {exc}"
-                raise RuntimeError(msg) from exc
-            logger.debug("Stage performance collector disabled: {}", exc)
-            return None
-        if report_required and collector is None:
+            msg = f"Required stage performance collector failed to start: {exc}"
+            raise RuntimeError(msg) from exc
+        if collector is None:
             msg = "Required stage performance collector did not start"
             raise RuntimeError(msg)
         return collector
@@ -105,9 +104,7 @@ class BaseExecutor(ABC):
         *,
         keep_records: bool,
     ) -> None:
-        report_required = keep_records and any(
-            callable(request := getattr(stage, "requests_performance_records", None)) and request() for stage in stages
-        )
+        report_required = bool(keep_records and collector is not None and getattr(collector, "report_required", False))
         try:
             from nemo_curator.utils.stage_perf_collector import stop_stage_perf_collector
 

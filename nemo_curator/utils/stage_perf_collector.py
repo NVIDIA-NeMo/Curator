@@ -195,18 +195,10 @@ def performance_report_requested(stages: list[ProcessingStage]) -> bool:
     return False
 
 
-def performance_collection_enabled(stages: list[ProcessingStage]) -> bool:
-    """Return whether a terminal consumer requests complete invocation records."""
-    return performance_report_requested(stages)
-
-
-def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any | None:  # noqa: ANN401
-    """Start one collector when a terminal consumer requests complete records."""
-    if not performance_collection_enabled(stages):
-        return None
+def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any:  # noqa: ANN401
+    """Start one collector after the executor has resolved that a report is required."""
     name = f"curator-stage-perf-{uuid.uuid4().hex}"
     spool_path = _new_spool_path()
-    report_required = performance_report_requested(stages)
     collector = None
     try:
         driver_node_id = ray.get_runtime_context().get_node_id()
@@ -214,7 +206,7 @@ def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any | None:  # 
             name=name,
             scheduling_strategy=NodeAffinitySchedulingStrategy(driver_node_id, soft=False),
         ).remote(spool_path)
-        handle = _StagePerfCollectorHandle(actor=collector, spool_path=spool_path, report_required=report_required)
+        handle = _StagePerfCollectorHandle(actor=collector, spool_path=spool_path, report_required=True)
         ray.get(handle.actor.ready.remote())
     except Exception:
         if collector is not None:
@@ -226,7 +218,7 @@ def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any | None:  # 
         setattr(stage, COLLECTOR_NAME_ATTR, name)
         setattr(stage, COLLECTOR_ACTOR_ATTR, collector)
         setattr(stage, COLLECTOR_PENDING_ATTR, [])
-        setattr(stage, COLLECTOR_REQUIRED_ATTR, report_required)
+        setattr(stage, COLLECTOR_REQUIRED_ATTR, True)
     return handle
 
 

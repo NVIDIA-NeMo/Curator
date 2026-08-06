@@ -15,13 +15,16 @@
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.stages.base import CompositeStage, ProcessingStage, StageInputSpecs
 from nemo_curator.tasks import EmptyTask, Task
+
+if TYPE_CHECKING:
+    from nemo_curator.backends.slurm_array import SlurmArrayConfig
 
 
 def _append_input_requirements(lines: list[str], input_specs: StageInputSpecs) -> None:
@@ -146,13 +149,15 @@ class Pipeline:
         for stage_index, stage in enumerate(self.stages):
             stage._curator_stage_id = f"{stage_index:03d}:{stage.name}"
 
-    def _set_execution_context(self, executor: BaseExecutor) -> None:
-        """Stamp one run's driver-owned identity onto every planned stage."""
+    def _build_performance_report_context(
+        self,
+        executor: BaseExecutor,
+        slurm_array: "SlurmArrayConfig | None",
+    ) -> dict[str, Any]:
+        """Build driver-owned context passed directly to the report consumer."""
         # This identity belongs to one Curator Pipeline.run() call. Generate it
         # here instead of accepting ambient process state that Curator does not
         # own or validate.
-        run_id = uuid.uuid4().hex
-        executor_name = type(executor).__name__
         pipeline_metadata = {
             "pipeline_name": self.name,
             "pipeline_description": self.description or "",
@@ -167,10 +172,17 @@ class Pipeline:
                 for stage in self.stages
             ],
         }
-        for stage in self.stages:
-            stage._curator_run_id = run_id
-            stage._curator_executor = executor_name
-            stage._curator_pipeline_metadata = pipeline_metadata
+        return {
+            "pipeline_name": self.name,
+            "run_id": uuid.uuid4().hex,
+            "executor": type(executor).__name__,
+            "pipeline": pipeline_metadata,
+            "slurm_array": (
+                {"shard_index": slurm_array.shard_index, "total_shards": slurm_array.total_shards}
+                if slurm_array is not None
+                else None
+            ),
+        }
 
     def _assign_source_sink_roles(self) -> None:
         explicit_sources = [s for s in self.stages if s.is_source_stage]
@@ -320,7 +332,6 @@ class Pipeline:
             from nemo_curator.backends.xenna import XennaExecutor
 
             executor = XennaExecutor()
-        self._set_execution_context(executor)
 
         from nemo_curator.core.serve import is_inference_server_active
 
@@ -357,9 +368,6 @@ class Pipeline:
         )
 
         slurm_array = SlurmArrayConfig.from_env()
-        for stage in self.stages:
-            stage._curator_slurm_array_shard_index = slurm_array.shard_index if slurm_array is not None else None
-            stage._curator_slurm_array_total_shards = slurm_array.total_shards if slurm_array is not None else None
         completion_manifest = None
         if slurm_array is not None:
             is_driver = is_slurm_array_driver_process()
@@ -380,6 +388,9 @@ class Pipeline:
             ),
             None,
         )
+        performance_report_context = (
+            self._build_performance_report_context(executor, slurm_array) if performance_consumer is not None else None
+        )
         if performance_consumer is not None:
             prepare_report = getattr(performance_consumer, "prepare_performance_report", None)
             if callable(prepare_report):
@@ -393,12 +404,11 @@ class Pipeline:
         wall_time_s = max(time.perf_counter() - run_started_s, 0.0)
 
         self.performance_records = executor.consume_external_perf_records()
-        output_tasks = result if isinstance(result, list) else []
         if performance_consumer is not None:
             performance_consumer.finalize_performance_report(
-                output_tasks,
                 performance_records=self.performance_records,
                 wall_time_s=wall_time_s,
+                report_context=performance_report_context,
             )
         if completion_manifest is not None:
             if failed_task_manifest_exists():

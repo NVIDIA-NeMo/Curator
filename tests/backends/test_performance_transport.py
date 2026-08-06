@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask, Task
+from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
 
 
 class _Stage(ProcessingStage[Task, Task]):
@@ -71,6 +72,26 @@ def test_required_collector_start_failure_is_not_silenced() -> None:
         pytest.raises(RuntimeError, match="Required stage performance collector failed to start"),
     ):
         _Executor._start_stage_perf_collector([_RequiredReportStage()])
+
+
+def test_executor_resolves_report_request_once_for_start_and_stop() -> None:
+    executor = _Executor()
+    handle = MagicMock(report_required=True)
+    with (
+        patch(
+            "nemo_curator.utils.stage_perf_collector.performance_report_requested",
+            return_value=True,
+        ) as requested,
+        patch("nemo_curator.utils.stage_perf_collector.start_stage_perf_collector", return_value=handle),
+        patch(
+            "nemo_curator.utils.stage_perf_collector.stop_stage_perf_collector",
+            return_value=PerformanceRecordStore(),
+        ),
+    ):
+        collector = executor._start_stage_perf_collector([_RequiredReportStage()])
+        executor._stop_stage_perf_collector(collector, [_RequiredReportStage()], keep_records=True)
+
+    requested.assert_called_once()
 
 
 def test_audio_input_byte_count_is_independent_of_item_count() -> None:

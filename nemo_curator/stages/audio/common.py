@@ -335,15 +335,16 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     def finalize_performance_report(
         self,
-        _tasks: list[AudioTask],
         *,
         performance_records: list["StagePerfStats"],
         wall_time_s: float,
+        report_context: dict[str, Any],
     ) -> None:
         """Write all driver-collected invocation metrics through the existing writer."""
         self._write_raw_performance_report(
             performance_records=performance_records,
             wall_time_s=wall_time_s,
+            report_context=report_context,
         )
 
     def _write_raw_performance_report(
@@ -351,13 +352,15 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         *,
         performance_records: list["StagePerfStats"],
         wall_time_s: float,
+        report_context: dict[str, Any],
     ) -> None:
         """Persist the raw report so specialized writers can reuse the contract."""
         if self.performance_report_path is None:
             return
         report_fs, report_path = url_to_fs(self.performance_report_path)
-        shard_index = self._curator_slurm_array_shard_index
-        total_shards = self._curator_slurm_array_total_shards
+        slurm_array = report_context["slurm_array"]
+        shard_index = slurm_array["shard_index"] if slurm_array is not None else None
+        total_shards = slurm_array["total_shards"] if slurm_array is not None else None
         if shard_index is not None and total_shards is not None:
             report_path = _append_slurm_shard_suffix(report_path, shard_index, total_shards)
         iter_dicts = getattr(performance_records, "iter_dicts", None)
@@ -368,17 +371,9 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             report_path,
             {
                 "schema_version": 1,
-                "pipeline_name": str((self._curator_pipeline_metadata or {}).get("pipeline_name", "")),
-                "run_id": self._curator_run_id,
-                "executor": self._curator_executor,
-                "pipeline": self._curator_pipeline_metadata or {},
+                **report_context,
                 "wall_time_s": wall_time_s,
                 "record_count": len(performance_records),
-                "slurm_array": (
-                    {"shard_index": shard_index, "total_shards": total_shards}
-                    if shard_index is not None and total_shards is not None
-                    else None
-                ),
             },
             array_key="records",
             items=record_dicts,

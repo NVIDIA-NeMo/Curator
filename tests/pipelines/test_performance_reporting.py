@@ -32,7 +32,7 @@ class _TerminalConsumer(ProcessingStage[Task, Task]):
 
     def __init__(self) -> None:
         self.prepared = False
-        self.finalized: tuple[list[Task], list[StagePerfStats], float] | None = None
+        self.finalized: tuple[list[StagePerfStats], float, dict[str, object]] | None = None
 
     def process(self, task: Task) -> Task:
         return task
@@ -42,12 +42,12 @@ class _TerminalConsumer(ProcessingStage[Task, Task]):
 
     def finalize_performance_report(
         self,
-        tasks: list[Task],
         *,
         performance_records: list[StagePerfStats],
         wall_time_s: float,
+        report_context: dict[str, object],
     ) -> None:
-        self.finalized = (tasks, performance_records, wall_time_s)
+        self.finalized = (performance_records, wall_time_s, report_context)
 
 
 class _Executor:
@@ -88,11 +88,13 @@ def test_pipeline_assigns_stable_ids_and_fans_out_one_record_drain() -> None:
     assert first.prepared is False
     assert terminal.prepared is True
     assert terminal.finalized is not None
-    tasks, records, wall_time_s = terminal.finalized
-    assert tasks == []
+    records, wall_time_s, report_context = terminal.finalized
     assert records is pipeline.performance_records
     assert len(records) == 1
     assert wall_time_s >= 0.0
+    assert report_context["pipeline_name"] == "performance"
+    assert report_context["executor"] == "_Executor"
+    assert report_context["slurm_array"] is None
     assert executor.records is None
 
 

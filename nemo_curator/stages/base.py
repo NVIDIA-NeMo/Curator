@@ -127,11 +127,6 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     runtime_env: ClassVar[dict[str, Any] | None] = None
     # Framework-owned execution identity populated by ``Pipeline``.
     _curator_stage_id: str = ""
-    _curator_run_id: str = ""
-    _curator_executor: str = ""
-    _curator_pipeline_metadata: dict[str, Any] | None = None
-    _curator_slurm_array_shard_index: int | None = None
-    _curator_slurm_array_total_shards: int | None = None
 
     # Source / sink role flags. User-overridable on the stage class or
     # instance. If neither is set explicitly on any stage in the pipeline,
