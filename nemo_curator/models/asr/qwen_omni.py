@@ -27,7 +27,7 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.utils.vllm_utils import create_vllm_llm, merge_vllm_kwargs, validate_vllm_kwargs
+from nemo_curator.utils.vllm_utils import create_vllm_llm, merge_vllm_kwargs
 
 if TYPE_CHECKING:
     import numpy as np
@@ -153,11 +153,6 @@ class QwenOmniASRAdapter:
             raise ValueError(msg)
         self.vllm_kwargs = deepcopy(dict(self.vllm_kwargs))
         self.sampling_kwargs = deepcopy(dict(self.sampling_kwargs))
-        validate_vllm_kwargs(
-            self.vllm_kwargs,
-            self._stage_owned_vllm_kwargs(num_gpus=None),
-            owner_description="stage-owned arguments",
-        )
         if "max_tokens" in self.sampling_kwargs:
             msg = "sampling_kwargs cannot override adapter-owned max_tokens; use max_output_tokens"
             raise ValueError(msg)

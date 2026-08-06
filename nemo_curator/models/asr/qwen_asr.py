@@ -35,7 +35,7 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.utils.vllm_utils import merge_vllm_kwargs, validate_vllm_kwargs
+from nemo_curator.utils.vllm_utils import merge_vllm_kwargs
 
 _DEFAULT_QWEN3_ASR_MODEL = "Qwen/Qwen3-ASR-0.6B"
 
@@ -129,11 +129,6 @@ class QwenASRAdapter:
             )
             raise ValueError(msg)
         self.vllm_kwargs = deepcopy(dict(self.vllm_kwargs))
-        validate_vllm_kwargs(
-            self.vllm_kwargs,
-            self._model_owned_vllm_kwargs(),
-            owner_description="adapter-owned arguments",
-        )
 
     def _model_owned_vllm_kwargs(self) -> dict[str, Any]:
         """Return the qwen-asr constructor arguments owned by this adapter."""

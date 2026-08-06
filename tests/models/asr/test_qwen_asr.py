@@ -120,8 +120,10 @@ def test_qwen_adapter_copies_nested_vllm_kwargs() -> None:
     ],
 )
 def test_qwen_adapter_rejects_adapter_owned_vllm_kwargs(reserved_key: str) -> None:
+    adapter = QwenASRAdapter(vllm_kwargs={reserved_key: object()})
+
     with pytest.raises(ValueError, match="cannot override adapter-owned arguments"):
-        QwenASRAdapter(vllm_kwargs={reserved_key: object()})
+        adapter.load_model(num_gpus=1)
 
 
 def test_download_weights_on_node_downloads_snapshot_without_constructing_model() -> None:
