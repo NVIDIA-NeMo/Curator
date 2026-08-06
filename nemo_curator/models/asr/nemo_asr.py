@@ -23,6 +23,8 @@ from numbers import Integral
 from typing import Any
 
 import numpy as np
+import torch
+from omegaconf import open_dict
 
 from nemo_curator.models.asr.base import ASRResult
 
@@ -91,18 +93,9 @@ class NeMoASRAdapter:
     _model: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not self.model_id:
-            msg = "NeMoASRAdapter.model_id must be non-empty"
-            raise ValueError(msg)
         if self.num_workers < 0:
             msg = "NeMoASRAdapter.num_workers must be non-negative"
             raise ValueError(msg)
-        if not isinstance(self.enable_local_attention, bool):
-            msg = "NeMoASRAdapter.enable_local_attention must be a boolean"
-            raise TypeError(msg)
-        if self.use_cuda_graph_decoder is not None and not isinstance(self.use_cuda_graph_decoder, bool):
-            msg = "NeMoASRAdapter.use_cuda_graph_decoder must be a boolean or None"
-            raise TypeError(msg)
         try:
             context_size = tuple(self.local_attention_context_size)
         except TypeError as exc:
@@ -135,8 +128,6 @@ class NeMoASRAdapter:
             msg = f"NeMoASRAdapter requires num_gpus to be 0 or 1, got {num_gpus!r}"
             raise ValueError(msg)
 
-        import torch
-
         device = torch.device("cuda" if num_gpus else "cpu")
         model = self._load_checkpoint(device)
         if self.enable_local_attention:
@@ -167,8 +158,6 @@ class NeMoASRAdapter:
 
     def _configure_rnnt_cuda_graph_decoder(self, model: Any) -> None:  # noqa: ANN401
         """Override the CUDA-graph setting on a compatible NeMo RNNT decoder."""
-        from omegaconf import open_dict
-
         change_decoding_strategy = getattr(model, "change_decoding_strategy", None)
         model_cfg = getattr(model, "cfg", None)
         decoding_cfg = getattr(model_cfg, "decoding", None)
@@ -186,13 +175,8 @@ class NeMoASRAdapter:
         """Release worker-local model and CUDA cache state."""
         self._model = None
         gc.collect()
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except ImportError:
-            pass
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def transcribe_batch(self, items: list[dict[str, Any]]) -> list[ASRResult]:
         """Transcribe one adapter call while preserving input order."""

@@ -121,7 +121,7 @@ def create_pipeline_from_yaml(cfg: DictConfig, *, log_config: bool = True) -> Pi
         raise RuntimeError(msg)
 
 
-@hydra.main(version_base=None)
+@hydra.main(version_base=None, config_name="pipeline")
 def main(cfg: DictConfig) -> None:
     ray_client = create_ray_client_from_yaml(cfg)
     ray_client.start()

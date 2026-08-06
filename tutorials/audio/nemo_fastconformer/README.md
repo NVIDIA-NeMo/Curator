@@ -35,7 +35,6 @@ The repository already contains a two-row manifest and two short OPUS files:
 ```bash
 python nemo_curator/config/run.py \
   --config-path ../../tutorials/audio/nemo_fastconformer \
-  --config-name pipeline \
   manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl \
   output_path=/tmp/nemo_fastconformer_output.jsonl \
   workspace_dir=/tmp/nemo_fastconformer_workspace

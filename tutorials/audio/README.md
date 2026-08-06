@@ -39,7 +39,6 @@ uv sync --extra audio_cuda12 && source .venv/bin/activate
 
 python nemo_curator/config/run.py \
   --config-path ../../tutorials/audio/nemo_fastconformer \
-  --config-name pipeline \
   manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl
 ```
 

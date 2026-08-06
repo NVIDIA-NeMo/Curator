@@ -112,7 +112,7 @@ audio_common = [
     "nemo_toolkit[asr]>=2.7.2; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "soundfile>=0.12.0",
     "torchaudio",
-    "torchcodec==0.11.1; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "onnx>=1.19.0",
     "silero-vad",
     "librosa",
@@ -365,7 +365,7 @@ override-dependencies = [
     "torch==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match vLLM's CUDA requirements; Linux resolves to cu129 via tool.uv.sources
     "torchaudio==2.11.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
     "torchvision==0.26.0; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')", # Match torch==2.11.0
-    "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # pin to torchcodec 0.11.x for torch 2.11 ABI compatibility; torchcodec does not declare a torch dep, so the resolver cannot enforce the match; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
+    "torchcodec~=0.11.0; platform_machine == 'x86_64' and platform_system != 'Darwin'", # TorchCodec 0.11 matches torch 2.11; TorchCodec does not declare a torch dependency, so enforce the ABI-compatible series across direct and transitive requirements; satisfies pyannote-audio's >=0.7.0 floor; x86_64-only since aarch64 lacks wheels
     "nixl-cu12>=0.10.0; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",  # Use the CUDA 12 backend on both supported Linux architectures.
     "xgrammar>=0.1.32", # Override vllm's ==0.1.29 pin to address CVE GHSA-7rgv-gqhr-fxg3 (DoS via multi-layer nesting)
     "sqlfluff>=4.2.0", # Address CVE-2026-46373/46374 (parser DoS); overrides data-designer-engine==0.5.5 sqlfluff<4 cap

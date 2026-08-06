@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -615,3 +617,24 @@ def test_nemo_fastconformer_tutorial_yaml_uses_shared_adapter_contract():
     assert writer.__class__.__name__ == "ManifestWriterStage"
     assert executor.__class__.__name__ == "RayDataExecutor"
     assert executor.config == {}
+
+
+def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
+    repo_root = Path(__file__).parents[2]
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            str(repo_root / "nemo_curator/config/run.py"),
+            "--config-path",
+            "../../tutorials/audio/nemo_fastconformer",
+            "--cfg",
+            "job",
+            "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
+        ],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter" in result.stdout

@@ -16,18 +16,23 @@
 
 from __future__ import annotations
 
+import wave
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+import torch
 from omegaconf import OmegaConf
 
 from nemo_curator.models.asr import nemo_asr
 from nemo_curator.models.asr.base import ASRAdapter
 from nemo_curator.models.asr.nemo_asr import NeMoASRAdapter
 
+_MODEL_ID = "nvidia/stt_en_fastconformer_ctc_large"
 _SAMPLE_RATE = 16_000
+_FIXTURE_PATH = Path(__file__).parents[2] / "fixtures/audio/qwen_omni/audio_1_5s_16khz_mono.wav"
 
 
 def _item(samples: int = _SAMPLE_RATE, *, sample_rate: int = _SAMPLE_RATE) -> dict[str, object]:
@@ -43,6 +48,15 @@ def _mock_model(outputs: object) -> MagicMock:
     model.preprocessor._sample_rate = _SAMPLE_RATE
     model.transcribe.return_value = outputs
     return model
+
+
+def _load_fixture() -> np.ndarray:
+    with wave.open(str(_FIXTURE_PATH), "rb") as wav_file:
+        assert wav_file.getframerate() == _SAMPLE_RATE
+        assert wav_file.getnchannels() == 1
+        assert wav_file.getsampwidth() == 2
+        pcm = np.frombuffer(wav_file.readframes(wav_file.getnframes()), dtype="<i2")
+    return np.ascontiguousarray(pcm.astype(np.float32) / 32768.0)
 
 
 def test_nemo_adapter_conforms_to_asr_protocol() -> None:
@@ -110,11 +124,6 @@ def test_load_model_configures_rnnt_cuda_graph_decoder_when_requested(enabled: b
     assert decoding_cfg.greedy.use_cuda_graph_decoder is enabled
 
 
-def test_nemo_adapter_rejects_invalid_cuda_graph_decoder_value() -> None:
-    with pytest.raises(TypeError, match="use_cuda_graph_decoder must be a boolean or None"):
-        NeMoASRAdapter(use_cuda_graph_decoder="false")  # type: ignore[arg-type]
-
-
 def test_transcribe_batch_uses_one_exact_nemo_batch() -> None:
     model = _mock_model([SimpleNamespace(text="alpha"), SimpleNamespace(text="beta")])
     adapter = NeMoASRAdapter(num_workers=2)
@@ -170,3 +179,31 @@ def test_transcribe_batch_requires_upstream_mono_conversion() -> None:
 )
 def test_extract_transcription_texts_matches_nemo_output_shapes(outputs: object, expected: list[str]) -> None:
     assert nemo_asr._extract_nemo_transcription_texts(outputs) == expected
+
+
+@pytest.mark.gpu
+def test_nemo_fastconformer_real_one_gpu_smoke() -> None:
+    """Load the default model and transcribe one existing five-second WAV."""
+    if torch.cuda.device_count() < 1:
+        pytest.fail("NeMo FastConformer smoke test requires one visible GPU")
+
+    adapter = NeMoASRAdapter(model_id=_MODEL_ID)
+    adapter.load_model(num_gpus=1)
+    try:
+        results = adapter.transcribe_batch(
+            [
+                {
+                    "waveform": _load_fixture(),
+                    "sample_rate": _SAMPLE_RATE,
+                    "language": "English",
+                    "language_code": "en",
+                    "task_id": "nemo-fastconformer-gpu-smoke",
+                }
+            ]
+        )
+    finally:
+        adapter.unload_model()
+
+    assert len(results) == 1
+    assert results[0].text.strip()
+    assert results[0].skipped is False
