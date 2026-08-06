@@ -35,7 +35,7 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.utils.vllm_utils import validate_vllm_kwargs
+from nemo_curator.utils.vllm_utils import merge_vllm_kwargs, validate_vllm_kwargs
 
 _DEFAULT_QWEN3_ASR_MODEL = "Qwen/Qwen3-ASR-0.6B"
 
@@ -43,20 +43,6 @@ _DEFAULT_QWEN3_ASR_MODEL = "Qwen/Qwen3-ASR-0.6B"
 # (100 ms at 16 kHz) is a conservative floor that also matches the Qwen-Omni
 # preprocessing path.
 _MIN_SAMPLES = 1600
-
-_RESERVED_VLLM_KWARGS = frozenset(
-    {
-        "model",
-        "revision",
-        "gpu_memory_utilization",
-        "max_inference_batch_size",
-        "max_new_tokens",
-        "trust_remote_code",
-        "enforce_eager",
-        "enable_prefix_caching",
-        "prefix_caching_hash_algo",
-    }
-)
 
 
 def _qwen_asr_model_cls() -> Any:  # noqa: ANN401
@@ -145,9 +131,23 @@ class QwenASRAdapter:
         self.vllm_kwargs = deepcopy(dict(self.vllm_kwargs))
         validate_vllm_kwargs(
             self.vllm_kwargs,
-            _RESERVED_VLLM_KWARGS,
+            self._model_owned_vllm_kwargs(),
             owner_description="adapter-owned arguments",
         )
+
+    def _model_owned_vllm_kwargs(self) -> dict[str, Any]:
+        """Return the qwen-asr constructor arguments owned by this adapter."""
+        return {
+            "model": self.model_id,
+            "revision": self.revision,
+            "gpu_memory_utilization": self.gpu_memory_utilization,
+            "max_inference_batch_size": self.max_inference_batch_size,
+            "max_new_tokens": self.max_new_tokens,
+            "trust_remote_code": True,
+            "enforce_eager": True,
+            "enable_prefix_caching": True,
+            "prefix_caching_hash_algo": "xxhash",
+        }
 
     @classmethod
     def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
@@ -169,21 +169,13 @@ class QwenASRAdapter:
             self.max_new_tokens,
             self.max_inference_batch_size,
         )
-        model_kwargs = deepcopy(self.vllm_kwargs)
-        model_kwargs.update(
-            {
-                "model": self.model_id,
-                "gpu_memory_utilization": self.gpu_memory_utilization,
-                "max_inference_batch_size": self.max_inference_batch_size,
-                "max_new_tokens": self.max_new_tokens,
-                "trust_remote_code": True,
-                "enforce_eager": True,
-                "enable_prefix_caching": True,
-                "prefix_caching_hash_algo": "xxhash",
-            }
+        model_kwargs = merge_vllm_kwargs(
+            self.vllm_kwargs,
+            self._model_owned_vllm_kwargs(),
+            owner_description="adapter-owned arguments",
         )
-        if self.revision is not None:
-            model_kwargs["revision"] = self.revision
+        if model_kwargs["revision"] is None:
+            del model_kwargs["revision"]
         _patch_transformers_compat()
         try:
             self._model = _qwen_asr_model_cls().LLM(**model_kwargs)

@@ -24,7 +24,12 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 import nemo_curator.utils.vllm_utils as _vllm_utils
-from nemo_curator.utils.vllm_utils import pick_free_port, resolve_local_model_path, validate_vllm_kwargs
+from nemo_curator.utils.vllm_utils import (
+    merge_vllm_kwargs,
+    pick_free_port,
+    resolve_local_model_path,
+    validate_vllm_kwargs,
+)
 
 
 class TestValidateVllmKwargs:
@@ -44,6 +49,32 @@ class TestValidateVllmKwargs:
                 {"revision": "abc123", "model": "org/model"},
                 {"model", "revision"},
                 owner_description="adapter-owned arguments",
+            )
+
+
+class TestMergeVllmKwargs:
+    def test_merges_owned_kwargs_without_mutating_user_kwargs(self) -> None:
+        user_kwargs = {"max_model_len": 8192, "compilation_config": {"cudagraph_mode": "NONE"}}
+
+        merged = merge_vllm_kwargs(
+            user_kwargs,
+            {"model": "org/model", "revision": None},
+            owner_description="adapter-owned arguments",
+        )
+        compilation_config = merged["compilation_config"]
+        assert isinstance(compilation_config, dict)
+        compilation_config["cudagraph_mode"] = "FULL"
+
+        assert merged["model"] == "org/model"
+        assert merged["revision"] is None
+        assert user_kwargs["compilation_config"] == {"cudagraph_mode": "NONE"}
+
+    def test_rejects_owned_key_conflicts(self) -> None:
+        with pytest.raises(ValueError, match="cannot override stage-owned arguments: tensor_parallel_size"):
+            merge_vllm_kwargs(
+                {"tensor_parallel_size": 8},
+                {"model": "org/model", "tensor_parallel_size": 2},
+                owner_description="stage-owned arguments",
             )
 
 

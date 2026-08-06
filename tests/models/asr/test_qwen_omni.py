@@ -117,6 +117,12 @@ def test_qwen_adapter_rejects_invalid_prompt_content_order() -> None:
         QwenOmniASRAdapter(model_id="mock/qwen-omni", prompt_content_order="invalid")
 
 
+@pytest.mark.parametrize("reserved_key", ["model", "revision", "tensor_parallel_size"])
+def test_qwen_adapter_rejects_stage_owned_vllm_kwargs(reserved_key: str) -> None:
+    with pytest.raises(ValueError, match="cannot override stage-owned arguments"):
+        QwenOmniASRAdapter(model_id="mock/qwen-omni", vllm_kwargs={reserved_key: object()})
+
+
 def test_qwen_adapter_defaults_to_audio_only_multimodal_limits() -> None:
     adapter = QwenOmniASRAdapter(model_id="mock/qwen-omni")
 

@@ -27,7 +27,7 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.utils.vllm_utils import create_vllm_llm, validate_vllm_kwargs
+from nemo_curator.utils.vllm_utils import create_vllm_llm, merge_vllm_kwargs, validate_vllm_kwargs
 
 if TYPE_CHECKING:
     import numpy as np
@@ -70,7 +70,6 @@ _QWEN3_OMNI_MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 _QWEN_OMNI_SAMPLE_RATE = 16000
 _MIN_QWEN_AUDIO_SAMPLES = 1600
 _PROMPT_CONTENT_ORDERS = frozenset({"text_audio", "audio_text"})
-_RESERVED_VLLM_KWARGS = frozenset({"model", "revision", "tensor_parallel_size"})
 
 
 def _default_vllm_kwargs() -> dict[str, Any]:
@@ -156,7 +155,7 @@ class QwenOmniASRAdapter:
         self.sampling_kwargs = deepcopy(dict(self.sampling_kwargs))
         validate_vllm_kwargs(
             self.vllm_kwargs,
-            _RESERVED_VLLM_KWARGS,
+            self._stage_owned_vllm_kwargs(num_gpus=None),
             owner_description="stage-owned arguments",
         )
         if "max_tokens" in self.sampling_kwargs:
@@ -166,6 +165,14 @@ class QwenOmniASRAdapter:
         self._processor: Any = None
         self._llm: Any = None
         self._sampling_params: Any = None
+
+    def _stage_owned_vllm_kwargs(self, *, num_gpus: int | None) -> dict[str, Any]:
+        """Return vLLM constructor arguments supplied by the stage contract."""
+        return {
+            "model": self.model_id,
+            "revision": self.revision,
+            "tensor_parallel_size": num_gpus,
+        }
 
     @staticmethod
     def _load_text(text: str | None, file_path: str | None) -> str | None:
@@ -207,10 +214,14 @@ class QwenOmniASRAdapter:
             + (f"  revision={self.revision}" if self.revision is not None else "")
         )
 
-        engine_kwargs = dict(self.vllm_kwargs)
-        engine_kwargs["tensor_parallel_size"] = num_gpus
-        if self.revision is not None:
-            engine_kwargs["revision"] = self.revision
+        engine_kwargs = merge_vllm_kwargs(
+            self.vllm_kwargs,
+            self._stage_owned_vllm_kwargs(num_gpus=num_gpus),
+            owner_description="stage-owned arguments",
+        )
+        del engine_kwargs["model"]
+        if engine_kwargs["revision"] is None:
+            del engine_kwargs["revision"]
 
         try:
             proc_kwargs: dict[str, Any] = {}
