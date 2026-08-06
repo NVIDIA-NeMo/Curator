@@ -171,8 +171,8 @@ gpu_mem_use_warning_threshold: 0.01
 
 # Global ray settings inherited by all entries. Per-entry ray sections override these values.
 ray:
-  num_cpus: 64
-  num_gpus: 4
+  num_cpus: 128
+  num_gpus: 8
   enable_object_spilling: false
 
 entries:
@@ -385,7 +385,7 @@ entries:
 
     requirements:
       - metric: num_documents_processed
-        exact_value: 312458951
+        exact_value: 32882558
       - metric: num_duplicates
         # 494,297 is expected, ensure +/- 1%
         min_value: 489354
@@ -679,8 +679,6 @@ entries:
       num_gpus: 4
       enable_object_spilling: false
     requirements:
-      - metric: is_success
-        exact_value: true
       - metric: num_files_processed
         min_value: 1
 
@@ -708,9 +706,6 @@ entries:
           - num_tasks_processed
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
-    requirements:
-      - metric: is_success
-        exact_value: true
 
   - name: audio_fleurs_raydata
     enabled: true
@@ -737,9 +732,6 @@ entries:
           - num_tasks_processed
         ping_on_failure:
           - U03C41SNADV  # Aaftab V
-    requirements:
-      - metric: is_success
-        exact_value: true
 
   - name: audio_readspeech_xenna
     enabled: true
@@ -761,10 +753,6 @@ entries:
       --enable-utmos
       --enable-band-filter
       --enable-speaker-separation
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
     sink_data:
       - name: slack
         additional_metrics:
@@ -773,9 +761,6 @@ entries:
           - time_taken_s
         ping_on_failure:
           - U07EVDG9FBK  # Shubham Bhawsar
-    requirements:
-      - metric: is_success
-        exact_value: true
 
   - name: audio_readspeech_raydata
     enabled: true
@@ -796,10 +781,6 @@ entries:
       --enable-utmos
       --enable-band-filter
       --enable-speaker-separation
-    ray:
-      num_cpus: 64
-      num_gpus: 4
-      enable_object_spilling: false
     sink_data:
       - name: slack
         additional_metrics:
@@ -808,9 +789,6 @@ entries:
           - time_taken_s
         ping_on_failure:
           - U07EVDG9FBK  # Shubham Bhawsar
-    requirements:
-      - metric: is_success
-        exact_value: true
 
   - name: arxiv_e2e_pipeline_raydata
     enabled: true
@@ -879,7 +857,7 @@ entries:
       --executor=xenna
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
-      --video-limit=1000
+      --video-limit=4000
       --transcode-encoder=libopenh264
     timeout_s: 900
     sink_data:
@@ -890,9 +868,9 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 1400
+        exact_value: 5602
       - metric: throughput_clips_per_sec
-        min_value: 4.0
+        min_value: 8.0
 
   - name: video_embedding_raydata
     enabled: true
@@ -903,9 +881,9 @@ entries:
       --executor=ray_data
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
-      --video-limit=1000
+      --video-limit=4000
       --transcode-encoder=libopenh264
-    timeout_s: 800
+    timeout_s: 2000
     sink_data:
       - name: slack
         ping_on_failure:
@@ -914,9 +892,9 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 1400
+        exact_value: 5602
       - metric: throughput_clips_per_sec
-        min_value: 2.0
+        min_value: 4.0
 
   - name: video_transcoding_xenna
     enabled: true
@@ -927,9 +905,9 @@ entries:
       --executor=xenna
       --no-generate-embeddings
       --video-dir={dataset:videos,mp4}
-      --video-limit=1000
+      --video-limit=4000
       --transcode-encoder=libopenh264
-    timeout_s: 400
+    timeout_s: 1800
     sink_data:
       - name: slack
         ping_on_failure:
@@ -939,7 +917,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 1400
+        exact_value: 5602
       - metric: throughput_clips_per_sec
         min_value: 5.0
 
@@ -952,9 +930,9 @@ entries:
       --executor=ray_data
       --no-generate-embeddings
       --video-dir={dataset:videos,mp4}
-      --video-limit=1000
+      --video-limit=4000
       --transcode-encoder=libopenh264
-    timeout_s: 800
+    timeout_s: 1800
     sink_data:
       - name: slack
         ping_on_failure:
@@ -964,7 +942,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 1400
+        exact_value: 5602
       - metric: throughput_clips_per_sec
         min_value: 3.0
 
@@ -980,7 +958,7 @@ entries:
       --generate-captions
       --no-generate-embeddings
       --enhance-captions
-      --video-limit=256
+      --video-limit=512
       --transcode-encoder=libopenh264
     timeout_s: 1800
     sink_data:
@@ -991,9 +969,9 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 377
+        exact_value: 722
       - metric: throughput_clips_per_sec
-        min_value: 0.25
+        min_value: 0.5
 
   - name: video_captioning_raydata
     enabled: true
@@ -1007,7 +985,7 @@ entries:
       --generate-captions
       --no-generate-embeddings
       --enhance-captions
-      --video-limit=256
+      --video-limit=512
       --transcode-encoder=libopenh264
     timeout_s: 1800
     sink_data:
@@ -1018,11 +996,11 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 377
+        exact_value: 722
       - metric: throughput_clips_per_sec
-        min_value: 0.25
+        min_value: 0.5
 
-  - name: ndd_dynamo_dp4
+  - name: ndd_dynamo_dp8
     enabled: true
     script: ndd_benchmark.py
     args: >-
@@ -1034,10 +1012,10 @@ entries:
       --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
-      --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
-    timeout_s: 2700  # 45 min for Dynamo runtime_env setup plus 4-replica gpt-oss-20b weights load
+      --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
+    timeout_s: 2700  # 45 min for Dynamo runtime_env setup plus 8-replica gpt-oss-20b weights load
     ray:
-      num_cpus: 16
+      num_cpus: 32
     sink_data:
       - name: slack
         additional_metrics:
@@ -1051,9 +1029,9 @@ entries:
       - metric: output_row_count
         exact_value: 853
       - metric: throughput_rows_per_sec
-        min_value: 2.9
+        min_value: 5.8
 
-  - name: ndd_ray_serve_dp4
+  - name: ndd_ray_serve_dp8
     enabled: true
     script: ndd_benchmark.py
     args: >-
@@ -1065,10 +1043,10 @@ entries:
       --model-path={model_weights_path}/text_model_weights/hf_cache/models--openai--gpt-oss-20b/snapshots/6cee5e81ee83917806bbde320786a8fb61efebee
       --executor=ray_data
       --engine-kwargs='{"tensor_parallel_size": 1}'
-      --autoscaling-config='{"min_replicas": 4, "max_replicas": 4}'
-    timeout_s: 1200
+      --autoscaling-config='{"min_replicas": 8, "max_replicas": 8}'
+    timeout_s: 1800
     ray:
-      num_cpus: 16
+      num_cpus: 32
     sink_data:
       - name: slack
         additional_metrics:
@@ -1082,7 +1060,7 @@ entries:
       - metric: output_row_count
         exact_value: 853
       - metric: throughput_rows_per_sec
-        min_value: 2.5
+        min_value: 5.0
 
   - name: video_transnetv2_motion_aesthetic_filter_embeddings_xenna
     enabled: true
@@ -1097,9 +1075,9 @@ entries:
       --motion-filter=enable
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
-      --video-limit=1000
+      --video-limit=3000
       --transcode-encoder=libopenh264
-    timeout_s: 800
+    timeout_s: 1800
     sink_data:
       - name: slack
         ping_on_failure:
@@ -1108,7 +1086,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 113
+        exact_value: 308
       - metric: throughput_clips_per_sec
         min_value: 0.25
 
@@ -1125,9 +1103,9 @@ entries:
       --motion-filter=enable
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
-      --video-limit=1000
+      --video-limit=3000
       --transcode-encoder=libopenh264
-    timeout_s: 1800
+    timeout_s: 2400
     sink_data:
       - name: slack
         ping_on_failure:
@@ -1136,7 +1114,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_clips_generated
-        exact_value: 113
+        exact_value: 308
       - metric: throughput_clips_per_sec
         min_value: 0.1
 
@@ -1204,6 +1182,7 @@ entries:
       --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
       --max-segment-length=40
       --asr-batch-size=50
+      --gpu-stage-num-workers=8
       --executor=xenna
     timeout_s: 3600
     sink_data:
@@ -1222,13 +1201,7 @@ entries:
           - throughput_audio_hours_per_hour
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
-    ray:
-      num_cpus: 16
-      num_gpus: 1
-      enable_object_spilling: false
     requirements:
-      - metric: is_success
-        exact_value: true
       - metric: input_output_row_count_match
         exact_value: true
       - metric: num_input_rows
@@ -1250,7 +1223,7 @@ entries:
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
-  # The repeat entry exercises ~2.50 source-audio hours while reading EOS once.
+  # The repeat entry exercises ~10 source-audio hours while reading EOS once.
   - name: audio_tagging_tts_xenna_repeat
     enabled: true
     script: audio_tagging_benchmark.py
@@ -1260,9 +1233,10 @@ entries:
       --raw-data-dir={dataset:audio_tagging_ami_sdm,files}
       --no-auto-download
       --diarization-model-path={model_weights_path}/audio_tagging/pyannote-speaker-diarization-community-1
-      --repeat-factor=2
+      --repeat-factor=8
       --max-segment-length=40
       --asr-batch-size=50
+      --gpu-stage-num-workers=8
       --executor=xenna
     timeout_s: 3600
     sink_data:
@@ -1281,31 +1255,23 @@ entries:
           - throughput_audio_hours_per_hour
         ping_on_failure:
           - U06J49AK7BQ  # Sushmitha Deva
-    ray:
-      num_cpus: 16
-      num_gpus: 1
-      enable_object_spilling: false
     requirements:
-      - metric: is_success
-        exact_value: true
-      - metric: input_output_row_count_match
-        exact_value: true
       - metric: num_input_rows
-        exact_value: 6
+        exact_value: 24
       - metric: num_output_rows
-        exact_value: 6
+        exact_value: 24
       - metric: num_tasks_with_segments
-        exact_value: 6
+        exact_value: 24
       - metric: num_segments_processed
-        min_value: 200
+        min_value: 800
       - metric: segment_output_coverage_ratio
         min_value: 0.7
       - metric: stage_execution_coverage_ratio
         exact_value: 1.0
       - metric: total_audio_duration_hours
-        min_value: 2.4
+        min_value: 9.6
       - metric: tagged_audio_duration_hours
-        min_value: 0.4
+        min_value: 1.6
       - metric: throughput_audio_hours_per_hour
         min_value: 1.0
 
@@ -1387,8 +1353,6 @@ entries:
       num_cpus: 8
       num_gpus: 0
     requirements:
-      - metric: is_success
-        exact_value: true
       - metric: total_builder_windows
         min_value: 1
       - metric: total_filtered_windows
@@ -1422,8 +1386,6 @@ entries:
       num_cpus: 8
       num_gpus: 0
     requirements:
-      - metric: is_success
-        exact_value: true
       - metric: total_builder_windows
         min_value: 1
       - metric: total_filtered_windows

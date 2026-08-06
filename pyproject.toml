@@ -329,7 +329,7 @@ test = [
 ]
 
 [tool.uv]
-required-version = ">=0.7.0"
+required-version = ">=0.12.0"
 package = true
 managed = true
 default-groups = ["dev", "test"]
