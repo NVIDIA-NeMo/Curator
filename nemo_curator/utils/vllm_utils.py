@@ -28,7 +28,12 @@ utilities into other modalities.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from loguru import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Collection, Mapping
 
 # Errors that should not be retried. Add entries here when vLLM exposes
 # other fatal startup errors through generic EngineCore wrapper messages.
@@ -50,6 +55,19 @@ _ENGINE_STARTUP_FAILURE_MARKERS = (
     "engine core initialization failed",
     "enginecore failed to start",
 )
+
+
+def validate_vllm_kwargs(
+    vllm_kwargs: Mapping[str, object],
+    reserved_keys: Collection[str],
+    *,
+    owner_description: str,
+) -> None:
+    """Reject vLLM kwargs that override arguments owned by the caller."""
+    conflicts = sorted(set(vllm_kwargs).intersection(reserved_keys))
+    if conflicts:
+        msg = f"vllm_kwargs cannot override {owner_description}: {', '.join(conflicts)}"
+        raise ValueError(msg)
 
 
 def _exception_chain_text(exc: BaseException) -> str:

@@ -124,7 +124,7 @@ contain `audio_filepath` and, by default, `source_lang`:
 `${workspace_dir}/audio_resampled` by default and reuses it on later runs.
 
 Only file paths and metadata travel between pipeline stages. `ASRStage` opens
-`resampled_audio_filepath` with `torchaudio` only for its current batch and
+`resampled_audio_filepath` with SoundFile only for its current batch and
 preserves the decoded sample rate while normalizing each waveform to contiguous
 mono 16 kHz NumPy samples for the adapter. It never stores either the waveform
 or sample rate in `task.data`, so manifest size does not cause all decoded

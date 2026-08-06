@@ -18,7 +18,6 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
-import torch
 
 from nemo_curator.backends.base import BaseStageAdapter
 from nemo_curator.models.asr.base import ASRResult
@@ -39,6 +38,7 @@ def _make_stage(  # noqa: PLR0913
     skip_if_output_exists: bool = False,
     waveform_key: str | None = None,
     keep_waveform: bool = False,
+    extras_key: str | None = None,
 ) -> ASRStage:
     """Build an ASRStage wired to a mock adapter (no real model load)."""
     stage = ASRStage(
@@ -51,6 +51,7 @@ def _make_stage(  # noqa: PLR0913
         skip_if_output_exists=skip_if_output_exists,
         waveform_key=waveform_key,
         keep_waveform=keep_waveform,
+        extras_key=extras_key,
     )
     mock_adapter = MagicMock()
     stage._adapter = mock_adapter
@@ -298,6 +299,42 @@ def test_inputs_and_exact_output_contract() -> None:
     assert optional_outputs == ["custom_prediction", "_skipme", "additional_notes"]
 
 
+def test_adapter_extras_are_copied_to_one_nested_manifest_field() -> None:
+    stage = _make_stage(extras_key="asr_extras")
+    adapter_extras = {
+        "detected_language": "English",
+        "confidence": 0.98,
+        "segments": [{"start": 0.0, "end": 1.0}],
+    }
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello", extras=adapter_extras)]
+
+    result = stage.process_batch([_make_task()])[0]
+
+    assert result.data["asr_extras"] == adapter_extras
+    assert result.data["asr_extras"] is not adapter_extras
+
+
+def test_empty_adapter_extras_remove_stale_manifest_metadata() -> None:
+    stage = _make_stage(extras_key="asr_extras")
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello")]
+    task = _make_task()
+    task.data["asr_extras"] = {"stale": True}
+
+    result = stage.process_batch([task])[0]
+
+    assert "asr_extras" not in result.data
+
+
+def test_adapter_extras_output_can_be_disabled() -> None:
+    stage = _make_stage(extras_key=None)
+    stage._adapter.transcribe_batch.return_value = [ASRResult(text="hello", extras={"detected_language": "English"})]
+
+    result = stage.process_batch([_make_task()])[0]
+
+    assert "asr_extras" not in result.data
+    assert stage.outputs() == ([], ["pred_text", "_skipme", "additional_notes"])
+
+
 def test_in_memory_input_contract_requires_waveform_and_sample_rate() -> None:
     stage = ASRStage(
         adapter_target=_QWEN_ADAPTER_TARGET,
@@ -313,18 +350,31 @@ def test_in_memory_input_contract_requires_waveform_and_sample_rate() -> None:
 
 def test_stage_loads_resampled_audio_like_tagging_pipeline_and_preserves_sample_rate() -> None:
     decoded_sample_rate = 8000
-    tensor = torch.ones((1, _SR), dtype=torch.float32)
+    decoded = np.ones(_SR, dtype=np.float32)
     with patch(
-        "nemo_curator.stages.audio.inference.asr.stage.torchaudio.load",
-        return_value=(tensor, decoded_sample_rate),
+        "nemo_curator.stages.audio.inference.asr.stage.soundfile.read",
+        return_value=(decoded, decoded_sample_rate),
     ) as load:
         waveform, sample_rate = ASRStage._load_audio(_RESAMPLED_AUDIO_PATH)
 
-    load.assert_called_once_with(_RESAMPLED_AUDIO_PATH)
+    load.assert_called_once_with(_RESAMPLED_AUDIO_PATH, dtype="float32")
     assert sample_rate == decoded_sample_rate
     assert waveform.shape == (_SR,)
     assert waveform.dtype == np.float32
     np.testing.assert_array_equal(waveform, np.ones(_SR, dtype=np.float32))
+
+
+def test_stage_load_audio_transposes_soundfile_stereo_to_channel_first() -> None:
+    decoded = np.ones((_SR, 2), dtype=np.float32)
+    with patch(
+        "nemo_curator.stages.audio.inference.asr.stage.soundfile.read",
+        return_value=(decoded, _SR),
+    ):
+        waveform, sample_rate = ASRStage._load_audio(_RESAMPLED_AUDIO_PATH)
+
+    assert sample_rate == _SR
+    assert waveform.shape == (2, _SR)
+    assert waveform.flags.c_contiguous
 
 
 def test_in_memory_waveform_is_normalized_once_and_removed_after_inference() -> None:
@@ -381,6 +431,25 @@ def test_empty_prediction_key_is_rejected() -> None:
             adapter_target=_QWEN_ADAPTER_TARGET,
             model_id="mock/model",
             pred_text_key="",
+        )
+
+
+def test_empty_extras_key_is_rejected() -> None:
+    with pytest.raises(ValueError, match="extras_key must be non-empty or None"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            extras_key=" ",
+        )
+
+
+@pytest.mark.parametrize("extras_key", ["pred_text", "_skipme", "additional_notes"])
+def test_extras_key_cannot_collide_with_another_output(extras_key: str) -> None:
+    with pytest.raises(ValueError, match="extras_key cannot collide"):
+        ASRStage(
+            adapter_target=_QWEN_ADAPTER_TARGET,
+            model_id="mock/model",
+            extras_key=extras_key,
         )
 
 

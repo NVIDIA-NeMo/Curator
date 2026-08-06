@@ -19,6 +19,10 @@
     "extras": ["audio_cuda12"],
     "paths": ["tests/stages/audio"]
   },
+  "audio_qwen_asr": {
+    "extras": ["audio_cuda12", "vllm"],
+    "paths": ["tests/models/asr/test_qwen_asr.py"]
+  },
   "audio_qwen_vllm": {
     "extras": ["audio_cuda12", "vllm"],
     "paths": ["tests/models/asr/test_qwen_omni_gpu.py"]

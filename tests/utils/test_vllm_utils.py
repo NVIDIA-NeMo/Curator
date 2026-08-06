@@ -24,7 +24,27 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 import nemo_curator.utils.vllm_utils as _vllm_utils
-from nemo_curator.utils.vllm_utils import pick_free_port, resolve_local_model_path
+from nemo_curator.utils.vllm_utils import pick_free_port, resolve_local_model_path, validate_vllm_kwargs
+
+
+class TestValidateVllmKwargs:
+    def test_accepts_non_conflicting_kwargs(self) -> None:
+        validate_vllm_kwargs(
+            {"max_model_len": 8192},
+            {"model", "revision"},
+            owner_description="adapter-owned arguments",
+        )
+
+    def test_rejects_conflicts_in_sorted_order(self) -> None:
+        with pytest.raises(
+            ValueError,
+            match=r"vllm_kwargs cannot override adapter-owned arguments: model, revision",
+        ):
+            validate_vllm_kwargs(
+                {"revision": "abc123", "model": "org/model"},
+                {"model", "revision"},
+                owner_description="adapter-owned arguments",
+            )
 
 
 class TestPickFreePort:

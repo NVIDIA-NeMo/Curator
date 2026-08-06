@@ -42,8 +42,10 @@ class ASRResult:
             when ``skipped`` is true. Defaults to ``"empty_audio"`` in the stage.
         unsupported_language: Optional normalized language code used by the
             stage to annotate items excluded by its language allowlist.
-        extras: Adapter-specific diagnostics outside the canonical shape; the
-            stage never reads inside this dict.
+        extras: Adapter-specific, manifest-serializable diagnostics. When the
+            stage's ``extras_key`` is enabled, it writes a shallow copy of this
+            dictionary under that one nested output field without interpreting
+            individual keys.
     """
 
     text: str

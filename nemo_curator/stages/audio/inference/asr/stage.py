@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 import hydra.utils
 import numpy as np
+import soundfile
 import torch
 import torchaudio
 from loguru import logger
@@ -112,8 +113,9 @@ def _set_note(task_data: dict[str, Any], stage_name: str, value: str) -> None:
 class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     """Audio speech-recognition stage with a pluggable adapter.
 
-    The stage writes only ``pred_text_key`` plus the optional control columns
-    ``_skipme`` and ``additional_notes``.
+    The stage writes ``pred_text_key`` and optional control columns ``_skipme``
+    and ``additional_notes``. When ``extras_key`` is configured, it also writes
+    non-empty adapter metadata as one nested dictionary under that key.
     """
 
     # Adapter selection.
@@ -132,6 +134,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     default_language: str | None = None
     supported_language_codes: list[str] | None = None
     pred_text_key: str = "pred_text"
+    extras_key: str | None = None
 
     skip_if_output_exists: bool = False
 
@@ -149,6 +152,14 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         if self.pred_text_key in {_SKIP_ME_KEY, _NOTES_KEY}:
             msg = f"ASRStage.pred_text_key cannot use reserved control column {self.pred_text_key!r}"
             raise ValueError(msg)
+        if self.extras_key is not None:
+            self.extras_key = self.extras_key.strip()
+            if not self.extras_key:
+                msg = "ASRStage.extras_key must be non-empty or None"
+                raise ValueError(msg)
+            if self.extras_key in {self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY}:
+                msg = f"ASRStage.extras_key cannot collide with another output column: {self.extras_key!r}"
+                raise ValueError(msg)
         if int(self.batch_size) <= 0:
             msg = f"ASRStage.batch_size must be > 0, got {self.batch_size}"
             raise ValueError(msg)
@@ -236,7 +247,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY]
+        optional_outputs = [self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY]
+        if self.extras_key is not None:
+            optional_outputs.append(self.extras_key)
+        return [], optional_outputs
 
     def _resolve_language(self, task: AudioTask) -> str | None:
         code = self._resolve_language_code(task)
@@ -278,11 +292,15 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     def _load_audio(audio_filepath: str) -> tuple[np.ndarray, int]:
         """Open one resampled file inside the ASR worker.
 
-        ``ResampleAudioStage`` guarantees mono audio, so squeezing its channel
-        dimension matches the file-backed tagging pipeline contract.
+        ``soundfile`` avoids making PCM WAV decoding depend on TorchCodec's
+        optional CUDA/FFmpeg shared libraries. SoundFile returns multichannel
+        audio as sample-major, so transpose it to the channel-first shape used
+        by ``_prepare_waveform``.
         """
-        waveform, sample_rate = torchaudio.load(audio_filepath)
-        return waveform.squeeze(0).numpy(), sample_rate
+        waveform, sample_rate = soundfile.read(audio_filepath, dtype="float32")
+        if waveform.ndim == _CHANNEL_FIRST_DIMENSIONS:
+            waveform = waveform.T
+        return np.ascontiguousarray(waveform, dtype=np.float32), sample_rate
 
     def _prepare_waveform(self, waveform: object, sample_rate: object) -> np.ndarray:
         """Return contiguous mono float32 samples at ``target_sample_rate``."""
@@ -429,6 +447,11 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         skipped_count = 0
         for task, item, result in zip(tasks, items, results, strict=True):
             task.data[self.pred_text_key] = result.text
+            if self.extras_key is not None:
+                if result.extras:
+                    task.data[self.extras_key] = dict(result.extras)
+                else:
+                    task.data.pop(self.extras_key, None)
             unsupported_language = result.unsupported_language
             missing_language = self._supported_language_codes is not None and not item["language_code"]
             if missing_language:

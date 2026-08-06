@@ -1,0 +1,63 @@
+# Qwen3-ASR pipeline using Curator's generic ASR adapter stage.
+#
+# Usage (from the Curator repository root):
+#   python nemo_curator/config/run.py \
+#     --config-path ../../tutorials/audio/qwen_asr \
+#     --config-name pipeline \
+#     manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+manifest_path: ???
+output_path: ./qwen_asr_output.jsonl
+workspace_dir: /tmp/qwen_asr_workspace
+resampled_audio_dir: ${workspace_dir}/audio_resampled
+model_id: Qwen/Qwen3-ASR-0.6B
+default_language: null
+supported_language_codes: [zh, en, yue, ar, de, fr, es, pt, id, it, ko, ru, th, vi, ja, tr, hi, ms, nl, sv, da, fi, pl, cs, fil, fa, el, hu, mk, ro]
+pred_text_key: pred_text
+extras_key: asr_extras
+gpus_per_actor: 1
+backend: ray_data
+execution_mode: streaming
+
+stages:
+  - _target_: nemo_curator.stages.audio.common.ManifestReader
+    manifest_path: ${manifest_path}
+    files_per_partition: 1
+
+  - _target_: nemo_curator.stages.audio.tagging.ResampleAudioStage
+    name: "ResampleAudio"
+    resampled_audio_dir: ${resampled_audio_dir}
+    target_sample_rate: 16000
+    target_format: "wav"
+    target_nchannels: 1
+
+  - _target_: nemo_curator.stages.audio.inference.asr.stage.ASRStage
+    adapter_target: nemo_curator.models.asr.qwen_asr.QwenASRAdapter
+    model_id: ${model_id}
+    default_language: ${default_language}
+    supported_language_codes: ${supported_language_codes}
+    pred_text_key: ${pred_text_key}
+    extras_key: ${extras_key}
+    batch_size: 128
+    resources:
+      _target_: nemo_curator.stages.resources.Resources
+      gpus: ${gpus_per_actor}
+    adapter_kwargs:
+      gpu_memory_utilization: 0.7
+      max_new_tokens: 4096
+      max_inference_batch_size: 128
+      vllm_kwargs:
+        max_model_len: 8192
+
+  - _target_: nemo_curator.stages.audio.common.ManifestWriterStage
+    output_path: ${output_path}
