@@ -164,3 +164,52 @@ def test_manifest_writer_derives_unique_slurm_shard_destination(tmp_path: Path) 
     assert sharded_report_path.is_file()
     report = json.loads(sharded_report_path.read_text(encoding="utf-8"))
     assert report["slurm_array"] == {"shard_index": 7, "total_shards": 20}
+
+
+def test_manifest_writer_rejects_effective_slurm_report_collision_without_data_loss(tmp_path: Path) -> None:
+    output_path = tmp_path / "performance.shard-00007-of-00020.json"
+    writer = ManifestWriterStage(
+        output_path=str(output_path),
+        performance_report_path=str(tmp_path / "performance.json"),
+    )
+    manifest_contents = '{"audio_filepath": "sample.wav"}\n'
+    output_path.write_text(manifest_contents, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="effective performance report path"):
+        writer.finalize_performance_report(
+            performance_records=PerformanceRecordStore(),
+            wall_time_s=1.0,
+            report_context=_report_context(slurm_array={"shard_index": 7, "total_shards": 20}),
+        )
+
+    assert output_path.read_text(encoding="utf-8") == manifest_contents
+
+
+def test_manifest_writer_rejects_effective_slurm_collision_on_mocked_remote() -> None:
+    remote_fs = MagicMock()
+    remote_fs.protocol = "s3"
+    remote_fs.storage_options = {"endpoint_url": "https://example.test"}
+    output_path = "s3://bucket/performance.shard-00007-of-00020.json"
+    report_path = "s3://bucket/performance.json"
+
+    with (
+        patch(
+            "nemo_curator.stages.audio.common.url_to_fs",
+            side_effect=[
+                (remote_fs, "bucket/performance.shard-00007-of-00020.json"),
+                (remote_fs, "bucket/performance.json"),
+                (remote_fs, "bucket/performance.json"),
+                (remote_fs, "bucket/performance.shard-00007-of-00020.json"),
+            ],
+        ),
+        patch("nemo_curator.stages.audio.common.write_json_file_streaming_array") as write_report,
+    ):
+        writer = ManifestWriterStage(output_path=output_path, performance_report_path=report_path)
+        with pytest.raises(ValueError, match="effective performance report path"):
+            writer.finalize_performance_report(
+                performance_records=PerformanceRecordStore(),
+                wall_time_s=1.0,
+                report_context=_report_context(slurm_array={"shard_index": 7, "total_shards": 20}),
+            )
+
+    write_report.assert_not_called()

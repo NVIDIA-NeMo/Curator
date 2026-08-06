@@ -44,10 +44,13 @@ def _normalized_filesystem_path(fs: "fsspec.AbstractFileSystem", path: str) -> s
     return posixpath.normpath(path)
 
 
-def _same_filesystem_path(left_url: str, right_url: str) -> bool:
-    """Return whether two URLs identify the same normalized fsspec destination."""
-    left_fs, left_path = url_to_fs(left_url)
-    right_fs, right_path = url_to_fs(right_url)
+def _same_filesystem_location(
+    left_fs: "fsspec.AbstractFileSystem",
+    left_path: str,
+    right_fs: "fsspec.AbstractFileSystem",
+    right_path: str,
+) -> bool:
+    """Return whether two resolved fsspec locations identify the same destination."""
     same_filesystem = left_fs is right_fs or (
         type(left_fs) is type(right_fs)
         and left_fs.protocol == right_fs.protocol
@@ -56,6 +59,13 @@ def _same_filesystem_path(left_url: str, right_url: str) -> bool:
     return same_filesystem and _normalized_filesystem_path(left_fs, left_path) == _normalized_filesystem_path(
         right_fs, right_path
     )
+
+
+def _same_filesystem_path(left_url: str, right_url: str) -> bool:
+    """Return whether two URLs identify the same normalized fsspec destination."""
+    left_fs, left_path = url_to_fs(left_url)
+    right_fs, right_path = url_to_fs(right_url)
+    return _same_filesystem_location(left_fs, left_path, right_fs, right_path)
 
 
 def _append_slurm_shard_suffix(path: str, shard_index: int, total_shards: int) -> str:
@@ -363,6 +373,10 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         total_shards = slurm_array["total_shards"] if slurm_array is not None else None
         if shard_index is not None and total_shards is not None:
             report_path = _append_slurm_shard_suffix(report_path, shard_index, total_shards)
+        output_fs, output_path = url_to_fs(self.output_path)
+        if _same_filesystem_location(output_fs, output_path, report_fs, report_path):
+            msg = "effective performance report path must not resolve to the manifest output_path"
+            raise ValueError(msg)
         iter_dicts = getattr(performance_records, "iter_dicts", None)
         record_dicts = (
             iter_dicts() if callable(iter_dicts) else (record.to_extended_dict() for record in performance_records)

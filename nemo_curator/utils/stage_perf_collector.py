@@ -177,10 +177,6 @@ class _StagePerfCollector:
             if len(self._errors) < MAX_COLLECTOR_ERRORS:
                 self._errors.append(f"{type(exc).__name__}: {exc}")
 
-    def barrier(self) -> tuple[int, list[str]]:
-        """Acknowledge all record calls ordered before this actor call."""
-        return self._dropped_records, list(self._errors)
-
     def finish(self) -> tuple[str, int, int, list[str]]:
         path, record_count = self._spool.finish()
         return path, record_count, self._dropped_records, list(self._errors)
@@ -226,7 +222,7 @@ def record_stage_perf(
     stage: ProcessingStage,
     perf_stats: StagePerfStats,
 ) -> bool:
-    """Publish asynchronously, acknowledging records in bounded batches."""
+    """Publish one invocation, synchronously acknowledging required reports."""
     collector = getattr(stage, COLLECTOR_ACTOR_ATTR, None)
     if collector is None:
         collector_name = str(getattr(stage, COLLECTOR_NAME_ATTR, "") or "")
@@ -239,10 +235,17 @@ def record_stage_perf(
     try:
         if collector is None:
             collector = ray.get_actor(collector_name)
-        pending_records.append(collector.record.remote(perf_stats))
-        if len(pending_records) >= MAX_PENDING_RECORDS:
-            ray.get(pending_records)
-            pending_records.clear()
+        record_ref = collector.record.remote(perf_stats)
+        if bool(getattr(stage, COLLECTOR_REQUIRED_ATTR, False)):
+            # The driver cannot fence actor calls submitted by Ray Data/Xenna
+            # workers. Each required producer therefore waits for its own call
+            # before returning, so executor completion fences every publication.
+            ray.get(record_ref)
+        else:
+            pending_records.append(record_ref)
+            if len(pending_records) >= MAX_PENDING_RECORDS:
+                ray.get(pending_records)
+                pending_records.clear()
     except Exception as exc:
         pending_records.clear()
         if bool(getattr(stage, COLLECTOR_REQUIRED_ATTR, False)):
@@ -280,7 +283,6 @@ def stop_stage_perf_collector(
         return PerformanceRecordStore()
     try:
         try:
-            ray.get(collector.actor.barrier.remote())
             path, record_count, dropped_records, errors = ray.get(collector.actor.finish.remote())
         except Exception as exc:
             logger.debug("Stage performance collector finish failed: {}", exc)
