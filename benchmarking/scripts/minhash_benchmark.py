@@ -82,6 +82,7 @@ def _build_pipeline(  # noqa: PLR0913
     read_kwargs: dict[str, Any],
     write_kwargs: dict[str, Any],
     pool: bool,
+    reader_ray_data_initial_workers: int | None,
     minhash_num_workers: int | None,
     minhash_ray_data_initial_workers: int | None,
     minhash_ray_data_max_concurrency: int | None,
@@ -98,6 +99,14 @@ def _build_pipeline(  # noqa: PLR0913
             read_kwargs=read_kwargs,
             _generate_ids=True,
         )
+        if reader_ray_data_initial_workers is not None:
+            input_stage = input_stage.with_(
+                {
+                    input_stage.name: {
+                        "ray_stage_spec": {RayStageSpecKeys.INITIAL_WORKERS: reader_ray_data_initial_workers}
+                    }
+                }
+            )
         minhash_read_format = None
     else:
         input_stage = FilePartitioningStage(
@@ -159,6 +168,7 @@ def run_minhash_benchmark(  # noqa: PLR0913
     read_kwargs: dict[str, Any] | None = None,
     write_kwargs: dict[str, Any] | None = None,
     pool: bool = True,
+    reader_ray_data_initial_workers: int | None = None,
     minhash_num_workers: int | None = None,
     minhash_ray_data_initial_workers: int | None = None,
     minhash_ray_data_max_concurrency: int | None = None,
@@ -174,12 +184,16 @@ def run_minhash_benchmark(  # noqa: PLR0913
             msg = "minhash_num_workers and minhash_ray_data_initial_workers are mutually exclusive"
             raise ValueError(msg)
     ray_data_only_options = {
+        "reader_ray_data_initial_workers": reader_ray_data_initial_workers,
         "minhash_ray_data_max_concurrency": minhash_ray_data_max_concurrency,
         "minhash_ray_data_max_tasks_in_flight_per_actor": minhash_ray_data_max_tasks_in_flight_per_actor,
     }
     configured_ray_data_only_options = [name for name, value in ray_data_only_options.items() if value is not None]
     if executor != "ray_data" and configured_ray_data_only_options:
         msg = f"{', '.join(configured_ray_data_only_options)} are only supported by the ray_data executor"
+        raise ValueError(msg)
+    if reader_ray_data_initial_workers is not None and input_task_type != "DocumentBatch":
+        msg = "reader_ray_data_initial_workers is only supported with DocumentBatch input tasks"
         raise ValueError(msg)
 
     input_path = input_path.absolute()
@@ -222,6 +236,7 @@ def run_minhash_benchmark(  # noqa: PLR0913
         read_kwargs=read_kwargs,
         write_kwargs=write_kwargs,
         pool=pool,
+        reader_ray_data_initial_workers=reader_ray_data_initial_workers,
         minhash_num_workers=minhash_num_workers,
         minhash_ray_data_initial_workers=minhash_ray_data_initial_workers,
         minhash_ray_data_max_concurrency=minhash_ray_data_max_concurrency,
@@ -336,6 +351,12 @@ def main() -> int:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Enable the MinHash GPU memory pool",
+    )
+    parser.add_argument(
+        "--reader-ray-data-initial-workers",
+        type=int,
+        default=None,
+        help="Initial size of the autoscaling Ray Data input reader actor pool",
     )
     parser.add_argument(
         "--minhash-num-workers",
