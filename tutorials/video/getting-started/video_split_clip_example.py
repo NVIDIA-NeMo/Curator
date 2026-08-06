@@ -45,7 +45,12 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
 
     # Add stages
     pipeline.add_stage(
-        VideoReader(input_video_path=args.video_dir, video_limit=args.video_limit, verbose=args.verbose)
+        VideoReader(
+            input_video_path=args.video_dir,
+            video_limit=args.video_limit,
+            verbose=args.verbose,
+            seed=getattr(args, "video_seed", None),
+        )
     )
 
     if args.splitting_algorithm == "fixed_stride":
@@ -335,6 +340,13 @@ def create_video_splitting_argparser() -> argparse.ArgumentParser:  # noqa: PLR0
         ),
     )
     parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
+    parser.add_argument(
+        "--video-seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible uniform video sampling. When set, files are shuffled "
+        "with this seed before applying --video-limit, replacing alphabetical selection.",
+    )
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-path", type=str, help="Path to output clips", required=True)
 

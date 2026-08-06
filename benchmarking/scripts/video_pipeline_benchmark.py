@@ -50,6 +50,7 @@ def run_video_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     logger.info(f"Video directory: {video_dir}")
     logger.info(f"Output path: {output_path}")
     logger.info(f"Video limit: {args.video_limit}")
+    logger.info(f"Video seed: {args.video_seed}")
     logger.info(f"Splitting algorithm: {args.splitting_algorithm}")
     logger.info(f"Transcode encoder: {args.transcode_encoder}")
     logger.info(f"Hardware acceleration (GPU decode): {args.transcode_use_hwaccel}")
@@ -109,6 +110,7 @@ def run_video_pipeline_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "output_path": str(output_path),
             "benchmark_results_path": str(args.benchmark_results_path),
             "video_limit": args.video_limit,
+            "video_seed": args.video_seed,
             "splitting_algorithm": args.splitting_algorithm,
             "split_duration": args.fixed_stride_split_duration,
             "transcode_encoder": args.transcode_encoder,

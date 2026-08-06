@@ -1,0 +1,90 @@
+# Override config for video-only ad-hoc benchmark runs on EOS H100.
+# Usage:
+#   ./benchmarking/tools/run.sh \
+#     --use-host-curator \
+#     --config benchmarking/nightly-benchmark.yaml \
+#     --config benchmarking/video-only-override.yaml
+#
+# NOTE: requires coreai_dlalgo_ci group membership to access datasets.
+# Ask Rick (rratzel) or Ayush (adattagupta) to add weijiac to the group.
+
+paths:
+  - name: results_path
+    host_path: /lustre/fsw/coreai_dlalgo_llm/weijiac/benchmark_results
+  - name: datasets_path
+    host_path: /lustre/fsw/coreai_dlalgo_ci/curator_ci/datasets
+  - name: model_weights_path
+    host_path: /lustre/fsw/coreai_dlalgo_ci/curator_ci/model_weights
+
+run_reason: "NMCUR-249 uniform video sampling — ad-hoc validation"
+
+viewer_url_template: "http://rratzel-ws1:5050/run-viewer?dir=login-eos%3A{results_path_url}&run={session_name_url}"
+
+# Disable all non-video entries
+entries:
+  - name: domain_classification_raydata
+    enabled: false
+  - name: domain_classification_xenna
+    enabled: false
+  - name: embedding_generation_raydata
+    enabled: false
+  - name: embedding_generation_xenna
+    enabled: false
+  - name: exact_dedup_identification
+    enabled: false
+  - name: fuzzy_dedup_identification
+    enabled: false
+  - name: semdedup_identification_xenna
+    enabled: false
+  - name: dedup_removal_raydata
+    enabled: false
+  - name: dedup_removal_xenna
+    enabled: false
+  - name: score_filter_raydata
+    enabled: false
+  - name: score_filter_xenna
+    enabled: false
+  - name: fasttext_filter_raydata
+    enabled: false
+  - name: fasttext_filter_xenna
+    enabled: false
+  - name: modifier_raydata
+    enabled: false
+  - name: modifier_xenna
+    enabled: false
+  - name: image_curation_raydata
+    enabled: false
+  - name: image_curation_xenna
+    enabled: false
+  - name: audio_fleurs_xenna
+    enabled: false
+  - name: audio_fleurs_raydata
+    enabled: false
+  - name: audio_readspeech_xenna
+    enabled: false
+  - name: audio_readspeech_raydata
+    enabled: false
+  - name: arxiv_e2e_pipeline_raydata
+    enabled: false
+  - name: arxiv_e2e_pipeline_xenna
+    enabled: false
+  - name: ndd_dynamo_dp8
+    enabled: false
+  - name: ndd_ray_serve_dp8
+    enabled: false
+  - name: audio_tagging_tts_xenna
+    enabled: false
+  - name: audio_tagging_tts_xenna_repeat
+    enabled: false
+  - name: alm_pipeline_xenna
+    enabled: false
+  - name: alm_pipeline_ray_data
+    enabled: false
+  - name: math_preprocess
+    enabled: false
+  - name: math_preprocess_classifier
+    enabled: false
+  - name: math_preprocess_llm_cleanup
+    enabled: false
+  - name: math_cc_index_lookup
+    enabled: false

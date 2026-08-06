@@ -858,8 +858,9 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=4000
+      --video-seed=42
       --transcode-encoder=libopenh264
-    timeout_s: 900
+    timeout_s: 1800
     sink_data:
       - name: slack
         ping_on_failure:
@@ -882,8 +883,9 @@ entries:
       --video-dir={dataset:videos,mp4}
       --model-dir={dataset:videos_model_weights,files}
       --video-limit=4000
+      --video-seed=42
       --transcode-encoder=libopenh264
-    timeout_s: 2000
+    timeout_s: 4000
     sink_data:
       - name: slack
         ping_on_failure:
@@ -906,8 +908,9 @@ entries:
       --no-generate-embeddings
       --video-dir={dataset:videos,mp4}
       --video-limit=4000
+      --video-seed=42
       --transcode-encoder=libopenh264
-    timeout_s: 1800
+    timeout_s: 3600
     sink_data:
       - name: slack
         ping_on_failure:
@@ -931,8 +934,9 @@ entries:
       --no-generate-embeddings
       --video-dir={dataset:videos,mp4}
       --video-limit=4000
+      --video-seed=42
       --transcode-encoder=libopenh264
-    timeout_s: 1800
+    timeout_s: 3600
     sink_data:
       - name: slack
         ping_on_failure:
@@ -959,8 +963,9 @@ entries:
       --no-generate-embeddings
       --enhance-captions
       --video-limit=512
+      --video-seed=42
       --transcode-encoder=libopenh264
-    timeout_s: 1800
+    timeout_s: 3600
     sink_data:
       - name: slack
         ping_on_failure:
@@ -986,8 +991,9 @@ entries:
       --no-generate-embeddings
       --enhance-captions
       --video-limit=512
+      --video-seed=42
       --transcode-encoder=libopenh264
-    timeout_s: 1800
+    timeout_s: 3600
     sink_data:
       - name: slack
         ping_on_failure:
@@ -1076,8 +1082,9 @@ entries:
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=3000
+      --video-seed=42
       --transcode-encoder=libopenh264
-    timeout_s: 1800
+    timeout_s: 3600
     sink_data:
       - name: slack
         ping_on_failure:
@@ -1104,8 +1111,9 @@ entries:
       --aesthetic-threshold=3.5
       --transnetv2-frame-decoder-mode ffmpeg_cpu
       --video-limit=3000
+      --video-seed=42
       --transcode-encoder=libopenh264
-    timeout_s: 2400
+    timeout_s: 4800
     sink_data:
       - name: slack
         ping_on_failure:

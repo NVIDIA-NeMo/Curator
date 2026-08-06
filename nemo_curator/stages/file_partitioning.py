@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import random
 from dataclasses import dataclass
 from typing import Any
 
@@ -54,6 +55,9 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
         Storage options to pass to the file system.
     limit: int | None = None
         Maximum number of partitions to create.
+    seed: int | None = None
+        If set, shuffle the file list with this seed before applying limit.
+        Enables reproducible uniform sampling instead of alphabetical selection.
     """
 
     file_paths: str | list[str]
@@ -62,6 +66,7 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     file_extensions: list[str] | None = None
     storage_options: dict[str, Any] | None = None
     limit: int | None = None
+    seed: int | None = None
     name: str = "file_partitioning"
 
     def __post_init__(self):
@@ -99,6 +104,11 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
     def num_workers(self) -> int | None:
         return 1
 
+    def _shuffle_files(self, files: list) -> None:
+        if self.seed is not None:
+            rng = random.Random(self.seed)  # noqa: S311
+            rng.shuffle(files)
+
     def process(self, _: EmptyTask) -> list[FileGroupTask]:
         """Process the initial task to create file group tasks.
 
@@ -107,6 +117,7 @@ class FilePartitioningStage(ProcessingStage[EmptyTask, FileGroupTask]):
         """
         sort_by_size = self.blocksize is not None
         files_with_sizes = self._get_file_list_with_sizes(sort_by_size)
+        self._shuffle_files(files_with_sizes)
         # Extract list[str] from list[tuple[str, int]]
         files = [file[0] for file in files_with_sizes]
 

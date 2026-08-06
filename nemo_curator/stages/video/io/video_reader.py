@@ -248,11 +248,14 @@ class VideoReader(CompositeStage[EmptyTask, VideoTask]):
         input_video_path: Path to the directory containing video files
         video_limit: Maximum number of videos to process (None for unlimited)
         verbose: Whether to enable verbose logging during download/processing
+        seed: If set, shuffle files with this seed before applying video_limit for
+            reproducible uniform sampling instead of alphabetical selection.
     """
 
     input_video_path: str
     video_limit: int | None = None
     verbose: bool = False
+    seed: int | None = None
 
     def __post_init__(self):
         """Initialize the parent CompositeStage after dataclass initialization."""
@@ -292,6 +295,7 @@ class VideoReader(CompositeStage[EmptyTask, VideoTask]):
                 files_per_partition=1,
                 file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
                 limit=self.video_limit,
+                seed=self.seed,
             )
 
         download_stage = VideoReaderStage(input_path=self.input_video_path, verbose=self.verbose)
