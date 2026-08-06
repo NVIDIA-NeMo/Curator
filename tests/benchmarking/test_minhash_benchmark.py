@@ -23,7 +23,7 @@ from minhash_benchmark import _build_pipeline  # noqa: E402
 from nemo_curator.backends.utils import RayStageSpecKeys  # noqa: E402
 
 
-def test_reader_initial_workers_are_applied_to_reader_stage(tmp_path: Path) -> None:
+def test_reader_worker_bounds_are_applied_to_reader_stage(tmp_path: Path) -> None:
     pipeline = _build_pipeline(
         input_files=["input.parquet"],
         output_path=tmp_path,
@@ -41,6 +41,7 @@ def test_reader_initial_workers_are_applied_to_reader_stage(tmp_path: Path) -> N
         write_kwargs={},
         pool=True,
         reader_ray_data_initial_workers=12,
+        reader_ray_data_max_workers=12,
         minhash_num_workers=8,
         minhash_ray_data_initial_workers=None,
         minhash_ray_data_max_concurrency=2,
@@ -52,5 +53,6 @@ def test_reader_initial_workers_are_applied_to_reader_stage(tmp_path: Path) -> N
     reader_stage = next(stage for stage in pipeline.stages if stage.name == "parquet_reader")
     minhash_stage = next(stage for stage in pipeline.stages if stage.name == "MinHashStage")
     assert reader_stage.ray_stage_spec()[RayStageSpecKeys.INITIAL_WORKERS] == 12
+    assert reader_stage.ray_stage_spec()[RayStageSpecKeys.MAX_WORKERS] == 12
     assert minhash_stage.num_workers() == 8
     assert minhash_stage.ray_stage_spec()[RayStageSpecKeys.MAX_CONCURRENCY] == 2

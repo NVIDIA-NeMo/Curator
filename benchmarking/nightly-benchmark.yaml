@@ -1148,6 +1148,432 @@ entries:
       - metric: num_documents_processed
         exact_value: 174163347
 
+  - name: minhash_document_batch_xenna_512mb
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_512mb_num_workers_8
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+      --minhash-num-workers=8
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_512mb_num_workers_8_max_concurrency_2
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+      --minhash-num-workers=8
+      --minhash-ray-data-max-concurrency=2
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_512mb_num_workers_8_max_concurrency_2_max_tasks_in_flight_2
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+      --minhash-num-workers=8
+      --minhash-ray-data-max-concurrency=2
+      --minhash-ray-data-max-tasks-in-flight-per-actor=2
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_512mb_num_workers_8_max_concurrency_2_reader_initial_workers_12
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+      --minhash-num-workers=8
+      --minhash-ray-data-max-concurrency=2
+      --reader-ray-data-initial-workers=12
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_512mb_num_workers_8_max_concurrency_2_reader_initial_workers_12_reader_max_workers_12
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+      --minhash-num-workers=8
+      --minhash-ray-data-max-concurrency=2
+      --reader-ray-data-initial-workers=12
+      --reader-ray-data-max-workers=12
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_512mb_minhash_initial_workers_8_max_concurrency_2_reader_initial_workers_12_reader_max_workers_12
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=512MiB
+      --text-field=raw_content
+      --minhash-ray-data-initial-workers=8
+      --minhash-ray-data-max-concurrency=2
+      --reader-ray-data-initial-workers=12
+      --reader-ray-data-max-workers=12
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_xenna_1gb
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=1GiB
+      --text-field=raw_content
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_1gb_num_workers_8
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=1GiB
+      --text-field=raw_content
+      --minhash-num-workers=8
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_1gb_num_workers_8_max_concurrency_2
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=1GiB
+      --text-field=raw_content
+      --minhash-num-workers=8
+      --minhash-ray-data-max-concurrency=2
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_1gb_num_workers_8_max_concurrency_2_max_tasks_in_flight_2
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=1GiB
+      --text-field=raw_content
+      --minhash-num-workers=8
+      --minhash-ray-data-max-concurrency=2
+      --minhash-ray-data-max-tasks-in-flight-per-actor=2
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_1gb_num_workers_8_max_concurrency_2_reader_initial_workers_12
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=1GiB
+      --text-field=raw_content
+      --minhash-num-workers=8
+      --minhash-ray-data-max-concurrency=2
+      --reader-ray-data-initial-workers=12
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_1gb_num_workers_8_max_concurrency_2_reader_initial_workers_12_reader_max_workers_12
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=1GiB
+      --text-field=raw_content
+      --minhash-num-workers=8
+      --minhash-ray-data-max-concurrency=2
+      --reader-ray-data-initial-workers=12
+      --reader-ray-data-max-workers=12
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
+  - name: minhash_document_batch_ray_data_1gb_minhash_initial_workers_8_max_concurrency_2_reader_initial_workers_12_reader_max_workers_12
+    enabled: true
+    script: minhash_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --input-path={dataset:rpv2-2023-14-en,parquet}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --dataset-size-ratio=0.25
+      --input-task-type=DocumentBatch
+      --input-filetype=parquet
+      --blocksize=1GiB
+      --text-field=raw_content
+      --minhash-ray-data-initial-workers=8
+      --minhash-ray-data-max-concurrency=2
+      --reader-ray-data-initial-workers=12
+      --reader-ray-data-max-workers=12
+    timeout_s: 500
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_documents_processed
+          - throughput_docs_per_sec
+          - minhash_input_prep_worker_time_s_mean
+          - minhash_compute_worker_time_s_mean
+          - minhash_write_worker_time_s_mean
+        ping_on_failure:
+          - UBDSVEQPL  # Ayush Dattagupta
+    requirements:
+      - metric: num_documents_processed
+        exact_value: 174163347
+
   - name: semdedup_identification_xenna
     enabled: true
     script: semdedup_identification_benchmark.py
