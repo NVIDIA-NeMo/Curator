@@ -65,7 +65,7 @@ def test_manifest_writer_report_path_requests_collection(tmp_path: Path) -> None
     assert writer.requests_performance_records() is True
 
 
-def test_manifest_writer_persists_all_performance_records_through_fsspec() -> None:
+def test_manifest_writer_groups_invocations_and_stage_window_through_fsspec() -> None:
     report_path = "memory://performance/qwen.json"
     writer = ManifestWriterStage(
         output_path="memory://performance/qwen.jsonl",
@@ -77,8 +77,19 @@ def test_manifest_writer_persists_all_performance_records_through_fsspec() -> No
             stage_id="002:ASR",
             invocation_id="invocation-1",
             process_time=1.5,
+            window_start_s=10.0,
+            window_end_s=11.0,
             custom_metrics={"audio_duration_s": 12.0},
-        )
+        ),
+        StagePerfStats(
+            stage_name="ASR",
+            stage_id="002:ASR",
+            invocation_id="invocation-2",
+            process_time=2.5,
+            window_start_s=12.0,
+            window_end_s=14.0,
+            custom_metrics={"audio_duration_s": 20.0},
+        ),
     ]
 
     record_store = make_performance_record_store(records)
@@ -96,8 +107,17 @@ def test_manifest_writer_persists_all_performance_records_through_fsspec() -> No
     assert report["run_id"] == "run-1"
     assert report["executor"] == "RayDataExecutor"
     assert report["wall_time_s"] == 2.0
-    assert report["record_count"] == 1
-    assert report["records"][0]["custom_metrics"] == {"audio_duration_s": 12.0}
+    assert report["record_count"] == 2
+    assert report["stage_performance"] == [
+        {
+            "stage_id": "002:ASR",
+            "stage_start_s": 10.0,
+            "stage_end_s": 14.0,
+            "invocation_ids": ["invocation-1", "invocation-2"],
+            "processing_times_s": [1.5, 2.5],
+        }
+    ]
+    assert "records" not in report
     record_store.cleanup()
 
 
@@ -109,8 +129,11 @@ def test_manifest_writer_streams_high_cardinality_record_store(tmp_path: Path) -
     )
     record = StagePerfStats(
         stage_name="ASR",
+        stage_id="002:ASR",
         invocation_id="invocation",
         process_time=1.5,
+        window_start_s=10.0,
+        window_end_s=11.5,
         custom_metrics={"audio_duration_s": 12.0},
     )
     record_store = make_performance_record_store(record for _ in range(50_000))
@@ -130,7 +153,32 @@ def test_manifest_writer_streams_high_cardinality_record_store(tmp_path: Path) -
     with report_path.open(encoding="utf-8") as report_file:
         report = json.load(report_file)
     assert report["record_count"] == 50_000
-    assert len(report["records"]) == 50_000
+    [stage_performance] = report["stage_performance"]
+    assert stage_performance["stage_start_s"] == 10.0
+    assert stage_performance["stage_end_s"] == 11.5
+    assert len(stage_performance["invocation_ids"]) == 50_000
+    assert len(stage_performance["processing_times_s"]) == 50_000
+    record_store.cleanup()
+
+
+def test_manifest_writer_rejects_record_for_unknown_pipeline_stage(tmp_path: Path) -> None:
+    report_path = tmp_path / "performance.json"
+    writer = ManifestWriterStage(
+        output_path=str(tmp_path / "output.jsonl"),
+        performance_report_path=str(report_path),
+    )
+    record_store = make_performance_record_store(
+        [StagePerfStats(stage_name="unknown", stage_id="999:unknown", invocation_id="invocation")]
+    )
+
+    with pytest.raises(ValueError, match="unknown pipeline stage '999:unknown'"):
+        writer.finalize_performance_report(
+            performance_records=record_store,
+            wall_time_s=2.0,
+            report_context=_report_context(),
+        )
+
+    assert not report_path.exists()
     record_store.cleanup()
 
 

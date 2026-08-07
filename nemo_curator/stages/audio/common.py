@@ -16,8 +16,12 @@ import json
 import os
 import posixpath
 import time
+from contextlib import ExitStack
 from dataclasses import dataclass, field
+from functools import partial
 from operator import eq, ge, gt, le, lt, ne
+from shutil import copyfileobj
+from tempfile import TemporaryFile
 from typing import TYPE_CHECKING, Any
 
 import soundfile
@@ -30,9 +34,11 @@ from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
-from nemo_curator.utils.file_utils import write_json_file_streaming_array
+from nemo_curator.utils.file_utils import StreamingJSONItem, write_json_file_streaming_array
 
 if TYPE_CHECKING:
+    from typing import TextIO
+
     import fsspec
 
     from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
@@ -66,6 +72,74 @@ def _same_filesystem_path(left_url: str, right_url: str) -> bool:
     left_fs, left_path = url_to_fs(left_url)
     right_fs, right_path = url_to_fs(right_url)
     return _same_filesystem_location(left_fs, left_path, right_fs, right_path)
+
+
+@dataclass
+class _StagePerformanceSummary:
+    stage_id: str
+    invocation_ids: "TextIO"
+    processing_times_s: "TextIO"
+    stage_start_s: float | None = None
+    stage_end_s: float | None = None
+    invocation_count: int = 0
+
+
+def _build_stage_performance_summaries(
+    performance_records: "PerformanceRecordStore",
+    stage_ids: list[str],
+    temp_files: ExitStack,
+) -> list[_StagePerformanceSummary]:
+    """Spool compact invocation fields and one window per pipeline stage."""
+    summaries = {
+        stage_id: _StagePerformanceSummary(
+            stage_id=stage_id,
+            invocation_ids=temp_files.enter_context(TemporaryFile(mode="w+", encoding="utf-8")),  # noqa: SIM115
+            processing_times_s=temp_files.enter_context(
+                TemporaryFile(mode="w+", encoding="utf-8")  # noqa: SIM115
+            ),
+        )
+        for stage_id in stage_ids
+    }
+    for record in performance_records.iter_dicts():
+        stage_id = str(record["stage_id"])
+        if stage_id not in summaries:
+            msg = f"Performance record references unknown pipeline stage {stage_id!r}"
+            raise ValueError(msg)
+        summary = summaries[stage_id]
+        if summary.invocation_count:
+            summary.invocation_ids.write(",")
+            summary.processing_times_s.write(",")
+        json.dump(record["invocation_id"], summary.invocation_ids)
+        json.dump(record["process_time"], summary.processing_times_s)
+        summary.invocation_count += 1
+        window_start_s = float(record["window_start_s"])
+        window_end_s = float(record["window_end_s"])
+        if window_start_s > 0:
+            current_start_s = summary.stage_start_s
+            summary.stage_start_s = window_start_s if current_start_s is None else min(current_start_s, window_start_s)
+        if window_end_s > 0:
+            current_end_s = summary.stage_end_s
+            summary.stage_end_s = window_end_s if current_end_s is None else max(current_end_s, window_end_s)
+    for summary in summaries.values():
+        summary.invocation_ids.seek(0)
+        summary.processing_times_s.seek(0)
+    return list(summaries.values())
+
+
+def _write_stage_performance_summary(
+    summary: _StagePerformanceSummary,
+    output: "TextIO",
+) -> None:
+    """Stream one compact stage entry with aligned invocation value arrays."""
+    output.write("{")
+    output.write(f'"stage_id":{json.dumps(summary.stage_id)},')
+    output.write(f'"stage_start_s":{json.dumps(summary.stage_start_s)},')
+    output.write(f'"stage_end_s":{json.dumps(summary.stage_end_s)},')
+    output.write('"invocation_ids":[')
+    copyfileobj(summary.invocation_ids, output)
+    output.write('],"processing_times_s":[')
+    copyfileobj(summary.processing_times_s, output)
+    output.write("]}")
 
 
 def _append_slurm_shard_suffix(path: str, shard_index: int, total_shards: int) -> str:
@@ -289,7 +363,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
 
     Args:
         output_path: Destination JSONL path (local or cloud).
-        performance_report_path: Optional JSON destination for all raw
+        performance_report_path: Optional JSON destination for stage-grouped
             pipeline invocation metrics. Supports local and cloud paths through
             fsspec.
     """
@@ -309,7 +383,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
 
     def requests_performance_records(self) -> bool:
-        """A configured raw report requires complete invocation collection."""
+        """A configured stage report requires complete invocation collection."""
         return self.performance_report_path is not None
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
@@ -364,7 +438,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         wall_time_s: float,
         report_context: dict[str, Any],
     ) -> None:
-        """Persist the raw report so specialized writers can reuse the contract."""
+        """Persist invocation telemetry grouped by pipeline stage."""
         if self.performance_report_path is None:
             return
         report_fs, report_path = url_to_fs(self.performance_report_path)
@@ -377,18 +451,24 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         if _same_filesystem_location(output_fs, output_path, report_fs, report_path):
             msg = "effective performance report path must not resolve to the manifest output_path"
             raise ValueError(msg)
-        write_json_file_streaming_array(
-            report_path,
-            {
-                "schema_version": 1,
-                **report_context,
-                "wall_time_s": wall_time_s,
-                "record_count": len(performance_records),
-            },
-            array_key="records",
-            items=performance_records.iter_dicts(),
-            fs=report_fs,
-        )
+        with ExitStack() as temp_files:
+            stage_ids = [str(stage["stage_id"]) for stage in report_context["pipeline"]["stages"]]
+            stage_performance = _build_stage_performance_summaries(performance_records, stage_ids, temp_files)
+            write_json_file_streaming_array(
+                report_path,
+                {
+                    "schema_version": 1,
+                    **report_context,
+                    "wall_time_s": wall_time_s,
+                    "record_count": len(performance_records),
+                },
+                array_key="stage_performance",
+                items=(
+                    StreamingJSONItem(partial(_write_stage_performance_summary, summary))
+                    for summary in stage_performance
+                ),
+                fs=report_fs,
+            )
         logger.info(f"ManifestWriterStage: wrote performance report to {report_path}")
 
     def num_workers(self) -> int | None:

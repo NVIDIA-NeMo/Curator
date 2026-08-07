@@ -22,6 +22,7 @@ import pytest
 
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.utils.file_utils import (
+    StreamingJSONItem,
     get_all_file_paths_and_size_under,
     get_all_file_paths_under,
     infer_dataset_name_from_path,
@@ -33,6 +34,7 @@ from nemo_curator.utils.file_utils import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from typing import TextIO
 
 
 class TestJsonFiles:
@@ -86,6 +88,31 @@ class TestJsonFiles:
         assert read_json_file(path, fs) == {
             "schema_version": 1,
             "records": [{"index": 0}],
+        }
+
+    def test_streaming_array_accepts_streaming_item_writer(self) -> None:
+        path = "/pr2296-file-utils/nested-array.json"
+        fs = fsspec.filesystem("memory")
+
+        def write_item(item: list[int], output: TextIO) -> None:
+            output.write('{"values":[')
+            output.write(",".join(str(value) for value in item))
+            output.write("]}")
+
+        write_json_file_streaming_array(
+            path,
+            {"schema_version": 1},
+            array_key="groups",
+            items=[
+                StreamingJSONItem(lambda output: write_item([1, 2], output)),
+                StreamingJSONItem(lambda output: write_item([3], output)),
+            ],
+            fs=fs,
+        )
+
+        assert read_json_file(path, fs) == {
+            "schema_version": 1,
+            "groups": [{"values": [1, 2]}, {"values": [3]}],
         }
 
     def test_streaming_array_rejects_existing_array_key(self) -> None:

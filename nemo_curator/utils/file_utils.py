@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import posixpath
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -31,7 +32,8 @@ from nemo_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:
     import tarfile
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
+    from typing import TextIO
 
     import pandas as pd
 
@@ -40,6 +42,20 @@ FILETYPE_TO_DEFAULT_EXTENSIONS = {
     "jsonl": [".jsonl", ".json"],
     "megatron": [".bin", ".idx"],
 }
+
+
+@dataclass(frozen=True)
+class StreamingJSONItem:
+    """One JSON array item whose nested contents are written incrementally."""
+
+    writer: Callable[[TextIO], None]
+
+
+def _write_json_array_item(item: object, output: TextIO) -> None:
+    if isinstance(item, StreamingJSONItem):
+        item.writer(output)
+    else:
+        json.dump(item, output, sort_keys=True)
 
 
 def get_default_file_extensions(input_filetype: str) -> list[str]:
@@ -83,7 +99,10 @@ def write_json_file_streaming_array(
     items: Iterable[Any],
     fs: fsspec.AbstractFileSystem,
 ) -> None:
-    """Write one JSON array incrementally while keeping the surrounding object."""
+    """Write one JSON array incrementally while keeping the surrounding object.
+
+    Wrap nested streaming entries in ``StreamingJSONItem``.
+    """
     if array_key in payload:
         msg = f"{array_key!r} must not already exist in the JSON payload"
         raise ValueError(msg)
@@ -100,7 +119,7 @@ def write_json_file_streaming_array(
         for index, item in enumerate(items):
             if index:
                 output.write(",")
-            json.dump(item, output, sort_keys=True)
+            _write_json_array_item(item, output)
         output.write("]}\n")
 
     if isinstance(fs, LocalFileSystem):

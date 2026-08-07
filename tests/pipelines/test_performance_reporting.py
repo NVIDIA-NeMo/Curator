@@ -70,17 +70,22 @@ class _CardinalityConsumer(_TerminalConsumer):
 
 class _Executor:
     def __init__(self) -> None:
-        self.records: PerformanceRecordStore | None = make_performance_record_store(
+        self.records: PerformanceRecordStore | None = None
+
+    def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
+        terminal_stage = stages[-1]
+        self.records = make_performance_record_store(
             [
                 StagePerfStats(
-                    stage_name="duplicate",
+                    stage_name=terminal_stage.name,
+                    stage_id=terminal_stage._curator_stage_id,
                     invocation_id="invocation-1",
                     process_time=1.0,
+                    window_start_s=10.0,
+                    window_end_s=11.0,
                 )
             ]
         )
-
-    def execute(self, _stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
         return list(initial_tasks or [])
 
     def consume_external_perf_records(self) -> PerformanceRecordStore:
@@ -178,15 +183,14 @@ def test_report_path_alone_collects_records_end_to_end(executor: object, tmp_pat
     assert len(report["run_id"]) == 32
     assert report["wall_time_s"] >= 0.0
     assert report["record_count"] == 1
-    assert len(report["records"]) == 1
     assert report["pipeline"]["pipeline_name"] == "path-only"
     assert [stage["stage_id"] for stage in report["pipeline"]["stages"]] == ["000:manifest_writer"]
-    [record] = report["records"]
-    assert record["stage_id"] == "000:manifest_writer"
-    assert record["invocation_id"]
-    assert record["window_end_s"] >= record["window_start_s"] > 0
-    assert record["num_items_processed"] == 1
-    assert record["input_data_size_mb"] > 0
+    [stage_performance] = report["stage_performance"]
+    assert stage_performance["stage_id"] == "000:manifest_writer"
+    assert len(stage_performance["invocation_ids"]) == 1
+    assert len(stage_performance["processing_times_s"]) == 1
+    assert stage_performance["stage_end_s"] >= stage_performance["stage_start_s"] > 0
+    assert "records" not in report
 
 
 @pytest.mark.parametrize(

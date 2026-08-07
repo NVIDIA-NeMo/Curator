@@ -63,270 +63,89 @@ stages:
   "schema_version": 1,
   "slurm_array": null,
   "wall_time_s": 221.20097979158163,
-  "records": [
+  "stage_performance": [
     {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {},
-      "input_data_size_mb": 0.0,
-      "invocation_id": "dab80aa757ae4201a4edbe183e1fab33",
-      "num_items_processed": 0,
-      "process_time": 0.0007188916206359863,
       "stage_id": "000:file_partitioning",
-      "stage_name": "file_partitioning",
-      "window_end_s": 1786046652.2237613,
-      "window_start_s": 1786046652.2230403
+      "stage_start_s": 1786046652.2230403,
+      "stage_end_s": 1786046652.2237613,
+      "invocation_ids": [
+        "dab80aa757ae4201a4edbe183e1fab33"
+      ],
+      "processing_times_s": [
+        0.0007188916206359863
+      ]
     },
     {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {
-        "entries_read": 8.0,
-        "manifests_read": 1.0,
-        "process_time": 0.0005566813051700592
-      },
-      "input_data_size_mb": 0.0,
-      "invocation_id": "d25cef22e18f4178867887fe9a1dab7f",
-      "num_items_processed": 1,
-      "process_time": 0.0005961749702692032,
       "stage_id": "001:manifest_reader_stage",
-      "stage_name": "manifest_reader_stage",
-      "window_end_s": 1786046652.426173,
-      "window_start_s": 1786046652.4255745
+      "stage_start_s": 1786046652.4255745,
+      "stage_end_s": 1786046652.426173,
+      "invocation_ids": [
+        "d25cef22e18f4178867887fe9a1dab7f"
+      ],
+      "processing_times_s": [
+        0.0005961749702692032
+      ]
     },
     {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {
-        "duration": 61.0135,
-        "process_time": 0.14403409883379936,
-        "skipped_conversion": 0.0
-      },
-      "input_data_size_mb": 0.0002651214599609375,
-      "invocation_id": "8c6b4477cdae4a4993009fdb65e475b0",
-      "num_items_processed": 1,
-      "process_time": 0.14409693144261837,
       "stage_id": "002:ResampleAudio",
-      "stage_name": "ResampleAudio",
-      "window_end_s": 1786046653.1279485,
-      "window_start_s": 1786046652.98385
+      "stage_start_s": 1786046652.98385,
+      "stage_end_s": 1786046654.9800158,
+      "invocation_ids": [
+        "8c6b4477cdae4a4993009fdb65e475b0",
+        "ed30faff9c7c4a06bc13a1557f072865",
+        "841e9144faff4b87b675ec9e493ecbf5",
+        "99ee13a2a11f412da0f065875b876ec8",
+        "1e1dff96665742839b095dc137737dbb",
+        "0801cb0ec48a4f689c735cce4fa565e8",
+        "409fcc27870846d796ded40c974b9e31",
+        "4c7cb42318c4413f80063eb3957496bc"
+      ],
+      "processing_times_s": [
+        0.14409693144261837,
+        0.09774388000369072,
+        0.09984212182462215,
+        0.12462898902595043,
+        0.13993946090340614,
+        0.32044319435954094,
+        0.41448018327355385,
+        0.183643976226449
+      ]
     },
     {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {
-        "duration": 25.3135,
-        "process_time": 0.09764814004302025,
-        "skipped_conversion": 0.0
-      },
-      "input_data_size_mb": 0.0002651214599609375,
-      "invocation_id": "ed30faff9c7c4a06bc13a1557f072865",
-      "num_items_processed": 1,
-      "process_time": 0.09774388000369072,
-      "stage_id": "002:ResampleAudio",
-      "stage_name": "ResampleAudio",
-      "window_end_s": 1786046653.1904156,
-      "window_start_s": 1786046653.092668
-    },
-    {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {
-        "duration": 27.2535,
-        "process_time": 0.09974907897412777,
-        "skipped_conversion": 0.0
-      },
-      "input_data_size_mb": 0.0002651214599609375,
-      "invocation_id": "841e9144faff4b87b675ec9e493ecbf5",
-      "num_items_processed": 1,
-      "process_time": 0.09984212182462215,
-      "stage_id": "002:ResampleAudio",
-      "stage_name": "ResampleAudio",
-      "window_end_s": 1786046653.1918817,
-      "window_start_s": 1786046653.0920353
-    },
-    {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {
-        "duration": 94.4588125,
-        "process_time": 0.12454619072377682,
-        "skipped_conversion": 0.0
-      },
-      "input_data_size_mb": 0.00027179718017578125,
-      "invocation_id": "99ee13a2a11f412da0f065875b876ec8",
-      "num_items_processed": 1,
-      "process_time": 0.12462898902595043,
-      "stage_id": "002:ResampleAudio",
-      "stage_name": "ResampleAudio",
-      "window_end_s": 1786046653.2618964,
-      "window_start_s": 1786046653.137265
-    },
-    {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {
-        "duration": 111.966625,
-        "process_time": 0.13984973542392254,
-        "skipped_conversion": 0.0
-      },
-      "input_data_size_mb": 0.0002727508544921875,
-      "invocation_id": "1e1dff96665742839b095dc137737dbb",
-      "num_items_processed": 1,
-      "process_time": 0.13993946090340614,
-      "stage_id": "002:ResampleAudio",
-      "stage_name": "ResampleAudio",
-      "window_end_s": 1786046653.3447015,
-      "window_start_s": 1786046653.204759
-    },
-    {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {
-        "duration": 102.2135,
-        "process_time": 0.32035274989902973,
-        "skipped_conversion": 0.0
-      },
-      "input_data_size_mb": 0.00026607513427734375,
-      "invocation_id": "0801cb0ec48a4f689c735cce4fa565e8",
-      "num_items_processed": 1,
-      "process_time": 0.32044319435954094,
-      "stage_id": "002:ResampleAudio",
-      "stage_name": "ResampleAudio",
-      "window_end_s": 1786046653.5248365,
-      "window_start_s": 1786046653.2043903
-    },
-    {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {
-        "duration": 115.0935,
-        "process_time": 0.41440132819116116,
-        "skipped_conversion": 0.0
-      },
-      "input_data_size_mb": 0.00026607513427734375,
-      "invocation_id": "409fcc27870846d796ded40c974b9e31",
-      "num_items_processed": 1,
-      "process_time": 0.41448018327355385,
-      "stage_id": "002:ResampleAudio",
-      "stage_name": "ResampleAudio",
-      "window_end_s": 1786046653.686161,
-      "window_start_s": 1786046653.2716784
-    },
-    {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {
-        "duration": 32.1735,
-        "process_time": 0.1835701186209917,
-        "skipped_conversion": 0.0
-      },
-      "input_data_size_mb": 0.0002651214599609375,
-      "invocation_id": "4c7cb42318c4413f80063eb3957496bc",
-      "num_items_processed": 1,
-      "process_time": 0.183643976226449,
-      "stage_id": "002:ResampleAudio",
-      "stage_name": "ResampleAudio",
-      "window_end_s": 1786046654.9800158,
-      "window_start_s": 1786046654.7963688
-    },
-    {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {},
-      "input_data_size_mb": 0.0033893585205078125,
-      "invocation_id": "d104cee5090641499855dd8c68a6e8d8",
-      "num_items_processed": 8,
-      "process_time": 6.391498176380992,
       "stage_id": "003:ASR_inference",
-      "stage_name": "ASR_inference",
-      "window_end_s": 1786046794.3312328,
-      "window_start_s": 1786046787.9397295
+      "stage_start_s": 1786046787.9397295,
+      "stage_end_s": 1786046794.3312328,
+      "invocation_ids": [
+        "d104cee5090641499855dd8c68a6e8d8"
+      ],
+      "processing_times_s": [
+        6.391498176380992
+      ]
     },
     {
-      "actor_idle_time": 0.0,
-      "custom_metrics": {},
-      "input_data_size_mb": 0.0014829635620117188,
-      "invocation_id": "0229af48cee84296a76559065084c00d",
-      "num_items_processed": 1,
-      "process_time": 0.0007843915373086929,
       "stage_id": "004:manifest_writer",
-      "stage_name": "manifest_writer",
-      "window_end_s": 1786046794.3565297,
-      "window_start_s": 1786046794.35574
-    },
-    {
-      "actor_idle_time": 0.004974842071533203,
-      "custom_metrics": {},
-      "input_data_size_mb": 0.0007152557373046875,
-      "invocation_id": "b1303e62883a41af8779dc8ba940da98",
-      "num_items_processed": 1,
-      "process_time": 0.00036756135523319244,
-      "stage_id": "004:manifest_writer",
-      "stage_name": "manifest_writer",
-      "window_end_s": 1786046794.3631415,
-      "window_start_s": 1786046794.362772
-    },
-    {
-      "actor_idle_time": 0.0013735294342041016,
-      "custom_metrics": {},
-      "input_data_size_mb": 0.0008153915405273438,
-      "invocation_id": "c65ebb6dc01b4adb861f67181b68c129",
-      "num_items_processed": 1,
-      "process_time": 0.00029454007744789124,
-      "stage_id": "004:manifest_writer",
-      "stage_name": "manifest_writer",
-      "window_end_s": 1786046794.365493,
-      "window_start_s": 1786046794.3651965
-    },
-    {
-      "actor_idle_time": 0.0011518001556396484,
-      "custom_metrics": {},
-      "input_data_size_mb": 0.0016050338745117188,
-      "invocation_id": "caba5c2cfed9432aa415cd39be7400af",
-      "num_items_processed": 1,
-      "process_time": 0.00035044923424720764,
-      "stage_id": "004:manifest_writer",
-      "stage_name": "manifest_writer",
-      "window_end_s": 1786046794.3676448,
-      "window_start_s": 1786046794.3672924
-    },
-    {
-      "actor_idle_time": 0.0011439323425292969,
-      "custom_metrics": {},
-      "input_data_size_mb": 0.0015478134155273438,
-      "invocation_id": "9442766395374078be13c31b790668dc",
-      "num_items_processed": 1,
-      "process_time": 0.0002884604036808014,
-      "stage_id": "004:manifest_writer",
-      "stage_name": "manifest_writer",
-      "window_end_s": 1786046794.3697302,
-      "window_start_s": 1786046794.36944
-    },
-    {
-      "actor_idle_time": 0.001340627670288086,
-      "custom_metrics": {},
-      "input_data_size_mb": 0.0016775131225585938,
-      "invocation_id": "466064ac0d7c4256b2a3406cf8784847",
-      "num_items_processed": 1,
-      "process_time": 0.0003480222076177597,
-      "stage_id": "004:manifest_writer",
-      "stage_name": "manifest_writer",
-      "window_end_s": 1786046794.3719862,
-      "window_start_s": 1786046794.3716362
-    },
-    {
-      "actor_idle_time": 0.0011441707611083984,
-      "custom_metrics": {},
-      "input_data_size_mb": 0.0017490386962890625,
-      "invocation_id": "6c9bef6bd6f64026921d197367ce6efc",
-      "num_items_processed": 1,
-      "process_time": 0.0002736244350671768,
-      "stage_id": "004:manifest_writer",
-      "stage_name": "manifest_writer",
-      "window_end_s": 1786046794.373979,
-      "window_start_s": 1786046794.3737037
-    },
-    {
-      "actor_idle_time": 0.0010402202606201172,
-      "custom_metrics": {},
-      "input_data_size_mb": 0.000675201416015625,
-      "invocation_id": "b7d7c02f6f07429383c6e6f8414d164e",
-      "num_items_processed": 1,
-      "process_time": 0.00027731992304325104,
-      "stage_id": "004:manifest_writer",
-      "stage_name": "manifest_writer",
-      "window_end_s": 1786046794.3759623,
-      "window_start_s": 1786046794.375683
+      "stage_start_s": 1786046794.35574,
+      "stage_end_s": 1786046794.3759623,
+      "invocation_ids": [
+        "0229af48cee84296a76559065084c00d",
+        "b1303e62883a41af8779dc8ba940da98",
+        "c65ebb6dc01b4adb861f67181b68c129",
+        "caba5c2cfed9432aa415cd39be7400af",
+        "9442766395374078be13c31b790668dc",
+        "466064ac0d7c4256b2a3406cf8784847",
+        "6c9bef6bd6f64026921d197367ce6efc",
+        "b7d7c02f6f07429383c6e6f8414d164e"
+      ],
+      "processing_times_s": [
+        0.0007843915373086929,
+        0.00036756135523319244,
+        0.00029454007744789124,
+        0.00035044923424720764,
+        0.0002884604036808014,
+        0.0003480222076177597,
+        0.0002736244350671768,
+        0.00027731992304325104
+      ]
     }
   ]
 }
