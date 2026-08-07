@@ -67,6 +67,7 @@ dependencies = [
     "omegaconf",
     "openai>=1.0.0",
     "pandas>=2.1.0",
+    "psutil",
     "pyarrow",
     "ray[default,data]>=2.56.1",
     "torch",

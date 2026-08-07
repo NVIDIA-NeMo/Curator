@@ -66,7 +66,7 @@ def _dataset_ratio(value: str) -> float:
     return ratio
 
 
-def _build_pipeline(  # noqa: PLR0913
+def _build_pipeline(  # noqa: C901, PLR0913
     input_files: list[str],
     output_path: Path,
     input_task_type: InputTaskType,
@@ -86,6 +86,7 @@ def _build_pipeline(  # noqa: PLR0913
     reader_ray_data_max_workers: int | None,
     minhash_num_workers: int | None,
     minhash_ray_data_initial_workers: int | None,
+    minhash_ray_data_num_cpus: float | None,
     minhash_ray_data_max_concurrency: int | None,
     minhash_ray_data_max_tasks_in_flight_per_actor: int | None,
 ) -> Pipeline:
@@ -136,6 +137,8 @@ def _build_pipeline(  # noqa: PLR0913
     ray_stage_spec = {}
     if minhash_ray_data_initial_workers is not None:
         ray_stage_spec[RayStageSpecKeys.INITIAL_WORKERS] = minhash_ray_data_initial_workers
+    if minhash_ray_data_num_cpus is not None:
+        ray_stage_spec[RayStageSpecKeys.RAY_NUM_CPUS] = minhash_ray_data_num_cpus
     if minhash_ray_data_max_concurrency is not None:
         ray_stage_spec[RayStageSpecKeys.MAX_CONCURRENCY] = minhash_ray_data_max_concurrency
     if minhash_ray_data_max_tasks_in_flight_per_actor is not None:
@@ -172,6 +175,7 @@ def run_minhash_benchmark(  # noqa: PLR0913
     reader_ray_data_max_workers: int | None = None,
     minhash_num_workers: int | None = None,
     minhash_ray_data_initial_workers: int | None = None,
+    minhash_ray_data_num_cpus: float | None = None,
     minhash_ray_data_max_concurrency: int | None = None,
     minhash_ray_data_max_tasks_in_flight_per_actor: int | None = None,
     **kwargs: object,  # noqa: ARG001
@@ -187,6 +191,7 @@ def run_minhash_benchmark(  # noqa: PLR0913
     ray_data_only_options = {
         "reader_ray_data_initial_workers": reader_ray_data_initial_workers,
         "reader_ray_data_max_workers": reader_ray_data_max_workers,
+        "minhash_ray_data_num_cpus": minhash_ray_data_num_cpus,
         "minhash_ray_data_max_concurrency": minhash_ray_data_max_concurrency,
         "minhash_ray_data_max_tasks_in_flight_per_actor": minhash_ray_data_max_tasks_in_flight_per_actor,
     }
@@ -243,6 +248,7 @@ def run_minhash_benchmark(  # noqa: PLR0913
         reader_ray_data_max_workers=reader_ray_data_max_workers,
         minhash_num_workers=minhash_num_workers,
         minhash_ray_data_initial_workers=minhash_ray_data_initial_workers,
+        minhash_ray_data_num_cpus=minhash_ray_data_num_cpus,
         minhash_ray_data_max_concurrency=minhash_ray_data_max_concurrency,
         minhash_ray_data_max_tasks_in_flight_per_actor=minhash_ray_data_max_tasks_in_flight_per_actor,
     )
@@ -379,6 +385,12 @@ def main() -> int:
         type=int,
         default=None,
         help="Initial size of the autoscaling Ray Data MinHash actor pool",
+    )
+    parser.add_argument(
+        "--minhash-ray-data-num-cpus",
+        type=float,
+        default=None,
+        help="CPU reservation for each Ray Data MinHash actor",
     )
     parser.add_argument(
         "--minhash-ray-data-max-concurrency",

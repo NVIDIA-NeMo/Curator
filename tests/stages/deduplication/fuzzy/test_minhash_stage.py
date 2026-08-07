@@ -17,6 +17,8 @@
 import os
 from contextlib import suppress
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pandas as pd
 import pyarrow as pa
@@ -28,10 +30,41 @@ with suppress(ImportError):
 
 # Suppress GPU-related import errors when running pytest -m "not gpu"
 with suppress(ImportError):
+    from nemo_curator.stages.deduplication.fuzzy import minhash as minhash_module
     from nemo_curator.stages.deduplication.fuzzy.minhash import MinHashStage
     from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
+
+
+def test_setup_logs_runtime_thread_configuration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OMP_NUM_THREADS", "4")
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _pid: {0, 1, 2, 3, 4})
+    monkeypatch.setattr(pa, "cpu_count", lambda: 6)
+    monkeypatch.setattr(pa, "io_thread_count", lambda: 7)
+    monkeypatch.setattr(
+        minhash_module,
+        "psutil",
+        SimpleNamespace(Process=lambda: SimpleNamespace(num_threads=lambda: 8)),
+        raising=False,
+    )
+    monkeypatch.setattr(minhash_module, "get_id_generator_actor", lambda: object())
+    monkeypatch.setattr(minhash_module, "GPUMinHash", lambda **_kwargs: object())
+
+    stage = MinHashStage(output_path=str(tmp_path), pool=False)
+    with patch.object(minhash_module.logger, "info") as logger_info:
+        stage.setup()
+
+    logger_info.assert_called_once_with(
+        "MinHashStage runtime thread configuration: OMP_NUM_THREADS={!r}, "
+        "sched_affinity_cpu_count={}, pyarrow_cpu_count={}, "
+        "pyarrow_io_thread_count={}, process_num_threads={}",
+        "4",
+        5,
+        6,
+        7,
+        8,
+    )
 
 
 @pytest.fixture
@@ -174,10 +207,7 @@ class TestMinHashStage:
         assert unused_input_prep_metric not in stage._custom_metrics
 
         # Verify detailed stage timings are recorded
-        assert all(
-            stage._custom_metrics[metric] > 0
-            for metric in ("minhash_compute_time", "minhash_write_time")
-        )
+        assert all(stage._custom_metrics[metric] > 0 for metric in ("minhash_compute_time", "minhash_write_time"))
 
         # Verify output task structure (output is always a FileGroupTask)
         assert isinstance(output_task, FileGroupTask)

@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Literal
 
 import cudf
 import numpy as np
 import pandas as pd
+import psutil
 import pyarrow as pa
 import rmm
 from loguru import logger
@@ -270,6 +272,17 @@ class MinHashStage(ProcessingStage[FileGroupTask | DocumentBatch, FileGroupTask]
 
     def setup(self, _worker_metadata: "WorkerMetadata | None" = None) -> None:
         """Initialize the GPU MinHash processor and ID generator."""
+        logger.info(
+            "MinHashStage runtime thread configuration: OMP_NUM_THREADS={!r}, "
+            "sched_affinity_cpu_count={}, pyarrow_cpu_count={}, "
+            "pyarrow_io_thread_count={}, process_num_threads={}",
+            os.environ.get("OMP_NUM_THREADS"),
+            len(os.sched_getaffinity(0)),
+            pa.cpu_count(),
+            pa.io_thread_count(),
+            psutil.Process().num_threads(),
+        )
+
         # The ID generator is only required for the FileGroupTask (file-read) path, where IDs
         # are assigned at read time. DocumentBatch inputs must already carry _curator_dedup_id,
         # so a missing actor is tolerated here; the file path surfaces a clear error at

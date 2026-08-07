@@ -44,6 +44,7 @@ def test_reader_worker_bounds_are_applied_to_reader_stage(tmp_path: Path) -> Non
         reader_ray_data_max_workers=12,
         minhash_num_workers=8,
         minhash_ray_data_initial_workers=None,
+        minhash_ray_data_num_cpus=2,
         minhash_ray_data_max_concurrency=2,
         minhash_ray_data_max_tasks_in_flight_per_actor=None,
     )
@@ -55,4 +56,5 @@ def test_reader_worker_bounds_are_applied_to_reader_stage(tmp_path: Path) -> Non
     assert reader_stage.ray_stage_spec()[RayStageSpecKeys.INITIAL_WORKERS] == 12
     assert reader_stage.ray_stage_spec()[RayStageSpecKeys.MAX_WORKERS] == 12
     assert minhash_stage.num_workers() == 8
+    assert minhash_stage.ray_stage_spec()[RayStageSpecKeys.RAY_NUM_CPUS] == 2
     assert minhash_stage.ray_stage_spec()[RayStageSpecKeys.MAX_CONCURRENCY] == 2
