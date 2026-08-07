@@ -11,140 +11,94 @@ stages:
     performance_report_path: ${performance_report_path}
 ```
 
-## Exact parity-run performance JSON
+## Exact 16-row GPU parity-run performance JSON
+
+The following report was captured from commit `ab7081b325dfabc702a3c6642184c20c13633ac4` using 16 input rows, ASR batch size 8, and one NVIDIA GeForce RTX 3080 Ti. The same inputs produced 16 exact transcript matches against Curator main at `a4470c6fe9b20ec98eb0839939c5e89de8aca3e5`.
+
+`record_count` is 18 because the report contains two ASR batch invocations and sixteen manifest-writer invocations. These are invocation-level measurements and are not duplicated across the sixteen output tasks.
 
 ```json
 {
   "executor": "RayDataExecutor",
   "pipeline": {
-    "pipeline_description": "Create and execute a pipeline from a YAML file",
-    "pipeline_name": "yaml_pipeline",
+    "pipeline_description": "",
+    "pipeline_name": "pr2296-local-gpu-parity-16rows-batch8",
     "stages": [
       {
-        "batch_size": 1,
-        "name": "file_partitioning",
-        "num_workers": 1,
-        "stage_id": "000:file_partitioning",
-        "type": "nemo_curator.stages.file_partitioning.FilePartitioningStage"
-      },
-      {
-        "batch_size": 1,
-        "name": "manifest_reader_stage",
-        "num_workers": 1,
-        "stage_id": "001:manifest_reader_stage",
-        "type": "nemo_curator.stages.audio.common.ManifestReaderStage"
-      },
-      {
-        "batch_size": 1,
-        "name": "ResampleAudio",
-        "num_workers": null,
-        "stage_id": "002:ResampleAudio",
-        "type": "nemo_curator.stages.audio.tagging.resample_audio.ResampleAudioStage"
-      },
-      {
-        "batch_size": 32,
+        "batch_size": 8,
         "name": "ASR_inference",
         "num_workers": null,
-        "stage_id": "003:ASR_inference",
-        "type": "nemo_curator.stages.audio.inference.asr.stage.ASRStage"
+        "stage_id": "000:ASR_inference",
+        "type": "nemo_curator.stages.audio.inference.asr.asr_nemo.InferenceAsrNemoStage"
       },
       {
         "batch_size": 1,
         "name": "manifest_writer",
         "num_workers": 1,
-        "stage_id": "004:manifest_writer",
+        "stage_id": "001:manifest_writer",
         "type": "nemo_curator.stages.audio.common.ManifestWriterStage"
       }
     ]
   },
-  "pipeline_name": "yaml_pipeline",
-  "record_count": 19,
-  "run_id": "4f77004bd7f44d45a7a7662e4c356f64",
+  "pipeline_name": "pr2296-local-gpu-parity-16rows-batch8",
+  "record_count": 18,
+  "run_id": "af7731bd75af4952892019914a169c60",
   "schema_version": 1,
   "slurm_array": null,
-  "wall_time_s": 221.20097979158163,
+  "wall_time_s": 45.5407141353935,
   "stage_performance": [
     {
-      "stage_id": "000:file_partitioning",
-      "stage_start_s": 1786046652.2230403,
-      "stage_end_s": 1786046652.2237613,
+      "stage_id": "000:ASR_inference",
+      "stage_start_s": 1786134574.6084895,
+      "stage_end_s": 1786134576.659894,
       "invocation_ids": [
-        "dab80aa757ae4201a4edbe183e1fab33"
+        "04a8330ad8644ce39d67a187ad99dd0f",
+        "b7d32ac82aef405d940c5114db342034"
       ],
       "processing_times_s": [
-        0.0007188916206359863
+        1.231179116293788,
+        0.8097240729257464
       ]
     },
     {
-      "stage_id": "001:manifest_reader_stage",
-      "stage_start_s": 1786046652.4255745,
-      "stage_end_s": 1786046652.426173,
+      "stage_id": "001:manifest_writer",
+      "stage_start_s": 1786134575.9373822,
+      "stage_end_s": 1786134576.6860292,
       "invocation_ids": [
-        "d25cef22e18f4178867887fe9a1dab7f"
+        "ea7ff488581846e5b2aa5358a37a1a4c",
+        "8d17962d370a47febb5d0e25819c8c53",
+        "881492c1cc044c9baa7f7bddc62ec453",
+        "268ecd30bd28454193da1b949190df62",
+        "a89be86e2a404fb3a072cfd185089e5b",
+        "a4f250eec2e24f7a895f16861151a6e7",
+        "ab6b4bda602040cb83e88ec1739de32c",
+        "c13734b85bb342af81776638ed9c8133",
+        "9924248b4eec4d39b804783fd0644ed0",
+        "50a994f37b894982ba0abecb77b900ad",
+        "e6cf2423c16d4ba79b3dadcb38be3609",
+        "a1bdcfe7311945e5ac2020f16e2d7c23",
+        "f3eef18e552045989dd3d81c13c2b6b6",
+        "76bc37156bad464ca2854f8a3f777b38",
+        "7602260578d34ded8e8bb00be503f03f",
+        "906e0b1857d24726a7853b2226983a84"
       ],
       "processing_times_s": [
-        0.0005961749702692032
-      ]
-    },
-    {
-      "stage_id": "002:ResampleAudio",
-      "stage_start_s": 1786046652.98385,
-      "stage_end_s": 1786046654.9800158,
-      "invocation_ids": [
-        "8c6b4477cdae4a4993009fdb65e475b0",
-        "ed30faff9c7c4a06bc13a1557f072865",
-        "841e9144faff4b87b675ec9e493ecbf5",
-        "99ee13a2a11f412da0f065875b876ec8",
-        "1e1dff96665742839b095dc137737dbb",
-        "0801cb0ec48a4f689c735cce4fa565e8",
-        "409fcc27870846d796ded40c974b9e31",
-        "4c7cb42318c4413f80063eb3957496bc"
-      ],
-      "processing_times_s": [
-        0.14409693144261837,
-        0.09774388000369072,
-        0.09984212182462215,
-        0.12462898902595043,
-        0.13993946090340614,
-        0.32044319435954094,
-        0.41448018327355385,
-        0.183643976226449
-      ]
-    },
-    {
-      "stage_id": "003:ASR_inference",
-      "stage_start_s": 1786046787.9397295,
-      "stage_end_s": 1786046794.3312328,
-      "invocation_ids": [
-        "d104cee5090641499855dd8c68a6e8d8"
-      ],
-      "processing_times_s": [
-        6.391498176380992
-      ]
-    },
-    {
-      "stage_id": "004:manifest_writer",
-      "stage_start_s": 1786046794.35574,
-      "stage_end_s": 1786046794.3759623,
-      "invocation_ids": [
-        "0229af48cee84296a76559065084c00d",
-        "b1303e62883a41af8779dc8ba940da98",
-        "c65ebb6dc01b4adb861f67181b68c129",
-        "caba5c2cfed9432aa415cd39be7400af",
-        "9442766395374078be13c31b790668dc",
-        "466064ac0d7c4256b2a3406cf8784847",
-        "6c9bef6bd6f64026921d197367ce6efc",
-        "b7d7c02f6f07429383c6e6f8414d164e"
-      ],
-      "processing_times_s": [
-        0.0007843915373086929,
-        0.00036756135523319244,
-        0.00029454007744789124,
-        0.00035044923424720764,
-        0.0002884604036808014,
-        0.0003480222076177597,
-        0.0002736244350671768,
-        0.00027731992304325104
+        0.00014918949455022812,
+        0.00012210663408041,
+        0.00011932570487260818,
+        0.00016196724027395248,
+        8.973944932222366e-05,
+        8.482858538627625e-05,
+        8.516944944858551e-05,
+        9.106192737817764e-05,
+        0.0001326901838183403,
+        0.00012360140681266785,
+        0.00013177469372749329,
+        0.00013009924441576004,
+        0.00012642797082662582,
+        0.00013201497495174408,
+        0.0001581888645887375,
+        0.00013593677431344986
       ]
     }
   ]
