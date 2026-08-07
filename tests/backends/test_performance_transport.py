@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -19,6 +20,7 @@ import pytest
 from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask, Task
+from nemo_curator.utils.performance_utils import StagePerfStats
 from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
 
 
@@ -86,7 +88,7 @@ def test_adapter_publishes_once_per_invocation_without_task_duplication(
     assert perf.window_end_s >= perf.window_start_s > 0
 
 
-def test_adapter_preserves_task_attached_perf_without_collector() -> None:
+def test_adapter_disabled_collection_corrects_item_count_reported_as_byte_size() -> None:
     [result] = BaseStageAdapter(_MetricStage()).process_batch(
         [AudioTask(dataset_name="test", data={"text": "payload"})]
     )
@@ -122,11 +124,25 @@ def test_required_collector_start_failure_is_not_silenced() -> None:
 
 def test_executor_transfers_external_records_exactly_once() -> None:
     executor = _Executor()
-    records = PerformanceRecordStore.from_records([])
+    expected_record = StagePerfStats(
+        stage_name="stage",
+        invocation_id="invocation-1",
+        process_time=1.0,
+    )
+    records = PerformanceRecordStore.from_records([expected_record])
+    spool_path = Path(records.path)
     executor._external_perf_records = records
 
-    assert executor.consume_external_perf_records() is records
+    transferred = executor.consume_external_perf_records()
+    assert transferred is records
+    assert spool_path.is_file()
+    assert list(transferred) == [expected_record]
+
     assert len(executor.consume_external_perf_records()) == 0
+    assert spool_path.is_file()
+
+    transferred.cleanup()
+    assert not spool_path.exists()
 
 
 def test_audio_input_byte_count_is_independent_of_item_count() -> None:

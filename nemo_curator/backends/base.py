@@ -155,6 +155,10 @@ class BaseStageAdapter:
 
         capture_metrics = bool(getattr(self.stage, "_curator_stage_perf_collector_name", ""))
         num_input_items = sum(task.num_items for task in tasks)
+        # Behavior correction: the legacy disabled path passed an item count to
+        # a byte-sized timer and exposed that unit mismatch as MB. When no
+        # report is requested, leave the unmeasured byte field at zero while
+        # retaining the task-attached legacy performance schema.
         input_size_bytes = sum(task.input_data_size_bytes() for task in tasks) if capture_metrics else 0
         # Initialize performance timer for this batch
         self._timer.reinit(input_size_bytes)

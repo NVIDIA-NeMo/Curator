@@ -24,6 +24,18 @@ import torch
 from nemo_curator.tasks import AudioTask
 
 
+class _MetadataOnlyArray:
+    nbytes = 16 * 4
+
+    def __iter__(self):
+        msg = "array contents must not be iterated"
+        raise AssertionError(msg)
+
+    def __str__(self) -> str:
+        msg = "array contents must not be stringified"
+        raise AssertionError(msg)
+
+
 def test_audio_task_stores_dict() -> None:
     entry = AudioTask(data={"audio_filepath": "/x.wav"})
     assert isinstance(entry.data, dict)
@@ -69,6 +81,7 @@ def test_audio_task_input_size_uses_compact_utf8_json() -> None:
     [
         pytest.param(torch.zeros(16, dtype=torch.float32), id="torch"),
         pytest.param(np.zeros(16, dtype=np.float32), id="numpy"),
+        pytest.param(_MetadataOnlyArray(), id="metadata-only"),
     ],
 )
 def test_audio_task_input_size_counts_nested_array_storage_without_materializing_it(waveform: object) -> None:

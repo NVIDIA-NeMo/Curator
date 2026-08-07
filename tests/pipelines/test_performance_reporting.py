@@ -18,6 +18,12 @@ from pathlib import Path
 import pytest
 
 from nemo_curator.backends.ray_data import RayDataExecutor
+from nemo_curator.backends.slurm_array import (
+    SLURM_ARRAY_ENABLED_ENV_VAR,
+    SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR,
+    SLURM_ARRAY_SHARD_INDEX_ENV_VAR,
+    SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR,
+)
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import ManifestWriterStage
@@ -114,6 +120,35 @@ def test_pipeline_assigns_stable_ids_and_drains_records_once() -> None:
     assert executor.records is None
 
 
+def test_slurm_environment_reaches_sharded_terminal_report(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv(SLURM_ARRAY_ENABLED_ENV_VAR, raising=False)
+    monkeypatch.delenv(SLURM_ARRAY_SHARD_INDEX_ENV_VAR, raising=False)
+    monkeypatch.delenv(SLURM_ARRAY_TOTAL_SHARDS_ENV_VAR, raising=False)
+    monkeypatch.delenv(SLURM_ARRAY_MINIMUM_SHARD_INDEX_ENV_VAR, raising=False)
+    monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "7")
+    monkeypatch.setenv("SLURM_ARRAY_TASK_COUNT", "11")
+
+    report_path = tmp_path / "performance.json"
+    writer = ManifestWriterStage(
+        output_path=str(tmp_path / "manifest.jsonl"),
+        performance_report_path=str(report_path),
+    )
+    pipeline = Pipeline(name="slurm-report", stages=[writer])
+
+    pipeline.run(executor=_Executor(), initial_tasks=[])
+
+    sharded_report_path = tmp_path / "performance.shard-00007-of-00011.json"
+    assert not report_path.exists()
+    assert sharded_report_path.is_file()
+    report = json.loads(sharded_report_path.read_text(encoding="utf-8"))
+    assert report["slurm_array"] == {"shard_index": 7, "total_shards": 11}
+    assert report["pipeline_name"] == "slurm-report"
+    pipeline.performance_records.cleanup()
+
+
 @pytest.mark.parametrize(
     "executor",
     [
@@ -189,7 +224,7 @@ def test_cardinality_invocation_is_collected_once_end_to_end(executor: object, f
     ],
 )
 @pytest.mark.usefixtures("shared_ray_client")
-def test_disabled_report_preserves_task_attached_metrics(executor: object, tmp_path: Path) -> None:
+def test_disabled_report_uses_task_attached_metrics_without_extended_report(executor: object, tmp_path: Path) -> None:
     manifest_path = tmp_path / "disabled-manifest.jsonl"
     writer = ManifestWriterStage(output_path=str(manifest_path), performance_report_path=None)
     pipeline = Pipeline(name="disabled", stages=[writer])
