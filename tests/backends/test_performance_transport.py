@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
+import torch
 
 from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
 from nemo_curator.stages.base import ProcessingStage
@@ -39,6 +42,20 @@ class _RequiredReportStage(_Stage):
         return True
 
 
+class _ZeroOutputStage(ProcessingStage[Task, Task]):
+    name = "zero-output"
+
+    def process(self, task: Task) -> None:
+        return None
+
+
+class _FanOutStage(ProcessingStage[Task, Task]):
+    name = "fan-out"
+
+    def process(self, task: Task) -> list[Task]:
+        return [task, EmptyTask()]
+
+
 def test_adapter_publishes_one_collector_record_without_task_duplication() -> None:
     stage = _Stage()
     stage._curator_stage_id = "000:stage"
@@ -54,6 +71,37 @@ def test_adapter_publishes_one_collector_record_without_task_duplication() -> No
     assert perf.invocation_id
     assert perf.window_end_s >= perf.window_start_s > 0
     publish.assert_called_once()
+
+
+def test_adapter_publishes_zero_output_invocation_once() -> None:
+    stage = _ZeroOutputStage()
+    stage._curator_stage_id = "000:zero-output"
+    stage._curator_stage_perf_collector_name = "collector"
+
+    with patch("nemo_curator.utils.stage_perf_collector.record_stage_perf", return_value=True) as publish:
+        results = BaseStageAdapter(stage).process_batch([EmptyTask()])
+
+    assert results == []
+    publish.assert_called_once()
+    perf = publish.call_args.args[1]
+    assert perf.stage_id == "000:zero-output"
+    assert perf.invocation_id
+
+
+def test_adapter_publishes_fan_out_invocation_once_without_task_duplication() -> None:
+    stage = _FanOutStage()
+    stage._curator_stage_id = "000:fan-out"
+    stage._curator_stage_perf_collector_name = "collector"
+
+    with patch("nemo_curator.utils.stage_perf_collector.record_stage_perf", return_value=True) as publish:
+        results = BaseStageAdapter(stage).process_batch([EmptyTask()])
+
+    assert len(results) == 2
+    assert all(result._stage_perf == [] for result in results)
+    publish.assert_called_once()
+    perf = publish.call_args.args[1]
+    assert perf.stage_id == "000:fan-out"
+    assert perf.invocation_id
 
 
 def test_adapter_preserves_task_attached_perf_without_collector() -> None:
@@ -110,3 +158,33 @@ def test_audio_input_byte_count_is_independent_of_item_count() -> None:
     large_perf = publish.call_args_list[1].args[1]
     assert small_perf.num_items_processed == large_perf.num_items_processed == 1
     assert large_perf.input_data_size_mb > small_perf.input_data_size_mb > 0
+
+
+@pytest.mark.parametrize(
+    "waveform",
+    [
+        pytest.param(torch.zeros(16, dtype=torch.float32), id="torch"),
+        pytest.param(np.zeros(16, dtype=np.float32), id="numpy"),
+    ],
+)
+def test_audio_input_byte_count_handles_in_memory_waveforms(waveform: object) -> None:
+    stage = _Stage()
+    stage._curator_stage_perf_collector_name = "collector"
+    task = AudioTask(dataset_name="test", data={"text": "payload", "waveform": waveform})
+    envelope_bytes = len(
+        json.dumps(
+            {"text": "payload", "waveform": None},
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+    expected_bytes = envelope_bytes + 16 * 4
+
+    with patch("nemo_curator.utils.stage_perf_collector.record_stage_perf", return_value=True) as publish:
+        [result] = BaseStageAdapter(stage).process_batch([task])
+
+    assert result._stage_perf == []
+    assert task.input_data_size_bytes() == expected_bytes
+    perf = publish.call_args.args[1]
+    assert perf.input_data_size_mb == pytest.approx(expected_bytes / 1024 / 1024)

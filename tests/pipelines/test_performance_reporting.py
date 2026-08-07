@@ -50,6 +50,20 @@ class _TerminalConsumer(ProcessingStage[Task, Task]):
         self.finalized = (performance_records, wall_time_s, report_context)
 
 
+class _CardinalityConsumer(_TerminalConsumer):
+    name = "cardinality"
+
+    def __init__(self, *, fan_out: bool) -> None:
+        super().__init__()
+        self.fan_out = fan_out
+
+    def process(self, task: Task) -> list[Task] | None:
+        return [task, AudioTask(dataset_name="test", data={"text": "second"})] if self.fan_out else None
+
+    def requests_performance_records(self) -> bool:
+        return True
+
+
 class _Executor:
     def __init__(self) -> None:
         self.records: PerformanceRecordStore | None = PerformanceRecordStore.from_records(
@@ -120,5 +134,32 @@ def test_report_path_alone_collects_records_end_to_end(executor: object, tmp_pat
     )
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert report["record_count"] >= 1
-    assert report["records"]
+    assert report["record_count"] == 1
+    assert len(report["records"]) == 1
+
+
+@pytest.mark.parametrize(
+    "executor",
+    [
+        pytest.param(RayDataExecutor(), id="ray-data"),
+        pytest.param(XennaExecutor(config={"execution_mode": "batch"}), id="xenna"),
+    ],
+)
+@pytest.mark.parametrize("fan_out", [pytest.param(False, id="zero-output"), pytest.param(True, id="fan-out")])
+@pytest.mark.usefixtures("shared_ray_client")
+def test_cardinality_invocation_is_collected_once_end_to_end(executor: object, fan_out: bool) -> None:
+    consumer = _CardinalityConsumer(fan_out=fan_out)
+    pipeline = Pipeline(name="cardinality", stages=[consumer])
+
+    results = pipeline.run(
+        executor=executor,  # type: ignore[arg-type]
+        initial_tasks=[AudioTask(dataset_name="test", data={"text": "first"})],
+    )
+
+    assert len(results) == (2 if fan_out else 0)
+    assert consumer.finalized is not None
+    records, _, _ = consumer.finalized
+    assert len(records) == 1
+    [record] = list(records)
+    assert record.stage_id == "000:cardinality"
+    assert record.invocation_id
