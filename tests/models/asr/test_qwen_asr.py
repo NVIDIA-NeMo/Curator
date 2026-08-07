@@ -27,7 +27,7 @@ import pytest
 import torch
 
 from nemo_curator.models.asr.base import ASRAdapter
-from nemo_curator.models.asr.qwen_asr import _MIN_SAMPLES, QwenASRAdapter, _patch_transformers_compat
+from nemo_curator.models.asr.qwen_asr import _MIN_SAMPLES, QwenASRAdapter
 from nemo_curator.stages.audio.inference.asr.stage import ASRStage
 from nemo_curator.tasks import AudioTask
 
@@ -107,17 +107,7 @@ def test_qwen_adapter_copies_nested_vllm_kwargs() -> None:
 
 @pytest.mark.parametrize(
     "reserved_key",
-    [
-        "model",
-        "revision",
-        "gpu_memory_utilization",
-        "max_inference_batch_size",
-        "max_new_tokens",
-        "trust_remote_code",
-        "enforce_eager",
-        "enable_prefix_caching",
-        "prefix_caching_hash_algo",
-    ],
+    QwenASRAdapter()._model_owned_vllm_kwargs(),
 )
 def test_qwen_adapter_rejects_adapter_owned_vllm_kwargs(reserved_key: str) -> None:
     adapter = QwenASRAdapter(vllm_kwargs={reserved_key: object()})
@@ -188,34 +178,6 @@ def test_load_model_forwards_additional_vllm_kwargs() -> None:
         adapter.load_model(num_gpus=1)
 
     assert model_cls.LLM.call_args.kwargs["max_model_len"] == 8192
-
-
-def test_load_model_applies_nkoluguri_transformers_compat_patch() -> None:
-    model_cls = MagicMock()
-    adapter = QwenASRAdapter()
-
-    with (
-        patch("nemo_curator.models.asr.qwen_asr._patch_transformers_compat") as compat,
-        patch("nemo_curator.models.asr.qwen_asr._qwen_asr_model_cls", return_value=model_cls),
-    ):
-        adapter.load_model(num_gpus=1)
-
-    compat.assert_called_once_with()
-
-
-def test_transformers_compat_wraps_plain_decorator_for_factory_syntax() -> None:
-    def plain_decorator(func):  # noqa: ANN001, ANN202
-        return func
-
-    transformers_stub = SimpleNamespace(check_model_inputs=plain_decorator)
-    with patch("nemo_curator.models.asr.qwen_asr.transformers", transformers_stub):
-        _patch_transformers_compat()
-
-    def decorated() -> str:
-        return "ok"
-
-    assert transformers_stub.check_model_inputs()(decorated)() == "ok"
-    assert transformers_stub.check_model_inputs(decorated)() == "ok"
 
 
 def test_load_model_without_qwen_asr_names_required_extras() -> None:

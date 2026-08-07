@@ -23,14 +23,12 @@ results back to ``ASRResult`` positions.
 from __future__ import annotations
 
 import gc
-import inspect
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 import torch
-import transformers
 from huggingface_hub import snapshot_download
 from loguru import logger
 
@@ -52,30 +50,6 @@ def _qwen_asr_model_cls() -> Any:  # noqa: ANN401
         msg = "QwenASRAdapter requires the audio_cuda12 and vllm extras: uv sync --extra audio_cuda12 --extra vllm"
         raise ImportError(msg) from exc
     return Qwen3ASRModel
-
-
-def _patch_transformers_compat() -> None:
-    """Accept qwen-asr's decorator-factory syntax on newer Transformers.
-
-    This matches the compatibility patch used by the nkoluguri Qwen-ASR
-    reference. Newer Transformers exposes ``check_model_inputs`` as a plain
-    decorator, while qwen-asr 0.0.6 still invokes it with parentheses.
-    """
-    try:
-        original = getattr(transformers, "check_model_inputs", None)
-        if original is None:
-            return
-        parameters = list(inspect.signature(original).parameters.values())
-        if parameters and parameters[0].name == "func":
-
-            def compat_check_model_inputs(*args: Any) -> Any:  # noqa: ANN401
-                if args and callable(args[0]):
-                    return original(args[0])
-                return original
-
-            transformers.check_model_inputs = compat_check_model_inputs
-    except Exception:  # noqa: BLE001, S110
-        pass
 
 
 @dataclass
@@ -171,7 +145,6 @@ class QwenASRAdapter:
         )
         if model_kwargs["revision"] is None:
             del model_kwargs["revision"]
-        _patch_transformers_compat()
         try:
             self._model = _qwen_asr_model_cls().LLM(**model_kwargs)
         except Exception:

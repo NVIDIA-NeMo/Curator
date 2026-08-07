@@ -32,7 +32,7 @@ from nemo_curator.utils.vllm_utils import (
 )
 
 
-class TestValidateVllmKwargs:
+class TestVllmKwargs:
     def test_accepts_non_conflicting_kwargs(self) -> None:
         validate_vllm_kwargs(
             {"max_model_len": 8192},
@@ -51,8 +51,6 @@ class TestValidateVllmKwargs:
                 owner_description="adapter-owned arguments",
             )
 
-
-class TestMergeVllmKwargs:
     def test_merges_owned_kwargs_without_mutating_user_kwargs(self) -> None:
         user_kwargs = {"max_model_len": 8192, "compilation_config": {"cudagraph_mode": "NONE"}}
 
