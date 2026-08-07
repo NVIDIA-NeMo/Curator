@@ -14,6 +14,7 @@
 
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -640,3 +641,21 @@ def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
     )
 
     assert "adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter" in result.stdout
+
+
+def test_qwen_tutorial_writes_complete_performance_report() -> None:
+    config_path = Path(__file__).parents[2] / "tutorials" / "audio" / "qwen_omni_inprocess" / "pipeline.yaml"
+    cfg = OmegaConf.load(config_path)
+
+    assert cfg.performance_report_path == "./qwen_omni_performance.json"
+    assert cfg.stages[3].performance_report_path == cfg.performance_report_path
+
+
+def test_qwen_tutorial_cloud_filesystem_extra_matches_readme() -> None:
+    repository_root = Path(__file__).parents[2]
+    with (repository_root / "pyproject.toml").open("rb") as pyproject_file:
+        optional_dependencies = tomllib.load(pyproject_file)["project"]["optional-dependencies"]
+    readme = (repository_root / "tutorials/audio/qwen_omni_inprocess/README.md").read_text(encoding="utf-8")
+
+    assert "s3fs>=2024.12.0" in optional_dependencies["cloud_filesystems"]
+    assert "--extra cloud_filesystems" in readme

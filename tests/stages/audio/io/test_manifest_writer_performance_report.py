@@ -15,14 +15,13 @@
 import json
 import tracemalloc
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 from fsspec.core import url_to_fs
 
 from nemo_curator.stages.audio.common import ManifestWriterStage, _append_slurm_shard_suffix
 from nemo_curator.utils.performance_utils import StagePerfStats
-from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore, performance_report_requested
+from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
 
 
 def _report_context(*, slurm_array: dict[str, int] | None = None) -> dict[str, object]:
@@ -48,32 +47,21 @@ def test_manifest_writer_rejects_equivalent_local_manifest_and_report_paths(tmp_
         )
 
 
-def test_manifest_writer_rejects_same_mocked_remote_destination() -> None:
-    remote_fs = MagicMock()
-    remote_fs.protocol = "s3"
-    remote_fs.storage_options = {"endpoint_url": "https://example.test"}
-
-    with (
-        patch(
-            "nemo_curator.stages.audio.common.url_to_fs",
-            side_effect=[(remote_fs, "bucket/shared.json"), (remote_fs, "bucket/shared.json")],
-        ),
-        pytest.raises(ValueError, match="must not resolve to the manifest output_path"),
-    ):
+def test_manifest_writer_rejects_equivalent_memory_filesystem_destination() -> None:
+    with pytest.raises(ValueError, match="must not resolve to the manifest output_path"):
         ManifestWriterStage(
-            output_path="s3://bucket/manifest.json",
-            performance_report_path="s3://bucket/performance.json",
+            output_path="memory://pr2296-path-check/shared.json",
+            performance_report_path="memory:///pr2296-path-check/shared.json",
         )
 
 
-def test_manifest_writer_report_path_automatically_requests_collection(tmp_path: Path) -> None:
+def test_manifest_writer_report_path_requests_collection(tmp_path: Path) -> None:
     writer = ManifestWriterStage(
         output_path=str(tmp_path / "manifest.jsonl"),
         performance_report_path=str(tmp_path / "performance.json"),
     )
 
     assert writer.requests_performance_records() is True
-    assert performance_report_requested([writer]) is True
 
 
 def test_manifest_writer_persists_all_performance_records_through_fsspec() -> None:
@@ -185,31 +173,19 @@ def test_manifest_writer_rejects_effective_slurm_report_collision_without_data_l
     assert output_path.read_text(encoding="utf-8") == manifest_contents
 
 
-def test_manifest_writer_rejects_effective_slurm_collision_on_mocked_remote() -> None:
-    remote_fs = MagicMock()
-    remote_fs.protocol = "s3"
-    remote_fs.storage_options = {"endpoint_url": "https://example.test"}
-    output_path = "s3://bucket/performance.shard-00007-of-00020.json"
-    report_path = "s3://bucket/performance.json"
+def test_manifest_writer_rejects_effective_slurm_collision_on_memory_filesystem() -> None:
+    output_path = "memory://pr2296-slurm-check/performance.shard-00007-of-00020.json"
+    report_path = "memory:///pr2296-slurm-check/performance.json"
+    writer = ManifestWriterStage(output_path=output_path, performance_report_path=report_path)
+    output_fs, resolved_output_path = url_to_fs(output_path)
+    output_fs.makedirs("/pr2296-slurm-check", exist_ok=True)
+    output_fs.write_text(resolved_output_path, "manifest-data", encoding="utf-8")
 
-    with (
-        patch(
-            "nemo_curator.stages.audio.common.url_to_fs",
-            side_effect=[
-                (remote_fs, "bucket/performance.shard-00007-of-00020.json"),
-                (remote_fs, "bucket/performance.json"),
-                (remote_fs, "bucket/performance.json"),
-                (remote_fs, "bucket/performance.shard-00007-of-00020.json"),
-            ],
-        ),
-        patch("nemo_curator.stages.audio.common.write_json_file_streaming_array") as write_report,
-    ):
-        writer = ManifestWriterStage(output_path=output_path, performance_report_path=report_path)
-        with pytest.raises(ValueError, match="effective performance report path"):
-            writer.finalize_performance_report(
-                performance_records=PerformanceRecordStore(),
-                wall_time_s=1.0,
-                report_context=_report_context(slurm_array={"shard_index": 7, "total_shards": 20}),
-            )
+    with pytest.raises(ValueError, match="effective performance report path"):
+        writer.finalize_performance_report(
+            performance_records=PerformanceRecordStore(),
+            wall_time_s=1.0,
+            report_context=_report_context(slurm_array={"shard_index": 7, "total_shards": 20}),
+        )
 
-    write_report.assert_not_called()
+    assert output_fs.read_text(resolved_output_path, encoding="utf-8") == "manifest-data"

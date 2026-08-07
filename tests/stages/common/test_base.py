@@ -115,6 +115,10 @@ class BackendConfiguredStage(ConcreteProcessingStage):
         return 2
 
 
+def test_processing_stage_does_not_request_performance_records_by_default() -> None:
+    assert ConcreteProcessingStage().requests_performance_records() is False
+
+
 @pytest.mark.parametrize("table_factory", [pa.table, pd.DataFrame], ids=["pyarrow", "pandas"])
 def test_validate_input_with_tabular_columns(
     table_factory: Callable[[dict[str, list[str]]], pa.Table | pd.DataFrame],

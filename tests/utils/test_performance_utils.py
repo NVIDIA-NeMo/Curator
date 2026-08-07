@@ -19,22 +19,39 @@ def test_legacy_and_extended_serialization_are_separate() -> None:
     perf = StagePerfStats(
         stage_name="stage",
         process_time=1.5,
+        actor_idle_time=0.25,
+        input_data_size_mb=2.0,
+        num_items_processed=3,
         custom_metrics={"io": 2.0},
         stage_id="002:stage",
         invocation_id="invocation-1",
+        window_start_s=10.0,
+        window_end_s=11.5,
     )
 
-    legacy = perf.to_dict()
-    extended = perf.to_extended_dict()
+    assert perf.to_dict() == {
+        "stage_name": "stage",
+        "process_time": 1.5,
+        "actor_idle_time": 0.25,
+        "input_data_size_mb": 2.0,
+        "num_items_processed": 3,
+        "custom_metrics": {"io": 2.0},
+    }
+    assert perf.to_extended_dict() == {
+        "stage_name": "stage",
+        "process_time": 1.5,
+        "actor_idle_time": 0.25,
+        "input_data_size_mb": 2.0,
+        "num_items_processed": 3,
+        "custom_metrics": {"io": 2.0},
+        "stage_id": "002:stage",
+        "invocation_id": "invocation-1",
+        "window_start_s": 10.0,
+        "window_end_s": 11.5,
+    }
 
-    assert "stage_id" not in legacy
-    assert "invocation_id" not in legacy
-    assert legacy["custom_metrics"] == {"io": 2.0}
-    assert extended["stage_id"] == "002:stage"
-    assert extended["invocation_id"] == "invocation-1"
 
-
-def test_aggregate_retains_stage_and_window_but_not_invocation() -> None:
+def test_aggregate_retains_matching_stage_and_window_but_not_invocation() -> None:
     first = StagePerfStats(
         stage_name="stage",
         process_time=1.0,
@@ -59,3 +76,29 @@ def test_aggregate_retains_stage_and_window_but_not_invocation() -> None:
     assert combined.invocation_id == ""
     assert combined.window_start_s == 10.0
     assert combined.window_end_s == 13.0
+
+
+def test_aggregate_drops_mismatched_stage_identity() -> None:
+    first = StagePerfStats(stage_name="stage", stage_id="001:stage")
+    second = StagePerfStats(stage_name="stage", stage_id="002:stage")
+
+    assert (first + second).stage_id == ""
+
+
+def test_reset_clears_invocation_identity_and_window() -> None:
+    perf = StagePerfStats(
+        stage_name="stage",
+        process_time=1.0,
+        stage_id="001:stage",
+        invocation_id="invocation",
+        window_start_s=10.0,
+        window_end_s=11.0,
+    )
+
+    perf.reset()
+
+    assert perf.process_time == 0.0
+    assert perf.stage_id == ""
+    assert perf.invocation_id == ""
+    assert perf.window_start_s == 0.0
+    assert perf.window_end_s == 0.0

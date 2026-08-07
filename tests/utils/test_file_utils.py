@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import fsspec
@@ -27,6 +28,7 @@ from nemo_curator.utils.file_utils import (
     parse_bytes_string_to_int,
     read_json_file,
     write_json_file,
+    write_json_file_streaming_array,
 )
 
 if TYPE_CHECKING:
@@ -50,6 +52,73 @@ class TestJsonFiles:
         write_json_file(path, {"value": 1}, fs)
 
         assert read_json_file(path, fs) == {"value": 1}
+
+    def test_streaming_array_local_file(self, tmp_path: Path) -> None:
+        path = tmp_path / "nested" / "report.json"
+        fs = fsspec.filesystem("file")
+
+        write_json_file_streaming_array(
+            str(path),
+            {"schema_version": 1, "record_count": 2},
+            array_key="records",
+            items=({"index": index} for index in range(2)),
+            fs=fs,
+        )
+
+        assert json.loads(path.read_text(encoding="utf-8")) == {
+            "schema_version": 1,
+            "record_count": 2,
+            "records": [{"index": 0}, {"index": 1}],
+        }
+
+    def test_streaming_array_fsspec_file(self) -> None:
+        path = "/pr2296-file-utils/report.json"
+        fs = fsspec.filesystem("memory")
+
+        write_json_file_streaming_array(
+            path,
+            {"schema_version": 1},
+            array_key="records",
+            items=[{"index": 0}],
+            fs=fs,
+        )
+
+        assert read_json_file(path, fs) == {
+            "schema_version": 1,
+            "records": [{"index": 0}],
+        }
+
+    def test_streaming_array_rejects_existing_array_key(self) -> None:
+        path = "/pr2296-file-utils/invalid.json"
+        fs = fsspec.filesystem("memory")
+
+        with pytest.raises(ValueError, match="must not already exist"):
+            write_json_file_streaming_array(
+                path,
+                {"records": []},
+                array_key="records",
+                items=[],
+                fs=fs,
+            )
+
+        assert not fs.exists(path)
+
+    def test_streaming_array_local_failure_preserves_existing_file(self, tmp_path: Path) -> None:
+        path = tmp_path / "report.json"
+        path.write_text('{"original":true}\n', encoding="utf-8")
+        fs = fsspec.filesystem("file")
+
+        with pytest.raises(TypeError):
+            write_json_file_streaming_array(
+                str(path),
+                {"schema_version": 1},
+                array_key="records",
+                items=[{"valid": 1}, {"invalid": object()}],
+                fs=fs,
+            )
+
+        assert path.read_text(encoding="utf-8") == '{"original":true}\n'
+        assert not list(path.parent.glob(f".{path.name}.*.tmp"))
 
 
 class TestInferDatasetNameFromPath:

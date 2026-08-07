@@ -31,19 +31,18 @@ class _TerminalConsumer(ProcessingStage[Task, Task]):
     name = "duplicate"
 
     def __init__(self) -> None:
-        self.prepared = False
-        self.finalized: tuple[list[StagePerfStats], float, dict[str, object]] | None = None
+        self.finalized: tuple[PerformanceRecordStore, float, dict[str, object]] | None = None
 
     def process(self, task: Task) -> Task:
         return task
 
-    def prepare_performance_report(self) -> None:
-        self.prepared = True
+    def requests_performance_records(self) -> bool:
+        return True
 
     def finalize_performance_report(
         self,
         *,
-        performance_records: list[StagePerfStats],
+        performance_records: PerformanceRecordStore,
         wall_time_s: float,
         report_context: dict[str, object],
     ) -> None:
@@ -58,10 +57,8 @@ class _CardinalityConsumer(_TerminalConsumer):
         self.fan_out = fan_out
 
     def process(self, task: Task) -> list[Task] | None:
+        self._log_metric("cardinality_metric", 3.5)
         return [task, AudioTask(dataset_name="test", data={"text": "second"})] if self.fan_out else None
-
-    def requests_performance_records(self) -> bool:
-        return True
 
 
 class _Executor:
@@ -85,7 +82,7 @@ class _Executor:
         return records
 
 
-def test_pipeline_assigns_stable_ids_and_fans_out_one_record_drain() -> None:
+def test_pipeline_assigns_stable_ids_and_drains_records_once() -> None:
     first = _TerminalConsumer()
     terminal = _TerminalConsumer()
     executor = _Executor()
@@ -99,16 +96,21 @@ def test_pipeline_assigns_stable_ids_and_fans_out_one_record_drain() -> None:
     assert result == []
     assert first._curator_stage_id == "000:duplicate"
     assert terminal._curator_stage_id == "001:duplicate"
-    assert first.prepared is False
-    assert terminal.prepared is True
+    assert first.finalized is None
     assert terminal.finalized is not None
     records, wall_time_s, report_context = terminal.finalized
     assert records is pipeline.performance_records
     assert len(records) == 1
     assert wall_time_s >= 0.0
     assert report_context["pipeline_name"] == "performance"
+    assert len(str(report_context["run_id"])) == 32
     assert report_context["executor"] == "_Executor"
     assert report_context["slurm_array"] is None
+    assert [stage["stage_id"] for stage in report_context["pipeline"]["stages"]] == [
+        "000:duplicate",
+        "001:duplicate",
+    ]
+    assert [stage["name"] for stage in report_context["pipeline"]["stages"]] == ["duplicate", "duplicate"]
     assert executor.records is None
 
 
@@ -134,8 +136,21 @@ def test_report_path_alone_collects_records_end_to_end(executor: object, tmp_pat
     )
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["schema_version"] == 1
+    assert report["pipeline_name"] == "path-only"
+    assert report["executor"] == type(executor).__name__
+    assert len(report["run_id"]) == 32
+    assert report["wall_time_s"] >= 0.0
     assert report["record_count"] == 1
     assert len(report["records"]) == 1
+    assert report["pipeline"]["pipeline_name"] == "path-only"
+    assert [stage["stage_id"] for stage in report["pipeline"]["stages"]] == ["000:manifest_writer"]
+    [record] = report["records"]
+    assert record["stage_id"] == "000:manifest_writer"
+    assert record["invocation_id"]
+    assert record["window_end_s"] >= record["window_start_s"] > 0
+    assert record["num_items_processed"] == 1
+    assert record["input_data_size_mb"] > 0
 
 
 @pytest.mark.parametrize(
@@ -163,3 +178,30 @@ def test_cardinality_invocation_is_collected_once_end_to_end(executor: object, f
     [record] = list(records)
     assert record.stage_id == "000:cardinality"
     assert record.invocation_id
+    assert record.custom_metrics == {"cardinality_metric": 3.5}
+
+
+@pytest.mark.parametrize(
+    "executor",
+    [
+        pytest.param(RayDataExecutor(), id="ray-data"),
+        pytest.param(XennaExecutor(config={"execution_mode": "batch"}), id="xenna"),
+    ],
+)
+@pytest.mark.usefixtures("shared_ray_client")
+def test_disabled_report_preserves_task_attached_metrics(executor: object, tmp_path: Path) -> None:
+    manifest_path = tmp_path / "disabled-manifest.jsonl"
+    writer = ManifestWriterStage(output_path=str(manifest_path), performance_report_path=None)
+    pipeline = Pipeline(name="disabled", stages=[writer])
+
+    results = pipeline.run(
+        executor=executor,  # type: ignore[arg-type]
+        initial_tasks=[AudioTask(dataset_name="test", data={"text": "payload"})],
+    )
+
+    assert results is not None
+    assert len(results) == 1
+    assert len(results[0]._stage_perf) == 1
+    assert results[0]._stage_perf[0].stage_name == "manifest_writer"
+    assert results[0]._stage_perf[0].invocation_id == ""
+    assert {path.name for path in tmp_path.iterdir()} == {manifest_path.name}

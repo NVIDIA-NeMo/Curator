@@ -109,3 +109,7 @@ def test_get_deterministic_id_defaults_to_none():
     the positional index. ``FileGroupTask`` overrides this — see
     tests/tasks/test_file_group_tasks.py."""
     assert _sample_task().get_deterministic_id() is None
+
+
+def test_base_task_has_no_implicit_byte_size_contract() -> None:
+    assert _sample_task().input_data_size_bytes() == 0
