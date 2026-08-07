@@ -391,10 +391,6 @@ class Pipeline:
         performance_report_context = (
             self._build_performance_report_context(executor, slurm_array) if performance_consumer is not None else None
         )
-        if performance_consumer is not None:
-            prepare_report = getattr(performance_consumer, "prepare_performance_report", None)
-            if callable(prepare_report):
-                prepare_report()
 
         run_started_s = time.perf_counter()
         if checkpoint_path is None:

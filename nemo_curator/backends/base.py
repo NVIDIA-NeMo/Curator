@@ -80,22 +80,15 @@ class BaseExecutor(ABC):
     @staticmethod
     def _start_stage_perf_collector(stages: list["ProcessingStage"]) -> Any | None:  # noqa: ANN401
         """Start the run-scoped collector when performance collection is enabled."""
-        from nemo_curator.utils.stage_perf_collector import (
-            performance_report_requested,
-            start_stage_perf_collector,
-        )
+        from nemo_curator.utils.stage_perf_collector import start_stage_perf_collector
 
-        if not performance_report_requested(stages):
+        if not any(stage.requests_performance_records() for stage in stages):
             return None
         try:
-            collector = start_stage_perf_collector(stages)
+            return start_stage_perf_collector(stages)
         except Exception as exc:
             msg = f"Required stage performance collector failed to start: {exc}"
             raise RuntimeError(msg) from exc
-        if collector is None:
-            msg = "Required stage performance collector did not start"
-            raise RuntimeError(msg)
-        return collector
 
     def _stop_stage_perf_collector(
         self,
@@ -104,20 +97,16 @@ class BaseExecutor(ABC):
         *,
         keep_records: bool,
     ) -> None:
-        report_required = bool(keep_records and collector is not None and getattr(collector, "report_required", False))
         try:
             from nemo_curator.utils.stage_perf_collector import stop_stage_perf_collector
 
-            record_store = stop_stage_perf_collector(collector, stages, raise_on_failure=report_required)
+            record_store = stop_stage_perf_collector(collector, stages)
         except Exception as exc:
-            if report_required:
+            if keep_records:
                 msg = f"Required stage performance collector failed to stop: {exc}"
                 raise RuntimeError(msg) from exc
             logger.debug("Stage performance collector stop failed: {}", exc)
             record_store = None
-        if report_required and record_store is None:
-            msg = "Required stage performance collector returned no record store"
-            raise RuntimeError(msg)
         if keep_records:
             self._external_perf_records = record_store
         else:
@@ -140,7 +129,7 @@ class BaseStageAdapter:
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
 
-    def process_batch(self, tasks: list[Task]) -> list[Task]:  # noqa: C901, PLR0912
+    def process_batch(self, tasks: list[Task]) -> list[Task]:  # noqa: C901
         """Process a batch of tasks.
 
         Args:
@@ -153,7 +142,7 @@ class BaseStageAdapter:
         if not hasattr(self, "_timer") or self._timer is None:
             self._timer = StageTimer(self.stage)
 
-        capture_metrics = bool(getattr(self.stage, "_curator_stage_perf_collector_name", ""))
+        capture_metrics = getattr(self.stage, "_curator_stage_perf_collector_actor", None) is not None
         num_input_items = sum(task.num_items for task in tasks)
         # Behavior correction: the legacy disabled path passed an item count to
         # a byte-sized timer and exposed that unit mismatch as MB. When no
@@ -229,18 +218,12 @@ class BaseStageAdapter:
             for task in results:
                 task.add_stage_perf(stage_perf_stats)
         if capture_metrics:
-            try:
-                from nemo_curator.utils.stage_perf_collector import record_stage_perf
+            from nemo_curator.utils.stage_perf_collector import record_stage_perf
 
-                # Publish once per process_batch invocation, outside the output
-                # loop. Publishing per output would over-estimate time, bytes,
-                # items, and custom metrics whenever one input fans out.
-                record_stage_perf(self.stage, stage_perf_stats)
-            except Exception as exc:
-                if bool(getattr(self.stage, "_curator_stage_perf_report_required", False)):
-                    msg = f"Required stage performance collector publish failed for {self.stage.name}: {exc}"
-                    raise RuntimeError(msg) from exc
-                logger.debug("Stage performance collector publish failed for {}: {}", self.stage.name, exc)
+            # Publish once per process_batch invocation, outside the output
+            # loop. Publishing per output would over-estimate time, bytes,
+            # items, and custom metrics whenever one input fans out.
+            record_stage_perf(self.stage, stage_perf_stats)
 
         return results
 
@@ -393,9 +376,4 @@ class BaseStageAdapter:
 
     def teardown(self) -> None:
         """Teardown the stage once per actor."""
-        try:
-            self.stage.teardown()
-        finally:
-            from nemo_curator.utils.stage_perf_collector import flush_stage_perf_records
-
-            flush_stage_perf_records(self.stage)
+        self.stage.teardown()

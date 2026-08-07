@@ -31,6 +31,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, Task
 from nemo_curator.utils.performance_utils import StagePerfStats
 from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
+from tests.utils.performance_record_store import make_performance_record_store
 
 
 class _TerminalConsumer(ProcessingStage[Task, Task]):
@@ -69,7 +70,7 @@ class _CardinalityConsumer(_TerminalConsumer):
 
 class _Executor:
     def __init__(self) -> None:
-        self.records: PerformanceRecordStore | None = PerformanceRecordStore.from_records(
+        self.records: PerformanceRecordStore | None = make_performance_record_store(
             [
                 StagePerfStats(
                     stage_name="duplicate",

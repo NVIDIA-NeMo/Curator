@@ -22,46 +22,6 @@ from loguru import logger
 from .tasks import Task
 
 
-def _array_storage_size_bytes(value: object) -> int | None:
-    """Return array storage bytes without copying an in-memory payload."""
-    nbytes = getattr(value, "nbytes", None)
-    if isinstance(nbytes, Integral):
-        return max(int(nbytes), 0)
-
-    numel = getattr(value, "numel", None)
-    element_size = getattr(value, "element_size", None)
-    if callable(numel) and callable(element_size):
-        return max(int(numel()) * int(element_size()), 0)
-    return None
-
-
-def _json_envelope_and_array_bytes(value: object) -> tuple[object, int]:
-    """Replace arrays with JSON nulls and total their storage bytes."""
-    array_bytes = _array_storage_size_bytes(value)
-    if array_bytes is not None:
-        return None, array_bytes
-    if isinstance(value, dict):
-        envelope = {}
-        total = 0
-        for key, item in value.items():
-            envelope[key], item_bytes = _json_envelope_and_array_bytes(item)
-            total += item_bytes
-        return envelope, total
-    if isinstance(value, (list, tuple)):
-        envelope = []
-        total = 0
-        for item in value:
-            safe_item, item_bytes = _json_envelope_and_array_bytes(item)
-            envelope.append(safe_item)
-            total += item_bytes
-        return envelope, total
-    try:
-        json.dumps(value)
-    except (TypeError, ValueError):
-        return None, 0
-    return value, 0
-
-
 class _AttrDict(dict):
     """Dict subclass exposing keys as attributes so ``hasattr`` works."""
 
@@ -116,9 +76,27 @@ class AudioTask(Task[dict]):
         non-blocking and avoids materializing huge, misleading array strings;
         their actual element-storage bytes are counted separately.
         """
-        envelope, array_bytes = _json_envelope_and_array_bytes(self.data)
+        array_bytes = 0
+
+        def _replace_non_json(value: object) -> None:
+            nonlocal array_bytes
+            nbytes = getattr(value, "nbytes", None)
+            if isinstance(nbytes, Integral):
+                array_bytes += max(int(nbytes), 0)
+            else:
+                numel = getattr(value, "numel", None)
+                element_size = getattr(value, "element_size", None)
+                if callable(numel) and callable(element_size):
+                    array_bytes += max(int(numel()) * int(element_size()), 0)
+
         json_bytes = len(
-            json.dumps(envelope, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+            json.dumps(
+                self.data,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+                default=_replace_non_json,
+            ).encode("utf-8")
         )
         return json_bytes + array_bytes
 

@@ -27,10 +27,6 @@ from nemo_curator.tasks import Task
 from nemo_curator.utils.performance_utils import StagePerfStats
 from nemo_curator.utils.stage_perf_collector import (
     COLLECTOR_ACTOR_ATTR,
-    COLLECTOR_NAME_ATTR,
-    COLLECTOR_PENDING_ATTR,
-    COLLECTOR_REQUIRED_ATTR,
-    PerformanceRecordStore,
     _StagePerfCollector,
     _StagePerfCollectorHandle,
     _StagePerfSpool,
@@ -38,6 +34,7 @@ from nemo_curator.utils.stage_perf_collector import (
     start_stage_perf_collector,
     stop_stage_perf_collector,
 )
+from tests.utils.performance_record_store import make_performance_record_store
 
 
 class _Stage(ProcessingStage):
@@ -52,31 +49,26 @@ class _ReportStage(_Stage):
         return True
 
 
-def test_record_stage_perf_is_noop_without_collector() -> None:
-    assert (
+def test_record_stage_perf_requires_collector() -> None:
+    with pytest.raises(RuntimeError, match="Stage performance collector is not configured"):
         record_stage_perf(
             _Stage(),
             StagePerfStats(stage_name="stage"),
         )
-        is False
-    )
 
 
-def test_required_record_stage_perf_acknowledges_every_publication() -> None:
+def test_record_stage_perf_acknowledges_every_publication() -> None:
     stage = _Stage()
     collector = MagicMock()
     record_refs = [object(), object(), object()]
     collector.record.remote.side_effect = record_refs
     setattr(stage, COLLECTOR_ACTOR_ATTR, collector)
-    setattr(stage, COLLECTOR_PENDING_ATTR, [])
-    setattr(stage, COLLECTOR_REQUIRED_ATTR, True)
 
     with patch("nemo_curator.utils.stage_perf_collector.ray.get") as ray_get:
         for _ in record_refs:
-            assert record_stage_perf(stage, StagePerfStats(stage_name="stage"))
+            record_stage_perf(stage, StagePerfStats(stage_name="stage"))
 
     assert [call.args[0] for call in ray_get.call_args_list] == record_refs
-    assert getattr(stage, COLLECTOR_PENDING_ATTR) == []
 
 
 def test_required_publish_failure_is_not_silenced() -> None:
@@ -85,8 +77,6 @@ def test_required_publish_failure_is_not_silenced() -> None:
     record_ref = object()
     collector.record.remote.return_value = record_ref
     setattr(stage, COLLECTOR_ACTOR_ATTR, collector)
-    setattr(stage, COLLECTOR_PENDING_ATTR, [])
-    setattr(stage, COLLECTOR_REQUIRED_ATTR, True)
 
     with (
         patch("nemo_curator.utils.stage_perf_collector.ray.get", side_effect=OSError("publish failed")) as ray_get,
@@ -105,36 +95,14 @@ def test_required_finish_failure_is_not_silenced(tmp_path: Path) -> None:
     actor = MagicMock()
     finish_ref = object()
     actor.finish.remote.return_value = finish_ref
-    handle = _StagePerfCollectorHandle(actor=actor, spool_path=str(spool_path), report_required=True)
+    handle = _StagePerfCollectorHandle(actor=actor, spool_path=str(spool_path))
 
     with (
         patch("nemo_curator.utils.stage_perf_collector.ray.get", side_effect=OSError("finish failed")) as ray_get,
         patch("nemo_curator.utils.stage_perf_collector.ray.kill"),
-        pytest.raises(RuntimeError, match="Required stage performance collector finish failed"),
+        pytest.raises(OSError, match="finish failed"),
     ):
-        stop_stage_perf_collector(handle, [_Stage()], raise_on_failure=True)
-
-    ray_get.assert_called_once_with(finish_ref)
-    assert not spool_path.exists()
-
-
-def test_required_dropped_record_failure_is_not_silenced(tmp_path: Path) -> None:
-    spool_path = tmp_path / "records.jsonl"
-    spool_path.write_text("", encoding="utf-8")
-    actor = MagicMock()
-    finish_ref = object()
-    actor.finish.remote.return_value = finish_ref
-    handle = _StagePerfCollectorHandle(actor=actor, spool_path=str(spool_path), report_required=True)
-
-    with (
-        patch(
-            "nemo_curator.utils.stage_perf_collector.ray.get",
-            return_value=(str(spool_path), 0, 1, ["OSError: spool failed"]),
-        ) as ray_get,
-        patch("nemo_curator.utils.stage_perf_collector.ray.kill"),
-        pytest.raises(RuntimeError, match="dropped 1 record"),
-    ):
-        stop_stage_perf_collector(handle, [_Stage()], raise_on_failure=True)
+        stop_stage_perf_collector(handle, [_Stage()])
 
     ray_get.assert_called_once_with(finish_ref)
     assert not spool_path.exists()
@@ -172,34 +140,20 @@ def test_stop_collector_clears_stage_routing_and_kills_actor(tmp_path: Path) -> 
     actor = MagicMock()
     finish_ref = object()
     actor.finish.remote.return_value = finish_ref
-    handle = _StagePerfCollectorHandle(actor=actor, spool_path=str(spool_path), report_required=True)
+    handle = _StagePerfCollectorHandle(actor=actor, spool_path=str(spool_path))
     stage = _Stage()
-    for attr_name, value in (
-        (COLLECTOR_NAME_ATTR, "collector"),
-        (COLLECTOR_ACTOR_ATTR, actor),
-        (COLLECTOR_PENDING_ATTR, []),
-        (COLLECTOR_REQUIRED_ATTR, True),
-    ):
-        setattr(stage, attr_name, value)
+    setattr(stage, COLLECTOR_ACTOR_ATTR, actor)
 
     with (
         patch(
             "nemo_curator.utils.stage_perf_collector.ray.get",
-            return_value=(str(spool_path), 0, 0, []),
+            return_value=(str(spool_path), 0),
         ),
         patch("nemo_curator.utils.stage_perf_collector.ray.kill") as ray_kill,
     ):
-        record_store = stop_stage_perf_collector(handle, [stage], raise_on_failure=True)
+        record_store = stop_stage_perf_collector(handle, [stage])
 
-    assert all(
-        not hasattr(stage, attr_name)
-        for attr_name in (
-            COLLECTOR_NAME_ATTR,
-            COLLECTOR_ACTOR_ATTR,
-            COLLECTOR_PENDING_ATTR,
-            COLLECTOR_REQUIRED_ATTR,
-        )
-    )
+    assert not hasattr(stage, COLLECTOR_ACTOR_ATTR)
     ray_kill.assert_called_once_with(actor, no_restart=True)
     record_store.cleanup()
 
@@ -210,7 +164,7 @@ def test_collector_returns_disk_backed_record_store() -> None:
     collector = start_stage_perf_collector([stage])
     assert collector is not None
 
-    assert record_stage_perf(
+    record_stage_perf(
         stage,
         StagePerfStats(stage_name="stage", invocation_id="invocation-1"),
     )
@@ -219,6 +173,25 @@ def test_collector_returns_disk_backed_record_store() -> None:
     assert len(record_store) == 1
     assert record_store.path
     assert [record.invocation_id for record in record_store] == ["invocation-1"]
+    record_store.cleanup()
+
+
+@pytest.mark.usefixtures("shared_ray_client")
+def test_actor_record_failure_surfaces_immediately() -> None:
+    stage = _ReportStage()
+    collector = start_stage_perf_collector([stage])
+
+    with pytest.raises(RuntimeError, match="Required stage performance publication failed"):
+        record_stage_perf(
+            stage,
+            StagePerfStats(
+                stage_name="stage",
+                custom_metrics={"not-json-serializable": object()},  # type: ignore[dict-item]
+            ),
+        )
+
+    record_store = stop_stage_perf_collector(collector, [stage])
+    assert len(record_store) == 0
     record_store.cleanup()
 
 
@@ -239,7 +212,7 @@ def test_required_publications_from_multiple_submitters_are_complete() -> None:
             )
 
     ray.get([publish_records.remote(stage, producer_index) for producer_index, stage in enumerate(stages)])
-    record_store = stop_stage_perf_collector(collector, stages, raise_on_failure=True)
+    record_store = stop_stage_perf_collector(collector, stages)
 
     expected_ids = {
         f"producer-{producer_index}-record-{record_index}" for producer_index in range(4) for record_index in range(7)
@@ -250,7 +223,7 @@ def test_required_publications_from_multiple_submitters_are_complete() -> None:
 
 
 def test_record_store_cleans_spool_when_last_owner_is_released() -> None:
-    record_store = PerformanceRecordStore.from_records([StagePerfStats(stage_name="stage")])
+    record_store = make_performance_record_store([StagePerfStats(stage_name="stage")])
     spool_path = Path(record_store.path)
 
     assert spool_path.is_file()
@@ -262,7 +235,7 @@ def test_record_store_cleans_spool_when_last_owner_is_released() -> None:
 
 
 def test_record_store_context_manager_preserves_iteration_until_close() -> None:
-    with PerformanceRecordStore.from_records(
+    with make_performance_record_store(
         [StagePerfStats(stage_name="stage", invocation_id="invocation-1")]
     ) as record_store:
         spool_path = Path(record_store.path)
@@ -282,9 +255,9 @@ from pathlib import Path
 import sys
 
 from nemo_curator.utils.performance_utils import StagePerfStats
-from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
+from tests.utils.performance_record_store import make_performance_record_store
 
-store = PerformanceRecordStore.from_records([StagePerfStats(stage_name="stage")])
+store = make_performance_record_store([StagePerfStats(stage_name="stage")])
 Path(sys.argv[1]).write_text(store.path, encoding="utf-8")
 """
 

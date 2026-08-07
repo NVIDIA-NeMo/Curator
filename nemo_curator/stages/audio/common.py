@@ -35,7 +35,7 @@ from nemo_curator.utils.file_utils import write_json_file_streaming_array
 if TYPE_CHECKING:
     import fsspec
 
-    from nemo_curator.utils.performance_utils import StagePerfStats
+    from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
 
 
 def _normalized_filesystem_path(fs: "fsspec.AbstractFileSystem", path: str) -> str:
@@ -346,7 +346,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
     def finalize_performance_report(
         self,
         *,
-        performance_records: list["StagePerfStats"],
+        performance_records: "PerformanceRecordStore",
         wall_time_s: float,
         report_context: dict[str, Any],
     ) -> None:
@@ -360,7 +360,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
     def _write_raw_performance_report(
         self,
         *,
-        performance_records: list["StagePerfStats"],
+        performance_records: "PerformanceRecordStore",
         wall_time_s: float,
         report_context: dict[str, Any],
     ) -> None:
@@ -377,10 +377,6 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         if _same_filesystem_location(output_fs, output_path, report_fs, report_path):
             msg = "effective performance report path must not resolve to the manifest output_path"
             raise ValueError(msg)
-        iter_dicts = getattr(performance_records, "iter_dicts", None)
-        record_dicts = (
-            iter_dicts() if callable(iter_dicts) else (record.to_extended_dict() for record in performance_records)
-        )
         write_json_file_streaming_array(
             report_path,
             {
@@ -390,7 +386,7 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
                 "record_count": len(performance_records),
             },
             array_key="records",
-            items=record_dicts,
+            items=performance_records.iter_dicts(),
             fs=report_fs,
         )
         logger.info(f"ManifestWriterStage: wrote performance report to {report_path}")

@@ -21,7 +21,8 @@ from nemo_curator.backends.base import BaseExecutor, BaseStageAdapter
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioTask, EmptyTask, Task
 from nemo_curator.utils.performance_utils import StagePerfStats
-from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
+from nemo_curator.utils.stage_perf_collector import COLLECTOR_ACTOR_ATTR
+from tests.utils.performance_record_store import make_performance_record_store
 
 
 class _Stage(ProcessingStage[Task, Task]):
@@ -74,7 +75,7 @@ def test_adapter_publishes_once_per_invocation_without_task_duplication(
     expected_output_count: int,
 ) -> None:
     stage._curator_stage_id = f"000:{stage.name}"
-    stage._curator_stage_perf_collector_name = "collector"
+    setattr(stage, COLLECTOR_ACTOR_ATTR, object())
 
     with patch("nemo_curator.utils.stage_perf_collector.record_stage_perf", return_value=True) as publish:
         results = BaseStageAdapter(stage).process_batch([EmptyTask()])
@@ -129,7 +130,7 @@ def test_executor_transfers_external_records_exactly_once() -> None:
         invocation_id="invocation-1",
         process_time=1.0,
     )
-    records = PerformanceRecordStore.from_records([expected_record])
+    records = make_performance_record_store([expected_record])
     spool_path = Path(records.path)
     executor._external_perf_records = records
 
@@ -147,7 +148,7 @@ def test_executor_transfers_external_records_exactly_once() -> None:
 
 def test_audio_input_byte_count_is_independent_of_item_count() -> None:
     stage = _Stage()
-    stage._curator_stage_perf_collector_name = "collector"
+    setattr(stage, COLLECTOR_ACTOR_ATTR, object())
     adapter = BaseStageAdapter(stage)
     small = AudioTask(dataset_name="test", data={"text": "a"})
     large = AudioTask(dataset_name="test", data={"text": "a" * 1_000})

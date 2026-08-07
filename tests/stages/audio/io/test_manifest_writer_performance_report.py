@@ -22,6 +22,7 @@ from fsspec.core import url_to_fs
 from nemo_curator.stages.audio.common import ManifestWriterStage, _append_slurm_shard_suffix
 from nemo_curator.utils.performance_utils import StagePerfStats
 from nemo_curator.utils.stage_perf_collector import PerformanceRecordStore
+from tests.utils.performance_record_store import make_performance_record_store
 
 
 def _report_context(*, slurm_array: dict[str, int] | None = None) -> dict[str, object]:
@@ -80,7 +81,7 @@ def test_manifest_writer_persists_all_performance_records_through_fsspec() -> No
         )
     ]
 
-    record_store = PerformanceRecordStore.from_records(records)
+    record_store = make_performance_record_store(records)
     writer.finalize_performance_report(
         performance_records=record_store,
         wall_time_s=2.0,
@@ -112,7 +113,7 @@ def test_manifest_writer_streams_high_cardinality_record_store(tmp_path: Path) -
         process_time=1.5,
         custom_metrics={"audio_duration_s": 12.0},
     )
-    record_store = PerformanceRecordStore.from_records(record for _ in range(50_000))
+    record_store = make_performance_record_store(record for _ in range(50_000))
 
     tracemalloc.start()
     try:

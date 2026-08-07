@@ -19,28 +19,23 @@ from __future__ import annotations
 import contextlib
 import json
 import tempfile
-import uuid
 import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
 import ray
-from loguru import logger
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterator
+
+    from ray.actor import ActorHandle
 
     from nemo_curator.stages.base import ProcessingStage
     from nemo_curator.utils.performance_utils import StagePerfStats
 
-COLLECTOR_NAME_ATTR = "_curator_stage_perf_collector_name"
 COLLECTOR_ACTOR_ATTR = "_curator_stage_perf_collector_actor"
-COLLECTOR_PENDING_ATTR = "_curator_stage_perf_pending_records"
-COLLECTOR_REQUIRED_ATTR = "_curator_stage_perf_report_required"
-MAX_PENDING_RECORDS = 64
-MAX_COLLECTOR_ERRORS = 10
 
 
 class _StagePerfSpool:
@@ -98,18 +93,6 @@ class PerformanceRecordStore:
                 self.path,
             )
 
-    @classmethod
-    def from_records(cls, records: Iterable[StagePerfStats]) -> PerformanceRecordStore:
-        """Spool an existing iterable without creating another in-memory copy."""
-        spool = _StagePerfSpool(_new_spool_path())
-        for record in records:
-            spool.record(record)
-        path, record_count = spool.finish()
-        store = cls(path=path, record_count=record_count)
-        if record_count == 0:
-            store.cleanup()
-        return store
-
     def __iter__(self) -> Iterator[StagePerfStats]:
         from nemo_curator.utils.performance_utils import StagePerfStats
 
@@ -149,9 +132,8 @@ class PerformanceRecordStore:
 
 @dataclass(frozen=True)
 class _StagePerfCollectorHandle:
-    actor: Any
+    actor: ActorHandle
     spool_path: str
-    report_required: bool
 
 
 def _new_spool_path() -> str:
@@ -159,50 +141,31 @@ def _new_spool_path() -> str:
     return str(spool_dir / "records.jsonl")
 
 
-@ray.remote(num_cpus=0)
+@ray.remote(num_cpus=0, max_concurrency=1)
 class _StagePerfCollector:
     def __init__(self, spool_path: str) -> None:
         self._spool = _StagePerfSpool(spool_path)
-        self._dropped_records = 0
-        self._errors: list[str] = []
 
     def ready(self) -> bool:
         return True
 
     def record(self, perf_stats: StagePerfStats) -> None:
-        try:
-            self._spool.record(perf_stats)
-        except Exception as exc:  # noqa: BLE001
-            self._dropped_records += 1
-            if len(self._errors) < MAX_COLLECTOR_ERRORS:
-                self._errors.append(f"{type(exc).__name__}: {exc}")
+        self._spool.record(perf_stats)
 
-    def finish(self) -> tuple[str, int, int, list[str]]:
-        path, record_count = self._spool.finish()
-        return path, record_count, self._dropped_records, list(self._errors)
+    def finish(self) -> tuple[str, int]:
+        return self._spool.finish()
 
 
-def performance_report_requested(stages: list[ProcessingStage]) -> bool:
-    """Return whether a terminal consumer explicitly requires a complete report."""
-    for stage in stages:
-        request_records = getattr(stage, "requests_performance_records", None)
-        if callable(request_records) and request_records():
-            return True
-    return False
-
-
-def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any:  # noqa: ANN401
+def start_stage_perf_collector(stages: list[ProcessingStage]) -> _StagePerfCollectorHandle:
     """Start one collector after the executor has resolved that a report is required."""
-    name = f"curator-stage-perf-{uuid.uuid4().hex}"
     spool_path = _new_spool_path()
     collector = None
     try:
         driver_node_id = ray.get_runtime_context().get_node_id()
         collector = _StagePerfCollector.options(
-            name=name,
-            scheduling_strategy=NodeAffinitySchedulingStrategy(driver_node_id, soft=False),
+            scheduling_strategy=NodeAffinitySchedulingStrategy(node_id=driver_node_id, soft=False),
         ).remote(spool_path)
-        handle = _StagePerfCollectorHandle(actor=collector, spool_path=spool_path, report_required=True)
+        handle = _StagePerfCollectorHandle(actor=collector, spool_path=spool_path)
         ray.get(handle.actor.ready.remote())
     except Exception:
         if collector is not None:
@@ -211,106 +174,47 @@ def start_stage_perf_collector(stages: list[ProcessingStage]) -> Any:  # noqa: A
         _cleanup_spool_path(spool_path)
         raise
     for stage in stages:
-        setattr(stage, COLLECTOR_NAME_ATTR, name)
         setattr(stage, COLLECTOR_ACTOR_ATTR, collector)
-        setattr(stage, COLLECTOR_PENDING_ATTR, [])
-        setattr(stage, COLLECTOR_REQUIRED_ATTR, True)
     return handle
 
 
 def record_stage_perf(
     stage: ProcessingStage,
     perf_stats: StagePerfStats,
-) -> bool:
-    """Publish one invocation, synchronously acknowledging required reports."""
+) -> None:
+    """Publish one required invocation and wait for the collector acknowledgement."""
     collector = getattr(stage, COLLECTOR_ACTOR_ATTR, None)
     if collector is None:
-        collector_name = str(getattr(stage, COLLECTOR_NAME_ATTR, "") or "")
-        if not collector_name:
-            return False
-    pending_records = getattr(stage, COLLECTOR_PENDING_ATTR, None)
-    if pending_records is None:
-        pending_records = []
-        setattr(stage, COLLECTOR_PENDING_ATTR, pending_records)
+        msg = f"Stage performance collector is not configured for {stage.name}"
+        raise RuntimeError(msg)
     try:
-        if collector is None:
-            collector = ray.get_actor(collector_name)
         record_ref = collector.record.remote(perf_stats)
-        if bool(getattr(stage, COLLECTOR_REQUIRED_ATTR, False)):
-            # The driver cannot fence actor calls submitted by Ray Data/Xenna
-            # workers. Each required producer therefore waits for its own call
-            # before returning, so executor completion fences every publication.
-            ray.get(record_ref)
-        else:
-            pending_records.append(record_ref)
-            if len(pending_records) >= MAX_PENDING_RECORDS:
-                ray.get(pending_records)
-                pending_records.clear()
+        # The driver cannot fence actor calls submitted by Ray Data/Xenna
+        # workers. Each producer therefore waits for its own call before
+        # returning, so executor completion fences every publication.
+        ray.get(record_ref)
     except Exception as exc:
-        pending_records.clear()
-        if bool(getattr(stage, COLLECTOR_REQUIRED_ATTR, False)):
-            msg = f"Required stage performance publication failed for {stage.name}: {exc}"
-            raise RuntimeError(msg) from exc
-        logger.debug("Stage performance collector publish failed for {}: {}", stage.name, exc)
-        return False
-    return True
-
-
-def flush_stage_perf_records(stage: ProcessingStage) -> None:
-    """Wait for one producer's final asynchronous publication batch."""
-    pending_records = getattr(stage, COLLECTOR_PENDING_ATTR, None)
-    if not pending_records:
-        return
-    try:
-        ray.get(pending_records)
-    except Exception as exc:
-        if bool(getattr(stage, COLLECTOR_REQUIRED_ATTR, False)):
-            msg = f"Required stage performance publication flush failed for {stage.name}: {exc}"
-            raise RuntimeError(msg) from exc
-        logger.debug("Stage performance collector flush failed for {}: {}", stage.name, exc)
-    finally:
-        pending_records.clear()
+        msg = f"Required stage performance publication failed for {stage.name}: {exc}"
+        raise RuntimeError(msg) from exc
 
 
 def stop_stage_perf_collector(
     collector: _StagePerfCollectorHandle | None,
     stages: list[ProcessingStage],
-    *,
-    raise_on_failure: bool = False,
 ) -> PerformanceRecordStore:
     """Drain and remove the collector, clearing its run-scoped routing."""
     if collector is None:
         return PerformanceRecordStore()
     try:
         try:
-            path, record_count, dropped_records, errors = ray.get(collector.actor.finish.remote())
-        except Exception as exc:
-            logger.debug("Stage performance collector finish failed: {}", exc)
-            failed_store = PerformanceRecordStore(path=collector.spool_path)
-            failed_store.cleanup()
-            if raise_on_failure:
-                msg = f"Required stage performance collector finish failed: {exc}"
-                raise RuntimeError(msg) from exc
-            return PerformanceRecordStore()
-        if dropped_records:
-            details = "; ".join(errors) or "unknown collector error"
-            msg = f"Stage performance collector dropped {dropped_records} record(s): {details}"
-            failed_store = PerformanceRecordStore(path=path, record_count=record_count)
-            failed_store.cleanup()
-            if raise_on_failure:
-                raise RuntimeError(msg)
-            logger.warning(msg)
-            return PerformanceRecordStore()
+            path, record_count = ray.get(collector.actor.finish.remote())
+        except Exception:
+            _cleanup_spool_path(collector.spool_path)
+            raise
         return PerformanceRecordStore(path=path, record_count=record_count)
     finally:
         for stage in stages:
-            for attr_name in (
-                COLLECTOR_NAME_ATTR,
-                COLLECTOR_ACTOR_ATTR,
-                COLLECTOR_PENDING_ATTR,
-                COLLECTOR_REQUIRED_ATTR,
-            ):
-                with contextlib.suppress(AttributeError):
-                    delattr(stage, attr_name)
+            with contextlib.suppress(AttributeError):
+                delattr(stage, COLLECTOR_ACTOR_ATTR)
         with contextlib.suppress(Exception):
             ray.kill(collector.actor, no_restart=True)
