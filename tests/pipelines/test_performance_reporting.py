@@ -71,6 +71,7 @@ class _CardinalityConsumer(_TerminalConsumer):
 class _Executor:
     def __init__(self) -> None:
         self.records: PerformanceRecordStore | None = None
+        self.consume_calls = 0
 
     def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
         terminal_stage = stages[-1]
@@ -89,6 +90,7 @@ class _Executor:
         return list(initial_tasks or [])
 
     def consume_external_perf_records(self) -> PerformanceRecordStore:
+        self.consume_calls += 1
         records, self.records = self.records, None
         assert records is not None
         return records
@@ -123,7 +125,24 @@ def test_pipeline_assigns_stable_ids_and_drains_records_once() -> None:
         "001:duplicate",
     ]
     assert [stage["name"] for stage in report_context["pipeline"]["stages"]] == ["duplicate", "duplicate"]
+    assert executor.consume_calls == 1
     assert executor.records is None
+
+
+def test_disabled_report_skips_context_and_record_transfer(tmp_path: Path) -> None:
+    writer = ManifestWriterStage(
+        output_path=str(tmp_path / "manifest.jsonl"),
+        performance_report_path=None,
+    )
+    executor = _Executor()
+    pipeline = Pipeline(name="disabled", stages=[writer])
+
+    pipeline.run(executor=executor, initial_tasks=[])
+
+    assert pipeline.performance_records is None
+    assert executor.consume_calls == 0
+    assert executor.records is not None
+    executor.records.cleanup()
 
 
 def test_slurm_environment_reaches_sharded_terminal_report(

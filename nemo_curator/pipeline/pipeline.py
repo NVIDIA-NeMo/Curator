@@ -384,7 +384,8 @@ class Pipeline:
             (
                 stage
                 for stage in reversed(self.stages)
-                if callable(getattr(stage, "finalize_performance_report", None))
+                if stage.requests_performance_records()
+                and callable(getattr(stage, "finalize_performance_report", None))
             ),
             None,
         )
@@ -392,15 +393,15 @@ class Pipeline:
             self._build_performance_report_context(executor, slurm_array) if performance_consumer is not None else None
         )
 
-        run_started_s = time.perf_counter()
+        run_started_s = time.perf_counter() if performance_consumer is not None else 0.0
         if checkpoint_path is None:
             result = executor.execute(self.stages, initial_tasks)
         else:
             result = self._run_with_resumability(executor, initial_tasks, checkpoint_path)
-        wall_time_s = max(time.perf_counter() - run_started_s, 0.0)
 
-        self.performance_records = executor.consume_external_perf_records()
         if performance_consumer is not None:
+            wall_time_s = max(time.perf_counter() - run_started_s, 0.0)
+            self.performance_records = executor.consume_external_perf_records()
             performance_consumer.finalize_performance_report(
                 performance_records=self.performance_records,
                 wall_time_s=wall_time_s,

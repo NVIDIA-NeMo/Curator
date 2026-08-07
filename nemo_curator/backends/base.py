@@ -110,9 +110,8 @@ class BaseExecutor(ABC):
         if keep_records:
             self._external_perf_records = record_store
         else:
-            cleanup = getattr(record_store, "cleanup", None)
-            if callable(cleanup):
-                cleanup()
+            if record_store is not None:
+                record_store.cleanup()
             self._external_perf_records = None
 
     def consume_external_perf_records(self) -> "PerformanceRecordStore":

@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import os
 import posixpath
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -42,20 +41,6 @@ FILETYPE_TO_DEFAULT_EXTENSIONS = {
     "jsonl": [".jsonl", ".json"],
     "megatron": [".bin", ".idx"],
 }
-
-
-@dataclass(frozen=True)
-class StreamingJSONItem:
-    """One JSON array item whose nested contents are written incrementally."""
-
-    writer: Callable[[TextIO], None]
-
-
-def _write_json_array_item(item: object, output: TextIO) -> None:
-    if isinstance(item, StreamingJSONItem):
-        item.writer(output)
-    else:
-        json.dump(item, output, sort_keys=True)
 
 
 def get_default_file_extensions(input_filetype: str) -> list[str]:
@@ -91,18 +76,20 @@ def write_json_file(path: str, payload: dict[str, Any], fs: fsspec.AbstractFileS
     fs.write_text(path, f"{json.dumps(payload, sort_keys=True)}\n", encoding="utf-8")
 
 
-def write_json_file_streaming_array(
+def _write_json_item(item: object, output: TextIO) -> None:
+    json.dump(item, output, sort_keys=True)
+
+
+def write_json_file_streaming_array(  # noqa: PLR0913
     path: str,
     payload: dict[str, Any],
     *,
     array_key: str,
     items: Iterable[Any],
     fs: fsspec.AbstractFileSystem,
+    item_writer: Callable[[Any, TextIO], None] = _write_json_item,
 ) -> None:
-    """Write one JSON array incrementally while keeping the surrounding object.
-
-    Wrap nested streaming entries in ``StreamingJSONItem``.
-    """
+    """Write one JSON array incrementally while keeping the surrounding object."""
     if array_key in payload:
         msg = f"{array_key!r} must not already exist in the JSON payload"
         raise ValueError(msg)
@@ -119,7 +106,7 @@ def write_json_file_streaming_array(
         for index, item in enumerate(items):
             if index:
                 output.write(",")
-            _write_json_array_item(item, output)
+            item_writer(item, output)
         output.write("]}\n")
 
     if isinstance(fs, LocalFileSystem):

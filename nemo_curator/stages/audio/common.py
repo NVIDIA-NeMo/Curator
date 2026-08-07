@@ -18,7 +18,6 @@ import posixpath
 import time
 from contextlib import ExitStack
 from dataclasses import dataclass, field
-from functools import partial
 from operator import eq, ge, gt, le, lt, ne
 from shutil import copyfileobj
 from tempfile import TemporaryFile
@@ -34,7 +33,7 @@ from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import AudioTask, EmptyTask, FileGroupTask
-from nemo_curator.utils.file_utils import StreamingJSONItem, write_json_file_streaming_array
+from nemo_curator.utils.file_utils import write_json_file_streaming_array
 
 if TYPE_CHECKING:
     from typing import TextIO
@@ -424,20 +423,6 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
         wall_time_s: float,
         report_context: dict[str, Any],
     ) -> None:
-        """Write all driver-collected invocation metrics through the existing writer."""
-        self._write_raw_performance_report(
-            performance_records=performance_records,
-            wall_time_s=wall_time_s,
-            report_context=report_context,
-        )
-
-    def _write_raw_performance_report(
-        self,
-        *,
-        performance_records: "PerformanceRecordStore",
-        wall_time_s: float,
-        report_context: dict[str, Any],
-    ) -> None:
         """Persist invocation telemetry grouped by pipeline stage."""
         if self.performance_report_path is None:
             return
@@ -463,11 +448,9 @@ class ManifestWriterStage(ProcessingStage[AudioTask, AudioTask]):
                     "record_count": len(performance_records),
                 },
                 array_key="stage_performance",
-                items=(
-                    StreamingJSONItem(partial(_write_stage_performance_summary, summary))
-                    for summary in stage_performance
-                ),
+                items=stage_performance,
                 fs=report_fs,
+                item_writer=_write_stage_performance_summary,
             )
         logger.info(f"ManifestWriterStage: wrote performance report to {report_path}")
 
