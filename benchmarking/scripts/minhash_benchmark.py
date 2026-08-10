@@ -84,6 +84,7 @@ def _build_pipeline(  # noqa: C901, PLR0913
     pool: bool,
     reader_ray_data_initial_workers: int | None,
     reader_ray_data_max_workers: int | None,
+    reader_ray_data_num_cpus: float | None,
     minhash_num_workers: int | None,
     minhash_ray_data_initial_workers: int | None,
     minhash_ray_data_num_cpus: float | None,
@@ -106,6 +107,8 @@ def _build_pipeline(  # noqa: C901, PLR0913
             reader_ray_stage_spec[RayStageSpecKeys.INITIAL_WORKERS] = reader_ray_data_initial_workers
         if reader_ray_data_max_workers is not None:
             reader_ray_stage_spec[RayStageSpecKeys.MAX_WORKERS] = reader_ray_data_max_workers
+        if reader_ray_data_num_cpus is not None:
+            reader_ray_stage_spec[RayStageSpecKeys.RAY_NUM_CPUS] = reader_ray_data_num_cpus
         if reader_ray_stage_spec:
             input_stage = input_stage.with_({input_stage.name: {"ray_stage_spec": reader_ray_stage_spec}})
         minhash_read_format = None
@@ -173,6 +176,7 @@ def run_minhash_benchmark(  # noqa: PLR0913
     pool: bool = True,
     reader_ray_data_initial_workers: int | None = None,
     reader_ray_data_max_workers: int | None = None,
+    reader_ray_data_num_cpus: float | None = None,
     minhash_num_workers: int | None = None,
     minhash_ray_data_initial_workers: int | None = None,
     minhash_ray_data_num_cpus: float | None = None,
@@ -191,6 +195,7 @@ def run_minhash_benchmark(  # noqa: PLR0913
     ray_data_only_options = {
         "reader_ray_data_initial_workers": reader_ray_data_initial_workers,
         "reader_ray_data_max_workers": reader_ray_data_max_workers,
+        "reader_ray_data_num_cpus": reader_ray_data_num_cpus,
         "minhash_ray_data_num_cpus": minhash_ray_data_num_cpus,
         "minhash_ray_data_max_concurrency": minhash_ray_data_max_concurrency,
         "minhash_ray_data_max_tasks_in_flight_per_actor": minhash_ray_data_max_tasks_in_flight_per_actor,
@@ -199,9 +204,15 @@ def run_minhash_benchmark(  # noqa: PLR0913
     if executor != "ray_data" and configured_ray_data_only_options:
         msg = f"{', '.join(configured_ray_data_only_options)} are only supported by the ray_data executor"
         raise ValueError(msg)
-    reader_options_configured = reader_ray_data_initial_workers is not None or reader_ray_data_max_workers is not None
+    reader_options_configured = any(
+        option is not None
+        for option in (reader_ray_data_initial_workers, reader_ray_data_max_workers, reader_ray_data_num_cpus)
+    )
     if reader_options_configured and input_task_type != "DocumentBatch":
-        msg = "reader_ray_data_initial_workers and reader_ray_data_max_workers require DocumentBatch input tasks"
+        msg = (
+            "reader_ray_data_initial_workers, reader_ray_data_max_workers, and "
+            "reader_ray_data_num_cpus require DocumentBatch input tasks"
+        )
         raise ValueError(msg)
 
     input_path = input_path.absolute()
@@ -246,6 +257,7 @@ def run_minhash_benchmark(  # noqa: PLR0913
         pool=pool,
         reader_ray_data_initial_workers=reader_ray_data_initial_workers,
         reader_ray_data_max_workers=reader_ray_data_max_workers,
+        reader_ray_data_num_cpus=reader_ray_data_num_cpus,
         minhash_num_workers=minhash_num_workers,
         minhash_ray_data_initial_workers=minhash_ray_data_initial_workers,
         minhash_ray_data_num_cpus=minhash_ray_data_num_cpus,
@@ -373,6 +385,12 @@ def main() -> int:
         type=int,
         default=None,
         help="Maximum size of the autoscaling Ray Data input reader actor pool",
+    )
+    parser.add_argument(
+        "--reader-ray-data-num-cpus",
+        type=float,
+        default=None,
+        help="CPU reservation for each Ray Data input reader actor",
     )
     parser.add_argument(
         "--minhash-num-workers",

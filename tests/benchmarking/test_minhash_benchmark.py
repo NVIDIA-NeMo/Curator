@@ -42,6 +42,7 @@ def test_reader_worker_bounds_are_applied_to_reader_stage(tmp_path: Path) -> Non
         pool=True,
         reader_ray_data_initial_workers=12,
         reader_ray_data_max_workers=12,
+        reader_ray_data_num_cpus=2,
         minhash_num_workers=8,
         minhash_ray_data_initial_workers=None,
         minhash_ray_data_num_cpus=2,
@@ -55,6 +56,7 @@ def test_reader_worker_bounds_are_applied_to_reader_stage(tmp_path: Path) -> Non
     minhash_stage = next(stage for stage in pipeline.stages if stage.name == "MinHashStage")
     assert reader_stage.ray_stage_spec()[RayStageSpecKeys.INITIAL_WORKERS] == 12
     assert reader_stage.ray_stage_spec()[RayStageSpecKeys.MAX_WORKERS] == 12
+    assert reader_stage.ray_stage_spec()[RayStageSpecKeys.RAY_NUM_CPUS] == 2
     assert minhash_stage.num_workers() == 8
     assert minhash_stage.ray_stage_spec()[RayStageSpecKeys.RAY_NUM_CPUS] == 2
     assert minhash_stage.ray_stage_spec()[RayStageSpecKeys.MAX_CONCURRENCY] == 2
