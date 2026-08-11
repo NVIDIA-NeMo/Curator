@@ -20,17 +20,13 @@ import gc
 from copy import deepcopy
 from dataclasses import dataclass, field
 from numbers import Integral
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import torch
 from omegaconf import open_dict
 
 from nemo_curator.models.asr.base import ASRResult
-
-_DEFAULT_FASTCONFORMER_CTC_MODEL = "nvidia/stt_en_fastconformer_ctc_large"
-_DEFAULT_SAMPLE_RATE = 16_000
-_ATTENTION_CONTEXT_DIRECTIONS = 2
 
 
 def _nemo_asr_module() -> Any:  # noqa: ANN401
@@ -82,6 +78,10 @@ class NeMoASRAdapter:
         strict: Forward NeMo's strict checkpoint loading flag.
     """
 
+    _DEFAULT_FASTCONFORMER_CTC_MODEL: ClassVar[str] = "nvidia/stt_en_fastconformer_ctc_large"
+    _DEFAULT_SAMPLE_RATE: ClassVar[int] = 16_000
+    _ATTENTION_CONTEXT_DIRECTIONS: ClassVar[int] = 2
+
     model_id: str = _DEFAULT_FASTCONFORMER_CTC_MODEL
     num_workers: int = 0
     verbose: bool = False
@@ -101,7 +101,7 @@ class NeMoASRAdapter:
         except TypeError as exc:
             msg = "NeMoASRAdapter.local_attention_context_size must contain two positive integers"
             raise ValueError(msg) from exc
-        if len(context_size) != _ATTENTION_CONTEXT_DIRECTIONS or any(
+        if len(context_size) != self._ATTENTION_CONTEXT_DIRECTIONS or any(
             isinstance(value, bool) or not isinstance(value, Integral) or value <= 0 for value in context_size
         ):
             msg = "NeMoASRAdapter.local_attention_context_size must contain two positive integers"
@@ -196,9 +196,9 @@ class NeMoASRAdapter:
                 msg = f"ASRStage must provide a mono 1-D waveform, got shape {waveform.shape}"
                 raise ValueError(msg)
             sample_rate = int(item.get("sample_rate") or 0)
-            if sample_rate != _DEFAULT_SAMPLE_RATE:
+            if sample_rate != self._DEFAULT_SAMPLE_RATE:
                 msg = (
-                    f"ASRStage must provide {_DEFAULT_SAMPLE_RATE} Hz audio for {self.model_id!r}; "
+                    f"ASRStage must provide {self._DEFAULT_SAMPLE_RATE} Hz audio for {self.model_id!r}; "
                     f"received {sample_rate} Hz"
                 )
                 raise ValueError(msg)
