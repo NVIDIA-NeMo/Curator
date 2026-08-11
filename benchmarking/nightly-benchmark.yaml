@@ -1350,11 +1350,11 @@ entries:
       --model-path={dataset:nemotron_parse_pdf_model,files}
       --backend=vllm
       --enforce-eager
-      --pdfs-per-task=1
+      --pdfs-per-task=10
       --max-pdfs=1278
       --max-pages=10
-      --max-num-seqs=16
-    timeout_s: 5400
+      --max-num-seqs=64
+    timeout_s: 1200
     sink_data:
       - name: slack
         additional_metrics:
@@ -1375,10 +1375,10 @@ entries:
       - metric: num_pages_processed
         exact_value: 5794
       # Throughput is a floor, not an exact value: wall-clock moves with cluster
-      # load. Observed 3.34-3.56 pages/s across runs; 2.0 leaves headroom while
-      # still catching a severe slowdown.
+      # load. Observed ~7.8 pages/s; 5.0 leaves headroom for a loaded cluster
+      # while still catching a real regression.
       - metric: throughput_pages_per_sec
-        min_value: 2.0
+        min_value: 5.0
 
   - name: nemotron_parse_pdf_raydata
     enabled: true
@@ -1392,11 +1392,11 @@ entries:
       --model-path={dataset:nemotron_parse_pdf_model,files}
       --backend=vllm
       --enforce-eager
-      --pdfs-per-task=1
+      --pdfs-per-task=10
       --max-pdfs=1278
       --max-pages=10
-      --max-num-seqs=16
-    timeout_s: 5400
+      --max-num-seqs=64
+    timeout_s: 1200
     sink_data:
       - name: slack
         additional_metrics:
@@ -1417,10 +1417,10 @@ entries:
       - metric: num_pages_processed
         exact_value: 5794
       # Throughput is a floor, not an exact value: wall-clock moves with cluster
-      # load. Observed 3.34-3.56 pages/s across runs; 2.0 leaves headroom while
-      # still catching a severe slowdown.
+      # load. Observed ~7.8 pages/s; 5.0 leaves headroom for a loaded cluster
+      # while still catching a real regression.
       - metric: throughput_pages_per_sec
-        min_value: 2.0
+        min_value: 5.0
 
 
   - name: alm_pipeline_xenna
