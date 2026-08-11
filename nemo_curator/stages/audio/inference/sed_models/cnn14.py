@@ -42,11 +42,11 @@ https://github.com/qiuqiangkong/audioset_tagging_cnn (MIT, copyright
 Kong et al., "PANNs: Large-Scale Pretrained Audio Neural Networks for Audio
 Pattern Recognition" (2020).
 
-Only the three decision-level variants are vendored, because SED needs
-framewise output; the base ``Cnn14`` emits clip-level output only. Changes
-from upstream are limited to typing, formatting, and factoring the shared
-backbone into helpers; the architecture and tensor semantics are unchanged,
-so published checkpoints load as-is.
+Only the three decision-level variants are included because SED needs
+framewise output; the base ``Cnn14`` emits clip-level output only. The code
+adds typing, factors shared helpers, and removes an unused training argument;
+the architecture and tensor semantics are unchanged, so published checkpoints
+load as-is.
 
 Requires ``torchlibrosa``, which arrives with the ``audio_sed`` extra.
 """
@@ -54,8 +54,8 @@ Requires ``torchlibrosa``, which arrives with the ``audio_sed`` extra.
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from torch import nn
+from torch.nn import functional
 
 try:
     from torchlibrosa.augmentation import SpecAugmentation
@@ -77,7 +77,7 @@ def init_layer(layer: nn.Module) -> None:
         layer.bias.data.fill_(0.0)
 
 
-def init_bn(bn: nn.BatchNorm2d) -> None:
+def init_bn(bn: nn.BatchNorm1d | nn.BatchNorm2d) -> None:
     """Initialize a BatchNorm layer."""
     bn.bias.data.fill_(0.0)
     bn.weight.data.fill_(1.0)
@@ -121,14 +121,14 @@ class ConvBlock(nn.Module):
         init_bn(self.bn2)
 
     def forward(self, x: torch.Tensor, pool_size: tuple[int, int] = (2, 2), pool_type: str = "avg") -> torch.Tensor:
-        x = F.relu_(self.bn1(self.conv1(x)))
-        x = F.relu_(self.bn2(self.conv2(x)))
+        x = functional.relu_(self.bn1(self.conv1(x)))
+        x = functional.relu_(self.bn2(self.conv2(x)))
         if pool_type == "avg":
-            return F.avg_pool2d(x, kernel_size=pool_size)
+            return functional.avg_pool2d(x, kernel_size=pool_size)
         if pool_type == "max":
-            return F.max_pool2d(x, kernel_size=pool_size)
-        x1 = F.avg_pool2d(x, kernel_size=pool_size)
-        x2 = F.max_pool2d(x, kernel_size=pool_size)
+            return functional.max_pool2d(x, kernel_size=pool_size)
+        x1 = functional.avg_pool2d(x, kernel_size=pool_size)
+        x2 = functional.max_pool2d(x, kernel_size=pool_size)
         return x1 + x2
 
 
@@ -160,7 +160,7 @@ class AttBlock(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-def _cnn14_backbone(
+def _cnn14_backbone(  # noqa: PLR0913 - parameters define the checkpoint-compatible audio frontend
     sample_rate: int,
     window_size: int,
     hop_size: int,
@@ -203,13 +203,13 @@ def _cnn14_backbone(
     return spec, logmel, aug, bn0, blocks
 
 
-def _cnn14_encode(
+def _cnn14_encode(  # noqa: PLR0913 - shared encoder dependencies are explicit for checkpoint compatibility
     x: torch.Tensor,
     spec: Spectrogram,
     logmel: LogmelFilterBank,
     aug: SpecAugmentation,
     bn0: nn.BatchNorm2d,
-    blocks: nn.ModuleList,
+    blocks: list[ConvBlock],
     training: bool,
 ) -> tuple[torch.Tensor, int]:
     """Run shared CNN14 encoding to get feature maps. Returns (features, frames_num)."""
@@ -222,9 +222,9 @@ def _cnn14_encode(
     if training:
         x = aug(x)
     pool_sizes = [(2, 2)] * 5 + [(1, 1)]
-    for blk, ps in zip(blocks, pool_sizes):
+    for blk, ps in zip(blocks, pool_sizes, strict=True):
         x = blk(x, pool_size=ps, pool_type="avg")
-        x = F.dropout(x, p=0.2, training=training)
+        x = functional.dropout(x, p=0.2, training=training)
     return torch.mean(x, dim=3), frames_num
 
 
@@ -238,7 +238,7 @@ class Cnn14DecisionLevelMax(nn.Module):
 
     interpolate_ratio = 32
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - mirrors published PANNs checkpoint parameters
         self,
         sample_rate: int = 16000,
         window_size: int = 1024,
@@ -270,9 +270,9 @@ class Cnn14DecisionLevelMax(nn.Module):
             self.conv_block6,
         ]
 
-    def forward(self, input: torch.Tensor, mixup_lambda: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
+    def forward(self, waveform: torch.Tensor) -> dict[str, torch.Tensor]:
         x, frames_num = _cnn14_encode(
-            input,
+            waveform,
             self.spectrogram_extractor,
             self.logmel_extractor,
             self.spec_augmenter,
@@ -280,13 +280,13 @@ class Cnn14DecisionLevelMax(nn.Module):
             self._conv_blocks_list(),
             self.training,
         )
-        x1 = F.max_pool1d(x, kernel_size=3, stride=1, padding=1)
-        x2 = F.avg_pool1d(x, kernel_size=3, stride=1, padding=1)
+        x1 = functional.max_pool1d(x, kernel_size=3, stride=1, padding=1)
+        x2 = functional.avg_pool1d(x, kernel_size=3, stride=1, padding=1)
         x = x1 + x2
-        x = F.dropout(x, p=0.5, training=self.training)
+        x = functional.dropout(x, p=0.5, training=self.training)
         x = x.transpose(1, 2)
-        x = F.relu_(self.fc1(x))
-        x = F.dropout(x, p=0.5, training=self.training)
+        x = functional.relu_(self.fc1(x))
+        x = functional.dropout(x, p=0.5, training=self.training)
         segmentwise_output = torch.sigmoid(self.fc_audioset(x))
         clipwise_output, _ = torch.max(segmentwise_output, dim=1)
         framewise_output = interpolate(segmentwise_output, self.interpolate_ratio)
@@ -299,7 +299,7 @@ class Cnn14DecisionLevelAvg(nn.Module):
 
     interpolate_ratio = 32
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - mirrors published PANNs checkpoint parameters
         self,
         sample_rate: int = 16000,
         window_size: int = 1024,
@@ -331,9 +331,9 @@ class Cnn14DecisionLevelAvg(nn.Module):
             self.conv_block6,
         ]
 
-    def forward(self, input: torch.Tensor, mixup_lambda: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
+    def forward(self, waveform: torch.Tensor) -> dict[str, torch.Tensor]:
         x, frames_num = _cnn14_encode(
-            input,
+            waveform,
             self.spectrogram_extractor,
             self.logmel_extractor,
             self.spec_augmenter,
@@ -341,13 +341,13 @@ class Cnn14DecisionLevelAvg(nn.Module):
             self._conv_blocks_list(),
             self.training,
         )
-        x1 = F.max_pool1d(x, kernel_size=3, stride=1, padding=1)
-        x2 = F.avg_pool1d(x, kernel_size=3, stride=1, padding=1)
+        x1 = functional.max_pool1d(x, kernel_size=3, stride=1, padding=1)
+        x2 = functional.avg_pool1d(x, kernel_size=3, stride=1, padding=1)
         x = x1 + x2
-        x = F.dropout(x, p=0.5, training=self.training)
+        x = functional.dropout(x, p=0.5, training=self.training)
         x = x.transpose(1, 2)
-        x = F.relu_(self.fc1(x))
-        x = F.dropout(x, p=0.5, training=self.training)
+        x = functional.relu_(self.fc1(x))
+        x = functional.dropout(x, p=0.5, training=self.training)
         segmentwise_output = torch.sigmoid(self.fc_audioset(x))
         clipwise_output = torch.mean(segmentwise_output, dim=1)
         framewise_output = interpolate(segmentwise_output, self.interpolate_ratio)
@@ -360,7 +360,7 @@ class Cnn14DecisionLevelAtt(nn.Module):
 
     interpolate_ratio = 32
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - mirrors published PANNs checkpoint parameters
         self,
         sample_rate: int = 16000,
         window_size: int = 1024,
@@ -391,9 +391,9 @@ class Cnn14DecisionLevelAtt(nn.Module):
             self.conv_block6,
         ]
 
-    def forward(self, input: torch.Tensor, mixup_lambda: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
+    def forward(self, waveform: torch.Tensor) -> dict[str, torch.Tensor]:
         x, frames_num = _cnn14_encode(
-            input,
+            waveform,
             self.spectrogram_extractor,
             self.logmel_extractor,
             self.spec_augmenter,
@@ -401,14 +401,14 @@ class Cnn14DecisionLevelAtt(nn.Module):
             self._conv_blocks_list(),
             self.training,
         )
-        x1 = F.max_pool1d(x, kernel_size=3, stride=1, padding=1)
-        x2 = F.avg_pool1d(x, kernel_size=3, stride=1, padding=1)
+        x1 = functional.max_pool1d(x, kernel_size=3, stride=1, padding=1)
+        x2 = functional.avg_pool1d(x, kernel_size=3, stride=1, padding=1)
         x = x1 + x2
-        x = F.dropout(x, p=0.5, training=self.training)
+        x = functional.dropout(x, p=0.5, training=self.training)
         x = x.transpose(1, 2)
-        x = F.relu_(self.fc1(x))
+        x = functional.relu_(self.fc1(x))
         x = x.transpose(1, 2)
-        x = F.dropout(x, p=0.5, training=self.training)
+        x = functional.dropout(x, p=0.5, training=self.training)
         clipwise_output, _, segmentwise_output = self.att_block(x)
         segmentwise_output = segmentwise_output.transpose(1, 2)
         framewise_output = interpolate(segmentwise_output, self.interpolate_ratio)

@@ -452,16 +452,6 @@ fixable = ["ALL"]
 
 [tool.ruff.lint.extend-per-file-ignores]
 "nemo_curator/__init__.py" = ["F401"]
-"**/third_party/**" = [
-    # Vendored upstream code is kept close to its original form so that it stays
-    # diffable against the source repository. Style is not ours to change here.
-    "A002",   # upstream signatures use `input`
-    "ARG002", # upstream keeps args like `mixup_lambda` for API compatibility
-    "B905",
-    "N812",   # torch.nn.functional as F
-    "PLR0402",
-    "PLR0913",
-]
 "examples/**" = [
     "INP001", # no __init__.py is required
 ]

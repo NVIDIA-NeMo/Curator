@@ -22,7 +22,7 @@ import pytest
 
 from nemo_curator.stages.audio.inference import sed_models
 
-_CNN14_SOURCE = Path(sed_models.__file__).parent / "third_party" / "panns" / "cnn14.py"
+_CNN14_SOURCE = Path(sed_models.__file__).parent / "cnn14.py"
 
 
 # ----------------------------------------------------------------------
@@ -132,7 +132,7 @@ def test_a_missing_torchlibrosa_names_the_extra_to_install() -> None:
 
 
 # ----------------------------------------------------------------------
-# Attribution for vendored third-party code
+# Upstream attribution
 # ----------------------------------------------------------------------
 
 
@@ -146,8 +146,3 @@ def test_the_vendored_model_carries_its_upstream_mit_license() -> None:
 def test_the_vendored_model_names_its_upstream_source() -> None:
     source = _CNN14_SOURCE.read_text(encoding="utf-8")
     assert "qiuqiangkong/audioset_tagging_cnn" in source
-
-
-def test_vendored_code_is_isolated_under_a_third_party_directory() -> None:
-    assert _CNN14_SOURCE.exists()
-    assert "third_party" in _CNN14_SOURCE.parts
