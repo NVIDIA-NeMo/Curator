@@ -45,20 +45,6 @@ AGGLUTINATIVE_COMPOUNDING_LANGS: frozenset[str] = frozenset(
 )
 
 
-def _set_note(task_data: dict[str, Any], stage_name: str, value: str, notes_key: str) -> None:
-    """Record this stage's decision under its own key in the notes dict.
-
-    Keying by stage name lets downstream analysis query per-stage decisions
-    without parsing a concatenated string, and keeps two instances of the same
-    filter from overwriting each other.
-    """
-    notes = task_data.get(notes_key)
-    if not isinstance(notes, dict):
-        notes = {}
-        task_data[notes_key] = notes
-    notes[stage_name] = value
-
-
 @dataclass
 class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     """Flag transcripts that show common ASR hallucination patterns.
@@ -95,8 +81,8 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         python nemo_curator/config/run.py \\
             --config-path ../../tutorials/audio/whisper_hallucination \\
             --config-name pipeline \\
-            manifest_path=/absolute/path/to/asr_manifest.jsonl \\
-            output_path=/absolute/path/to/filtered_manifest.jsonl
+            manifest_path=tests/fixtures/audio/text_filtering/whisper_hallucination_input.jsonl \\
+            output_path=/tmp/whisper_hallucination_output.jsonl
     """
 
     common_hall_file: str = ""
@@ -126,6 +112,13 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         if not self.common_hall_file:
             msg = "common_hall_file is required for WhisperHallucinationStage"
             raise ValueError(msg)
+
+    def _set_note(self, task_data: dict[str, Any], value: str) -> None:
+        notes = task_data.get(self.notes_key)
+        if not isinstance(notes, dict):
+            notes = {}
+            task_data[self.notes_key] = notes
+        notes[self.name] = value
 
     def setup(self, _worker_metadata: object | None = None) -> None:
         with open(self.common_hall_file, encoding="utf-8") as f:
@@ -186,11 +179,11 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
 
         current_flag = str(task.data.get(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
-            _set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
+            self._set_note(task.data, "skipped (flagged)")
             return task
         text = task.data[self.text_key]
         if not isinstance(text, str) or not text.strip():
-            _set_note(task.data, self.name, "skipped (empty text)", self.notes_key)
+            self._set_note(task.data, "skipped (empty text)")
             return task
         words = text.split()
         duration = task.data.get(self.duration_key, 0.0) or 0.0
@@ -217,11 +210,11 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             logger.debug(f"[{self.name}] flagged ({','.join(reasons)}) dur={duration:.2f}s: {text[:80]!r}")
             if was_flagged or not current_flag:
                 task.data[self.skip_me_key] = f"Hallucination:{self.name}"
-            _set_note(task.data, self.name, f"hallucination ({', '.join(reasons)})", self.notes_key)
+            self._set_note(task.data, f"hallucination ({', '.join(reasons)})")
         elif self.overwrite and was_flagged:
             task.data[self.skip_me_key] = ""
             recovery_note = self.recovery_value.lower() if self.recovery_value else "recovered"
-            _set_note(task.data, self.name, recovery_note, self.notes_key)
+            self._set_note(task.data, recovery_note)
         else:
-            _set_note(task.data, self.name, "passed", self.notes_key)
+            self._set_note(task.data, "passed")
         return task

@@ -8,8 +8,8 @@
 #   python nemo_curator/config/run.py \
 #     --config-path ../../tutorials/audio/whisper_hallucination \
 #     --config-name pipeline \
-#     manifest_path=/absolute/path/to/asr_manifest.jsonl \
-#     output_path=/absolute/path/to/filtered_manifest.jsonl
+#     manifest_path=tests/fixtures/audio/text_filtering/whisper_hallucination_input.jsonl \
+#     output_path=/tmp/whisper_hallucination_output.jsonl
 
 defaults:
   - _self_
