@@ -29,7 +29,7 @@ from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.classifiers import DomainClassifier
-from nemo_curator.stages.text.io.reader import ParquetReader
+from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 
 
@@ -39,6 +39,7 @@ def run_domain_classification_benchmark(
     executor: str,
     dataset_size_gb: float,
     model_inference_batch_size: int,
+    input_filetype: str = "jsonl",
     **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the domain classification benchmark and collect comprehensive metrics."""
@@ -64,10 +65,15 @@ def run_domain_classification_benchmark(
     executor_obj = setup_executor(executor)
 
     # Create and run pipeline
+    reader = (
+        JsonlReader(file_paths=input_files, files_per_partition=1, fields=["text"], _generate_ids=False)
+        if input_filetype == "jsonl"
+        else ParquetReader(file_paths=input_files, files_per_partition=1, fields=["text"], _generate_ids=False)
+    )
     pipeline = Pipeline(
         name="domain_classification_pipeline",
         stages=[
-            ParquetReader(file_paths=input_files, files_per_partition=1, fields=["text"], _generate_ids=False),
+            reader,
             DomainClassifier(
                 text_field="text",
                 model_inference_batch_size=model_inference_batch_size,
@@ -112,6 +118,7 @@ def main() -> int:
     parser.add_argument("--executor", default="ray_data", choices=["xenna", "ray_data"], help="Executor to use")
     parser.add_argument("--dataset-size-gb", type=float, required=True, help="Size of dataset to process in GB")
     parser.add_argument("--model-inference-batch-size", type=int, default=1024, help="Batch size for model inference")
+    parser.add_argument("--input-filetype", default="jsonl", choices=["parquet", "jsonl"], help="Input file format")
 
     args = parser.parse_args()
 
