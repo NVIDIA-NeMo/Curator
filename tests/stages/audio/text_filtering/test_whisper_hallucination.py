@@ -338,5 +338,5 @@ def test_example_yaml_exposes_all_supported_filter_controls(tmp_path: Path) -> N
 def test_bundled_phrase_file_matches_reference_hash() -> None:
     phrase_file = _EXAMPLE_DIR / "phrases.txt"
     assert hashlib.sha256(phrase_file.read_bytes()).hexdigest() == (
-        "34ba2fcd7756f193e80ba4ac34a6b5db0dab92adeb0750beb796b1bf57f6bc42"
+        "34ba2fcd7756f193e80ba4ac34a6b5db0dab92adeb0750beb796b1bf57f6bc42"  # pragma: allowlist secret
     )
