@@ -256,6 +256,7 @@ entries:
           - throughput_docs_per_sec
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
+          - U07JL5K0L10  # Praateek Mahajan
 
     requirements:
       - metric: throughput_docs_per_sec
@@ -281,6 +282,7 @@ entries:
           - throughput_docs_per_sec
         ping_on_failure:
           - U022P8CDX40  # Sarah Yurick
+          - U07JL5K0L10  # Praateek Mahajan
 
     requirements:
       - metric: throughput_docs_per_sec
@@ -354,7 +356,7 @@ entries:
       --eps=0.01
       --which-to-keep=hard
       --pairwise-batch-size=1024
-      --dataset-size-ratio=0.15
+      --dataset-size-ratio=0.20
     timeout_s: 1200
     sink_data:
       - name: slack
@@ -460,14 +462,13 @@ entries:
     ray:
       num_gpus: 0
     requirements:
-      # TODO: Update these values
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
-        exact_value: 2119489
+        exact_value: 17535360
       # account for stochastic filters
       - metric: num_kept_documents
-        min_value: 2090470
-        max_value: 2090490
+        min_value: 12808500
+        max_value: 12809500
       - metric: throughput_docs_per_sec
         min_value: 19000
 
@@ -492,16 +493,15 @@ entries:
     ray:
       num_gpus: 0
     requirements:
-      # TODO: Update these values
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
-        exact_value: 2119489
+        exact_value: 17535360
       # account for stochastic filters
       - metric: num_kept_documents
-        min_value: 2090470
-        max_value: 2090490
+        min_value: 12808500
+        max_value: 12809500
       - metric: throughput_docs_per_sec
-        min_value: 8500
+        min_value: 15000
 
   - name: fasttext_filter_raydata
     enabled: true
@@ -525,6 +525,9 @@ entries:
           - U022P8CDX40  # Sarah Yurick
     ray:
       num_gpus: 0
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 60000
 
   - name: fasttext_filter_xenna
     enabled: true
@@ -548,6 +551,9 @@ entries:
           - U022P8CDX40  # Sarah Yurick
     ray:
       num_gpus: 0
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 70000
 
   - name: modifier_raydata
     enabled: true
