@@ -170,7 +170,9 @@ def main() -> int:
         "--fasttext-quality-model-path", type=Path, required=True, help="Path to FastText quality model"
     )
     parser.add_argument("--overrides", type=str)
-    parser.add_argument("--dataset-size-gb", type=float, default=None, help="Limit input to approximately this many GB of files")
+    parser.add_argument(
+        "--dataset-size-gb", type=float, default=None, help="Limit input to approximately this many GB of files"
+    )
 
     args = parser.parse_args()
 

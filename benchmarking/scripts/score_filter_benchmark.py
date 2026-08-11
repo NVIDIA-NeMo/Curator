@@ -160,7 +160,9 @@ def main() -> int:
     )
     # example: --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader,stages.0.files_per_partition=10"  # noqa: ERA001
     parser.add_argument("--overrides", type=str, help="Overrides to pass to the YAML configuration")
-    parser.add_argument("--dataset-size-gb", type=float, default=None, help="Limit input to approximately this many GB of files")
+    parser.add_argument(
+        "--dataset-size-gb", type=float, default=None, help="Limit input to approximately this many GB of files"
+    )
 
     args = parser.parse_args()
 

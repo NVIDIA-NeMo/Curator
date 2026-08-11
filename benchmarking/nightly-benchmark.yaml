@@ -184,7 +184,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=ray_data
       --input-path={dataset:commoncrawl,jsonl}
-      --dataset-size-gb=10
+      --dataset-size-gb=15
       --model-inference-batch-size=1024
     timeout_s: 1200
     sink_data:
@@ -221,7 +221,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --input-path={dataset:commoncrawl,jsonl}
-      --dataset-size-gb=10
+      --dataset-size-gb=15
       --model-inference-batch-size=1024
     timeout_s: 1200
     sink_data:
@@ -257,7 +257,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=ray_data
       --input-path={dataset:commoncrawl,jsonl}
-      --dataset-size-gb=20
+      --dataset-size-gb=25
       --model-identifier=google/embeddinggemma-300m
       --model-variation=vllm_text_pretokenized
       --cache-dir={dataset:text_models_hf_cache,files}
@@ -283,7 +283,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --input-path={dataset:commoncrawl,jsonl}
-      --dataset-size-gb=20
+      --dataset-size-gb=25
       --model-identifier=google/embeddinggemma-300m
       --model-variation=vllm_text_pretokenized
       --cache-dir={dataset:text_models_hf_cache,files}
@@ -371,7 +371,7 @@ entries:
       --eps=0.01
       --which-to-keep=hard
       --pairwise-batch-size=1024
-      --dataset-size-ratio=0.35
+      --dataset-size-ratio=0.25
     timeout_s: 1200
     sink_data:
       - name: slack
@@ -464,7 +464,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=ray_data
       --input-path={dataset:commoncrawl,jsonl}
-      --dataset-size-gb=50
+      --dataset-size-gb=100
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
     timeout_s: 1200
     sink_data:
@@ -496,7 +496,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --input-path={dataset:commoncrawl,jsonl}
-      --dataset-size-gb=50
+      --dataset-size-gb=100
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
     timeout_s: 1200
     sink_data:
@@ -528,7 +528,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=ray_data
       --input-path={dataset:commoncrawl,jsonl}
-      --dataset-size-gb=100
+      --dataset-size-gb=200
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/fasttext_filter_pipeline.yaml
       --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
       --fasttext-quality-model-path={dataset:fasttext_quality_model,bin}
@@ -551,7 +551,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --input-path={dataset:commoncrawl,jsonl}
-      --dataset-size-gb=100
+      --dataset-size-gb=200
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/fasttext_filter_pipeline.yaml
       --fasttext-langid-model-path={dataset:fasttext_langid_model,bin}
       --fasttext-quality-model-path={dataset:fasttext_quality_model,bin}
@@ -574,7 +574,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=ray_data
       --input-path={dataset:commoncrawl,jsonl}
-      --dataset-size-gb=100
+      --dataset-size-gb=200
     timeout_s: 1200
     sink_data:
       - name: slack
@@ -593,7 +593,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --input-path={dataset:commoncrawl,jsonl}
-      --dataset-size-gb=100
+      --dataset-size-gb=200
     timeout_s: 1200
     sink_data:
       - name: slack

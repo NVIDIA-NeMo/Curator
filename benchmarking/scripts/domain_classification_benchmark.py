@@ -33,7 +33,7 @@ from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 
 
-def run_domain_classification_benchmark(
+def run_domain_classification_benchmark(  # noqa: PLR0913
     input_path: str,
     output_path: str,
     executor: str,

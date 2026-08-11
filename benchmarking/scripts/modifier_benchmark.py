@@ -41,7 +41,7 @@ from nemo_curator.stages.text.modifiers.string import (
 from nemo_curator.stages.text.modifiers.unicode import UnicodeReformatter
 
 
-def run_modify_benchmark(
+def run_modify_benchmark(  # noqa: PLR0913
     input_path: Path,
     output_path: Path,
     executor_name: str,
@@ -69,7 +69,9 @@ def run_modify_benchmark(
     if dataset_size_gb is not None:
         file_paths = load_dataset_files(input_path, dataset_size_gb, keep_extensions=input_filetype)
         logger.info(f"Dataset size limit: {dataset_size_gb} GB ({len(file_paths)} files selected)")
-        reader = JsonlReader(file_paths=file_paths) if input_filetype == "jsonl" else ParquetReader(file_paths=file_paths)
+        reader = (
+            JsonlReader(file_paths=file_paths) if input_filetype == "jsonl" else ParquetReader(file_paths=file_paths)
+        )
     else:
         reader = JsonlReader(input_path) if input_filetype == "jsonl" else ParquetReader(input_path)
     pipeline.add_stage(reader)
@@ -135,7 +137,9 @@ def main() -> int:
     )
     # Executor
     parser.add_argument("--executor", default="ray_data", choices=["xenna", "ray_data"], help="Executor to use")
-    parser.add_argument("--dataset-size-gb", type=float, default=None, help="Limit input to approximately this many GB of files")
+    parser.add_argument(
+        "--dataset-size-gb", type=float, default=None, help="Limit input to approximately this many GB of files"
+    )
     parser.add_argument("--input-filetype", default="jsonl", choices=["parquet", "jsonl"], help="Input file format")
 
     args = parser.parse_args()
