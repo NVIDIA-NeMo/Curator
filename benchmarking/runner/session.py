@@ -16,10 +16,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
+from pathlib import Path
 from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # Use pytest's expression eval code to support "-k" style matching.
 # TODO: This adds a dependency on a pytest internal module.
@@ -34,13 +32,49 @@ from runner.entry import Entry
 from runner.path_resolver import PathResolver
 from runner.utils import assert_valid_config_dict, get_total_memory_bytes
 
+_data_setup_script_base_path = Path(__file__).resolve().parent.parent / "data_prep"
+
+
+def _create_data_setup_entries(setup_configs: object) -> list[Entry]:
+    if not isinstance(setup_configs, list):
+        msg = "Invalid configuration: 'data_setups' must be a list"
+        raise TypeError(msg)
+
+    data_setups = []
+    names: set[str] = set()
+    for setup_data in setup_configs:
+        if not isinstance(setup_data, dict):
+            msg = f"Invalid data setup entry: expected dict, got {type(setup_data).__name__}"
+            raise TypeError(msg)
+        missing = [field_name for field_name in ("name", "script") if field_name not in setup_data]
+        if missing:
+            msg = f"Invalid data setup entry: missing required fields {missing}"
+            raise ValueError(msg)
+        if setup_data["name"] in names:
+            msg = f"Duplicate data setup name: {setup_data['name']}"
+            raise ValueError(msg)
+        names.add(setup_data["name"])
+        data_setups.append(
+            Entry.from_dict(
+                {
+                    **setup_data,
+                    "script_base_path": _data_setup_script_base_path,
+                }
+            )
+        )
+    return data_setups
+
 
 @dataclass(kw_only=True)
 class Session:
     results_path: Path
     entries: list[Entry] = field(default_factory=list)
+    data_setups: list[Entry] = field(default_factory=list)
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
+    # Maximum allowed per-entry timeout after default_timeout_s has been applied.
+    # 3h59m keeps generated CI wall-clock below common 4h limits once cleanup time is added.
+    max_timeout_s: int = 14340
     # object store size is either a value in bytes (int), a fraction of total system memory (float), or None or the
     # value "default" (string) both representing the default object store size as used by "ray start".
     object_store_size: int | float | str | None = 0.5
@@ -50,17 +84,28 @@ class Session:
     # before and after each benchmark run. If None, any usage > 0 triggers a warning.
     # Entries can override this value.
     gpu_mem_use_warning_threshold: float | None = None
+    # Optional session metadata. viewer_url is the resolved link exposed to sinks;
+    # viewer_url_template is rendered into viewer_url once the session name/path is known.
+    viewer_url: str | None = None
+    viewer_url_template: str | None = None
+    run_reason: str | None = None
     # Global ray settings inherited by all entries; per-entry ray sections override these values.
     ray: dict = field(default_factory=dict)
     path_resolver: PathResolver = None
     dataset_resolver: DatasetResolver = None
 
-    def __post_init__(self) -> None:  # noqa: C901
+    def __post_init__(self) -> None:  # noqa: C901, PLR0912
         """Post-initialization checks and updates for dataclass."""
         names = [entry.name for entry in self.entries]
         if len(names) != len(set(names)):
             duplicates = {name for name in names if names.count(name) > 1}
             msg = f"Duplicate entry name(s) found: {', '.join(duplicates)}"
+            raise ValueError(msg)
+
+        data_setup_names = [entry.name for entry in self.data_setups]
+        if len(data_setup_names) != len(set(data_setup_names)):
+            duplicates = {name for name in data_setup_names if data_setup_names.count(name) > 1}
+            msg = f"Duplicate data setup name(s) found: {', '.join(duplicates)}"
             raise ValueError(msg)
 
         # Process object_store_size by converting values representing fractions of system memory to bytes.
@@ -75,15 +120,41 @@ class Session:
             )
             raise ValueError(msg)
 
+        if not isinstance(self.max_timeout_s, int) or isinstance(self.max_timeout_s, bool) or self.max_timeout_s <= 0:
+            msg = f"Invalid max_timeout_s: {self.max_timeout_s}; must be a positive integer."
+            raise ValueError(msg)
+
+        for field_name in ("viewer_url", "viewer_url_template", "run_reason"):
+            value = getattr(self, field_name)
+            if value is not None and not isinstance(value, str):
+                msg = f"Invalid {field_name}: {value}; must be a string when set."
+                raise ValueError(msg)
+
+        if self.viewer_url is not None and self.viewer_url_template is not None:
+            msg = "viewer_url and viewer_url_template are mutually exclusive; set only one."
+            raise ValueError(msg)
+
         # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
         for entry in self.entries:
             if entry.delete_scratch is None:
                 entry.delete_scratch = self.delete_scratch
 
-        # Update timeout_s for each entry that has not been set to the session-level default_timeout_s
+        # Update timeout_s for each entry that has not been set to the session-level
+        # default_timeout_s, then enforce the session-level maximum against effective values.
         for entry in self.entries:
             if entry.timeout_s is None:
                 entry.timeout_s = self.default_timeout_s
+            if entry.timeout_s > self.max_timeout_s:
+                msg = (
+                    f"Entry '{entry.name}' has timeout_s={entry.timeout_s}, which exceeds "
+                    f"max_timeout_s={self.max_timeout_s}. Entry timeouts are validated after "
+                    "all YAML files have been merged and default_timeout_s has been applied."
+                )
+                raise ValueError(msg)
+
+        for data_setup in self.data_setups:
+            if data_setup.timeout_s is None:
+                data_setup.timeout_s = self.default_timeout_s
 
         # Update object store size for each entry that has not been set.
         for entry in self.entries:
@@ -110,9 +181,8 @@ class Session:
         Factory method to create a Session from a dictionary.
 
         The dictionary is typically created from reading one or more YAML files.
-        This method resolves environment variables and converts the list of
-        entry dicts to Entry objects, and returns a new Session
-        object.
+        This method resolves environment variables, converts benchmark and data
+        setup entry dictionaries to Entry objects, and returns a new Session.
 
         Entry filtering: at most one of ``entry_filter_expr`` (pytest -k style
         substring expression) or ``entries_exact`` (list of exact entry-name
@@ -135,6 +205,7 @@ class Session:
         sinks = cls.create_sinks_from_dict(sess_data.get("sinks", []))
 
         entries = [Entry.from_dict(e) for e in sess_data["entries"]]
+        data_setups = _create_data_setup_entries(sess_data.get("data_setups", []))
 
         # Filter entries:
         # - entries_exact takes precedence and selects entries whose names appear in the
@@ -168,6 +239,7 @@ class Session:
 
         sess_data["results_path"] = path_resolver.resolve("results_path")
         sess_data["entries"] = entries
+        sess_data["data_setups"] = data_setups
         sess_data["sinks"] = sinks
         sess_data["path_resolver"] = path_resolver
         sess_data["dataset_resolver"] = dataset_resolver

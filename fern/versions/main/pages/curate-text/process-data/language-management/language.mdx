@@ -1,7 +1,7 @@
 ---
-description: "Identify document languages accurately using FastText models supporting 176 languages for multilingual text processing"
+description: "Identify document languages and scripts using FastText and GlotLID models for multilingual text processing"
 categories: ["how-to-guides"]
-tags: ["language-identification", "fasttext", "multilingual", "176-languages", "detection", "classification"]
+tags: ["language-identification", "fasttext", "glotlid", "multilingual", "detection", "classification"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -18,9 +18,9 @@ NeMo Curator's language identification system works through a three-step process
 
 1. **Text Preprocessing**: For FastText classification, normalize input text by stripping whitespace and converting newlines to spaces.
 
-2. **FastText Language Detection**: The pre-trained FastText language identification model ([`lid.176.bin`](https://fasttext.cc/docs/en/language-identification.html)) analyzes the preprocessed text and returns:
+2. **FastText Language Detection**: A FastText-compatible language identification model, such as [`lid.176.bin`](https://fasttext.cc/docs/en/language-identification.html) or [GlotLID](https://huggingface.co/cis-lmu/glotlid), analyzes the preprocessed text and returns:
    - A confidence score (0.0 to 1.0) indicating certainty of the prediction
-   - A language code (for example, "EN", "ES", "FR") in FastText's two-letter uppercase format
+   - The model's language label (for example, `en`) or language-script label (for example, `eng_Latn`)
 
 3. **Filtering and Scoring**: The pipeline filters documents based on a configurable confidence threshold (`min_langid_score`) and stores both the confidence score and language code as metadata.
 
@@ -30,11 +30,11 @@ The `FastTextLangId` filter implements this workflow by:
 
 - Loading the FastText language identification model on worker initialization
 - Processing text through `model.predict()` with `k=1` to get the top language prediction
-- Extracting the language code from FastText labels (for example, `__label__en` becomes "EN")
+- Removing the `__label__` prefix while preserving the model label's original casing (for example, `__label__en` becomes `en` and `__label__eng_Latn` becomes `eng_Latn`)
 - Comparing confidence scores against the threshold to determine document retention
 - Returning results as `[confidence_score, language_code]` for downstream processing
 
-This approach supports **176 languages** with high accuracy, making it suitable for large-scale multilingual dataset curation where language-specific processing and monolingual dataset creation are critical.
+The standard FastText model supports **176 languages**. GlotLID can be used when broader language coverage or script identification is required.
 
 ## Usage
 
@@ -110,13 +110,29 @@ if __name__ == "__main__":
 </Tab>
 </Tabs>
 
+### Using GlotLID
+
+Download the GlotLID FastText model from [Hugging Face](https://huggingface.co/cis-lmu/glotlid), then pass its local path to `FastTextLangId` in the same way as the standard FastText model:
+
+```python
+glotlid_model_path = "/path/to/glotlid/model.bin"
+
+# Keep every script predicted for English.
+english_filter = FastTextLangId(model_path=glotlid_model_path, lang="eng")
+
+# Keep only English written in the Latin script.
+english_latin_filter = FastTextLangId(model_path=glotlid_model_path, lang="eng_Latn")
+```
+
+Language matching is case-insensitive. A filter without an underscore matches the language portion of a GlotLID label, while a filter containing an underscore matches the complete language-script label.
+
 ## Understanding Results
 
 The language identification process adds a score field to each document batch:
 
 1. **`language` field**: Contains the FastText language identification results as a string representation of a list with two elements (for backend compatibility):
    - Element 0: The confidence score (between 0 and 1)
-   - Element 1: The language code in FastText format (for example, "EN" for English, "ES" for Spanish)
+   - Element 1: The model label without the `__label__` prefix and with its original casing preserved (for example, `en` or `eng_Latn`)
 
 2. **Task-based processing**: Curator processes documents in batches (tasks), and results are available through the task's Pandas DataFrame:
 

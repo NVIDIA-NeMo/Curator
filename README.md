@@ -15,6 +15,18 @@
 
 > *Part of the [NVIDIA NeMo](https://www.nvidia.com/en-us/ai-data-science/products/nemo/) software suite for managing the AI agent lifecycle.*
 
+## What's Hot
+
+Don't miss the latest capabilities developers are picking up:
+
+| Feature | What it unlocks | Read this |
+|---------|-----------------|-----------|
+| **Curator on Slurm** | Run multi-node Ray pipelines on HPC clusters — text, image, video, and audio workloads at scale | [Slurm Deployment Guide](https://docs.nvidia.com/nemo/curator/latest/admin/deployment/slurm-multi-node-ray) |
+| **Audio Curation** | Build ALM and speech datasets with composite quality filtering, audio tagging, and speaker diarization | [Audio Guide](https://docs.nvidia.com/nemo/curator/latest/curate-audio) |
+| **Inference Server** | Spin up an OpenAI-compatible LLM endpoint inside your pipeline for SDG, classification, and synthetic data workflows | [Inference Server](https://docs.nvidia.com/nemo/curator/latest/curate-text/synthetic/inference-server) |
+
+> Want something featured here? Open an issue or ping `@nemo-curator-leads`.
+
 ## Updates
 
 - **2026-04** — NeMo Curator 26.04: Cosmos-Xenna 0.2.0 upgrade, simplified `Resources` API, Ray runtime upgrade. See the [release notes](https://docs.nvidia.com/nemo/curator/latest/about/release-notes).
@@ -68,9 +80,21 @@ The bundled quickstart starts Ray, downloads a Hugging Face model, and runs a se
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "nemo-curator[text_cuda12]"
+curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda12-overrides.txt
+uv pip install \
+  --override text_cuda12-overrides.txt \
+  --torch-backend cu129 \
+  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  "nemo-curator[text_cuda12]"
 python tutorials/quickstart.py
 ```
+
+Standard `pip install` is not supported for `text_cuda12` because vLLM and
+RAPIDS declare incompatible Numba requirements. The supported `uv pip install`
+command above applies Curator's tested override. Any `uv pip install` command
+that includes `text_cuda12`, including `nemo-curator[all]`, needs the override
+file. From a source checkout, `uv sync --extra text_cuda12` and `uv sync
+--extra all` apply the project override automatically.
 
 ### Path C — Docker (recommended for video and audio)
 

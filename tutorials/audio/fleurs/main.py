@@ -30,7 +30,7 @@ Usage (from Curator repo root)::
         --config-name pipeline \\
         raw_data_dir=./example_audio/fleurs \\
         lang=en_us \\
-        stages.1.model_name=nvidia/parakeet-tdt-0.6b-v2 \\
+        stages.1.model_id=nvidia/parakeet-tdt-0.6b-v2 \\
         wer_threshold=25.0 \\
         backend=ray_data
 """

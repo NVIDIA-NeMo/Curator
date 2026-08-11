@@ -1,0 +1,45 @@
+---
+description: "How NeMo Curator automatically balances resources across pipeline stages"
+categories: ["architecture"]
+tags: ["deep-dive", "auto-balancing", "scheduling", "performance"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "concept"
+modality: "universal"
+---
+
+# Auto-Balancing Heterogeneous Models
+
+NeMo Curator auto-balances resources at the application level across pipeline stages to maximize throughput. This means you can focus on defining your curation logic rather than manually tuning parallelism.
+
+## The Problem: Unbalanced Pipelines
+
+In a typical curation pipeline, stages have very different processing speeds. Consider a video pipeline with a fast stage, a slow stage, and a medium stage — all sharing a fixed GPU budget:
+
+**Without auto-balancing (3 GPUs, 1 worker per stage):**
+- The **fast stage** emits 4 tasks/s, but the **slow stage** can only handle 1 task/s. Jobs back up in the queue — 3 tasks accumulate per second, eventually causing memory pressure.
+- The **medium stage** produces 2 tasks/s but is limited by the slow stage upstream, so it's starved for work. In practice only ~1 task/s is realized.
+- 4 queued tasks per second could have been processed, but the final stage is starved.
+
+**With auto-balancing (7 GPUs, scaled workers):**
+- The executor detects the bottleneck and scales the **slow stage to 4× workers** and the **medium stage to 2× workers**.
+- Now every stage sustains **4 tasks/s** throughput. Queues stay relatively clear — new jobs are picked up promptly.
+- **Result: 4× throughput improvement** by intelligently redistributing the same GPU budget.
+
+## How Auto-Balancing Works
+
+The executor monitors the throughput and queue depth of each stage at runtime and uses this information to:
+
+1. **Monitor throughput of different stages** and rebalance resources at regular intervals, shifting GPU/CPU allocations toward bottleneck stages.
+2. **Apply backpressure.** When a downstream stage can't keep up, upstream stages slow their output rate rather than buffering unbounded data in memory. This reduces memory pressure and prevents spilling to disk.
+3. **Scale workers dynamically.** If a stage is falling behind, the executor allocates additional workers to that stage (within the available resource budget).
+
+## What This Means for You
+
+- **No manual parallelism tuning.** You don't need to calculate the optimal number of workers per stage — the executor adapts at runtime.
+- **Predictable memory usage.** Backpressure prevents unbounded buffering, so memory usage stays stable even with unbalanced stages.
+- **Efficient hardware utilization.** Resources shift toward the current bottleneck instead of being statically allocated.
+
+## Monitoring Stage Balance
+
+Use the Ray Dashboard to monitor how the executor is balancing your pipeline. If you notice a persistent bottleneck that auto-balancing can't resolve (for example, a stage that needs more GPU memory than is available), consider splitting the pipeline or scaling your cluster.

@@ -145,6 +145,65 @@ def run_single_gpu_baseline(
 
 
 @pytest.mark.gpu
+class TestKMeansStage:
+    """Unit tests for KMeansStage decomposition."""
+
+    @pytest.mark.parametrize(
+        ("input_filetype", "expected_extensions"),
+        [
+            ("parquet", [".parquet"]),
+            ("jsonl", [".jsonl", ".json"]),
+        ],
+    )
+    def test_input_file_extensions_default_to_input_filetype(
+        self,
+        tmp_path: Path,
+        input_filetype: Literal["parquet", "jsonl"],
+        expected_extensions: list[str],
+    ) -> None:
+        stage = KMeansStage(
+            id_field="id",
+            embedding_field="embeddings",
+            n_clusters=2,
+            input_path=str(tmp_path / "input"),
+            output_path=str(tmp_path / "output"),
+            input_filetype=input_filetype,
+        )
+
+        stages = stage.decompose()
+
+        assert stages[0].file_extensions == expected_extensions
+
+    def test_input_file_extensions_override_default(self, tmp_path: Path) -> None:
+        stage = KMeansStage(
+            id_field="id",
+            embedding_field="embeddings",
+            n_clusters=2,
+            input_path=str(tmp_path / "input"),
+            output_path=str(tmp_path / "output"),
+            input_filetype="parquet",
+            input_file_extensions=[".pq"],
+        )
+
+        stages = stage.decompose()
+
+        assert stages[0].file_extensions == [".pq"]
+
+    def test_unsupported_input_filetype_raises(self, tmp_path: Path) -> None:
+        stage = KMeansStage(
+            id_field="id",
+            embedding_field="embeddings",
+            n_clusters=2,
+            input_path=str(tmp_path / "input"),
+            output_path=str(tmp_path / "output"),
+            input_filetype="csv",  # type: ignore[arg-type]
+        )
+
+        with pytest.raises(ValueError, match="Unsupported filetype: csv"):
+            stage.decompose()
+
+
+@pytest.mark.gpu
 class TestKMeansStageIntegration:
     """Integration tests for KMeansStage comparing multi-GPU vs single-GPU results."""
 

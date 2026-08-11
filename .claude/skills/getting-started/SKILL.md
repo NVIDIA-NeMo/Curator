@@ -176,7 +176,7 @@ uv pip install "nemo-curator[audio_cpu]"
 ```bash
 uv pip install "nemo-curator[text_cuda12]"
 uv pip install "nemo-curator[image_cuda12]"
-uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
+uv pip install "nemo-curator[video_cuda12]"
 uv pip install "nemo-curator[audio_cuda12]"
 ```
 
@@ -184,9 +184,6 @@ uv pip install "nemo-curator[audio_cuda12]"
 ```bash
 uv pip install "nemo-curator[text_cuda12,image_cuda12]"
 ```
-
-**Important flags:**
-- `--no-build-isolation` is **required** for `video_cuda12` due to flash-attn compilation requirements
 
 ### Version Constraints to Know
 - PyTorch is limited to ≤2.9.1 for video modality
@@ -369,12 +366,11 @@ If installation fails, check:
 
 1. **"No matching distribution"** - Wrong Python version (need 3.10-3.12)
 2. **CUDA errors** - Ensure CUDA 12.x drivers installed (`nvidia-smi`)
-3. **flash-attn build fails** - Use `--no-build-isolation` flag
-4. **scikit-learn conflicts** - NeMo Curator requires <1.8.0
-5. **FFmpeg encoder missing** - Run the FFmpeg install script
-6. **Out of memory** - Check GPU VRAM requirements above
-7. **Ray port conflicts** - Check if ports 6379, 8265, 10001 are in use
-8. **Job interrupted** - Resumable: compare input/output file counts to find remaining work
+3. **scikit-learn conflicts** - NeMo Curator requires <1.8.0
+4. **FFmpeg encoder missing** - Run the FFmpeg install script
+5. **Out of memory** - Check GPU VRAM requirements above
+6. **Ray port conflicts** - Check if ports 6379, 8265, 10001 are in use
+7. **Job interrupted** - Resumable: compare input/output file counts to find remaining work
 
 **Debugging:**
 - Ray dashboard: `http://localhost:8265`

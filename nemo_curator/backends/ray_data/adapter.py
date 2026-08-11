@@ -73,6 +73,23 @@ class RayDataStageAdapter(BaseStageAdapter):
         # For Task objects, we return them in the 'item' column
         return {"item": results}
 
+    def _build_resource_kwargs(self, ray_stage_spec: dict) -> dict[str, float]:
+        """Build num_cpus/num_gpus kwargs for map_batches.
+
+        Checks ray_stage_spec for RAY_NUM_CPUS first so stages can request a
+        different CPU reservation for Ray Data (e.g. cpus=1.0 to enable stage
+        fusion) without changing resources.cpus used by other executors.
+        """
+        kwargs: dict[str, float] = {}
+        ray_num_cpus = ray_stage_spec.get(RayStageSpecKeys.RAY_NUM_CPUS)
+        if ray_num_cpus is not None:
+            kwargs["num_cpus"] = ray_num_cpus  # type: ignore[reportArgumentType]
+        elif self.stage.resources.cpus > 0:
+            kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
+        if self.stage.resources.gpus > 0:
+            kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
+        return kwargs
+
     def process_dataset(self, dataset: Dataset) -> Dataset:
         """Process a Ray Data dataset through this stage.
 
@@ -107,10 +124,7 @@ class RayDataStageAdapter(BaseStageAdapter):
             if max_calls is not None:
                 map_batches_kwargs["max_calls"] = max_calls
 
-        if self.stage.resources.cpus > 0:
-            map_batches_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
-        if self.stage.resources.gpus > 0:
-            map_batches_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
+        map_batches_kwargs.update(self._build_resource_kwargs(ray_stage_spec))
 
         # Per-stage ray_remote_args (e.g. runtime_env with different pip versions per stage).
         ray_remote_args = copy.deepcopy(ray_stage_spec.get(RayStageSpecKeys.RAY_REMOTE_ARGS) or {})

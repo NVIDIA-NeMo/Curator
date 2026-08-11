@@ -157,6 +157,12 @@ class TestMinHashStage:
         stage.setup()
         output_task = stage.process(input_task)
 
+        # Verify detailed stage timings are recorded
+        assert all(
+            stage._custom_metrics[metric] > 0
+            for metric in ("minhash_read_time", "minhash_compute_time", "minhash_write_time")
+        )
+
         # Verify output task structure
         assert isinstance(output_task, FileGroupTask)
         assert len(output_task.data) == 1

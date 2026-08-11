@@ -19,7 +19,20 @@ import copy
 import time
 from abc import ABC, ABCMeta, abstractmethod
 from inspect import isabstract
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, cast, final
+from types import UnionType
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Generic,
+    TypeVar,
+    Union,
+    cast,
+    final,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from loguru import logger
 
@@ -33,6 +46,9 @@ if TYPE_CHECKING:
 
 X = TypeVar("X", bound=Task)  # Input task type
 Y = TypeVar("Y", bound=Task)  # Output task type
+StageInputSpec = tuple[list[str], list[str]]
+StageInputSpecs = StageInputSpec | dict[type[Task], StageInputSpec]
+_INPUT_SPEC_LENGTH = 2
 
 _STAGE_REGISTRY: dict[str, type[ProcessingStage]] = {}
 
@@ -119,6 +135,12 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     # resumability layer to mark the counter-decrement boundary.
     is_source_stage: bool = False
     is_sink_stage: bool = False
+    # Whether this stage is safe to run under resumability (``checkpoint_path``).
+    # Defaults to True; set False only on stages whose input→output mapping isn't
+    # source-attributable (shuffle / fan-in, e.g. the dedup shuffle/LSH/connected-
+    # components stages). ``Pipeline.run(checkpoint_path=...)`` errors if any stage
+    # in the pipeline is not resumable.
+    is_resumable: bool = True
 
     @property
     @final
@@ -174,7 +196,11 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         Returns:
             True if valid, False otherwise
         """
-        required_top_level_attrs, required_data_attrs = self.inputs()
+        try:
+            required_top_level_attrs, required_data_attrs = self.input_spec_for_task(task)
+        except TypeError as e:
+            logger.error(str(e))
+            return False
 
         # Check required attributes exist
         missing_top_level_attrs = []
@@ -184,8 +210,10 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         # Check required columns exist
         missing_data_attrs = []
+        get_columns = getattr(task, "get_columns", None)
+        data_columns = get_columns() if callable(get_columns) else getattr(task.data, "column_names", ())
         for attr in required_data_attrs:
-            if not hasattr(task.data, attr):
+            if not hasattr(task.data, attr) and attr not in data_columns:
                 missing_data_attrs.append(attr)
 
         # Log warning with missing attributes
@@ -195,6 +223,45 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             )
 
         return not missing_top_level_attrs and not missing_data_attrs
+
+    def input_spec_for_task(self, task: Task) -> StageInputSpec:
+        """Return the input requirements that apply to ``task``.
+
+        Stages may return either the legacy single input spec or a mapping from
+        supported task type to spec. For mappings, the most specific task type in
+        the task's MRO wins.
+        """
+        input_specs = self.inputs()
+        if isinstance(input_specs, tuple):
+            return self._validate_input_spec(input_specs, "inputs()")
+        if not isinstance(input_specs, dict):
+            msg = (
+                f"Stage {self.name} inputs() must return an input spec tuple "
+                "or dict of task type to input spec"
+            )
+            raise TypeError(msg)
+
+        # Search the task's MRO from most to least specific. For example, given
+        # CustomDocumentBatch -> DocumentBatch -> Task, look for an input spec
+        # for CustomDocumentBatch first, then DocumentBatch, and finally Task.
+        for candidate_type in type(task).mro():
+            if candidate_type in input_specs:
+                return self._validate_input_spec(
+                    input_specs[candidate_type], f"inputs()[{candidate_type.__name__}]"
+                )
+
+        supported_task_types = ", ".join(supported_type.__name__ for supported_type in input_specs) or "<none>"
+        msg = (
+            f"Stage {self.name} does not support input task type {type(task).__name__}. "
+            f"Supported input task types: {supported_task_types}"
+        )
+        raise TypeError(msg)
+
+    def _validate_input_spec(self, input_spec: object, source: str) -> StageInputSpec:
+        if not isinstance(input_spec, tuple) or len(input_spec) != _INPUT_SPEC_LENGTH:
+            msg = f"Stage {self.name} {source} must be a tuple of (required_attributes, required_columns)"
+            raise TypeError(msg)
+        return cast("StageInputSpec", input_spec)
 
     @abstractmethod
     def process(self, task: X) -> Y | list[Y]:
@@ -278,11 +345,12 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         """String representation of the stage."""
         return f"{self.__class__.__name__}"
 
-    def inputs(self) -> tuple[list[str], list[str]]:
+    def inputs(self) -> StageInputSpecs:
         """Define stage input requirements.
 
-        Returns (tuple[list[str], list[str]]):
-            Tuple of (required_attributes, required_columns) where:
+        Returns:
+            Either a single tuple of (required_attributes, required_columns), or
+            a mapping from supported task type to that tuple. In each tuple:
             - required_top_level_attributes: List of task attributes that must be present
             - required_data_attributes: List of attributes within the data that must be present
         """
@@ -387,7 +455,34 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         Returns (dict[str, Any]):
             Dictionary containing Ray-specific configuration
         """
-        return {}
+        return {"is_fanout_stage": self.is_fanout_stage()}
+
+    def is_fanout_stage(self) -> bool:
+        """Infer whether `process()` can fan out one input task into many outputs."""
+        try:
+            process_hints = get_type_hints(type(self).process)
+        except (AttributeError, NameError, TypeError) as exc:
+            logger.debug(
+                "Could not resolve type hints for {}.process; defaulting is_fanout_stage to False: {}",
+                type(self).__name__,
+                exc,
+            )
+            return False
+
+        return self._annotation_contains_list(process_hints.get("return"))
+
+    @classmethod
+    def _annotation_contains_list(cls, annotation: object) -> bool:
+        if annotation is None:
+            return False
+
+        if get_origin(annotation) is list:
+            return True
+
+        if get_origin(annotation) in (UnionType, Union):
+            return any(cls._annotation_contains_list(arg) for arg in get_args(annotation))
+
+        return False
 
     # --- Custom per-stage metrics helpers ---
     def _log_metrics(self, metrics: dict[str, float]) -> None:
@@ -436,7 +531,7 @@ class CompositeStage(ProcessingStage[X, Y], ABC):
     def __init__(self):
         self._with_operations = []
 
-    def inputs(self) -> tuple[list[str], list[str]]:
+    def inputs(self) -> StageInputSpecs:
         """Get the inputs for this stage."""
         return self.decompose()[0].inputs()
 
