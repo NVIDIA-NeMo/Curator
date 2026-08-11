@@ -148,7 +148,6 @@ def test_requires_common_hall_file() -> None:
 
 
 def test_agglutinative_lang_respects_configured_threshold(tmp_path: Path) -> None:
-    """Agglutinative languages use the same configurable absolute threshold."""
     stage = _make_stage(tmp_path, [], long_word_threshold=35)
     word_34 = "a" * 34
     task = AudioTask(data={_TEXT_KEY: f"the {word_34} here", _SKIP_KEY: "", "language": "fi"})
@@ -157,7 +156,6 @@ def test_agglutinative_lang_respects_configured_threshold(tmp_path: Path) -> Non
 
 
 def test_agglutinative_lang_flags_above_threshold(tmp_path: Path) -> None:
-    """A caller-selected absolute threshold applies to Finnish too."""
     stage = _make_stage(tmp_path, [], long_word_threshold=35)
     word_36 = "a" * 36
     task = AudioTask(data={_TEXT_KEY: f"the {word_36} here", _SKIP_KEY: "", "language": "fi"})
@@ -166,7 +164,6 @@ def test_agglutinative_lang_flags_above_threshold(tmp_path: Path) -> None:
 
 
 def test_agglutinative_lang_skips_relative_check(tmp_path: Path) -> None:
-    """A long word in Hungarian shouldn't trigger relative threshold (skip_relative=True)."""
     stage = _make_stage(tmp_path, [])
     task = AudioTask(data={_TEXT_KEY: "a természetvédelmi cat", _SKIP_KEY: "", "language": "hu"})
     result = stage.process(task)
@@ -174,7 +171,6 @@ def test_agglutinative_lang_skips_relative_check(tmp_path: Path) -> None:
 
 
 def test_non_agglutinative_lang_uses_default_threshold(tmp_path: Path) -> None:
-    """A 26-char word in English SHOULD be flagged (default threshold=25)."""
     stage = _make_stage(tmp_path, [])
     word_26 = "a" * 26
     task = AudioTask(data={_TEXT_KEY: f"the {word_26} here", _SKIP_KEY: "", "language": "en"})
@@ -183,7 +179,6 @@ def test_non_agglutinative_lang_uses_default_threshold(tmp_path: Path) -> None:
 
 
 def test_agglutinative_lang_uses_default_absolute_threshold(tmp_path: Path) -> None:
-    """There is no separate hidden threshold for agglutinative languages."""
     stage = _make_stage(tmp_path, [])
     word_26 = "a" * 26
     task = AudioTask(data={_TEXT_KEY: f"the {word_26} here", _SKIP_KEY: "", "language": "fi"})
@@ -191,13 +186,7 @@ def test_agglutinative_lang_uses_default_absolute_threshold(tmp_path: Path) -> N
     assert "Hallucination" in result.data[_SKIP_KEY]
 
 
-# ----------------------------------------------------------------------
-# High character rate
-# ----------------------------------------------------------------------
-
-
 def test_high_char_rate_flags_dense_text_over_a_short_clip(tmp_path: Path) -> None:
-    """A full sentence confabulated over 0.1 s is an impossible speaking rate."""
     stage = _make_stage(tmp_path, [])
     task = AudioTask(
         data={
@@ -229,13 +218,7 @@ def test_missing_duration_disables_the_char_rate_check(tmp_path: Path) -> None:
     assert stage.process(task).data[_SKIP_KEY] == ""
 
 
-# ----------------------------------------------------------------------
-# Recovery re-check (overwrite=True)
-# ----------------------------------------------------------------------
-
-
 def test_overwrite_clears_a_stale_hallucination_flag_when_text_is_now_clean(tmp_path: Path) -> None:
-    """A recovery pass promotes a clean second-pass transcript."""
     stage = _make_stage(tmp_path, [], overwrite=True)
     task = AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: "Hallucination:WhisperHallucination"})
     result = stage.process(task)
@@ -258,7 +241,6 @@ def test_overwrite_keeps_flagging_text_that_is_still_bad(tmp_path: Path) -> None
 
 
 def test_overwrite_does_not_clear_a_flag_owned_by_another_filter(tmp_path: Path) -> None:
-    """Only hallucination flags are ours to clear; someone else's reason stands."""
     stage = _make_stage(tmp_path, [], overwrite=True)
     task = AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: "Wrong language"})
     assert stage.process(task).data[_SKIP_KEY] == "Wrong language"
@@ -272,13 +254,7 @@ def test_flagging_does_not_clobber_a_flag_owned_by_another_filter(tmp_path: Path
     assert "hallucination" in result.data["additional_notes"]["WhisperHallucination"]
 
 
-# ----------------------------------------------------------------------
-# Notes, batching, and stage plumbing
-# ----------------------------------------------------------------------
-
-
 def test_notes_are_keyed_per_stage_instance(tmp_path: Path) -> None:
-    """Two instances must not overwrite each other's decision."""
     first = _make_stage(tmp_path, [], name="First")
     second = _make_stage(tmp_path, [], name="Second", overwrite=True)
     task = AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: ""})
@@ -322,7 +298,6 @@ def test_process_batch_flags_each_row_independently(tmp_path: Path) -> None:
 
 
 def test_missing_required_text_key_raises(tmp_path: Path) -> None:
-    """Match the reference contract: text_key is required, not optional."""
     stage = _make_stage(tmp_path, [])
     task = AudioTask(data={_SKIP_KEY: ""})
     with pytest.raises(KeyError, match=_TEXT_KEY):
@@ -330,7 +305,6 @@ def test_missing_required_text_key_raises(tmp_path: Path) -> None:
 
 
 def test_prefix_match_length_is_a_constant_not_a_constructor_argument() -> None:
-    """Safety constants and removed language-specific thresholds stay out of YAML."""
     parameters = inspect.signature(WhisperHallucinationStage).parameters
     assert "_PREFIX_MATCH_MIN_LEN" not in parameters
     assert "agglutinative_long_word_threshold" not in parameters
