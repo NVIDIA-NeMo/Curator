@@ -1351,7 +1351,7 @@ entries:
       --backend=vllm
       --enforce-eager
       --pdfs-per-task=1
-      --max-pdfs=1280
+      --max-pdfs=1278
       --max-pages=10
       --max-num-seqs=16
     timeout_s: 5400
@@ -1366,16 +1366,19 @@ entries:
         ping_on_failure:
           - U082G3E46R0  # Abhinav Garg
     requirements:
-      # Deliberately lenient. Common Crawl PDFs include malformed and
-      # password-protected files, so a handful failing to render is normal and
-      # must not fail the nightly. These floors catch what actually matters --
-      # a pipeline that silently produces nothing (the failure mode this entry
-      # was added for) and gross regressions -- without tracking cluster-load
-      # noise the way a throughput floor would.
+      # Exact counts: the dataset is fixed and every file in it renders, so a
+      # correct run reproduces these precisely. Verified identical across three
+      # runs on both executors. Any drift means PDFs are being dropped, which is
+      # the failure this entry exists to catch.
       - metric: num_pdfs_processed
-        min_value: 50
+        exact_value: 1278
       - metric: num_pages_processed
-        min_value: 100
+        exact_value: 5794
+      # Throughput is a floor, not an exact value: wall-clock moves with cluster
+      # load. Observed 3.34-3.56 pages/s across runs; 2.0 leaves headroom while
+      # still catching a severe slowdown.
+      - metric: throughput_pages_per_sec
+        min_value: 2.0
 
   - name: nemotron_parse_pdf_raydata
     enabled: true
@@ -1390,7 +1393,7 @@ entries:
       --backend=vllm
       --enforce-eager
       --pdfs-per-task=1
-      --max-pdfs=1280
+      --max-pdfs=1278
       --max-pages=10
       --max-num-seqs=16
     timeout_s: 5400
@@ -1405,10 +1408,19 @@ entries:
         ping_on_failure:
           - U082G3E46R0  # Abhinav Garg
     requirements:
+      # Exact counts: the dataset is fixed and every file in it renders, so a
+      # correct run reproduces these precisely. Verified identical across three
+      # runs on both executors. Any drift means PDFs are being dropped, which is
+      # the failure this entry exists to catch.
       - metric: num_pdfs_processed
-        min_value: 50
+        exact_value: 1278
       - metric: num_pages_processed
-        min_value: 100
+        exact_value: 5794
+      # Throughput is a floor, not an exact value: wall-clock moves with cluster
+      # load. Observed 3.34-3.56 pages/s across runs; 2.0 leaves headroom while
+      # still catching a severe slowdown.
+      - metric: throughput_pages_per_sec
+        min_value: 2.0
 
 
   - name: alm_pipeline_xenna

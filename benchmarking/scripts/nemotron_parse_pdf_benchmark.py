@@ -106,11 +106,12 @@ def _compute_pdf_parse_metrics(output_tasks: list, run_time_taken: float) -> dic
     total_output_tokens = task_metrics.get(f"{metric_prefix}.total_output_tokens_sum", 0.0)
 
     return {
-        # Surfaced as first-class metrics (not just throughput denominators) so
+        # Surfaced as a first-class metric (not just a throughput denominator) so
         # entries can assert on work actually completed rather than on wall-clock
-        # rates, which vary with cluster load.
+        # rates, which vary with cluster load. Page count is reproducible for a
+        # fixed input; generated token counts are not, so only pages are exposed
+        # as a countable metric.
         "num_pages_processed": num_valid_pages,
-        "num_output_tokens": total_output_tokens,
         "throughput_pages_per_sec": _safe_div(num_valid_pages, run_time_taken),
         "throughput_output_tokens_per_sec": _safe_div(total_output_tokens, run_time_taken),
     }
@@ -163,7 +164,6 @@ def run_nemotron_parse_pdf_benchmark(args: argparse.Namespace) -> dict[str, Any]
         # requirements always have a value to compare against.
         pdf_parse_metrics = {
             "num_pages_processed": 0.0,
-            "num_output_tokens": 0.0,
             "throughput_pages_per_sec": 0.0,
             "throughput_output_tokens_per_sec": 0.0,
         }

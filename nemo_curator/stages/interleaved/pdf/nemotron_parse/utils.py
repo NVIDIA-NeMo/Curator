@@ -129,13 +129,18 @@ def render_pdf_pages(
 
     images: list[Image.Image] = []
     doc = None
-    with contextlib.suppress(Exception):
+    try:
         doc = pdfium.PdfDocument(pdf_bytes)
         base_scale = dpi / 72.0
         for page_num in range(min(len(doc), max_pages)):
             img = _render_page(doc, page_num, base_scale, max_size)
             if img is not None:
                 images.append(img)
+    except Exception as e:  # noqa: BLE001
+        # Encrypted and truncated PDFs fail here, in PdfDocument(). Callers treat
+        # an empty render as "no pages", so without this the file is dropped with
+        # no record of why.
+        logger.warning(f"Failed to read PDF document: {type(e).__name__}: {e}")
     with contextlib.suppress(Exception):
         if doc is not None:
             doc.close()
