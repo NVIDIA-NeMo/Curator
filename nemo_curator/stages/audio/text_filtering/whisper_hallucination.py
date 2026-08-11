@@ -116,8 +116,6 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
 
     _phrases: set[str] = field(default_factory=set, init=False, repr=False)
     _setup_called: bool = field(default=False, init=False, repr=False)
-    _n_processed: int = field(default=0, init=False, repr=False)
-    _n_flagged: int = field(default=0, init=False, repr=False)
 
     # Phrases shorter than this are matched exactly; longer ones also match
     # as prefixes. Keep this out of the dataclass constructor/YAML surface:
@@ -196,11 +194,9 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         phrase = self._frequent_single_word(text)
         high_rate = self._high_char_rate(words, duration)
 
-        self._n_processed += 1
         is_hallucinated = repeated or long_w or phrase or high_rate
         was_flagged = current_flag.startswith("Hallucination")
         if is_hallucinated:
-            self._n_flagged += 1
             reasons = [
                 name
                 for name, hit in [
@@ -240,6 +236,3 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             )
             self.setup()
         return [self._process_single(task) for task in tasks]
-
-    def teardown(self) -> None:
-        logger.info(f"[{self.name}] done — processed={self._n_processed}, flagged={self._n_flagged}")
