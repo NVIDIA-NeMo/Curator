@@ -509,6 +509,7 @@ def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
             overrides=[
                 "manifest_path=tests/fixtures/audio/tagging/sample_input.jsonl",
                 "pred_text_key=custom_prediction",
+                "model_revision=abc123",
             ],
         )
 
@@ -567,6 +568,7 @@ def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
     assert stage.batch_size == 128
     assert stage.resources.gpus == 1
     assert dict(stage.adapter_kwargs) == {
+        "revision": "abc123",
         "gpu_memory_utilization": 0.7,
         "max_new_tokens": 4096,
         "max_inference_batch_size": 128,

@@ -53,6 +53,10 @@ nkoluguri reference's vLLM backend and engine settings. The
 the shared `vllm` extra provides the same Curator-pinned engine stack used by
 Qwen-Omni.
 
+The optional Hugging Face revision is adapter-owned. Set the tutorial's
+top-level `model_revision` override to forward it through
+`adapter_kwargs.revision` to both weight prefetch and model loading.
+
 ## Effective defaults
 
 The tutorial caps vLLM's model context at 8,192 tokens so the bundled smoke
@@ -63,6 +67,7 @@ input can run on a 12 GB GPU. This does not change the adapter's default.
 | Executor | Ray Data |
 | ASR stage batch size | `128` |
 | GPUs per ASR actor | `1` |
+| Hugging Face model revision | `null` (Hugging Face default) |
 | GPU memory limit | `0.7` of device memory |
 | Maximum vLLM model length | `8192` tokens |
 | Maximum generated tokens | `4096` |

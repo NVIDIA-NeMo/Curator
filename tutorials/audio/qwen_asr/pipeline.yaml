@@ -21,6 +21,7 @@ output_path: ./qwen_asr_output.jsonl
 workspace_dir: /tmp/qwen_asr_workspace
 resampled_audio_dir: ${workspace_dir}/audio_resampled
 model_id: Qwen/Qwen3-ASR-0.6B
+model_revision: null
 default_language: null
 supported_language_codes: [zh, en, yue, ar, de, fr, es, pt, id, it, ko, ru, th, vi, ja, tr, hi, ms, nl, sv, da, fi, pl, cs, fil, fa, el, hu, mk, ro]
 pred_text_key: pred_text
@@ -53,6 +54,7 @@ stages:
       _target_: nemo_curator.stages.resources.Resources
       gpus: ${gpus_per_actor}
     adapter_kwargs:
+      revision: ${model_revision}
       gpu_memory_utilization: 0.7
       max_new_tokens: 4096
       max_inference_batch_size: 128

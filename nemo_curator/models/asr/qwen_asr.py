@@ -61,8 +61,8 @@ class QwenASRAdapter:
     ``max_inference_batch_size`` is the library's own internal cap and is passed
     through at construction.
 
-    ``revision`` is accepted to satisfy the shared adapter constructor and is
-    forwarded to both weight prefetch and the vLLM model loader.
+    ``revision`` is an adapter-owned Hugging Face option and is forwarded to
+    both weight prefetch and the vLLM model loader.
 
     ``vllm_kwargs`` exposes additional engine settings, following the existing
     Qwen-Omni adapter convention. Adapter-owned settings cannot be overridden
@@ -104,7 +104,7 @@ class QwenASRAdapter:
             raise ValueError(msg)
         self.vllm_kwargs = deepcopy(dict(self.vllm_kwargs))
 
-    def _model_owned_vllm_kwargs(self) -> dict[str, Any]:
+    def _adapter_owned_model_kwargs(self) -> dict[str, Any]:
         """Return the qwen-asr constructor arguments owned by this adapter."""
         return {
             "model": self.model_id,
@@ -118,10 +118,12 @@ class QwenASRAdapter:
             "prefix_caching_hash_algo": "xxhash",
         }
 
-    @classmethod
-    def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
+    def download_weights_on_node(self) -> None:
         """Populate the local Hugging Face cache without allocating a GPU."""
-        snapshot_download(model_id, revision=revision)
+        kwargs: dict[str, Any] = {}
+        if self.revision is not None:
+            kwargs["revision"] = self.revision
+        snapshot_download(self.model_id, **kwargs)
 
     def load_model(self, *, num_gpus: int) -> None:
         """Load one worker-local Qwen3-ASR model through its vLLM backend."""
@@ -140,7 +142,7 @@ class QwenASRAdapter:
         )
         model_kwargs = merge_vllm_kwargs(
             self.vllm_kwargs,
-            self._model_owned_vllm_kwargs(),
+            self._adapter_owned_model_kwargs(),
             owner_description="adapter-owned arguments",
         )
         if model_kwargs["revision"] is None:

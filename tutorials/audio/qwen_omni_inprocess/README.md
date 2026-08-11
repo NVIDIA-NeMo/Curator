@@ -50,7 +50,7 @@ The first run downloads `Qwen/Qwen3-Omni-30B-A3B-Instruct`. The pipeline uses
 a batch size of 32 and allocates two GPUs to each ASR actor.
 `gpus_per_actor: 2` is the single GPU-count setting: Curator schedules that
 many GPUs, then `ASRStage` supplies the scheduled device count to the adapter
-when it loads the model. The Qwen adapter uses that stage-owned value as
+when it loads the model. The Qwen adapter uses that allocated value as
 vLLM's tensor-parallel size.
 
 ## Effective defaults
@@ -127,7 +127,7 @@ contain `audio_filepath` and, by default, `source_lang`:
 `${workspace_dir}/audio_resampled` by default and reuses it on later runs.
 
 Only file paths and metadata travel between pipeline stages. `ASRStage` opens
-`resampled_audio_filepath` with SoundFile only for its current batch and
+`resampled_audio_filepath` with TorchAudio only for its current batch and
 preserves the decoded sample rate while normalizing each waveform to contiguous
 mono 16 kHz NumPy samples for the adapter. It never stores either the waveform
 or sample rate in `task.data`, so manifest size does not cause all decoded

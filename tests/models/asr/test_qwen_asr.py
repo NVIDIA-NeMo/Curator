@@ -107,7 +107,7 @@ def test_qwen_adapter_copies_nested_vllm_kwargs() -> None:
 
 @pytest.mark.parametrize(
     "reserved_key",
-    QwenASRAdapter()._model_owned_vllm_kwargs(),
+    QwenASRAdapter()._adapter_owned_model_kwargs(),
 )
 def test_qwen_adapter_rejects_adapter_owned_vllm_kwargs(reserved_key: str) -> None:
     adapter = QwenASRAdapter(vllm_kwargs={reserved_key: object()})
@@ -117,8 +117,24 @@ def test_qwen_adapter_rejects_adapter_owned_vllm_kwargs(reserved_key: str) -> No
 
 
 def test_download_weights_on_node_downloads_snapshot_without_constructing_model() -> None:
+    adapter = QwenASRAdapter(model_id="Qwen/Qwen3-ASR-0.6B", revision="abc123")
     with patch("nemo_curator.models.asr.qwen_asr.snapshot_download") as snapshot_download:
-        QwenASRAdapter.download_weights_on_node("Qwen/Qwen3-ASR-0.6B", "abc123")
+        adapter.download_weights_on_node()
+    snapshot_download.assert_called_once_with("Qwen/Qwen3-ASR-0.6B", revision="abc123")
+
+
+def test_asr_stage_prefetches_qwen_adapter_with_adapter_owned_revision() -> None:
+    stage = ASRStage(
+        adapter_target="nemo_curator.models.asr.qwen_asr.QwenASRAdapter",
+        model_id="Qwen/Qwen3-ASR-0.6B",
+        adapter_kwargs={"revision": "abc123"},
+    )
+    with (
+        patch("hydra.utils.get_class", return_value=QwenASRAdapter),
+        patch("nemo_curator.models.asr.qwen_asr.snapshot_download") as snapshot_download,
+    ):
+        stage.setup_on_node()
+
     snapshot_download.assert_called_once_with("Qwen/Qwen3-ASR-0.6B", revision="abc123")
 
 

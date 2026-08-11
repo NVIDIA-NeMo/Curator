@@ -293,10 +293,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     def _load_audio(audio_filepath: str) -> tuple[np.ndarray, int]:
         """Open one resampled file inside the ASR worker.
 
-        ``soundfile`` avoids making PCM WAV decoding depend on TorchCodec's
-        optional CUDA/FFmpeg shared libraries. SoundFile returns multichannel
-        audio as sample-major, so transpose it to the channel-first shape used
-        by ``_prepare_waveform``.
+        ``torchaudio.load`` returns channel-first audio. Resampled pipeline
+        inputs are normally mono, so squeezing removes that singleton channel;
+        multichannel inputs remain channel-first for ``_prepare_waveform`` to
+        downmix.
         """
         waveform, sample_rate = torchaudio.load(audio_filepath)
         return waveform.squeeze(0).numpy(), sample_rate

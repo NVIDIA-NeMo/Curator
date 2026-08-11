@@ -162,8 +162,8 @@ class QwenOmniASRAdapter:
         self._llm: Any = None
         self._sampling_params: Any = None
 
-    def _stage_owned_vllm_kwargs(self, *, num_gpus: int | None) -> dict[str, Any]:
-        """Return vLLM constructor arguments supplied by the stage contract."""
+    def _adapter_owned_vllm_kwargs(self, *, num_gpus: int | None) -> dict[str, Any]:
+        """Return vLLM arguments controlled by adapter fields and the allocated GPU count."""
         return {
             "model": self.model_id,
             "revision": self.revision,
@@ -211,8 +211,8 @@ class QwenOmniASRAdapter:
 
         engine_kwargs = merge_vllm_kwargs(
             self.vllm_kwargs,
-            self._stage_owned_vllm_kwargs(num_gpus=num_gpus),
-            owner_description="stage-owned arguments",
+            self._adapter_owned_vllm_kwargs(num_gpus=num_gpus),
+            owner_description="adapter-owned arguments",
         )
         del engine_kwargs["model"]
         if engine_kwargs["revision"] is None:
