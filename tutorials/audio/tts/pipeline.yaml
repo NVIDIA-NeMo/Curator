@@ -54,6 +54,7 @@ output_dir: ???
 reference_voices_dataset: ???
 
 backend: xenna
+clean: false
 language: null
 device: cuda
 cache_dir: null

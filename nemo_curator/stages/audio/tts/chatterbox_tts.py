@@ -19,11 +19,12 @@ from __future__ import annotations
 import contextlib
 import glob
 import hashlib
+import json
 import os
-import random
 import shutil
 import tempfile
-from typing import TYPE_CHECKING, Any
+import uuid
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 import soundfile as sf
@@ -43,6 +44,24 @@ SUPPORTED_LANGUAGES = frozenset({
     "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it",
     "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh",
 })
+
+# chatterbox-tts is not a Curator dependency because it hard-pins
+# transformers==5.2.0 and torch==2.6.0 (incompatible with Curator's
+# transformers>=4.56,<5.0 / torch==2.10.0), which would make uv lock and the
+# audio extras unresolvable. It is installed at runtime into an isolated Ray
+# virtualenv via the stage's ``runtime_env`` instead (see ``_CHATTERBOX_RUNTIME_ENV``).
+_CHATTERBOX_PIP_SPEC = "chatterbox-tts>=0.1.4"
+# chatterbox's resemble-perth watermarker imports pkg_resources at runtime.
+# pkg_resources ships with setuptools but was REMOVED in setuptools>=81, and Ray's
+# isolated virtualenv (unlike a uv --seed venv) does not seed setuptools at all.
+# Without setuptools<81 here, perth.PerthImplicitWatermarker silently becomes None
+# and ChatterboxTTS() raises "'NoneType' object is not callable".
+_CHATTERBOX_SETUPTOOLS_SPEC = "setuptools<81"
+_CHATTERBOX_RUNTIME_ENV: dict[str, Any] = {
+    # pip_check=False: chatterbox's pinned transformers/torch differ from the
+    # cloned base venv; we only need them consistent inside this isolated env.
+    "pip": {"packages": [_CHATTERBOX_PIP_SPEC, _CHATTERBOX_SETUPTOOLS_SPEC], "pip_check": False},
+}
 
 _CHATTERBOX_REPO_ID = "ResembleAI/chatterbox"
 _ENGLISH_MODEL_FILES = (
@@ -68,6 +87,20 @@ _MULTILINGUAL_MODEL_FILES = (
 _ATTN_ENV = "TRANSFORMERS_ATTN_IMPLEMENTATION"
 _UNSET = object()
 
+# Chatterbox's S3Gen decoder always synthesises at this rate; both
+# ChatterboxTTS and ChatterboxMultilingualTTS set ``self.sr`` to it after
+# loading (see their ``__init__``). Used only as a defensive fallback if a
+# model object doesn't expose ``.sr`` -- the real source of truth at runtime
+# is always ``self.model.sr``, never the user-configured ``self.sample_rate``.
+_CHATTERBOX_NATIVE_SR = 24000
+
+# Bump whenever a code change alters what audio a given cache manifest
+# produces in a way the manifest fields don't otherwise capture (e.g. a
+# generation-algorithm change). This invalidates every existing cache entry
+# by changing the filename hash, forcing regeneration instead of silently
+# reusing stale audio.
+_CACHE_SCHEMA_VERSION = 1
+
 
 class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     """Generate audio for conversation turns using ChatterboxTTS.
@@ -86,6 +119,18 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     consistent within a conversation. Reference audio can optionally be
     cleaned of silences using paired RTTM files.
 
+    Voice/exaggeration assignment is a deterministic, stateless hash of
+    ``(conversation_id, speaker)`` (see ``_assign_reference``), not a
+    stateful/random pick. This matters for multi-GPU and multi-node runs:
+    Ray Data/Xenna instantiate several independent actor copies of this
+    one-GPU stage and distribute batch-size-one turns across them in
+    whatever order they arrive, so a given conversation's turns can be
+    processed by different actors/nodes. Deriving the assignment purely from
+    ``(conversation_id, speaker)`` guarantees every actor computes the same
+    voice for the same character, regardless of which actor/node handles a
+    turn or in what order turns arrive -- unlike a random or history-based
+    pick, which would only stay consistent within a single actor's memory.
+
     Args:
         output_audio_dir: Directory for generated WAV files.
         reference_voices_dataset: Root path containing reference audio.
@@ -95,7 +140,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         device: Torch device string.
         cache_dir: HuggingFace cache directory for Chatterbox model weights.
         max_reference_duration: Maximum seconds of reference speech to use.
-        sample_rate: Output WAV sample rate (Chatterbox default 24000).
+        sample_rate: Output WAV sample rate. Chatterbox always synthesises at
+            24000 Hz internally; if this differs, output is resampled to it.
         cfg_weight: Classifier-free guidance weight.
         exaggeration: Emotion exaggeration. A single float for a fixed value,
             or a ``[min, max]`` list to randomly vary per conversation.
@@ -112,6 +158,12 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     # Turns are synthesised serially in process_batch (Chatterbox generate()
     # is single-text and per-voice-conditioned), so one task per batch.
     batch_size = 1
+    # Run in an isolated Ray virtualenv that pip-installs chatterbox-tts, so its
+    # transformers==5.2.0 / torch==2.6.0 pins never collide with Curator's main
+    # environment or uv.lock. To reuse a pre-provisioned environment (e.g. one
+    # where chatterbox is already installed) disable this with
+    # ``ChatterboxTTSStage(...).with_(runtime_env={})``.
+    runtime_env: ClassVar[dict[str, Any] | None] = _CHATTERBOX_RUNTIME_ENV
 
     def __init__(  # noqa: PLR0913
         self,
@@ -178,10 +230,10 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         self.speaker_to_reference: dict[str, str] = {}
         self._speaker_to_original_wav: dict[str, str] = {}
         self.speaker_to_ref_id: dict[str, str] = {}
+        self.speaker_to_ref_content_hash: dict[str, str] = {}
         self.conversation_exaggeration: dict[str, float] = {}
 
         self.temp_dir: str | None = None
-        self._rng = random.Random()  # noqa: S311
 
         # Saved process-global state for restoration in teardown().
         self._global_state_modified = False
@@ -250,6 +302,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         self.speaker_to_reference.clear()
         self._speaker_to_original_wav.clear()
         self.speaker_to_ref_id.clear()
+        self.speaker_to_ref_content_hash.clear()
         self.conversation_exaggeration.clear()
         self._restore_global_state()
         self._cleanup_temp_dir()
@@ -310,9 +363,16 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             logger.info("Loaded ChatterboxTTS (English)")
 
     def _load_reference_audio_files(self) -> None:
-        """Discover reference audio files in wavs/ or MLS layout."""
+        """Discover reference audio files in wavs/ or MLS layout.
+
+        Lists are sorted so every actor/node derives an identical ordering
+        from the same dataset on disk: ``glob.glob()`` order is filesystem-
+        dependent (and can differ across NFS-mounted nodes), and the
+        deterministic voice assignment in ``_assign_reference`` relies on
+        indexing into these lists identically everywhere.
+        """
         wav_pattern = os.path.join(self.reference_voices_dataset, "wavs", "*", "*.wav")
-        self.reference_wavs_list = glob.glob(wav_pattern)
+        self.reference_wavs_list = sorted(glob.glob(wav_pattern))
 
         if self.reference_wavs_list:
             self._reference_layout = "wavs"
@@ -320,7 +380,7 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             return
 
         flac_pattern = os.path.join(self.reference_voices_dataset, "*", "*", "*.flac")
-        self.reference_wavs_list = glob.glob(flac_pattern)
+        self.reference_wavs_list = sorted(glob.glob(flac_pattern))
 
         if self.reference_wavs_list:
             self._reference_layout = "mls"
@@ -328,6 +388,8 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             for fpath in self.reference_wavs_list:
                 speaker_id = fpath.split(os.sep)[-3]
                 self._speaker_audio_map.setdefault(speaker_id, []).append(fpath)
+            for files in self._speaker_audio_map.values():
+                files.sort()
             logger.info(
                 f"Found {len(self.reference_wavs_list)} reference files "
                 f"from {len(self._speaker_audio_map)} speakers (MLS layout)"
@@ -393,21 +455,42 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         else:
             return out_path
 
-    def _get_reference_audio_wavs(self, already_taken: set[str]) -> tuple[str, str]:
-        """Select a reference WAV, optionally clean with RTTM.
+    @staticmethod
+    def _stable_digest(key: str) -> bytes:
+        """SHA-256 digest of ``key``, used as a source of deterministic pseudo-randomness.
+
+        Unlike Python's ``hash()`` (salted per-process via ``PYTHONHASHSEED``)
+        or ``random.Random()`` (per-instance, order-dependent state), this is
+        a pure function of ``key``: identical on every actor, process, node,
+        and Python version. Voice/exaggeration assignment must be derived
+        this way so that the same ``(conversation_id, speaker)`` always
+        resolves to the same value regardless of which multi-GPU/multi-node
+        worker happens to process a given turn, and regardless of arrival
+        order (Ray Data / Xenna fan this stage out across several actor
+        copies and work-steal batch-size-one turns across them; each actor
+        has independent memory, so any history- or RNG-based assignment can
+        diverge across actors -- see stage docstring).
+        """
+        return hashlib.sha256(key.encode("utf-8")).digest()
+
+    @classmethod
+    def _stable_index(cls, key: str, modulus: int) -> int:
+        """Deterministic index in ``[0, modulus)`` derived from ``key``."""
+        return int.from_bytes(cls._stable_digest(key)[:8], "big") % modulus
+
+    @classmethod
+    def _stable_unit_interval(cls, key: str) -> float:
+        """Deterministic float in ``[0, 1)`` derived from ``key``."""
+        return int.from_bytes(cls._stable_digest(key)[8:16], "big") / 2**64
+
+    def _get_reference_audio_wavs(self, key: str) -> tuple[str, str]:
+        """Deterministically select a reference WAV for ``key``, optionally clean with RTTM.
 
         Returns:
             Tuple of (processed_path, original_path). The original path is
             needed for deduplication since RTTM processing changes the path.
         """
-        available = [
-            w for w in self.reference_wavs_list
-            if w not in already_taken
-        ]
-        if not available:
-            available = self.reference_wavs_list
-
-        selected = self._rng.choice(available)
+        selected = self.reference_wavs_list[self._stable_index(key, len(self.reference_wavs_list))]
 
         parts = selected.split(os.sep)
         dialog_id = parts[-2]
@@ -418,44 +501,53 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
         processed = self._process_audio_with_rttm(selected, rttm_path)
         return processed, selected
 
-    def _get_reference_audio_mls(self, already_taken_ids: set[str]) -> tuple[str, str]:
-        """Select an MLS speaker, concatenate segments as reference."""
-        available = [
-            s for s in self._speaker_audio_map if s not in already_taken_ids
-        ]
-        if not available:
-            available = list(self._speaker_audio_map.keys())
-
-        chosen = self._rng.choice(available)
-        files = list(self._speaker_audio_map[chosen])
-        self._rng.shuffle(files)
+    def _get_reference_audio_mls(self, key: str) -> tuple[str, str]:
+        """Deterministically select an MLS speaker, concatenate segments as reference."""
+        speaker_ids = sorted(self._speaker_audio_map)
+        chosen = speaker_ids[self._stable_index(key, len(speaker_ids))]
+        # Deterministic "shuffle": order by a stable hash keyed on (chosen, file),
+        # not by insertion/glob order, so every actor concatenates segments
+        # identically for the same speaker.
+        files = sorted(
+            self._speaker_audio_map[chosen],
+            key=lambda f: self._stable_index(f"{chosen}::{f}", 2**32),
+        )
 
         chunks: list[torch.Tensor] = []
         total_dur = 0.0
-        last_sr = 16000
+        # Rate of the first successfully loaded segment; every later segment is
+        # resampled to it before concatenation. MLS segments for one speaker
+        # are not guaranteed to share a sample rate, and torch.cat'ing raw
+        # tensors recorded at different rates -- then saving under a single
+        # header rate -- would silently play the mismatched segments back at
+        # the wrong speed/pitch.
+        ref_sr: int | None = None
 
         for fpath in files:
             if total_dur >= self.max_reference_duration:
                 break
             try:
                 audio, sr = ta.load(fpath)
-                last_sr = sr
-                seg_dur = audio.shape[1] / sr
+                if ref_sr is None:
+                    ref_sr = sr
+                elif sr != ref_sr:
+                    audio = ta.functional.resample(audio, orig_freq=sr, new_freq=ref_sr)
+                seg_dur = audio.shape[1] / ref_sr
                 if total_dur + seg_dur > self.max_reference_duration:
                     remaining = self.max_reference_duration - total_dur
-                    audio = audio[:, : int(remaining * sr)]
+                    audio = audio[:, : int(remaining * ref_sr)]
                 chunks.append(audio)
-                total_dur += audio.shape[1] / sr
+                total_dur += audio.shape[1] / ref_sr
             except (OSError, RuntimeError) as e:
                 logger.warning(f"Failed to load {fpath}: {e}")
 
-        if not chunks:
+        if not chunks or ref_sr is None:
             return files[0], chosen
 
         try:
             concatenated = torch.cat(chunks, dim=1)
             out_path = os.path.join(self.temp_dir, f"ref_{chosen}.wav")
-            ta.save(out_path, concatenated, last_sr)
+            ta.save(out_path, concatenated, ref_sr)
         except (RuntimeError, OSError) as e:
             logger.warning(f"MLS concatenation failed for speaker {chosen}: {e}")
             return files[0], chosen
@@ -465,50 +557,109 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
     def _assign_reference(self, speaker: str, conversation_id: str) -> tuple[str, str]:
         """Get or assign a reference audio file for a speaker in a conversation.
 
+        The assignment is a pure, deterministic function of ``key`` (see
+        ``_stable_index``): it does NOT depend on which other speakers/refs
+        this actor has already handed out, or on the order turns arrive in.
+        This is required for correctness under multi-GPU/multi-node fan-out,
+        where Ray Data/Xenna spin up several independent actor copies of this
+        one-GPU stage and distribute batch-size-one turns across them --
+        each copy has its own memory, so any "avoid reusing a reference
+        already taken in this conversation" bookkeeping that only looks at
+        *this actor's* history would let the same (conversation_id, speaker)
+        land on different actors and receive different voices. The
+        per-instance dicts below are pure memoization caches (a speedup for
+        repeated calls within one actor), not sources of the decision.
+
+        Trade-off: because assignment no longer coordinates across speakers,
+        two different speakers in the same conversation can (rarely) hash to
+        the same reference voice. That's a minor cosmetic risk; the critical
+        invariant -- the same character always gets the same voice, on any
+        actor, any node, any order -- is now guaranteed instead of best-effort.
+
         Returns:
             Tuple of (ref_path, ref_id) where ref_id is a stable identifier
             for the reference voice (MLS speaker ID or dialog/speaker tag).
         """
-        key = f"{conversation_id}_{speaker}"
+        key = f"{conversation_id}::{speaker}"
 
         if key in self.speaker_to_reference:
             return self.speaker_to_reference[key], self.speaker_to_ref_id[key]
 
         if self._reference_layout == "mls":
-            already_taken_ids = {
-                self.speaker_to_ref_id[k]
-                for k in self.speaker_to_ref_id
-                if k.startswith(f"{conversation_id}_")
-            }
-            ref_path, ref_id = self._get_reference_audio_mls(already_taken_ids)
+            ref_path, ref_id = self._get_reference_audio_mls(key)
+            self.speaker_to_ref_content_hash[key] = self._hash_mls_speaker_content(ref_id)
         else:
-            already_taken = {
-                orig for k, orig in self._speaker_to_original_wav.items()
-                if k.startswith(f"{conversation_id}_")
-            }
-            ref_path, original_wav = self._get_reference_audio_wavs(already_taken)
+            ref_path, original_wav = self._get_reference_audio_wavs(key)
             self._speaker_to_original_wav[key] = original_wav
             parts = original_wav.split(os.sep)
             ref_id = f"{parts[-2]}/{os.path.splitext(parts[-1])[0]}"
+            self.speaker_to_ref_content_hash[key] = self._hash_file_content(original_wav)
 
         self.speaker_to_reference[key] = ref_path
         self.speaker_to_ref_id[key] = ref_id
         return ref_path, ref_id
 
+    def _reference_content_hash(self, speaker: str, conversation_id: str) -> str:
+        """Content-identity hash for the reference voice assigned to this key.
+
+        Hashed from the *source* reference file(s) on disk (not the
+        per-actor RTTM-cleaned/concatenated temp copy), so replacing the
+        underlying reference audio invalidates the cache even though
+        ``reference_id`` (a path-derived label) stays the same, and so the
+        hash is identical across actors regardless of each actor's own temp
+        directory. Assumes ``_assign_reference`` has already been called for
+        this key (as ``process_batch`` always does); falls back to an empty
+        string otherwise rather than raising.
+        """
+        return self.speaker_to_ref_content_hash.get(f"{conversation_id}::{speaker}", "")
+
+    @staticmethod
+    def _hash_file_content(path: str) -> str:
+        """SHA-256 of a file's bytes, used as a reference-content identity check."""
+        hasher = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+
+    def _hash_mls_speaker_content(self, speaker_id: str) -> str:
+        """Content identity for all reference clips belonging to an MLS speaker.
+
+        Hashes every file for the speaker (not just the subset that happens
+        to fit under ``max_reference_duration``), so any edit to that
+        speaker's reference pool invalidates the cache even if the specific
+        files used for a given turn didn't change.
+        """
+        file_hashes = [self._hash_file_content(f) for f in self._speaker_audio_map[speaker_id]]
+        return hashlib.sha256("".join(file_hashes).encode("utf-8")).hexdigest()
+
     def _get_exaggeration(self, conversation_id: str) -> float:
-        """Get consistent exaggeration for a conversation (random range support)."""
+        """Get consistent exaggeration for a conversation (random range support).
+
+        Deterministic (see ``_stable_index``/``_assign_reference`` docstring):
+        every actor derives the same value for a given ``conversation_id``.
+        """
         if self.exaggeration_range is None:
             return self.exaggeration
 
         if conversation_id not in self.conversation_exaggeration:
             lo, hi = self.exaggeration_range
-            self.conversation_exaggeration[conversation_id] = self._rng.uniform(lo, hi)
+            frac = self._stable_unit_interval(f"exaggeration::{conversation_id}")
+            self.conversation_exaggeration[conversation_id] = lo + frac * (hi - lo)
         return self.conversation_exaggeration[conversation_id]
 
     def _generate_turn_audio(
         self, text: str, reference_wav: str, conversation_id: str
     ) -> np.ndarray:
-        """Run ChatterboxTTS inference for a single turn."""
+        """Run ChatterboxTTS inference for a single turn.
+
+        The model always synthesises at its own native rate (``self.model.sr``,
+        typically 24 kHz), independent of ``self.sample_rate``. If the two
+        differ, the raw samples are resampled to ``self.sample_rate`` here --
+        otherwise the caller would write unchanged samples into a WAV header
+        claiming a different rate, changing playback speed/pitch and
+        corrupting any duration computed from the configured rate.
+        """
         try:
             exag = self._get_exaggeration(conversation_id)
             generate_kwargs: dict[str, Any] = {
@@ -525,6 +676,10 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
 
             with torch.inference_mode():
                 wav = self.model.generate(text, **generate_kwargs)
+
+                native_sr = getattr(self.model, "sr", _CHATTERBOX_NATIVE_SR)
+                if native_sr != self.sample_rate:
+                    wav = ta.functional.resample(wav, orig_freq=native_sr, new_freq=self.sample_rate)
 
             if self.normalize_audio:
                 wav = self._normalize_audio(wav)
@@ -548,15 +703,140 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             normalised = normalised / peak * 0.99
         return normalised
 
+    def _cache_manifest(  # noqa: PLR0913
+        self,
+        *,
+        conversation_id: str,
+        speaker: str,
+        text: str,
+        ref_id: str,
+        ref_content_hash: str,
+        exaggeration: float,
+    ) -> dict[str, Any]:
+        """Canonical manifest of every effective generation input.
+
+        Used both to derive the cache filename hash and as the sidecar
+        written next to each cached WAV so a filename-hash cache hit can be
+        independently validated before being trusted (see
+        ``_read_cached_audio_if_valid``). Must include every parameter that
+        can change the resulting audio -- a knob left out here can make a
+        real config change (e.g. ``language``) silently return stale cached
+        audio from a previous, different configuration.
+        """
+        return {
+            "schema_version": _CACHE_SCHEMA_VERSION,
+            "model_repo_id": _CHATTERBOX_REPO_ID,
+            "model_class": "ChatterboxMultilingualTTS" if self.language else "ChatterboxTTS",
+            "language": self.language,
+            "conversation_id": conversation_id,
+            "speaker": speaker,
+            "text": text,
+            "reference_id": ref_id,
+            "reference_content_hash": ref_content_hash,
+            "max_reference_duration": self.max_reference_duration,
+            "cfg_weight": self.cfg_weight,
+            "exaggeration": exaggeration,
+            "temperature": self.temperature,
+            "repetition_penalty": self.repetition_penalty,
+            "min_p": self.min_p,
+            "top_p": self.top_p,
+            "normalize_audio": self.normalize_audio,
+            "normalize_level": self.normalize_level,
+            "sample_rate": self.sample_rate,
+        }
+
     @staticmethod
-    def _output_filename(
-        conversation_id: str, speaker: str, text: str, ref_id: str
-    ) -> str:
-        """Deterministic filename including reference voice for cache correctness."""
-        conv_hash = hashlib.md5(conversation_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
-        text_hash = hashlib.md5(text.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
-        ref_hash = hashlib.md5(ref_id.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
-        return f"{conv_hash}_{speaker}_{text_hash}_{ref_hash}.wav"
+    def _hash_manifest(manifest: dict[str, Any]) -> str:
+        """Stable hash of a cache manifest (key order doesn't affect the result)."""
+        canonical = json.dumps(manifest, sort_keys=True, default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _output_filename(cls, manifest: dict[str, Any]) -> str:
+        """Deterministic filename derived from the full generation manifest.
+
+        ``conv_hash``/``text_hash`` keep filenames grep-able by conversation
+        and roughly stable for the same text; ``config_hash`` covers every
+        other manifest field (voice, language, sampling params, ...) so any
+        change to effective generation inputs produces a new filename
+        instead of colliding with a previous, differently-configured run.
+        """
+        conv_hash = hashlib.md5(manifest["conversation_id"].encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+        text_hash = hashlib.md5(manifest["text"].encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
+        config_hash = cls._hash_manifest(manifest)[:16]
+        return f"{conv_hash}_{manifest['speaker']}_{text_hash}_{config_hash}.wav"
+
+    @staticmethod
+    def _sidecar_path(audio_path: str) -> str:
+        return f"{os.path.splitext(audio_path)[0]}.json"
+
+    def _read_cached_audio_if_valid(
+        self, audio_path: str, manifest: dict[str, Any]
+    ) -> tuple[np.ndarray, int] | None:
+        """Return cached audio only if a matching sidecar confirms it's valid.
+
+        A filename-hash hit is NOT trusted on its own: it's cross-checked
+        against a sidecar JSON containing the exact manifest used to
+        generate that file. Missing, corrupt, or mismatched sidecars
+        (including legacy cache entries written before this sidecar existed)
+        are treated as a cache miss and trigger regeneration, rather than
+        risking a hash collision or a stale entry being served silently.
+        """
+        if not os.path.exists(audio_path):
+            return None
+
+        sidecar_path = self._sidecar_path(audio_path)
+        try:
+            with open(sidecar_path, encoding="utf-8") as f:
+                cached_manifest = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            logger.warning(f"No valid cache sidecar for {audio_path}; regenerating.")
+            return None
+
+        if cached_manifest != manifest:
+            logger.warning(f"Cache sidecar for {audio_path} doesn't match current config; regenerating.")
+            return None
+
+        try:
+            # Use the WAV's own embedded rate for downstream duration math,
+            # not ``self.sample_rate`` -- they should always agree since
+            # ``sample_rate`` is part of the manifest above, but trusting the
+            # file's actual rate is a cheap, direct guard against ever
+            # mis-reporting duration for an existing cache entry.
+            audio_data, file_sr = sf.read(audio_path)
+        except (OSError, RuntimeError) as e:
+            logger.warning(f"Failed to read cached audio {audio_path}: {e}; regenerating.")
+            return None
+        return audio_data, file_sr
+
+    def _publish_cache_entry(
+        self, audio_path: str, audio_data: np.ndarray, manifest: dict[str, Any]
+    ) -> None:
+        """Write the WAV and its sidecar atomically (temp file + rename).
+
+        Ensures no process ever observes a partially written cache entry
+        (e.g. a truncated WAV from a crash mid-write) as a valid cache hit.
+        The sidecar is published before the WAV, so by the time
+        ``os.path.exists(audio_path)`` becomes true for another
+        reader/retry, its sidecar is already there to validate against.
+        """
+        unique = f"{os.getpid()}_{uuid.uuid4().hex[:8]}"
+        tmp_audio = f"{audio_path}.tmp-{unique}"
+        sidecar_path = self._sidecar_path(audio_path)
+        tmp_sidecar = f"{sidecar_path}.tmp-{unique}"
+        try:
+            # format="WAV" explicitly: the temp filename's ".tmp-<suffix>"
+            # ending would otherwise defeat soundfile's extension sniffing.
+            sf.write(tmp_audio, audio_data, self.sample_rate, format="WAV")
+            with open(tmp_sidecar, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, sort_keys=True)
+            os.replace(tmp_sidecar, sidecar_path)
+            os.replace(tmp_audio, audio_path)
+        finally:
+            for tmp in (tmp_audio, tmp_sidecar):
+                if os.path.exists(tmp):
+                    with contextlib.suppress(OSError):
+                        os.remove(tmp)
 
     def process(self, task: AudioTask) -> AudioTask:
         """Not supported; use ``process_batch()`` for TTS inference."""
@@ -588,37 +868,41 @@ class ChatterboxTTSStage(ProcessingStage[AudioTask, AudioTask]):
             conversation_id = data.get("conversation_id", "unknown")
 
             reference_wav, ref_id = self._assign_reference(speaker, conversation_id)
+            ref_content_hash = self._reference_content_hash(speaker, conversation_id)
+            exaggeration = self._get_exaggeration(conversation_id)
 
-            filename = self._output_filename(conversation_id, speaker, text, ref_id)
+            manifest = self._cache_manifest(
+                conversation_id=conversation_id,
+                speaker=speaker,
+                text=text,
+                ref_id=ref_id,
+                ref_content_hash=ref_content_hash,
+                exaggeration=exaggeration,
+            )
+            filename = self._output_filename(manifest)
             audio_path = os.path.join(self.output_audio_dir, filename)
 
             try:
-                if os.path.exists(audio_path):
-                    audio_data, _ = sf.read(audio_path)
+                cached = self._read_cached_audio_if_valid(audio_path, manifest)
+                if cached is not None:
+                    audio_data, audio_sr = cached
                 else:
                     audio_data = self._generate_turn_audio(
                         text, reference_wav, conversation_id
                     )
-                    sf.write(audio_path, audio_data, self.sample_rate)
+                    audio_sr = self.sample_rate
+                    self._publish_cache_entry(audio_path, audio_data, manifest)
             except OSError as e:
                 logger.error(f"File I/O failed for task {task.task_id}: {e}")
                 output_tasks.append(task)
                 continue
 
-            duration = len(audio_data) / self.sample_rate
+            duration = len(audio_data) / audio_sr
 
-            out_data = dict(data)
-            out_data["audio_filepath"] = audio_path
-            out_data["duration"] = duration
-            out_data["reference_voice"] = ref_id
-
-            output_tasks.append(
-                AudioTask(
-                    data=out_data,
-                    task_id=task.task_id,
-                    dataset_name=task.dataset_name,
-                )
-            )
+            task.data["audio_filepath"] = audio_path
+            task.data["duration"] = duration
+            task.data["reference_voice"] = ref_id
+            output_tasks.append(task)
 
             logger.info(
                 f"[TTS] {conversation_id[:8]}/{speaker}: "

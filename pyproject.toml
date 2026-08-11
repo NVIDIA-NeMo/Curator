@@ -116,7 +116,13 @@ audio_common = [
     "opencc-python-reimplemented",
     "pyannote-audio>=4.0.0; platform_machine == 'x86_64' and platform_system != 'Darwin'",
     "whisperx>=3.8.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
-    "chatterbox-tts>=0.1.4; platform_machine == 'x86_64' and platform_system != 'Darwin'",
+    # NOTE: chatterbox-tts is intentionally NOT declared here. It hard-pins
+    # transformers==5.2.0 and torch==2.6.0 (0.1.4-0.1.6 pin transformers==4.46.3),
+    # all incompatible with Curator's transformers>=4.56,<5.0 / torch==2.10.0.
+    # Declaring it in audio_common would make uv lock and every audio_cpu/
+    # audio_cuda12 install unresolvable. ChatterboxTTSStage instead runs in an
+    # isolated Ray runtime_env that pip-installs chatterbox into its own
+    # virtualenv (see nemo_curator/stages/audio/tts/chatterbox_tts.py).
 ]
 audio_cpu = [
     "nemo_curator[audio_common]",

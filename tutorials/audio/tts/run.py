@@ -33,6 +33,7 @@ Usage:
 
 import importlib
 import os
+import shutil
 import time
 
 import hydra
@@ -78,6 +79,13 @@ def main(cfg: DictConfig) -> None:
 
     os.makedirs(cfg.output_dir, exist_ok=True)
     os.makedirs(os.path.join(cfg.output_dir, "audio"), exist_ok=True)
+
+    # Matches pipeline.py's --clean: off by default, so re-runs accumulate
+    # rather than silently discard previous results. See README "Re-running
+    # the pipeline" for the full rerun policy shared by both entry points.
+    result_dir = os.path.join(cfg.output_dir, "result")
+    if cfg.get("clean", False) and os.path.isdir(result_dir):
+        shutil.rmtree(result_dir)
 
     pipeline = create_pipeline_from_yaml(cfg)
     logger.info(pipeline.describe())

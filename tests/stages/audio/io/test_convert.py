@@ -80,3 +80,34 @@ def test_process_batch_single_task() -> None:
     assert len(result) == 1
     assert len(result[0].data) == 1
     assert result[0].data.iloc[0]["text"] == "hi"
+
+
+def test_process_batch_preserves_source_files_metadata() -> None:
+    # Downstream writers (e.g. JsonlWriter) key deterministic output filenames
+    # off _metadata["source_files"]; dropping it here forces a fresh UUID
+    # filename on every run even for byte-identical reruns.
+    tasks = [
+        AudioTask(dataset_name="ds", data={"audio_filepath": "/a.wav"}, _metadata={"source_files": ["manifest.jsonl"]}),
+        AudioTask(dataset_name="ds", data={"audio_filepath": "/b.wav"}, _metadata={"source_files": ["manifest.jsonl"]}),
+    ]
+    stage = AudioToDocumentStage()
+    result = stage.process_batch(tasks)
+    assert result[0]._metadata["source_files"] == ["manifest.jsonl"]
+
+
+def test_process_batch_deduplicates_source_files_across_tasks() -> None:
+    tasks = [
+        AudioTask(dataset_name="ds", data={"audio_filepath": "/a.wav"}, _metadata={"source_files": ["m1.jsonl"]}),
+        AudioTask(dataset_name="ds", data={"audio_filepath": "/b.wav"}, _metadata={"source_files": ["m2.jsonl"]}),
+        AudioTask(dataset_name="ds", data={"audio_filepath": "/c.wav"}, _metadata={"source_files": ["m1.jsonl"]}),
+    ]
+    stage = AudioToDocumentStage()
+    result = stage.process_batch(tasks)
+    assert result[0]._metadata["source_files"] == ["m1.jsonl", "m2.jsonl"]
+
+
+def test_process_batch_no_source_files_yields_empty_metadata() -> None:
+    tasks = [AudioTask(dataset_name="ds", data={"audio_filepath": "/a.wav"})]
+    stage = AudioToDocumentStage()
+    result = stage.process_batch(tasks)
+    assert result[0]._metadata == {}

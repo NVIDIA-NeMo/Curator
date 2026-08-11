@@ -4,7 +4,9 @@ Synthesise multi-speaker conversation audio from text using Chatterbox TTS with 
 
 ## Overview
 
-This tutorial runs the `ChatterboxTTSStage` over a JSONL manifest of conversation turns and produces one WAV file per turn, with speaker voices cloned from a reference audio dataset and kept consistent within each conversation. It supports both the English-only model (`ChatterboxTTS`) and the multilingual model (`ChatterboxMultilingualTTS`, 23 languages), and caches outputs deterministically so re-runs reuse existing files.
+This tutorial runs the `ChatterboxTTSStage` over a JSONL manifest of conversation turns and produces one WAV file per turn, with speaker voices cloned from a reference audio dataset and kept consistent within each conversation. It supports both the English-only model (`ChatterboxTTS`) and the multilingual model (`ChatterboxMultilingualTTS`, 23 languages), and caches outputs so re-runs reuse existing files.
+
+Each cached `<hash>.wav` is written alongside a `<hash>.json` sidecar recording every setting that affected it (language, voice, sampling params, etc.). A cache hit is only trusted if the sidecar matches the current run's settings exactly, so changing any generation setting (e.g. switching `--language`) always produces fresh audio instead of silently reusing a previous, differently-configured run's file. Cache entries are written atomically, so a crash mid-write can never leave a corrupt file that looks like a valid cache hit.
 
 ### Pipeline flow
 
@@ -28,7 +30,26 @@ This tutorial runs the `ChatterboxTTSStage` over a JSONL manifest of conversatio
 uv sync --extra audio_cuda12
 ```
 
-The `chatterbox-tts` dependency is included in the `audio_common` extra (pulled in by `audio_cuda12`).
+`chatterbox-tts` is **not** part of the `audio_common`/`audio_cuda12` extras. It
+hard-pins `transformers==5.2.0` and `torch==2.6.0`, which are incompatible with
+Curator's pinned stack (`transformers>=4.56,<5.0`, `torch==2.10.0`) and would
+make the audio extras unresolvable. Instead, `ChatterboxTTSStage` declares a Ray
+`runtime_env` that pip-installs `chatterbox-tts` (plus `setuptools<81`, which
+still provides the `pkg_resources` its watermarker needs) into an **isolated
+virtualenv** at runtime, so its conflicting pins never touch the main
+environment. The first run therefore provisions that environment (one-time
+download of chatterbox and its deps); subsequent runs reuse Ray's cached
+virtualenv.
+
+> **Requires `--backend ray_data`.** Only the Ray Data (and Ray actor pool)
+> backends honor a stage's `runtime_env`; the default `xenna` backend does not,
+> so under `xenna` you must install chatterbox into the main environment
+> yourself. Run this tutorial with `--backend ray_data` to use the auto-managed
+> isolated environment.
+
+If you have already provisioned chatterbox in a dedicated environment and want
+to reuse it instead of the auto-managed one, disable the isolated runtime with
+`ChatterboxTTSStage(...).with_(runtime_env={})`.
 
 ## Dataset
 
@@ -85,12 +106,12 @@ Results written to /data/tts_output/result/*.jsonl
 | `--language` | `None` (English) | ISO 639-1 code for the multilingual model |
 | `--device` | `cuda` | Torch device for inference |
 | `--cache-dir` | `None` | HuggingFace cache for Chatterbox weights |
-| `--sample-rate` | `24000` | Output WAV sample rate |
+| `--sample-rate` | `24000` | Output WAV sample rate. Chatterbox always synthesises at 24000 Hz; a different value here is honored by resampling the output before writing |
 | `--cfg-weight` | `0.5` | Classifier-free guidance weight |
 | `--exaggeration` | `0.5` | Emotion exaggeration |
 | `--temperature` | `0.8` | Sampling temperature |
 | `--max-reference-duration` | `60.0` | Max seconds of reference speech to use |
-| `--clean` | off | Remove the result directory before running |
+| `--clean` | off | Remove `<output-dir>/result/` before running (Hydra: `clean=true`) |
 | `--backend` | `xenna` | Execution backend: `xenna` or `ray_data` |
 
 ### Using custom data (argparse runner)
@@ -118,8 +139,8 @@ Supported languages: `ar`, `da`, `de`, `el`, `en`, `es`, `fi`, `fr`, `he`, `hi`,
 
 | Backend | Description | When to use |
 |---|---|---|
-| `xenna` | Default. Cosmos-Xenna streaming engine with automatic worker allocation. | Most workloads, CI/nightly benchmarks. |
-| `ray_data` | Built on Ray Data `map_batches`. | Development, machines without Xenna GPU support, or Ray Data integration preferred. |
+| `xenna` | Default. Cosmos-Xenna streaming engine with automatic worker allocation. Does **not** honor the stage `runtime_env`, so chatterbox must already be installed in the environment. | Workloads where you pre-install chatterbox yourself. |
+| `ray_data` | Built on Ray Data `map_batches`. Honors the stage `runtime_env`, so chatterbox is auto-installed into an isolated virtualenv. | **Recommended for this tutorial** — enables the isolated chatterbox runtime described above. |
 
 ## Pipeline stages
 
@@ -138,6 +159,20 @@ Converts each `AudioTask` into a document row for manifest writing.
 ### Stage 4: `JsonlWriter`
 
 Writes the enriched manifest to `<output-dir>/result/*.jsonl`.
+
+### Re-running the pipeline
+
+`AudioToDocumentStage` carries the input manifest's path through as
+`source_files`, so `JsonlWriter` names each output shard deterministically
+from it instead of a random UUID. **Re-running with an unchanged manifest
+does not spawn ever-more result shards** — but neither entry point cleans
+`<output-dir>/result/` for you by default, so results from a *different*
+prior run (e.g. a different manifest, or a bigger one) are left in place
+alongside the new shards.
+
+Both entry points share the same opt-in policy: pass `--clean`
+(`pipeline.py`) or `clean=true` (`run.py`, Hydra) to remove
+`<output-dir>/result/` before the run for a guaranteed-fresh set of outputs.
 
 ## Parameters and tuning
 
@@ -171,13 +206,12 @@ Results are written to `<output-dir>/result/*.jsonl`. Each line is the input tur
 
 ## Composability
 
-The TTS stage pairs naturally with conversation generation upstream and forced alignment downstream:
+`ChatterboxTTSStage` is a regular `AudioTask` stage, so it drops into any custom pipeline alongside other audio stages, e.g. computing duration for each generated turn:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.audio.common import ManifestReader
+from nemo_curator.stages.audio.common import GetAudioDurationStage, ManifestReader
 from nemo_curator.stages.audio.tts import ChatterboxTTSStage
-from nemo_curator.stages.audio.alignment import MFAAlignmentStage
 
 pipeline = Pipeline(
     name="custom",
@@ -187,12 +221,12 @@ pipeline = Pipeline(
             output_audio_dir="out/audio",
             reference_voices_dataset="reference_voices",
         ),
-        MFAAlignmentStage(output_dir="out/alignment", text_key="utterance"),
+        GetAudioDurationStage(),
     ],
 )
 ```
 
-For the full topic → conversation → TTS → alignment → merge workflow, see the [data-generation tutorial](../data-generation/).
+A larger topic → conversation → TTS → forced-alignment → merge data-generation workflow is planned, but the alignment and merge stages it depends on are not part of this PR; that composed tutorial will be documented once those stages land.
 
 ## Troubleshooting
 
