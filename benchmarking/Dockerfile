@@ -30,13 +30,9 @@ RUN apt-get update \
 # Add video benchmark codec support to the benchmark image.
 RUN bash /opt/Curator/docker/common/install_h264_support.sh --with-libopenh264
 
-# Ensure all extras and dependency groups (including test) are synced.
-# nemotron_parse (cv2 + albumentations) is deliberately kept off `[all]` because
-# the opencv wheel vendors CVE-flagged ffmpeg, but the Nemotron-Parse PDF
-# benchmark needs it to rasterize pages and to load the model's remote code, so
-# request it explicitly for the benchmark image.
+# Ensure all extras and dependency groups (including test) are synced
 RUN cd /opt/Curator \
- && uv sync --extra all --extra nemotron_parse --all-groups \
+ && uv sync --extra all --all-groups \
  && uv cache prune
 
 # Add the Curator repo to the safe.directory list to avoid GitPython warnings

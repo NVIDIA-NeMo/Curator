@@ -1351,10 +1351,10 @@ entries:
       --backend=vllm
       --enforce-eager
       --pdfs-per-task=1
-      --max-pdfs=100
+      --max-pdfs=1280
       --max-pages=10
       --max-num-seqs=16
-    timeout_s: 3600
+    timeout_s: 5400
     sink_data:
       - name: slack
         additional_metrics:
@@ -1390,10 +1390,10 @@ entries:
       --backend=vllm
       --enforce-eager
       --pdfs-per-task=1
-      --max-pdfs=100
+      --max-pdfs=1280
       --max-pages=10
       --max-num-seqs=16
-    timeout_s: 3600
+    timeout_s: 5400
     sink_data:
       - name: slack
         additional_metrics:
