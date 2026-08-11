@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 import inspect
 from pathlib import Path
 
 import pytest
+from omegaconf import OmegaConf
 
+from nemo_curator.config.run import create_pipeline_from_yaml
+from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.text_filtering.whisper_hallucination import WhisperHallucinationStage
 from nemo_curator.tasks import AudioTask
 
@@ -31,6 +35,8 @@ def _make_stage(tmp_path: Path, phrases: list[str], **kwargs) -> WhisperHallucin
 
 _TEXT_KEY = "pred_text"
 _SKIP_KEY = "_skipme"
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_EXAMPLE_DIR = _REPO_ROOT / "tutorials" / "audio" / "whisper_hallucination"
 
 
 def test_clean_text_passes(tmp_path: Path) -> None:
@@ -83,6 +89,28 @@ def test_frequent_phrase_strips_trailing_comma(tmp_path: Path) -> None:
     assert "Hallucination" in result.data[_SKIP_KEY]
 
 
+def test_setup_is_called_lazily_from_process(tmp_path: Path) -> None:
+    phrase_file = tmp_path / "phrases.txt"
+    phrase_file.write_text("Thank you\n", encoding="utf-8")
+    stage = WhisperHallucinationStage(common_hall_file=str(phrase_file))
+
+    result = stage.process(AudioTask(data={_TEXT_KEY: "Thank you", _SKIP_KEY: "", "duration": 1.0}))
+
+    assert stage._setup_called is True
+    assert "Hallucination" in result.data[_SKIP_KEY]
+
+
+def test_setup_is_called_lazily_from_process_batch(tmp_path: Path) -> None:
+    phrase_file = tmp_path / "phrases.txt"
+    phrase_file.write_text("Thank you\n", encoding="utf-8")
+    stage = WhisperHallucinationStage(common_hall_file=str(phrase_file))
+
+    results = stage.process_batch([AudioTask(data={_TEXT_KEY: "Thank you", _SKIP_KEY: "", "duration": 1.0})])
+
+    assert stage._setup_called is True
+    assert "Hallucination" in results[0].data[_SKIP_KEY]
+
+
 def test_non_string_text_returns_task_unchanged(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
     task = AudioTask(data={_TEXT_KEY: None, _SKIP_KEY: ""})
@@ -119,9 +147,9 @@ def test_requires_common_hall_file() -> None:
         WhisperHallucinationStage(common_hall_file="")
 
 
-def test_agglutinative_lang_uses_higher_threshold(tmp_path: Path) -> None:
-    """A 34-char word in Finnish should NOT be flagged (threshold=35 for agglutinative)."""
-    stage = _make_stage(tmp_path, [])
+def test_agglutinative_lang_respects_configured_threshold(tmp_path: Path) -> None:
+    """Agglutinative languages use the same configurable absolute threshold."""
+    stage = _make_stage(tmp_path, [], long_word_threshold=35)
     word_34 = "a" * 34
     task = AudioTask(data={_TEXT_KEY: f"the {word_34} here", _SKIP_KEY: "", "language": "fi"})
     result = stage.process(task)
@@ -129,8 +157,8 @@ def test_agglutinative_lang_uses_higher_threshold(tmp_path: Path) -> None:
 
 
 def test_agglutinative_lang_flags_above_threshold(tmp_path: Path) -> None:
-    """A 36-char word in Finnish SHOULD be flagged (above threshold=35)."""
-    stage = _make_stage(tmp_path, [])
+    """A caller-selected absolute threshold applies to Finnish too."""
+    stage = _make_stage(tmp_path, [], long_word_threshold=35)
     word_36 = "a" * 36
     task = AudioTask(data={_TEXT_KEY: f"the {word_36} here", _SKIP_KEY: "", "language": "fi"})
     result = stage.process(task)
@@ -150,6 +178,15 @@ def test_non_agglutinative_lang_uses_default_threshold(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
     word_26 = "a" * 26
     task = AudioTask(data={_TEXT_KEY: f"the {word_26} here", _SKIP_KEY: "", "language": "en"})
+    result = stage.process(task)
+    assert "Hallucination" in result.data[_SKIP_KEY]
+
+
+def test_agglutinative_lang_uses_default_absolute_threshold(tmp_path: Path) -> None:
+    """There is no separate hidden threshold for agglutinative languages."""
+    stage = _make_stage(tmp_path, [])
+    word_26 = "a" * 26
+    task = AudioTask(data={_TEXT_KEY: f"the {word_26} here", _SKIP_KEY: "", "language": "fi"})
     result = stage.process(task)
     assert "Hallucination" in result.data[_SKIP_KEY]
 
@@ -284,18 +321,19 @@ def test_process_batch_flags_each_row_independently(tmp_path: Path) -> None:
     assert "Hallucination" in results[1].data[_SKIP_KEY]
 
 
-def test_missing_text_key_is_treated_as_empty(tmp_path: Path) -> None:
-    """The filter treats a missing transcript as empty text."""
+def test_missing_required_text_key_raises(tmp_path: Path) -> None:
+    """Match the reference contract: text_key is required, not optional."""
     stage = _make_stage(tmp_path, [])
     task = AudioTask(data={_SKIP_KEY: ""})
-    result = stage.process(task)
-    assert result.data[_SKIP_KEY] == ""
-    assert result.data["additional_notes"]["WhisperHallucination"] == "skipped (empty text)"
+    with pytest.raises(KeyError, match=_TEXT_KEY):
+        stage.process(task)
 
 
 def test_prefix_match_length_is_a_constant_not_a_constructor_argument() -> None:
-    """It is annotated at class scope, so guard against it becoming a field."""
-    assert "_PREFIX_MATCH_MIN_LEN" not in inspect.signature(WhisperHallucinationStage).parameters
+    """Safety constants and removed language-specific thresholds stay out of YAML."""
+    parameters = inspect.signature(WhisperHallucinationStage).parameters
+    assert "_PREFIX_MATCH_MIN_LEN" not in parameters
+    assert "agglutinative_long_word_threshold" not in parameters
 
 
 def test_stage_declares_its_io_contract(tmp_path: Path) -> None:
@@ -303,7 +341,7 @@ def test_stage_declares_its_io_contract(tmp_path: Path) -> None:
     required_attrs, required_columns = stage.inputs()
     _required_out, optional_out = stage.outputs()
     assert required_attrs == []
-    assert required_columns == []
+    assert required_columns == [_TEXT_KEY, _SKIP_KEY, "duration"]
     assert {_SKIP_KEY, "additional_notes"} <= set(optional_out)
 
 
@@ -317,3 +355,36 @@ def test_stage_is_exported_from_the_audio_package() -> None:
     import nemo_curator.stages.audio as audio_pkg
 
     assert audio_pkg.WhisperHallucinationStage is WhisperHallucinationStage
+
+
+def test_stage_is_exported_from_text_filtering_package() -> None:
+    from nemo_curator.stages.audio import text_filtering
+
+    assert text_filtering.__all__ == ["WhisperHallucinationStage"]
+    assert text_filtering.WhisperHallucinationStage is WhisperHallucinationStage
+
+
+def test_example_yaml_exposes_all_supported_filter_controls(tmp_path: Path) -> None:
+    cfg = OmegaConf.load(_EXAMPLE_DIR / "pipeline.yaml")
+    cfg.manifest_path = str(tmp_path / "asr_manifest.jsonl")
+    cfg.output_path = str(tmp_path / "filtered_manifest.jsonl")
+
+    pipeline = create_pipeline_from_yaml(cfg, log_config=False)
+
+    assert isinstance(pipeline, Pipeline)
+    stage = pipeline.stages[1]
+    assert isinstance(stage, WhisperHallucinationStage)
+    assert stage.common_hall_file == "tutorials/audio/whisper_hallucination/phrases.txt"
+    assert stage.unique_words_threshold == 0.4
+    assert stage.long_word_threshold == 25
+    assert stage.long_word_rel_threshold == 3.0
+    assert stage.max_char_rate == 40.0
+    assert stage.overwrite is False
+    assert stage.recovery_value == ""
+
+
+def test_bundled_phrase_file_matches_reference_hash() -> None:
+    phrase_file = _EXAMPLE_DIR / "phrases.txt"
+    assert hashlib.sha256(phrase_file.read_bytes()).hexdigest() == (
+        "34ba2fcd7756f193e80ba4ac34a6b5db0dab92adeb0750beb796b1bf57f6bc42"
+    )

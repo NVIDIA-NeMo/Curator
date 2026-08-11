@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Text-level filtering stages that operate on transcripts, not audio."""
+"""Audio transcript filtering stages."""
 
-from nemo_curator.stages.audio.text_filtering.whisper_hallucination import WhisperHallucinationStage
+from .whisper_hallucination import WhisperHallucinationStage
 
-__all__ = ["WhisperHallucinationStage"]
+__all__ = [
+    "WhisperHallucinationStage",
+]

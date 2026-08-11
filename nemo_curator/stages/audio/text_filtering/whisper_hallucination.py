@@ -20,7 +20,7 @@ confabulated rather than transcribed.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from loguru import logger
 
@@ -29,7 +29,8 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import AudioTask
 
 # Languages that legitimately produce very long single words, either by
-# agglutination or by compounding, and so need a higher long-word bar.
+# agglutination or by compounding. The relative long-word check is disabled
+# for these languages; the absolute threshold remains caller-configurable.
 AGGLUTINATIVE_COMPOUNDING_LANGS: frozenset[str] = frozenset(
     {
         "fi",
@@ -42,11 +43,6 @@ AGGLUTINATIVE_COMPOUNDING_LANGS: frozenset[str] = frozenset(
         "no",  # Germanic compounding
     }
 )
-
-# Phrases at least this long also match as a prefix, not just exactly. Shorter
-# phrases are matched exactly so that a common short word cannot swallow every
-# transcript that happens to begin with it.
-_PREFIX_MATCH_MIN_LEN = 8
 
 
 def _set_note(task_data: dict[str, Any], stage_name: str, value: str, notes_key: str) -> None:
@@ -85,12 +81,27 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     the stage into a re-check that can also *clear* a previous hallucination
     flag when a second-pass transcript now looks clean, which is how an ASR
     recovery pass promotes its result.
+
+    ``recovery_value`` is a caller-selected note written only when
+    ``overwrite=True`` clears an existing hallucination flag. For example,
+    ``recovery_value="Recovered:ASR"`` produces the note ``"recovered:asr"``.
+    Leaving it empty produces ``"recovered"``.
+
+    Run the bundled YAML from the Curator repository root over a JSONL manifest
+    that already contains ``pred_text``, ``_skipme``, and ``duration``:
+
+    .. code-block:: bash
+
+        python nemo_curator/config/run.py \\
+            --config-path ../../tutorials/audio/whisper_hallucination \\
+            --config-name pipeline \\
+            manifest_path=/absolute/path/to/asr_manifest.jsonl \\
+            output_path=/absolute/path/to/filtered_manifest.jsonl
     """
 
     common_hall_file: str = ""
     unique_words_threshold: float = 0.4
     long_word_threshold: int = 25
-    agglutinative_long_word_threshold: int = 35
     long_word_rel_threshold: float = 3.0
     max_char_rate: float = 40.0
     language_key: str = "language"
@@ -104,8 +115,14 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     _phrases: set[str] = field(default_factory=set, init=False, repr=False)
+    _setup_called: bool = field(default=False, init=False, repr=False)
     _n_processed: int = field(default=0, init=False, repr=False)
     _n_flagged: int = field(default=0, init=False, repr=False)
+
+    # Phrases shorter than this are matched exactly; longer ones also match
+    # as prefixes. Keep this out of the dataclass constructor/YAML surface:
+    # lowering it can make common short phrases match unrelated transcripts.
+    _PREFIX_MATCH_MIN_LEN: ClassVar[int] = 8
 
     def __post_init__(self) -> None:
         if not self.common_hall_file:
@@ -116,11 +133,11 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         with open(self.common_hall_file, encoding="utf-8") as f:
             phrases = {line.strip() for line in f if line.strip()}
         self._phrases = phrases
-        logger.info(
-            "WhisperHallucinationStage: loaded {} phrases from {}",
-            len(phrases),
-            self.common_hall_file,
-        )
+        self._setup_called = True
+        logger.info(f"WhisperHallucinationStage: loaded {len(phrases)} phrases from {self.common_hall_file}")
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return [], [self.text_key, self.skip_me_key, self.duration_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], [self.skip_me_key, self.notes_key]
@@ -147,7 +164,9 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         cleaned = text.strip().replace(".", "").replace("?", "").replace("!", "")
         if cleaned in self._phrases:
             return True
-        return any(len(phrase) >= _PREFIX_MATCH_MIN_LEN and cleaned.startswith(phrase) for phrase in self._phrases)
+        return any(
+            len(phrase) >= self._PREFIX_MATCH_MIN_LEN and cleaned.startswith(phrase) for phrase in self._phrases
+        )
 
     def _high_char_rate(self, words: list[str], duration: float) -> bool:
         if duration <= 0:
@@ -159,12 +178,12 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         lang = str(task.data.get(self.language_key, "")).lower().strip()
         return lang in AGGLUTINATIVE_COMPOUNDING_LANGS
 
-    def process(self, task: AudioTask) -> AudioTask:
+    def _process_single(self, task: AudioTask) -> AudioTask:
         current_flag = str(task.data.get(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
             _set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
             return task
-        text = task.data.get(self.text_key)
+        text = task.data[self.text_key]
         if not isinstance(text, str) or not text.strip():
             _set_note(task.data, self.name, "skipped (empty text)", self.notes_key)
             return task
@@ -172,9 +191,8 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         duration = task.data.get(self.duration_key, 0.0) or 0.0
 
         is_agglutinative = self._is_agglutinative(task)
-        long_word_thresh = self.agglutinative_long_word_threshold if is_agglutinative else self.long_word_threshold
         repeated = self._repeated_ngrams(words)
-        long_w = self._long_word(words, threshold=long_word_thresh, skip_relative=is_agglutinative)
+        long_w = self._long_word(words, threshold=self.long_word_threshold, skip_relative=is_agglutinative)
         phrase = self._frequent_single_word(text)
         high_rate = self._high_char_rate(words, duration)
 
@@ -184,18 +202,16 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         if is_hallucinated:
             self._n_flagged += 1
             reasons = [
-                reason
-                for reason, hit in (
+                name
+                for name, hit in [
                     ("repeated_ngrams", repeated),
                     ("long_word", long_w),
                     ("phrase_match", phrase),
                     ("high_char_rate", high_rate),
-                )
+                ]
                 if hit
             ]
-            logger.debug("[{}] flagged ({}) dur={:.2f}s: {!r}", self.name, ",".join(reasons), duration, text[:80])
-            # Never clobber a flag another filter owns; only set ours when the
-            # row is unflagged or was already flagged as a hallucination.
+            logger.debug(f"[{self.name}] flagged ({','.join(reasons)}) dur={duration:.2f}s: {text[:80]!r}")
             if was_flagged or not current_flag:
                 task.data[self.skip_me_key] = f"Hallucination:{self.name}"
             _set_note(task.data, self.name, f"hallucination ({', '.join(reasons)})", self.notes_key)
@@ -207,5 +223,23 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
             _set_note(task.data, self.name, "passed", self.notes_key)
         return task
 
+    def process(self, task: AudioTask) -> AudioTask:
+        if not self._setup_called:
+            logger.warning(
+                f"WhisperHallucinationStage ({self.name}): setup() was not called before process(). "
+                "Calling setup() now — check that your executor invokes setup() on each worker."
+            )
+            self.setup()
+        return self._process_single(task)
+
+    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
+        if not self._setup_called:
+            logger.warning(
+                f"WhisperHallucinationStage ({self.name}): setup() was not called before process_batch(). "
+                "Calling setup() now — check that your executor invokes setup() on each worker."
+            )
+            self.setup()
+        return [self._process_single(task) for task in tasks]
+
     def teardown(self) -> None:
-        logger.info("[{}] done - processed={}, flagged={}", self.name, self._n_processed, self._n_flagged)
+        logger.info(f"[{self.name}] done — processed={self._n_processed}, flagged={self._n_flagged}")
