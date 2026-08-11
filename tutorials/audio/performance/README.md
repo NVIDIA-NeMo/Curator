@@ -48,59 +48,76 @@ Records describe successful attempts. They do not provide logical exactly-once a
 
 ## Current raw report shape
 
-The following example is illustrative. Timestamps, durations, UUIDs, stage types, and record count depend on the actual run.
+The report below was captured from a local GPU ASR run of commit
+`75cf2e022845e74bf013578294e69c477289c658`. It used `RayDataExecutor`, an
+NVIDIA GeForce RTX 3080 Ti, `nvidia/stt_en_conformer_ctc_small`, two input
+rows, and ASR batch size 2. Both inputs produced non-empty transcripts. The
+generated JSON is pretty-printed here without changing any values; the original
+report's SHA-256 is
+`03958f91194bfd452cef28a48254ad6235022100290f47c9c5e494545b52cb6f`.
 
 ```json
 {
-  "schema_version": 1,
-  "pipeline_name": "audio-example",
-  "run_id": "73006a419f89498fa4243238095ba950",
   "executor": "RayDataExecutor",
   "pipeline": {
-    "pipeline_name": "audio-example",
     "pipeline_description": "",
+    "pipeline_name": "pr2296-current-head-local-gpu-asr",
     "stages": [
       {
-        "stage_id": "000:audio_transform",
-        "name": "audio_transform",
-        "type": "example.AudioTransformStage",
-        "batch_size": 8,
-        "num_workers": null
+        "batch_size": 2,
+        "name": "ASR_inference",
+        "num_workers": null,
+        "stage_id": "000:ASR_inference",
+        "type": "nemo_curator.stages.audio.inference.asr.stage.ASRStage"
       },
       {
-        "stage_id": "001:manifest_writer",
-        "name": "manifest_writer",
-        "type": "nemo_curator.stages.audio.common.ManifestWriterStage",
         "batch_size": 1,
-        "num_workers": 1
+        "name": "manifest_writer",
+        "num_workers": 1,
+        "stage_id": "001:manifest_writer",
+        "type": "nemo_curator.stages.audio.common.ManifestWriterStage"
       }
     ]
   },
+  "pipeline_name": "pr2296-current-head-local-gpu-asr",
+  "record_count": 3,
+  "run_id": "f82e18a3e80840268cc920bf86b9b742",
+  "schema_version": 1,
   "slurm_array": null,
-  "wall_time_s": 45.2,
-  "record_count": 2,
+  "wall_time_s": 40.81281928624958,
   "records": [
     {
-      "stage_name": "audio_transform",
-      "stage_id": "000:audio_transform",
-      "invocation_id": "77de2081ec534fbda4df8d755889f311",
-      "process_time": 1.21,
-      "actor_idle_time": 0.0,
-      "num_items_processed": 8,
+      "actor_idle_time": 0,
       "custom_metrics": {},
-      "window_start_s": 1786400000.1,
-      "window_end_s": 1786400001.31
+      "invocation_id": "7df845c588e54f849466d882300b1b1d",
+      "num_items_processed": 2,
+      "process_time": 1.6831146590411663,
+      "stage_id": "000:ASR_inference",
+      "stage_name": "ASR_inference",
+      "window_end_s": 1786466120.446008,
+      "window_start_s": 1786466118.762892
     },
     {
-      "stage_name": "manifest_writer",
-      "stage_id": "001:manifest_writer",
-      "invocation_id": "34ea8bcc4a314fa7aa80a834792a1cf9",
-      "process_time": 0.01,
-      "actor_idle_time": 0.08,
-      "num_items_processed": 1,
+      "actor_idle_time": 0,
       "custom_metrics": {},
-      "window_start_s": 1786400001.4,
-      "window_end_s": 1786400001.41
+      "invocation_id": "5cef78f3e3624e5db4e21ffbb18f0631",
+      "num_items_processed": 1,
+      "process_time": 0.00014986563473939896,
+      "stage_id": "001:manifest_writer",
+      "stage_name": "manifest_writer",
+      "window_end_s": 1786466120.4555764,
+      "window_start_s": 1786466120.4554253
+    },
+    {
+      "actor_idle_time": 0.001741647720336914,
+      "custom_metrics": {},
+      "invocation_id": "5bbff883a6f846f792f03d7bb7886953",
+      "num_items_processed": 1,
+      "process_time": 0.00012473948299884796,
+      "stage_id": "001:manifest_writer",
+      "stage_name": "manifest_writer",
+      "window_end_s": 1786466120.460133,
+      "window_start_s": 1786466120.4600067
     }
   ]
 }
@@ -158,7 +175,10 @@ The earlier GPU parity run below established transcript parity while this featur
 | Historical public layout | `stage_performance` compact groups |
 | Current public layout | raw top-level `records` array |
 
-Because the implementation and schema changed after that run, this document does not present the historical JSON as output from the current branch. A new end-to-end run is required before publishing exact current-commit timings or UUIDs.
+Because the implementation and schema changed after that run, this document
+does not present the historical JSON as output from the current branch. The
+fresh current-schema run is shown in the report section above; this historical
+run remains the larger 16-row transcript-parity reference.
 
 ## Follow-up feature ownership
 

@@ -430,6 +430,7 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
     pipeline = create_pipeline_from_yaml(cfg, log_config=False)
     resample_stage = pipeline.stages[1]
     stage = pipeline.stages[2]
+    writer = pipeline.stages[3]
     executor = create_executor_from_yaml(cfg)
 
     assert resample_stage.__class__.__name__ == "ResampleAudioStage"
@@ -499,6 +500,8 @@ def test_qwen_tutorial_yaml_matches_reference_runner_config():
     }
     assert executor.__class__.__name__ == "RayDataExecutor"
     assert executor.config == {}
+    assert cfg.performance_report_path is None
+    assert writer.performance_report_path is None
 
 
 def test_qwen_asr_tutorial_yaml_uses_generic_adapter_contract():
@@ -640,11 +643,3 @@ def test_run_cli_defaults_to_pipeline_config_for_fastconformer() -> None:
     )
 
     assert "adapter_target: nemo_curator.models.asr.nemo_asr.NeMoASRAdapter" in result.stdout
-
-
-def test_qwen_tutorial_writes_complete_performance_report() -> None:
-    config_path = Path(__file__).parents[2] / "tutorials" / "audio" / "qwen_omni_inprocess" / "pipeline.yaml"
-    cfg = OmegaConf.load(config_path)
-
-    assert cfg.performance_report_path is None
-    assert cfg.stages[3].performance_report_path == cfg.performance_report_path

@@ -452,19 +452,18 @@ These can reduce the synchronous hot path for some workloads, but require queue 
 
 Committed tests cover:
 
-- one-output, zero-output, fan-out, and explicit batch-stage publication;
-- no task duplication when enabled and legacy task statistics when disabled;
+- one-output, zero-output, and fan-out publication, including tensor-bearing audio tasks;
+- no task duplication when collection is enabled;
 - exclusion of the prior publication wait from the next actor-idle window;
 - one-time consumer resolution and record-store transfer;
 - explicit rejection by executors that do not support this collector lifecycle;
 - Ray Data and Xenna end-to-end report creation;
 - collector lifecycle and multi-submitter completeness;
-- collector start, append, acknowledgement, finish, poison, and cleanup failures;
-- re-iterable raw dictionaries and preservation of future fields;
-- bounded-memory streaming with a large record set;
+- collector start, acknowledgement, finish, poison, serialization, and cleanup failures;
+- preservation of raw and future record fields in the final report;
 - local atomic output and fsspec streaming output;
 - blank paths, manifest/report collisions, and Slurm-suffixed collisions; and
-- run, stage-plan, executor, and Slurm report context.
+- run, stage-plan, executor, and optional Slurm report context fields.
 
 Historical ASR parity evidence is documented separately in `tutorials/audio/performance/README.md`. It validates transcript parity for an earlier compact-report revision; it is not presented as byte-for-byte evidence for the final raw schema.
 

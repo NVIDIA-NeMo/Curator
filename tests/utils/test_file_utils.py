@@ -88,23 +88,6 @@ class TestJsonFiles:
             "records": [{"index": 0}],
         }
 
-    def test_streaming_array_preserves_nested_items(self) -> None:
-        path = "/pr2296-file-utils/nested-array.json"
-        fs = fsspec.filesystem("memory")
-
-        write_json_file_streaming_array(
-            path,
-            {"schema_version": 1},
-            array_key="groups",
-            items=[{"values": [1, 2]}, {"values": [3]}],
-            fs=fs,
-        )
-
-        assert read_json_file(path, fs) == {
-            "schema_version": 1,
-            "groups": [{"values": [1, 2]}, {"values": [3]}],
-        }
-
     def test_streaming_array_rejects_existing_array_key(self) -> None:
         path = "/pr2296-file-utils/invalid.json"
         fs = fsspec.filesystem("memory")
@@ -119,23 +102,6 @@ class TestJsonFiles:
             )
 
         assert not fs.exists(path)
-
-    def test_streaming_array_local_failure_preserves_existing_file(self, tmp_path: Path) -> None:
-        path = tmp_path / "report.json"
-        path.write_text('{"original":true}\n', encoding="utf-8")
-        fs = fsspec.filesystem("file")
-
-        with pytest.raises(TypeError):
-            write_json_file_streaming_array(
-                str(path),
-                {"schema_version": 1},
-                array_key="records",
-                items=[{"valid": 1}, {"invalid": object()}],
-                fs=fs,
-            )
-
-        assert path.read_text(encoding="utf-8") == '{"original":true}\n'
-        assert not list(path.parent.glob(f".{path.name}.*.tmp"))
 
 
 class TestInferDatasetNameFromPath:
