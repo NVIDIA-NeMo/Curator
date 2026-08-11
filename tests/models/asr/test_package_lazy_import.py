@@ -25,9 +25,14 @@ if TYPE_CHECKING:
 
 
 def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The package init must not pull in the concrete ASR implementation."""
+    """The package init must not pull in concrete ASR adapters."""
     original_import = builtins.__import__
     blocked: list[str] = []
+    concrete_modules = {
+        "nemo_curator.models.asr.nemo_asr",
+        "nemo_curator.models.asr.qwen_asr",
+        "nemo_curator.models.asr.qwen_omni",
+    }
 
     def tracking_import(
         name: str,
@@ -36,7 +41,7 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
         fromlist: tuple[str, ...] = (),
         level: int = 0,
     ) -> object:
-        if name == "nemo_curator.models.asr.qwen_omni":
+        if name in concrete_modules:
             blocked.append(name)
             msg = f"blocked eager import of {name}"
             raise ImportError(msg)
@@ -47,6 +52,8 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
     module_names = {
         "nemo_curator.models.asr",
         "nemo_curator.models.asr.base",
+        "nemo_curator.models.asr.nemo_asr",
+        "nemo_curator.models.asr.qwen_asr",
         "nemo_curator.models.asr.qwen_omni",
     }
     saved_modules = {name: sys.modules.get(name) for name in module_names}
@@ -57,6 +64,8 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
         import nemo_curator.models.asr as asr_pkg
 
         assert blocked == []
+        assert "NeMoASRAdapter" not in vars(asr_pkg)
+        assert "QwenASRAdapter" not in vars(asr_pkg)
         assert "QwenOmniASRAdapter" not in vars(asr_pkg)
     finally:
         for mod_name in module_names:
@@ -66,9 +75,20 @@ def test_importing_asr_subpackage_does_not_load_concrete_adapters(monkeypatch: p
                 sys.modules[mod_name] = module
 
 
-def test_hydra_resolves_qwen_adapter_from_module_path() -> None:
+def test_hydra_resolves_both_qwen_adapters_from_module_paths() -> None:
     import hydra.utils
 
-    adapter_cls = hydra.utils.get_class("nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter")
+    targets = {
+        "nemo_curator.models.asr.qwen_asr.QwenASRAdapter": "QwenASRAdapter",
+        "nemo_curator.models.asr.qwen_omni.QwenOmniASRAdapter": "QwenOmniASRAdapter",
+    }
+    for target, expected_name in targets.items():
+        assert hydra.utils.get_class(target).__name__ == expected_name
 
-    assert adapter_cls.__name__ == "QwenOmniASRAdapter"
+
+def test_hydra_resolves_nemo_adapter_from_module_path() -> None:
+    import hydra.utils
+
+    adapter_cls = hydra.utils.get_class("nemo_curator.models.asr.nemo_asr.NeMoASRAdapter")
+
+    assert adapter_cls.__name__ == "NeMoASRAdapter"

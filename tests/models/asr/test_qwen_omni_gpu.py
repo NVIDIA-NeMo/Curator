@@ -92,7 +92,7 @@ def test_qwen_omni_real_two_gpu_smoke() -> None:
             "trust_remote_code": True,
             "enable_prefix_caching": True,
             "prefix_caching_hash_algo": "xxhash",
-            "limit_mm_per_prompt": {"image": 1, "video": 1, "audio": 1},
+            "limit_mm_per_prompt": {"image": 0, "video": 0, "audio": 1},
             "seed": 1234,
         },
     )

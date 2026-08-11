@@ -80,9 +80,21 @@ The bundled quickstart starts Ray, downloads a Hugging Face model, and runs a se
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "nemo-curator[text_cuda12]"
+curl -O https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/requirements/text_cuda12-overrides.txt
+uv pip install \
+  --override text_cuda12-overrides.txt \
+  --torch-backend cu129 \
+  --extra-index-url https://wheels.vllm.ai/0.22.0/cu129 \
+  "nemo-curator[text_cuda12]"
 python tutorials/quickstart.py
 ```
+
+Standard `pip install` is not supported for `text_cuda12` because vLLM and
+RAPIDS declare incompatible Numba requirements. The supported `uv pip install`
+command above applies Curator's tested override. Any `uv pip install` command
+that includes `text_cuda12`, including `nemo-curator[all]`, needs the override
+file. From a source checkout, `uv sync --extra text_cuda12` and `uv sync
+--extra all` apply the project override automatically.
 
 ### Path C — Docker (recommended for video and audio)
 

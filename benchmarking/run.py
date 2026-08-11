@@ -26,6 +26,9 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+# Benchmark runs always retain Ray Data scheduler diagnostics for post-run analysis.
+os.environ.setdefault("NEMO_CURATOR_RAY_DATA_DIAGNOSTICS", "1")
+
 from loguru import logger
 
 from nemo_curator.pipeline.workflow import WorkflowRunResult

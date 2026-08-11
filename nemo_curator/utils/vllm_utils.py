@@ -28,7 +28,13 @@ utilities into other modalities.
 
 from __future__ import annotations
 
+from copy import deepcopy
+from typing import TYPE_CHECKING
+
 from loguru import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Collection, Mapping
 
 # Errors that should not be retried. Add entries here when vLLM exposes
 # other fatal startup errors through generic EngineCore wrapper messages.
@@ -50,6 +56,41 @@ _ENGINE_STARTUP_FAILURE_MARKERS = (
     "engine core initialization failed",
     "enginecore failed to start",
 )
+
+
+def validate_vllm_kwargs(
+    vllm_kwargs: Mapping[str, object],
+    reserved_keys: Collection[str],
+    *,
+    owner_description: str,
+) -> None:
+    """Reject vLLM kwargs that override arguments owned by the caller."""
+    conflicts = sorted(set(vllm_kwargs).intersection(reserved_keys))
+    if conflicts:
+        msg = f"vllm_kwargs cannot override {owner_description}: {', '.join(conflicts)}"
+        raise ValueError(msg)
+
+
+def merge_vllm_kwargs(
+    vllm_kwargs: Mapping[str, object],
+    owned_kwargs: Mapping[str, object],
+    *,
+    owner_description: str,
+) -> dict[str, object]:
+    """Merge caller-owned vLLM arguments with user-provided engine options.
+
+    Callers describe the keyword arguments they own by passing the actual
+    ``owned_kwargs`` mapping. This keeps collision handling generic while the
+    owner-specific values remain next to the call that constructs the engine.
+    """
+    validate_vllm_kwargs(
+        vllm_kwargs,
+        owned_kwargs,
+        owner_description=owner_description,
+    )
+    merged_kwargs = deepcopy(dict(vllm_kwargs))
+    merged_kwargs.update(owned_kwargs)
+    return merged_kwargs
 
 
 def _exception_chain_text(exc: BaseException) -> str:

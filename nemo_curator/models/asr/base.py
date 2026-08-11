@@ -42,8 +42,10 @@ class ASRResult:
             when ``skipped`` is true. Defaults to ``"empty_audio"`` in the stage.
         unsupported_language: Optional normalized language code used by the
             stage to annotate items excluded by its language allowlist.
-        extras: Adapter-specific diagnostics outside the canonical shape; the
-            stage never reads inside this dict.
+        extras: Adapter-specific, manifest-serializable diagnostics. When the
+            stage's ``extras_key`` is enabled, it writes a shallow copy of this
+            dictionary under that one nested output field without interpreting
+            individual keys.
     """
 
     text: str
@@ -57,9 +59,9 @@ class ASRResult:
 class ASRAdapter(Protocol):
     """Structural protocol every ASR adapter must implement.
 
-    Constructor contract: the stage builds adapters as
-    ``cls(model_id=..., revision=..., **adapter_kwargs)``, so every adapter
-    must accept ``model_id`` and ``revision`` keyword args plus its own knobs.
+    ``ASRStage`` constructs adapters with ``model_id`` and the explicitly
+    configured ``adapter_kwargs``. Model-provider options therefore stay with
+    the adapter that implements them instead of becoming shared stage fields.
 
     Per-batch contract: ``transcribe_batch`` receives a list of per-task dicts
     (unpacked from ``task.data``) and returns one ``ASRResult`` per input, in
@@ -79,12 +81,11 @@ class ASRAdapter(Protocol):
 
     model_id: str
 
-    @classmethod
-    def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
+    def download_weights_on_node(self) -> None:
         """Download weights to local cache without allocating a GPU.
 
-        Classmethod so the stage can call it (once per node) without
-        instantiating the adapter or importing heavy GPU libraries.
+        The stage calls this once per node on a lightweight adapter instance so
+        provider-specific download options remain encapsulated by that adapter.
         """
         ...
 

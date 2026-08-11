@@ -112,15 +112,15 @@ def _set_note(task_data: dict[str, Any], stage_name: str, value: str) -> None:
 class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     """Audio speech-recognition stage with a pluggable adapter.
 
-    The stage writes only ``pred_text_key`` plus the optional control columns
-    ``_skipme`` and ``additional_notes``.
+    The stage writes ``pred_text_key`` and optional control columns ``_skipme``
+    and ``additional_notes``. When ``extras_key`` is configured, it also writes
+    non-empty adapter metadata as one nested dictionary under that key.
     """
 
     # Adapter selection.
     adapter_target: str
     model_id: str
     name: str = "ASR_inference"
-    revision: str | None = None
 
     # Task I/O keys.
     audio_filepath_key: str = "resampled_audio_filepath"
@@ -132,8 +132,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     default_language: str | None = None
     supported_language_codes: list[str] | None = None
     pred_text_key: str = "pred_text"
+    extras_key: str | None = None
 
     skip_if_output_exists: bool = False
+    fail_on_audio_error: bool = False
 
     prefetch_fail_on_error: bool = True
 
@@ -149,6 +151,14 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         if self.pred_text_key in {_SKIP_ME_KEY, _NOTES_KEY}:
             msg = f"ASRStage.pred_text_key cannot use reserved control column {self.pred_text_key!r}"
             raise ValueError(msg)
+        if self.extras_key is not None:
+            self.extras_key = self.extras_key.strip()
+            if not self.extras_key:
+                msg = "ASRStage.extras_key must be non-empty or None"
+                raise ValueError(msg)
+            if self.extras_key in {self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY}:
+                msg = f"ASRStage.extras_key cannot collide with another output column: {self.extras_key!r}"
+                raise ValueError(msg)
         if int(self.batch_size) <= 0:
             msg = f"ASRStage.batch_size must be > 0, got {self.batch_size}"
             raise ValueError(msg)
@@ -173,6 +183,13 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         """Resolve the configured adapter lazily to avoid importing optional model dependencies."""
         return hydra.utils.get_class(self.adapter_target)
 
+    def _create_adapter(self) -> ASRAdapter:
+        """Construct one adapter with only its explicitly configured options."""
+        return self._adapter_class()(
+            model_id=self.model_id,
+            **self.adapter_kwargs,
+        )
+
     def setup_on_node(
         self,
         _node_info: NodeInfo | None = None,
@@ -180,7 +197,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     ) -> None:
         """Cache model weights once per node (no GPU allocation)."""
         try:
-            self._adapter_class().download_weights_on_node(self.model_id, self.revision)
+            self._create_adapter().download_weights_on_node()
             logger.info(
                 "ASR weights cached on node for {} ({})",
                 self.model_id,
@@ -194,12 +211,7 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         if self._adapter is None:
-            cls = self._adapter_class()
-            adapter = cls(
-                model_id=self.model_id,
-                revision=self.revision,
-                **self.adapter_kwargs,
-            )
+            adapter = self._create_adapter()
             try:
                 adapter.load_model(num_gpus=self._adapter_gpu_count())
             except Exception:
@@ -236,7 +248,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         return [], [self.audio_filepath_key]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return [], [self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY]
+        optional_outputs = [self.pred_text_key, _SKIP_ME_KEY, _NOTES_KEY]
+        if self.extras_key is not None:
+            optional_outputs.append(self.extras_key)
+        return [], optional_outputs
 
     def _resolve_language(self, task: AudioTask) -> str | None:
         code = self._resolve_language_code(task)
@@ -278,8 +293,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
     def _load_audio(audio_filepath: str) -> tuple[np.ndarray, int]:
         """Open one resampled file inside the ASR worker.
 
-        ``ResampleAudioStage`` guarantees mono audio, so squeezing its channel
-        dimension matches the file-backed tagging pipeline contract.
+        ``torchaudio.load`` returns channel-first audio. Resampled pipeline
+        inputs are normally mono, so squeezing removes that singleton channel;
+        multichannel inputs remain channel-first for ``_prepare_waveform`` to
+        downmix.
         """
         waveform, sample_rate = torchaudio.load(audio_filepath)
         return waveform.squeeze(0).numpy(), sample_rate
@@ -372,7 +389,10 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
                     audio_source = str(item["audio_filepath"])
                     waveform, sample_rate = self._load_audio(audio_source)
                 waveform = self._prepare_waveform(waveform, sample_rate)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
+                if self.fail_on_audio_error:
+                    msg = f"ASRStage ({self.adapter_target}): failed to prepare audio for task {item['task_id']} from {audio_source}"
+                    raise RuntimeError(msg) from exc
                 logger.warning(
                     "ASRStage ({}): failed to prepare audio for task {} from {}: {}",
                     self.adapter_target,
@@ -429,6 +449,11 @@ class ASRStage(ProcessingStage[AudioTask, AudioTask]):
         skipped_count = 0
         for task, item, result in zip(tasks, items, results, strict=True):
             task.data[self.pred_text_key] = result.text
+            if self.extras_key is not None:
+                if result.extras:
+                    task.data[self.extras_key] = dict(result.extras)
+                else:
+                    task.data.pop(self.extras_key, None)
             unsupported_language = result.unsupported_language
             missing_language = self._supported_language_codes is not None and not item["language_code"]
             if missing_language:

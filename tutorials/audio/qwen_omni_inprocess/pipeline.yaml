@@ -21,6 +21,7 @@ output_path: ./qwen_omni_output.jsonl
 workspace_dir: /tmp/qwen_omni_workspace
 resampled_audio_dir: ${workspace_dir}/audio_resampled
 model_id: Qwen/Qwen3-Omni-30B-A3B-Instruct
+model_revision: null
 default_language: null
 supported_language_codes: [en, zh, ko, ja, de, ru, it, fr, es, pt, ms, nl, id, tr, vi, yue, ar, ur]
 prompt_text: Transcribe the audio.
@@ -53,6 +54,7 @@ stages:
       _target_: nemo_curator.stages.resources.Resources
       gpus: ${gpus_per_actor}
     adapter_kwargs:
+      revision: ${model_revision}
       prompt_text: ${prompt_text}
       prompt_file: ${prompt_file}
       en_prompt_text: null
@@ -70,8 +72,8 @@ stages:
         enable_prefix_caching: true
         prefix_caching_hash_algo: xxhash
         limit_mm_per_prompt:
-          image: 1
-          video: 1
+          image: 0
+          video: 0
           audio: 2
         seed: 1234
       sampling_kwargs:

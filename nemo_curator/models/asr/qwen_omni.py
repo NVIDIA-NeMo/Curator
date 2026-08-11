@@ -27,7 +27,7 @@ from huggingface_hub import snapshot_download
 from loguru import logger
 
 from nemo_curator.models.asr.base import ASRResult
-from nemo_curator.utils.vllm_utils import create_vllm_llm
+from nemo_curator.utils.vllm_utils import create_vllm_llm, merge_vllm_kwargs
 
 if TYPE_CHECKING:
     import numpy as np
@@ -70,7 +70,6 @@ _QWEN3_OMNI_MODEL_ID = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 _QWEN_OMNI_SAMPLE_RATE = 16000
 _MIN_QWEN_AUDIO_SAMPLES = 1600
 _PROMPT_CONTENT_ORDERS = frozenset({"text_audio", "audio_text"})
-_RESERVED_VLLM_KWARGS = frozenset({"model", "revision", "tensor_parallel_size"})
 
 
 def _default_vllm_kwargs() -> dict[str, Any]:
@@ -83,7 +82,8 @@ def _default_vllm_kwargs() -> dict[str, Any]:
         "trust_remote_code": True,
         "enable_prefix_caching": True,
         "prefix_caching_hash_algo": "xxhash",
-        "limit_mm_per_prompt": {"image": 1, "video": 1, "audio": 2},
+        # TODO: Re-evaluate with vLLM 0.24, which includes https://github.com/vllm-project/vllm/pull/44264.
+        "limit_mm_per_prompt": {"image": 0, "video": 0, "audio": 2},
         "seed": 1234,
     }
 
@@ -101,9 +101,9 @@ def _default_sampling_kwargs() -> dict[str, Any]:
 class QwenOmniASRAdapter:
     """Qwen3-Omni in-process vLLM adapter (thinker-only path).
 
-    Stages construct adapters via
-    ``cls(model_id=..., revision=..., **adapter_kwargs)``, so the fields below
-    can be supplied from the YAML ``adapter_kwargs``.
+    ``ASRStage`` supplies ``model_id`` plus this adapter's explicitly configured
+    ``adapter_kwargs``. Hugging Face ``revision`` pinning therefore remains a
+    Qwen adapter capability rather than part of the shared ASR stage contract.
 
     Notable Args:
         prompt_text / *_file: User prompt; ``{language}`` is interpolated
@@ -117,8 +117,9 @@ class QwenOmniASRAdapter:
         max_output_tokens: maximum transcription tokens. Kept separate so the
             adapter remains the only source of ``SamplingParams.max_tokens``.
         vllm_kwargs: engine settings forwarded to Curator's shared
-            ``create_vllm_llm`` helper. ``model``, ``revision``, and
-            ``tensor_parallel_size`` are stage-owned and cannot be overridden.
+            ``create_vllm_llm`` helper. ``model`` and ``revision`` have
+            dedicated adapter fields, while ``tensor_parallel_size`` comes
+            from the stage's GPU allocation; none can be overridden here.
         sampling_kwargs: settings forwarded to vLLM ``SamplingParams``.
             ``max_tokens`` is adapter-owned and cannot be overridden.
     """
@@ -153,10 +154,6 @@ class QwenOmniASRAdapter:
             raise ValueError(msg)
         self.vllm_kwargs = deepcopy(dict(self.vllm_kwargs))
         self.sampling_kwargs = deepcopy(dict(self.sampling_kwargs))
-        reserved_vllm_kwargs = sorted(_RESERVED_VLLM_KWARGS.intersection(self.vllm_kwargs))
-        if reserved_vllm_kwargs:
-            msg = f"vllm_kwargs cannot override stage-owned arguments: {', '.join(reserved_vllm_kwargs)}"
-            raise ValueError(msg)
         if "max_tokens" in self.sampling_kwargs:
             msg = "sampling_kwargs cannot override adapter-owned max_tokens; use max_output_tokens"
             raise ValueError(msg)
@@ -164,6 +161,14 @@ class QwenOmniASRAdapter:
         self._processor: Any = None
         self._llm: Any = None
         self._sampling_params: Any = None
+
+    def _adapter_owned_vllm_kwargs(self, *, num_gpus: int | None) -> dict[str, Any]:
+        """Return vLLM arguments controlled by adapter fields and the allocated GPU count."""
+        return {
+            "model": self.model_id,
+            "revision": self.revision,
+            "tensor_parallel_size": num_gpus,
+        }
 
     @staticmethod
     def _load_text(text: str | None, file_path: str | None) -> str | None:
@@ -175,13 +180,12 @@ class QwenOmniASRAdapter:
             return path.read_text(encoding="utf-8").strip()
         return text
 
-    @classmethod
-    def download_weights_on_node(cls, model_id: str, revision: str | None = None) -> None:
+    def download_weights_on_node(self) -> None:
         """Cache the model snapshot on local disk without touching the GPU."""
         kwargs: dict[str, Any] = {}
-        if revision is not None:
-            kwargs["revision"] = revision
-        snapshot_download(model_id, **kwargs)
+        if self.revision is not None:
+            kwargs["revision"] = self.revision
+        snapshot_download(self.model_id, **kwargs)
 
     def load_model(self, *, num_gpus: int) -> None:
         if self._llm is not None:
@@ -205,10 +209,14 @@ class QwenOmniASRAdapter:
             + (f"  revision={self.revision}" if self.revision is not None else "")
         )
 
-        engine_kwargs = dict(self.vllm_kwargs)
-        engine_kwargs["tensor_parallel_size"] = num_gpus
-        if self.revision is not None:
-            engine_kwargs["revision"] = self.revision
+        engine_kwargs = merge_vllm_kwargs(
+            self.vllm_kwargs,
+            self._adapter_owned_vllm_kwargs(num_gpus=num_gpus),
+            owner_description="adapter-owned arguments",
+        )
+        del engine_kwargs["model"]
+        if engine_kwargs["revision"] is None:
+            del engine_kwargs["revision"]
 
         try:
             proc_kwargs: dict[str, Any] = {}
