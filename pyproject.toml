@@ -141,6 +141,19 @@ audio_cuda12 = [
     "torchcodec; platform_machine == 'x86_64' and platform_system != 'Darwin'",
 ]
 
+# Sound event detection; opt-in because torchlibrosa is only used by the CNN14
+# SED front-end and nothing else in the audio stack needs it.
+audio_sed = [
+    "torchlibrosa>=0.1.0",
+]
+
+# TensorRT acceleration for the CNN14 SED core. Engines are target-specific
+# and must be built on the same GPU architecture and TensorRT version used at runtime.
+audio_sed_tensorrt = [
+    "nemo_curator[audio_cuda12,audio_sed]",
+    "tensorrt==10.9.0.34; platform_machine == 'x86_64' and platform_system == 'Linux'",
+]
+
 image_cpu = [
     "Pillow",
     "torchvision"
