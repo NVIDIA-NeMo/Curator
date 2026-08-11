@@ -100,17 +100,6 @@ def test_setup_is_called_lazily_from_process(tmp_path: Path) -> None:
     assert "Hallucination" in result.data[_SKIP_KEY]
 
 
-def test_setup_is_called_lazily_from_process_batch(tmp_path: Path) -> None:
-    phrase_file = tmp_path / "phrases.txt"
-    phrase_file.write_text("Thank you\n", encoding="utf-8")
-    stage = WhisperHallucinationStage(common_hall_file=str(phrase_file))
-
-    results = stage.process_batch([AudioTask(data={_TEXT_KEY: "Thank you", _SKIP_KEY: "", "duration": 1.0})])
-
-    assert stage._setup_called is True
-    assert "Hallucination" in results[0].data[_SKIP_KEY]
-
-
 def test_non_string_text_returns_task_unchanged(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
     task = AudioTask(data={_TEXT_KEY: None, _SKIP_KEY: ""})
@@ -284,17 +273,6 @@ def test_reasons_are_reported_for_every_check_that_fired(tmp_path: Path) -> None
     note = stage.process(task).data["additional_notes"]["WhisperHallucination"]
     assert "repeated_ngrams" in note
     assert "high_char_rate" in note
-
-
-def test_process_batch_flags_each_row_independently(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    tasks = [
-        AudioTask(data={_TEXT_KEY: "the cat sat on the mat today", _SKIP_KEY: ""}),
-        AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: ""}),
-    ]
-    results = stage.process_batch(tasks)
-    assert results[0].data[_SKIP_KEY] == ""
-    assert "Hallucination" in results[1].data[_SKIP_KEY]
 
 
 def test_missing_required_text_key_raises(tmp_path: Path) -> None:

@@ -176,7 +176,14 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         lang = str(task.data.get(self.language_key, "")).lower().strip()
         return lang in AGGLUTINATIVE_COMPOUNDING_LANGS
 
-    def _process_single(self, task: AudioTask) -> AudioTask:
+    def process(self, task: AudioTask) -> AudioTask:
+        if not self._setup_called:
+            logger.warning(
+                f"WhisperHallucinationStage ({self.name}): setup() was not called before process(). "
+                "Calling setup() now — check that your executor invokes setup() on each worker."
+            )
+            self.setup()
+
         current_flag = str(task.data.get(self.skip_me_key, ""))
         if not self.overwrite and current_flag:
             _set_note(task.data, self.name, "skipped (flagged)", self.notes_key)
@@ -218,21 +225,3 @@ class WhisperHallucinationStage(ProcessingStage[AudioTask, AudioTask]):
         else:
             _set_note(task.data, self.name, "passed", self.notes_key)
         return task
-
-    def process(self, task: AudioTask) -> AudioTask:
-        if not self._setup_called:
-            logger.warning(
-                f"WhisperHallucinationStage ({self.name}): setup() was not called before process(). "
-                "Calling setup() now — check that your executor invokes setup() on each worker."
-            )
-            self.setup()
-        return self._process_single(task)
-
-    def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
-        if not self._setup_called:
-            logger.warning(
-                f"WhisperHallucinationStage ({self.name}): setup() was not called before process_batch(). "
-                "Calling setup() now — check that your executor invokes setup() on each worker."
-            )
-            self.setup()
-        return [self._process_single(task) for task in tasks]
