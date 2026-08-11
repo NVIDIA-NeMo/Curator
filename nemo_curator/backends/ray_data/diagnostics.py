@@ -38,7 +38,7 @@ from typing import Any
 # private, untyped implementation modules.
 # ruff: noqa: ANN401
 
-_SUPPORTED_RAY_VERSION = "2.56.1"
+_SUPPORTED_RAY_VERSION = "2.57.0"
 _INSTALL_MARKER = "_nemo_curator_ray_data_diagnostics_installed"
 _INSTALL_LOCK = threading.Lock()
 RAY_DATA_DIAGNOSTICS_ENV_VAR = "NEMO_CURATOR_RAY_DATA_DIAGNOSTICS"
