@@ -136,6 +136,15 @@ datasets:
       path: "{datasets_path}/nemotron_parse_pdf/manifest.jsonl"
     - type: "pdf_dir"
       path: "{datasets_path}/nemotron_parse_pdf/pdfs"
+  # 99 Common Crawl PDFs (~87MB) extracted from the CC-MAIN zip hierarchy.
+  # Web-crawled rather than arXiv, so page counts and layouts vary widely,
+  # which makes the throughput numbers more representative than the 8-PDF set.
+  - name: "nemotron_parse_pdf_cc100"
+    formats:
+    - type: "manifest"
+      path: "{datasets_path}/nemotron_parse_pdf_cc100/manifest.jsonl"
+    - type: "pdf_dir"
+      path: "{datasets_path}/nemotron_parse_pdf_cc100/pdfs"
   - name: "nemotron_parse_pdf_model"
     formats:
     - type: "files"
@@ -1341,21 +1350,61 @@ entries:
     args: >-
       --benchmark-results-path={session_entry_dir}
       --executor=xenna
-      --manifest={dataset:nemotron_parse_pdf,manifest}
-      --pdf-dir={dataset:nemotron_parse_pdf,pdf_dir}
+      --manifest={dataset:nemotron_parse_pdf_cc100,manifest}
+      --pdf-dir={dataset:nemotron_parse_pdf_cc100,pdf_dir}
       --output-dir={session_entry_dir}/scratch/output
       --model-path={dataset:nemotron_parse_pdf_model,files}
       --backend=vllm
       --enforce-eager
       --pdfs-per-task=1
-      --max-pdfs=8
+      --max-pdfs=100
       --max-pages=10
       --max-num-seqs=16
-    timeout_s: 1800
+    timeout_s: 3600
     sink_data:
       - name: slack
         additional_metrics:
           - num_pdfs_processed
+          - num_pages_processed
+          - num_output_tasks
+          - throughput_pages_per_sec
+          - throughput_output_tokens_per_sec
+        ping_on_failure:
+          - U082G3E46R0  # Abhinav Garg
+    requirements:
+      # Deliberately lenient. Common Crawl PDFs include malformed and
+      # password-protected files, so a handful failing to render is normal and
+      # must not fail the nightly. These floors catch what actually matters --
+      # a pipeline that silently produces nothing (the failure mode this entry
+      # was added for) and gross regressions -- without tracking cluster-load
+      # noise the way a throughput floor would.
+      - metric: num_pdfs_processed
+        min_value: 50
+      - metric: num_pages_processed
+        min_value: 100
+
+  - name: nemotron_parse_pdf_raydata
+    enabled: true
+    script: nemotron_parse_pdf_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=ray_data
+      --manifest={dataset:nemotron_parse_pdf_cc100,manifest}
+      --pdf-dir={dataset:nemotron_parse_pdf_cc100,pdf_dir}
+      --output-dir={session_entry_dir}/scratch/output
+      --model-path={dataset:nemotron_parse_pdf_model,files}
+      --backend=vllm
+      --enforce-eager
+      --pdfs-per-task=1
+      --max-pdfs=100
+      --max-pages=10
+      --max-num-seqs=16
+    timeout_s: 3600
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_pdfs_processed
+          - num_pages_processed
           - num_output_tasks
           - throughput_pages_per_sec
           - throughput_output_tokens_per_sec
@@ -1363,7 +1412,9 @@ entries:
           - U082G3E46R0  # Abhinav Garg
     requirements:
       - metric: num_pdfs_processed
-        min_value: 1
+        min_value: 50
+      - metric: num_pages_processed
+        min_value: 100
 
 
   - name: alm_pipeline_xenna

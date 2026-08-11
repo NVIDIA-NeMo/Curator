@@ -82,6 +82,14 @@ cuda12 = [
 cv2 = [
     "opencv-python-headless",
 ]
+# Nemotron-Parse PDF parsing. The model is loaded via trust_remote_code, so its
+# modeling/processor imports (albumentations, cv2) are invisible to dependency
+# resolution and must be requested explicitly. Kept off `[all]` for the same
+# reason as `cv2` — albumentations also pulls in the opencv wheel.
+nemotron_parse = [
+    "nemo_curator[cv2]",
+    "albumentations",
+]
 vllm = [
     "vllm[flashinfer,runai,otel]==0.22.0+cu129; platform_system == 'Linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
 ]

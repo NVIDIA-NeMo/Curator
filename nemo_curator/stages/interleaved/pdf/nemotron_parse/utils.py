@@ -28,13 +28,13 @@ import re
 import zipfile
 from typing import Any
 
+from loguru import logger
 from PIL import Image
 
 DEFAULT_MIN_CROP_PX = 10
 DEFAULT_MAX_PAGES = 50
 _CV2_INSTALL_HINT = (
-    "opencv-python-headless is required for Nemotron-Parse PDF processing. "
-    "Install with: pip install nemo_curator[cv2]"
+    "opencv-python-headless is required for Nemotron-Parse PDF processing. Install with: pip install nemo_curator[cv2]"
 )
 
 
@@ -89,7 +89,11 @@ def _render_page(doc: Any, page_num: int, base_scale: float, max_size: tuple[int
         scale = _render_scale_to_fit(page, base_scale, max_size)
         bitmap = page.render(scale=scale)
         return _bitmap_to_rgb(bitmap)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        # Log rather than swallow: a missing optional dependency (e.g. cv2) fails
+        # here for every page, and the callers treat an empty render as "no pages",
+        # so without this the whole pipeline silently produces zero output.
+        logger.warning(f"Failed to render page {page_num}: {type(e).__name__}: {e}")
         return None
     finally:
         with contextlib.suppress(Exception):
