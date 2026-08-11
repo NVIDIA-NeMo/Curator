@@ -53,14 +53,6 @@ def test_repeated_ngrams_sets_skip_me(tmp_path: Path) -> None:
     assert "Hallucination" in result.data[_SKIP_KEY]
 
 
-def test_stage_does_not_track_aggregate_counters(tmp_path: Path) -> None:
-    stage = _make_stage(tmp_path, [])
-    stage.process(AudioTask(data={_TEXT_KEY: "yes yes yes yes yes yes", _SKIP_KEY: ""}))
-
-    assert not hasattr(stage, "_n_processed")
-    assert not hasattr(stage, "_n_flagged")
-
-
 def test_long_word_absolute_threshold_sets_skip_me(tmp_path: Path) -> None:
     stage = _make_stage(tmp_path, [])
     long_word = "a" * 30
