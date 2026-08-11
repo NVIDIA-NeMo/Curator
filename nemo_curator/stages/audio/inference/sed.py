@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from loguru import logger
 
@@ -38,6 +38,7 @@ from nemo_curator.utils.hash_utils import get_deterministic_hash
 
 if TYPE_CHECKING:
     import numpy as np
+    import torch
 
     from nemo_curator.backends.base import WorkerMetadata
 
@@ -64,6 +65,10 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     Args:
         checkpoint_path: Path to the PANNs ``.pth`` checkpoint file.
         model_type: CNN14 variant name (see ``sed_models.SUPPORTED_MODEL_TYPES``).
+        backend: Inference backend. ``"torch"`` runs the complete model in
+            PyTorch and ``"tensorrt"`` runs its CNN14 neural core with TensorRT.
+        tensorrt_engine_path: Serialized CNN14 TensorRT engine. Required when
+            ``backend="tensorrt"``.
         sample_rate: Model target sample rate. Defaults to 16000.
         window_size: STFT window size. Defaults to 1024.
         hop_size: STFT hop size. Defaults to 320.
@@ -82,6 +87,8 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
     checkpoint_path: str = ""
     model_type: str = "Cnn14_DecisionLevelMax"
+    backend: Literal["torch", "tensorrt"] = "torch"
+    tensorrt_engine_path: str | None = None
     sample_rate: int = 16000
     window_size: int = 1024
     hop_size: int = 320
@@ -104,6 +111,17 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     num_workers_override: int | None = None
     resources: Resources = field(default_factory=lambda: Resources(cpus=1.0, gpu_memory_gb=4.0))
 
+    def __post_init__(self) -> None:
+        if self.backend not in {"torch", "tensorrt"}:
+            msg = f"Unsupported SED backend: {self.backend!r}. Expected 'torch' or 'tensorrt'."
+            raise ValueError(msg)
+        if self.backend == "tensorrt" and not self.tensorrt_engine_path:
+            msg = "tensorrt_engine_path is required for the TensorRT SED backend"
+            raise ValueError(msg)
+        if self.backend == "tensorrt" and self.model_type != "Cnn14_DecisionLevelMax":
+            msg = "The TensorRT SED backend supports only Cnn14_DecisionLevelMax"
+            raise ValueError(msg)
+
     def num_workers(self) -> int | None:
         return self.num_workers_override
 
@@ -118,6 +136,9 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
             raise ValueError(msg)
 
         model_cls = get_model_class(self.model_type)
+        if self.backend == "tensorrt" and not torch.cuda.is_available():
+            msg = "The TensorRT SED backend requires CUDA"
+            raise RuntimeError(msg)
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._model = model_cls(
             sample_rate=self.sample_rate,
@@ -131,12 +152,24 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
         # Always load to CPU first, then move — avoids CUDA conflicts with vLLM
         checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
         self._model.load_state_dict(checkpoint["model"])
-        self._model.to(self._device)
         self._model.eval()
-        logger.info(f"Loaded {self.model_type} from {self.checkpoint_path} on {self._device}")
+
+        if self.backend == "tensorrt":
+            from nemo_curator.stages.audio.inference.sed_tensorrt import TensorRTSed
+
+            pytorch_model = self._model
+            self._model = TensorRTSed(pytorch_model, self.tensorrt_engine_path)
+            del pytorch_model
+        else:
+            self._model.to(self._device)
+        logger.info(
+            f"Loaded {self.model_type} from {self.checkpoint_path} on {self._device} with {self.backend} backend"
+        )
 
     def teardown(self) -> None:
         if hasattr(self, "_model") and self._model is not None:
+            if hasattr(self._model, "close"):
+                self._model.close()
             del self._model
             self._model = None
 
@@ -152,6 +185,11 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
     def process(self, task: AudioTask) -> AudioTask:
         """Run SED on a single task (delegates to process_batch)."""
         return self.process_batch([task])[0]
+
+    def _infer(self, model_input: torch.Tensor) -> torch.Tensor:
+        if self.backend == "tensorrt":
+            return self._model(model_input)
+        return self._model(model_input)["framewise_output"]
 
     def process_batch(self, tasks: list[AudioTask]) -> list[AudioTask]:
         """Run batched SED inference on the GPU for all tasks at once."""
@@ -182,9 +220,9 @@ class SEDInferenceStage(ProcessingStage[AudioTask, AudioTask]):
 
         x = torch.from_numpy(padded).to(self._device)
         with torch.no_grad():
-            out = self._model(x)
+            all_framewise_tensor = self._infer(x)
 
-        all_framewise: np.ndarray = out["framewise_output"].cpu().numpy()
+        all_framewise: np.ndarray = all_framewise_tensor.cpu().numpy()
         fps = float(self.sample_rate) / self.hop_size
 
         self._write_results(
