@@ -59,7 +59,7 @@ def run_domain_classification_benchmark(
     run_start_time = time.perf_counter()
 
     # Load input files
-    input_files = load_dataset_files(input_path, dataset_size_gb)
+    input_files = load_dataset_files(input_path, dataset_size_gb, keep_extensions=input_filetype)
 
     # Setup executor
     executor_obj = setup_executor(executor)
